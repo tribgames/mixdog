@@ -3,8 +3,12 @@
 //! replay block it refuses to take back, and a tool schema it refuses. Each is
 //! tried once; the deterministic refusal otherwise surfaces.
 
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD;
+use mixdog_core_api::domain::provider::BinarySource;
 use mixdog_core_api::domain::provider::Content;
 use mixdog_core_api::domain::provider::ContentPart;
+use mixdog_core_api::domain::provider::ImageSource;
 use mixdog_core_api::domain::provider::Message;
 use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::Role;
@@ -106,11 +110,57 @@ fn strip_images(
     (next, stripped_ids)
 }
 
+/// `isImagePreparationFailed`: the Messages wire's local refusal of an image.
+fn is_preparation_failed(error: &ProviderError) -> bool {
+    error_code(error) == "anthropic_image_preparation_failed"
+}
+
+/// Whether `part` is the image the preparation refused (`stripFailingImage`): the same base64, or the stored image whose
+/// content address (sha256 of its bytes) is `reference`.
+fn is_failing_image(part: &ContentPart, data: &str, reference: Option<&str>) -> bool {
+    is_image(part)
+        && match part {
+            ContentPart::Image(ImageSource::Base64 { data: d, .. }) => d == data,
+            ContentPart::File { source: BinarySource::Base64(d), .. } => d == data,
+            ContentPart::File { source: BinarySource::AttachmentRef(r), .. } => Some(r.as_str()) == reference,
+            _ => false,
+        }
+}
+
+/// `stripFailingImage` + `persistsConfirmedImageRejection` for a preparation refusal: exactly the refused image,
+/// wherever the transcript holds it, healed out of the transcript on success only when it is in the latest turn.
+/// `None` when the error names no image the transcript holds.
+fn failing_image_strip(messages: &[AgentMessage], error: &ProviderError) -> Option<ImageStrip> {
+    let data = error.failing_image.as_deref().filter(|d| !d.is_empty())?;
+    let reference = STANDARD.decode(data).ok().map(|bytes| crate::compact::tool_schema::sha256_hex(&bytes));
+    let latest = latest_turn_start(messages);
+    let mut ids: Vec<ContentPart> = Vec::new();
+    let mut in_latest_turn = false;
+    for (index, message) in messages.iter().enumerate() {
+        let Content::Parts(parts) = &message.message.content else { continue };
+        if !matches!(message.role(), Role::User | Role::Tool) {
+            continue;
+        }
+        for part in parts.iter().filter(|p| is_failing_image(p, data, reference.as_deref())) {
+            let identity = image_identity(part);
+            if !ids.contains(&identity) {
+                ids.push(identity);
+            }
+            in_latest_turn |= index >= latest;
+        }
+    }
+    (!ids.is_empty()).then(|| ImageStrip { ids, persist: confirmed_image_rejection(error) && in_latest_turn })
+}
+
 /// `stripInlineImagesFromLatestTurn` + `persistsConfirmedImageRejection`: the
 /// strip of the latest turn's images, healed out of the transcript on success
 /// only when a confirmed rejection names exactly one distinct image. `None`
-/// when the latest turn has no image.
+/// when the latest turn has no image. A preparation refusal names its image
+/// and strips that one alone ([`failing_image_strip`]).
 pub(crate) fn latest_turn_strip(messages: &[AgentMessage], error: &ProviderError) -> Option<ImageStrip> {
+    if is_preparation_failed(error) {
+        return failing_image_strip(messages, error);
+    }
     let (_, ids) = strip_images(messages, latest_turn_start(messages), None);
     if ids.is_empty() {
         return None;
@@ -292,7 +342,6 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use mixdog_core_api::domain::provider::ImageSource;
 
     #[test]
     fn latest_turn_images_become_the_placeholder_and_history_is_untouched() {

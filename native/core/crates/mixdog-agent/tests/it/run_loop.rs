@@ -2440,6 +2440,8 @@ async fn a_rejected_image_is_recovered_as_nodes_agent_loop_recovers_it() {
             let mut error = ProviderError::new(ErrorKind::InvalidRequest, DeliveryState::Accepted);
             error.status = e.get("status").and_then(JsonValue::as_u64).map(|s| s as u16);
             error.code = e.get("code").and_then(JsonValue::as_str).map(str::to_owned);
+            // The image a preparation refusal names (Node's non-enumerable `failingImageData`).
+            error.failing_image = e.get("failingImageData").and_then(JsonValue::as_str).map(Box::from);
             error.message = e["message"].as_str().expect("message").into();
             match step.get("partial") {
                 // The stream gives its text and completes its calls, then fails.
@@ -2459,7 +2461,7 @@ async fn a_rejected_image_is_recovered_as_nodes_agent_loop_recovers_it() {
         other => panic!("step {other:?}"),
     };
     let cases = recorded["cases"].as_array().expect("cases");
-    assert_eq!(cases.len(), 7);
+    assert_eq!(cases.len(), 11);
     for case in cases {
         let name = case["name"].as_str().expect("name");
         let messages: Vec<AgentMessage> = case["messages"].as_array().expect("messages").iter().map(message_of).collect();

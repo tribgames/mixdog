@@ -2,6 +2,807 @@
   "scenario": "image-strip",
   "cases": [
     {
+      "name": "preparation-one-bad-of-three",
+      "messages": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "compare"
+            },
+            {
+              "type": "image",
+              "attachmentRef": "2dabd364013897cccceb7b1526cffb689610f8202cff6b4a8c387525982ad437",
+              "mimeType": "image/png"
+            },
+            {
+              "type": "image",
+              "attachmentRef": "44f53bd737577450478c9be340f9bc77938f17c3df08ccdaf99144425dce9412",
+              "mimeType": "image/png"
+            },
+            {
+              "type": "image",
+              "attachmentRef": "847afbbaf422d2eb96c14579268ca37fe2ae83744eddc31ead995f0dd3d00974",
+              "mimeType": "image/png"
+            }
+          ]
+        }
+      ],
+      "script": [
+        {
+          "error": {
+            "status": 400,
+            "code": "ANTHROPIC_IMAGE_PREPARATION_FAILED",
+            "message": "Anthropic image preparation failed at messages.0.content.1: image could not be decoded; reattach a valid image. The original image and conversation were not changed.",
+            "failingImageData": "cGljdHVyZSAy"
+          }
+        },
+        {
+          "reply": "recovered"
+        }
+      ],
+      "first": {
+        "sends": [
+          [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "compare"
+                },
+                {
+                  "type": "image",
+                  "attachmentRef": "2dabd364013897cccceb7b1526cffb689610f8202cff6b4a8c387525982ad437",
+                  "mimeType": "image/png"
+                },
+                {
+                  "type": "image",
+                  "attachmentRef": "44f53bd737577450478c9be340f9bc77938f17c3df08ccdaf99144425dce9412",
+                  "mimeType": "image/png"
+                },
+                {
+                  "type": "image",
+                  "attachmentRef": "847afbbaf422d2eb96c14579268ca37fe2ae83744eddc31ead995f0dd3d00974",
+                  "mimeType": "image/png"
+                }
+              ]
+            }
+          ],
+          [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "compare"
+                },
+                {
+                  "type": "image",
+                  "attachmentRef": "2dabd364013897cccceb7b1526cffb689610f8202cff6b4a8c387525982ad437",
+                  "mimeType": "image/png"
+                },
+                {
+                  "type": "text",
+                  "text": "[image removed — the server could not process it; its contents are unavailable. Ask the user to re-attach the image if it is still needed.]"
+                },
+                {
+                  "type": "image",
+                  "attachmentRef": "847afbbaf422d2eb96c14579268ca37fe2ae83744eddc31ead995f0dd3d00974",
+                  "mimeType": "image/png"
+                }
+              ]
+            }
+          ]
+        ],
+        "result": "recovered",
+        "error": null,
+        "transcript": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "compare"
+              },
+              {
+                "type": "image",
+                "attachmentRef": "2dabd364013897cccceb7b1526cffb689610f8202cff6b4a8c387525982ad437",
+                "mimeType": "image/png"
+              },
+              {
+                "type": "text",
+                "text": "[image removed — the server could not process it; its contents are unavailable. Ask the user to re-attach the image if it is still needed.]"
+              },
+              {
+                "type": "image",
+                "attachmentRef": "847afbbaf422d2eb96c14579268ca37fe2ae83744eddc31ead995f0dd3d00974",
+                "mimeType": "image/png"
+              }
+            ]
+          }
+        ]
+      },
+      "next": {
+        "sends": [
+          [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "compare"
+                },
+                {
+                  "type": "image",
+                  "attachmentRef": "2dabd364013897cccceb7b1526cffb689610f8202cff6b4a8c387525982ad437",
+                  "mimeType": "image/png"
+                },
+                {
+                  "type": "text",
+                  "text": "[image removed — the server could not process it; its contents are unavailable. Ask the user to re-attach the image if it is still needed.]"
+                },
+                {
+                  "type": "image",
+                  "attachmentRef": "847afbbaf422d2eb96c14579268ca37fe2ae83744eddc31ead995f0dd3d00974",
+                  "mimeType": "image/png"
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "content": "next turn"
+            }
+          ]
+        ],
+        "result": "still usable",
+        "error": null,
+        "transcript": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "compare"
+              },
+              {
+                "type": "image",
+                "attachmentRef": "2dabd364013897cccceb7b1526cffb689610f8202cff6b4a8c387525982ad437",
+                "mimeType": "image/png"
+              },
+              {
+                "type": "text",
+                "text": "[image removed — the server could not process it; its contents are unavailable. Ask the user to re-attach the image if it is still needed.]"
+              },
+              {
+                "type": "image",
+                "attachmentRef": "847afbbaf422d2eb96c14579268ca37fe2ae83744eddc31ead995f0dd3d00974",
+                "mimeType": "image/png"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "content": "next turn"
+          }
+        ]
+      }
+    },
+    {
+      "name": "preparation-two-bad",
+      "messages": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "compare"
+            },
+            {
+              "type": "image",
+              "attachmentRef": "2dabd364013897cccceb7b1526cffb689610f8202cff6b4a8c387525982ad437",
+              "mimeType": "image/png"
+            },
+            {
+              "type": "image",
+              "attachmentRef": "44f53bd737577450478c9be340f9bc77938f17c3df08ccdaf99144425dce9412",
+              "mimeType": "image/png"
+            },
+            {
+              "type": "image",
+              "attachmentRef": "847afbbaf422d2eb96c14579268ca37fe2ae83744eddc31ead995f0dd3d00974",
+              "mimeType": "image/png"
+            }
+          ]
+        }
+      ],
+      "script": [
+        {
+          "error": {
+            "status": 400,
+            "code": "ANTHROPIC_IMAGE_PREPARATION_FAILED",
+            "message": "Anthropic image preparation failed at messages.0.content.1: image could not be decoded; reattach a valid image. The original image and conversation were not changed.",
+            "failingImageData": "cGljdHVyZSAx"
+          }
+        },
+        {
+          "error": {
+            "status": 400,
+            "code": "ANTHROPIC_IMAGE_PREPARATION_FAILED",
+            "message": "Anthropic image preparation failed at messages.0.content.1: image could not be decoded; reattach a valid image. The original image and conversation were not changed.",
+            "failingImageData": "cGljdHVyZSAz"
+          }
+        }
+      ],
+      "first": {
+        "sends": [
+          [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "compare"
+                },
+                {
+                  "type": "image",
+                  "attachmentRef": "2dabd364013897cccceb7b1526cffb689610f8202cff6b4a8c387525982ad437",
+                  "mimeType": "image/png"
+                },
+                {
+                  "type": "image",
+                  "attachmentRef": "44f53bd737577450478c9be340f9bc77938f17c3df08ccdaf99144425dce9412",
+                  "mimeType": "image/png"
+                },
+                {
+                  "type": "image",
+                  "attachmentRef": "847afbbaf422d2eb96c14579268ca37fe2ae83744eddc31ead995f0dd3d00974",
+                  "mimeType": "image/png"
+                }
+              ]
+            }
+          ],
+          [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "compare"
+                },
+                {
+                  "type": "text",
+                  "text": "[image removed — the server could not process it; its contents are unavailable. Ask the user to re-attach the image if it is still needed.]"
+                },
+                {
+                  "type": "image",
+                  "attachmentRef": "44f53bd737577450478c9be340f9bc77938f17c3df08ccdaf99144425dce9412",
+                  "mimeType": "image/png"
+                },
+                {
+                  "type": "image",
+                  "attachmentRef": "847afbbaf422d2eb96c14579268ca37fe2ae83744eddc31ead995f0dd3d00974",
+                  "mimeType": "image/png"
+                }
+              ]
+            }
+          ]
+        ],
+        "result": null,
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "Anthropic image preparation failed at messages.0.content.1: image could not be decoded; reattach a valid image. The original image and conversation were not changed.",
+          "code": "ANTHROPIC_IMAGE_PREPARATION_FAILED",
+          "props": {
+            "httpStatus": 400,
+            "streamOutcome": {
+              "version": 1,
+              "provider": null,
+              "transport": "unknown",
+              "terminalObserved": false,
+              "continuation": false,
+              "declaredContinuation": false,
+              "textEmitted": false,
+              "textObservedChars": 0,
+              "reasoningEmitted": false,
+              "toolCallsStarted": false,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": false,
+              "stallObserved": false,
+              "truncatedStream": false,
+              "visibleOutput": false,
+              "observedOutput": false,
+              "sideEffectDispatched": false,
+              "replayUnsafe": false,
+              "replaySafe": true,
+              "successEligible": false
+            }
+          }
+        },
+        "transcript": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "compare"
+              },
+              {
+                "type": "image",
+                "attachmentRef": "2dabd364013897cccceb7b1526cffb689610f8202cff6b4a8c387525982ad437",
+                "mimeType": "image/png"
+              },
+              {
+                "type": "image",
+                "attachmentRef": "44f53bd737577450478c9be340f9bc77938f17c3df08ccdaf99144425dce9412",
+                "mimeType": "image/png"
+              },
+              {
+                "type": "image",
+                "attachmentRef": "847afbbaf422d2eb96c14579268ca37fe2ae83744eddc31ead995f0dd3d00974",
+                "mimeType": "image/png"
+              }
+            ]
+          }
+        ]
+      },
+      "next": {
+        "sends": [
+          [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "compare"
+                },
+                {
+                  "type": "image",
+                  "attachmentRef": "2dabd364013897cccceb7b1526cffb689610f8202cff6b4a8c387525982ad437",
+                  "mimeType": "image/png"
+                },
+                {
+                  "type": "image",
+                  "attachmentRef": "44f53bd737577450478c9be340f9bc77938f17c3df08ccdaf99144425dce9412",
+                  "mimeType": "image/png"
+                },
+                {
+                  "type": "image",
+                  "attachmentRef": "847afbbaf422d2eb96c14579268ca37fe2ae83744eddc31ead995f0dd3d00974",
+                  "mimeType": "image/png"
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "content": "next turn"
+            }
+          ]
+        ],
+        "result": "still usable",
+        "error": null,
+        "transcript": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "compare"
+              },
+              {
+                "type": "image",
+                "attachmentRef": "2dabd364013897cccceb7b1526cffb689610f8202cff6b4a8c387525982ad437",
+                "mimeType": "image/png"
+              },
+              {
+                "type": "image",
+                "attachmentRef": "44f53bd737577450478c9be340f9bc77938f17c3df08ccdaf99144425dce9412",
+                "mimeType": "image/png"
+              },
+              {
+                "type": "image",
+                "attachmentRef": "847afbbaf422d2eb96c14579268ca37fe2ae83744eddc31ead995f0dd3d00974",
+                "mimeType": "image/png"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "content": "next turn"
+          }
+        ]
+      }
+    },
+    {
+      "name": "preparation-bad-image-in-older-turn",
+      "messages": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "first"
+            },
+            {
+              "type": "image",
+              "attachmentRef": "2dabd364013897cccceb7b1526cffb689610f8202cff6b4a8c387525982ad437",
+              "mimeType": "image/png"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "content": "seen"
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "again"
+            },
+            {
+              "type": "image",
+              "attachmentRef": "44f53bd737577450478c9be340f9bc77938f17c3df08ccdaf99144425dce9412",
+              "mimeType": "image/png"
+            }
+          ]
+        }
+      ],
+      "script": [
+        {
+          "error": {
+            "status": 400,
+            "code": "ANTHROPIC_IMAGE_PREPARATION_FAILED",
+            "message": "Anthropic image preparation failed at messages.0.content.1: image could not be decoded; reattach a valid image. The original image and conversation were not changed.",
+            "failingImageData": "cGljdHVyZSAx"
+          }
+        },
+        {
+          "reply": "recovered"
+        }
+      ],
+      "first": {
+        "sends": [
+          [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "first"
+                },
+                {
+                  "type": "image",
+                  "attachmentRef": "2dabd364013897cccceb7b1526cffb689610f8202cff6b4a8c387525982ad437",
+                  "mimeType": "image/png"
+                }
+              ]
+            },
+            {
+              "role": "assistant",
+              "content": "seen"
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "again"
+                },
+                {
+                  "type": "image",
+                  "attachmentRef": "44f53bd737577450478c9be340f9bc77938f17c3df08ccdaf99144425dce9412",
+                  "mimeType": "image/png"
+                }
+              ]
+            }
+          ],
+          [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "first"
+                },
+                {
+                  "type": "text",
+                  "text": "[image removed — the server could not process it; its contents are unavailable. Ask the user to re-attach the image if it is still needed.]"
+                }
+              ]
+            },
+            {
+              "role": "assistant",
+              "content": "seen"
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "again"
+                },
+                {
+                  "type": "image",
+                  "attachmentRef": "44f53bd737577450478c9be340f9bc77938f17c3df08ccdaf99144425dce9412",
+                  "mimeType": "image/png"
+                }
+              ]
+            }
+          ]
+        ],
+        "result": "recovered",
+        "error": null,
+        "transcript": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "first"
+              },
+              {
+                "type": "image",
+                "attachmentRef": "2dabd364013897cccceb7b1526cffb689610f8202cff6b4a8c387525982ad437",
+                "mimeType": "image/png"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "content": "seen"
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "again"
+              },
+              {
+                "type": "image",
+                "attachmentRef": "44f53bd737577450478c9be340f9bc77938f17c3df08ccdaf99144425dce9412",
+                "mimeType": "image/png"
+              }
+            ]
+          }
+        ]
+      },
+      "next": {
+        "sends": [
+          [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "first"
+                },
+                {
+                  "type": "image",
+                  "attachmentRef": "2dabd364013897cccceb7b1526cffb689610f8202cff6b4a8c387525982ad437",
+                  "mimeType": "image/png"
+                }
+              ]
+            },
+            {
+              "role": "assistant",
+              "content": "seen"
+            },
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "again"
+                },
+                {
+                  "type": "image",
+                  "attachmentRef": "44f53bd737577450478c9be340f9bc77938f17c3df08ccdaf99144425dce9412",
+                  "mimeType": "image/png"
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "content": "next turn"
+            }
+          ]
+        ],
+        "result": "still usable",
+        "error": null,
+        "transcript": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "first"
+              },
+              {
+                "type": "image",
+                "attachmentRef": "2dabd364013897cccceb7b1526cffb689610f8202cff6b4a8c387525982ad437",
+                "mimeType": "image/png"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "content": "seen"
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "again"
+              },
+              {
+                "type": "image",
+                "attachmentRef": "44f53bd737577450478c9be340f9bc77938f17c3df08ccdaf99144425dce9412",
+                "mimeType": "image/png"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "content": "next turn"
+          }
+        ]
+      }
+    },
+    {
+      "name": "preparation-names-no-image",
+      "messages": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "look"
+            },
+            {
+              "type": "image",
+              "attachmentRef": "2dabd364013897cccceb7b1526cffb689610f8202cff6b4a8c387525982ad437",
+              "mimeType": "image/png"
+            }
+          ]
+        }
+      ],
+      "script": [
+        {
+          "error": {
+            "status": 400,
+            "code": "ANTHROPIC_IMAGE_PREPARATION_FAILED",
+            "message": "Anthropic image preparation failed at messages.0.content.1: image could not be decoded; reattach a valid image. The original image and conversation were not changed."
+          }
+        }
+      ],
+      "first": {
+        "sends": [
+          [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "look"
+                },
+                {
+                  "type": "image",
+                  "attachmentRef": "2dabd364013897cccceb7b1526cffb689610f8202cff6b4a8c387525982ad437",
+                  "mimeType": "image/png"
+                }
+              ]
+            }
+          ]
+        ],
+        "result": null,
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "Anthropic image preparation failed at messages.0.content.1: image could not be decoded; reattach a valid image. The original image and conversation were not changed.",
+          "code": "ANTHROPIC_IMAGE_PREPARATION_FAILED",
+          "props": {
+            "httpStatus": 400,
+            "streamOutcome": {
+              "version": 1,
+              "provider": null,
+              "transport": "unknown",
+              "terminalObserved": false,
+              "continuation": false,
+              "declaredContinuation": false,
+              "textEmitted": false,
+              "textObservedChars": 0,
+              "reasoningEmitted": false,
+              "toolCallsStarted": false,
+              "toolCallsComplete": 0,
+              "toolCallsDispatched": 0,
+              "dispatchAmbiguous": false,
+              "pendingToolInput": false,
+              "userAbort": false,
+              "stallObserved": false,
+              "truncatedStream": false,
+              "visibleOutput": false,
+              "observedOutput": false,
+              "sideEffectDispatched": false,
+              "replayUnsafe": false,
+              "replaySafe": true,
+              "successEligible": false
+            }
+          }
+        },
+        "transcript": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "look"
+              },
+              {
+                "type": "image",
+                "attachmentRef": "2dabd364013897cccceb7b1526cffb689610f8202cff6b4a8c387525982ad437",
+                "mimeType": "image/png"
+              }
+            ]
+          }
+        ]
+      },
+      "next": {
+        "sends": [
+          [
+            {
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "look"
+                },
+                {
+                  "type": "image",
+                  "attachmentRef": "2dabd364013897cccceb7b1526cffb689610f8202cff6b4a8c387525982ad437",
+                  "mimeType": "image/png"
+                }
+              ]
+            },
+            {
+              "role": "user",
+              "content": "next turn"
+            }
+          ]
+        ],
+        "result": "still usable",
+        "error": null,
+        "transcript": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "look"
+              },
+              {
+                "type": "image",
+                "attachmentRef": "2dabd364013897cccceb7b1526cffb689610f8202cff6b4a8c387525982ad437",
+                "mimeType": "image/png"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "content": "next turn"
+          }
+        ]
+      }
+    },
+    {
       "name": "one-new-image-confirmed",
       "messages": [
         {
