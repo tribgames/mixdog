@@ -5060,6 +5060,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+ "unicode-normalization",
  "url",
  "windows-sys 0.61.2",
 ]
@@ -5302,6 +5303,7 @@ name = "mixdog-trace"
 version = "1.4.5"
 dependencies = [
  "mixdog-js",
+ "mixdog-trace",
  "mixdog-workspace-hack",
  "serde_json",
  "sha2 0.10.9",
@@ -5433,7 +5435,6 @@ dependencies = [
  "tracing-subscriber",
  "tungstenite",
  "typenum",
- "unicode-normalization",
  "uuid",
  "windows",
  "windows-core",
