@@ -76,6 +76,8 @@ pub struct GoogleAdapter {
     lookup: ListingLookup,
     /// The Gemini API's socket warm-up (`preconnect(GEMINI_API_ORIGIN)`).
     preconnect: Option<Preconnect>,
+    /// The resizer of a Claude request's images ([`crate::providers::anthropic::images`]).
+    images: Option<Arc<dyn mixdog_core_api::domain::ext::ProfiledImageResizer>>,
 }
 
 impl GoogleAdapter {
@@ -106,7 +108,14 @@ impl GoogleAdapter {
             roster: Mutex::default(),
             lookup: ListingLookup::new(),
             preconnect: None,
+            images: None,
         }
+    }
+
+    /// Fits the images of Claude requests with `resizer`.
+    pub fn with_images(mut self, resizer: Option<Arc<dyn mixdog_core_api::domain::ext::ProfiledImageResizer>>) -> Self {
+        self.images = resizer;
+        self
     }
 
     /// Warms the Gemini API now, as `GeminiProvider`'s constructor does (`gemini.mjs:291`), and again before each send
@@ -531,7 +540,13 @@ impl GoogleAdapter {
 
     async fn attempt_served(&self, request: Arc<ModelRequest>) -> Result<GoogleStream, ProviderError> {
         let key = self.current_key().await?;
-        let mut request = request;
+        // Claude on Vertex AI builds the API-key route's Messages request, which fits its images first.
+        let mut request = match &self.images {
+            Some(resizer) if self.codec.claude_model(&request.model).is_some() => {
+                crate::providers::anthropic::images::prepare_request(request, resizer.as_ref()).await?
+            }
+            _ => request,
+        };
         let mut sent = self.exchange(&request, key.as_deref()).await?;
         // `GeminiProvider.send`: a typed 401 re-reads the provider's key, drops every cache made under the old one and
         // the session's saved cache, and sends the whole request once more when the re-read finds a key. A second

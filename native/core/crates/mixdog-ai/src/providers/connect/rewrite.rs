@@ -181,6 +181,8 @@ pub struct HttpAdapter {
     /// What the engine takes as a document when it is not the plain `nativePdf = false` of Grok, the local
     /// runtime and a custom provider's engines (a gateway's Messages engine declares its own).
     media: Option<mixdog_core_api::domain::provider::MediaSupport>,
+    /// A Messages engine's image resizer ([`crate::providers::anthropic::images`]).
+    images: Option<Arc<dyn mixdog_core_api::domain::ext::ProfiledImageResizer>>,
 }
 
 impl HttpAdapter {
@@ -203,7 +205,14 @@ impl HttpAdapter {
             listing: None,
             resend: None,
             media: None,
+            images: None,
         }
+    }
+
+    /// Fits the images of every request with `resizer`: the Messages wire's `prepareAnthropicImages`.
+    pub fn with_images(mut self, resizer: Option<Arc<dyn mixdog_core_api::domain::ext::ProfiledImageResizer>>) -> Self {
+        self.images = resizer;
+        self
     }
 
     /// The engine's own document capabilities (`GatewayMessagesEngine.nativePdf` / `.nativeDocuments`).
@@ -244,6 +253,10 @@ impl ProviderAdapter for HttpAdapter {
     }
 
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+        let request = match &self.images {
+            Some(resizer) => crate::providers::anthropic::images::prepare_request(request, resizer.as_ref()).await?,
+            None => request,
+        };
         run_attempt(self.codec.as_ref(), self.http.as_ref(), self.credential.as_ref(), &request, self.resend.as_ref()).await
     }
 

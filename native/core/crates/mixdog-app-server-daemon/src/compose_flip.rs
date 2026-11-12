@@ -510,7 +510,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let (builder_env, builder_shared) = mixdog_core::run_host::builder_env::builder_env_shared(&process);
     // Read from the builder inputs before the registry takes them: the media lanes' key store and the provider gate switch.
     let (media_keys, gated_off) = (builder_env.keys.clone(), builder_env.gated_off.clone());
-    let (registry, default_builder) = compose_parts::provider_registry(&process, builder_env); // run-host-26
+    let (registry, default_builder) = compose_parts::provider_registry(&process, builder_env, Arc::new(mixdog_exthost::ExtImageCodec::new(b.ext_host.clone()))); // run-host-26
     // The registry's own routed link, `ClientVersions` and client identity (`builder_env.http`, per wp-ai-svc), not a second set.
     let (http_send, client_versions, client_ids) = (builder_shared.http.clone(), builder_shared.versions.clone(), builder_shared.identity.clone());
     let readiness = mixdog_ai::catalog::ProviderReadiness::new(registry.clone(), b.catalog.clone());

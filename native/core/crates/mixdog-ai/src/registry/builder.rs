@@ -164,12 +164,21 @@ pub struct DefaultProviderBuilder {
     capabilities: std::sync::Mutex<HashMap<String, Arc<dyn CachedModelInfo>>>,
     /// The roster walk of every custom provider's key pool (quota strikes, session bindings).
     key_rotation: AccountRotation,
+    /// The resizer every Messages engine fits its images with (`prepareAnthropicImages`); none where the host has no
+    /// extension host.
+    images: Option<Arc<dyn mixdog_core_api::domain::ext::ProfiledImageResizer>>,
 }
 
 impl DefaultProviderBuilder {
     pub fn new(env: BuilderEnv) -> Self {
         let key_rotation = AccountRotation::new(env.accounts.clone(), Arc::new(super::key_pool::NoMeter), env.pace.clone());
-        Self { env, metadata_project: tokio::sync::OnceCell::new(), capabilities: std::sync::Mutex::default(), key_rotation }
+        Self { env, metadata_project: tokio::sync::OnceCell::new(), capabilities: std::sync::Mutex::default(), key_rotation, images: None }
+    }
+
+    /// Every Messages engine this builder builds fits its images with `resizer`.
+    pub fn with_images(mut self, resizer: Arc<dyn mixdog_core_api::domain::ext::ProfiledImageResizer>) -> Self {
+        self.images = Some(resizer);
+        self
     }
 
     /// A custom provider with additional API keys sends through its key roster (`createCustomKeyPoolProvider`);
@@ -612,12 +621,13 @@ impl DefaultProviderBuilder {
             // The API-key provider posts through the Anthropic client, the user's headers as its `defaultHeaders`
             // (anthropic.mjs:116-125).
             let http = Arc::new(GatewayHttp::new(http).through_sdk(Sdk::Anthropic, &config.extra_headers));
-            return Ok(adapter(AnthropicAdapter::api_key(config, http, keys, self.env.gzip_lane)));
+            return Ok(adapter(AnthropicAdapter::api_key(config, http, keys, self.env.gzip_lane).with_images(self.images.clone())));
         }
         let session = Arc::new(OAuthSession::new(self.file(name)?, http.clone()));
         let enterprise = session.stored().await.map(|s| s.is_enterprise()).unwrap_or(false);
         Ok(adapter(
             AnthropicAdapter::oauth(config, http, session, enterprise, self.env.gzip_lane)
+                .with_images(self.images.clone())
                 .with_settings(self.settings())
                 .with_preconnect(self.preconnect()),
         ))
@@ -708,7 +718,9 @@ impl DefaultProviderBuilder {
             "deepseek" => MediaSupport { native_pdf: false, native_documents: Some(false) },
             _ => MediaSupport { native_pdf: false, native_documents: None },
         };
-        HttpAdapter::new(ProviderId::from(name), Arc::new(AnthropicCodec::new(Flavor::ApiKey, config)), http, credential, policy).with_media(media)
+        HttpAdapter::new(ProviderId::from(name), Arc::new(AnthropicCodec::new(Flavor::ApiKey, config)), http, credential, policy)
+            .with_media(media)
+            .with_images(self.images.clone())
     }
 
     /// xAI's API mode (`useXaiResponsesApi`): Responses unless the request, config or environment names Chat.
@@ -1034,7 +1046,7 @@ impl DefaultProviderBuilder {
         let auth = vertex::VertexAuth::new(http.clone(), credential, Box::new(now_ms_u64));
         let identity = auth.identity().to_owned();
         let auth: Arc<dyn RequestAuth> = Arc::new(auth);
-        Ok(adapter(google::vertex(place, auth, identity, http, traits, self.env.anthropic_caps.clone())))
+        Ok(adapter(google::vertex(place, auth, identity, http, traits, self.env.anthropic_caps.clone()).with_images(self.images.clone())))
     }
 
     /// No gcloud login: the metadata server's default service account, when a
@@ -1064,7 +1076,7 @@ impl DefaultProviderBuilder {
         let auth = vertex_metadata::MetadataAuth::new(http.clone(), &served, Box::new(now_ms_u64));
         let identity = auth.identity().to_owned();
         let auth: Arc<dyn RequestAuth> = Arc::new(auth);
-        Ok(adapter(google::vertex(place, auth, identity, http, self.env.google_traits.clone(), self.env.anthropic_caps.clone())))
+        Ok(adapter(google::vertex(place, auth, identity, http, self.env.google_traits.clone(), self.env.anthropic_caps.clone()).with_images(self.images.clone())))
     }
 
     async fn build_antigravity(&self, name: &str) -> Result<Arc<dyn ProviderAdapter>, String> {
@@ -1233,6 +1245,7 @@ impl DefaultProviderBuilder {
             credential,
             policy,
         )
+        .with_images(self.images.clone())
     }
 
     async fn build_cursor(&self, name: &str, cfg: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
