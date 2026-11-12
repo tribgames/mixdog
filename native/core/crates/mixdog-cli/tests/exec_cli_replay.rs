@@ -39,6 +39,9 @@ const CASES: [&str; 7] = ["text", "json", "provider-error", "failed-turn", "ctrl
 const RUN_DEADLINE: Duration = Duration::from_secs(180);
 /// The Ctrl+C helper attaches to a console and sends one event.
 const HELPER_DEADLINE: Duration = Duration::from_secs(60);
+/// What a killed or interrupted binary's children are given to end: a bound on a hang, as the run's own, not on a speed (the children end
+/// when the system gets to them, which on a loaded machine takes as long as the run itself does).
+const CHILDREN_DEADLINE: Duration = RUN_DEADLINE;
 /// The binary's console is its own and has no window.
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 /// The helper's target, when this binary runs as the Ctrl+C helper.
@@ -281,6 +284,28 @@ fn children_of(pid: u32) -> Vec<(u32, String)> {
     found
 }
 
+/// Waits, up to [`CHILDREN_DEADLINE`], for the processes that were children of `pid` to end. A killed binary's job object
+/// (kill-on-close) ends its children when the kernel closes the job, which happens after the binary's own exit is
+/// signalled: a snapshot taken at that exit may still show them, so the end of each is waited for as an event, on its handle.
+fn wait_children_end(pid: u32) {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::Threading::OpenProcess;
+    use windows_sys::Win32::System::Threading::PROCESS_SYNCHRONIZE;
+    use windows_sys::Win32::System::Threading::WaitForSingleObject;
+    let until = std::time::Instant::now() + CHILDREN_DEADLINE;
+    for (child, _) in children_of(pid) {
+        let left = u32::try_from(until.saturating_duration_since(std::time::Instant::now()).as_millis()).unwrap();
+        // SAFETY: the handle is checked and closed; a process that already ended cannot be opened and needs no wait.
+        unsafe {
+            let handle = OpenProcess(PROCESS_SYNCHRONIZE, 0, child);
+            if !handle.is_null() {
+                WaitForSingleObject(handle, left);
+                CloseHandle(handle);
+            }
+        }
+    }
+}
+
 fn terminate(pid: u32) {
     use windows_sys::Win32::Foundation::CloseHandle;
     use windows_sys::Win32::System::Threading::OpenProcess;
@@ -485,6 +510,7 @@ fn run_case(exe: &Path, runtime: &tokio::runtime::Runtime, case: &Value) -> Valu
     waiter.join().unwrap();
     let beside = daemon.as_mut().map(|daemon| json!({ "aliveAfterExec": daemon.answers(exe, case, &root, &sandbox.path().join("work")) }));
     let left = interrupt.map(|_| {
+        wait_children_end(pid);
         let children = children_of(pid);
         let roots = std::fs::read_dir(sandbox.path().join("tmp")).unwrap().filter(|entry| entry.as_ref().unwrap().file_name().to_string_lossy().starts_with("mixdog-headless-pristine-")).count();
         for (child, _) in &children {
