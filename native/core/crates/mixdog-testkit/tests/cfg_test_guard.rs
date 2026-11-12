@@ -35,6 +35,11 @@ const ALLOWED: &[(&str, &str, &str)] = &[
         "a replay that stays in the library because it reuses `room_rows_replay::Log` and `room_files::SessionFiles`, which are crate-private",
     ),
     (
+        "mixdog-core/src/run_host/factory.rs",
+        "mod turn_durability_replay;",
+        "a replay that stays in the library because it runs over the factory tests' crate-private world (`use super::*`: the turn world, its scripted provider and rig)",
+    ),
+    (
         "mixdog-core/src/run_host/mod.rs",
         "mod pool_list_replay;",
         "a replay that stays in the library because it builds `pool_inputs::RegistryPoolStore`, which is crate-private",

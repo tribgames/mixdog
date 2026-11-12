@@ -7271,8 +7271,3 @@ async fn mark_go(mark: &mut Option<oneshot::Receiver<serde_json::Map<String, Val
         None => std::future::pending().await,
     }
 }
-
-/// The record that ends a run the process died in.
-fn interrupted_run(rid: &str, at: i64) -> Record {
-    Record::Run(RunRecord { rid: id(rid), phase: RunPhase::Interrupted, attribution: None, attempt: None, at: Some(at), op: None, detail: None })
-}
