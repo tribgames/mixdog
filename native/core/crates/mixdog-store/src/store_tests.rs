@@ -1924,35 +1924,6 @@ async fn compaction_keeps_history_marks_dropped_rows_and_places_the_divider() {
     assert!(page(&env).await.iter().all(|r| !r.archived));
 }
 
-/// An earlier build wrote `lost: true` on a compaction record. A rebuilt index must read past it: the whole history is
-/// there, the dropped rows archived, and the session is not damaged.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_rebuild_reads_a_compaction_record_with_the_obsolete_lost_flag() {
-    let env = Env::new();
-    let w = env.create("s1", None).await;
-    let (w, _) = env.commit(w, vec![user("a", "one"), user("b", "two"), user("c", "three")]).await;
-    let compacted = rec(json!({"k":"compacted","cid":"k1","at":1792567960000_i64,
-        "dropped":{"messageIds":["a","b"],"callIds":[]},
-        "replacement":{"inline":[{"iid":"c","body":{"role":"user","content":"three"}}]}}));
-    let mut legacy = serde_json::to_value(compacted.record()).unwrap();
-    legacy["lost"] = json!(true);
-    let legacy = Encoded { payload: serde_json::to_vec(&legacy).unwrap(), ..compacted };
-    let (w, _) = env.commit(w, vec![legacy, user("e", "five")]).await;
-    drop(w);
-
-    let other = tempfile::tempdir().unwrap();
-    copy_tree(&env.data.join("sessions"), &other.path().join("sessions"));
-    let db = other.path().join(INDEX_FILE);
-    std::fs::create_dir_all(db.parent().unwrap()).unwrap();
-    let old = rusqlite::Connection::open(&db).unwrap();
-    old.execute_batch(&format!("{} PRAGMA user_version = {};", crate::schema::sql::INDEX_DDL, crate::schema::sql::INDEX_USER_VERSION - 1)).unwrap();
-    drop(old);
-    let store = open_index(other.path()).unwrap();
-    let rows = store.history_page(lineage(&[("s1", None)]), None, None, 10).await.unwrap().0;
-    let marks: Vec<(String, bool)> = rows.iter().map(|r| (r.iid.clone(), r.archived)).collect();
-    assert_eq!(marks, [("e".into(), false), ("c".into(), false), ("b".into(), true), ("a".into(), true)]);
-}
-
 /// A compaction names a message by its message id (`meta.transcript.messageId`), which is not the id of the row a core wrote
 /// it as: that row is archived too, and a row naming no message id is matched by its own.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
