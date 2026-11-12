@@ -32,7 +32,7 @@
   ],
   "keyIds": [
     "default",
-    "02126c98-fe17-483b-8f4f-ccac941ab854"
+    "85e04104-24a2-4d1d-8a5c-e3ef244c0ec5"
   ],
   "pool": {
     "accounts": [
@@ -44,11 +44,11 @@
         "label": "Account 1"
       },
       {
-        "id": "02126c98-fe17-483b-8f4f-ccac941ab854",
+        "id": "85e04104-24a2-4d1d-8a5c-e3ef244c0ec5",
         "label": "Account 2"
       }
     ],
-    "selectedId": "02126c98-fe17-483b-8f4f-ccac941ab854",
+    "selectedId": "85e04104-24a2-4d1d-8a5c-e3ef244c0ec5",
     "auto": true,
     "policy": "limit",
     "useCredits": true
@@ -87,6 +87,7 @@
           "reasoningContent": "Earlier thought."
         }
       ],
+      "opts": {},
       "sessionId": null,
       "requests": [
         {
@@ -200,7 +201,7 @@
           "stage": "account-changed",
           "payload": {
             "provider": "custom-keys-reasoning",
-            "accountId": "02126c98-fe17-483b-8f4f-ccac941ab854",
+            "accountId": "85e04104-24a2-4d1d-8a5c-e3ef244c0ec5",
             "at": 1794225600000
           }
         }
@@ -218,8 +219,8 @@
         "providerMetadata": {
           "accountRouting": {
             "provider": "custom-keys-reasoning",
-            "accountId": "02126c98-fe17-483b-8f4f-ccac941ab854",
-            "sessionAccountId": "02126c98-fe17-483b-8f4f-ccac941ab854"
+            "accountId": "85e04104-24a2-4d1d-8a5c-e3ef244c0ec5",
+            "sessionAccountId": "85e04104-24a2-4d1d-8a5c-e3ef244c0ec5"
           }
         },
         "wireReroute": null
