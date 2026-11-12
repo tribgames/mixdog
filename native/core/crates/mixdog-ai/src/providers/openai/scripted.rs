@@ -178,10 +178,9 @@ impl CredentialSource for Creds {
     async fn current(&self) -> Result<Credential, ProviderError> {
         Ok(Credential { bearer: "fixture-key".into(), account_id: None })
     }
-    /// Stands in for a key source that reads the same key again, as Node's `reloadApiKey` does for a configured key: a
-    /// rejected request is sent once more.
-    async fn after_rejection(&self, rejected: &Credential) -> Result<Option<Credential>, ProviderError> {
-        Ok(Some(rejected.clone()))
+    /// A key source that reads the same key again, as Node's `reloadApiKey` does for a configured key: unchanged.
+    async fn after_rejection(&self, _: &Credential) -> Result<Option<Credential>, ProviderError> {
+        Ok(None)
     }
 }
 

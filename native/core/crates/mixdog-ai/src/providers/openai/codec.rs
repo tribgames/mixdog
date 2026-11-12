@@ -124,10 +124,9 @@ impl WireCodec for OpenAiCodec {
             Framing::Sse
         };
         // `_wsErrLabel(traceProvider)` / `httpLabel(auth)`: the route decides the label, the transport the kind.
-        let label = match (self.route(), framing) {
-            (_, Framing::WebSocket) => self.ws_label(),
-            (Route::ApiKey, Framing::Sse) => "OpenAI HTTP fallback",
-            (_, Framing::Sse) => "OpenAI OAuth HTTP fallback",
+        let label = match framing {
+            Framing::WebSocket => self.ws_label(),
+            Framing::Sse => self.http_label(),
         };
         Box::new(
             ResponsesDecoder::new(framing, self.config.context.clone(), ProviderId::from(REPLAY_OWNER))
@@ -151,6 +150,14 @@ impl OpenAiCodec {
         match self.route() {
             Route::ApiKey => "OpenAI WS",
             _ => "OpenAI OAuth WS",
+        }
+    }
+
+    /// `httpLabel(auth)`: how an HTTP/SSE failure of this route names itself.
+    pub fn http_label(&self) -> &'static str {
+        match self.route() {
+            Route::ApiKey => "OpenAI HTTP fallback",
+            _ => "OpenAI OAuth HTTP fallback",
         }
     }
 
