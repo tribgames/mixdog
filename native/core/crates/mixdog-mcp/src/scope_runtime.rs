@@ -244,11 +244,11 @@ impl ScopeRuntime {
             return;
         }
         let resolved = self.configs.resolve(&cell.scope, &cell.cwd, None).await;
-        let budgets: Vec<Duration> = resolved.configs.iter().filter(|c| c.enabled).map(|c| c.startup_timeout).collect();
-        if budgets.contains(&Duration::ZERO) {
+        let budgets: Vec<Option<Duration>> = resolved.configs.iter().filter(|c| c.enabled).map(|c| c.startup_timeout).collect();
+        if budgets.contains(&None) {
             return;
         }
-        let budget = budgets.into_iter().max().unwrap_or(crate::config::DEFAULT_STARTUP_TIMEOUT);
+        let budget = budgets.into_iter().flatten().max().unwrap_or(crate::config::DEFAULT_STARTUP_TIMEOUT);
         let _ = mixdog_rt::time::timeout(budget, Self::ready(&cell)).await;
     }
 
@@ -499,8 +499,9 @@ impl ScopeRuntime {
         for name in names {
             let Some(server) = self.hub.server_in(scope, name) else { continue };
             let mut rx = server.subscribe();
-            let wait = server.config().startup_timeout + Duration::from_secs(5);
-            let _ = mixdog_rt::time::timeout(wait, rx.wait_for(|s| !matches!(**s, ServerState::Starting))).await;
+            // A server whose startup budget is disabled may never stop starting: it is not waited for.
+            let Some(budget) = server.config().startup_timeout else { continue };
+            let _ = mixdog_rt::time::timeout(budget + Duration::from_secs(5), rx.wait_for(|s| !matches!(**s, ServerState::Starting))).await;
         }
     }
 

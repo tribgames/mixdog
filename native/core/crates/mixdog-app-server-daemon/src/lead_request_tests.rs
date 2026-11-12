@@ -398,8 +398,10 @@ async fn replay(name: &str, dir: PathBuf) {
     // The next request carrying `what` (the prompt, or the result of the scenario's tool call).
     let next_post = |posts: Receiver<Post>, what: &'static str| {
         tokio::task::spawn_blocking(move || {
+            // One deadline for the request that is waited for: the ones passed over do not extend it.
+            let deadline = std::time::Instant::now() + Duration::from_secs(60);
             loop {
-                match posts.recv_timeout(Duration::from_secs(60)) {
+                match posts.recv_timeout(deadline.saturating_duration_since(std::time::Instant::now())) {
                     Ok(post) if post.body.to_string().contains(what) => return (post, posts),
                     Ok(_) => {}
                     Err(error) => panic!("the provider endpoint received no request carrying {what} within 60 s: {error}"),
