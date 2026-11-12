@@ -125,6 +125,10 @@ struct Ctx {
     cache: Arc<Mutex<ChangeCache>>,
 }
 
+/// How long a writer waits for a session's `changes/<hash>.lock` (`timeoutMs: 30_000` of `changesExclusive`,
+/// `turn-snapshot-store.mjs`); a write that cannot take it in that time fails and stores nothing.
+pub(crate) const CHANGES_LOCK_WAIT: std::time::Duration = std::time::Duration::from_millis(30_000);
+
 impl Ctx {
     fn cache(&self) -> std::sync::MutexGuard<'_, ChangeCache> {
         self.cache.lock().unwrap_or_else(|e| e.into_inner())
@@ -461,7 +465,7 @@ impl Store {
         let slot: Arc<Mutex<Option<R>>> = Arc::new(Mutex::new(None));
         let put = slot.clone();
         let lock = self.changes_root().join(session_hash(id));
-        self.disk.blocking(Some(&lock), Box::new(move |fs| *put.lock().unwrap_or_else(|e| e.into_inner()) = Some(job(fs)))).await?;
+        self.disk.blocking(Some((&lock, CHANGES_LOCK_WAIT)), Box::new(move |fs| *put.lock().unwrap_or_else(|e| e.into_inner()) = Some(job(fs)))).await?;
         let taken = slot.lock().unwrap_or_else(|e| e.into_inner()).take();
         taken.ok_or_else(|| io::Error::other("file job did not run"))
     }
