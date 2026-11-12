@@ -183,6 +183,12 @@ try {
           'the MIXDOG_QUIET_MCP_LOG variable is removed for the recording: the terminal UI sets it, which keeps every line of `log` ' +
             'off the screen there; the other front ends write them',
         ],
+        mappings: {
+          'cases[].log[] and cases[].refresh.log[]':
+            'each string is one write to stderr and ends in one line feed; the core writes the same line as one log event whose ' +
+            'writer ends the line, so the replay compares the event\'s message with the string less that one final line feed ' +
+            '(a string that does not end in exactly one fails the replay)',
+        },
       },
     });
     commitStage(stage, finalDir);

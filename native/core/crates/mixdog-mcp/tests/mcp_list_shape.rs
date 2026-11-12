@@ -1,8 +1,9 @@
 //! A `tools/list` result without a `tools` array, as Node's client treats it (`fixtures/mcp-list-shape`, recorded by
 //! `record-mcp-list-shape.mjs`): every recorded case is served by the mock server and connected through the hub, and what
 //! the session has is compared with what Node's `getMcpServerStatus` and `getMcpTools` returned, with the connect failure
-//! the server row shows, and with the lines written to the log (here the hub's and the server's events, their message
-//! without the line's trailing newline), after the connect and after the refresh a `list_changed` starts.
+//! the server row shows, and with the lines written to the log (here the hub's and the server's events: the message of
+//! each is the recorded line less the one line feed that ends it), after the connect and after the refresh a
+//! `list_changed` starts.
 //! Its own test binary: the log is taken by one process-wide subscriber.
 
 use std::sync::Arc;
@@ -95,8 +96,20 @@ fn snapshot(server: &McpServer) -> Value {
     json!({"status": [{"name": "srv", "connected": true, "toolCount": listed.len(), "tools": listed}], "tools": tools})
 }
 
+/// The recorded lines, each less the one line feed that ends it (manifest `mappings`): a line is one log event here, and
+/// the log's writer ends it. Everything before that line feed is compared as recorded.
 fn recorded_lines(lines: &Value) -> Vec<String> {
-    lines.as_array().unwrap().iter().map(|l| l.as_str().unwrap().trim_end_matches('\n').to_owned()).collect()
+    lines
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|l| {
+            let line = l.as_str().unwrap();
+            let text = line.strip_suffix('\n').unwrap_or_else(|| panic!("a recorded log line ends in a line feed: {line:?}"));
+            assert!(!text.ends_with('\n'), "a recorded log line ends in one line feed, not more: {line:?}");
+            text.to_owned()
+        })
+        .collect()
 }
 
 #[test]

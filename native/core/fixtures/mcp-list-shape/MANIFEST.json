@@ -22,6 +22,9 @@
       "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
     }
   ],
+  "mappings": {
+    "cases[].log[] and cases[].refresh.log[]": "each string is one write to stderr and ends in one line feed; the core writes the same line as one log event whose writer ends the line, so the replay compares the event's message with the string less that one final line feed (a string that does not end in exactly one fails the replay)"
+  },
   "nodeVersion": "v22.20.0",
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
@@ -41,7 +44,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-mcp-list-shape.mjs",
-  "recorderSha256": "911eca4deb1d55e40523e8564ebc30c6bbcbcdfa9742e5e2e5d6709ac303b8fa",
+  "recorderSha256": "9ffb386e7094c90e483d80257cfb1219e0ddd974ae90d3aeea73744afab42ffb",
   "set": "mcp-list-shape",
   "totalBytes": 58471
 }
