@@ -3083,10 +3083,10 @@
         "created": [
           {
             "agent": "stale",
-            "presetName": "AGENT STALE",
+            "presetName": "__direct__",
             "preset": {
-              "id": "agent-stale",
-              "name": "AGENT STALE",
+              "id": "__direct__",
+              "name": "__DIRECT__",
               "type": "agent",
               "provider": "openai",
               "model": "gpt-fast",
@@ -3361,10 +3361,10 @@
         "created": [
           {
             "agent": "stale",
-            "presetName": "AGENT STALE",
+            "presetName": "__direct__",
             "preset": {
-              "id": "agent-stale",
-              "name": "AGENT STALE",
+              "id": "__direct__",
+              "name": "__DIRECT__",
               "type": "agent",
               "provider": "openai",
               "model": "gpt-fast",
@@ -3632,10 +3632,10 @@
         "created": [
           {
             "agent": "staleless",
-            "presetName": "AGENT STALELESS",
+            "presetName": "__direct__",
             "preset": {
-              "id": "agent-staleless",
-              "name": "AGENT STALELESS",
+              "id": "__direct__",
+              "name": "__DIRECT__",
               "type": "agent",
               "provider": "xai",
               "model": "grok-plain",
@@ -3909,10 +3909,10 @@
         "created": [
           {
             "agent": "stale",
-            "presetName": "AGENT STALE",
+            "presetName": "__direct__",
             "preset": {
-              "id": "agent-stale",
-              "name": "AGENT STALE",
+              "id": "__direct__",
+              "name": "__DIRECT__",
               "type": "agent",
               "provider": "openai",
               "model": "gpt-fast",
@@ -4474,10 +4474,10 @@
         "created": [
           {
             "agent": "worker",
-            "presetName": "AGENT WORKER",
+            "presetName": "__direct__",
             "preset": {
-              "id": "agent-worker",
-              "name": "AGENT WORKER",
+              "id": "__direct__",
+              "name": "__DIRECT__",
               "type": "agent",
               "provider": "anthropic",
               "model": "opus",
@@ -4758,10 +4758,10 @@
         "created": [
           {
             "agent": "worker",
-            "presetName": "AGENT WORKER",
+            "presetName": "__direct__",
             "preset": {
-              "id": "agent-worker",
-              "name": "AGENT WORKER",
+              "id": "__direct__",
+              "name": "__DIRECT__",
               "type": "agent",
               "provider": "anthropic",
               "model": "opus",
@@ -6387,6 +6387,1422 @@
         "answer": "Error: agent spawn: provider requires model",
         "error": null,
         "created": []
+      }
+    },
+    {
+      "name": "a_worker_spawned_on_the_agents_own_model_named_keeps_it_when_the_configuration_moves",
+      "scenario": {
+        "args": {
+          "type": "spawn",
+          "agent": "worker",
+          "prompt": "do it",
+          "model": "opus"
+        },
+        "config": {
+          "default": "main-preset",
+          "presets": [
+            {
+              "id": "main-preset",
+              "name": "MAIN",
+              "provider": "anthropic",
+              "model": "sonnet",
+              "effort": "medium"
+            }
+          ],
+          "agents": {
+            "worker": {
+              "provider": "anthropic",
+              "model": "opus",
+              "effort": "high",
+              "fast": true,
+              "fallbacks": [
+                {
+                  "provider": "openai",
+                  "model": "gpt-4"
+                },
+                {
+                  "provider": "gemini",
+                  "model": "pro"
+                }
+              ]
+            },
+            "plain": {
+              "provider": "openai",
+              "model": "gpt-fast",
+              "effort": "medium"
+            },
+            "stale": {
+              "provider": "openai",
+              "model": "gpt-fast",
+              "effort": "xhigh",
+              "fallbacks": [
+                {
+                  "provider": "gemini",
+                  "model": "pro"
+                }
+              ]
+            },
+            "staleless": {
+              "provider": "xai",
+              "model": "grok-plain",
+              "effort": "high"
+            }
+          }
+        },
+        "catalog": [
+          {
+            "provider": "openai",
+            "id": "gpt-fast",
+            "display": "GPT Fast",
+            "catalogComplete": true,
+            "reasoningLevels": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "effortOptions": [
+              {
+                "value": "low",
+                "label": "low",
+                "description": ""
+              },
+              {
+                "value": "medium",
+                "label": "medium",
+                "description": ""
+              },
+              {
+                "value": "high",
+                "label": "high",
+                "description": ""
+              }
+            ],
+            "defaultEffort": "medium",
+            "savedEffort": "low",
+            "fastCapable": true,
+            "fastPreferred": false
+          },
+          {
+            "provider": "openai",
+            "id": "gpt-saved-fast",
+            "display": "GPT Saved Fast",
+            "catalogComplete": true,
+            "reasoningLevels": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "effortOptions": [
+              {
+                "value": "low",
+                "label": "low",
+                "description": ""
+              },
+              {
+                "value": "medium",
+                "label": "medium",
+                "description": ""
+              },
+              {
+                "value": "high",
+                "label": "high",
+                "description": ""
+              }
+            ],
+            "defaultEffort": "medium",
+            "savedEffort": null,
+            "fastCapable": true,
+            "fastPreferred": true
+          },
+          {
+            "provider": "openai",
+            "id": "gpt-default-high",
+            "display": "GPT Default High",
+            "catalogComplete": true,
+            "reasoningLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh"
+            ],
+            "effortOptions": [
+              {
+                "value": "low",
+                "label": "low",
+                "description": ""
+              },
+              {
+                "value": "medium",
+                "label": "medium",
+                "description": ""
+              },
+              {
+                "value": "high",
+                "label": "high",
+                "description": ""
+              },
+              {
+                "value": "xhigh",
+                "label": "xhigh",
+                "description": ""
+              }
+            ],
+            "defaultEffort": null,
+            "savedEffort": null,
+            "fastCapable": true,
+            "fastPreferred": false
+          },
+          {
+            "provider": "xai",
+            "id": "grok-plain",
+            "display": "Grok Plain",
+            "catalogComplete": true,
+            "reasoningLevels": [],
+            "effortOptions": [],
+            "defaultEffort": null,
+            "savedEffort": null,
+            "fastCapable": false,
+            "fastPreferred": true
+          },
+          {
+            "provider": "anthropic",
+            "id": "opus",
+            "display": "Opus",
+            "catalogComplete": true,
+            "reasoningLevels": [
+              "low",
+              "high"
+            ],
+            "effortOptions": [
+              {
+                "value": "low",
+                "label": "low",
+                "description": ""
+              },
+              {
+                "value": "high",
+                "label": "high",
+                "description": ""
+              }
+            ],
+            "defaultEffort": "low",
+            "savedEffort": null,
+            "fastCapable": true,
+            "fastPreferred": true
+          },
+          {
+            "provider": "openai",
+            "id": "twin-a",
+            "display": "Twin",
+            "catalogComplete": true,
+            "effortOptions": [],
+            "fastCapable": false
+          },
+          {
+            "provider": "openai",
+            "id": "twin-b",
+            "display": "Twin",
+            "catalogComplete": true,
+            "effortOptions": [],
+            "fastCapable": false
+          }
+        ],
+        "context": {
+          "callerSessionId": "lead",
+          "ownerSessionId": "lead",
+          "clientHostPid": 4242,
+          "cwd": "/work"
+        },
+        "followUp": {
+          "config": {
+            "default": "main-preset",
+            "presets": [
+              {
+                "id": "main-preset",
+                "name": "MAIN",
+                "provider": "anthropic",
+                "model": "sonnet",
+                "effort": "medium"
+              }
+            ],
+            "agents": {
+              "worker": {
+                "provider": "openai",
+                "model": "gpt-new",
+                "effort": "low"
+              },
+              "plain": {
+                "provider": "openai",
+                "model": "gpt-fast",
+                "effort": "medium"
+              },
+              "stale": {
+                "provider": "openai",
+                "model": "gpt-fast",
+                "effort": "xhigh",
+                "fallbacks": [
+                  {
+                    "provider": "gemini",
+                    "model": "pro"
+                  }
+                ]
+              },
+              "staleless": {
+                "provider": "xai",
+                "model": "grok-plain",
+                "effort": "high"
+              }
+            }
+          }
+        }
+      },
+      "host": {
+        "agent": {
+          "name": "worker",
+          "defined": true,
+          "disabled": false,
+          "kind": null,
+          "contact": false,
+          "permission": null,
+          "candidates": [
+            {
+              "provider": "anthropic",
+              "model": "opus",
+              "effort": "high",
+              "fast": true,
+              "fallbacks": [
+                {
+                  "provider": "openai",
+                  "model": "gpt-4"
+                },
+                {
+                  "provider": "gemini",
+                  "model": "pro"
+                }
+              ]
+            }
+          ]
+        },
+        "delegation": {
+          "chain": [
+            "lead"
+          ],
+          "acting": "lead"
+        }
+      },
+      "result": {
+        "answer": "agent task: job-1\nstatus: running\ntype: spawn\nnotification: completion will be delivered; end the turn.",
+        "error": null,
+        "created": [
+          {
+            "agent": "worker",
+            "presetName": "__direct__",
+            "preset": {
+              "id": "__direct__",
+              "name": "__DIRECT__",
+              "type": "agent",
+              "provider": "anthropic",
+              "model": "opus",
+              "effort": "high",
+              "fast": true,
+              "tools": "full"
+            },
+            "prompt": "do it",
+            "tag": "worker-1"
+          }
+        ],
+        "send": {
+          "session": {
+            "id": "sess_w1",
+            "agent": "worker",
+            "cwd": "/work",
+            "presetName": "__direct__",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high",
+            "fast": true
+          },
+          "reply": "agent message queued\ntarget: scout sess_w1\nagent: worker\nqueueDepth: 1",
+          "calls": [
+            [
+              "observe",
+              "sess_w1"
+            ],
+            [
+              "enqueueTurn",
+              "follow up",
+              null
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "name": "a_resumed_worker_spawned_on_the_agents_own_model_named_keeps_it_when_the_configuration_moves",
+      "scenario": {
+        "args": {
+          "type": "spawn",
+          "agent": "worker",
+          "prompt": "do it",
+          "model": "opus"
+        },
+        "config": {
+          "default": "main-preset",
+          "presets": [
+            {
+              "id": "main-preset",
+              "name": "MAIN",
+              "provider": "anthropic",
+              "model": "sonnet",
+              "effort": "medium"
+            }
+          ],
+          "agents": {
+            "worker": {
+              "provider": "anthropic",
+              "model": "opus",
+              "effort": "high",
+              "fast": true,
+              "fallbacks": [
+                {
+                  "provider": "openai",
+                  "model": "gpt-4"
+                },
+                {
+                  "provider": "gemini",
+                  "model": "pro"
+                }
+              ]
+            },
+            "plain": {
+              "provider": "openai",
+              "model": "gpt-fast",
+              "effort": "medium"
+            },
+            "stale": {
+              "provider": "openai",
+              "model": "gpt-fast",
+              "effort": "xhigh",
+              "fallbacks": [
+                {
+                  "provider": "gemini",
+                  "model": "pro"
+                }
+              ]
+            },
+            "staleless": {
+              "provider": "xai",
+              "model": "grok-plain",
+              "effort": "high"
+            }
+          }
+        },
+        "catalog": [
+          {
+            "provider": "openai",
+            "id": "gpt-fast",
+            "display": "GPT Fast",
+            "catalogComplete": true,
+            "reasoningLevels": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "effortOptions": [
+              {
+                "value": "low",
+                "label": "low",
+                "description": ""
+              },
+              {
+                "value": "medium",
+                "label": "medium",
+                "description": ""
+              },
+              {
+                "value": "high",
+                "label": "high",
+                "description": ""
+              }
+            ],
+            "defaultEffort": "medium",
+            "savedEffort": "low",
+            "fastCapable": true,
+            "fastPreferred": false
+          },
+          {
+            "provider": "openai",
+            "id": "gpt-saved-fast",
+            "display": "GPT Saved Fast",
+            "catalogComplete": true,
+            "reasoningLevels": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "effortOptions": [
+              {
+                "value": "low",
+                "label": "low",
+                "description": ""
+              },
+              {
+                "value": "medium",
+                "label": "medium",
+                "description": ""
+              },
+              {
+                "value": "high",
+                "label": "high",
+                "description": ""
+              }
+            ],
+            "defaultEffort": "medium",
+            "savedEffort": null,
+            "fastCapable": true,
+            "fastPreferred": true
+          },
+          {
+            "provider": "openai",
+            "id": "gpt-default-high",
+            "display": "GPT Default High",
+            "catalogComplete": true,
+            "reasoningLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh"
+            ],
+            "effortOptions": [
+              {
+                "value": "low",
+                "label": "low",
+                "description": ""
+              },
+              {
+                "value": "medium",
+                "label": "medium",
+                "description": ""
+              },
+              {
+                "value": "high",
+                "label": "high",
+                "description": ""
+              },
+              {
+                "value": "xhigh",
+                "label": "xhigh",
+                "description": ""
+              }
+            ],
+            "defaultEffort": null,
+            "savedEffort": null,
+            "fastCapable": true,
+            "fastPreferred": false
+          },
+          {
+            "provider": "xai",
+            "id": "grok-plain",
+            "display": "Grok Plain",
+            "catalogComplete": true,
+            "reasoningLevels": [],
+            "effortOptions": [],
+            "defaultEffort": null,
+            "savedEffort": null,
+            "fastCapable": false,
+            "fastPreferred": true
+          },
+          {
+            "provider": "anthropic",
+            "id": "opus",
+            "display": "Opus",
+            "catalogComplete": true,
+            "reasoningLevels": [
+              "low",
+              "high"
+            ],
+            "effortOptions": [
+              {
+                "value": "low",
+                "label": "low",
+                "description": ""
+              },
+              {
+                "value": "high",
+                "label": "high",
+                "description": ""
+              }
+            ],
+            "defaultEffort": "low",
+            "savedEffort": null,
+            "fastCapable": true,
+            "fastPreferred": true
+          },
+          {
+            "provider": "openai",
+            "id": "twin-a",
+            "display": "Twin",
+            "catalogComplete": true,
+            "effortOptions": [],
+            "fastCapable": false
+          },
+          {
+            "provider": "openai",
+            "id": "twin-b",
+            "display": "Twin",
+            "catalogComplete": true,
+            "effortOptions": [],
+            "fastCapable": false
+          }
+        ],
+        "context": {
+          "callerSessionId": "lead",
+          "ownerSessionId": "lead",
+          "clientHostPid": 4242,
+          "cwd": "/work"
+        },
+        "followUp": {
+          "config": {
+            "default": "main-preset",
+            "presets": [
+              {
+                "id": "main-preset",
+                "name": "MAIN",
+                "provider": "anthropic",
+                "model": "sonnet",
+                "effort": "medium"
+              }
+            ],
+            "agents": {
+              "worker": {
+                "provider": "openai",
+                "model": "gpt-new",
+                "effort": "low"
+              },
+              "plain": {
+                "provider": "openai",
+                "model": "gpt-fast",
+                "effort": "medium"
+              },
+              "stale": {
+                "provider": "openai",
+                "model": "gpt-fast",
+                "effort": "xhigh",
+                "fallbacks": [
+                  {
+                    "provider": "gemini",
+                    "model": "pro"
+                  }
+                ]
+              },
+              "staleless": {
+                "provider": "xai",
+                "model": "grok-plain",
+                "effort": "high"
+              }
+            }
+          },
+          "resumed": true
+        }
+      },
+      "host": {
+        "agent": {
+          "name": "worker",
+          "defined": true,
+          "disabled": false,
+          "kind": null,
+          "contact": false,
+          "permission": null,
+          "candidates": [
+            {
+              "provider": "anthropic",
+              "model": "opus",
+              "effort": "high",
+              "fast": true,
+              "fallbacks": [
+                {
+                  "provider": "openai",
+                  "model": "gpt-4"
+                },
+                {
+                  "provider": "gemini",
+                  "model": "pro"
+                }
+              ]
+            }
+          ]
+        },
+        "delegation": {
+          "chain": [
+            "lead"
+          ],
+          "acting": "lead"
+        }
+      },
+      "result": {
+        "answer": "agent task: job-1\nstatus: running\ntype: spawn\nnotification: completion will be delivered; end the turn.",
+        "error": null,
+        "created": [
+          {
+            "agent": "worker",
+            "presetName": "__direct__",
+            "preset": {
+              "id": "__direct__",
+              "name": "__DIRECT__",
+              "type": "agent",
+              "provider": "anthropic",
+              "model": "opus",
+              "effort": "high",
+              "fast": true,
+              "tools": "full"
+            },
+            "prompt": "do it",
+            "tag": "worker-1"
+          }
+        ],
+        "send": {
+          "session": {
+            "id": "sess_w1",
+            "agent": "worker",
+            "cwd": "/work",
+            "presetName": "__direct__",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high",
+            "fast": true
+          },
+          "reply": "agent message queued\nresumed: true\ntarget: scout sess_w1\nagent: worker\nqueueDepth: 1",
+          "calls": [
+            [
+              "observe",
+              "sess_w1"
+            ],
+            [
+              "enqueueTurn",
+              "follow up",
+              null
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "name": "a_worker_spawned_on_another_named_model_keeps_it_when_the_configuration_moves",
+      "scenario": {
+        "args": {
+          "type": "spawn",
+          "agent": "worker",
+          "prompt": "do it",
+          "model": "gpt-fast"
+        },
+        "config": {
+          "default": "main-preset",
+          "presets": [
+            {
+              "id": "main-preset",
+              "name": "MAIN",
+              "provider": "anthropic",
+              "model": "sonnet",
+              "effort": "medium"
+            }
+          ],
+          "agents": {
+            "worker": {
+              "provider": "anthropic",
+              "model": "opus",
+              "effort": "high",
+              "fast": true,
+              "fallbacks": [
+                {
+                  "provider": "openai",
+                  "model": "gpt-4"
+                },
+                {
+                  "provider": "gemini",
+                  "model": "pro"
+                }
+              ]
+            },
+            "plain": {
+              "provider": "openai",
+              "model": "gpt-fast",
+              "effort": "medium"
+            },
+            "stale": {
+              "provider": "openai",
+              "model": "gpt-fast",
+              "effort": "xhigh",
+              "fallbacks": [
+                {
+                  "provider": "gemini",
+                  "model": "pro"
+                }
+              ]
+            },
+            "staleless": {
+              "provider": "xai",
+              "model": "grok-plain",
+              "effort": "high"
+            }
+          }
+        },
+        "catalog": [
+          {
+            "provider": "openai",
+            "id": "gpt-fast",
+            "display": "GPT Fast",
+            "catalogComplete": true,
+            "reasoningLevels": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "effortOptions": [
+              {
+                "value": "low",
+                "label": "low",
+                "description": ""
+              },
+              {
+                "value": "medium",
+                "label": "medium",
+                "description": ""
+              },
+              {
+                "value": "high",
+                "label": "high",
+                "description": ""
+              }
+            ],
+            "defaultEffort": "medium",
+            "savedEffort": "low",
+            "fastCapable": true,
+            "fastPreferred": false
+          },
+          {
+            "provider": "openai",
+            "id": "gpt-saved-fast",
+            "display": "GPT Saved Fast",
+            "catalogComplete": true,
+            "reasoningLevels": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "effortOptions": [
+              {
+                "value": "low",
+                "label": "low",
+                "description": ""
+              },
+              {
+                "value": "medium",
+                "label": "medium",
+                "description": ""
+              },
+              {
+                "value": "high",
+                "label": "high",
+                "description": ""
+              }
+            ],
+            "defaultEffort": "medium",
+            "savedEffort": null,
+            "fastCapable": true,
+            "fastPreferred": true
+          },
+          {
+            "provider": "openai",
+            "id": "gpt-default-high",
+            "display": "GPT Default High",
+            "catalogComplete": true,
+            "reasoningLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh"
+            ],
+            "effortOptions": [
+              {
+                "value": "low",
+                "label": "low",
+                "description": ""
+              },
+              {
+                "value": "medium",
+                "label": "medium",
+                "description": ""
+              },
+              {
+                "value": "high",
+                "label": "high",
+                "description": ""
+              },
+              {
+                "value": "xhigh",
+                "label": "xhigh",
+                "description": ""
+              }
+            ],
+            "defaultEffort": null,
+            "savedEffort": null,
+            "fastCapable": true,
+            "fastPreferred": false
+          },
+          {
+            "provider": "xai",
+            "id": "grok-plain",
+            "display": "Grok Plain",
+            "catalogComplete": true,
+            "reasoningLevels": [],
+            "effortOptions": [],
+            "defaultEffort": null,
+            "savedEffort": null,
+            "fastCapable": false,
+            "fastPreferred": true
+          },
+          {
+            "provider": "anthropic",
+            "id": "opus",
+            "display": "Opus",
+            "catalogComplete": true,
+            "reasoningLevels": [
+              "low",
+              "high"
+            ],
+            "effortOptions": [
+              {
+                "value": "low",
+                "label": "low",
+                "description": ""
+              },
+              {
+                "value": "high",
+                "label": "high",
+                "description": ""
+              }
+            ],
+            "defaultEffort": "low",
+            "savedEffort": null,
+            "fastCapable": true,
+            "fastPreferred": true
+          },
+          {
+            "provider": "openai",
+            "id": "twin-a",
+            "display": "Twin",
+            "catalogComplete": true,
+            "effortOptions": [],
+            "fastCapable": false
+          },
+          {
+            "provider": "openai",
+            "id": "twin-b",
+            "display": "Twin",
+            "catalogComplete": true,
+            "effortOptions": [],
+            "fastCapable": false
+          }
+        ],
+        "context": {
+          "callerSessionId": "lead",
+          "ownerSessionId": "lead",
+          "clientHostPid": 4242,
+          "cwd": "/work"
+        },
+        "followUp": {
+          "config": {
+            "default": "main-preset",
+            "presets": [
+              {
+                "id": "main-preset",
+                "name": "MAIN",
+                "provider": "anthropic",
+                "model": "sonnet",
+                "effort": "medium"
+              }
+            ],
+            "agents": {
+              "worker": {
+                "provider": "openai",
+                "model": "gpt-new",
+                "effort": "low"
+              },
+              "plain": {
+                "provider": "openai",
+                "model": "gpt-fast",
+                "effort": "medium"
+              },
+              "stale": {
+                "provider": "openai",
+                "model": "gpt-fast",
+                "effort": "xhigh",
+                "fallbacks": [
+                  {
+                    "provider": "gemini",
+                    "model": "pro"
+                  }
+                ]
+              },
+              "staleless": {
+                "provider": "xai",
+                "model": "grok-plain",
+                "effort": "high"
+              }
+            }
+          }
+        }
+      },
+      "host": {
+        "agent": {
+          "name": "worker",
+          "defined": true,
+          "disabled": false,
+          "kind": null,
+          "contact": false,
+          "permission": null,
+          "candidates": [
+            {
+              "provider": "anthropic",
+              "model": "opus",
+              "effort": "high",
+              "fast": true,
+              "fallbacks": [
+                {
+                  "provider": "openai",
+                  "model": "gpt-4"
+                },
+                {
+                  "provider": "gemini",
+                  "model": "pro"
+                }
+              ]
+            }
+          ]
+        },
+        "delegation": {
+          "chain": [
+            "lead"
+          ],
+          "acting": "lead"
+        }
+      },
+      "result": {
+        "answer": "agent task: job-1\nstatus: running\ntype: spawn\nnotification: completion will be delivered; end the turn.",
+        "error": null,
+        "created": [
+          {
+            "agent": "worker",
+            "presetName": "__direct__",
+            "preset": {
+              "id": "__direct__",
+              "name": "__DIRECT__",
+              "type": "agent",
+              "provider": "openai",
+              "model": "gpt-fast",
+              "effort": "low",
+              "fast": false,
+              "tools": "full"
+            },
+            "prompt": "do it",
+            "tag": "worker-1"
+          }
+        ],
+        "send": {
+          "session": {
+            "id": "sess_w1",
+            "agent": "worker",
+            "cwd": "/work",
+            "presetName": "__direct__",
+            "provider": "openai",
+            "model": "gpt-fast",
+            "effort": "low",
+            "fast": false
+          },
+          "reply": "agent message queued\ntarget: scout sess_w1\nagent: worker\nqueueDepth: 1",
+          "calls": [
+            [
+              "observe",
+              "sess_w1"
+            ],
+            [
+              "enqueueTurn",
+              "follow up",
+              null
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "name": "a_worker_spawned_without_a_model_follows_the_moved_configuration",
+      "scenario": {
+        "args": {
+          "type": "spawn",
+          "agent": "worker",
+          "prompt": "do it"
+        },
+        "config": {
+          "default": "main-preset",
+          "presets": [
+            {
+              "id": "main-preset",
+              "name": "MAIN",
+              "provider": "anthropic",
+              "model": "sonnet",
+              "effort": "medium"
+            }
+          ],
+          "agents": {
+            "worker": {
+              "provider": "anthropic",
+              "model": "opus",
+              "effort": "high",
+              "fast": true,
+              "fallbacks": [
+                {
+                  "provider": "openai",
+                  "model": "gpt-4"
+                },
+                {
+                  "provider": "gemini",
+                  "model": "pro"
+                }
+              ]
+            },
+            "plain": {
+              "provider": "openai",
+              "model": "gpt-fast",
+              "effort": "medium"
+            },
+            "stale": {
+              "provider": "openai",
+              "model": "gpt-fast",
+              "effort": "xhigh",
+              "fallbacks": [
+                {
+                  "provider": "gemini",
+                  "model": "pro"
+                }
+              ]
+            },
+            "staleless": {
+              "provider": "xai",
+              "model": "grok-plain",
+              "effort": "high"
+            }
+          }
+        },
+        "catalog": [
+          {
+            "provider": "openai",
+            "id": "gpt-fast",
+            "display": "GPT Fast",
+            "catalogComplete": true,
+            "reasoningLevels": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "effortOptions": [
+              {
+                "value": "low",
+                "label": "low",
+                "description": ""
+              },
+              {
+                "value": "medium",
+                "label": "medium",
+                "description": ""
+              },
+              {
+                "value": "high",
+                "label": "high",
+                "description": ""
+              }
+            ],
+            "defaultEffort": "medium",
+            "savedEffort": "low",
+            "fastCapable": true,
+            "fastPreferred": false
+          },
+          {
+            "provider": "openai",
+            "id": "gpt-saved-fast",
+            "display": "GPT Saved Fast",
+            "catalogComplete": true,
+            "reasoningLevels": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "effortOptions": [
+              {
+                "value": "low",
+                "label": "low",
+                "description": ""
+              },
+              {
+                "value": "medium",
+                "label": "medium",
+                "description": ""
+              },
+              {
+                "value": "high",
+                "label": "high",
+                "description": ""
+              }
+            ],
+            "defaultEffort": "medium",
+            "savedEffort": null,
+            "fastCapable": true,
+            "fastPreferred": true
+          },
+          {
+            "provider": "openai",
+            "id": "gpt-default-high",
+            "display": "GPT Default High",
+            "catalogComplete": true,
+            "reasoningLevels": [
+              "low",
+              "medium",
+              "high",
+              "xhigh"
+            ],
+            "effortOptions": [
+              {
+                "value": "low",
+                "label": "low",
+                "description": ""
+              },
+              {
+                "value": "medium",
+                "label": "medium",
+                "description": ""
+              },
+              {
+                "value": "high",
+                "label": "high",
+                "description": ""
+              },
+              {
+                "value": "xhigh",
+                "label": "xhigh",
+                "description": ""
+              }
+            ],
+            "defaultEffort": null,
+            "savedEffort": null,
+            "fastCapable": true,
+            "fastPreferred": false
+          },
+          {
+            "provider": "xai",
+            "id": "grok-plain",
+            "display": "Grok Plain",
+            "catalogComplete": true,
+            "reasoningLevels": [],
+            "effortOptions": [],
+            "defaultEffort": null,
+            "savedEffort": null,
+            "fastCapable": false,
+            "fastPreferred": true
+          },
+          {
+            "provider": "anthropic",
+            "id": "opus",
+            "display": "Opus",
+            "catalogComplete": true,
+            "reasoningLevels": [
+              "low",
+              "high"
+            ],
+            "effortOptions": [
+              {
+                "value": "low",
+                "label": "low",
+                "description": ""
+              },
+              {
+                "value": "high",
+                "label": "high",
+                "description": ""
+              }
+            ],
+            "defaultEffort": "low",
+            "savedEffort": null,
+            "fastCapable": true,
+            "fastPreferred": true
+          },
+          {
+            "provider": "openai",
+            "id": "twin-a",
+            "display": "Twin",
+            "catalogComplete": true,
+            "effortOptions": [],
+            "fastCapable": false
+          },
+          {
+            "provider": "openai",
+            "id": "twin-b",
+            "display": "Twin",
+            "catalogComplete": true,
+            "effortOptions": [],
+            "fastCapable": false
+          }
+        ],
+        "context": {
+          "callerSessionId": "lead",
+          "ownerSessionId": "lead",
+          "clientHostPid": 4242,
+          "cwd": "/work"
+        },
+        "followUp": {
+          "config": {
+            "default": "main-preset",
+            "presets": [
+              {
+                "id": "main-preset",
+                "name": "MAIN",
+                "provider": "anthropic",
+                "model": "sonnet",
+                "effort": "medium"
+              }
+            ],
+            "agents": {
+              "worker": {
+                "provider": "openai",
+                "model": "gpt-new",
+                "effort": "low"
+              },
+              "plain": {
+                "provider": "openai",
+                "model": "gpt-fast",
+                "effort": "medium"
+              },
+              "stale": {
+                "provider": "openai",
+                "model": "gpt-fast",
+                "effort": "xhigh",
+                "fallbacks": [
+                  {
+                    "provider": "gemini",
+                    "model": "pro"
+                  }
+                ]
+              },
+              "staleless": {
+                "provider": "xai",
+                "model": "grok-plain",
+                "effort": "high"
+              }
+            }
+          }
+        }
+      },
+      "host": {
+        "agent": {
+          "name": "worker",
+          "defined": true,
+          "disabled": false,
+          "kind": null,
+          "contact": false,
+          "permission": null,
+          "candidates": [
+            {
+              "provider": "anthropic",
+              "model": "opus",
+              "effort": "high",
+              "fast": true,
+              "fallbacks": [
+                {
+                  "provider": "openai",
+                  "model": "gpt-4"
+                },
+                {
+                  "provider": "gemini",
+                  "model": "pro"
+                }
+              ]
+            }
+          ]
+        },
+        "delegation": {
+          "chain": [
+            "lead"
+          ],
+          "acting": "lead"
+        }
+      },
+      "result": {
+        "answer": "agent task: job-1\nstatus: running\ntype: spawn\nnotification: completion will be delivered; end the turn.",
+        "error": null,
+        "created": [
+          {
+            "agent": "worker",
+            "presetName": "AGENT WORKER",
+            "preset": {
+              "id": "agent-worker",
+              "name": "AGENT WORKER",
+              "type": "agent",
+              "provider": "anthropic",
+              "model": "opus",
+              "fallbacks": [
+                {
+                  "provider": "openai",
+                  "model": "gpt-4",
+                  "fast": false
+                },
+                {
+                  "provider": "gemini",
+                  "model": "pro",
+                  "fast": false
+                }
+              ],
+              "fallbackSource": {
+                "agent": "worker"
+              },
+              "effort": "high",
+              "fast": true,
+              "tools": "full"
+            },
+            "prompt": "do it",
+            "tag": "worker-1"
+          }
+        ],
+        "send": {
+          "session": {
+            "id": "sess_w1",
+            "agent": "worker",
+            "cwd": "/work",
+            "presetName": "AGENT WORKER",
+            "provider": "anthropic",
+            "model": "opus",
+            "effort": "high",
+            "fast": true
+          },
+          "reply": "agent message queued\ntarget: scout sess_w1\nagent: worker\nqueueDepth: 1",
+          "calls": [
+            [
+              "setRoute",
+              {
+                "provider": "openai",
+                "model": "gpt-new",
+                "effort": "low",
+                "fast": false
+              }
+            ],
+            [
+              "observe",
+              "sess_w1"
+            ],
+            [
+              "enqueueTurn",
+              "follow up",
+              null
+            ]
+          ]
+        }
       }
     },
     {

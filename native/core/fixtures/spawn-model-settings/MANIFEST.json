@@ -2,15 +2,16 @@
   "command": "node benchmarks/rust-core/recorders/record-spawn-model-settings.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with benchmarks/rust-core/recorders/node-patches/node-fix-spawn-model-settings.patch applied, with node_modules> --patch benchmarks/rust-core/recorders/node-patches/node-fix-spawn-model-settings.patch",
   "exclusions": [
     "the job id in the answer of a spawn that started: the recorder's stand-in task is `job-1`, the Rust board generates its own id, so the replay reads the board's id as `job-1` (the rest of every answer is compared whole)",
-    "of the session spec the real spawn preparer hands to session creation only the agent, the preset name and the preset are compared: the rest (directory, runtime spec, owner ids, prompt) is the spawn flow's own recording (fixtures/agent/flows)",
+    "the session spec the real spawn preparer hands to session creation is a projection, not the whole spec: compared are agent, presetName, preset, prompt and the tag; left out are runtimeSpec (the recorder's `resolveRuntimeSpec` is a stand-in, not the runtime registry), cwd (the recorder resolves it against the host's working directory), and owner, parentSessionId, ownerSessionId, visibility, clientHostPid, sourceType, sourceName, agentTag, taskType, permission, cacheKeyOverride and mcpScopeId (fixed by the caller context and the agent's definition, the same in every scenario here; the whole spec of a spawn is compared in fixtures/agent/flows/spawn.json)",
+    "the follow-up send of a scenario with `followUp` runs the real send flow on a canonical surface with a busy worker whose session is the one the spawn created (agent, presetName, provider, model, effort, fast, autoEffort and cwd `/work`); its answer and the calls it made (setRoute, observe, enqueueTurn) are compared whole, the session store and the turn queue are stand-ins",
     "the session itself, the tag binding and the model catalog behind the listing are stand-ins on both sides (the catalog rows are the recorded input, as the model picker hydrates them)"
   ],
   "fileCount": 1,
   "files": [
     {
-      "bytes": 176308,
+      "bytes": 214292,
       "path": "cases.json",
-      "sha256": "4f20f5aefb48cc0db5404d46134695310c2e7a4af2432acba5d29e6fd1805b17"
+      "sha256": "29fe885c35067b954932072aa5a8382a694baf777ea5706823cae583966f97c1"
     }
   ],
   "inputs": [
@@ -40,7 +41,7 @@
         "src/session-runtime/services/agent-tool/tool-def.mjs",
         "src/tui/app/model-picker/route-selection/effort.mjs"
       ],
-      "sha256": "784d67df39d266cb604ed52384c51e5946be9f61146894cf78fe658ff94de54a"
+      "sha256": "1d24877bf3c2d410716946070fe56cd66f4f34b400b82690818a98c2bf266502"
     },
     "patches": [
       {
@@ -52,7 +53,7 @@
           "src/session-runtime/services/agent-tool/tool-def.mjs",
           "src/tui/app/model-picker/route-selection/effort.mjs"
         ],
-        "sha256": "784d67df39d266cb604ed52384c51e5946be9f61146894cf78fe658ff94de54a"
+        "sha256": "1d24877bf3c2d410716946070fe56cd66f4f34b400b82690818a98c2bf266502"
       }
     ],
     "refComparison": {
@@ -61,13 +62,13 @@
       "exact": false,
       "filesDifferingFromCommit": 5
     },
-    "srcSha256": "828f560072df5467a077645dfcc97e524d7d1760524e81a13c96d03676db0f23",
+    "srcSha256": "3722607211674f49a1f8be9bc8d33e11bc8029c7269481e970bae1847fd11e71",
     "tree": "product tree loaded by the recorder",
     "treeKind": "archive",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-spawn-model-settings.mjs",
-  "recorderSha256": "c52e7c76617c9f4067e1ac888ad5126b3454f04f9522f80283b12be38ed91cc2",
+  "recorderSha256": "541e07ff8316ba905a572c1c352799247646ad965c60bed817d585df77643c6b",
   "scenarios": [
     {
       "answer": "agent task: job-1\nstatus: running\ntype: spawn\nnotification: completion will be d",
@@ -187,6 +188,26 @@
     {
       "answer": "agent task: job-1\nstatus: running\ntype: spawn\nnotification: completion will be d",
       "created": 1,
+      "name": "a_worker_spawned_on_the_agents_own_model_named_keeps_it_when_the_configuration_moves"
+    },
+    {
+      "answer": "agent task: job-1\nstatus: running\ntype: spawn\nnotification: completion will be d",
+      "created": 1,
+      "name": "a_resumed_worker_spawned_on_the_agents_own_model_named_keeps_it_when_the_configuration_moves"
+    },
+    {
+      "answer": "agent task: job-1\nstatus: running\ntype: spawn\nnotification: completion will be d",
+      "created": 1,
+      "name": "a_worker_spawned_on_another_named_model_keeps_it_when_the_configuration_moves"
+    },
+    {
+      "answer": "agent task: job-1\nstatus: running\ntype: spawn\nnotification: completion will be d",
+      "created": 1,
+      "name": "a_worker_spawned_without_a_model_follows_the_moved_configuration"
+    },
+    {
+      "answer": "agent task: job-1\nstatus: running\ntype: spawn\nnotification: completion will be d",
+      "created": 1,
       "name": "no_catalog_takes_the_route_as_asked"
     },
     {
@@ -196,5 +217,5 @@
     }
   ],
   "set": "spawn-model-settings",
-  "totalBytes": 176308
+  "totalBytes": 214292
 }

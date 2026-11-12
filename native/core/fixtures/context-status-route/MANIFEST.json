@@ -5,7 +5,7 @@
     {
       "bytes": 2453602,
       "path": "golden.json",
-      "sha256": "c050c7260dab9d77ee153fcebe4dfef1a2b65669d063eb360df98d7ea22af6e3"
+      "sha256": "90559c3e079bdd03dacd860e84d512152cf8aceeb5c0def9cdd49d5cba4a3d4b"
     }
   ],
   "inputs": [
@@ -41,7 +41,7 @@
         "src/session-runtime/services/agent-tool/tool-def.mjs",
         "src/tui/app/model-picker/route-selection/effort.mjs"
       ],
-      "sha256": "784d67df39d266cb604ed52384c51e5946be9f61146894cf78fe658ff94de54a"
+      "sha256": "1d24877bf3c2d410716946070fe56cd66f4f34b400b82690818a98c2bf266502"
     },
     "patches": [
       {
@@ -53,7 +53,7 @@
           "src/session-runtime/services/agent-tool/tool-def.mjs",
           "src/tui/app/model-picker/route-selection/effort.mjs"
         ],
-        "sha256": "784d67df39d266cb604ed52384c51e5946be9f61146894cf78fe658ff94de54a"
+        "sha256": "1d24877bf3c2d410716946070fe56cd66f4f34b400b82690818a98c2bf266502"
       }
     ],
     "refComparison": {
@@ -62,7 +62,7 @@
       "exact": false,
       "filesDifferingFromCommit": 5
     },
-    "srcSha256": "828f560072df5467a077645dfcc97e524d7d1760524e81a13c96d03676db0f23",
+    "srcSha256": "ec36b84fb4ee7e19ad9a065cac4c669986e69b23dee69475103148b9db0e5222",
     "tree": "product tree loaded by the recorder",
     "treeKind": "git-checkout",
     "version": "1.4.5"

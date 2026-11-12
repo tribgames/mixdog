@@ -5,7 +5,7 @@
     "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
     "patch": {
       "file": "benchmarks/rust-core/recorders/node-patches/node-fix-spawn-model-settings.patch",
-      "sha256": "784d67df39d266cb604ed52384c51e5946be9f61146894cf78fe658ff94de54a",
+      "sha256": "1d24877bf3c2d410716946070fe56cd66f4f34b400b82690818a98c2bf266502",
       "paths": [
         "src/session-runtime/services/agent-tool/model-select.mjs",
         "src/session-runtime/services/agent-tool/spawn-model-settings.test.mjs",
