@@ -14,6 +14,16 @@ export function useOwnPatchedTree(args) {
   if (!/^[0-9a-f]{40}$/.test(commit ?? '')) throw new Error('--apply-patch needs --commit <40 hex>');
   const given = resolve(args.get('tree') ?? process.env.MIXDOG_BENCH_TREE ?? REPO_ROOT);
   const own = mkdtempSync(join(tmpdir(), 'patched-tree-'));
+  // Registered at once: a failure in any step below leaves nothing behind. The junction is removed itself first, so the given tree's
+  // node_modules is never deleted through it.
+  process.on('exit', () => {
+    try {
+      unlinkSync(join(own, 'tree', 'node_modules'));
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+    rmSync(own, { recursive: true, force: true });
+  });
   const run = (cmd, argv, cwd) => execFileSync(cmd, argv, { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: 256 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
   const archive = join(own, '.export.tar');
   run('git', ['archive', '--format=tar', '-o', archive, commit], REPO_ROOT);
@@ -22,9 +32,5 @@ export function useOwnPatchedTree(args) {
   run('tar', ['-xf', archive, '-C', tree], own);
   for (const file of patches) run('git', ['apply', file], tree);
   symlinkSync(join(given, 'node_modules'), join(tree, 'node_modules'), 'junction');
-  process.on('exit', () => {
-    unlinkSync(join(tree, 'node_modules'));
-    rmSync(own, { recursive: true, force: true });
-  });
   args.set('tree', tree);
 }
