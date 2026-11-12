@@ -365,6 +365,37 @@ async fn the_inheritance_carry_answers_what_node_recorded() {
     }
 }
 
+/// A header Node wrote holds no `offloadSources` (Node's session has none; `offload_sources.rs`): the core reads it as it is, and a
+/// save leaves it so: the reference set stays unknown, not empty, until a transcript scan computes it, so what the save writes is Node's
+/// header with the one change made, no `offloadSources` and no `offloadSourcesRules` among it.
+#[tokio::test(start_paused = true)]
+async fn a_header_node_wrote_without_a_reference_set_keeps_none_through_a_save() {
+    use mixdog_core_session::session::testing::Rig;
+    use mixdog_store::schema::record::Record;
+    let recording = recording();
+    let mut node_header = obj(case(&recording, 372.0).get("result").get("failing").get("target"));
+    node_header.remove("id");
+    node_header.remove("messages");
+    assert!(!node_header.contains_key("offloadSources") && !node_header.contains_key("offloadSourcesRules"), "Node's header has no reference set");
+    let rig = Rig::new();
+    let id = ThreadId::from("node-written");
+    let session: Record = serde_json::from_value(json!({
+        "k": "session", "v": mixdog_store::schema::record::SESSION_RECORD_VERSION, "id": "node-written", "log_id": "0123456789abcdef01234567",
+        "header": { "inline": node_header },
+    }))
+    .expect("a session record");
+    rig.store.seed(&id, vec![session]);
+    let directory = mixdog_core_session::session::SessionDirectory::new(Arc::new(rig.deps_parts(rig.store.clone())));
+    assert_eq!(rig.store.stored_header(&id).expect("the stored header"), node_header, "the core reads Node's header whole");
+    Carry::call(&directory, "thread/name/set", json!({ "threadId": "node-written", "opId": "op-title", "title": "renamed" })).await.expect("a save");
+    // The rename's own write: the title and the three fields that say who set it and when (`renameSessionTitle`).
+    let mut saved = rig.store.stored_header(&id).expect("the saved header");
+    for written in ["title", "titleLocked", "titleSource", "titleUpdatedAt"] {
+        assert!(saved.shift_remove(written).is_some(), "the save wrote {written}");
+    }
+    let by_name = |header: serde_json::Map<String, Value>| Exact::plain(&Value::Object(header.into_iter().collect::<std::collections::BTreeMap<_, _>>().into_iter().collect()));
+    assert_eq!(by_name(saved), by_name(node_header), "the save left Node's header as it was: no `offloadSources`, no `offloadSourcesRules`");
+}
 /// The recorded heir sessions (`inheritanceFit(CONVERSATION, heir)`): the heir is the session measured, it sends no
 /// tools, and its conversation is text only.
 struct Heir(Header);
