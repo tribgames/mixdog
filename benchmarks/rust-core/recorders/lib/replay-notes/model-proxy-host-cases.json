@@ -1,23 +1,6 @@
 {
-  "_about": "What the Rust replay of model-proxy-host-cases states about itself beyond the generated manifest: which typed field carries each Node field (replaced, fieldMap), what is declared as excluded or fixed (declared), what is open, and the replay tests. The recorder merges these into the manifest's `replay` (record-model-proxy-host-cases.mjs); they are kept here so a re-recording writes them itself.",
+  "_about": "What the Rust replay of model-proxy-host-cases states about itself beyond the generated manifest: which typed field carries each Node field (fieldMap), what is excluded or fixed (declaredExclusions: each with the side it is on, the case, the fields and the reason, read by the recorder like any exclusion of the manifest), what is open, and the replay tests. The recorder merges these into the manifest's `replay` (record-model-proxy-host-cases.mjs); they are kept here so a re-recording writes them itself, and the recorder refuses a declaration that names no recorded case or field (lib/replay-notes.mjs).",
   "replayTests": "mixdog-core/src/run_host/model_proxy_host_run_replay_tests.rs drives `modelProxy/run` / `modelProxy/cancel` on ModelProxyService (mixdog-core-domains/src/domains/ai_admin/model_proxy_service.rs, registered by compose_flip.rs) over ProxyRunner, with this PC's PcQuotaProbe, PcWireRouter and PcProviderConfig; mixdog-core/src/run_host/model_proxy_host_config_replay_tests.rs replays the providerConfig cases through PcProviderConfig over the product registry and DefaultProviderBuilder; mixdog-core/src/run_host/model_proxy_host_server_replay_tests.rs replays the server's read (Node loadModelProxyProviderConfig) through HostProxyProviders (mixdog-core/src/run_host/proxy_providers.rs).",
-  "replaced": {
-    "protocol": "Node's claim/event/resolve host (modelProxyClaim/Event/Resolve, its heartbeat, lease and snapshot event) is replaced by the typed modelProxy/run request and its modelProxy/run/event notifications: mixdog-app-protocol/src/inventory.rs:848-858 marks the operations Deleted",
-    "keys": [
-      "wire",
-      "timers",
-      "operations",
-      "snapshot",
-      "heartbeatMs",
-      "leaseMs",
-      "failedHeartbeats",
-      "steps",
-      "runningInsideLease",
-      "requestId",
-      "claimed"
-    ],
-    "reason": "the envelope, timers and lease bookkeeping of the replaced protocol; the protections they carried are replayed on the typed path: a run ends with its connection's cancel token (case 7), the frame bound refuses an oversized call before any provider runs (case 19), a provider-config read is bounded by its one-second budget (cases 21/22)"
-  },
   "fieldMap": {
     "failure (one helper: node_failure / typed_failure)": {
       "name": "AbortError -> failure.delivery ambiguous and kind transient (cancelled); any other name -> not cancelled",
@@ -46,21 +29,188 @@
       "options.toolExecutionSessionId: ''": "no typed field: no tool executes on the PC"
     }
   },
-  "declared": {
-    "2 result.content": "\"Hello again\" is the stand-in's literal return (model-proxy-host.test.mjs:172), not what its callbacks streamed after the reset; a typed provider's content is its stream, compared as the text after the discard",
-    "4 forget": "forgetCredentials is no ProxyCall variant (mixdog-app-protocol/src/v2/model_proxy.rs ProxyCall): refused as invalid params before anything runs",
-    "5 cachedFlash.firstResponseBudget": "a budget that is not a number has no typed form (ProxyBudget is two u64)",
-    "13 options": "baseURL, requestHeaders, extraBody, codexInstallationId, _providerSeam are not ProxyOptions fields and are dropped as the call is read",
-    "19 maxRequestBytes": "Node's 200-byte cap was the test host's option; the typed bound is Limits::max_inbound_frame_bytes, checked by decode_inbound_text",
-    "21/22 waitMs": "a read's budget is one second for every read (proxy_providers.rs WAIT), not chosen per caller",
-    "23 long + short wait": "no per-read budget exists, so two unforced reads join one request (1, not Node's 2 more)",
-    "24 developer options": "recorded twice (golden cases 24 and 24b): the recorder gates the registry init and the credential probe on the stored Developer options through Node's own developerOptionEnabled / developerOptionForProvider (src/runtime/shared/developer-options.mjs), once with none stored (mimo-oauth, cursor-oauth, antigravity-oauth never admitted, authState absent) and once with the three on; both states are built from the core (the world's config carries the same developer section; the three sign-in files the real adapters need are the ones a login leaves) and compared whole",
-    "24 custom anthropic inputExcludesCache": "fixed in the core, compared whole: a custom provider on the anthropic protocol is an AnthropicProvider subclass in Node (custom-provider.mjs:162, registry.mjs:554 providerInputExcludesCache and model-proxy-host.ts:1202 read the instance's class); ProviderAdapter::input_excludes_cache (mixdog-core-api domain/provider.rs) is stated by HttpAdapter for that engine (registry/builder.rs build_custom_parts) and read first by the accounting (registry/accounted.rs) and the advertisement (model_proxy_pc.rs traits_of)",
-    "12 result.content / keyReads / anthropicKeyInLastInit": "replayed on the real registry (model_proxy_host_config_replay_tests.rs only_the_requested_providers_key_is_read_when_the_request_is_made): a send to openai through the adapter PcProviderConfig serves, with a vault that logs its reads and a transport that keeps the request headers; result.content is the key Node's scripted send returned (openai:<key>), compared with the bearer the adapter sent; keyReads with the vault's reads; anthropicKeyInLastInit with the absence of any anthropic read",
-    "14 transport scope": "typed field ProxyOptions.forkedTransportScope (mixdog-app-protocol v2/model_proxy.rs), set by request_out when the sender names a transport scope (model_proxy.rs options_out); the PC allocates <session>#proxy:<uuid> and releases it through ProviderAdapter::release_transport_scope when the run ends (ProxyRunner::run, ProxyCall::Send); the recording's uuids are a scripted counter, so a scope is compared with its uuid replaced by <uuid> and its form asserted; closed (the global close hook) and released (the provider's releaseTransportScope) are one release; replayed by a_forked_side_request_gets_its_own_transport_scope_released_when_it_ends",
-    "14 cancelled.rejected": "Node's rejection of a cancelled side request is the abort reason of the server's own signal (\"user stop\"), not this PC's; the PC's part, the run ending as a cancellation with its scope released, is compared",
-    "24/28 mixdog-local": "registered in the Rust registry as Node registers MixdogLocalProvider (registry.mjs:199): DefaultProviderBuilder builds mixdog_ai providers::local::RegisteredAdapter over the host's managed runtime (BuilderEnv::local), which starts the server on a send; its row of case 24 and case 28's localTraits are compared whole. Its getCachedModelInfo answers the installed model's row (LocalRuntime::installed_now, kept current by the provider's change signal; registry/builder.rs cached_model_info), replayed by mixdog-services local_provider/send_queue_replay_tests.rs",
-    "24 firstResponseBudget (mimo-oauth, antigravity-oauth)": "implemented by the adapters as Node's classes state it (compat adapter: the profile's first-byte window and retries over its retry ladder, compat/profile.rs ChatDialect::first_byte; antigravity: the model class's window over the antigravity ladder, google/adapter.rs first_response_budget; both through providers/first_byte.rs, stall-policy.mjs firstBytePolicyBudget, over the windows and ladder the environment sets (FirstByteSettings::from_env, replayed per environment, with Vertex AI Flex, by google/first_response_budget_tests.rs against the first-response-budgets set)) and compared whole in cases 24 and 24b (transportMs 2715000 / semanticMs 5280000 and 427000 / 847000); the agent watchdog's first-response floor (factory.rs:1086) reads the same figures"
-  },
-  "open": {}
+  "declaredExclusions": [
+    {
+      "side": "rust",
+      "case": "*",
+      "keys": [
+        "wire",
+        "timers",
+        "operations",
+        "snapshot",
+        "heartbeatMs",
+        "leaseMs",
+        "failedHeartbeats",
+        "steps",
+        "runningInsideLease",
+        "requestId",
+        "claimed"
+      ],
+      "reason": "Node's claim/event/resolve host (modelProxyClaim/Event/Resolve, its heartbeat, lease and snapshot event) is replaced by the typed modelProxy/run request and its modelProxy/run/event notifications: mixdog-app-protocol/src/inventory.rs:848-858 marks the operations Deleted; the envelope, timers and lease bookkeeping of the replaced protocol; the protections they carried are replayed on the typed path: a run ends with its connection's cancel token (case 7), the frame bound refuses an oversized call before any provider runs (case 19), a provider-config read is bounded by its one-second budget (cases 21/22)"
+    },
+    {
+      "side": "node",
+      "case": "the PC runs the call with its own provider and streams every callback back in order",
+      "keys": [
+        "result.content"
+      ],
+      "reason": "\"Hello again\" is the stand-in's literal return (model-proxy-host.test.mjs:172), not what its callbacks streamed after the reset; a typed provider's content is its stream, compared as the text after the discard"
+    },
+    {
+      "side": "rust",
+      "case": "the PC serves only the named provider and the allowed methods",
+      "keys": [
+        "forget"
+      ],
+      "reason": "forgetCredentials is no ProxyCall variant (mixdog-app-protocol/src/v2/model_proxy.rs ProxyCall): refused as invalid params before anything runs"
+    },
+    {
+      "side": "rust",
+      "case": "the PC reports its model-specific first-response budget through the catalog and provider config",
+      "keys": [
+        "cachedFlash"
+      ],
+      "reason": "a budget that is not a number has no typed form (ProxyBudget is two u64)"
+    },
+    {
+      "side": "rust",
+      "case": "only the requested provider's credential is read, on demand",
+      "keys": [
+        "result.content",
+        "keyReads",
+        "anthropicKeyInLastInit"
+      ],
+      "reason": "replayed on the real registry (model_proxy_host_config_replay_tests.rs only_the_requested_providers_key_is_read_when_the_request_is_made): a send to openai through the adapter PcProviderConfig serves, with a vault that logs its reads and a transport that keeps the request headers; result.content is the key Node's scripted send returned (openai:<key>), compared with the bearer the adapter sent; keyReads with the vault's reads; anthropicKeyInLastInit with the absence of any anthropic read"
+    },
+    {
+      "side": "rust",
+      "case": "server send options are reduced to the allowlist",
+      "keys": [
+        "options"
+      ],
+      "reason": "baseURL, requestHeaders, extraBody, codexInstallationId, _providerSeam are not ProxyOptions fields and are dropped as the call is read"
+    },
+    {
+      "side": "rust",
+      "case": "a proxied side request gets its own transport scope on the PC, disposed when the request ends",
+      "keys": [
+        "mainScope",
+        "log"
+      ],
+      "reason": "typed field ProxyOptions.forkedTransportScope (mixdog-app-protocol v2/model_proxy.rs), set by request_out when the sender names a transport scope (model_proxy.rs options_out); the PC allocates <session>#proxy:<uuid> and releases it through ProviderAdapter::release_transport_scope when the run ends (ProxyRunner::run, ProxyCall::Send); the recording's uuids are a scripted counter, so a scope is compared with its uuid replaced by <uuid> and its form asserted; closed (the global close hook) and released (the provider's releaseTransportScope) are one release; replayed by a_forked_side_request_gets_its_own_transport_scope_released_when_it_ends"
+    },
+    {
+      "side": "node",
+      "case": "a proxied side request gets its own transport scope on the PC, disposed when the request ends",
+      "keys": [
+        "log"
+      ],
+      "reason": "Node's rejection of a cancelled side request is the abort reason of the server's own signal (\"user stop\"), not this PC's; the PC's part, the run ending as a cancellation with its scope released, is compared"
+    },
+    {
+      "side": "rust",
+      "case": "a call payload over the request cap is refused before any provider runs",
+      "keys": [
+        "maxRequestBytes"
+      ],
+      "reason": "Node's 200-byte cap was the test host's option; the typed bound is Limits::max_inbound_frame_bytes, checked by decode_inbound_text"
+    },
+    {
+      "side": "rust",
+      "case": "provider config deadline aborts a stalled request (claimed=false)",
+      "keys": [
+        "waitMs"
+      ],
+      "reason": "a read's budget is one second for every read (proxy_providers.rs WAIT), not chosen per caller"
+    },
+    {
+      "side": "rust",
+      "case": "provider config deadline aborts a stalled request (claimed=true)",
+      "keys": [
+        "waitMs"
+      ],
+      "reason": "a read's budget is one second for every read (proxy_providers.rs WAIT), not chosen per caller"
+    },
+    {
+      "side": "rust",
+      "case": "forced and short-budget reads do not join an older request or let it overwrite the fresh cache",
+      "keys": [
+        "log"
+      ],
+      "reason": "no per-read budget exists, so two unforced reads join one request (1, not Node's 2 more)"
+    },
+    {
+      "side": "node",
+      "case": "all built-in provider families and custom protocols use the same PC catalog and send path",
+      "keys": [
+        "developer"
+      ],
+      "reason": "recorded twice (golden cases 24 and 24b): the recorder gates the registry init and the credential probe on the stored Developer options through Node's own developerOptionEnabled / developerOptionForProvider (src/runtime/shared/developer-options.mjs), once with none stored (mimo-oauth, cursor-oauth, antigravity-oauth never admitted, authState absent) and once with the three on; both states are built from the core (the world's config carries the same developer section; the three sign-in files the real adapters need are the ones a login leaves) and compared whole"
+    },
+    {
+      "side": "node",
+      "case": "all built-in provider families and custom protocols use the same PC catalog and send path, with the Developer options on",
+      "keys": [
+        "developer"
+      ],
+      "reason": "recorded twice (golden cases 24 and 24b): the recorder gates the registry init and the credential probe on the stored Developer options through Node's own developerOptionEnabled / developerOptionForProvider (src/runtime/shared/developer-options.mjs), once with none stored (mimo-oauth, cursor-oauth, antigravity-oauth never admitted, authState absent) and once with the three on; both states are built from the core (the world's config carries the same developer section; the three sign-in files the real adapters need are the ones a login leaves) and compared whole"
+    },
+    {
+      "side": "rust",
+      "case": "all built-in provider families and custom protocols use the same PC catalog and send path",
+      "keys": [
+        "perProvider"
+      ],
+      "reason": "fixed in the core, compared whole: a custom provider on the anthropic protocol is an AnthropicProvider subclass in Node (custom-provider.mjs:162, registry.mjs:554 providerInputExcludesCache and model-proxy-host.ts:1202 read the instance's class); ProviderAdapter::input_excludes_cache (mixdog-core-api domain/provider.rs) is stated by HttpAdapter for that engine (registry/builder.rs build_custom_parts) and read first by the accounting (registry/accounted.rs) and the advertisement (model_proxy_pc.rs traits_of)"
+    },
+    {
+      "side": "rust",
+      "case": "all built-in provider families and custom protocols use the same PC catalog and send path, with the Developer options on",
+      "keys": [
+        "perProvider"
+      ],
+      "reason": "fixed in the core, compared whole: a custom provider on the anthropic protocol is an AnthropicProvider subclass in Node (custom-provider.mjs:162, registry.mjs:554 providerInputExcludesCache and model-proxy-host.ts:1202 read the instance's class); ProviderAdapter::input_excludes_cache (mixdog-core-api domain/provider.rs) is stated by HttpAdapter for that engine (registry/builder.rs build_custom_parts) and read first by the accounting (registry/accounted.rs) and the advertisement (model_proxy_pc.rs traits_of)"
+    },
+    {
+      "side": "rust",
+      "case": "all built-in provider families and custom protocols use the same PC catalog and send path",
+      "keys": [
+        "perProvider"
+      ],
+      "reason": "registered in the Rust registry as Node registers MixdogLocalProvider (registry.mjs:199): DefaultProviderBuilder builds mixdog_ai providers::local::RegisteredAdapter over the host's managed runtime (BuilderEnv::local), which starts the server on a send; its row of case 24 and case 28's localTraits are compared whole. Its getCachedModelInfo answers the installed model's row (LocalRuntime::installed_now, kept current by the provider's change signal; registry/builder.rs cached_model_info), replayed by mixdog-services local_provider/send_queue_replay_tests.rs"
+    },
+    {
+      "side": "rust",
+      "case": "all built-in provider families and custom protocols use the same PC catalog and send path, with the Developer options on",
+      "keys": [
+        "perProvider"
+      ],
+      "reason": "registered in the Rust registry as Node registers MixdogLocalProvider (registry.mjs:199): DefaultProviderBuilder builds mixdog_ai providers::local::RegisteredAdapter over the host's managed runtime (BuilderEnv::local), which starts the server on a send; its row of case 24 and case 28's localTraits are compared whole. Its getCachedModelInfo answers the installed model's row (LocalRuntime::installed_now, kept current by the provider's change signal; registry/builder.rs cached_model_info), replayed by mixdog-services local_provider/send_queue_replay_tests.rs"
+    },
+    {
+      "side": "rust",
+      "case": "a text-only adapter's image trait is advertised, so a remote read sends it OCR text",
+      "keys": [
+        "localTraits"
+      ],
+      "reason": "registered in the Rust registry as Node registers MixdogLocalProvider (registry.mjs:199): DefaultProviderBuilder builds mixdog_ai providers::local::RegisteredAdapter over the host's managed runtime (BuilderEnv::local), which starts the server on a send; its row of case 24 and case 28's localTraits are compared whole. Its getCachedModelInfo answers the installed model's row (LocalRuntime::installed_now, kept current by the provider's change signal; registry/builder.rs cached_model_info), replayed by mixdog-services local_provider/send_queue_replay_tests.rs"
+    },
+    {
+      "side": "rust",
+      "case": "all built-in provider families and custom protocols use the same PC catalog and send path",
+      "keys": [
+        "perProvider"
+      ],
+      "reason": "implemented by the adapters as Node's classes state it (compat adapter: the profile's first-byte window and retries over its retry ladder, compat/profile.rs ChatDialect::first_byte; antigravity: the model class's window over the antigravity ladder, google/adapter.rs first_response_budget; both through providers/first_byte.rs, stall-policy.mjs firstBytePolicyBudget, over the windows and ladder the environment sets (FirstByteSettings::from_env, replayed per environment, with Vertex AI Flex, by google/first_response_budget_tests.rs against the first-response-budgets set)) and compared whole in cases 24 and 24b (transportMs 2715000 / semanticMs 5280000 and 427000 / 847000); the agent watchdog's first-response floor (factory.rs:1086) reads the same figures"
+    },
+    {
+      "side": "rust",
+      "case": "all built-in provider families and custom protocols use the same PC catalog and send path, with the Developer options on",
+      "keys": [
+        "perProvider"
+      ],
+      "reason": "implemented by the adapters as Node's classes state it (compat adapter: the profile's first-byte window and retries over its retry ladder, compat/profile.rs ChatDialect::first_byte; antigravity: the model class's window over the antigravity ladder, google/adapter.rs first_response_budget; both through providers/first_byte.rs, stall-policy.mjs firstBytePolicyBudget, over the windows and ladder the environment sets (FirstByteSettings::from_env, replayed per environment, with Vertex AI Flex, by google/first_response_budget_tests.rs against the first-response-budgets set)) and compared whole in cases 24 and 24b (transportMs 2715000 / semanticMs 5280000 and 427000 / 847000); the agent watchdog's first-response floor (factory.rs:1086) reads the same figures"
+    }
+  ],
+  "open": []
 }
