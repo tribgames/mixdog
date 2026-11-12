@@ -125,12 +125,13 @@ fn catalogs_expose_agent_sessions_while_preserving_their_presentation_classifica
         same(&summary, expected, id);
         rows.push(summary);
     }
-    // the ordinary listing holds every row, agent-only ones included
-    let ordinary = recorded.get("ordinarySummaries").as_array();
-    assert_eq!(ordinary.len(), rows.len());
-    for (row, expected) in rows.iter().zip(ordinary) {
-        assert_eq!(row["id"], plain(expected.get("id")));
-        assert_eq!(row["visibility"], plain(expected.get("visibility")), "{}", row["id"]);
+    // the two rows the recording also holds by name: their listing entry, whole
+    let internal = recorded.get("internalVisibility");
+    for (name, id) in [("declaredChild", "declared-child"), ("legacyChild", "legacy-child")] {
+        let row = rows.iter().find(|r| r["id"] == id).expect("the listed row");
+        same(row, internal.get(name), name);
     }
     same(&rows[1], recorded.get("durableLegacyChild"), "the durable row of the legacy child");
+    // `records`, `indexFileWritten` and `workersFileWritten` are the scenario's inputs; the other outputs (ordinary, asynchronous and
+    // stored-session listings, workers, links, existence, transcript reads) are declared in the manifest's exclusions.
 }
