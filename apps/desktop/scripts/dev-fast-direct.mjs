@@ -847,6 +847,25 @@ async function main() {
     process.stdout.write(`${JSON.stringify(await currentPrebuilt(groups))}\n`);
     return;
   }
+  if (action === 'stamp-core-binary' || action === 'assert-core-binary') {
+    // A core built ahead (through any cargo target dir) is used by a deploy only while the sources it was built
+    // from are the sources now: its sidecar holds their fingerprint.
+    const root = resolve(args['source-root'] || repoRoot);
+    const binary = resolve(args.binary || '');
+    const { hash } = await fingerprint(coreInputs(root), root);
+    const sidecar = `${binary}.source-hash`;
+    if (action === 'stamp-core-binary') {
+      await writeFile(sidecar, `${hash}\n`);
+      process.stdout.write(`[fastdirect] stamped ${binary} with the core sources of ${root}\n`);
+      return;
+    }
+    const stamped = (await readFile(sidecar, 'utf8').catch(() => '')).trim();
+    if (stamped !== hash) {
+      throw new Error(`${binary} was not built from the core sources in ${root} (${stamped ? 'they changed since' : 'no .source-hash beside it'}); rebuild it`);
+    }
+    process.stdout.write(`[fastdirect] ${binary} matches the core sources\n`);
+    return;
+  }
   const plan = JSON.parse(await readFile(planPath, 'utf8'));
   if (action === 'assert-current') {
     const changed = changedPlanGroups(plan.groups, await currentGroups());
