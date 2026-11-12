@@ -252,3 +252,85 @@ test('daemon replacement keeps compatible channel clients live until handoff com
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('Remote ON survives a hard kill: the replacement restores the same session by itself', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-channel-crash-'));
+  const intentPath = join(dir, 'channel-remote-intent.json');
+  const transcriptPath = join(dir, 'session_crash.jsonl');
+  const first = createChannelTransport({ remoteIntentPath: intentPath, handleCall: async () => ({ ok: true }) });
+  const endpoint = await first.start();
+  const client = await post(endpoint, '/client/register', { leadPid: process.pid, cwd: dir, passive: true });
+  await post(endpoint, '/call', {
+    token: client.token,
+    name: 'activate_channel_bridge',
+    args: { active: true, sessionId: 'session_crash', transcriptPath },
+  });
+  // No stop(): a hard kill leaves only what is already on disk. The first
+  // transport is torn down after the replacement is checked.
+  const calls = [];
+  const replacement = createChannelTransport({
+    remoteIntentPath: intentPath,
+    handleCall: async (name, args) => {
+      calls.push({ name, args });
+      return { ok: true };
+    },
+  });
+  try {
+    assert.equal(replacement.remoteIntentSessionId, 'session_crash');
+    assert.equal(await replacement.restoreRemoteIntent(), true);
+    assert.equal(replacement.remoteSessionId, 'session_crash');
+    assert.equal(calls[0].args.transcriptPath, transcriptPath);
+  } finally {
+    await replacement.stop();
+    await first.stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('Remote OFF stays OFF across a replacement', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-channel-off-'));
+  const intentPath = join(dir, 'channel-remote-intent.json');
+  const transcriptPath = join(dir, 'session_off.jsonl');
+  const first = createChannelTransport({ remoteIntentPath: intentPath, handleCall: async () => ({ ok: true }) });
+  const endpoint = await first.start();
+  const client = await post(endpoint, '/client/register', { leadPid: process.pid, cwd: dir, passive: true });
+  const args = { sessionId: 'session_off', transcriptPath };
+  await post(endpoint, '/call', { token: client.token, name: 'activate_channel_bridge', args: { active: true, ...args } });
+  await post(endpoint, '/call', { token: client.token, name: 'activate_channel_bridge', args: { active: false, ...args } });
+  const calls = [];
+  const replacement = createChannelTransport({
+    remoteIntentPath: intentPath,
+    handleCall: async (name) => calls.push(name),
+  });
+  try {
+    assert.equal(replacement.remoteIntentSessionId, null);
+    assert.equal(await replacement.restoreRemoteIntent(), false);
+    assert.equal(replacement.remoteSessionId, null);
+    assert.equal(calls.length, 0);
+  } finally {
+    await replacement.stop();
+    await first.stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a restore whose session is gone declines once and drops the pin', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-channel-gone-'));
+  const intentPath = join(dir, 'channel-remote-intent.json');
+  writeIntent(intentPath, { sessionId: 'session_gone' });
+  const calls = [];
+  const transport = createChannelTransport({
+    remoteIntentPath: intentPath,
+    isSessionAvailable: () => false,
+    handleCall: async (name) => calls.push(name),
+  });
+  try {
+    assert.equal(await transport.restoreRemoteIntent(), false);
+    assert.equal(calls.length, 0);
+    assert.equal(transport.remoteSessionId, null);
+    assert.equal(createChannelTransport({ remoteIntentPath: intentPath, handleCall: async () => ({}) }).remoteIntentSessionId, null);
+  } finally {
+    await transport.stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

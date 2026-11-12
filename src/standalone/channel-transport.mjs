@@ -38,6 +38,9 @@ export function createChannelTransport({
   remoteIntentPath = null,
   onClientRegistered = null,
   onRemoteStateChange = null,
+  // (intent) => boolean|Promise<boolean>: false when the pinned session is gone,
+  // so a restore declines for a real reason instead of activating a ghost.
+  isSessionAvailable = null,
   agentBroker = null,
   // Asked before every register/call/agent dispatch; false answers 503 (the
   // daemon's owner lease is not held — daemon-owner.mjs).
@@ -84,6 +87,7 @@ export function createChannelTransport({
     remoteStatePath,
     remoteIntentPath,
     onRemoteStateChange,
+    isSessionAvailable,
   });
   const registry = createClientRegistry({
     state,

@@ -4069,6 +4069,7 @@
   "Remote Access…": "원격 액세스…",
   "Remote Browser Use connection is switching; input was not sent.": "원격 브라우저 유즈 연결을 전환하는 중이라 입력을 전달하지 못했습니다.",
   "Remote Browser Use did not apply the typed input.": "원격 브라우저 유즈에 입력한 내용이 반영되지 않았습니다.",
+  "Remote could not be turned back on because its session no longer exists. Turn it on again.": "세션이 더 이상 없어 원격을 다시 켜지 못했습니다. 다시 켜세요.",
   "Remote MCP server": "원격 MCP 서버",
   "Remote off": "원격 꺼짐",
   "Remote off for new task": "새 작업 원격 꺼짐",

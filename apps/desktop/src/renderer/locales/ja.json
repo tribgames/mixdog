@@ -4069,6 +4069,7 @@
   "Remote Access…": "リモートアクセス…",
   "Remote Browser Use connection is switching; input was not sent.": "Remote Browser Use の接続を切り替え中のため、入力は送信されませんでした。",
   "Remote Browser Use did not apply the typed input.": "入力したテキストが Remote Browser Use に反映されませんでした。",
+  "Remote could not be turned back on because its session no longer exists. Turn it on again.": "セッションが存在しないため、リモートを再度オンにできませんでした。もう一度オンにしてください。",
   "Remote MCP server": "リモート MCP サーバー",
   "Remote off": "リモート オフ",
   "Remote off for new task": "新しいタスクのリモート オフ",

@@ -45,7 +45,8 @@ await (await import('../runtime/shared/llm/system-proxy.mjs')).adoptSystemProxyA
 import { initRootAsyncContext } from '../runtime/shared/root-async-context.mjs';
 import os from 'node:os';
 import path from 'node:path';
-import { rmSync } from 'node:fs';
+import { existsSync, rmSync } from 'node:fs';
+import { raiseDesktopNotice } from '../runtime/shared/desktop-notice-host.mjs';
 import { fileURLToPath } from 'node:url';
 import { monitorEventLoopDelay, performance } from 'node:perf_hooks';
 import { writeJsonAtomicAsync, writeJsonAtomicSync } from '../runtime/shared/atomic-file.mjs';
@@ -177,6 +178,9 @@ let memoryRuntime = null;
 let transcriptPurgeUnregister = null;
 let agentDispatchBroker = null;
 let remoteSessionState = { enabled: false, sessionId: null };
+// Sessions a Remote restore found missing (their pin was dropped): the one
+// outcome the user is told about.
+const remoteSessionsGone = new Set();
 let shuttingDown = false;
 // Stops Mixy's heartbeat from scheduling; resolves when its running check ended.
 let stopHeartbeat = null;
@@ -887,6 +891,16 @@ function startPostgresInBackground() {
     .catch((error) => log(`postgres background start failed: ${error?.message || error}`));
 }
 
+function publishRemoteSessionState() {
+  const frame = {
+    type: 'remote-session-state',
+    enabled: remoteSessionState.enabled === true,
+    sessionId: remoteSessionState.sessionId ?? null,
+  };
+  localSessionBridge?.publish(frame);
+  sessionTransport?.broadcast(frame);
+}
+
 /** The channels front door: pointer-routed calls over HTTP+SSE. Creating the
  *  transport also wires the channels notification sink (session-bound
  *  notifications reach the session service, the rest fan out to channel
@@ -902,6 +916,12 @@ async function startChannelFrontDoor({ channelsRuntime, bootPhases }) {
     // the pinned session (nothing to restore) and every catalog reports Remote
     // disabled because no state ever reaches getRemoteSessionState().
     remoteIntentPath: remoteIntentPath(RUNTIME_ROOT),
+    isSessionAvailable: async (intent) => {
+      const { storedSessionExists } = await import('../runtime/agent/orchestrator/session/store-summary-reader.mjs');
+      const available = storedSessionExists(intent.sessionId) || existsSync(intent.transcriptPath);
+      if (!available) remoteSessionsGone.add(intent.sessionId);
+      return available;
+    },
     onRemoteStateChange: (state) => {
       remoteSessionState = {
         enabled: state?.enabled === true,
@@ -910,6 +930,9 @@ async function startChannelFrontDoor({ channelsRuntime, bootPhases }) {
         daemonPid: state?.daemonPid ?? process.pid,
         updatedAt: state?.updatedAt ?? Date.now(),
       };
+      // The catalog is only read on demand, so a restore that lands after the
+      // desktop's first read must be pushed or Remote looks OFF until a reload.
+      publishRemoteSessionState();
     },
     // Self-shutdown when the last attached TUI leaves (reuses the SSE/client
     // registry as the liveness signal).
@@ -1284,11 +1307,22 @@ async function main() {
   // durable intent AFTER the ready handshake (activation itself brings the
   // channel bridge up); with no intent on disk this is a no-op and the
   // channels graph stays dormant.
-  if (transport.remoteIntentSessionId) {
+  const sessionId = transport.remoteIntentSessionId;
+  if (sessionId) {
     void transport
       .restoreRemoteIntent()
       .then((restored) => {
-        if (!restored) log('remote intent restore declined (session unavailable)');
+        if (restored) return;
+        // A restore also ends false when the user switched Remote off meanwhile
+        // or the activation failed (logged where it failed, pin kept for the
+        // next start). Only a session found missing is told to the user, once:
+        // its pin was dropped.
+        if (!remoteSessionsGone.has(sessionId)) {
+          log('remote intent not restored (superseded or activation failed)');
+          return;
+        }
+        log('remote intent restore declined (session unavailable)');
+        raiseDesktopNotice(`remote-restore-declined:${sessionId}`, 'remote-restore-declined');
       })
       .catch((error) => log(`remote intent restore failed: ${error?.message || error}`));
   }

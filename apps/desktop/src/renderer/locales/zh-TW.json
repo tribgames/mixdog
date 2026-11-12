@@ -4069,6 +4069,7 @@
   "Remote Access…": "遠端存取…",
   "Remote Browser Use connection is switching; input was not sent.": "Remote Browser Use 連線正在切換；未傳送輸入。",
   "Remote Browser Use did not apply the typed input.": "Remote Browser Use 未套用輸入的文字。",
+  "Remote could not be turned back on because its session no longer exists. Turn it on again.": "由於其工作階段已不存在，無法重新開啟遠端。請重新開啟。",
   "Remote MCP server": "遠端 MCP 伺服器",
   "Remote off": "遠端關閉",
   "Remote off for new task": "新工作遠端關閉",

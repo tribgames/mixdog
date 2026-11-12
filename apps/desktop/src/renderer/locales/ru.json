@@ -4246,6 +4246,7 @@
   "Remote Access…": "Удаленный доступ…",
   "Remote Browser Use connection is switching; input was not sent.": "Подключение Remote Browser Use переключается; ввод не отправлен.",
   "Remote Browser Use did not apply the typed input.": "В Remote Browser Use не применился введенный текст.",
+  "Remote could not be turned back on because its session no longer exists. Turn it on again.": "Не удалось снова включить удаленный доступ, так как его сессия больше не существует. Включите его снова.",
   "Remote MCP server": "Удалённый MCP-сервер",
   "Remote off": "Удаленный доступ выключен",
   "Remote off for new task": "Удаленный доступ выключен для новой задачи",
