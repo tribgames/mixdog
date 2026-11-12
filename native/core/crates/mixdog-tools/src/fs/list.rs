@@ -1,4 +1,4 @@
-//! `list`: one directory level, paged, optional metadata columns (T §3.2).
+//! `list`: a directory's entries (one level, or `depth` levels), paged, optional metadata columns (T §3.2).
 
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
@@ -8,6 +8,7 @@ use mixdog_core_api::domain::common::AbsPath;
 use mixdog_core_api::domain::fs::DirEntry;
 use mixdog_core_api::domain::fs::EntryKind;
 use mixdog_core_api::domain::fs::FileStat;
+use mixdog_core_api::domain::fs::FsErrorKind;
 use mixdog_core_api::domain::fs::ReadRange;
 use mixdog_core_api::domain::tool::Tool;
 use mixdog_core_api::domain::tool::ToolContext;
@@ -57,6 +58,141 @@ fn type_name(kind: EntryKind) -> &'static str {
         EntryKind::Symlink => "symlink",
         EntryKind::Special => "other",
     }
+}
+
+/// `LIST_WALK_TIMEOUT_MS`: how long a walk of the folder may run before the listing is cut and says so.
+const WALK_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(20_000);
+
+/// A listing's rows (named by their path under the listed folder), whether a cap cut it (`truncatedByCap`) and the
+/// `[warning]` lines of the folders that could not be read.
+struct Rows {
+    rows: Vec<Row>,
+    truncated: bool,
+    warnings: Vec<String>,
+}
+
+/// `Math.min(Math.max(parseInt(args.depth ?? 1, 10) || 1, 1), 10)`: `parseInt` reads the text of whatever it is given (a
+/// number's, an array's elements joined) up to its first character that is no digit; no digits, or 0, is 1.
+fn list_depth(args: &JsonValue) -> usize {
+    fn parsed(value: &JsonValue) -> Option<i64> {
+        match value {
+            // A number's text is in exponent form past 21 digits and below 1e-6, where its first digit stands alone.
+            JsonValue::Number(n) => n.as_f64().filter(|f| *f == 0.0 || (1e-6..1e21).contains(&f.abs())).map(|f| f.trunc() as i64),
+            JsonValue::String(s) => {
+                let text = s.trim_start();
+                let (sign, digits) = match text.strip_prefix('-') {
+                    Some(rest) => (-1, rest),
+                    None => (1, text.strip_prefix('+').unwrap_or(text)),
+                };
+                let end = digits.find(|c: char| !c.is_ascii_digit()).unwrap_or(digits.len());
+                (end > 0).then(|| sign * digits[..end].parse::<i64>().unwrap_or(i64::MAX))
+            }
+            JsonValue::Array(items) => items.first().and_then(parsed),
+            _ => None,
+        }
+    }
+    args.get("depth").and_then(parsed).filter(|n| *n != 0).unwrap_or(1).clamp(1, 10) as usize
+}
+
+/// `NOISE_DIR_NAMES` as `walkDir` excludes them: a Windows name matches in any case.
+fn is_noise(name: &str) -> bool {
+    if cfg!(windows) {
+        NOISE_DIRS.iter().any(|noise| noise.eq_ignore_ascii_case(name))
+    } else {
+        NOISE_DIRS.contains(&name)
+    }
+}
+
+/// The entries `walkDir` visits in a folder: no dotted name unless `hidden`, no noise directory.
+fn visible(entries: Vec<DirEntry>, hidden: bool) -> Vec<DirEntry> {
+    entries
+        .into_iter()
+        .filter(|e| {
+            let Some(name) = e.path.as_path().file_name().map(|n| n.to_string_lossy()) else { return false };
+            (hidden || !name.starts_with('.')) && !(e.kind == EntryKind::Dir && is_noise(&name))
+        })
+        .collect()
+}
+
+/// `displayRelPath`: the entry's path under the listed folder, with forward slashes.
+fn row_under(root: &std::path::Path, entry: DirEntry) -> Row {
+    let name = fwd(entry.path.as_path().strip_prefix(root).unwrap_or(entry.path.as_path()));
+    Row { name, kind: entry.kind, path: entry.path }
+}
+
+/// `tryNativeDeepListRows`: a list below the first level asks the search server for every file and directory to `depth`
+/// (`rg --files --directories --max-depth`, no ignore file honoured, a dotted name only with `hidden`, nothing inside a
+/// noise directory, the directory itself listed), as a broad search: it takes its turn on the broad-search gate. `None`
+/// when the request was refused or ran past its budget, or the inventory was cut at the row cap: Node's own walk then
+/// answers.
+async fn native_rows(ctx: &ToolContext, abs: &AbsPath, depth: usize, hidden: bool) -> Result<Option<Vec<Row>>, ToolError> {
+    let root = abs.as_path().to_path_buf();
+    let keep = |entry: &DirEntry| {
+        let Ok(rel) = entry.path.as_path().strip_prefix(&root) else { return false };
+        let parts: Vec<_> = rel.components().map(|c| c.as_os_str().to_string_lossy()).collect();
+        !parts.is_empty()
+            && parts.len() <= depth
+            && (hidden || parts.iter().all(|p| !p.starts_with('.')))
+            && !parts[..parts.len() - 1].iter().any(|p| NOISE_DIRS.iter().any(|noise| *noise == &**p))
+    };
+    match super::search::broad_listing(ctx, abs, keep, ABSOLUTE_CAP).await {
+        Ok(walked) if walked.complete && !walked.capped => {
+            Ok(Some(walked.entries.into_iter().map(|entry| row_under(abs.as_path(), entry)).collect()))
+        }
+        Err(e) if matches!(e.code, mixdog_core_api::domain::tool::ToolErrorCode::Cancelled) => Err(e),
+        _ => Ok(None),
+    }
+}
+
+/// `walkDir`'s code for a folder it could not read, as `directoryReadFailureLine` words it.
+fn readdir_code(kind: &FsErrorKind) -> &'static str {
+    match kind {
+        FsErrorKind::NotFound => "ENOENT",
+        FsErrorKind::NotADirectory => "ENOTDIR",
+        FsErrorKind::PermissionDenied => "EACCES",
+        _ => "UNKNOWN",
+    }
+}
+
+/// `collectListRows`: the native inventory when it can serve a deep list, else a depth-first walk of the folder, cut at
+/// 50,000 rows or 20 s.
+async fn collect_rows(ctx: &ToolContext, abs: &AbsPath, raw: &str, depth: usize, hidden: bool) -> Result<Rows, ToolError> {
+    if depth > 1 {
+        if let Some(rows) = native_rows(ctx, abs, depth, hidden).await? {
+            return Ok(Rows { rows, truncated: false, warnings: Vec::new() });
+        }
+    }
+    let started = mixdog_rt::time::Instant::now();
+    let mut out = Rows { rows: Vec::new(), truncated: false, warnings: Vec::new() };
+    let root = match guarded(ctx, "list", ctx.files.list_dir(ctx.io.interactive, abs.clone())).await? {
+        Ok(entries) => entries,
+        Err(e) => return Err(fs_failure(&e, raw)),
+    };
+    // One level of the walk per stack entry: its entries still to visit, each followed by what lies below it.
+    let mut stack = vec![visible(root, hidden).into_iter()];
+    while let Some(level) = stack.last_mut() {
+        let Some(entry) = level.next() else {
+            stack.pop();
+            continue;
+        };
+        if started.elapsed() > WALK_TIMEOUT {
+            out.truncated = true;
+            break;
+        }
+        let below = (entry.kind == EntryKind::Dir && stack.len() < depth).then(|| entry.path.clone());
+        out.rows.push(row_under(abs.as_path(), entry));
+        if out.rows.len() >= ABSOLUTE_CAP {
+            out.truncated = true;
+            break;
+        }
+        if let Some(dir) = below {
+            match guarded(ctx, "list", ctx.files.list_dir(ctx.io.interactive, dir.clone())).await? {
+                Ok(children) => stack.push(visible(children, hidden).into_iter()),
+                Err(e) => out.warnings.push(format!("[warning] readdir failed ({}): {}", readdir_code(&e.kind), fwd(dir.as_path()))),
+            }
+        }
+    }
+    Ok(out)
 }
 
 /// `YYYY-MM-DDTHH:MM:SSZ` of a system time (UTC, second precision).
@@ -166,29 +302,17 @@ impl Tool for ListTool {
             let suffix = if meta { meta_suffix(ctx, &abs, Some(stat)).await } else { String::new() };
             return Ok(text_output(format!("{}\tfile{suffix}", fwd(abs.as_path()))));
         }
-        let entries: Vec<DirEntry> =
-            match guarded(ctx, "list", ctx.files.list_dir(ctx.io.interactive, abs.clone())).await? {
-                Ok(e) => e,
-                Err(e) => return Err(fs_failure(&e, raw)),
-            };
-        let mut rows: Vec<Row> = entries
-            .into_iter()
-            .filter_map(|e| {
-                let name = e.path.as_path().file_name()?.to_string_lossy().into_owned();
-                Some(Row { name, kind: e.kind, path: e.path })
-            })
-            .filter(|r| hidden || !r.name.starts_with('.'))
-            .filter(|r| !(r.kind == EntryKind::Dir && NOISE_DIRS.contains(&r.name.as_str())))
-            .collect();
-        rows.sort_by(|a, b| compare_names(&a.name, &b.name));
-        rows.truncate(ABSOLUTE_CAP);
+        let depth = list_depth(&args);
+        let Rows { mut rows, truncated, warnings } = collect_rows(ctx, &abs, raw, depth, hidden).await?;
+        // `sortListRows`: by path in the locale's order, ties by code units.
+        rows.sort_by(|a, b| mixdog_js::locale_compare(&a.name, &b.name).then_with(|| a.name.cmp(&b.name)));
         // Node's `recordDirectoryWalkTelemetry` (`list-tool.mjs:61`): the walk's entries after the hidden and noise
         // filters, up to the cap; the trace row's `payload.integrity`.
         let integrity = serde_json::json!({
             "kind": "directory-walk",
-            "status": if rows.is_empty() { "empty" } else { "complete" },
+            "status": if !warnings.is_empty() { "partial" } else if rows.is_empty() { "empty" } else { "complete" },
             "entriesVisited": rows.len(),
-            "warnings": 0,
+            "warnings": warnings.len(),
         });
         let text_output = |text: String| {
             let mut output = text_output(text);
@@ -216,6 +340,15 @@ impl Tool for ListTool {
                 None,
             ));
         }
+        if truncated {
+            lines.push(cap_marker(
+                &format!("{ABSOLUTE_CAP} rows or {}ms", WALK_TIMEOUT.as_millis()),
+                "listing incomplete",
+                None,
+                "narrow the path or lower depth",
+            ));
+        }
+        lines.extend(warnings);
         if lines.is_empty() {
             return Ok(text_output(empty_message(ctx, &abs, raw, offset, total, hidden).await));
         }
