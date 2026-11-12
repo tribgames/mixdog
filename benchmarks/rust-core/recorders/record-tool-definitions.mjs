@@ -21,16 +21,28 @@ const sandbox = mkdtempSync(join(tmpdir(), 'tool-definitions-'));
 for (const key of ['MIXDOG_DATA_DIR', 'MIXDOG_HOME', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA']) process.env[key] = sandbox;
 process.env.MIXDOG_SKIP_USER_DATA_BACKUP = '1';
 process.env.TZ = 'UTC';
-const { FIXTURES_ROOT, commitStage, parseArgs, productIdentity, resolveTree, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
+const { FIXTURES_ROOT, commitStage, nodeTreeIdentity, parseArgs, productIdentity, resolveTree, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
 const { toolDefinitionsFixture } = await import('./lib/tool-definitions.mjs');
+const { recorderProvenance } = await import('./lib/provenance.mjs');
 
-const tree = resolveTree(parseArgs());
+// `--patch <file>`: the tree is the reference commit with that Node fix applied (a clear Node bug fixed on both sides);
+// the manifest names the fix.
+const BASE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
+const args = parseArgs();
+const tree = resolveTree(args);
 const finalDir = join(FIXTURES_ROOT, 'tool-definitions');
 const stage = stageSet(finalDir);
 const recorder = 'benchmarks/rust-core/recorders/record-tool-definitions.mjs';
-const identity = productIdentity(tree);
+const patched = args.get('patch');
+const identity = patched ? nodeTreeIdentity(args, tree, BASE_COMMIT) : productIdentity(tree);
 const fixture = await toolDefinitionsFixture(tree, { srcSha256: identity.srcSha256 });
 writeJson(join(stage, 'definitions.json'), fixture);
-writeSetManifest(stage, { set: 'tool-definitions', recorder, command: 'node ' + recorder + ' --tree <tree>', identityTree: tree });
+writeSetManifest(stage, {
+  set: 'tool-definitions',
+  recorder,
+  command: `node ${recorder} --tree <tree>${patched ? ` --patch ${identity.patch.file}` : ''}`,
+  ...(patched ? { identity } : { identityTree: tree }),
+  extra: recorderProvenance(import.meta.url),
+});
 commitStage(stage, finalDir);
 console.log(`tool definitions: ${Object.keys(fixture.definitions).length} entries`);

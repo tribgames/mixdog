@@ -68,7 +68,7 @@
     {
       "$tool": "agent",
       "variant": "internal",
-      "hash": "edf17a67c3d7d675"
+      "hash": "ac4b8ff47222b0b9"
     },
     {
       "$tool": "ask_user",
