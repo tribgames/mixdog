@@ -804,7 +804,9 @@ async fn the_listener_routes_gets_and_posts_and_walks_past_a_busy_port() {
     let busy_port = busy.local_addr().unwrap().port();
     let service = Arc::new(WebhookService::new(f.store.clone(), f.dispatched.clone(), WebhookConfig::default(), f.work.clone(), Arc::new(|| 0)));
     let listener = WebhookListener::start(service, busy_port).await.unwrap();
-    assert!((busy_port + 1..=busy_port + 7).contains(&listener.port()), "walked up from the busy port");
+    // The system's free port may be one of the last seven: the sum is taken wide.
+    let (busy_port, bound) = (u32::from(busy_port), u32::from(listener.port()));
+    assert!((busy_port + 1..=busy_port + 7).contains(&bound), "walked up from the busy port");
     assert_eq!(f.work.count(), 1, "a listening server is running work");
 
     assert_eq!(exchange(listener.port(), &[b"GET / HTTP/1.1\r\nHost: x\r\n\r\n"]).await, (200, "OK".into()));

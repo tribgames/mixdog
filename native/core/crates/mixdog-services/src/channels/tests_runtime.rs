@@ -1671,8 +1671,25 @@ async fn deliver(port: u16, rec: &Value) -> Value {
         return json!({"error": error.to_string()});
     }
     let status: u16 = reply[9..12].parse().unwrap();
-    let (_, text) = reply.split_once("\r\n\r\n").unwrap();
-    json!({"status": status, "body": serde_json::from_str::<Value>(text).unwrap()})
+    let (head, text) = reply.split_once("\r\n\r\n").unwrap();
+    // The listener frames a reply as Node's server does: chunked on HTTP/1.1.
+    let chunked = head.lines().any(|line| line.to_ascii_lowercase().replace(' ', "") == "transfer-encoding:chunked");
+    let body = if chunked { dechunked(text) } else { text.to_owned() };
+    json!({"status": status, "body": serde_json::from_str::<Value>(&body).unwrap_or_else(|error| panic!("the reply's body is not JSON ({error}): {body:?}"))})
+}
+
+/// The body of a whole chunked message: each chunk's bytes, up to the zero chunk that ends it.
+fn dechunked(mut rest: &str) -> String {
+    let mut body = String::new();
+    loop {
+        let (size, after) = rest.split_once("\r\n").unwrap_or_else(|| panic!("a chunk size line: {rest:?}"));
+        let size = usize::from_str_radix(size.trim(), 16).unwrap_or_else(|_| panic!("a hex chunk size: {size:?}"));
+        if size == 0 {
+            return body;
+        }
+        body.push_str(&after[..size]);
+        rest = after[size..].strip_prefix("\r\n").unwrap_or_else(|| panic!("a chunk ends with CRLF: {:?}", &after[size..]));
+    }
 }
 
 /// The recording of Node b6f10295a with `node-patches/node-fix-webhook-late-reload.patch`
