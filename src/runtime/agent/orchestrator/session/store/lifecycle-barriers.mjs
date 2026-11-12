@@ -23,7 +23,7 @@ import { takePendingWrite } from './pending-writes.mjs';
 import { _runtimeLivenessVeto } from './liveness-veto.mjs';
 import { loadSession } from './load-session.mjs';
 import { claimSessionWriter, releaseSessionWriter, sessionWriterRefusalError } from './session-writer-claim.mjs';
-import { endTenureAtBarrier, finishRecorder, recorderFor } from './session-writers.mjs';
+import { abandonRecorder, endTenureAtBarrier, recorderFor } from './session-writers.mjs';
 import { inSessionOrder } from './session-sequence.mjs';
 import { sessionRecordStampSync } from './session-log-reader.mjs';
 import { sessionLogRecordPath, sessionRecordPath } from './session-paths.mjs';
@@ -179,11 +179,11 @@ async function _runBarrier(id, reason, options, barrier) {
   } catch (err) {
     // The barrier did NOT land: no tombstone, no generation bump fencing a
     // late save. Its records must never ride a later batch, so the recorder
-    // goes with them; the next write reopens the log as it is on disk. The
-    // live snapshot stays pinned and the cause is published so closeSession
-    // refuses to report success.
-    recorder.discard(err);
-    await finishRecorder(id, { discard: true });
+    // goes with them and the log is cut back to what was acknowledged; the
+    // next write reopens it there. The live snapshot stays pinned (its
+    // unrecorded turns are that write's) and the cause is published so
+    // closeSession refuses to report success.
+    await abandonRecorder(id, err);
     _recordSaveFailure(id, err);
     _recordLifecycleCommitFailure(id, err, reason);
     return null;

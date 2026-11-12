@@ -17,6 +17,7 @@ import {
 } from '../../../runtime/shared/background-tasks.mjs';
 import { renderAgentCompletionEnvelope } from '../../../runtime/shared/task-notification-envelope.mjs';
 import { modelVisibleToolCompletionMessage } from '../../../runtime/shared/tool-execution-contract.mjs';
+import { runInPacedBatches } from '../../../runtime/shared/paced-batches.mjs';
 import { clean } from './helpers.mjs';
 
 const RESTART_FAILURE_ERROR = 'process restart: the daemon restarted while this agent task was running';
@@ -101,13 +102,25 @@ export function createRestartFailureNotifier({
     acknowledgeBackgroundTaskCompletion(taskId);
   }
 
+  // The notifications this process has queued and not yet seen land in the
+  // spool. A pass that finds one here waits for the spool again and queues
+  // nothing: the owner may have taken the entry meanwhile, and the queue only
+  // knows an id while it holds it, so queued again it was delivered again —
+  // 19 lost agents told to their owner every five seconds for as long as the
+  // spool stayed slower than the settle bound (2026-11-12).
+  const queued = new Set();
+
   async function notifyRow(row) {
     const { owner, text, meta, entry } = enqueueDurably(row);
-    if (!(mgr.enqueuePendingMessage(owner, entry) > 0)) throw new Error(`restart notification refused for ${owner}`);
+    if (!queued.has(meta.execution_id)) {
+      if (!(mgr.enqueuePendingMessage(owner, entry) > 0)) throw new Error(`restart notification refused for ${owner}`);
+      queued.add(meta.execution_id);
+    }
     if (!(await mgr.settlePendingMessageWrites({ timeoutMs: SETTLE_TIMEOUT_MS }))) {
       throw new Error(`restart notification for ${owner} did not reach the spool`);
     }
     markRestartNotified([row]);
+    queued.delete(meta.execution_id);
     try {
       registerFailedTask(row);
     } catch {
@@ -123,14 +136,20 @@ export function createRestartFailureNotifier({
 
   let inFlight = null;
   async function run() {
-    for (const row of pendingRestartFailures()) {
-      try {
-        await notifyRow(row);
-      } catch (err) {
-        // Not stamped: the next pass or restart retries this row.
-        process.stderr.write(`[agent-tool] restart notification retry pending: ${err?.message || err}\n`);
-      }
-    }
+    // One row per turn of the loop at most: a restart that ended twenty agents
+    // queues their results in a paced sequence (rows stay in order).
+    await runInPacedBatches(
+      pendingRestartFailures(),
+      async (row) => {
+        try {
+          await notifyRow(row);
+        } catch (err) {
+          // Not stamped: the next pass or restart retries this row.
+          process.stderr.write(`[agent-tool] restart notification retry pending: ${err?.message || err}\n`);
+        }
+      },
+      { batchSize: 1 }
+    );
   }
 
   return function notifyRestartFailures() {

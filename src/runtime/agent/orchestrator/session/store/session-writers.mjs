@@ -35,6 +35,7 @@ import {
   convertLegacySession,
   createSessionLog,
   openSessionLog,
+  resumeSessionLog,
   setAsideSessionLog,
 } from './session-log-writer.mjs';
 import { legacyJsonPresentSync } from './session-log-reader.mjs';
@@ -42,6 +43,7 @@ import { TRANSIENT_SESSION_KEYS, _messageForDisk, _sessionHeaderForDisk } from '
 import { loadLegacySession } from './legacy-session.mjs';
 import { redactSensitiveText, sensitiveValuesVersion } from '../sensitive-values.mjs';
 import { redactSensitiveMessage } from '../sensitive-projection.mjs';
+import { storedHistoryStoreFailures } from '../../providers/media-normalization.mjs';
 
 const _recorders = new Map(); // id → SessionLogRecorder
 const _bindings = new WeakMap(); // loaded session → { log | legacy, messages, released? }
@@ -58,6 +60,26 @@ const _barrierEnds = new Map();
 // evicted: a forgotten identity would refuse that copy.
 const _deletedLogIds = new Set();
 const _deletedJsons = new Set();
+// id → what the recorder of a tenure that ended here knew of its log
+// (SessionLogRecorder.left): the next tenure opens the log from it instead of
+// replaying it, while the file is still the one that recorder closed. Taken
+// when used; the oldest go first. Losing one costs a replay, nothing else.
+const _left = new Map();
+const LEFT_LIMIT = 512;
+
+function keepLeft(id, left) {
+  _left.delete(id);
+  if (!left) return;
+  _left.set(id, left);
+  while (_left.size > LEFT_LIMIT) _left.delete(_left.keys().next().value);
+}
+
+// The recorder of `id` on the log its last tenure here left, or null.
+function resumed(id, logPath, options) {
+  const left = _left.get(id);
+  _left.delete(id);
+  return left ? resumeSessionLog({ logPath, left, ...options }) : null;
+}
 
 /** Records what a loaded copy came from (`outcome`: the seam's resolution). */
 export function bindLoadedSession(session, outcome) {
@@ -84,11 +106,23 @@ function claimOf(id) {
 }
 
 function recorderOptions(id) {
+  // Projections of this recorder that stored a part as a placeholder because
+  // the attachment store refused it: the store may take the part the next
+  // time, so the tenure they happened in is not one to take up from.
+  let refused = 0;
   return {
     claim: claimOf(id),
     transientKeys: TRANSIENT_SESSION_KEYS,
     projectHeader: _sessionHeaderForDisk,
-    projectMessage: (message) => _messageForDisk(message, id),
+    projectMessage: (message) => {
+      const before = storedHistoryStoreFailures();
+      const stored = _messageForDisk(message, id);
+      if (storedHistoryStoreFailures() !== before) refused += 1;
+      return stored;
+    },
+    // Everything a message's stored form depends on besides the message: the
+    // session's sensitive values, and whether the store took its parts.
+    projectionKey: () => `${sensitiveValuesVersion(id)}:${refused}`,
   };
 }
 
@@ -148,7 +182,7 @@ function openRecorder(session, claimedNow) {
   let recorder = null;
   if (existsSync(logPath)) {
     try {
-      recorder = openSessionLog({ logPath, ...options });
+      recorder = resumed(id, logPath, options) ?? openSessionLog({ logPath, ...options });
     } catch (err) {
       if (err?.code !== SESSION_LOG_ERRORS.INVALID) throw err;
       // Not a log of ours: kept whole beside the record, which then reads as
@@ -207,12 +241,16 @@ function retireRecorder(id, recorder) {
   _recorders.delete(id);
   const copy = _lastCopies.get(id);
   _lastCopies.delete(id);
-  const { logId, seq } = recorder.acked;
-  const landed = seq === recorder.seq;
   if (!recorder.finished) recorder.discard(changed(id));
   // Its file closes once a write already in flight (a claim lost mid-batch) ended.
   void recorder.close().catch(() => {});
-  if (copy) _bindings.set(copy, { log: { logId, seq }, messages: landed ? recorder.recordedMessages() : null });
+  if (copy) bindToAckedEnd(copy, recorder);
+}
+
+// `copy` is bound to where `recorder` left the log: what it acknowledged.
+function bindToAckedEnd(copy, recorder) {
+  const { logId, seq } = recorder.acked;
+  _bindings.set(copy, { log: { logId, seq }, messages: seq === recorder.seq ? recorder.recordedMessages() : null });
 }
 
 /**
@@ -285,6 +323,7 @@ export async function forgetDeletedRecorder(id, { logId = null, jsonSha1 = null 
   if (logId) _deletedLogIds.add(logId);
   if (jsonSha1) _deletedJsons.add(jsonSha1);
   _barrierEnds.delete(id);
+  _left.delete(id);
   const recorder = _recorders.get(id);
   const copy = _lastCopies.get(id);
   _lastCopies.delete(id);
@@ -372,19 +411,19 @@ export function hasUnackedRecords(id) {
   return openRecorderOf(id)?.pending === true;
 }
 
-/** Ends `id`'s recorder: its queue lands (unless `discard`), then the file
- *  closes. Resolves once nothing of it is in flight. */
-export async function finishRecorder(id, { discard = false } = {}) {
+/** Ends `id`'s recorder: its queue lands, then the file closes. Resolves once
+ *  nothing of it is in flight. */
+export async function finishRecorder(id) {
   const recorder = _recorders.get(id);
   const copy = _lastCopies.get(id);
   _lastCopies.delete(id);
   if (!recorder) return;
   _recorders.delete(id);
-  if (discard) recorder.discard();
   const closed = await recorder.close().then(
     () => true,
     () => false
   );
+  keepLeft(id, closed ? recorder.left : null);
   // The copy this tenure wrote is bound to where the log stands now: once
   // another process writes the session, a later save of it is refused
   // (ESESSIONCHANGED) instead of being recorded over that process's records.
@@ -392,13 +431,42 @@ export async function finishRecorder(id, { discard = false } = {}) {
   const atBarrier = end?.logId === recorder.logId;
   // Records queued behind the barrier landed with it: the tenure ends after them.
   if (atBarrier && closed) _barrierEnds.set(id, { logId: recorder.logId, seq: recorder.seq });
-  if (closed && copy && !discard) {
+  if (closed && copy) {
     _bindings.set(copy, {
       log: { logId: recorder.logId, seq: recorder.seq },
-      messages: recorder.recordedMessages(),
+      // Its messages are the recorded ones only while they are stored as they
+      // would be now: otherwise the next tenure compares them with the log.
+      messages: recorder.projectionHeld ? recorder.recordedMessages() : null,
       released: atBarrier,
     });
   }
+}
+
+/**
+ * A close/detach barrier of `id` did not land (`reason`): nothing it or the
+ * queue behind it holds lands, and the log is cut back to what was
+ * acknowledged, so it holds the state this process reports for it. The copy
+ * the tenure wrote is bound to that end: its unrecorded turns are the next
+ * save's to record, and the log is still where the copy's binding expects it.
+ * Resolves once nothing of the recorder is in flight.
+ */
+export async function abandonRecorder(id, reason) {
+  const recorder = _recorders.get(id);
+  const copy = _lastCopies.get(id);
+  _lastCopies.delete(id);
+  if (!recorder) return;
+  _recorders.delete(id);
+  try {
+    recorder.discardToAcked(reason);
+  } catch (err) {
+    // The log may hold bytes this process reported as failed: the copy keeps
+    // its binding, so nothing is recorded on top of them.
+    process.stderr.write(`[session-store] ${id}: log not cut back after a failed barrier: ${err?.message || err}\n`);
+    await recorder.close().catch(() => {});
+    return;
+  }
+  await recorder.close().catch(() => {});
+  if (copy) bindToAckedEnd(copy, recorder);
 }
 
 /** Process exit: every recorder writes what it holds, synchronously. */

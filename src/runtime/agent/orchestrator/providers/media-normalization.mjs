@@ -781,11 +781,21 @@ const storedImageParts = new WeakMap();
 // transient disk error must not pin the placeholder) and the live part is never
 // touched, so provider lowering keeps sending the real bytes.
 const loggedStoreFailures = new Set();
+let storeFailures = 0;
+
+/** How many parts this process has stored as a placeholder because the store
+ *  refused them. A projection during which it moved is not final: the same
+ *  message may be stored differently the next time (the session log does not
+ *  take such a message for recorded without storing it again). */
+export function storedHistoryStoreFailures() {
+  return storeFailures;
+}
 
 function storeOrNull(store, part) {
   try {
     return store(part);
   } catch (error) {
+    storeFailures += 1;
     const key = `${part?.type}:${error?.message || error}`;
     if (!loggedStoreFailures.has(key)) {
       loggedStoreFailures.add(key);

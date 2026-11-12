@@ -110,6 +110,35 @@ async function cleanup(owner) {
   cleanupBackgroundTasks({ force: true, surface: 'agent' });
 }
 
+test('a restart that lost many agents queues their results one row per loop turn, in order', async () => {
+  const keys = Array.from({ length: 6 }, (_, i) => `many_${i}`);
+  const { dataDir, owner } = scenario(
+    Object.fromEntries(keys.map((key) => [key, { task_id: `task_agent_send_${key}` }]))
+  );
+  let turn = 0;
+  let spinning = true;
+  setImmediate(function tick() {
+    turn += 1;
+    if (spinning) setImmediate(tick);
+  });
+  const queuedOn = [];
+  try {
+    const mgr = {
+      ...realMgr,
+      enqueuePendingMessage: (...args) => {
+        queuedOn.push(turn);
+        return realMgr.enqueuePendingMessage(...args);
+      },
+    };
+    const { notify, live } = boot(dataDir, { mgr });
+    await notify();
+    assert.equal(live.length, keys.length);
+    assert.equal(new Set(queuedOn).size, keys.length, `each row on its own turn: ${queuedOn}`);
+  } finally {
+    spinning = false;
+    await cleanup(owner);
+  }
+});
 test('a running send task lost to a restart tells its owner once, under its own task id', async () => {
   const { dataDir, owner } = scenario({ mockup: { task_id: 'task_agent_send_1p' } });
   try {
@@ -207,6 +236,32 @@ test('an enqueue that throws, is refused or does not reach the spool leaves the 
       'restart:task_agent_retry_a',
       'restart:task_agent_retry_b',
     ]);
+  } finally {
+    await cleanup(owner);
+  }
+});
+
+test('a notification its owner took before its spool write was seen to land is not queued again by the next pass', async () => {
+  const { dataDir, owner } = scenario({ a: { task_id: 'task_agent_taken_a' } });
+  try {
+    let settles = 0;
+    const slowSpool = {
+      ...realMgr,
+      // The first pass gives up waiting for the spool; the write itself goes on.
+      settlePendingMessageWrites: async (options) =>
+        ++settles === 1 ? false : realMgr.settlePendingMessageWrites(options),
+    };
+    const daemon = boot(dataDir, { mgr: slowSpool });
+    await daemon.notify();
+    assert.equal(daemon.index.pendingRestartFailures().length, 1, 'not stamped: the spool write was not seen');
+    // The owner's turn takes what is queued for it.
+    assert.deepEqual(
+      (await drainOwner(owner)).map((entry) => entry.executionId),
+      ['restart:task_agent_taken_a']
+    );
+    await daemon.notify();
+    assert.equal(daemon.index.pendingRestartFailures().length, 0);
+    assert.deepEqual(await drainOwner(owner), [], 'the owner was told once');
   } finally {
     await cleanup(owner);
   }
