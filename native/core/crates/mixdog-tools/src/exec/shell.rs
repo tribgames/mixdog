@@ -131,7 +131,7 @@ fn background_message(reason: PromotionReason, elapsed_ms: u64) -> String {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Args {
+pub(super) struct Args {
     command: String,
     cwd: Option<String>,
     timeout_ms: Option<u64>,
@@ -216,8 +216,12 @@ fn text_output(text: String) -> ToolOutput {
     ToolOutput { parts: vec![ToolPart::Text(text)], ..ToolOutput::default() }
 }
 
+fn process_env(name: &str) -> Option<String> {
+    std::env::var(name).ok()
+}
+
 /// How long the call holds (`planShellDeadlines`); 0 means it never moves to the background.
-fn hold_ms(args: &Args, timeout_ms: u64, background_enabled: bool) -> u64 {
+pub(super) fn hold_ms(args: &Args, timeout_ms: u64, background_enabled: bool, env: &dyn Fn(&str) -> Option<String>) -> u64 {
     if !background_enabled {
         return 0;
     }
@@ -226,8 +230,7 @@ fn hold_ms(args: &Args, timeout_ms: u64, background_enabled: bool) -> u64 {
     } else if let Some(wait) = args.wait_ms.filter(|w| *w > 0) {
         wait.clamp(SHELL_HOLD_MIN_MS, SHELL_HOLD_MAX_MS)
     } else {
-        std::env::var("MIXDOG_SHELL_AUTO_BACKGROUND_MS")
-            .ok()
+        env("MIXDOG_SHELL_AUTO_BACKGROUND_MS")
             .filter(|raw| !mixdog_js::js_trim(raw).is_empty())
             .map(|raw| mixdog_js::string_to_number(&raw))
             .filter(|n| n.is_finite() && *n >= 0.0)
@@ -244,9 +247,8 @@ fn hold_ms(args: &Args, timeout_ms: u64, background_enabled: bool) -> u64 {
 
 /// The foreground window a run limit longer than it is cut to (`BASH_MAX_TIMEOUT_MS`, else 120 s),
 /// never shorter than the hold.
-fn foreground_cap_ms(hold: u64) -> u64 {
-    let configured = std::env::var("BASH_MAX_TIMEOUT_MS")
-        .ok()
+pub(super) fn foreground_cap_ms(hold: u64, env: &dyn Fn(&str) -> Option<String>) -> u64 {
+    let configured = env("BASH_MAX_TIMEOUT_MS")
         .and_then(|raw| parse_int_prefix(&raw))
         .filter(|n| *n > 0)
         .map_or(120_000, |n| n as u64);
@@ -255,15 +257,14 @@ fn foreground_cap_ms(hold: u64) -> u64 {
 
 /// The run limit: an explicit `timeout_ms`, else the background safety net
 /// `MIXDOG_SHELL_BACKGROUND_MAX_MS`, else none.
-fn time_limit_ms(args: &Args, background_enabled: bool) -> u64 {
+pub(super) fn time_limit_ms(args: &Args, background_enabled: bool, env: &dyn Fn(&str) -> Option<String>) -> u64 {
     if let Some(t) = args.timeout_ms.filter(|t| *t > 0) {
         return t.min(TIMER_MAX_MS);
     }
     if !background_enabled {
         return 0;
     }
-    std::env::var("MIXDOG_SHELL_BACKGROUND_MAX_MS")
-        .ok()
+    env("MIXDOG_SHELL_BACKGROUND_MAX_MS")
         .map(|raw| mixdog_js::string_to_number(&raw))
         .filter(|n| n.is_finite() && *n > 0.0)
         .map_or(0, |n| (n.floor() as u64).min(TIMER_MAX_MS))
@@ -710,11 +711,11 @@ impl ShellTool {
             }
         }
         let background_enabled = !env_flag("MIXDOG_SHELL_DISABLE_BACKGROUND_TASKS", false);
-        let mut time_limit = time_limit_ms(&args, background_enabled);
+        let mut time_limit = time_limit_ms(&args, background_enabled, &process_env);
         if hard_cap > 0 {
             time_limit = args.timeout_ms.filter(|t| *t > 0).map_or(hard_cap, |t| t.min(hard_cap));
         }
-        let hold = hold_ms(&args, time_limit, background_enabled);
+        let hold = hold_ms(&args, time_limit, background_enabled, &process_env);
 
         let scratch = runtime
             .config
@@ -927,7 +928,7 @@ impl ShellTool {
                 () = hold_timer => {
                     reason = if args.background == Some(true) {
                         PromotionReason::Background
-                    } else if time_limit > foreground_cap_ms(hold) && hold == foreground_cap_ms(hold) {
+                    } else if time_limit > foreground_cap_ms(hold, &process_env) && hold == foreground_cap_ms(hold, &process_env) {
                         PromotionReason::Timeout
                     } else {
                         PromotionReason::Threshold

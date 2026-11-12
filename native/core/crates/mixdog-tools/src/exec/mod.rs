@@ -70,4 +70,7 @@ pub(crate) const KILL_VERIFY: Duration = Duration::from_secs(5);
 mod tests;
 
 #[cfg(test)]
+mod node_cases;
+
+#[cfg(test)]
 mod prefilter_tests;
