@@ -59,14 +59,14 @@ impl StoredCredentials {
 /// A fixed credential (an environment-provided token, tests).
 pub struct StaticSessionToken {
     credentials: StoredCredentials,
-    /// Which provider instance holds it: a token with no identity is told apart from another instance's by this.
-    instance: u64,
+    /// The provider instance the token is configured under: a token with no identity is told apart from another
+    /// instance's by this.
+    instance: String,
 }
 
 impl StaticSessionToken {
-    pub fn new(credentials: StoredCredentials) -> Self {
-        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        Self { credentials, instance: NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) }
+    pub fn new(credentials: StoredCredentials, instance: &str) -> Self {
+        Self { credentials, instance: instance.to_owned() }
     }
 }
 
