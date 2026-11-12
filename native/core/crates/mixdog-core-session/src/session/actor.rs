@@ -225,13 +225,6 @@ pub(crate) enum Inbox {
         /// `enqueuePendingMessage`), or once the same entry, already queued, is.
         durable: Option<oneshot::Sender<Result<(), RunError>>>,
     },
-    /// `enqueuePendingMessage(id, { mode: 'prompt', content })`: a prompt in the session manager's pending queue, not the host's
-    /// (a typed prompt). The running turn takes it at its terminal boundary only (`ask-turn-steering-drain.mjs`).
-    PendingPrompt {
-        text: String,
-        /// Answered once the queued entry is durable, or refused.
-        durable: Option<oneshot::Sender<Result<(), RunError>>>,
-    },
     /// The job board's activity signal: a job of this thread was added or finished
     /// (`agent_activity.rs`).
     AgentActivity,
@@ -4686,7 +4679,6 @@ impl SessionActor {
                 !self.steer_marked.iter().any(|s| s.as_str() == q.qid)
                     && !self.wake_tail.contains(&q.qid)
                     && !completions::is_notification(&q.entry)
-                    && !completions::is_pending_prompt(&q.entry)
                     && !super::goal_lane::is_goal_entry(&q.entry)
                     && !pending::is_slash_entry(&q.entry)
             })
@@ -5156,7 +5148,6 @@ impl SessionActor {
                 live,
                 durable,
             } => self.task_notification(&surface, task_id, status, text, origin, live, durable),
-            Inbox::PendingPrompt { text, durable } => self.pending_prompt(text, durable),
             Inbox::AgentActivity => self.agent_activity(),
             Inbox::SensitiveCarried => {
                 self.redact_prompts();
@@ -6404,34 +6395,6 @@ impl SessionActor {
             .wakes
             .interrupt(&self.id, WakeReason::Notification, Some(task_id).filter(|id| !id.is_empty()));
         if live && self.run.is_none() {
-            self.start_next_queued();
-        }
-    }
-
-    /// A prompt joins the manager's pending queue (`enqueuePendingMessage`): it wakes a passive wait as user input
-    /// (`pendingEntryWake`) and is taken at the terminal boundary only, never after a tool batch ([`Self::take_steers`]).
-    fn pending_prompt(&mut self, text: String, durable: Option<oneshot::Sender<Result<(), RunError>>>) {
-        let refuse = |durable: Option<oneshot::Sender<Result<(), RunError>>>| {
-            if let Some(durable) = durable {
-                let _ = durable.send(Err(RunError::NotApplied));
-            }
-        };
-        if self.deleting || self.tombstoned || self.cell.closed.load(SeqCst) || self.acked.header.get("closed") == Some(&Value::Bool(true)) {
-            return refuse(durable);
-        }
-        let Some(entry) = completions::pending_prompt_entry(&text, self.deps.clock.now_ms()) else {
-            return refuse(durable);
-        };
-        let record = Record::Queue(QueueRecord {
-            qid: id(&new_id()),
-            action: QueueAction::Enqueue,
-            reason: None,
-            op: None,
-            entry: Some(Slot::Inline(entry)),
-        });
-        self.accept_record(record, Class::Normal, Display::None, Vec::new(), durable.map(Effect::ItemAck).into_iter().collect());
-        self.deps.wakes.interrupt(&self.id, WakeReason::UserMessage, None);
-        if self.run.is_none() {
             self.start_next_queued();
         }
     }

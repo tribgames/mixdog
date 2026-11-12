@@ -19,23 +19,6 @@ pub fn is_notification(entry: &Value) -> bool {
         || entry.get("notificationKind").and_then(Value::as_str) == Some(KIND)
 }
 
-/// `PENDING_MODE_PROMPT`: an entry the session manager's pending queue holds as a prompt.
-pub(crate) const MODE_PROMPT: &str = "prompt";
-
-/// A prompt of the manager's pending queue (`pendingEntryMode(entry) === PENDING_MODE_PROMPT`), not one of the host's own.
-pub(crate) fn is_pending_prompt(entry: &Value) -> bool {
-    entry.get("mode").and_then(Value::as_str) == Some(MODE_PROMPT)
-}
-
-/// `enqueuePendingMessage(id, { mode: 'prompt', content })`'s entry. `None` for blank text, which Node never queues.
-pub(crate) fn pending_prompt_entry(text: &str, now: i64) -> Option<Value> {
-    let message = mixdog_js::js_trim(text);
-    if message.is_empty() {
-        return None;
-    }
-    Some(json!({ "message": message, "mode": MODE_PROMPT, "enqueuedAt": now }))
-}
-
 /// A queued completion: its id and the persisted entry without it (`markCompletionEntry`
 /// through `normalizePersistedEntryBase`, with `meta: {execution_surface, execution_id,
 /// status}`). The id is addressed by the execution, so the same completion queued twice is

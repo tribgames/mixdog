@@ -4620,8 +4620,7 @@ mod tests {
                         StreamEvent::ToolCallDone(ToolCall { id: "h1".into(), name: "hold".into(), arguments: json!({}), native_type: None }),
                         StreamEvent::Completed { stop: Some(StopReason::ToolUse), pricing_model: None, request_ms: None },
                     ],
-                    // The terminal drain after this reply takes the queued prompt, as Node's drain after its first reply.
-                    says("Done."),
+                    // The host's queue hands the queued prompt over after the tool batch: the one reply answers it.
                     says("Done."),
                 ]
             } else {
@@ -4658,15 +4657,18 @@ mod tests {
             handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": case["prompt"] } }), "op-1")).await.expect("turn/start");
             if let Some(queued) = queued {
                 mixdog_core_session::session::testing::awaiting(|| format!("{label}: the held tool to start"), started.notified()).await;
-                // Node queued it with `enqueuePendingMessage` (the session manager's pending queue), which only the terminal
-                // boundary drains; a prompt typed through `turn/start` is the host's own queue, taken after every tool batch.
-                // The call answers once the entry is durable, which the drain needs before it hands the entry over.
-                directory.queue_pending_prompt(&id, queued.to_owned()).await.expect("the queued prompt");
+                // The core takes a prompt for a thread whose turn runs through the host's queue (`turn/start`; a send to a busy worker,
+                // `enqueue_turn`): Node's manager queue holds only notifications for the core's producers, which `queue_completion`
+                // carries. The drain hands over durable entries only: the tool is let go once the queued entry is in the store.
+                // (From no client connection: Node's queued entry carries no device, which a connection's prompt is stamped with.)
+                let typed = CoreRequest { method: Method("turn/start"), params: json!({ "threadId": id, "opId": "op-2", "input": { "prompt": queued } }), op: Some(OpId::from("op-2")), ctx: CallContext::internal("queued-prompt") };
+                handle.request(typed).await.expect("the queued prompt");
+                let durable = || rig.store.records(&id).iter().any(|(_, record)| matches!(record, Record::Queue(_)));
+                eventually_on_awaiting(|| format!("{label}: the queued entry in the store"), &[&rig.store.committed, handle.stepped()], || durable().then_some(())).await;
                 release.notify_one();
             }
             let chips = |lines: Vec<(String, Value)>| lines.into_iter().map(|(_, chips)| chips).collect::<Vec<_>>();
             // The skills are prepared (and stamped) before the request the reply answers.
-            let replies = if queued.is_some() { 2 } else { 1 };
             let replied = || {
                 rig.store
                     .records(&id)
@@ -4676,18 +4678,9 @@ mod tests {
                         _ => false,
                     })
                     .count()
-                    == replies
+                    == 1
             };
             eventually_on_awaiting(|| format!("{label}: the turn's reply in the store"), &[handle.stepped()], || replied().then_some(())).await;
-            if queued.is_some() {
-                // The pending queue is drained at the terminal boundary only (`ask-turn-steering-drain.mjs`): the request after
-                // the tool batch does not carry the queued prompt, the one after the first reply does.
-                let sent: Vec<Vec<Role>> = lock(&provider.requests).iter().map(|r| r.messages.iter().map(|m| m.role).collect()).collect();
-                // (The queued prompt's loaded skills follow it as records of their own.)
-                assert_eq!(sent.len(), 3, "{label}: the requests");
-                assert_eq!(sent[..2], [vec![Role::User], vec![Role::User, Role::Assistant, Role::Tool]], "{label}: the requests before the terminal boundary");
-                assert!(sent[2].starts_with(&[Role::User, Role::Assistant, Role::Tool, Role::Assistant, Role::User]), "{label}: the request after the first reply carries the queued prompt: {:?}", sent[2]);
-            }
             // A turn without its terminal record is one the process died in, which opening a thread again recovers (a restart line
             // is stored): the turn has ended in the store before the thread is opened again.
             let ended = || {

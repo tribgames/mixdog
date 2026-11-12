@@ -998,23 +998,6 @@ impl SessionDirectory {
         self.queue_notice(owner, "", "", "", text, Some(super::completions::ORIGIN_CHANNEL), None).await
     }
 
-    /// `enqueuePendingMessage(id, { mode: 'prompt', content })`: the prompt joins the thread's pending queue, which the running turn
-    /// drains at its terminal boundary only. The client's typed prompt is the host's own queue (`turn/start`), taken after every
-    /// tool batch. Answered once the entry is durable; an error when the thread could not take it.
-    pub async fn queue_pending_prompt(&self, owner: &ThreadId, text: String) -> Result<(), String> {
-        let (durable, stored) = tokio::sync::oneshot::channel();
-        let handle = match self.inner.loaded(owner) {
-            Some(handle) => handle,
-            None => self.inner.open(owner, &CallContext::internal("pending-prompt")).await.map_err(|error| format!("{error:?}"))?,
-        };
-        handle.inbox.send(Inbox::PendingPrompt { text, durable: Some(durable) }).await.map_err(|_| format!("the prompt was refused by {}", owner.as_str()))?;
-        match stored.await {
-            Ok(Ok(())) => Ok(()),
-            Ok(Err(error)) => Err(format!("the prompt for {} was not stored: {error:?}", owner.as_str())),
-            Err(_) => Err(format!("the prompt for {} was not stored: its thread stopped", owner.as_str())),
-        }
-    }
-
     #[allow(clippy::too_many_arguments)]
     async fn queue_notice(
         &self,
