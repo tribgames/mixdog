@@ -289,7 +289,7 @@ impl AccountStore {
     /// still ahead: the deadline at which the loaded config's `enabled` turns (`observeOAuthCredentialExpiry`).
     pub async fn credential_expiry(&self, provider: &str) -> Option<f64> {
         let now = self.now_ms() as f64;
-        match self.credential_file(provider, "default").ok()?.load_document().await {
+        match self.current_credential_file(provider).ok()?.load_document().await {
             Probe::Present(document) => Some(validity::credential_until(provider, &document)).filter(|until| until.is_finite() && *until > now),
             Probe::Absent | Probe::Unreadable => None,
         }
@@ -344,6 +344,32 @@ impl AccountStore {
             None => self.own_file(provider),
         };
         Ok(CredentialFile::new(path, self.io).remote_client(self.remote_client))
+    }
+
+    /// The account slot `provider` resolves to now (`currentProviderAccountId`); `default` when the roster cannot be read.
+    pub async fn current_slot(&self, provider: &str) -> String {
+        self.current_provider_account_id(provider).await.unwrap_or_else(|_| "default".to_owned())
+    }
+
+    /// The credential file `provider`'s sends read (`boundProviderAuthPath`): at every read and write the file of the
+    /// account the provider resolves to at that moment (a surrounding account scope, else the pool's selected account),
+    /// and the provider's own file for the `default` slot.
+    pub fn current_credential_file(&self, provider: &str) -> Result<CredentialFile, AccountError> {
+        let own = self.credential_file(provider, "default")?;
+        if !is_account_provider(provider) {
+            return Ok(own);
+        }
+        let (store, name) = (self.clone(), provider.to_owned());
+        Ok(own.following(Arc::new(move || {
+            let (store, name) = (store.clone(), name.clone());
+            Box::pin(async move {
+                let slot = store.current_slot(&name).await;
+                match store.account_path(&name, &slot) {
+                    Ok(Some(path)) => path,
+                    _ => store.own_file(&name),
+                }
+            })
+        })))
     }
 
     /// `provider`'s roster, normalized; empty when it has none.

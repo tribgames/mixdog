@@ -106,6 +106,34 @@ mod tests {
         assert_eq!(current(PROVIDER).await, ID);
     }
 
+    /// `boundProviderAuthPath`: a provider's sends read the selected account's file, a scope's account inside the scope, and
+    /// the provider's own file for the `default` slot.
+    #[tokio::test]
+    async fn the_credential_file_of_a_send_is_the_resolved_accounts() {
+        use crate::oauth::Probe;
+        let dir = tempfile::tempdir().unwrap();
+        let s = store(&dir);
+        let file = s.current_credential_file(PROVIDER).unwrap();
+        let token = |probe: Probe<serde_json::Map<String, serde_json::Value>>| match probe {
+            Probe::Present(document) => document["t"].as_str().unwrap().to_owned(),
+            Probe::Absent => "absent".to_owned(),
+            Probe::Unreadable => "unreadable".to_owned(),
+        };
+        std::fs::write(dir.path().join("command-code-oauth.json"), br#"{"t":"own"}"#).unwrap();
+        assert_eq!(token(file.load_document().await), "own");
+        s.register(PROVIDER, ID, "A", true).await.unwrap();
+        s.change(PROVIDER, super::super::AccountChange { selected_id: Some(ID.into()), ..Default::default() }).await.unwrap();
+        let of_account = s.account_path(PROVIDER, ID).unwrap().unwrap();
+        std::fs::create_dir_all(of_account.parent().unwrap()).unwrap();
+        std::fs::write(&of_account, br#"{"t":"selected"}"#).unwrap();
+        assert_eq!(token(file.load_document().await), "selected");
+        assert_eq!(token(with_provider_account(PROVIDER, "default", file.load_document()).await), "own");
+        // A write goes where the read came from.
+        file.save(&serde_json::json!({"t": "renewed"})).await.unwrap();
+        assert_eq!(serde_json::from_slice::<serde_json::Value>(&std::fs::read(&of_account).unwrap()).unwrap(), serde_json::json!({"t": "renewed"}));
+        assert_eq!(std::fs::read(dir.path().join("command-code-oauth.json")).unwrap(), br#"{"t":"own"}"#);
+    }
+
     /// `atomic-file.mjs:622-628`: while another writer holds the lock for the
     /// whole wait, a damaged roster is left in place and the answer is `default`.
     #[tokio::test]
