@@ -11,8 +11,8 @@ use super::device::hex;
 use super::secret::{SecretError, read_secret, write_secret};
 use crate::e2ee::ServerIdentity;
 
-const TOKEN_FILE: &str = "remote-bridge.token";
-const E2EE_FILE: &str = "relay-e2ee.json";
+const TOKEN_FILE: &str = "pairing-token";
+const E2EE_FILE: &str = "e2ee.json";
 
 fn valid_token(text: &str) -> bool {
     (32..=128).contains(&text.len()) && text.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))

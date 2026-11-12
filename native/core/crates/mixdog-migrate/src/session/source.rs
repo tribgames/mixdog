@@ -1335,7 +1335,7 @@ pub fn read(cx: &ItemContext<'_>, item: &ManifestItem, id: &str, office: &Office
         &ContextBlobs { cx, office, thread: id.to_owned().into() },
         &mut replaced,
     )?;
-    let (turn_messages, runs) = match recovered {
+    let (mut turn_messages, runs) = match recovered {
         Some((messages, run)) => (messages, vec![run]),
         None => (Vec::new(), Vec::new()),
     };
@@ -1345,16 +1345,19 @@ pub fn read(cx: &ItemContext<'_>, item: &ManifestItem, id: &str, office: &Office
     mixdog_store::offload_sources::stamp(&mut header, id, &all);
     // The ids are stamped over 1.4.5's array, system messages included, so every row keeps its 1.4.5 id.
     let mut iids = message_iids(id, &all);
-    let turn_iids = iids.split_off(messages.len());
+    let mut turn_iids = iids.split_off(messages.len());
     // The system prefix becomes the header's prompt blocks; the rows start after it.
     let system = migrate_system_messages(&all, &header)
         .map_err(|e| Fail::Quarantine(QuarantineCode::SchemaViolation, format!("system messages: {e}")))?;
-    if system.rows_from > messages.len() {
-        return q(QuarantineCode::SchemaViolation, "system messages: the recovered turn opens with one");
-    }
     system.apply(&mut header);
-    messages.drain(..system.rows_from);
-    iids.drain(..system.rows_from);
+    // A checkpoint that holds the whole transcript (`fullTranscript`: the turn compacted it) replaces every saved
+    // message, so the system prefix is the checkpoint's own: the rest of it is taken off the recovered turn.
+    let saved = system.rows_from.min(messages.len());
+    let recovered = system.rows_from - saved;
+    messages.drain(..saved);
+    iids.drain(..saved);
+    turn_messages.drain(..recovered);
+    turn_iids.drain(..recovered);
     let rid = runs.first().filter(|_| !turn_messages.is_empty()).map(|r| r.rid.clone());
 
     let queue = queue(cx, id, &shared, &mut replaced)?;

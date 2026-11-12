@@ -14,8 +14,8 @@ use serde::{Deserialize, Serialize};
 
 use super::secret::{SecretError, read_secret, write_secret};
 
-const IDENTITY_FILE: &str = "relay-device.json";
-const REVOCATIONS_FILE: &str = "relay-device-revocations.json";
+const IDENTITY_FILE: &str = "device.json";
+const REVOCATIONS_FILE: &str = "device-revocations.json";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

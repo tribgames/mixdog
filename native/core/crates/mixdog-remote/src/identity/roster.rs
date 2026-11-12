@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use super::secret::{SecretError, read_raw, write_secret};
 
-const FILE: &str = "remote-clients.json";
+const FILE: &str = "clients.json";
 pub const MAX_OWED_KEYS: usize = 256;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

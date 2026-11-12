@@ -898,7 +898,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let remote_publisher = Arc::new(crate::domain_seams::remote::LatePublisher::default());
     remote_publisher.bind(state.publisher.clone());
     let built_remote = crate::domain_seams::remote::build_remote(crate::domain_seams::remote::RemoteInputs {
-        dir: b.data_dir.clone(),
+        dir: b.data_dir.join("remote"),
         relay_env: (b.env)("MIXDOG_RELAY_URL"),
         app_version: (build_version.clone(), None),
         durability: b.tokens.durability_io,

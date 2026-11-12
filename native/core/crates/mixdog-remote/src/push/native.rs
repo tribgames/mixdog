@@ -17,7 +17,7 @@ use crate::leg::caps::{NativePlatform, RelayCaps};
 
 pub const MAX_SUBSCRIPTIONS: usize = 32;
 const MAX_TOKEN_CHARS: usize = 4096;
-const FILE: &str = "remote-native-push.json";
+const FILE: &str = "native-push.json";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
