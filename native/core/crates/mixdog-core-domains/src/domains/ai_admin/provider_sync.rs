@@ -6,6 +6,7 @@
 //! an OAuth credential file or the account roster, and when a credential expires
 //! (Node: `getConfigSnapshot` is rebuilt when one of its inputs changed).
 
+use futures::FutureExt;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::PoisonError;
@@ -63,8 +64,9 @@ pub async fn load_config(config: &Config, effective: &EffectiveProviders) -> Res
 /// causes; `task` ends with `stop` or with the config.
 pub struct ProviderSync {
     pub applied: watch::Receiver<u64>,
-    /// 	rue once the sync has taken in what changed before its watch began and has read the credential expiry it waits for:
-    /// from then on every change reaches pplied.
+    /// True once the sync has taken in what changed before its watch began and has read the credential expiry it waits for:
+    /// from then on every change reaches `applied`. Only a test waits for it.
+    #[cfg(test)]
     pub ready: watch::Receiver<bool>,
     pub task: tokio::task::JoinHandle<()>,
 }
@@ -116,6 +118,7 @@ pub fn spawn_provider_sync_on(
     pace: Arc<dyn Pace>,
 ) -> ProviderSync {
     let (applied_tx, applied) = watch::channel(0u64);
+    #[cfg(test)]
     let (ready_tx, ready) = watch::channel(false);
     // Subscribed before the task starts, so no change between the two is missed.
     let mut changes = config.changes();
@@ -127,19 +130,12 @@ pub fn spawn_provider_sync_on(
     let task = mixdog_rt::spawn("providers.sync", TaskClass::Work, async move {
         let _watch = watch;
         let mut count = 0u64;
-        // Node watches its inputs before it loads (`config-snapshot.mjs`, "Watch before loading, so a write after the load is
-        // never missed"); the caller loaded before this watch began, so what changed in between is taken in now, and only that:
-        // a load that finds the same config hands nothing on.
-        if let Ok(next) = load_config(&config, &effective).await
-            && next != *loaded.get()
-        {
-            let providers = next.get("providers").and_then(Value::as_object).cloned().unwrap_or_default();
-            loaded.replace(next);
-            readiness.set_providers(providers);
+        if first_pass(&config, &effective, &readiness, &loaded, &mut changes, &touched).await {
             count += 1;
             applied_tx.send_replace(count);
         }
         let mut expiry = effective.credential_expiry().await;
+        #[cfg(test)]
         ready_tx.send_replace(true);
         loop {
             let deadline = {
@@ -170,5 +166,35 @@ pub fn spawn_provider_sync_on(
             }
         }
     });
-    ProviderSync { applied, ready, task }
+    ProviderSync {
+        applied,
+        #[cfg(test)]
+        ready,
+        task,
+    }
+}
+
+/// Node watches its inputs before it loads (`config-snapshot.mjs`, "Watch before loading, so a write after the load is
+/// never missed"); the caller loaded before this watch began, so what changed in between is taken in now, and only that:
+/// a load that finds the same config hands nothing on. Every change signalled so far is marked seen before the load reads, so
+/// the load that took it in is the only one it causes. Whether a rebuild was handed on.
+pub(super) async fn first_pass(
+    config: &Config,
+    effective: &EffectiveProviders,
+    readiness: &ProviderReadiness,
+    loaded: &LoadedConfig,
+    changes: &mut watch::Receiver<u64>,
+    touched: &Notify,
+) -> bool {
+    changes.borrow_and_update();
+    // A stored permit is a touch before this load; the load reads what it left.
+    touched.notified().now_or_never();
+    let Ok(next) = load_config(config, effective).await else { return false };
+    if next == *loaded.get() {
+        return false;
+    }
+    let providers = next.get("providers").and_then(Value::as_object).cloned().unwrap_or_default();
+    loaded.replace(next);
+    readiness.set_providers(providers);
+    true
 }
