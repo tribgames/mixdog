@@ -1,0 +1,54 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-media-wire.mjs --tree <exact export of b6f10295a>",
+  "exclusions": [
+    "replay, side core: the replay's provider declares the capabilities its row recorded (`capabilities`, the flags of the Node instance), because the run loop reads them from the adapter it is given; the flags of the core's own adapters are compared with the same rows by mixdog-ai registry::builder::tests::each_route_takes_the_documents_nodes_instance_declared",
+    "extraction, side node: the text of a PDF (pdf.js, first 100 pages, 256 KiB, the fixed unreadable text) and of an Office file is the extension host's, which runs Node's own code; the replay's DocumentText answers each file of the table with what Node's lowering gave for the same bytes (`extraction`, the text after the label line of Node's own lowering). The table's PDFs are one page, so the page and size limits and the truncation of a long extraction are not exercised here; the unreadable PDF and the unreadable Office container are",
+    "opencode-go, side core: the core's OpenCode Go adapter needs a stored OAuth login to be built, so its flags (no PDF, no document-less rule) are compared only through the arm that builds every Messages engine without a declaration of its own (registry/builder.rs gateway_messages_engine), shared with the custom Anthropic row; the row itself replays",
+    "deepseek-chat and mixdog-local flags, side core: Node's OpenAICompatProvider class (Chat wire of every compat class) and MixdogLocalProvider declare nativePdf false; the core has no builder name that routes a model to a Chat engine of its own for the first (the Messages route of the same gateway is the deepseek row), and the managed local route is the text-only route the replay runs with its own wiring (TextOnlyInput), not a registered adapter",
+    "devin, side core and node: Node's row is `devinRouterPrompt` (the latest turn lowered by `loweredContent`), the core's `router_prompt`; the full chat request needs a session exchange and is not recorded. Only the latest turn is compared, so the row ends on the attachment",
+    "families not in the table, side node: anthropic-oauth, openai-oauth, vertex-ai and antigravity-oauth share the builder of the row that names their wire (anthropic, openai, gemini) and declare the same flags (provider-native-pdf.test.mjs); grok-oauth, cursor-oauth and the other compat classes share the xai / cursor-api / deepseek-chat rows' lowering with nativePdf false; opencode-go's and command-code's Gemini and Responses engines take the rows of their families",
+    "refused requests, side node: no row of the table is refused by Node (every request carries text beside its attachment), so the core's refusal of a media-only turn on the text-only route is compared by the text-only goldens (fixtures/agent/text_only) and not here",
+    "anthropic-messages rows, side node: citations, context and cache_control a caller puts on a document block are not part of a stored file reference and are not recorded"
+  ],
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 180052,
+      "path": "table.json",
+      "sha256": "4fab27a9736883e4d319cf45aaf704108d672cb1062552e48e4bcc15c2322954"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-media-wire.mjs",
+  "recorderSha256": "67c8d2fd69a5abdc602b8daf15bf01b0d98784756e0eeb704259e6837ea1e412",
+  "set": "media-wire",
+  "totalBytes": 180052,
+  "values": "plain JSON: each row is the request-body part the family builds from the messages (`wire`: messages, input, contents, or the cursor request's parsed history)"
+}
