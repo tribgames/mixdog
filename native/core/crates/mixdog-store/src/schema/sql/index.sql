@@ -1,4 +1,4 @@
--- index/store.sqlite, user_version 12: catalog + history projection + blob refs.
+-- index/store.sqlite, user_version 14: catalog + history projection + blob refs.
 -- Bump user_version with every change to this file: an index of another version is
 -- rebuilt from the logs, never opened or altered in place.
 -- Derived and rebuildable from sessions/*/log.* (FORMAT.md §8). Holds no user data.
@@ -7,7 +7,7 @@
 
 PRAGMA application_id = 1297631576; -- 0x4D584958 'MXIX'
 PRAGMA auto_vacuum = INCREMENTAL;
-PRAGMA user_version = 12;
+PRAGMA user_version = 14;
 
 -- Key/value: GC state (`gc:*`), maintenance job cursors (`job:<id>`).
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
@@ -78,7 +78,9 @@ CREATE TABLE sessions (
     agent_owner TEXT,
     -- The name the user gave the session: the header's `title` when its `titleSource` is `user`
     -- (`updateSessionManualTitle`); NULL otherwise. Node kept it as `names[id]` of the desktop's session metadata.
-    user_name TEXT
+    user_name TEXT,
+    -- The worker index revision (`worker_revision`) of this row's last change the agent registry loads; 0: none.
+    worker_rev INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX sessions_recent ON sessions(deleted, activity DESC, id);
 CREATE INDEX sessions_created ON sessions(deleted, created_at DESC, id);
@@ -102,6 +104,51 @@ CREATE INDEX sessions_worker_pid ON sessions(worker_host_pid, created_at DESC, i
 CREATE INDEX sessions_workers ON sessions(created_at DESC, id) WHERE worker_tag IS NOT NULL;
 CREATE INDEX sessions_agent_tag ON sessions(agent_tag, agent_owner, created_at DESC, updated_at DESC, id)
     WHERE agent_tag IS NOT NULL;
+
+-- The worker index revision (FORMAT.md §8.2): what the agent registry loads (the worker
+-- maps, the agent-only sessions' list rows, and whether each is listed) is followed by a
+-- counter the triggers below bump inside every transaction that changes it, whichever
+-- connection or process writes. A rolled-back write leaves the counter as it was. Each
+-- changed row takes the new value in `sessions.worker_rev`; a row deleted (purged, marked or not:
+-- a mark advances its revision, the purge after it is a removal of its own) leaves its id in `worker_removed`. A reader that reads the counter and
+-- the rows past the revision it holds in one read transaction has every change since.
+-- `gen` is random per index built (a rebuild starts the counter at 0 again, so a revision means
+-- something only with its generation). Removals are kept for the last 4096 revisions only:
+-- `floor` is the newest revision whose removals were dropped, and a reader holding a revision
+-- below it, or of another generation, is handed the whole index.
+CREATE TABLE worker_revision (
+    one INTEGER PRIMARY KEY CHECK (one = 1), rev INTEGER NOT NULL, floor INTEGER NOT NULL, gen INTEGER NOT NULL
+);
+INSERT INTO worker_revision (one, rev, floor, gen) VALUES (1, 0, 0, random());
+CREATE TABLE worker_removed (id TEXT PRIMARY KEY, rev INTEGER NOT NULL) WITHOUT ROWID;
+CREATE INDEX worker_removed_rev ON worker_removed(rev);
+CREATE INDEX sessions_worker_rev ON sessions(worker_rev);
+CREATE TRIGGER worker_rev_insert AFTER INSERT ON sessions
+    WHEN NEW.worker IS NOT NULL OR NEW.visibility IS 'agent-only'
+BEGIN
+    UPDATE worker_revision SET rev = rev + 1;
+    UPDATE sessions SET worker_rev = (SELECT rev FROM worker_revision) WHERE sid = NEW.sid;
+END;
+CREATE TRIGGER worker_rev_update
+    AFTER UPDATE OF worker, deleted, log_id, created_at, activity, visibility, summary ON sessions
+    WHEN ((NEW.worker IS NOT NULL OR OLD.worker IS NOT NULL)
+          AND (NEW.worker IS NOT OLD.worker OR NEW.deleted IS NOT OLD.deleted OR NEW.log_id IS NOT OLD.log_id
+               OR NEW.created_at IS NOT OLD.created_at))
+      OR ((NEW.visibility IS 'agent-only' OR OLD.visibility IS 'agent-only')
+          AND (NEW.visibility IS NOT OLD.visibility OR NEW.summary IS NOT OLD.summary OR NEW.activity IS NOT OLD.activity
+               OR NEW.deleted IS NOT OLD.deleted OR NEW.log_id IS NOT OLD.log_id))
+BEGIN
+    UPDATE worker_revision SET rev = rev + 1;
+    UPDATE sessions SET worker_rev = (SELECT rev FROM worker_revision) WHERE sid = NEW.sid;
+END;
+CREATE TRIGGER worker_rev_delete AFTER DELETE ON sessions
+    WHEN OLD.worker IS NOT NULL OR OLD.visibility IS 'agent-only'
+BEGIN
+    UPDATE worker_revision SET rev = rev + 1;
+    INSERT OR REPLACE INTO worker_removed (id, rev) VALUES (OLD.id, (SELECT rev FROM worker_revision));
+    UPDATE worker_revision SET floor = max(floor, rev - 4096);
+    DELETE FROM worker_removed WHERE rev <= (SELECT floor FROM worker_revision);
+END;
 
 -- Session search: a needle is a substring of one of the seven folded fields. A trigram
 -- index over them (the writer folds, so the tokenizer stays case-sensitive and a phrase
