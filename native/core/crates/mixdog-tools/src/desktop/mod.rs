@@ -7,6 +7,7 @@ pub mod computer_backend;
 pub mod computer_recovery;
 mod computer_screen;
 pub mod host;
+pub mod mail_links;
 pub mod pending;
 pub mod reveal;
 pub mod terminal;
