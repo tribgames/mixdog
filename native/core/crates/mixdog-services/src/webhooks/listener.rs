@@ -12,7 +12,9 @@ use std::convert::Infallible;
 use std::io::{self, ErrorKind};
 use std::net::Ipv4Addr;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::future::Future;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
@@ -111,27 +113,42 @@ async fn accept_loop(listener: TcpListener, service: Arc<WebhookService>, stop: 
 
 async fn serve(stream: TcpStream, service: Arc<WebhookService>, stop: CancellationToken) {
     let farewell = Arc::new(Mutex::new(None));
+    let state = Arc::new(ConnState::default());
     let handler = {
-        let farewell = Arc::clone(&farewell);
+        let (farewell, state) = (Arc::clone(&farewell), Arc::clone(&state));
         service_fn(move |request| {
-            let (service, farewell) = (Arc::clone(&service), Arc::clone(&farewell));
+            let (service, farewell, state) = (Arc::clone(&service), Arc::clone(&farewell), Arc::clone(&state));
             async move {
-                respond(request, &service).await.map_err(|Farewell(bytes)| {
-                    *farewell.lock().expect("the farewell slot is never held across a panic") = Some(bytes);
-                    Hung
-                })
+                state.idle.store(false, Ordering::Release);
+                respond(request, &service)
+                    .await
+                    .map(|reply| reply.map(|body| Chunked { finished: Some(state), ..body }))
+                    .map_err(|Farewell(bytes)| {
+                        *farewell.lock().expect("the farewell slot is never held across a panic") = Some(bytes);
+                        Hung
+                    })
             }
         })
     };
     let connection = http1::Builder::new()
         .timer(TokioTimer::new())
+        .title_case_headers(true)
+        // Node's server is llowHalfOpen: a sender that closes its side after the request still gets its reply.
+        .half_close(true)
         .header_read_timeout(HEADERS_TIMEOUT)
         .max_buf_size(MAX_HEAD_BYTES)
         .max_headers(MAX_HEADERS_COUNT)
-        .serve_connection(TokioIo::new(Lingering(Some(stream), farewell)), handler);
+        .serve_connection(TokioIo::new(Lingering { stream: Some(stream), farewell: Arc::clone(&farewell), state: Arc::clone(&state), idle_timer: None }), handler);
     tokio::pin!(connection);
     tokio::select! {
-        _ = connection.as_mut() => return,
+        ended = connection.as_mut() => {
+            // Node answers a head that did not complete in time with its bare 408, unless it has written to the socket already;
+            // a connection that never sent a byte is not timed out by Node at all, and is only closed here.
+            if ended.is_err_and(|e| e.is_timeout()) && state.received.load(Ordering::Acquire) && !state.replied.load(Ordering::Acquire) {
+                *farewell.lock().expect("the farewell slot is never held across a panic") = Some(BARE_REQUEST_TIMEOUT.to_vec());
+            }
+            return;
+        }
         () = stop.cancelled() => connection.as_mut().graceful_shutdown(),
     }
     let _ = mixdog_rt::time::timeout(SHUTDOWN_GRACE, connection.as_mut()).await;
@@ -144,17 +161,50 @@ const LINGER: Duration = Duration::from_secs(5);
 /// unread bytes resets the connection, and a reset throws away the reply the peer has not read
 /// yet — a 413 or 400 sent to a sender that is still mid-body would never arrive. The shutdown
 /// sends the reply and a FIN first; the read-out lets the sender finish or notice (RFC 9112 §9.6).
-struct Lingering(Option<TcpStream>, Arc<Mutex<Option<Vec<u8>>>>);
+struct Lingering {
+    stream: Option<TcpStream>,
+    farewell: Arc<Mutex<Option<Vec<u8>>>>,
+    state: Arc<ConnState>,
+    /// Armed while the connection sits idle between requests; any byte read disarms it.
+    idle_timer: Option<Pin<Box<mixdog_rt::time::Sleep>>>,
+}
+
+/// What the connection has been through, for the two things Node does by its history.
+#[derive(Default)]
+struct ConnState {
+    /// A reply has been written whole and no request has begun since: the keep-alive wait.
+    idle: AtomicBool,
+    /// A reply was written on this connection (Node answers a timed-out head with a 408 only before that).
+    replied: AtomicBool,
+    /// A byte has been read from the peer.
+    received: AtomicBool,
+}
 
 impl Lingering {
     fn socket(&mut self) -> Pin<&mut TcpStream> {
-        Pin::new(self.0.as_mut().expect("the socket is present until the connection is dropped"))
+        Pin::new(self.stream.as_mut().expect("the socket is present until the connection is dropped"))
     }
 }
 
 impl AsyncRead for Lingering {
     fn poll_read(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
-        self.socket().poll_read(cx, buf)
+        // Node closes a connection that stays idle for `keepAliveTimeout` plus `keepAliveTimeoutBuffer` after its last
+        // activity; the end of the stream is what hyper takes as that close.
+        if self.state.idle.load(Ordering::Acquire) {
+            let timer = self.idle_timer.get_or_insert_with(|| Box::pin(mixdog_rt::time::sleep(KEEP_ALIVE_CLOSE)));
+            if timer.as_mut().poll(cx).is_ready() {
+                return Poll::Ready(Ok(()));
+            }
+        } else {
+            self.idle_timer = None;
+        }
+        let before = buf.filled().len();
+        let polled = self.socket().poll_read(cx, buf);
+        if matches!(polled, Poll::Ready(Ok(()))) && buf.filled().len() > before {
+            self.idle_timer = None;
+            self.state.received.store(true, Ordering::Release);
+        }
+        polled
     }
 }
 
@@ -182,8 +232,8 @@ impl AsyncWrite for Lingering {
 
 impl Drop for Lingering {
     fn drop(&mut self) {
-        let farewell = self.1.lock().expect("the farewell slot is never held across a panic").take();
-        if let (Some(stream), Ok(runtime)) = (self.0.take(), tokio::runtime::Handle::try_current()) {
+        let farewell = self.farewell.lock().expect("the farewell slot is never held across a panic").take();
+        if let (Some(stream), Ok(runtime)) = (self.stream.take(), tokio::runtime::Handle::try_current()) {
             runtime.spawn(linger(stream, farewell));
         }
     }
@@ -200,14 +250,25 @@ async fn linger(mut stream: TcpStream, farewell: Option<Vec<u8>>) {
 
 /// A reply body of no declared length, which hyper frames as `Transfer-Encoding: chunked`: Node's
 /// handler writes its head with `writeHead` before `end(body)`, so it never sends a `Content-Length`.
-struct Chunked(Option<Bytes>);
+struct Chunked {
+    bytes: Option<Bytes>,
+    /// Set by the connection: when the body ends the reply is complete, and the connection waits for its next request.
+    finished: Option<Arc<ConnState>>,
+}
 
 impl Body for Chunked {
     type Data = Bytes;
     type Error = Infallible;
 
     fn poll_frame(mut self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Option<Result<Frame<Bytes>, Infallible>>> {
-        Poll::Ready(self.0.take().map(|bytes| Ok(Frame::data(bytes))))
+        if let Some(bytes) = self.bytes.take() {
+            return Poll::Ready(Some(Ok(Frame::data(bytes))));
+        }
+        if let Some(state) = self.finished.take() {
+            state.replied.store(true, Ordering::Release);
+            state.idle.store(true, Ordering::Release);
+        }
+        Poll::Ready(None)
     }
 }
 
@@ -233,64 +294,90 @@ impl std::error::Error for Hung {}
 /// Node's parser-level answer to a request whose body framing is broken or cut short.
 const BARE_BAD_REQUEST: &[u8] = b"HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n";
 
+/// Node's bare answer to a request that did not arrive in time (its server layer's `requestTimeout` and `headersTimeout`).
+const BARE_REQUEST_TIMEOUT: &[u8] = b"HTTP/1.1 408 Request Timeout\r\nConnection: close\r\n\r\n";
+
 /// Node's `keepAliveTimeout`, announced on every reply that keeps the connection.
 const KEEP_ALIVE_HEADERS: &str = "Connection: keep-alive\r\nKeep-Alive: timeout=5\r\n";
 
-/// Whether the peer lets the connection stay open: HTTP/1.1 without `Connection: close`.
-fn keeps_alive(parts: &hyper::http::request::Parts) -> bool {
-    parts.version == hyper::Version::HTTP_11
-        && !parts
-            .headers
-            .get_all(hyper::header::CONNECTION)
-            .iter()
-            .any(|v| v.to_str().is_ok_and(|s| s.split(',').any(|t| t.trim().eq_ignore_ascii_case("close"))))
+/// How long an idle connection is kept: Node's `keepAliveTimeout` (5 s, the one announced) plus its `keepAliveTimeoutBuffer` (1 s).
+const KEEP_ALIVE_CLOSE: Duration = Duration::from_secs(6);
+
+/// What the request allows of the reply, by its HTTP version and `Connection` header.
+#[derive(Clone, Copy)]
+struct Peer {
+    /// The connection stays open after the reply: HTTP/1.1 without `Connection: close`.
+    alive: bool,
+    /// The reply is chunked: HTTP/1.1. An HTTP/1.0 reply has no length and ends with the connection, as Node's.
+    chunked: bool,
 }
 
-/// A reply hyper writes and the connection survives it (`alive`), or carries `Connection: close`.
+fn peer(parts: &hyper::http::request::Parts) -> Peer {
+    let chunked = parts.version == hyper::Version::HTTP_11;
+    let closes = parts
+        .headers
+        .get_all(hyper::header::CONNECTION)
+        .iter()
+        .any(|v| v.to_str().is_ok_and(|s| s.split(',').any(|t| t.trim().eq_ignore_ascii_case("close"))));
+    Peer { alive: chunked && !closes, chunked }
+}
+
+fn date() -> String {
+    mixdog_rt::utc_now!().format("%a, %d %b %Y %H:%M:%S GMT").to_string()
+}
+
+/// A reply hyper writes to an HTTP/1.1 peer, headers in Node's order (hyper writes them as given, in title case).
 fn reply(status: u16, content_type: &str, body: Vec<u8>, alive: bool) -> Reply {
-    let mut builder = Response::builder().status(status).header("content-type", content_type);
+    let mut builder = Response::builder().status(status).header("content-type", content_type).header("date", date());
     builder = if alive { builder.header("connection", "keep-alive").header("keep-alive", "timeout=5") } else { builder.header("connection", "close") };
-    builder.body(Chunked(Some(Bytes::from(body)))).expect("a reply with a valid status and headers")
+    builder.header("transfer-encoding", "chunked").body(Chunked { bytes: Some(Bytes::from(body)), finished: None }).expect("a reply with a valid status and headers")
 }
 
 /// A reply written whole by the connection itself, which ends after it. Its head says what Node's
 /// says for the request (`Connection: keep-alive` while the peer allows it), though the socket closes.
-fn farewell(status: u16, content_type: &str, body: &[u8], alive: bool) -> Farewell {
+fn farewell(status: u16, content_type: &str, body: &[u8], peer: Peer) -> Farewell {
     let reason = hyper::StatusCode::from_u16(status).ok().and_then(|s| s.canonical_reason()).unwrap_or("");
-    let connection = if alive { KEEP_ALIVE_HEADERS } else { "Connection: close\r\n" };
-    let mut bytes = format!(
-        "HTTP/1.1 {status} {reason}\r\nContent-Type: {content_type}\r\nDate: {}\r\n{connection}Transfer-Encoding: chunked\r\n\r\n{:x}\r\n",
-        mixdog_rt::utc_now!().format("%a, %d %b %Y %H:%M:%S GMT"),
-        body.len(),
-    )
-    .into_bytes();
-    bytes.extend_from_slice(body);
-    bytes.extend_from_slice(b"\r\n0\r\n\r\n");
+    let connection = if peer.alive { KEEP_ALIVE_HEADERS } else { "Connection: close\r\n" };
+    let framing = if peer.chunked { "Transfer-Encoding: chunked\r\n" } else { "" };
+    let mut bytes = format!("HTTP/1.1 {status} {reason}\r\nContent-Type: {content_type}\r\nDate: {}\r\n{connection}{framing}\r\n", date()).into_bytes();
+    if peer.chunked {
+        bytes.extend_from_slice(format!("{:x}\r\n", body.len()).as_bytes());
+        bytes.extend_from_slice(body);
+        bytes.extend_from_slice(b"\r\n0\r\n\r\n");
+    } else {
+        bytes.extend_from_slice(body);
+    }
     Farewell(bytes)
+}
+
+/// The reply to the request: through hyper to an HTTP/1.1 peer; to an HTTP/1.0 peer, which cannot be chunked, written
+/// whole by the connection, which ends after it.
+fn answer(status: u16, content_type: &str, body: Vec<u8>, peer: Peer) -> Result<Reply, Farewell> {
+    if peer.chunked { Ok(reply(status, content_type, body, peer.alive)) } else { Err(farewell(status, content_type, &body, peer)) }
 }
 
 fn json_body(reply_body: &HttpReply) -> Vec<u8> {
     serde_json::to_vec(&reply_body.body).unwrap_or_default()
 }
 
-fn json_reply(reply_body: &HttpReply, alive: bool) -> Reply {
-    reply(reply_body.status, HttpReply::CONTENT_TYPE, json_body(reply_body), alive)
+fn json_answer(reply_body: &HttpReply, peer: Peer) -> Result<Reply, Farewell> {
+    answer(reply_body.status, HttpReply::CONTENT_TYPE, json_body(reply_body), peer)
 }
 
-fn json_farewell(reply_body: &HttpReply, alive: bool) -> Farewell {
-    farewell(reply_body.status, HttpReply::CONTENT_TYPE, &json_body(reply_body), alive)
+fn json_farewell(reply_body: &HttpReply, peer: Peer) -> Farewell {
+    farewell(reply_body.status, HttpReply::CONTENT_TYPE, &json_body(reply_body), peer)
 }
+
 async fn respond(request: Request<Incoming>, service: &WebhookService) -> Result<Reply, Farewell> {
     let (parts, body) = request.into_parts();
-    let alive = keeps_alive(&parts);
+    let peer = peer(&parts);
     let target = parts.uri.path_and_query().map_or_else(|| "/".to_owned(), |p| p.as_str().to_owned());
     match (parts.method.as_str(), target.as_str()) {
-        ("GET", "/") => Ok(reply(200, "text/plain", b"OK".to_vec(), alive)),
-        ("POST", path) if path.starts_with("/webhook/") => webhook(service, path, request_headers(&parts.headers), body, alive).await,
-        _ => Ok(reply(404, "text/plain", b"Not Found".to_vec(), alive)),
+        ("GET", "/") => answer(200, "text/plain", b"OK".to_vec(), peer),
+        ("POST", path) if path.starts_with("/webhook/") => webhook(service, path, request_headers(&parts.headers), body, peer).await,
+        _ => answer(404, "text/plain", b"Not Found".to_vec(), peer),
     }
 }
-
 /// Repeated headers join with ", " as in Node's `req.headers`.
 fn request_headers(map: &hyper::HeaderMap) -> Headers {
     let mut headers = Headers::new();
@@ -307,20 +394,21 @@ fn request_headers(map: &hyper::HeaderMap) -> Headers {
     headers
 }
 
-async fn webhook(service: &WebhookService, target: &str, headers: Headers, body: Incoming, alive: bool) -> Result<Reply, Farewell> {
+async fn webhook(service: &WebhookService, target: &str, headers: Headers, body: Incoming, peer: Peer) -> Result<Reply, Farewell> {
     // The request is work from its first byte, so the core never stops under it.
     let _busy = service.listening();
     let name = match service.precheck(target).await {
         Ok(name) => name,
-        Err(Rejection(refusal)) => return Err(json_farewell(&refusal, alive)),
+        Err(Rejection(refusal)) => return Err(json_farewell(&refusal, peer)),
     };
     match mixdog_rt::time::timeout(REQUEST_TIMEOUT, collect(body)).await {
-        Err(_) => Ok(reply(408, "text/plain", b"Request Timeout".to_vec(), false)),
+        // Node answers a body that did not arrive in time with its server layer's bare 408 and ends the connection.
+        Err(_) => Err(Farewell(BARE_REQUEST_TIMEOUT.to_vec())),
         // Node's collection stays pending and its server layer answers a bare 400 (no body, no
         // content type) and closes: a truncated half-closed body, broken chunk framing.
         Ok(Err(_)) => Err(Farewell(BARE_BAD_REQUEST.to_vec())),
-        Ok(Ok(Collected::TooLarge(Rejection(refusal)))) => Err(json_farewell(&refusal, alive)),
-        Ok(Ok(Collected::Done(bytes))) => Ok(json_reply(&service.process(&name, &headers, &bytes).await, alive)),
+        Ok(Ok(Collected::TooLarge(Rejection(refusal)))) => Err(json_farewell(&refusal, peer)),
+        Ok(Ok(Collected::Done(bytes))) => json_answer(&service.process(&name, &headers, &bytes).await, peer),
     }
 }
 
