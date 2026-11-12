@@ -1317,7 +1317,7 @@ impl RunFactory for ScriptRuns {
                     changed = true;
                     let iid = super::run::new_item_id();
                     replacement.push((iid.clone(), body.clone()));
-                    rows.push(super::run::ItemCommit { iid, role: Some(role.to_owned()), model: true, visible: role != "user", body, prompt: None });
+                    rows.push(super::run::ItemCommit { iid, role: Some(role.to_owned()), model: true, visible: true, body, prompt: None });
                 }
             }
         }

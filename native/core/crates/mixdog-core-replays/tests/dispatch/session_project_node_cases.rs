@@ -203,6 +203,8 @@ async fn every_recorded_session_project_call_answers_as_in_node() {
     for case in golden["cases"].as_array().unwrap() {
         let rig = Rig::new();
         *mixdog_core_session::session::testing::lock(&rig.compaction.result) = Some(json!({ "changed": true }));
+        // A fork that compacts measures the conversation against the heir's route first (`inheritFrom`).
+        *mixdog_core_session::session::testing::lock(&rig.inherit.basis) = Some((100_000, 10, false));
         let directory = Arc::new(SessionDirectory::new(rig.deps()));
         let threads = Arc::new(SessionThreads::new(directory.clone()));
         for id in ["sess-1", "worker-1", "w"] {

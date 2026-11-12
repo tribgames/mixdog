@@ -183,7 +183,7 @@ impl SessionActor {
             || self.cell.closed.load(SeqCst)
             || self.quota.settlement.settling()
             || self.turn_busy()
-            || (self.compactions > 0 && !self.starts_gated())
+            || (self.compactions > 0 && !self.compaction_held())
             || self.pending_retry.is_some()
             || self.after_compaction.as_ref().is_some_and(|after| after.waiting.iter().any(|w| matches!(w, super::Waiting::Retry(_))))
             || !self.wake_tail.is_empty()
