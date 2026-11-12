@@ -89,7 +89,7 @@
         ]
       ],
       "file": {
-        "size": 1373,
+        "size": 1463,
         "text": "{\"type\":\"user\",\"sessionId\":\"sess_backfill\",\"cwd\":\"<cwd>\",\"timestamp\":\"2026-01-02T03:04:05.000Z\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"first [redacted]\"}]}}\n{\"type\":\"assistant\",\"sessionId\":\"sess_backfill\",\"cwd\":\"<cwd>\",\"ts\":1700000000,\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"one\\ntwo\"}]}}\n{\"type\":\"user\",\"sessionId\":\"sess_backfill\",\"cwd\":\"<cwd>\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"plain string block\"}]}}\n{\"type\":\"user\",\"sessionId\":\"sess_backfill\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"next question\"}]},\"cwd\":\"<cwd>\",\"timestamp\":\"2026-03-04T05:06:07.890Z\"}\n{\"type\":\"assistant\",\"sessionId\":\"sess_backfill\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"mid\"}]},\"cwd\":\"<cwd>\",\"timestamp\":\"2026-03-04T05:06:07.890Z\"}\n{\"type\":\"user\",\"sessionId\":\"sess_backfill\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"again\"}]},\"cwd\":\"<cwd>\",\"timestamp\":\"2026-03-04T05:06:07.890Z\"}\n"
       },
       "rotated": null,
@@ -120,7 +120,7 @@
         ]
       ],
       "file": {
-        "size": 509,
+        "size": 539,
         "text": "{\"type\":\"user\",\"sessionId\":\"sess_agent\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"work\"}]},\"cwd\":\"<cwd>\",\"timestamp\":\"2026-03-04T05:06:07.890Z\",\"memoryEligible\":false}\n{\"type\":\"assistant\",\"sessionId\":\"sess_agent\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"worked\"}]},\"cwd\":\"<cwd>\",\"timestamp\":\"2026-03-04T05:06:07.890Z\",\"memoryEligible\":false}\n"
       },
       "rotated": null,
@@ -159,7 +159,7 @@
         ]
       ],
       "file": {
-        "size": 690,
+        "size": 735,
         "text": "{\"type\":\"assistant\",\"sessionId\":\"sess_blank\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"a\"}]},\"cwd\":\"<cwd>\",\"timestamp\":\"2026-03-04T05:06:07.890Z\"}\n{\"type\":\"assistant\",\"sessionId\":\"sess_blank\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"b\"}]},\"cwd\":\"<cwd>\",\"timestamp\":\"2026-03-04T05:06:07.890Z\"}\n{\"type\":\"assistant\",\"sessionId\":\"sess_blank\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"c\"}]},\"cwd\":\"<cwd>\",\"timestamp\":\"2026-03-04T05:06:07.890Z\"}\n"
       },
       "rotated": null,
@@ -187,7 +187,7 @@
         ]
       ],
       "file": {
-        "size": 239,
+        "size": 254,
         "text": "{\"type\":\"user\",\"sessionId\":\"sess_rotate\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"after rotation\"}]},\"cwd\":\"<cwd>\",\"timestamp\":\"2026-03-04T05:06:07.890Z\"}\n"
       },
       "rotated": {
@@ -224,7 +224,7 @@
         ]
       ],
       "file": {
-        "size": 726,
+        "size": 771,
         "text": "{\"type\":\"assistant\",\"sessionId\":\"sess_split\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"typing sword\"}]},\"cwd\":\"<cwd>\",\"timestamp\":\"2026-03-04T05:06:07.890Z\"}\n{\"type\":\"assistant\",\"sessionId\":\"sess_split\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"fish42 done\"}]},\"cwd\":\"<cwd>\",\"timestamp\":\"2026-03-04T05:06:07.890Z\"}\n{\"type\":\"assistant\",\"sessionId\":\"sess_split\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"typed [redacted]\"}]},\"cwd\":\"<cwd>\",\"timestamp\":\"2026-03-04T05:06:07.890Z\"}\n"
       },
       "rotated": null,
@@ -263,7 +263,7 @@
         ]
       ],
       "file": {
-        "size": 997,
+        "size": 1057,
         "text": "{\"type\":\"user\",\"sessionId\":\"sess_marked_later\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"my pin is [redacted]\"}]},\"cwd\":\"<cwd>\",\"timestamp\":\"2026-03-04T05:06:07.890Z\"}\n{\"type\":\"assistant\",\"sessionId\":\"sess_marked_later\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"noted [redacted]\"}]},\"cwd\":\"<cwd>\",\"timestamp\":\"2026-03-04T05:06:07.890Z\"}\n{\"type\":\"user\",\"sessionId\":\"sess_marked_later\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"what now\"}]},\"cwd\":\"<cwd>\",\"timestamp\":\"2026-03-04T05:06:07.890Z\"}\n{\"type\":\"assistant\",\"sessionId\":\"sess_marked_later\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"pin [redacted] used\"}]},\"cwd\":\"<cwd>\",\"timestamp\":\"2026-03-04T05:06:07.890Z\"}\n"
       },
       "rotated": null,
@@ -294,7 +294,7 @@
         ]
       ],
       "file": {
-        "size": 731,
+        "size": 776,
         "text": "{\"type\":\"user\",\"sessionId\":\"sess_restart\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"question [redacted]\"}]},\"cwd\":\"<cwd>\",\"timestamp\":\"2026-03-04T05:06:07.890Z\"}\n{\"type\":\"assistant\",\"sessionId\":\"sess_restart\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"thinking aloud\"}]},\"cwd\":\"<cwd>\",\"timestamp\":\"2026-03-04T05:06:07.890Z\"}\n{\"type\":\"assistant\",\"sessionId\":\"sess_restart\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"the answer\"}]},\"cwd\":\"<cwd>\",\"timestamp\":\"2026-03-04T05:06:07.890Z\"}\n"
       },
       "rotated": null,

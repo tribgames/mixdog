@@ -36,6 +36,11 @@ const ALLOWED: &[(&str, &str, &str)] = &[
     ),
     (
         "mixdog-core/src/run_host/mod.rs",
+        "mod media_wire_table;",
+        "the media-wire table (`fixtures/media-wire`) replayed over the library's own message rows, attachment store and media lowering (`message_row`, `media`, `assemble`); a module of tests only, which nothing else uses",
+    ),
+    (
+        "mixdog-core/src/run_host/mod.rs",
         "mod pool_list_replay;",
         "a replay that stays in the library because it builds `pool_inputs::RegistryPoolStore`, which is crate-private",
     ),

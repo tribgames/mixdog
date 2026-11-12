@@ -18,13 +18,13 @@
     {
       "bytes": 7718319,
       "path": "table.json",
-      "sha256": "01a6fd19df1f3c0656f74a338a7b1b12d2d3a08e9d63f8d43de5d510fe70b252"
+      "sha256": "9f19cb5c80b7a3d8eac6ab9227af00d4278a8a74895d704ee64239c71f8beb79"
     }
   ],
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
