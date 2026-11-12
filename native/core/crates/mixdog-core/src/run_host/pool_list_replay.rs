@@ -165,6 +165,7 @@ impl PoolLive for Live {
 struct Daemon {
     pool: AgentPool,
     threads: Arc<dyn ThreadState>,
+    directory: Arc<SessionDirectory>,
     _rig: Rig,
 }
 
@@ -186,9 +187,9 @@ impl Daemon {
         let (state, _) = mixdog_store::state::CoreState::open(tokens.sqlite_writer_thread, tokens.interactive_io, &data.roots.data.join("core.sqlite")).expect("core state");
         let kept = Arc::new(mixdog_core_session::session::agent_registry::KeptRows::new(state));
         let workers = Arc::new(StoreWorkers::new(index, threads.clone(), tokens.interactive_io, kept));
-        let registry = Arc::new(AgentRegistry::new(workers, directory, Arc::new(NoReap), Arc::new(Held(now))));
-        let pool = AgentPool::new(Arc::new(RegistryPoolStore::new(registry, threads.clone())), Arc::new(Live { now, running: running.clone() }));
-        Self { pool, threads, _rig: rig }
+        let registry = Arc::new(AgentRegistry::new(workers, directory.clone(), Arc::new(NoReap), Arc::new(Held(now))));
+        let pool = AgentPool::new(Arc::new(RegistryPoolStore::new(registry, directory.clone())), Arc::new(Live { now, running: running.clone() }));
+        Self { pool, threads, directory, _rig: rig }
     }
 
     async fn list(&self) -> Value {
@@ -335,6 +336,21 @@ async fn the_agents_pool_lists_nodes_recorded_stores() {
     let daemon = Daemon::up(&data, now, &live).await;
     same(&daemon.list().await, want.get("cold"), "case 7 cold");
     same(&daemon.list().await, want.get("warm"), "case 7 warm");
+}
+
+/// A listing reads the workers' stored records: it loads none of their sessions (a profile holds hundreds of them, and a
+/// loaded session is a running one).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_listing_loads_no_session() {
+    let golden = golden();
+    let want = observed(&golden, 2, "a settled, unchanged header is served from the cache, however many there are");
+    let data = migrated(&files(want.get("store")));
+    let daemon = Daemon::up(&data, now(&golden), &HashSet::new()).await;
+    let listed = daemon.list().await;
+    let sessions: Vec<&str> = listed.as_array().unwrap().iter().filter_map(|row| row["sessionId"].as_str()).collect();
+    assert!(!sessions.is_empty(), "the store lists workers: {listed}");
+    let loaded: Vec<&&str> = sessions.iter().filter(|session| daemon.directory.handle(&ThreadId::from(**session)).is_some()).collect();
+    assert!(loaded.is_empty(), "the listing loaded {loaded:?}");
 }
 
 /// A worker row rewritten through the store write is in the very next listing, every time: the write is answered once

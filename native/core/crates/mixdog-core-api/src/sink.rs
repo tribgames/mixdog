@@ -42,6 +42,15 @@ pub trait ConnectionSink: Send + Sync {
     /// closes the connection with 4000 `slowConsumer` and answers [`SinkClosed`].
     fn send_control(&self, frame: Bytes) -> Result<(), SinkClosed>;
 
+    /// [`Self::send_control`] for the answer of a request served off the reader's turn: it is queued once the control
+    /// reserve has the room, however long the frames ahead of it take to reach the socket, and [`SinkClosed`] only when
+    /// the connection ends meanwhile. A client that asks for several large answers at once (a list page and a transcript
+    /// read) gets them one behind the other; one that reads nothing is ended by its heartbeat, not by its own answers.
+    /// A sink without a reserve queues at once.
+    fn send_answer(&self, frame: Bytes) -> std::pin::Pin<Box<dyn Future<Output = Result<(), SinkClosed>> + Send>> {
+        Box::pin(std::future::ready(self.send_control(frame)))
+    }
+
     /// [`Self::send_control`] for the response that opens a subscription: once `frame` is
     /// written, the lane named by `release` is ungated. Consuming the release is the only way
     /// to ungate a lane, so no lane frame can precede its response.

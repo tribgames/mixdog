@@ -310,6 +310,8 @@ struct OrderedReserve {
     /// While nothing is held, one frame of any size is admitted (module docs).
     admits_any_head: bool,
     used: AtomicUsize,
+    /// Bytes came back: an answer waiting for the room tries again ([`Shared::queue_answer`]).
+    returned: Notify,
 }
 
 impl OrderedReserve {
@@ -318,6 +320,7 @@ impl OrderedReserve {
             total,
             admits_any_head,
             used: AtomicUsize::new(0),
+            returned: Notify::new(),
         })
     }
 
@@ -336,6 +339,7 @@ impl OrderedReserve {
 impl ByteBudget for OrderedReserve {
     fn release(&self, bytes: usize) {
         self.used.fetch_sub(bytes, Ordering::AcqRel);
+        self.returned.notify_waiters();
     }
 }
 
@@ -738,27 +742,54 @@ impl Shared {
         true
     }
 
-    fn queue_control(&self, frame: Bytes, release: Option<SubscriptionId>) -> Result<(), SinkClosed> {
-        {
-            let mut state = self.lock();
-            if state.closing.is_some() {
-                return Err(SinkClosed);
-            }
-            if let Some(hold) = self.reserve.try_take(frame.len()) {
-                let number = state.number();
-                state.control.push_back(Queued {
-                    number,
-                    frame,
-                    release,
-                    hold,
-                });
-                drop(state);
-                self.wake();
-                return Ok(());
-            }
+    /// Queues `frame` when the control reserve takes it; `None` when it has no room for it now.
+    fn try_queue_control(&self, frame: &Bytes, release: Option<SubscriptionId>) -> Option<Result<(), SinkClosed>> {
+        let mut state = self.lock();
+        if state.closing.is_some() {
+            return Some(Err(SinkClosed));
         }
+        let hold = self.reserve.try_take(frame.len())?;
+        let number = state.number();
+        state.control.push_back(Queued {
+            number,
+            frame: frame.clone(),
+            release,
+            hold,
+        });
+        drop(state);
+        self.wake();
+        Some(Ok(()))
+    }
+
+    fn queue_control(&self, frame: Bytes, release: Option<SubscriptionId>) -> Result<(), SinkClosed> {
+        if let Some(queued) = self.try_queue_control(&frame, release) {
+            return queued;
+        }
+        // The close says only `slowConsumer`: what was owed when the reserve ran out is known here alone.
+        tracing::warn!(
+            frame_bytes = frame.len(),
+            held_bytes = self.reserve.used.load(Ordering::Acquire),
+            "the control reserve is exhausted: closing the connection as a slow consumer"
+        );
         self.slow_consumer();
         Err(SinkClosed)
+    }
+
+    /// [`Self::queue_control`] that waits for the reserve's room instead of closing; ends with the connection.
+    async fn queue_answer(self: Arc<Self>, frame: Bytes) -> Result<(), SinkClosed> {
+        loop {
+            // Armed before the attempt, so room returned between the attempt and the wait is not missed.
+            let returned = self.reserve.returned.notified();
+            tokio::pin!(returned);
+            returned.as_mut().enable();
+            if let Some(queued) = self.try_queue_control(&frame, None) {
+                return queued;
+            }
+            tokio::select! {
+                () = &mut returned => {}
+                () = self.gone.cancelled() => return Err(SinkClosed),
+            }
+        }
     }
 
     /// The peer reads nothing, not even the ordered class: close, dropping what is queued.
@@ -1062,6 +1093,10 @@ impl ConnectionSink for ConnectionWriter {
         self.shared.queue_control(frame, None)
     }
 
+    fn send_answer(&self, frame: Bytes) -> std::pin::Pin<Box<dyn Future<Output = Result<(), SinkClosed>> + Send>> {
+        Box::pin(Arc::clone(&self.shared).queue_answer(frame))
+    }
+
     fn coalesce_appends(&self) {
         self.shared.appends_on.store(true, Ordering::Release);
     }
@@ -1315,6 +1350,7 @@ impl Lane for WriterLane {
             }
         };
         let Some(released) = released else {
+            tracing::warn!(lane = ?self.serial, "an ordered lane that has written fell behind: closing the connection as a slow consumer");
             self.shared.slow_consumer();
             return 0;
         };

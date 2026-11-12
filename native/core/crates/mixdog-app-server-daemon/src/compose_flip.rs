@@ -2512,7 +2512,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let shell_jobs = Arc::new(mixdog_core::run_host::shell_jobs::ShellJobs(b.exec.clone()));
     late_agent_status.bind(Arc::new(mixdog_core_session::session::agent_registry::status_rows::AgentToolStatus::new(agent_registry.clone(), job_board.clone(), directory.clone(), shell_jobs.clone(), clock.clone()))).map_err(ComposeError::AlreadyBound)?;
     let agent_pool = Arc::new(mixdog_core_agents::agents::AgentPool::new(
-        Arc::new(mixdog_core::run_host::pool_inputs::RegistryPoolStore::new(agent_registry.clone(), threads.clone())),
+        Arc::new(mixdog_core::run_host::pool_inputs::RegistryPoolStore::new(agent_registry.clone(), directory.clone())),
         Arc::new(mixdog_core::run_host::pool_inputs::DirectoryPoolLive::new(
             directory.clone(),
             liveness.clone(),

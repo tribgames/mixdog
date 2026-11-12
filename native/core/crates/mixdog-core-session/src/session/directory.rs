@@ -300,6 +300,8 @@ impl Drop for CreateInFlight<'_> {
 
 /// `CLOSE_ALL_DEADLINE_MS` (`teardown.mjs`).
 const CLOSE_ALL_DEADLINE: std::time::Duration = std::time::Duration::from_millis(5000);
+/// An open that takes this long is logged with the time of each of its steps.
+const SLOW_OPEN: std::time::Duration = std::time::Duration::from_millis(500);
 
 /// `PROCESS_EXIT_REASON` (`teardown.mjs`): `/exit|quit|shutdown|sighup|sigint|sigterm/` on the
 /// lower-cased reason. Only such a close closes the session's agents (`closeAll`); any other
@@ -1305,17 +1307,30 @@ impl DirInner {
                     let me = self.me.upgrade().expect("the directory is alive while used");
                     let thread = id.clone();
                     mixdog_rt::spawn("session-open", TaskClass::Work, async move {
+                        let began = std::time::Instant::now();
                         me.settle_teardowns(&thread).await;
                         // A session of the earlier version that is listed and not yet converted is converted now, ahead of the rest.
                         if let Some(there) = me.arriving.get().and_then(|arriving| arriving.arriving(&thread)) {
                             there.await;
                         }
+                        let waited = began.elapsed();
                         let result = me.load(&thread).await;
+                        let loaded = began.elapsed();
                         // `resumeSession`'s `_refreshResumedTools`: a thread opened for use (not
                         // for a delete or an op record) takes its tool surface as it resolves now,
                         // before any caller gets it.
                         if for_use && let Ok(handle) = &result {
                             me.refresh_resumed_tools(handle).await;
+                        }
+                        // An open a person waits for: one that took long says which step did.
+                        if began.elapsed() >= SLOW_OPEN {
+                            tracing::warn!(
+                                thread = thread.as_str(),
+                                before_ms = waited.as_millis() as u64,
+                                load_ms = (loaded - waited).as_millis() as u64,
+                                tools_ms = (began.elapsed() - loaded).as_millis() as u64,
+                                "slow session open"
+                            );
                         }
                         let result = me.publish_opened(&thread, &opening, result);
                         tx.send_replace(Some(result));

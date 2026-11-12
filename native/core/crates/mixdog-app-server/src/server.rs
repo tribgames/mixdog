@@ -541,7 +541,12 @@ impl Shared {
                 let run = async move {
                     let outcome = cleaned(work.await);
                     drop(slot);
-                    shared.finish(&owner, &id, outcome);
+                    match outcome {
+                        // Off the reader's turn an answer waits for the control reserve's room: several large ones asked for
+                        // at once (a list page beside a transcript read) follow each other instead of ending the connection.
+                        Ok(Reply::Value(result)) => drop(owner.sink.send_answer(response_frame(&id, &result)).await),
+                        outcome => shared.finish(&owner, &id, outcome),
+                    }
                     after.release();
                 };
                 match scope {
