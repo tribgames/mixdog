@@ -36,11 +36,11 @@ export const REPLAY_TARGETS = {
     missing: ['providerErrorKind over an error object and the DETERMINISTIC_KINDS list: kind_of takes Facts, no constant list of deterministic kinds'],
   },
   'first-response-budgets': {
-    rust: [r('mixdog-ai/src/providers/first_byte.rs', 58, 'FirstByteSettings::from_env'), r('mixdog-ai/src/providers/first_byte.rs', 109, 'FirstByteSettings::antigravity_budget')],
+    rust: [r('mixdog-ai/src/providers/first_byte.rs', 76, 'FirstByteSettings::from_env'), r('mixdog-ai/src/providers/first_byte.rs', 128, 'FirstByteSettings::antigravity_budget')],
     missing: [],
   },
   'local-send-queue': {
-    rust: [r('mixdog-ai/src/providers/local/mod.rs', 150, 'RegisteredAdapter::new'), r('mixdog-services/src/local_provider/installed_models.rs', 40, 'ManagedRuntime')],
+    rust: [r('mixdog-ai/src/providers/local/mod.rs', 166, 'RegisteredAdapter::new'), r('mixdog-services/src/local_provider/installed_models.rs', 38, 'ManagedRuntime')],
     missing: [],
   },
   'git-launch-cases': {

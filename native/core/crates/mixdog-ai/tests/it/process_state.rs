@@ -50,6 +50,7 @@ const VALUES: &[(&str, &str, Verdict)] = &[
     ("providers/custom/mod.rs", "IDS", NotState("interned id strings")),
     ("transport/deadlines.rs", "LABELS", NotState("interned deadline labels")),
     ("admission/settings.rs", "SETTINGS", Reset("settings::reset_process_lane_settings()")),
+    ("providers/first_byte.rs", "AT_START", Reset("FirstByteSettings::reset_process()")),
     ("oauth/single_flight.rs", "FLIGHTS", Reset("single_flight::reset()")),
     ("claude_floors.rs", "UNSUPPORTED", Reset("claude_floors::reset_process()")),
     ("accounts/binding.rs", "SCOPED", NotState("task-local: the account a task runs under, gone with the task")),
