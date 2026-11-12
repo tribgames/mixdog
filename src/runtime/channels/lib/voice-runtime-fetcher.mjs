@@ -38,7 +38,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { join, dirname, basename } from 'node:path';
+import { join, dirname, basename, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pipeline } from 'node:stream/promises';
 import { spawnSync } from 'node:child_process';
@@ -486,11 +486,14 @@ async function downloadFile(url, destPath, { onProgress = null, timeoutMs = 180_
 export function extractZip(zipPath, destDir) {
   // Windows: the system bsdtar (libarchive) is spawned directly, no shell, so
   // no part of a path is interpreted. It misreads a `C:` drive letter in -f as
-  // host:path, so the archive is named relative to its own folder (cwd).
+  // host:path, so the archive is named relative to its own folder (cwd). Both
+  // paths are resolved first: a relative one means this process's cwd, not
+  // the archive's folder.
   if (process.platform === 'win32') {
     const tar = join(windowsSystemRoot() || 'C:\\Windows', 'System32', 'tar.exe');
-    const r = spawnSync(tar, ['-xf', basename(zipPath), '-C', destDir], {
-      cwd: dirname(zipPath),
+    const zip = resolve(zipPath);
+    const r = spawnSync(tar, ['-xf', basename(zip), '-C', resolve(destDir)], {
+      cwd: dirname(zip),
       stdio: 'pipe',
       windowsHide: true,
     });
