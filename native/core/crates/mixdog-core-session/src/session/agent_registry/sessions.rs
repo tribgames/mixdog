@@ -5,7 +5,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use mixdog_agent::agent_tool::board::{CancelAll, CancelNotice, JobBoard};
-use mixdog_agent::agent_tool::dispatch::{CloseParts, close_resolved};
+use mixdog_agent::agent_tool::dispatch::{CloseParts, cancel_agent_tree, close_resolved};
+use mixdog_agent::agent_tool::error_text::{ErrorText, PlainErrorText};
 use mixdog_tools::orch::agent::ClosedView;
 use mixdog_agent::agent_tool::host::CloseOptions;
 use mixdog_agent::agent_tool::host::Registry;
@@ -97,7 +98,11 @@ impl AgentSessions {
         if children.is_empty() {
             return false;
         }
-        futures::future::join_all(children.iter().map(|child| self.close_session(child, reason, CloseOptions::default()))).await;
+        for outcome in futures::future::join_all(children.iter().map(|child| cancel_agent_tree(self, board, child, reason, CloseOptions::default()))).await {
+            if let Err(error) = outcome {
+                tracing::warn!(parent, %error, "agent tree cancel failed");
+            }
+        }
         true
     }
 
@@ -122,7 +127,7 @@ impl AgentSessions {
             let id = mixdog_js::js_trim(row.get("id").and_then(Value::as_str).unwrap_or_default()).to_owned();
             match close_resolved(parts, &id, &id, &scope, None, keep_rows).await {
                 Ok(view) => report.closed.push(view),
-                Err(error) => report.failed.push((tag, error)),
+                Err(error) => report.failed.push((tag, PlainErrorText.present(&error))),
             }
         }
         for job in board.list_jobs(&scope) {
@@ -214,8 +219,14 @@ impl Sessions for AgentSessions {
     /// owner close), then the running turn is cancelled and the queued input dropped. The
     /// session stays open and resumable. A tombstoning close is not served here.
     async fn close_session(&self, session_id: &str, reason: &str, options: CloseOptions) -> bool {
+        self.try_close_session(session_id, reason, options).await.unwrap_or(false)
+    }
+
+    /// `closeRuntime`: `Err` when the durable stamp cannot be written, as Node throws
+    /// `agent session <id> could not be durably closed`.
+    async fn try_close_session(&self, session_id: &str, reason: &str, options: CloseOptions) -> Result<bool, String> {
         if options.tombstone || session_id.is_empty() {
-            return false;
+            return Ok(false);
         }
         // `cancelAgentTree` (`agent-cancel.mjs:111-114`): the session and its descendants refuse
         // admission (a spawn or send under them) until the close has ended.
@@ -227,14 +238,22 @@ impl Sessions for AgentSessions {
         // (`finishClose`, `outcome.absent`), so releasing the tag of a deleted session goes on to
         // forget the row and the tag can start a fresh session.
         if crate::session::close::write_detach(&*self.threads, &thread, reason, options.owner_close, self.clock.now_ms()).await.is_err() {
-            return false;
+            return Err(format!("agent session {session_id} could not be durably closed"));
         }
         crate::session::close::stop_session_work(&self.directory, &*self.shells, &self.read_state, &thread, reason, "agent-close").await;
-        true
+        Ok(true)
     }
 
     fn descendant_session_ids(&self, session_id: &str) -> Vec<String> {
         self.registry.descendants(session_id)
+    }
+
+    fn child_session_ids(&self, session_id: &str) -> Vec<String> {
+        self.registry.children_of(session_id)
+    }
+
+    fn begin_cancellation(&self, ids: &[String]) -> Box<dyn Send> {
+        Box::new(self.registry.begin_cancellation(ids))
     }
 
     fn clear_statusline_route(&self, session_id: &str) {

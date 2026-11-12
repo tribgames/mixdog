@@ -1,0 +1,317 @@
+{
+  "note": "createConfigPatch of real Node over the configs the settings-writer tests hand it",
+  "cases": [
+    {
+      "name": "aliases of one setting and a changed keychain overlay are no edit",
+      "before": {
+        "autoClear": {
+          "thresholdMs": 90000
+        },
+        "compaction": {
+          "enabled": false
+        },
+        "providers": {
+          "openai": {
+            "enabled": true,
+            "apiKey": "old"
+          }
+        }
+      },
+      "after": {
+        "autoClear": {
+          "idleMs": 90000
+        },
+        "compaction": {
+          "auto": false
+        },
+        "providers": {
+          "openai": {
+            "enabled": true,
+            "apiKey": "new"
+          }
+        }
+      },
+      "patch": []
+    },
+    {
+      "name": "a changed idle window is an edit whatever its alias",
+      "before": {
+        "autoClear": {
+          "thresholdMs": 90000
+        }
+      },
+      "after": {
+        "autoClear": {
+          "idleMs": 120000
+        }
+      },
+      "patch": [
+        {
+          "path": [
+            "autoClear",
+            "idleMs"
+          ],
+          "value": 120000
+        }
+      ]
+    },
+    {
+      "name": "an explicit provider OFF",
+      "before": {
+        "profile": {
+          "title": "T",
+          "language": "ko"
+        },
+        "providers": {
+          "openai": {
+            "enabled": true,
+            "apiKey": "k"
+          }
+        }
+      },
+      "after": {
+        "profile": {
+          "title": "T",
+          "language": "ko"
+        },
+        "providers": {
+          "openai": {
+            "enabled": false,
+            "apiKey": "k"
+          }
+        }
+      },
+      "patch": [
+        {
+          "path": [
+            "providers",
+            "openai",
+            "enabled"
+          ],
+          "value": false
+        }
+      ]
+    },
+    {
+      "name": "a save after the secrets loaded never writes the overlay",
+      "before": {
+        "providers": {
+          "openai": {
+            "enabled": false
+          }
+        }
+      },
+      "after": {
+        "providers": {
+          "openai": {
+            "enabled": false,
+            "apiKey": "loaded-from-keychain"
+          }
+        },
+        "profile": {
+          "title": "After secrets load"
+        }
+      },
+      "patch": [
+        {
+          "path": [
+            "profile",
+            "title"
+          ],
+          "value": "After secrets load"
+        }
+      ]
+    },
+    {
+      "name": "a profile edit of one writer",
+      "before": {
+        "profile": {
+          "title": "Initial",
+          "language": "ko"
+        }
+      },
+      "after": {
+        "profile": {
+          "title": "Initial",
+          "language": "en"
+        }
+      },
+      "patch": [
+        {
+          "path": [
+            "profile",
+            "language"
+          ],
+          "value": "en"
+        }
+      ]
+    },
+    {
+      "name": "a profile edit of the other writer",
+      "before": {
+        "profile": {
+          "title": "Initial",
+          "language": "ko"
+        }
+      },
+      "after": {
+        "profile": {
+          "title": "Updated by B",
+          "language": "ko"
+        }
+      },
+      "patch": [
+        {
+          "path": [
+            "profile",
+            "title"
+          ],
+          "value": "Updated by B"
+        }
+      ]
+    },
+    {
+      "name": "compaction and auto-clear switched off",
+      "before": {
+        "compaction": {
+          "auto": true
+        },
+        "autoClear": {
+          "enabled": true
+        }
+      },
+      "after": {
+        "compaction": {
+          "auto": false
+        },
+        "autoClear": {
+          "enabled": false
+        }
+      },
+      "patch": [
+        {
+          "path": [
+            "autoClear",
+            "enabled"
+          ],
+          "value": false
+        },
+        {
+          "path": [
+            "compaction",
+            "auto"
+          ],
+          "value": false
+        }
+      ]
+    },
+    {
+      "name": "a skills list",
+      "before": {
+        "skills": {
+          "disabled": []
+        }
+      },
+      "after": {
+        "skills": {
+          "disabled": [
+            "browser-use"
+          ]
+        }
+      },
+      "patch": [
+        {
+          "path": [
+            "skills",
+            "disabled"
+          ],
+          "value": [
+            "browser-use"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a shell setting added",
+      "before": {},
+      "after": {
+        "shell": {
+          "command": "pwsh",
+          "args": [
+            "-NoProfile"
+          ]
+        }
+      },
+      "patch": [
+        {
+          "path": [
+            "shell",
+            "command"
+          ],
+          "value": "pwsh"
+        },
+        {
+          "path": [
+            "shell",
+            "args"
+          ],
+          "value": [
+            "-NoProfile"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a nested shell setting cleared",
+      "before": {
+        "shell": {
+          "command": "pwsh",
+          "args": [
+            "-NoProfile"
+          ]
+        }
+      },
+      "after": {
+        "shell": {
+          "args": []
+        }
+      },
+      "patch": [
+        {
+          "path": [
+            "shell",
+            "command"
+          ],
+          "remove": true
+        },
+        {
+          "path": [
+            "shell",
+            "args"
+          ],
+          "value": []
+        }
+      ]
+    },
+    {
+      "name": "nothing changed",
+      "before": {
+        "profile": {
+          "title": "Same"
+        },
+        "shell": {
+          "command": "pwsh"
+        }
+      },
+      "after": {
+        "profile": {
+          "title": "Same"
+        },
+        "shell": {
+          "command": "pwsh"
+        }
+      },
+      "patch": []
+    }
+  ]
+}

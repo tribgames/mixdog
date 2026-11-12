@@ -1,0 +1,486 @@
+{
+  "note": "the project scope rules of real Node over the inputs of extension-scopes.test.mjs",
+  "normalize": [
+    {
+      "name": "empty lists, unknown kinds and duplicate roots drop",
+      "scopes": {
+        "skills": {
+          "deploy": [
+            "<BASE>/work/alpha",
+            "<BASE>/work/alpha/",
+            ""
+          ],
+          "empty": []
+        },
+        "mcp": {
+          "unity": "<BASE>/work/beta"
+        },
+        "bogus": {
+          "x": [
+            "<BASE>/work/alpha"
+          ]
+        }
+      },
+      "normalized": {
+        "skills": {
+          "deploy": [
+            "<BASE>/work/alpha"
+          ]
+        },
+        "mcp": {
+          "unity": [
+            "<BASE>/work/beta"
+          ]
+        },
+        "plugins": {}
+      }
+    },
+    {
+      "name": "nothing",
+      "scopes": {},
+      "normalized": {
+        "skills": {},
+        "mcp": {},
+        "plugins": {}
+      }
+    },
+    {
+      "name": "roots sort and a single root is a list",
+      "scopes": {
+        "plugins": {
+          "unity": [
+            "<BASE>/work/beta",
+            "<BASE>/work/alpha"
+          ],
+          "one": "<BASE>/work/alpha"
+        },
+        "skills": {
+          " padded ": [
+            "<BASE>/work/alpha"
+          ]
+        }
+      },
+      "normalized": {
+        "skills": {
+          "padded": [
+            "<BASE>/work/alpha"
+          ]
+        },
+        "mcp": {},
+        "plugins": {
+          "unity": [
+            "<BASE>/work/alpha",
+            "<BASE>/work/beta"
+          ],
+          "one": [
+            "<BASE>/work/alpha"
+          ]
+        }
+      }
+    },
+    {
+      "name": "not an object",
+      "scopes": "x",
+      "normalized": {
+        "skills": {},
+        "mcp": {},
+        "plugins": {}
+      }
+    }
+  ],
+  "projects": [
+    {
+      "scopes": {
+        "skills": {
+          "deploy": [
+            "<BASE>/work/alpha"
+          ],
+          "empty": []
+        }
+      },
+      "kind": "skills",
+      "name": "deploy",
+      "projects": [
+        "<BASE>/work/alpha"
+      ]
+    },
+    {
+      "scopes": {
+        "skills": {
+          "deploy": [
+            "<BASE>/work/alpha"
+          ],
+          "empty": []
+        }
+      },
+      "kind": "skills",
+      "name": "empty",
+      "projects": null
+    },
+    {
+      "scopes": {
+        "skills": {
+          "deploy": [
+            "<BASE>/work/alpha"
+          ],
+          "empty": []
+        }
+      },
+      "kind": "skills",
+      "name": "unknown",
+      "projects": null
+    }
+  ],
+  "within": [
+    {
+      "cwd": "<BASE>/work/alpha",
+      "projects": [
+        "<BASE>/work/alpha"
+      ],
+      "within": true
+    },
+    {
+      "cwd": "<BASE>/work/alpha/src/deep",
+      "projects": [
+        "<BASE>/work/alpha"
+      ],
+      "within": true
+    },
+    {
+      "cwd": "<BASE>/work/alpha-other",
+      "projects": [
+        "<BASE>/work/alpha"
+      ],
+      "within": false
+    },
+    {
+      "cwd": "<BASE>/work/beta",
+      "projects": [
+        "<BASE>/work/alpha"
+      ],
+      "within": false
+    },
+    {
+      "cwd": "",
+      "projects": [
+        "<BASE>/work/alpha"
+      ],
+      "within": false
+    },
+    {
+      "cwd": "<BASE>/work/beta",
+      "projects": [],
+      "within": true
+    }
+  ],
+  "skill": [
+    {
+      "skill": {
+        "name": "bench"
+      },
+      "cwd": "<BASE>/work/alpha",
+      "scopes": {
+        "skills": {
+          "bench": [
+            "<BASE>/work/alpha"
+          ]
+        },
+        "plugins": {
+          "unity": [
+            "<BASE>/work/beta"
+          ]
+        }
+      },
+      "allowed": true
+    },
+    {
+      "skill": {
+        "name": "bench"
+      },
+      "cwd": "<BASE>/work/beta",
+      "scopes": {
+        "skills": {
+          "bench": [
+            "<BASE>/work/alpha"
+          ]
+        },
+        "plugins": {
+          "unity": [
+            "<BASE>/work/beta"
+          ]
+        }
+      },
+      "allowed": false
+    },
+    {
+      "skill": {
+        "name": "free"
+      },
+      "cwd": "<BASE>/work/beta",
+      "scopes": {
+        "skills": {
+          "bench": [
+            "<BASE>/work/alpha"
+          ]
+        },
+        "plugins": {
+          "unity": [
+            "<BASE>/work/beta"
+          ]
+        }
+      },
+      "allowed": true
+    },
+    {
+      "skill": {
+        "name": "free",
+        "plugin": "unity"
+      },
+      "cwd": "<BASE>/work/alpha",
+      "scopes": {
+        "skills": {
+          "bench": [
+            "<BASE>/work/alpha"
+          ]
+        },
+        "plugins": {
+          "unity": [
+            "<BASE>/work/beta"
+          ]
+        }
+      },
+      "allowed": false
+    },
+    {
+      "skill": {
+        "name": "free",
+        "plugin": "unity"
+      },
+      "cwd": "<BASE>/work/beta",
+      "scopes": {
+        "skills": {
+          "bench": [
+            "<BASE>/work/alpha"
+          ]
+        },
+        "plugins": {
+          "unity": [
+            "<BASE>/work/beta"
+          ]
+        }
+      },
+      "allowed": true
+    }
+  ],
+  "mcp": [
+    {
+      "server": "UnityMCP",
+      "cwd": "<BASE>/work/alpha",
+      "scopes": {
+        "mcp": {
+          "UnityMCP": [
+            "<BASE>/work/beta"
+          ],
+          "plugin-unity-editor": [
+            "<BASE>/work/alpha",
+            "<BASE>/work/beta"
+          ]
+        },
+        "plugins": {
+          "unity": [
+            "<BASE>/work/alpha"
+          ]
+        }
+      },
+      "allowed": false
+    },
+    {
+      "server": "UnityMCP",
+      "cwd": "<BASE>/work/beta",
+      "scopes": {
+        "mcp": {
+          "UnityMCP": [
+            "<BASE>/work/beta"
+          ],
+          "plugin-unity-editor": [
+            "<BASE>/work/alpha",
+            "<BASE>/work/beta"
+          ]
+        },
+        "plugins": {
+          "unity": [
+            "<BASE>/work/alpha"
+          ]
+        }
+      },
+      "allowed": true
+    },
+    {
+      "server": "plugin-unity-editor",
+      "cwd": "<BASE>/work/beta",
+      "pluginId": "unity",
+      "scopes": {
+        "mcp": {
+          "UnityMCP": [
+            "<BASE>/work/beta"
+          ],
+          "plugin-unity-editor": [
+            "<BASE>/work/alpha",
+            "<BASE>/work/beta"
+          ]
+        },
+        "plugins": {
+          "unity": [
+            "<BASE>/work/alpha"
+          ]
+        }
+      },
+      "allowed": false
+    },
+    {
+      "server": "plugin-unity-editor",
+      "cwd": "<BASE>/work/alpha",
+      "pluginId": "unity",
+      "scopes": {
+        "mcp": {
+          "UnityMCP": [
+            "<BASE>/work/beta"
+          ],
+          "plugin-unity-editor": [
+            "<BASE>/work/alpha",
+            "<BASE>/work/beta"
+          ]
+        },
+        "plugins": {
+          "unity": [
+            "<BASE>/work/alpha"
+          ]
+        }
+      },
+      "allowed": true
+    },
+    {
+      "server": "plugin-unity-tools",
+      "cwd": "<BASE>/work/beta",
+      "scopes": {
+        "mcp": {
+          "UnityMCP": [
+            "<BASE>/work/beta"
+          ],
+          "plugin-unity-editor": [
+            "<BASE>/work/alpha",
+            "<BASE>/work/beta"
+          ]
+        },
+        "plugins": {
+          "unity": [
+            "<BASE>/work/alpha"
+          ]
+        }
+      },
+      "allowed": true
+    },
+    {
+      "server": "demo",
+      "cwd": "<BASE>/work/alpha",
+      "scopes": {
+        "mcp": {
+          "UnityMCP": [
+            "<BASE>/work/beta"
+          ],
+          "plugin-unity-editor": [
+            "<BASE>/work/alpha",
+            "<BASE>/work/beta"
+          ]
+        },
+        "plugins": {
+          "unity": [
+            "<BASE>/work/alpha"
+          ]
+        }
+      },
+      "allowed": true
+    }
+  ],
+  "withScope": [
+    {
+      "name": "one entry replaced, the others and the rest of the config kept",
+      "config": {
+        "other": 1,
+        "extensionScopes": {
+          "skills": {
+            "old": [
+              "<BASE>/work/alpha"
+            ]
+          }
+        }
+      },
+      "kind": "skills",
+      "entry": "bench",
+      "projects": [
+        "<BASE>/work/beta",
+        "<BASE>/work/alpha"
+      ],
+      "result": {
+        "other": 1,
+        "extensionScopes": {
+          "skills": {
+            "old": [
+              "<BASE>/work/alpha"
+            ],
+            "bench": [
+              "<BASE>/work/alpha",
+              "<BASE>/work/beta"
+            ]
+          },
+          "mcp": {},
+          "plugins": {}
+        }
+      }
+    },
+    {
+      "name": "an empty list clears the entry",
+      "config": {
+        "other": 1,
+        "extensionScopes": {
+          "skills": {
+            "bench": [
+              "<BASE>/work/alpha"
+            ]
+          }
+        }
+      },
+      "kind": "skills",
+      "entry": "bench",
+      "projects": [],
+      "result": {
+        "other": 1,
+        "extensionScopes": {
+          "skills": {},
+          "mcp": {},
+          "plugins": {}
+        }
+      }
+    },
+    {
+      "name": "a plugin entry",
+      "config": {},
+      "kind": "plugins",
+      "entry": "unity",
+      "projects": [
+        "<BASE>/work/alpha"
+      ],
+      "result": {
+        "extensionScopes": {
+          "skills": {},
+          "mcp": {},
+          "plugins": {
+            "unity": [
+              "<BASE>/work/alpha"
+            ]
+          }
+        }
+      }
+    }
+  ]
+}
