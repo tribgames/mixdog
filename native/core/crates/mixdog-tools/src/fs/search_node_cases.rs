@@ -29,26 +29,24 @@ fn golden() -> JsonValue {
     serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
 }
 
-/// A walk that lists what the inner walk lists and then never ends: with a deadline, the tool's search ends partial
-/// holding exactly those entries (Node's served partial).
-/// `listed` is signalled once the inner walk has listed everything, so a test moves the clock only after that.
-struct ThenStall(Box<dyn EventSource<Result<DirEntry, FsError>>>, bool, Arc<tokio::sync::Notify>);
+/// A walk that lists what the inner walk listed (all of it, read before the search starts, so no real thread work is awaited while
+/// the runtime's clock is paused) and then waits on a gate the test owns and never opens: with a deadline, the tool's search ends
+/// partial holding exactly those entries (Node's served partial). `listed` is signalled once everything is listed.
+struct ThenStall(std::collections::VecDeque<Result<DirEntry, FsError>>, Arc<tokio::sync::Notify>, Arc<tokio::sync::Semaphore>);
 
 #[async_trait::async_trait]
 impl EventSource<Result<DirEntry, FsError>> for ThenStall {
     async fn next(&mut self) -> Option<Result<DirEntry, FsError>> {
-        if !self.1 {
-            match self.0.next().await {
-                Some(item) => return Some(item),
-                None => self.1 = true,
-            }
+        if let Some(item) = self.0.pop_front() {
+            return Some(item);
         }
-        self.2.notify_one();
-        std::future::pending().await
+        self.1.notify_one();
+        let _ = self.2.acquire().await;
+        None
     }
 }
 
-struct Stalling(Arc<dyn FileService>, Arc<tokio::sync::Notify>);
+struct Stalling(Arc<dyn FileService>, Arc<tokio::sync::Notify>, Arc<tokio::sync::Semaphore>);
 
 #[async_trait::async_trait]
 impl FileService for Stalling {
@@ -80,7 +78,12 @@ impl FileService for Stalling {
         self.0.remove(lane, path, recursive).await
     }
     fn walk(&self, lane: mixdog_rt::MaintenanceIo, request: WalkRequest) -> Box<dyn EventSource<Result<DirEntry, FsError>>> {
-        Box::new(ThenStall(self.0.walk(lane, request), false, self.1.clone()))
+        let mut inner = self.0.walk(lane, request);
+        let mut listed = std::collections::VecDeque::new();
+        while let Some(item) = futures::executor::block_on(inner.next()) {
+            listed.push_back(item);
+        }
+        Box::new(ThenStall(listed, self.1.clone(), self.2.clone()))
     }
     fn search_text(&self, lane: mixdog_rt::MaintenanceIo, request: SearchRequest) -> Box<dyn EventSource<Result<SearchMatch, FsError>>> {
         self.0.search_text(lane, request)
@@ -149,10 +152,12 @@ async fn every_recorded_search_call_answers_nodes_text() {
     replay_cases(false).await;
 }
 
-/// The served partial: a walk that listed what it found and then stalls answers at the search's soft deadline. The walk lists on
-/// real threads, so the runtime's clock is frozen only once it has listed everything (a paused clock that is idle would jump to the
-/// soft deadline before the listing arrived), and then moves by one explicit advance to the soft deadline.
-#[tokio::test]
+/// The served partial, on a runtime clock that is paused from the start (no real time passes): a walk that listed what it found and
+/// then waits on a gate the test owns answers nothing until the clock is advanced to the search's soft deadline (the 17.5 s budget
+/// less its 1312 ms margin: 16 188 ms), and then answers what it listed. One millisecond short of it the search is still waiting.
+/// A deadline read off the wall clock instead of the runtime's would lie some real time after the paused clock's start, and the
+/// advance to the soft deadline would not reach it.
+#[tokio::test(start_paused = true)]
 async fn a_stalled_walk_answers_its_partial_at_the_soft_deadline() {
     replay_cases(true).await;
 }
@@ -165,7 +170,6 @@ async fn replay_cases(stalled: bool) {
     let mut compared = 0;
     let cases: Vec<&JsonValue> = golden["cases"].as_array().unwrap().iter().filter(|case| (case["stall"] == true) == stalled).collect();
     assert!(!cases.is_empty());
-    let mut frozen = false;
     for case in cases.iter().copied() {
         let name = case["name"].as_str().unwrap();
         let dir = tempfile::tempdir().unwrap();
@@ -174,13 +178,13 @@ async fn replay_cases(stalled: bool) {
         build_on_disk(&root_path, case, mtime);
         let files: Arc<dyn FileService> = Arc::new(mixdog_workspace::localfs::LocalFileService::new());
         let listed = Arc::new(tokio::sync::Notify::new());
-        let files: Arc<dyn FileService> = if stalled { Arc::new(Stalling(files, listed.clone())) } else { files };
+        let gate = Arc::new(tokio::sync::Semaphore::new(0));
+        let files: Arc<dyn FileService> = if stalled { Arc::new(Stalling(files, listed.clone(), gate)) } else { files };
         let tool = tool(case["tool"].as_str().unwrap());
         let shown = root_path.to_string_lossy().into_owned();
         for (n, call) in case["calls"].as_array().unwrap().iter().enumerate() {
-            // The client's full timeout (17.5 s): the soft deadline is that less 7.5 % (16.19 s), far past what the listing takes.
-            let deadline = stalled.then(|| mixdog_rt::time::Instant::now().into_std() + std::time::Duration::from_millis(17_500));
-            let ctx = context(&root, files.clone(), deadline);
+            // No caller deadline: the client's full timeout (17.5 s) from the runtime's now, whose soft deadline is that less 7.5 % (16 188 ms).
+            let ctx = context(&root, files.clone(), None);
             let args: JsonValue = serde_json::from_str(&call["args"].to_string().replace("<ROOT>", &shown.replace('\\', "/"))).unwrap();
             let outcome = if stalled {
                 let mut call = std::pin::pin!(tool.call(&ctx, args));
@@ -188,13 +192,16 @@ async fn replay_cases(stalled: bool) {
                     out = &mut call => panic!("{name} call {n}: answered before the walk stalled: {out:?}"),
                     () = listed.notified() => {}
                 }
-                if !frozen {
-                    tokio::time::pause();
-                    frozen = true;
+                // One millisecond short of the soft deadline nothing is answered; at it the partial is.
+                tokio::time::advance(std::time::Duration::from_millis(16_187)).await;
+                let early = std::future::poll_fn(|cx| std::task::Poll::Ready(call.as_mut().poll(cx))).await;
+                assert!(early.is_pending(), "{name} call {n}: answered before the soft deadline: {early:?}");
+                tokio::time::advance(std::time::Duration::from_millis(1)).await;
+                // Polled once, not awaited: an idle paused clock would jump to any pending deadline by itself.
+                match std::future::poll_fn(|cx| std::task::Poll::Ready(call.as_mut().poll(cx))).await {
+                    std::task::Poll::Ready(outcome) => outcome,
+                    std::task::Poll::Pending => panic!("{name} call {n}: no answer at the soft deadline"),
                 }
-                // Past the soft deadline (16.19 s) and short of the hard one (17.5 s).
-                tokio::time::advance(std::time::Duration::from_millis(16_500)).await;
-                call.await
             } else {
                 tool.call(&ctx, args).await
             };
