@@ -208,7 +208,7 @@ mod pg {
         let name = "further shapes (beyond the test file)";
         let prunes = case(&g, 3, name).get("prunes").as_array();
         // One cluster for every prune; each starts from the memory schema a new cluster has.
-        let mut pg = memory_db().await;
+        let pg = memory_db().await;
         let mut used = false;
         for (at, recorded) in prunes.iter().enumerate() {
             // Not reachable through the flush (module header): the empty cache and the `batchSize` options.

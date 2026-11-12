@@ -284,7 +284,7 @@ fn children_of(pid: u32) -> Vec<(u32, String)> {
     found
 }
 
-/// Waits, up to [`CHILDREN_DEADLINE`], for the processes that were children of `pid` to end. A killed binary's job object
+/// Waits, each up to [`CHILDREN_DEADLINE`], for the processes that were children of `pid` to end. A killed binary's job object
 /// (kill-on-close) ends its children when the kernel closes the job, which happens after the binary's own exit is
 /// signalled: a snapshot taken at that exit may still show them, so the end of each is waited for as an event, on its handle.
 fn wait_children_end(pid: u32) {
@@ -292,14 +292,13 @@ fn wait_children_end(pid: u32) {
     use windows_sys::Win32::System::Threading::OpenProcess;
     use windows_sys::Win32::System::Threading::PROCESS_SYNCHRONIZE;
     use windows_sys::Win32::System::Threading::WaitForSingleObject;
-    let until = std::time::Instant::now() + CHILDREN_DEADLINE;
+    let limit = u32::try_from(CHILDREN_DEADLINE.as_millis()).unwrap();
     for (child, _) in children_of(pid) {
-        let left = u32::try_from(until.saturating_duration_since(std::time::Instant::now()).as_millis()).unwrap();
         // SAFETY: the handle is checked and closed; a process that already ended cannot be opened and needs no wait.
         unsafe {
             let handle = OpenProcess(PROCESS_SYNCHRONIZE, 0, child);
             if !handle.is_null() {
-                WaitForSingleObject(handle, left);
+                WaitForSingleObject(handle, limit);
                 CloseHandle(handle);
             }
         }

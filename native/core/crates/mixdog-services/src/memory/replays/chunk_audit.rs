@@ -108,7 +108,7 @@ mod pg {
         let name = "further shapes (beyond the test file)";
         let sessions = case(&g, 5, name).get("sessions").as_array();
         // One cluster for every session; each starts from the memory schema a new cluster has.
-        let mut pg = memory_db().await;
+        let pg = memory_db().await;
         for (at, s) in sessions.iter().enumerate() {
             if at > 0 {
                 pg.reset().await;

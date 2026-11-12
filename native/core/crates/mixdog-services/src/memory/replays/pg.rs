@@ -45,11 +45,14 @@ async fn memory_schema(pg: &TestPg) -> Db {
 
 impl ReplayPg {
     /// The memory schema as a new cluster has it: dropped with everything a case added to it (tables, triggers, rows) and
-    /// built again over the same cluster, with a new `Db`. A test that replays several cases starts one cluster (initdb and a
-    /// postmaster, about five seconds) and resets it between them, instead of starting one per case.
-    pub(crate) async fn reset(&mut self) {
+    /// built again over the same cluster and the same `Db` (a new one would open new connections, which the product bounds at 10 s
+    /// and a starved machine does not give). A test that replays several cases starts one cluster (initdb and a postmaster, about
+    /// five seconds) and resets it between them, instead of starting one per case.
+    pub(crate) async fn reset(&self) {
         self.db.batch("DROP SCHEMA memory CASCADE; CREATE SCHEMA memory").await.unwrap_or_else(|e| panic!("reset: {}", e.message()));
-        self.db = memory_schema(&self._pg).await;
+        ensure_memory_schema(&self.db, 384, &serde_json::json!({ "model": crate::memory::embed::config::DEFAULT_MODEL_ID }))
+            .await
+            .expect("memory schema");
     }
 }
 
