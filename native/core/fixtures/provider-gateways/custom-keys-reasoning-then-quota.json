@@ -25,7 +25,7 @@
   ],
   "keyIds": [
     "default",
-    "fe3f9075-0280-4c97-80c5-922553925d74"
+    "a0ea2614-dd81-4ece-8e63-82e23cb26b69"
   ],
   "pool": {
     "accounts": [
@@ -37,7 +37,7 @@
         "label": "Account 1"
       },
       {
-        "id": "fe3f9075-0280-4c97-80c5-922553925d74",
+        "id": "a0ea2614-dd81-4ece-8e63-82e23cb26b69",
         "label": "Account 2"
       }
     ],
@@ -51,6 +51,7 @@
       "model": "m1",
       "tools": [],
       "history": [],
+      "opts": {},
       "sessionId": null,
       "requests": [
         {

@@ -1,0 +1,48 @@
+{
+  "id": "stuck-then-open",
+  "auth": "openai-direct",
+  "script": [
+    "stuck",
+    "open"
+  ],
+  "until": 3000,
+  "events": [
+    {
+      "t": 0,
+      "on": "dial",
+      "conn": 1
+    },
+    {
+      "t": 0,
+      "on": "upgrade",
+      "conn": 1,
+      "action": "stuck"
+    },
+    {
+      "t": 3000,
+      "on": "dial",
+      "conn": 2
+    },
+    {
+      "t": 3000,
+      "on": "upgrade",
+      "conn": 2,
+      "action": "open"
+    },
+    {
+      "t": 3000,
+      "on": "opened",
+      "conn": 2
+    },
+    {
+      "t": 3001,
+      "on": "closed",
+      "conn": 2
+    }
+  ],
+  "outcome": {
+    "ok": true,
+    "t": 3000,
+    "reused": false
+  }
+}

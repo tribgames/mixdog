@@ -376,7 +376,17 @@ fn folded(events: &[StreamEvent]) -> Value {
             }
             StreamEvent::FinalContent(text) => content = text.clone(),
             StreamEvent::ToolCallDone(call) => calls.push(json!({"id": call.id, "name": call.name, "arguments": call.arguments})),
-            StreamEvent::Usage(u) => usage = json!({"inputTokens": u.input_tokens, "outputTokens": u.output_tokens}),
+            StreamEvent::Usage(u) => {
+                // The cache read and the gateway's cost are compared only when the answer reported them.
+                let mut shown = json!({"inputTokens": u.input_tokens, "outputTokens": u.output_tokens});
+                if u.cache_read_tokens > 0 {
+                    shown["cachedTokens"] = json!(u.cache_read_tokens);
+                }
+                if let Some(cost) = u.cost {
+                    shown["costUsd"] = json!(cost.0 as f64 / 1e10);
+                }
+                usage = shown;
+            }
             StreamEvent::Completed { stop: s, .. } => {
                 stop = match s {
                     None => Value::Null,
@@ -432,7 +442,23 @@ fn send_request(provider: &str, send: &Value) -> ModelRequest {
     let mut messages = vec![message(provider, &json!({"role": "system", "content": "You are a fixture assistant."}))];
     messages.extend(send["history"].as_array().unwrap().iter().map(|m| message(provider, m)));
     messages.push(message(provider, &json!({"role": "user", "content": "Look up the answer."})));
-    let mut options = RequestOptions { session_id: send["sessionId"].as_str().map(str::to_owned), ..RequestOptions::default() };
+    let mut options = RequestOptions {
+        session_id: send["sessionId"].as_str().map(str::to_owned),
+        effort: send["opts"]["effort"].as_str().map(str::to_owned),
+        ..RequestOptions::default()
+    };
+    // A layered send: the turn's effort is what `resolveRoute` answers over the recorded route inputs (the turn's own,
+    // the session's saved choice, the preset's); the core's resolution must name the effort Node's did.
+    if let Some(route) = send.get("route") {
+        let obj = |v: &Value| v.as_object().cloned().unwrap();
+        let resolved = crate::service::admin_route::resolve_route(&obj(&route["config"]), &obj(&route["request"]), &|_, _| true).unwrap();
+        assert_eq!(resolved["effort"], route["effort"], "the route's effort");
+        options.effort = resolved["effort"].as_str().map(str::to_owned);
+    }
+    // OpenRouter's own reasoning control rides the model parameters (`openRouterReasoningEffort`).
+    if let Some(effort) = send["opts"]["openRouterReasoningEffort"].as_str() {
+        options.model_parameters = Some(json!({"openRouterReasoningEffort": effort}));
+    }
     if let Some(pin) = send.get("pin") {
         options.wire_pin = WirePin::from_route(pin);
     }
@@ -574,6 +600,29 @@ scenarios! {
     an_unsupported_wire_refusal_moves_the_send_and_the_pin_to_the_next_wire => "openrouter-reroute-unsupported",
     a_refusal_that_names_no_unsupported_wire_ends_the_send => "openrouter-refusal-stays",
     the_wire_switches_once => "openrouter-reroute-once",
+    openrouter_capabilities_come_from_the_alias_target_and_the_slug_stays_on_the_wire => "openrouter-alias-slug",
+    openrouter_reasoning_control_replaces_the_turn_effort_on_messages => "openrouter-messages-reasoning",
+    openrouter_reasoning_control_applies_on_responses_as_on_chat => "openrouter-responses-reasoning",
+    openrouter_messages_usage_keeps_the_cache_read_and_the_gateways_cost => "openrouter-messages-usage",
+    the_messages_engine_never_follows_a_redirect => "openrouter-messages-redirect",
+    the_gemini_engine_never_follows_a_redirect => "opencode-go-gemini-redirect",
+    xai_asks_its_roster_as_nodes_listing_does => "xai-listing",
+    deepseek_asks_its_roster_as_nodes_listing_does => "deepseek-listing",
+    the_configured_effort_stands_in_for_a_turn_that_names_none_on_xai_responses => "config-effort-xai-responses",
+    the_configured_effort_stands_in_for_a_turn_that_names_none_on_xai_chat => "config-effort-xai-chat",
+    the_configured_effort_stands_in_for_a_turn_that_names_none_on_deepseek_chat => "config-effort-deepseek-chat",
+    the_configured_effort_stands_in_for_a_turn_that_names_none_on_openrouter_chat => "config-effort-openrouter-chat",
+    the_configured_effort_stands_in_for_a_turn_that_names_none_on_openrouter_messages => "config-effort-openrouter-messages",
+    the_configured_effort_stands_in_for_a_turn_that_names_none_on_openrouter_responses => "config-effort-openrouter-responses",
+    the_turns_effort_wins_over_the_sessions_saved_one_the_preset_and_the_config => "effort-layers-turn-over-session",
+    the_sessions_saved_effort_wins_over_the_preset_and_the_config => "effort-layers-session-over-preset",
+    the_presets_effort_wins_over_the_provider_config => "effort-layers-preset-over-config",
+    a_configured_effort_xai_does_not_carry_is_left_off_xai_chat => "config-effort-unsupported-xai-chat",
+    a_configured_effort_openrouter_does_not_list_is_left_off_openrouter_chat => "config-effort-unsupported-openrouter-chat",
+    a_configured_effort_deepseek_does_not_map_leaves_thinking_on_without_one => "config-effort-unsupported-deepseek-chat",
+    the_configured_effort_is_not_read_by_the_deepseek_messages_engine => "config-effort-deepseek-messages",
+    the_configured_effort_is_not_read_by_the_opencode_go_messages_engine => "config-effort-opencode-go-messages",
+    the_configured_effort_is_not_read_by_the_command_code_messages_engine => "config-effort-command-code-messages",
 }
 
 /// The same answers with the whole body in one chunk: the events decoded before an in-band refusal still reach

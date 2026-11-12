@@ -11,6 +11,7 @@
       "model": "meta-llama/llama-4-maverick",
       "tools": [],
       "history": [],
+      "opts": {},
       "sessionId": null,
       "requests": [
         {
