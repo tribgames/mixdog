@@ -1,0 +1,106 @@
+# Builds mixdogd, the Rust core, for every target a desktop package carries:
+# the app's own core (Windows x64, macOS and Linux per arch) and the four server cores
+# the SSH install uploads (Linux x64/arm64, macOS x64/arm64) — apps/desktop/scripts/
+# stage-core.mjs stages them all into every package from native/core/target/<target>/
+# release (the .github/actions/stage-mixdogd action lays the artifacts out that way).
+# Linux is built inside manylinux_2_28 (glibc 2.28) like the other Linux native tools,
+# so the package's glibc floor does not follow the runner's. Mixdog's Google OAuth client
+# is embedded by the crate's build script from the two secrets (both or neither).
+# Called once per run: the artifact names are unique per run.
+name: mixdogd-build
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: "Commit SHA to build (defaults to the caller's github.sha)"
+        required: false
+        type: string
+        default: ""
+    secrets:
+      MIXDOG_GOOGLE_OAUTH_CLIENT_ID:
+        required: false
+      MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET:
+        required: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: mixdogd-${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: x86_64-pc-windows-msvc, runner: windows-2022, exe: ".exe", run_version: true }
+          - { target: aarch64-apple-darwin, runner: macos-15, exe: "", run_version: true }
+          - { target: x86_64-apple-darwin, runner: macos-15, exe: "", run_version: false }
+          - { target: x86_64-unknown-linux-gnu, runner: ubuntu-24.04, exe: "", run_version: true, image: "quay.io/pypa/manylinux_2_28_x86_64@sha256:4131ddd7acb9c6c966af02fe7e71edc51e078c2d41f475966697676430bfa2ae" }
+          - { target: aarch64-unknown-linux-gnu, runner: ubuntu-24.04-arm, exe: "", run_version: true, image: "quay.io/pypa/manylinux_2_28_aarch64@sha256:abd1230aa9e4058a74b89d27cd14ba18c0db036d7bfe6e6f219a29ea63c24eb6" }
+    env:
+      MIXDOG_GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_ID }}
+      MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/assert-sha
+        with:
+          expected: ${{ inputs.ref || github.sha }}
+      - name: Install Rust
+        if: ${{ !matrix.image }}
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: "1.99.1"
+          targets: ${{ matrix.target }}
+      - name: Cache cargo registry
+        if: ${{ !matrix.image }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: mixdogd-cargo-${{ matrix.target }}-${{ hashFiles('native/core/Cargo.lock') }}
+          restore-keys: mixdogd-cargo-${{ matrix.target }}-
+      - name: Build mixdogd
+        if: ${{ !matrix.image }}
+        run: |
+          cargo build --locked --release --manifest-path native/core/Cargo.toml -p mixdog-cli --bin mixdogd --target ${{ matrix.target }}
+          mkdir -p out
+          cp "native/core/target/${{ matrix.target }}/release/mixdogd${{ matrix.exe }}" out/
+      - name: Build mixdogd (glibc 2.28)
+        if: ${{ matrix.image }}
+        run: |
+          mkdir -p out
+          docker run --rm -e MIXDOG_GOOGLE_OAUTH_CLIENT_ID -e MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET \
+            -v "$PWD:/w" ${{ matrix.image }} bash /w/apps/desktop/scripts/linux-build-core-old-glibc.sh 2>&1 | tee out/build.log
+          test "${PIPESTATUS[0]}" -eq 0
+          rm out/build.log
+      # The release workflow stages these into packages whose version is the
+      # package.json one; stage-core.mjs checks the same on the host binary.
+      - name: The core reports the release version
+        if: ${{ matrix.run_version }}
+        run: |
+          reported=$(out/mixdogd${{ matrix.exe }} --version | awk '{print $NF}')
+          expected=$(node -p "require('./package.json').version")
+          echo "mixdogd reports $reported, release $expected"
+          test "$reported" = "$expected"
+      # The client is compiled into the binary; a release build without it would
+      # ship with no built-in Google sign-in. Nothing is printed.
+      - name: The core embeds the Google OAuth client
+        if: ${{ env.MIXDOG_GOOGLE_OAUTH_CLIENT_ID != '' && env.MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET != '' }}
+        run: grep -qaF -- "$MIXDOG_GOOGLE_OAUTH_CLIENT_ID" out/mixdogd${{ matrix.exe }}
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mixdogd-${{ matrix.target }}
+          path: out/mixdogd${{ matrix.exe }}
+          if-no-files-found: error
+          retention-days: 2

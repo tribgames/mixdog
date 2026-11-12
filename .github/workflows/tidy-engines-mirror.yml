@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  MANIFEST: src/runtime/tidy/engines-manifest.json
+  MANIFEST: native/core/crates/mixdog-services/data/tidy-engines-manifest.json
 
 jobs:
   mirror:
@@ -124,7 +124,7 @@ jobs:
           else
             gh release create "$TAG" --latest=false --target "$GITHUB_SHA" \
               --title "Tidy engines ${TAG}" \
-              --notes "Mirrored non-GPL tidy engine binaries from src/runtime/tidy/engines-manifest.json. GPL assets (shellcheck) stay upstream and are not attached."
+              --notes "Mirrored non-GPL tidy engine binaries from native/core/crates/mixdog-services/data/tidy-engines-manifest.json. GPL assets (shellcheck) stay upstream and are not attached."
           fi
           gh release upload "$TAG" "${FILES[@]}" _mirror/engines-manifest.json --clobber
 

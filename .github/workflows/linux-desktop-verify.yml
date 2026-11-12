@@ -27,6 +27,10 @@ on:
         description: "The caller already ran linux-native-tools.yml in this run (its native-tools-glibc228-<arch> artifacts exist); skip the build here. Artifact names are unique per run, so a second build would fail the upload."
         type: boolean
         default: false
+      mixdogd_prebuilt:
+        description: "The caller already ran mixdogd-build.yml in this run (its mixdogd-<target> artifacts exist); skip the build here. Artifact names are unique per run, so a second build would fail the upload."
+        type: boolean
+        default: false
     outputs:
       verified_sha:
         description: "The commit SHA every job of this run checked out and verified"
@@ -79,6 +83,16 @@ jobs:
     uses: ./.github/workflows/linux-native-tools.yml
     with:
       ref: ${{ inputs.ref || github.sha }}
+
+  # mixdogd for every target a desktop package carries (stage-core.mjs stages the
+  # app's own core and the four server cores). The release workflow builds them
+  # once itself and sets mixdogd_prebuilt.
+  mixdogd:
+    if: ${{ !inputs.mixdogd_prebuilt }}
+    uses: ./.github/workflows/mixdogd-build.yml
+    with:
+      ref: ${{ inputs.ref || github.sha }}
+    secrets: inherit
 
   tests:
     name: tests-${{ matrix.suite }}-${{ matrix.arch }}-${{ matrix.shard }}
@@ -176,10 +190,11 @@ jobs:
         if: matrix.suite == 'root'
       - name: Build native spawn test binary
         run: npm run build:spawn:test
-      # Daemon suites start the daemon under the supervisor built from this
-      # source (a checkout's release build is preferred over the pinned download).
-      - name: Build the native supervisor
-        run: npm run build:supervisor:test
+      # `npm ci` no longer stages the native tools (postinstall only prunes the
+      # embedding runtime): stage the pinned graph, patch and spawn tools the
+      # suites resolve in native-tools/.
+      - name: Stage the native tools
+        run: node scripts/stage-native-tools.mjs
       - name: Root tests
         if: matrix.suite == 'root'
         run: npm test 2>&1 | tee root-tests.log
@@ -216,8 +231,8 @@ jobs:
 
   verify:
     name: linux-${{ matrix.arch }}
-    needs: [plan, native-tools]
-    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.native-tools.result == 'success' || needs.native-tools.result == 'skipped') }}
+    needs: [plan, native-tools, mixdogd]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.native-tools.result == 'success' || needs.native-tools.result == 'skipped') && (needs.mixdogd.result == 'success' || needs.mixdogd.result == 'skipped') }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     strategy:
@@ -306,6 +321,8 @@ jobs:
           exit 1
       # fpm compresses the .deb payload with `tar -J` (XZ_OPT=-3), one thread
       # by default; xz reads XZ_DEFAULTS before XZ_OPT, so -T0 uses every core.
+      # build:linux stages the cores (stage-core.mjs) from native/core/target.
+      - uses: ./.github/actions/stage-mixdogd
       - name: Build Linux package
         env:
           XZ_DEFAULTS: -T0
@@ -445,8 +462,8 @@ jobs:
   # feed in `update-path`. Packaging only; the verify job owns the test suites.
   build-next:
     name: build-next-x64
-    needs: [plan, native-tools]
-    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.full == 'true' && (needs.native-tools.result == 'success' || needs.native-tools.result == 'skipped') }}
+    needs: [plan, native-tools, mixdogd]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.full == 'true' && (needs.native-tools.result == 'success' || needs.native-tools.result == 'skipped') && (needs.mixdogd.result == 'success' || needs.mixdogd.result == 'skipped') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -518,6 +535,7 @@ jobs:
             sleep $((attempt * 15))
           done
           exit 1
+      - uses: ./.github/actions/stage-mixdogd
       - name: Build N+1 Linux package (patch version bumped)
         working-directory: apps/desktop
         env:
