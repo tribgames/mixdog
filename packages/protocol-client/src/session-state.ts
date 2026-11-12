@@ -335,15 +335,9 @@ export function desktopSessionState(fold: SessionFold, requests: readonly Server
     transcriptArchive: null,
     lastTurn: null,
     themeEpoch: 0,
-    // Fields Node's session state always carries, `null` (or its empty value) while it has none; a section the core removed
-    // (`withSection`: JSON null removes) reads as that value, not as an absent key: the store's first draft (initial-state.mjs:37
-    // `promptRestore`), the route state's (context-state.mjs:75,92,95,97 `workspace`, `goal`, `quotaResume`, `todo`), the host's
-    // remote fields (session-host-publication.ts:281-288) and shell-job status (session-host.ts:485-495, the poller's empty status).
-    promptRestore: null,
-    workspace: null,
-    goal: null,
-    quotaResume: null,
-    todo: null,
+    // The host's fields Node's session state always carries, empty while it has none; a section the core removed (`withSection`: JSON
+    // null removes) reads as that value, not as an absent key: the remote fields (session-host-publication.ts:281-288) and shell-job
+    // status (session-host.ts:485-495, the poller's empty status).
     remoteEnabled: false,
     remoteSessionId: null,
     shellJobs: emptyShellJobs(),

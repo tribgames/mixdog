@@ -427,7 +427,7 @@ function extOf(item: Obj, m: Obj): Obj {
     // the core's own `checkpointId` is the user item's id, the submission riding in `ext`. A client names a prompt by what it
     // shows (rewind resolves the submission id), so the row shows Node's value.
     const { clientSubmissionId, ...rest } = ext;
-    return { ...rest, checkpointId: clientSubmissionId };
+    return { ...rest, checkpointId: text(clientSubmissionId) };
   }
   if (item.type !== 'userMessage' || !NOTICE_SOURCES.has(text(m.source))) return ext;
   const rest = { ...ext };

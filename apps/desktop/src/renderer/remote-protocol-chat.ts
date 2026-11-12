@@ -10,7 +10,6 @@ import type {
   DesktopAbortOptions,
   DesktopCapabilityReadRequest,
   DesktopCapabilityReadResult,
-  DesktopFeedbackReceipt,
   DesktopModelCatalogOptions,
   DesktopModelOption,
   DesktopModelSelection,
@@ -295,8 +294,6 @@ export function createChatApi(client: ChatClient, shared: ChatShared) {
       ).snapshot,
     setFast: async (enabled: boolean, sessionId?: string): Promise<SessionSnapshot> =>
       (await lane.invoke('setFast', [enabled], sessionId || undefined)).snapshot,
-    submitFeedback: async (input: unknown): Promise<DesktopFeedbackReceipt> =>
-      (await send({ method: 'feedback/upload', params: { input } })) as DesktopFeedbackReceipt,
     readCapabilities: (requests: DesktopCapabilityReadRequest[]): Promise<DesktopCapabilityReadResult[]> => lane.read(requests),
   };
 }
@@ -482,7 +479,7 @@ const CHAT_CALLS = [
   'prefetchSession', 'provideSecretInput', 'readCapabilities', 'readTranscriptHistory', 'readTranscriptItem', 'releaseShellJob',
   'renameSession', 'resetAgentHome', 'resolveToolApprovalForSession', 'scheduleQuotaResume', 'searchSessionContent', 'setModelRoute',
   'setQuotaAutoResume', 'setSessionArchived', 'setSessionFavorite', 'setSessionProject', 'startProject', 'startProjectTask',
-  'startTask', 'stopShellJob', 'submitFeedback', 'submitNewTask', 'submitToSession', 'viewerDevice', 'setFast',
+  'startTask', 'stopShellJob', 'submitNewTask', 'submitToSession', 'viewerDevice', 'setFast',
 ] as const satisfies ReadonlyArray<keyof ChatApi>;
 /** The calls Node's host answered after republishing the catalog itself (session-host-lifecycle.ts at b6f10295a: markSessionRead 203,
  *  renameSession 231, setSessionFavorite 311, setSessionProject 336, setSessionArchived 493/500, deleteSession 576). */

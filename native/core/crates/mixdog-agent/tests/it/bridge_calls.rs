@@ -1322,10 +1322,15 @@ fn callback_of(event: &RunEvent, thread: &str) -> Option<Value> {
 /// - `Stage(Requesting)`: Node's admission scheduler and provider adapter raise it, and the recording's scripted `send` is neither.
 /// - `ToolCallObserved`: see `callbacks[ev=onAssistantToolCallObserved]` in [`NOT_COMPARED`].
 /// - `ExecutionCalls`: Node's `rememberSensitiveValues` is a store call, not a callback the recording saw; the calls are the batch's.
+/// - `Stage(Authorized)`: the host's mark that a call passed its gate without an ask (its held step goes out); Node raises no callback
+///   for an unasked call, whose run is compared as `requests` and `events`.
 fn uncompared(event: &RunEvent) -> bool {
     matches!(
         event,
-        RunEvent::Stage(Stage::Streaming | Stage::ApprovalWait { .. } | Stage::Requesting) | RunEvent::TextDelta(_) | RunEvent::ToolCallObserved(_) | RunEvent::ExecutionCalls(_)
+        RunEvent::Stage(Stage::Streaming | Stage::ApprovalWait { .. } | Stage::Requesting | Stage::Authorized)
+            | RunEvent::TextDelta(_)
+            | RunEvent::ToolCallObserved(_)
+            | RunEvent::ExecutionCalls(_)
     )
 }
 
