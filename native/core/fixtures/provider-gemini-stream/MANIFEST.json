@@ -28,7 +28,7 @@
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "b6c4767c333a2714a3c1e6defcee0a5e4cc938ac62a51d33cbc14a6d73bae79c"
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/deterministic-world.mjs",

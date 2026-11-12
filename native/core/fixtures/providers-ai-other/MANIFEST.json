@@ -53,184 +53,184 @@
       "sha256": "f402cf59d4875d73842b161ccef8ae899d1c464322265b5a419079cddfea7a0c"
     },
     {
-      "bytes": 4838,
+      "bytes": 5086,
       "path": "cursor-api/bidi-eof-after-turn-ended/exchange.json",
-      "sha256": "1e959ebb7ab9ee7058c4528363de30655fa95c49bdf33aba976c3b06f3c90477"
+      "sha256": "e16b0c15bc39b3bd5a2ef5cc76d22c45eac32200531d1bbc33e3cbc91a3259ba"
     },
     {
       "bytes": 292,
       "path": "cursor-api/bidi-eof-after-turn-ended/result.json",
-      "sha256": "932d9c2e255738c20b8f192325378d4c7c471dbc46294aacc134b439144b35b4"
+      "sha256": "58c8a5737d739967440ddc9b5bbee3e4ec74e3ca215f0f308e93a8d391e291a9"
     },
     {
-      "bytes": 19192,
+      "bytes": 19440,
       "path": "cursor-api/bidi-http-500/exchange.json",
-      "sha256": "4b80dd57db0834bde4f8a168215149396fc01d8e9db789786b77d0e4ee1292a9"
+      "sha256": "fa7aa322cbef517dd13cde411a46cf8d0f1cf3c5a83a8b6a077cf2511edbd71a"
     },
     {
       "bytes": 415,
       "path": "cursor-api/bidi-http-500/result.json",
-      "sha256": "ac70715ae0b367ab8ae317ed333a508cccd282dc1858c512c3ae71f37a98d48d"
+      "sha256": "b8c6c6637980cf931cb4688d6857d5f1291ab2a0ce799d8811b1434b39a7e8d2"
     },
     {
-      "bytes": 4825,
+      "bytes": 5073,
       "path": "cursor-api/bidi-truncated-eof-no-turn-end/exchange.json",
-      "sha256": "828739aab954196064b2c7690ed0742ea23c6f537e3c866ea504d038f7c4f355"
+      "sha256": "1670cc678944fabcf75cf1f357555049e1d013e9d97a5eca68e094d7ed02d7e9"
     },
     {
       "bytes": 448,
       "path": "cursor-api/bidi-truncated-eof-no-turn-end/result.json",
-      "sha256": "8174bd81e91157dcb1cb3b49884dd98973cd6de5426aef10823bffc9d8a9c890"
+      "sha256": "4975a9d1ca4a293a1b369bc758b50bdf00072ca5ca0403ddefebdbead7a1b937"
     },
     {
-      "bytes": 19715,
+      "bytes": 19963,
       "path": "cursor-api/bidi-truncated-mid-frame/exchange.json",
-      "sha256": "e9de7f74fa9e68e59599c5614bdd91cfc6855f4dbaae679846572afa63c5504e"
+      "sha256": "419d4bf686ee2058604ad55a54a8c88f88743b0bb14b4822fa1195588f571e99"
     },
     {
       "bytes": 449,
       "path": "cursor-api/bidi-truncated-mid-frame/result.json",
-      "sha256": "235f8f7c0f7ed3053d4d969b8607ab669d88b3d67cc65bcdc78ae397cf556248"
+      "sha256": "3c746cd49d245a055aacb315339b7c207ebce874c7f5fd172f6c503606ba1e1a"
     },
     {
-      "bytes": 4826,
+      "bytes": 5074,
       "path": "cursor-api/bidi-truncated-reset-after-text/exchange.json",
-      "sha256": "d66f524e081962760833e106f914800382d5162ad81adf4ebbea37cff05b75e9"
+      "sha256": "4be9f4f9fe618f48873ce5aa40adee11cb7049e541d17a3c538eb69c585578d9"
     },
     {
       "bytes": 448,
       "path": "cursor-api/bidi-truncated-reset-after-text/result.json",
-      "sha256": "8174bd81e91157dcb1cb3b49884dd98973cd6de5426aef10823bffc9d8a9c890"
+      "sha256": "4975a9d1ca4a293a1b369bc758b50bdf00072ca5ca0403ddefebdbead7a1b937"
     },
     {
-      "bytes": 19080,
+      "bytes": 19328,
       "path": "cursor-api/bidi-truncated-reset-before-output/exchange.json",
-      "sha256": "191985a0d5c3de1bc42b2419bf0dfa8bf2bda903ea033941859685e1e1a75a56"
+      "sha256": "d52ccdf94f47db856fc4e60f29848a0b5833f2a7fcd2dc643e88ea0ef6628aef"
     },
     {
       "bytes": 448,
       "path": "cursor-api/bidi-truncated-reset-before-output/result.json",
-      "sha256": "525598506af69e638fd67803d5ca444a10e1d50a7eac061193009a8b33b145d0"
+      "sha256": "e11428388a7229a447ab43ad56b5108f5dbccb6256473e609be9b6f3679ab1aa"
     },
     {
-      "bytes": 7671,
+      "bytes": 7919,
       "path": "cursor-api/text/exchange.json",
-      "sha256": "72aaba15859ae17fcad5a665fd2ba1e6b69e586d331574a1c52ad9bdaccacde5"
+      "sha256": "0ae66656daa6d69bf1cec37d80c38fe900b1fb66dbec6f04c3eee41545ed3de6"
     },
     {
       "bytes": 292,
       "path": "cursor-api/text/result.json",
-      "sha256": "932d9c2e255738c20b8f192325378d4c7c471dbc46294aacc134b439144b35b4"
+      "sha256": "58c8a5737d739967440ddc9b5bbee3e4ec74e3ca215f0f308e93a8d391e291a9"
     },
     {
-      "bytes": 4973,
+      "bytes": 5221,
       "path": "cursor-api/tool-call/exchange.json",
-      "sha256": "9a062a8083959061d0fef0c51dd0c1c22cfb5404ffcea2d0d36c0df16973e1b3"
+      "sha256": "619ee5bad98eff3673959e47b838c6de6a124650c4f77910bf82a106f28f0de7"
     },
     {
       "bytes": 529,
       "path": "cursor-api/tool-call/result.json",
-      "sha256": "cd6ca57483518787b83620843f8fd1d80e3501fa1d86c67c1dc4ddd4c6ef6d39"
+      "sha256": "4c3512fc7495c98650241835ee117d539eb76133eee2358bd3f56e510e74c2fc"
     },
     {
-      "bytes": 4554,
+      "bytes": 4802,
       "path": "devin-oauth/error-http-400/exchange.json",
-      "sha256": "c8730c8f7fa999d5b388422f5d68b3a9aaf0fd427eb5e5878148a1e9c636bdd8"
+      "sha256": "1006e2d97160426e27223366c9731544b6bf478364da6dfa8611079688896fb3"
     },
     {
       "bytes": 471,
       "path": "devin-oauth/error-http-400/result.json",
-      "sha256": "c5921476e441ade37554995faca4deeb94b3b16e7a7a801fe6c8cfdf16c33f12"
+      "sha256": "c326bb1f2072652370d57b3ffb1787096dc11cdf312d5d601217dd9497e32e8f"
     },
     {
-      "bytes": 4550,
+      "bytes": 4798,
       "path": "devin-oauth/error-http-401/exchange.json",
-      "sha256": "9b89d63b3dc67f812081318c02ec7aa4a351df5040baf4a00d297d7a789ca57c"
+      "sha256": "a4a517e58b440ccbb832bd94bb93672f966f3fa5b4ac1ee6ce8d3f688a677a2e"
     },
     {
       "bytes": 542,
       "path": "devin-oauth/error-http-401/result.json",
-      "sha256": "11fb0ff6edaf1ed9ae82119c4291855c5113b035dc91847212beeeea5dd47d03"
+      "sha256": "bf12de76f5eb73cf7c608a10544c6f39b4a01f14dbc1e0cd531a115fdd1c6627"
     },
     {
-      "bytes": 4735,
+      "bytes": 4983,
       "path": "devin-oauth/error-trailer-after-text/exchange.json",
-      "sha256": "c73348bcc61485ef30454de6b155e8f59fa57fb8530aa099ab97ba72c690b251"
+      "sha256": "9fe321afa4c244ead683044fda1bd602d0077a1a054905a397f84c18b83c6c31"
     },
     {
       "bytes": 449,
       "path": "devin-oauth/error-trailer-after-text/result.json",
-      "sha256": "2462dc6d44cd105aa47fef648724b5c8ad6624db1d9a126f60ad90947b4377d8"
+      "sha256": "fef7ea760057452f549818f33d7805acef896ca9347b5f334f9965a3e3625261"
     },
     {
-      "bytes": 4613,
+      "bytes": 4861,
       "path": "devin-oauth/error-trailer-resource-exhausted/exchange.json",
-      "sha256": "7d1026221373edf38115c25e44e4e1b2456993f416fef4dcf6c3e23159621ddc"
+      "sha256": "0c3bdd3c0d6f4160e4cbad2988cda03bdf1a1bf3fb956c08e3dc3dc8c6139df3"
     },
     {
       "bytes": 471,
       "path": "devin-oauth/error-trailer-resource-exhausted/result.json",
-      "sha256": "b58de76c6e4afd35b93140c3dd44337b1429bc996561b68ebd77c6eeb86f08c3"
+      "sha256": "ef594fd3b984738c48014ed69524e325b16e9ca00bd9094a8faeb97fcffa502f"
     },
     {
-      "bytes": 4840,
+      "bytes": 5088,
       "path": "devin-oauth/text-thinking/exchange.json",
-      "sha256": "57843cfb49178137e98e8d85eb6991f605f4f918a27aabf66299896e856c9b46"
+      "sha256": "04701ed0c2f8801f6083ab6432cf8b9405244e57a144713b00075f1779435940"
     },
     {
       "bytes": 300,
       "path": "devin-oauth/text-thinking/result.json",
-      "sha256": "439e2d0faefad4b557f7fa065b587a1e4432a820e67e0aa9b9c75946a093f9c1"
+      "sha256": "2cd4de08dc5ee1b0a059977d188483b07b51a8d6b52adf2ea316eeabaa3f5e9a"
     },
     {
-      "bytes": 5321,
+      "bytes": 5364,
       "path": "devin-oauth/text/exchange.json",
-      "sha256": "6b98d73295888e550b3d3a37e5c520323dd9418e2919100b1a733ff93778ac28"
+      "sha256": "6a64ea98501910884d27715d84fe9912113b60e995ffecb68343a2805e4a2338"
     },
     {
       "bytes": 284,
       "path": "devin-oauth/text/result.json",
-      "sha256": "461a00a8fb7ce51584a04bdc81590369dedcb95dc92642b2bbf6c1a0f7f6b8a0"
+      "sha256": "05ff161a4376e69eaf892e0c284da5c61f7bfdf960b9ab193ee8432f4a20ba8c"
     },
     {
-      "bytes": 4792,
+      "bytes": 5040,
       "path": "devin-oauth/tool-call/exchange.json",
-      "sha256": "b0f7b0c32031e655117eb741b458dd559323034ab83b3a5643b4c86ed382e26d"
+      "sha256": "4b02d6313b442a7b460d3fc5ffb14634eac619d8273a5acfc06d7814eea158ff"
     },
     {
       "bytes": 521,
       "path": "devin-oauth/tool-call/result.json",
-      "sha256": "eee54c58cb78bed10353a1cc6e5977f41571f11e84d07cb5d5d15b43d6a77cdc"
+      "sha256": "aab5453fff08510281a9a96eec84d25ba4abadf704bf56c8c27fab8cd2c3cfd3"
     },
     {
-      "bytes": 4657,
+      "bytes": 4905,
       "path": "devin-oauth/truncated-mid-frame/exchange.json",
-      "sha256": "45ebe48ca91433998fc391a7ca22d0837725bbf744f62cf5e7c23fc9723cb633"
+      "sha256": "d1541d203b45d40ea93e8b788b498c08ecc1ae3e2b460a1020215c46fafd51b9"
     },
     {
       "bytes": 457,
       "path": "devin-oauth/truncated-mid-frame/result.json",
-      "sha256": "ce0f2a8b96bafba46dfc1d6aa27ab9a1df44945d73009cae58ab38ada1cc5894"
+      "sha256": "e6092ca8548eea9daa0fc5f9b5224ace6f2d2b707d8f52350ee97c069d6a68ec"
     },
     {
-      "bytes": 4647,
+      "bytes": 4895,
       "path": "devin-oauth/truncated-no-trailer/exchange.json",
-      "sha256": "100730b931c167c094d1a83da42e0050d11257434c8527a6f03eb96e3762df2c"
+      "sha256": "f090a9e3c24cc57710a548c1bdf84eda3696bc6f908bce73831cec61457c56e9"
     },
     {
       "bytes": 456,
       "path": "devin-oauth/truncated-no-trailer/result.json",
-      "sha256": "e7097a6ed7b9b43a407ca65020a6a11bcd7d66215c30d7161217ee728c4eb319"
+      "sha256": "106a1de27e8cd7948f5491e0f9d7e930d688d6c02faf3098d23fd2b99b6dcff7"
     },
     {
-      "bytes": 4642,
+      "bytes": 4890,
       "path": "devin-oauth/truncated-reset/exchange.json",
-      "sha256": "c0b6c1bcfd33d0fc5dc64319c617db4d25d5736dc3eda5cfbf11eb2783ff7446"
+      "sha256": "353996d42abd924596d41713ae276cd5f065026265059fe6a9a4983c63bbc0ad"
     },
     {
       "bytes": 427,
       "path": "devin-oauth/truncated-reset/result.json",
-      "sha256": "e6ba429cbd012cf902803c167e8f07dfa050bbd7547ab345728e9ccba15ad1fd"
+      "sha256": "da6e5eb550724de9c261c4a58942e2f0469c2747e2c7772493e01803417778bb"
     },
     {
       "bytes": 97,
@@ -241,7 +241,7 @@
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "b6c4767c333a2714a3c1e6defcee0a5e4cc938ac62a51d33cbc14a6d73bae79c"
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/headers.mjs",
@@ -262,7 +262,7 @@
     "files": 9140,
     "patches": [
       {
-        "file": "benchmarks/rust-core/recorders/node-patches/node-fix-scrub-carried-credential.patch",
+        "file": "node-fix-scrub-carried-credential.patch",
         "paths": [
           "src/runtime/agent/orchestrator/providers/anthropic-api-transport.mjs",
           "src/runtime/agent/orchestrator/providers/anthropic-oauth-recovery.mjs",
@@ -273,7 +273,7 @@
         "sha256": "c1ee0e633dbc863f7082757e377a2104ab5f3c99e824793a927972ce49e26ede"
       },
       {
-        "file": "benchmarks/rust-core/recorders/node-patches/node-fix-scrub-echoed-credential.patch",
+        "file": "node-fix-scrub-echoed-credential.patch",
         "paths": [
           "src/runtime/agent/orchestrator/providers/anthropic-sse.mjs",
           "src/runtime/agent/orchestrator/providers/anthropic.mjs",
@@ -287,10 +287,10 @@
           "src/runtime/agent/orchestrator/providers/openai-http-sse-request.mjs",
           "src/runtime/agent/orchestrator/providers/credential-echo-scrub.test.mjs"
         ],
-        "sha256": "9608073da4371faa1fbef6a83d8bd9c39b7234307292cf1079e8ec21a769f179"
+        "sha256": "ec5517ec9dba1abf3a4d58e9f17e8121a7e1775668b4a17780f74e95f6ca04b4"
       },
       {
-        "file": "benchmarks/rust-core/recorders/node-patches/node-fix-cursor-end-frame-error.patch",
+        "file": "node-fix-cursor-end-frame-error.patch",
         "paths": [
           "src/runtime/agent/orchestrator/providers/cursor-wire-transport.mjs"
         ],
@@ -303,7 +303,7 @@
       "exact": false,
       "filesDifferingFromCommit": 17
     },
-    "srcSha256": "60c813b5374b4908159496769aa0d1df0970ba36940e6bc8fd6393def3b00244",
+    "srcSha256": "2f7a45be69239bc9fe42539db08d83077550873c9c2fc352ff143e456a3c9946",
     "tree": "product tree loaded by the recorder",
     "treeKind": "archive",
     "version": "1.4.5"
@@ -323,9 +323,19 @@
     "cursor-api/bidi-truncated-reset-after-text",
     "cursor-api/bidi-truncated-reset-before-output",
     "cursor-api/text",
-    "cursor-api/tool-call"
+    "cursor-api/tool-call",
+    "devin-oauth/error-http-400",
+    "devin-oauth/error-http-401",
+    "devin-oauth/error-trailer-after-text",
+    "devin-oauth/error-trailer-resource-exhausted",
+    "devin-oauth/text",
+    "devin-oauth/text-thinking",
+    "devin-oauth/tool-call",
+    "devin-oauth/truncated-mid-frame",
+    "devin-oauth/truncated-no-trailer",
+    "devin-oauth/truncated-reset"
   ],
   "set": "providers-ai-other",
-  "totalBytes": 188456,
+  "totalBytes": 192715,
   "unrecordedCount": 0
 }

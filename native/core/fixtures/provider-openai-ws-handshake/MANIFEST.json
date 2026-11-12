@@ -25,7 +25,7 @@
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "b6c4767c333a2714a3c1e6defcee0a5e4cc938ac62a51d33cbc14a6d73bae79c"
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/deterministic-world.mjs",
@@ -76,7 +76,7 @@
     "files": 9140,
     "patches": [
       {
-        "file": "benchmarks/rust-core/recorders/node-patches/node-fix-scrub-carried-credential.patch",
+        "file": "node-fix-scrub-carried-credential.patch",
         "paths": [
           "src/runtime/agent/orchestrator/providers/anthropic-api-transport.mjs",
           "src/runtime/agent/orchestrator/providers/anthropic-oauth-recovery.mjs",
@@ -87,7 +87,7 @@
         "sha256": "c1ee0e633dbc863f7082757e377a2104ab5f3c99e824793a927972ce49e26ede"
       },
       {
-        "file": "benchmarks/rust-core/recorders/node-patches/node-fix-scrub-echoed-credential.patch",
+        "file": "node-fix-scrub-echoed-credential.patch",
         "paths": [
           "src/runtime/agent/orchestrator/providers/anthropic-sse.mjs",
           "src/runtime/agent/orchestrator/providers/anthropic.mjs",
@@ -101,10 +101,10 @@
           "src/runtime/agent/orchestrator/providers/openai-http-sse-request.mjs",
           "src/runtime/agent/orchestrator/providers/credential-echo-scrub.test.mjs"
         ],
-        "sha256": "9608073da4371faa1fbef6a83d8bd9c39b7234307292cf1079e8ec21a769f179"
+        "sha256": "ec5517ec9dba1abf3a4d58e9f17e8121a7e1775668b4a17780f74e95f6ca04b4"
       },
       {
-        "file": "benchmarks/rust-core/recorders/node-patches/node-fix-cursor-end-frame-error.patch",
+        "file": "node-fix-cursor-end-frame-error.patch",
         "paths": [
           "src/runtime/agent/orchestrator/providers/cursor-wire-transport.mjs"
         ],
@@ -117,7 +117,7 @@
       "exact": false,
       "filesDifferingFromCommit": 17
     },
-    "srcSha256": "60c813b5374b4908159496769aa0d1df0970ba36940e6bc8fd6393def3b00244",
+    "srcSha256": "2f7a45be69239bc9fe42539db08d83077550873c9c2fc352ff143e456a3c9946",
     "tree": "product tree loaded by the recorder",
     "treeKind": "archive",
     "version": "1.4.5"
