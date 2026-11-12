@@ -13,8 +13,7 @@
 
 #![allow(clippy::result_large_err, reason = "the frozen provider error type is returned unboxed")]
 
-use crate::transport::deadlines::OPENAI_HTTP_RESPONSE;
-use crate::transport::deadlines::OPENAI_OAUTH_HTTP_RESPONSE;
+use crate::transport::deadlines::openai_http_response;
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::fmt;
@@ -323,6 +322,8 @@ pub struct OpenAiAdapter {
     mode: TransportMode,
     models: OpenAiModels,
     compress_lane: CpuBulk,
+    /// `PROVIDER_HTTP_RESPONSE_TIMEOUT_MS`: Node reads it once, when the provider's modules load.
+    http_response_ms: f64,
 }
 
 /// The seams and sources an adapter runs on.
@@ -354,6 +355,7 @@ impl OpenAiAdapter {
         );
         // A socket's closing releases its hold on its turn's state.
         let pool = Arc::new(WsPool::with_events(links.context.clone()));
+        let http_response_ms = crate::providers::google::cache::policy::http_response_ms(|name| links.context.var(name));
         let adapter = Self {
             id,
             codec,
@@ -368,6 +370,7 @@ impl OpenAiAdapter {
             mode: TransportMode::default(),
             models,
             compress_lane: links.compress_lane,
+            http_response_ms,
         };
         // The provider's constructor warms the socket (`openai-oauth.mjs:106`).
         adapter.preconnect();
@@ -452,7 +455,7 @@ impl OpenAiAdapter {
         wire: WireRequest,
     ) -> Result<Opened, ProviderError> {
         let packed = self.compressed(&wire).await;
-        let exchange = if codec.route() == Route::ApiKey { OPENAI_HTTP_RESPONSE } else { OPENAI_OAUTH_HTTP_RESPONSE };
+        let exchange = openai_http_response(codec.route() != Route::ApiKey, self.http_response_ms);
         let mut response = self.http.send(packed.clone().unwrap_or_else(|| wire.clone()), exchange).await?;
         // `resendIfEncodingRejected`: a 400/415 of a compressed request is drained and the same request sent plain;
         // the latch is set only when that plain request is accepted (the encoding was the cause).

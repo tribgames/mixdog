@@ -237,7 +237,7 @@ fn adapter_in(
     transport: TransportKind,
     http: Arc<dyn HttpSend>,
     dial: Arc<ScriptedDial>,
-    credentials: Arc<Credentials>,
+    credentials: Arc<dyn CredentialSource>,
 ) -> OpenAiAdapter {
     let identity = CodexIdentity {
         installation_id: "i".into(),
@@ -442,7 +442,10 @@ macro_rules! recorded {
 }
 
 fn key_adapter(transport: TransportKind, http: Arc<ScriptedHttp>, dial: Arc<ScriptedDial>, credentials: Arc<Credentials>) -> OpenAiAdapter {
-    let context = Arc::new(SessionContext::new());
+    key_adapter_in(Arc::new(SessionContext::new()), transport, http, dial, credentials)
+}
+
+fn key_adapter_in(context: Arc<SessionContext>, transport: TransportKind, http: Arc<dyn HttpSend>, dial: Arc<ScriptedDial>, credentials: Arc<dyn CredentialSource>) -> OpenAiAdapter {
     let config = OpenAiConfig::api_key(true, Arc::new(Facts), context.clone());
     OpenAiAdapter::new(
         ProviderId::from("openai"),
@@ -511,6 +514,100 @@ async fn the_recorded_direct_handshake_401_reads_as_nodes() {
     let err = adapter.attempt(request(None)).await.err().expect("the recorded refusal");
     assert_recorded_error(&err, &result);
     assert_eq!(dial.requests.lock().unwrap().len(), refused, "the upgrades Node sent");
+}
+
+/// The OAuth route's upgrade is refused 401, the adapter asks the real credential to renew, and the recorder's token
+/// endpoint answers its refresh with 404 `no script` (no token): Node's error is the refresh failure, worded whole.
+#[tokio::test]
+async fn the_recorded_oauth_handshake_401_ends_in_the_refresh_failure_as_nodes_words_it() {
+    use mixdog_ai::oauth::CredentialFile;
+    use mixdog_ai::oauth::CredentialIo;
+    use mixdog_ai::providers::openai::oauth::OpenAiOAuth;
+    let exchange = recorded!("openai-oauth-responses-ws", "error-http-handshake-401", "exchange.json");
+    let result = recorded!("openai-oauth-responses-ws", "error-http-handshake-401", "result.json");
+    let records = exchange["records"].as_array().unwrap();
+    let (upgrades, refreshes): (Vec<_>, Vec<_>) = records.iter().partition(|r| r["transport"] == "ws");
+    let refresh = refreshes[0];
+    assert_eq!(refreshes.len(), 1, "Node refreshed once");
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("openai-oauth.json");
+    let tokens = serde_json::json!({ "access_token": "fixture-access-token", "refresh_token": "fixture-refresh-token", "expires_at": 4_102_444_800_000u64, "account_id": "acct-fixture" });
+    tokio::fs::write(&path, tokens.to_string()).await.unwrap();
+    let rt = mixdog_rt::testing::tokens();
+    let file = CredentialFile::new(path, CredentialIo { read: rt.interactive_io, write: rt.durability_io });
+    let token_endpoint = ScriptedHttp::with(vec![(404, vec![], vec![Bytes::from(refresh["served"].as_str().unwrap().to_owned())])]);
+    let credentials = Arc::new(OpenAiOAuth::new(file, token_endpoint.clone()));
+    let dial = ScriptedDial::with((0..upgrades.len()).map(|_| Dialed::Refused(401, "fixture handshake rejection")).collect());
+    let adapter = adapter_in(Arc::new(SessionContext::new()), TransportKind::WebSocket, ScriptedHttp::with(vec![]), dial.clone(), credentials);
+    let err = adapter.attempt(request(None)).await.err().expect("the recorded refresh failure");
+
+    assert_recorded_error(&err, &result);
+    assert_eq!(dial.requests.lock().unwrap().len(), upgrades.len(), "the upgrades Node sent");
+    let sent = token_endpoint.seen.lock().unwrap();
+    assert_eq!(sent.len(), 1, "the refresh Node sent");
+    assert_eq!(sent[0].method, refresh["method"].as_str().unwrap());
+    assert_eq!(sent[0].url, format!("{}{}", refresh["origin"].as_str().unwrap(), refresh["path"].as_str().unwrap()));
+    assert_eq!(String::from_utf8_lossy(&sent[0].body), refresh["bodyText"].as_str().unwrap());
+}
+
+// ---- the initial-response window (stall-policy.mjs:98, provider-http-response-timeout) ------------------------------
+
+/// A transport whose every turn request outlives its exchange's timer: it records the window the exchange gave and the
+/// error text the link would give (the warm-up HEAD is answered empty and not recorded).
+#[derive(Default)]
+struct Stalling {
+    seen: Mutex<Vec<(std::time::Duration, String)>>,
+}
+
+#[async_trait]
+impl HttpSend for Stalling {
+    async fn send(&self, request: WireRequest, exchange: mixdog_ai::transport::Exchange) -> Result<HttpResponse, ProviderError> {
+        if request.method == "HEAD" {
+            return Ok(HttpResponse { status: 200, headers: Vec::new(), body: Box::new(VecBody(VecDeque::new())) });
+        }
+        let expired = exchange.liveness.bound_head(std::future::pending::<()>()).await.expect_err("the request is never answered");
+        let error = mixdog_ai::transport::link::deadline_error(expired, mixdog_core_api::domain::provider::DeliveryState::Ambiguous, exchange.surface);
+        self.seen.lock().unwrap().push((expired.after, error.message.clone()));
+        Err(error)
+    }
+}
+
+/// Every recorded case: Node's request armed its timer for `armedForMs` and rejected with `error.message`, on the route and
+/// under the settings the case names (`MIXDOG_PROVIDER_HTTP_RESPONSE_TIMEOUT_MS`, `STALL_TIMEOUT_S`; null is unset).
+#[tokio::test(start_paused = true)]
+async fn the_initial_response_window_is_nodes_for_every_recorded_setting() {
+    let recording: serde_json::Value = serde_json::from_str(mixdog_testkit::fixture_text(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../fixtures/provider-http-response-timeout/cases.json"
+    )))
+    .unwrap();
+    let cases = recording["cases"].as_array().unwrap();
+    assert!(cases.len() > 20, "the recording holds its cases");
+    for case in cases {
+        let id = case["id"].as_str().unwrap();
+        let input = &case["input"];
+        let vars: Vec<(&'static str, String)> = [
+            ("MIXDOG_PROVIDER_HTTP_RESPONSE_TIMEOUT_MS", &input["setting"]),
+            ("STALL_TIMEOUT_S", &input["STALL_TIMEOUT_S"]),
+        ]
+        .into_iter()
+        .filter_map(|(name, value)| value.as_str().map(|v| (name, v.to_owned())))
+        .collect();
+        let context = Arc::new(SessionContext::new().with_var(move |asked| vars.iter().find(|(name, _)| *name == asked).map(|(_, v)| v.clone())));
+        let stalling = Arc::new(Stalling::default());
+        let adapter = if input["route"] == "oauth" {
+            adapter_in(context, TransportKind::Http1, stalling.clone(), ScriptedDial::with(vec![]), Credentials::new("t", None))
+        } else {
+            key_adapter_in(context, TransportKind::Http1, stalling.clone(), ScriptedDial::with(vec![]), Credentials::new("fixture-key", None))
+        };
+        let err = adapter.attempt(request(None)).await.err().unwrap_or_else(|| panic!("{id}: the request is never answered"));
+        let result = &case["result"];
+        let node_ms = result["armedForMs"].as_u64().unwrap();
+        let seen = stalling.seen.lock().unwrap().clone();
+        assert_eq!(seen.first().map(|(after, _)| after.as_millis() as u64), Some(node_ms), "{id}: the window the request got");
+        assert_eq!(err.message, result["error"]["message"].as_str().unwrap(), "{id}");
+    }
 }
 
 // ---- the connection warm-up (shared/llm/http-agent.mjs:496-527, openai-oauth.mjs:106, :170) --------------------------
