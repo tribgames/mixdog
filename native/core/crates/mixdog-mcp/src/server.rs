@@ -444,8 +444,9 @@ impl McpServer {
     }
 
     async fn relist(&self, generation: u64, client: &Arc<RpcClient>) {
-        let listed = match self.config.startup_timeout {
-            Some(budget) => mixdog_rt::time::timeout(budget, list_tools(client)).await,
+        // Node's refresh lists under the call timeout (`runToolRefresh`: `sdkTimeoutMs`), whatever the startup budget is.
+        let listed = match self.config.call_timeout {
+            Some(bound) => mixdog_rt::time::timeout(bound, list_tools(client)).await,
             None => Ok(list_tools(client).await),
         };
         let tools = match listed {

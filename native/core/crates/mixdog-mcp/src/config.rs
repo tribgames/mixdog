@@ -451,7 +451,8 @@ fn startup_timeout(entry: &Value, env: &Env) -> Option<Duration> {
     if !ms.is_finite() || ms <= 0.0 {
         return Some(DEFAULT_STARTUP_TIMEOUT);
     }
-    Some(Duration::from_millis(ms.round().min(MAX_TIMER_MS) as u64))
+    // A positive value that rounds to no millisecond is Node's 0: disabled.
+    Some(ms.round().min(MAX_TIMER_MS) as u64).filter(|ms| *ms > 0).map(Duration::from_millis)
 }
 
 /// `Some(None)`: explicitly disabled (`0`, `off`, `none`, `false`); `Some(Some(n))`: a positive
@@ -693,6 +694,8 @@ mod tests {
         assert_eq!(of(json!({"startupTimeoutMs": 0}), &global), None);
         assert_eq!(of(json!({"startup_timeout_sec": "off"}), &global), None);
         assert_eq!(of(json!({"startupTimeoutSec": 0.5}), &global), Some(Duration::from_millis(500)));
+        assert_eq!(of(json!({"startupTimeoutMs": 0.4}), &global), None, "it rounds to no millisecond, which disables it");
+        assert_eq!(of(json!({"startupTimeoutMs": 0.5}), &global), Some(Duration::from_millis(1)));
         assert_eq!(of(json!({"startupTimeoutMs": 250, "startupTimeoutSec": 9}), &global), Some(Duration::from_millis(250)));
         assert_eq!(of(json!({"startupTimeoutMs": "", "startupTimeoutSec": 2}), &global), Some(Duration::from_secs(2)));
         // The source that is set decides alone: an unusable value in it is the default, not the next source.
