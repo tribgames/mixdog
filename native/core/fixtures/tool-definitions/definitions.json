@@ -1,6 +1,6 @@
 {
   "tree": {
-    "srcSha256": "4487be07c8f73b301f4522e8f7d66d9ffcb2f3f1b8f0093f64fb4f4553e06852"
+    "srcSha256": "88edfae3d00e08a9f1ef8fbbf84788351f0ea9d6d6ca8ab1b4043a3c229b4351"
   },
   "definitions": {
     "Skill": {
@@ -61,7 +61,7 @@
       }
     },
     "agent": {
-      "hash": "b33e2ad9124ca444",
+      "hash": "1fb5d1d77c543631",
       "definition": {
         "name": "agent",
         "title": "Agent",
@@ -142,6 +142,10 @@
             "effort": {
               "type": "string",
               "description": "Reasoning effort for an explicit model."
+            },
+            "fast": {
+              "type": "boolean",
+              "description": "Fast mode for an explicit model; needs model."
             }
           },
           "required": [
@@ -152,7 +156,7 @@
       }
     },
     "agent@internal": {
-      "hash": "edf17a67c3d7d675",
+      "hash": "ac4b8ff47222b0b9",
       "definition": {
         "name": "agent",
         "description": "Run scoped agent work as background tasks. spawn/send return task_id immediately. Reuse one tag for one scope for its whole lifetime; give distinct tags only to independent scopes. Never mint a new tag because a session expired or was lost — same-tag spawn respawns it with the full brief. Completion notifications arrive automatically; use status/read only for manual recovery. Close finished agents yourself.",
@@ -224,6 +228,10 @@
             "effort": {
               "type": "string",
               "description": "Reasoning effort for an explicit model."
+            },
+            "fast": {
+              "type": "boolean",
+              "description": "Fast mode for an explicit model; needs model."
             }
           },
           "required": [
@@ -4562,6 +4570,38 @@
         }
       }
     },
+    "machine": {
+      "hash": "bcff9e8a3d10e007",
+      "definition": {
+        "name": "machine",
+        "title": "Machine Status",
+        "annotations": {
+          "title": "Machine Status",
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": false,
+          "openWorldHint": false,
+          "compressible": true
+        },
+        "description": "One-sample machine status: CPU load, memory, free disk per drive, top processes by CPU and memory; process filters by name.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "process": {
+              "type": "string",
+              "description": "Also list processes whose name contains this text."
+            },
+            "top": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20,
+              "description": "Rows per top list; default 5."
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
     "media": {
       "hash": "93c6efcc0f96895e",
       "definition": {
@@ -5745,7 +5785,7 @@
       }
     },
     "read": {
-      "hash": "6cac43e0095bf55a",
+      "hash": "85e1ee9a9396eb04",
       "definition": {
         "name": "read",
         "title": "Read",
@@ -5757,7 +5797,7 @@
           "openWorldHint": false,
           "compressible": false
         },
-        "description": "Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.",
+        "description": "Read file windows or images; tail:N for a file's end. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -5789,6 +5829,12 @@
                             "type": "integer",
                             "minimum": 1,
                             "maximum": 100000
+                          },
+                          "tail": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 100000,
+                            "description": "Last N lines, not with offset."
                           }
                         },
                         "required": [
@@ -5812,6 +5858,12 @@
               "minimum": 1,
               "maximum": 100000,
               "description": "Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages."
+            },
+            "tail": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100000,
+              "description": "Last N lines of the file, not with offset."
             },
             "pages": {
               "type": "string",

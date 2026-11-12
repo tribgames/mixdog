@@ -11,6 +11,7 @@
       "model": "deepseek-v4-pro",
       "tools": [],
       "history": [],
+      "opts": {},
       "sessionId": null,
       "requests": [
         {

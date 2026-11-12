@@ -755,6 +755,9 @@ pub(crate) struct SessionActor {
     settling: bool,
     /// A worker's settling turn: its outcome, told once the settlement is back.
     agent_done: Option<(oneshot::Sender<RunOutcome>, RunOutcome)>,
+    /// The last completed run's id, stop reason and termination reason (`ask-turn-commit.mjs`): its `turn/completed`
+    /// carries the two, which the run record does not keep.
+    completed_reasons: Option<(String, Option<String>, Option<String>)>,
     /// A turn's input row facts are being read: it starts next, no other turn does.
     starting: bool,
     /// Who sent the prompt the next run starts on: its device, and whether the composer may take it back. Set where the
@@ -1102,6 +1105,7 @@ impl SessionActor {
             goal_scheduled: false,
             settling: false,
             agent_done: None,
+            completed_reasons: None,
             starting: false,
             submitter: None,
             submissions: Submissions::default(),
@@ -1244,6 +1248,7 @@ impl SessionActor {
             #[cfg(any(test, feature = "test-support"))]
             {
                 self.cell.busy.store(self.turn_busy(), SeqCst);
+                self.cell.retry_blocked.store(self.retry_blocked(), SeqCst);
                 self.cell.unacked.store(self.outbox.unacked(), SeqCst);
                 self.cell.stepped.notify_waiters();
             }
@@ -2213,7 +2218,11 @@ impl SessionActor {
         match change {
             Change::Record { record, .. } => match &**record {
                 Record::Run(run) => {
-                    if let Some(turn) = turn_of(run) {
+                    if let Some(mut turn) = turn_of(run) {
+                        if let Some((_, stop, termination)) = self.completed_reasons.as_ref().filter(|(rid, ..)| run.phase == RunPhase::Completed && rid == run.rid.as_str()) {
+                            turn.stop_reason = stop.clone();
+                            turn.termination_reason = termination.clone();
+                        }
                         let method = if run.phase == RunPhase::Started {
                             "turn/started"
                         } else {
@@ -2893,6 +2902,14 @@ impl SessionActor {
             self.accept_record(meta, Class::Normal, Display::None, Vec::new(), Vec::new());
         }
         if !slot.start_failed {
+            if let RunOutcome::Completed(result) = &outcome {
+                let termination = result.termination.map(|termination| match termination {
+                    mixdog_agent::response::Termination::Refusal => "refusal",
+                    mixdog_agent::response::Termination::Truncated => "truncated",
+                    mixdog_agent::response::Termination::Empty => "empty",
+                });
+                self.completed_reasons = Some((turn.as_str().to_owned(), result.stop_reason.clone(), termination.map(str::to_owned)));
+            }
             let (phase, detail) = match outcome {
                 RunOutcome::Completed(_) => (RunPhase::Completed, None),
                 RunOutcome::Interrupted => (RunPhase::Interrupted, None),
@@ -2945,6 +2962,12 @@ impl SessionActor {
             self.delete_turn_ended();
         }
         self.run_deferred_prune();
+        // A compaction the model scheduled (`takePendingCompact`, `turn-settle.mjs`) runs once the turn is over; the
+        // answer has no reader.
+        if self.cell.pending_compact.swap(false, SeqCst) {
+            let (tx, _) = oneshot::channel();
+            self.compact_start(None, tx, None);
+        }
         // The queue moves on, and the thread may unload, once the settlement is back
         // (`JobDone::GoalSettled`).
     }
@@ -4063,6 +4086,31 @@ impl SessionActor {
                 let note = Note::new("thread/stage/updated", &mixdog_app_protocol::v2::thread::ThreadStageUpdatedParams { thread_id: self.id.clone(), stage, detail });
                 self.accept_view(Change::Barrier, vec![note]);
             }
+            RunShown::ModelRequest { request_index, phase, tool_calls } => {
+                let params = mixdog_app_protocol::v2::thread::ModelRequestUpdatedParams {
+                    thread_id: self.id.clone(),
+                    turn_id: turn.clone(),
+                    request_id: format!("model_request_{request_index}"),
+                    request_index,
+                    phase,
+                    duration_ms: None,
+                    usage: None,
+                    tool_calls,
+                };
+                self.accept_view(Change::Barrier, vec![Note::new("thread/modelRequest/updated", &params)]);
+            }
+            RunShown::ToolBatch { request_index, phase, iteration, calls, duration_ms } => {
+                let params = mixdog_app_protocol::v2::thread::ToolBatchUpdatedParams {
+                    thread_id: self.id.clone(),
+                    turn_id: turn.clone(),
+                    batch_id: format!("tool_batch_{request_index}"),
+                    phase,
+                    iteration,
+                    calls,
+                    duration_ms,
+                };
+                self.accept_view(Change::Barrier, vec![Note::new("thread/toolBatch/updated", &params)]);
+            }
             RunShown::ToolStream => self.stream_heartbeat(),
             RunShown::CompactUsage(report) => {
                 let now = self.deps.clock.now_ms();
@@ -4649,6 +4697,12 @@ impl SessionActor {
             let starts = self.cell.routine_starts.lock().unwrap_or_else(|p| p.into_inner());
             let start = starts.get(submission)?;
             let mut meta = serde_json::Map::new();
+            if let Some(sender) = start.sender {
+                meta.insert("sender".into(), json!(sender));
+            }
+            if let Some(agent) = &start.from_agent {
+                meta.insert("fromAgent".into(), json!(agent));
+            }
             if let Some(hop) = start.hop {
                 meta.insert("hop".into(), json!(hop));
             }
@@ -5526,6 +5580,12 @@ impl SessionActor {
                 if let Some(trigger) = &routine.trigger {
                     body["meta"]["transcript"]["routineTrigger"] = trigger.clone();
                 }
+                if let Some(sender) = routine.sender {
+                    body["meta"]["transcript"]["sender"] = json!(sender);
+                }
+                if let Some(agent) = &routine.from_agent {
+                    body["meta"]["transcript"]["fromAgent"] = json!(agent);
+                }
                 if let Some(hop) = routine.hop {
                     body["meta"]["transcript"]["hop"] = json!(hop);
                 }
@@ -5634,8 +5694,8 @@ impl SessionActor {
                 meta.entry("device").or_insert_with(|| json!(submitter.device));
             }
             meta.entry("attemptId").or_insert_with(|| json!(new_id()));
-            // `beginTurn` stamps the verb the turn will complete with on the same metadata the runtime persists.
-            meta.entry("completionVerb").or_insert_with(|| json!(super::live_end::done_verb(self.turns_closed)));
+            // The turn's `completionVerb` stays with the turn (`slot.verb`): Node's persisted user metadata leaves it out
+            // (`persistedUserTranscriptMetadata`, transcript-metadata.mjs:92).
             for (key, value) in route {
                 meta.entry(key).or_insert(value);
             }

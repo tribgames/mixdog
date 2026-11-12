@@ -1117,6 +1117,11 @@ impl Endpoint {
         self.inner.state.lock().unwrap().replies = case.requests.iter().map(|request| request.get("reply").clone()).collect();
     }
 
+    /// Scripts the HTTP side with `replies` (a reply per arrival, in order) for a world whose requests no recorded case lists.
+    pub fn reply_with(&self, replies: Vec<Exact>) {
+        self.inner.state.lock().unwrap().replies = replies;
+    }
+
     /// The core's own link `inner` with every request redirected here.
     pub fn link<L>(&self, inner: L) -> Redirected<L> {
         let tapped = self.inner.clone();
@@ -2053,7 +2058,7 @@ const REPLAYED_ELSEWHERE: &[&str] = &[
     "accounts-policy-cases", "admin-dev-providers", "auth-api", "change-effects", "compat-chat-stream-tool-calls",
     "compat-responses-alignment", "compat-responses-boundaries", "compat-responses-effort", "custom-provider-keys",
     "custom-provider-route", "custom-reasoning", "deepseek-replay", "devin-wire-protobuf", "devin-wire-request",
-    "devin-wire-session", "gateways", "lane-settings", "local-context-settings", "local-managed-runtime", "mimo-oauth",
+    "devin-wire-session", "env-switches", "gateways", "http-response-timeout", "lane-settings", "local-context-settings", "local-managed-runtime", "mimo-oauth",
     "mimo-oauth-wire", "mixdog-local-wire", "model-catalog-projection", "model-recency", "openai-oauth",
     "openai-oauth-transport", "openai-ws-connect", "openai-ws-send-attempts", "openai-ws-stream", "opencode-go-gemini",
     "openrouter", "ready", "refusal", "setup", "setup-custom", "setup-warmup", "status", "tool-cut", "wire", "xai-grok",

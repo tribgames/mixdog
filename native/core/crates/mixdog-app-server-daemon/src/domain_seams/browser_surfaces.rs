@@ -43,6 +43,35 @@ mod tests {
         }
     }
 
+    /// Node's recording `fixtures/remote-browser-open-cases` (`record-remote-browser-open-cases.mjs`, b6f10295a): an explicit reveal and
+    /// an explicit hide of session `s`'s browser surface, each broadcast to every client with the request's fields. The core publishes
+    /// the same fields beside its `kind: "browser"` (the open event's discriminator, which Node's event name carries); each recorded
+    /// broadcast is compared with what the host's request is published as, in the recorded order.
+    #[test]
+    fn a_reveal_and_a_hide_are_published_with_the_fields_node_broadcast() {
+        let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/remote-browser-open-cases/golden.json")).expect("golden.json");
+        let observed = &golden["cases"][0]["observed"];
+        let feed: &'static Feed = Box::leak(Box::new(Feed(Mutex::default())));
+        let surfaces = FeedSurfaces::new(feed);
+        for request in observed["requests"].as_array().expect("requests") {
+            surfaces.requested(serde_json::from_value(request.clone()).expect("a browser open request"));
+        }
+        let published: Vec<Value> = feed
+            .0
+            .lock()
+            .unwrap()
+            .iter()
+            .cloned()
+            .map(|mut params| {
+                assert_eq!(params["kind"], "browser");
+                params.as_object_mut().unwrap().remove("kind");
+                params
+            })
+            .collect();
+        let broadcast: Vec<Value> = observed["broadcasts"].as_array().expect("broadcasts").iter().map(|b| b[0]["payload"].clone()).collect();
+        assert_eq!(published, broadcast);
+    }
+
     #[test]
     fn the_request_is_published_as_a_browser_open_with_its_fields() {
         let feed: &'static Feed = Box::leak(Box::new(Feed(Mutex::default())));

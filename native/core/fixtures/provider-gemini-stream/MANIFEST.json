@@ -10,7 +10,6 @@
   },
   "entry": "src/runtime/agent/orchestrator/providers/gemini-stream.mjs consumeGeminiRestStreamResponse(response, options) and createGeminiTextLeakGuard, called as the Node test calls them, on a REAL fetch Response: the recorder POSTs to the streamGenerateContent URL and the loopback endpoint serves the scripted status, headers and body chunks (each chunk its own socket write) - the input of every case is that served script, and the request as it arrived is recorded. The first-chunk window case is the test's silent response (the endpoint accepts and never writes a byte) with firstByteTimeoutMs 25, and the virtual clock is advanced by exactly 25 ms (the recorded clock step). Not run: a live endpoint.",
   "exclusions": [
-    "gemini-stream.test.mjs:118's `deferToolCalls: false` run (leaked-call-dispatched) is not recorded: no product caller of createGeminiTextLeakGuard passes false - `git grep -n \"createGeminiTextLeakGuard(\\|deferToolCalls\" b6f10295a -- src ':!*.test.mjs'` finds the two callers, antigravity-stream.mjs:80 (deferToolCalls: true, :85) and gemini-sdk-request.mjs:9 (deferToolCalls: true, :14); the default `false` (gemini-stream.mjs:331) is reached by tests only",
     "`response.candidates[].index` is not compared: the aggregation's own sort key (gemini-stream.mjs:159, :196); no reader of the aggregated response reads it (`[.?]index\\b` over gemini.mjs, gemini-response.mjs, antigravity-response.mjs, antigravity-stream.mjs, gemini-sdk-request.mjs finds none)",
     "`response.candidates[].content.role` is not compared: the aggregation writes it (gemini-stream.mjs:176) and the readers of the aggregated response read only `content.parts` (gemini-response.mjs:23, antigravity-response.mjs:53); mergeGeminiHops (gemini.mjs:133) copies it into a merged response read the same way",
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
@@ -20,9 +19,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 78318,
+      "bytes": 83778,
       "path": "cases.json",
-      "sha256": "3601155ef807f504dd13042dfae470b1e685c710e3d554ab5ac901dfc539dab1"
+      "sha256": "fd131372015b356a03554cd0f7752cd00f51110538587aca4c1c6ebcc936e250"
     }
   ],
   "inputs": [
@@ -105,6 +104,10 @@
       "level": "wire"
     },
     {
+      "id": "leaked-call-dispatched",
+      "level": "wire"
+    },
+    {
       "id": "ordered-parts-and-signatures",
       "level": "wire"
     },
@@ -156,12 +159,12 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-gemini-stream.mjs",
-  "recorderSha256": "45296057ee8bb8e22682c871b617bea5ab4b93afacefc1d399a2d1aa25bbfb81",
+  "recorderSha256": "e12a18885fde6265e4ec34774b4443799fcb3265bc529a28b4f6d38420f26797",
   "replay": "WIRE for every case (each row has `requests`): a loopback endpoint serving the recorded chunks to mixdog_ai::providers::google::GoogleAdapter (google/adapter.rs:53) through ModelBroker::send (mixdog-ai/src/broker/send.rs:75); the decoder under it is mixdog-ai/src/providers/google/decode.rs:160 GeminiDecoder (pub) but its input is a wire body, not a fetch Response, and the broker adds the retry layer the Node function does not have, so the comparison is made on the decoded events and the typed error of the first attempt.",
   "replayExclusions": {
     "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"
   },
   "set": "provider-gemini-stream",
-  "totalBytes": 78318,
+  "totalBytes": 83778,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs): every input, argument list, result and error is stored through the shared encoder; what JSON cannot hold is a {\"$exact\": <kind>} tag"
 }

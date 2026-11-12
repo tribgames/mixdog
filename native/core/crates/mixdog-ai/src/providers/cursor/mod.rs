@@ -513,6 +513,7 @@ impl ModelListing for CursorAdapter {
 
 #[async_trait]
 impl ProviderAdapter for CursorAdapter {
+    fn release_send(&self, _group: &str) {}
     fn id(&self) -> &ProviderId {
         &self.id
     }

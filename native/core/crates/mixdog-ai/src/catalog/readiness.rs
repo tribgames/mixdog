@@ -634,6 +634,7 @@ mod tests {
     }
     #[async_trait]
     impl ProviderAdapter for FailingListing {
+        fn release_send(&self, _group: &str) {}
         fn id(&self) -> &mixdog_protocol::ProviderId {
             self.0.id()
         }

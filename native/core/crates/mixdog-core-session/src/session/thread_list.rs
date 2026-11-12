@@ -77,9 +77,21 @@ impl RowOverlay {
     }
 }
 
+/// The sessions with live work now (`storedLiveWork`, `daemon-session-control.mjs`): `own`, those with a turn in flight
+/// here, and `agents`, the Leads an Agent session in flight works for.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct LiveWork {
+    pub own: Vec<ThreadId>,
+    pub agents: Vec<ThreadId>,
+}
+
 /// The host side of the overlay: the live facts of one session.
 pub trait ListOverlay: Send + Sync {
     fn of(&self, thread: &ThreadId) -> RowOverlay;
+    /// Every session with live work now.
+    fn live_work(&self) -> LiveWork {
+        LiveWork::default()
+    }
 }
 
 /// [`ListOverlay`] over the threads this process hosts and the bots' owned work:
@@ -119,6 +131,23 @@ fn clean_text(value: Option<&serde_json::Value>, lower: bool) -> String {
 }
 
 impl ListOverlay for LiveListOverlay {
+    fn live_work(&self) -> LiveWork {
+        let mut live = LiveWork::default();
+        for id in self.directory.loaded_ids() {
+            let Some(handle) = self.directory.handle(&id) else { continue };
+            if handle.cell.run.load().is_none() {
+                continue;
+            }
+            live.own.push(id.clone());
+            let header = handle.cell.header.load();
+            let owner = clean_text(header.get("ownerSessionId").filter(|v| truthy(v)).or_else(|| header.get("parentSessionId")), false);
+            let agent = clean_text(header.get("agent"), true);
+            if !owner.is_empty() && (clean_text(header.get("owner"), true) == "agent" || (!agent.is_empty() && agent != "lead")) && !live.agents.iter().any(|known| known.as_str() == owner) {
+                live.agents.push(ThreadId::from(owner));
+            }
+        }
+        live
+    }
 
     fn of(&self, thread: &ThreadId) -> RowOverlay {
         let mut overlay = RowOverlay::default();
@@ -313,6 +342,50 @@ impl ThreadListService {
         self.loaded.store(true, std::sync::atomic::Ordering::SeqCst);
         self.published(&rows.iter().map(|row| row.id.as_str()).collect::<Vec<_>>());
         Ok(rows)
+    }
+
+    /// `service.listSessionCatalog({ page: { limit, cursor } })` as the `session` tool's list reads it: the index's own list
+    /// rows (Node's catalog rows) after `cursor`, each with the live `working` / `agentWorking` laid over and `archived` set
+    /// for the archived ones, and the cursor that continues after the last row when more follow.
+    pub async fn catalog_page(&self, cursor: Option<&str>, limit: usize) -> Result<(Vec<serde_json::Value>, Option<String>), CoreError> {
+        let after = decode_catalog_cursor(cursor).map_err(|error| coded(DOMAIN, "EINVALIDCURSOR", error.to_string()))?;
+        self.caught_up().await;
+        let page = self.store.lead_page(after, LeadFilter::default(), limit).await.map_err(|error| failed(DOMAIN, error.to_string()))?;
+        let next = if page.more { page.rows.last().map(|row| encode_catalog_cursor(&row.row)) } else { None };
+        Ok((page.rows.into_iter().map(|row| self.catalog_row_of(row)).collect(), next))
+    }
+
+    /// The catalog row of `id` read by id (`readStoredSessionCatalogRow`), `None` when the listing would not show it.
+    pub async fn catalog_row(&self, id: &str) -> Result<Option<serde_json::Value>, CoreError> {
+        self.caught_up().await;
+        let listed = self.store.lead_row(id).await.map_err(|error| failed(DOMAIN, error.to_string()))?;
+        Ok(listed.map(|row| self.catalog_row_of(row)))
+    }
+
+    fn catalog_row_of(&self, listed: LeadRow) -> serde_json::Value {
+        let mut row = listed.row;
+        let id = ThreadId::from(row.get("id").and_then(serde_json::Value::as_str).unwrap_or_default().to_owned());
+        let overlay = self.overlay.of(&id);
+        if overlay.working == Some(true) {
+            row.insert("working".to_owned(), serde_json::Value::Bool(true));
+        }
+        if overlay.agent_working == Some(true) {
+            row.insert("agentWorking".to_owned(), serde_json::Value::Bool(true));
+        }
+        if listed.archived {
+            row.insert("archived".to_owned(), serde_json::Value::Bool(true));
+        }
+        serde_json::Value::Object(row)
+    }
+
+    /// The sessions with live work now.
+    pub fn live_work(&self) -> LiveWork {
+        self.overlay.live_work()
+    }
+
+    /// The live facts of one session (the overlay a listed row carries).
+    pub fn overlay_of(&self, id: &ThreadId) -> RowOverlay {
+        self.overlay.of(id)
     }
 
     /// The host's task workspace; a lookup that fails fails the listing (`listSessions` asks the host first, `session-host.ts:793`).

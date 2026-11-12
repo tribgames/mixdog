@@ -553,7 +553,7 @@ impl crate::registry::keys::Environment for NoVars {
 }
 
 async fn antigravity_adapter(http: Arc<Scripted>, store: Arc<MemoryStore>) -> super::adapter::GoogleAdapter {
-    super::antigravity(store, "2.19.1".into(), http, traits(), Arc::new(NoVars), clock()).await.expect("adapter")
+    super::antigravity(store, "2.19.1".into(), http, traits(), Arc::new(NoVars), clock(), None).await.expect("adapter")
 }
 
 async fn collect(adapter: &dyn ProviderAdapter, request: ModelRequest) -> (Vec<StreamEvent>, Option<ProviderError>) {

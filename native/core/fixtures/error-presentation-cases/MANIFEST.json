@@ -1,5 +1,5 @@
 {
-  "cases": 19,
+  "cases": 20,
   "command": "node benchmarks/rust-core/recorders/record-error-presentation-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
   "entry": {
     "notRun": "no provider is called: every input is a constructed error, descriptor or string",
@@ -9,9 +9,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 272122,
+      "bytes": 281437,
       "path": "golden.json",
-      "sha256": "82bbcef908e6c9c514c1584d4af8025af0378d4c92abd346a9272089d76f1028"
+      "sha256": "aca0a49ae99b7aae0f42fa2cd0cf0f893b634fc115b2d5beaf348e8a08882d62"
     }
   ],
   "inputs": [
@@ -21,7 +21,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
@@ -41,7 +41,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
-      "sha256": "ad9ef66d2e3c8aa7d6b9b89fe0c35196219b178f1f4732ae43698ef07d946d91"
+      "sha256": "162d94935f08f5744da888553b7893584d1f8da76f2a2eb0d58ea6a4715e238f"
     }
   ],
   "nodeVersion": "v22.20.0",
@@ -67,9 +67,43 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-error-presentation-cases.mjs",
-  "recorderSha256": "b4eb697c752879b479ac1b7b4132405adb6dd52f5f4f8a986ffd4615f44ab77b",
+  "recorderSha256": "4c441a9d3079a75796d657cdfbe245d7ed1371fcc62d15bda7d3d25f3b1fdb22",
   "replay": {
     "compare": "mixdog-ai service/error_text.rs (and the provider error-kind classifier): build each input from its spec (E/T/Q/D/S as defined in the recorder header) and compare describe whole, present, safeDetails, providerErrorKind and persistedDescribe",
+    "declaredExclusions": [
+      {
+        "probeKeys": [
+          "describe",
+          "persistedDescribe",
+          "summaryReDescribe",
+          "builtError"
+        ],
+        "reason": "the renderer's reading of a persisted item (ErrorNotice.tsx, desktop-toast-state.ts, RendererRecovery.tsx import the shared JS module) and Node's Error built from the spec: replayed whole against that code by apps/desktop/src/renderer/error-presentation-replay.test.mjs, not by the core, which answers presentErrorText, safeErrorDetails and the persisted errorKind"
+      },
+      {
+        "probes": "every input with t \"D\" (a persisted descriptor object)",
+        "reason": "presenting a stored errorKind again is the renderer's reading of a persisted item, replayed by apps/desktop/src/renderer/error-presentation-replay.test.mjs; the core presents a failure once, when it is recorded (mixdog-core-session/src/session/failure_record.rs failure_record), and the descriptor it stores is compared through providerErrorKind of the E/T/Q probes"
+      },
+      {
+        "case": "diagnostic payloads and display summaries have bounded size / both summaries and details redact credentials",
+        "keys": [
+          "result",
+          "texts"
+        ],
+        "reason": "describeError's notice and its four shown strings are the renderer's, replayed by the desktop test; safeDataOfLongJson, safeDetailsOfString and presentErrorText are replayed in Rust"
+      },
+      {
+        "probes": "the four E probes of \"each socket failure keeps the errno name its error carries\" and the E probe with code ECONNRESET",
+        "reason": "the message is libuv's errno wording, which the core has no typed source for; it stays an input of the replay, the code and kind come from the typed fault (TransportFault::errno_name: Reset is ECONNRESET, an I/O or connect failure with an OS error is the name of that error: EPIPE, ETIMEDOUT, ECONNREFUSED), so each recorded sentence, persisted code and kind are the core's"
+      },
+      {
+        "case": "typed codes classify errors; the wait and reset time are shown when known",
+        "keys": [
+          "tz"
+        ],
+        "reason": "the recording's time zone, an input (manifest inputs.timeZone)"
+      }
+    ],
     "entry": "Drive these public items on o1: mixdog-ai/src/service/error_text.rs:174 present_error_text; mixdog-ai/src/service/error_text.rs:346 safe_error_details; mixdog-ai/src/retry/classify.rs:142 kind_of (classifies Facts (status, code, scope) into an ErrorKind; `pub mod retry`, `pub mod classify`; the nearest to providerErrorKind, whose input is an error object).",
     "existsButNotPublicOnO1": [
       "describeError: mixdog-ai/src/service/error_text.rs:694 `describe_error` is private",
@@ -85,6 +119,7 @@
     ],
     "normalised": {
       "secretShapedInput": "sk-DUMMY- marker in the redaction case (the fixture secret scan refuses the original shape)",
+      "socketErrors": "Node's errno text is the core's typed TransportFault: an E probe with code ECONNRESET is fault_from_io(ConnectionReset, after connect); EPIPE, ETIMEDOUT and ECONNREFUSED are an I/O or connect fault carrying the OS error of that name (taken from the platform's own error numbers); the T probe (undici `TypeError: fetch failed`, which hides the errno) is fault_from_io(ConnectionRefused, connecting) with no OS error (mixdog-ai/src/transport/fault.rs); kind_of reads the fault, never the code text",
       "timeZone": "recorded with TZ=UTC (the reset wording is local time); resetAt = the fixed clock + 1 h"
     },
     "protocolMethods": [],
@@ -109,6 +144,6 @@
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
   },
   "set": "error-presentation-cases",
-  "totalBytes": 272122,
+  "totalBytes": 281437,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }

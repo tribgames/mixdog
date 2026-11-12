@@ -176,6 +176,8 @@ pub mod tests;
 #[cfg(test)]
 mod sensitive_record_tests;
 #[cfg(test)]
+mod items_tail_tests;
+#[cfg(test)]
 mod sensitive_carry_tests;
 #[cfg(test)]
 mod message_sanitize_replay;
@@ -211,6 +213,10 @@ mod recorded_145_tests;
 mod phone_chat_tests;
 #[cfg(test)]
 mod session_reentry_tests;
+#[cfg(test)]
+mod task_notification_envelope_tests;
+#[cfg(test)]
+mod message_attachments_tests;
 #[cfg(test)]
 mod new_task_tests;
 #[cfg(test)]
@@ -351,6 +357,8 @@ pub struct SessionDeps {
     pub snapshots: Arc<dyn turn_snapshots::TurnSnapshots>,
     /// The desktop notices a turn's end and a failed save raise (`notices.rs`).
     pub notices: Arc<dyn notices::SessionNotices>,
+    /// Announces a settings scope changed to every client (`notifySettingsChanged(scope)`): `ui/settings/changed`.
+    pub settings_changed: Arc<dyn Fn(&str) + Send + Sync>,
     /// The turn review: `thread/revertTurnReview` and `thread/revertTurnReviewFile` answer from it.
     pub turn_review: Arc<dyn mixdog_core_api::turn_review::TurnReviewApi>,
     /// The saved requests and the fork behind `thread/askSide` and `thread/cancelSide`.
@@ -441,6 +449,13 @@ pub struct SessionLanes {
 /// Wall-clock milliseconds since the Unix epoch, for record and resolution timestamps.
 pub trait Clock: Send + Sync + 'static {
     fn now_ms(&self) -> i64;
+
+    /// Resolves once this clock reads `at_ms` or later. The process clock waits on the core ticker; a virtual clock
+    /// resolves when it is advanced past `at_ms`.
+    fn until_ms(&self, at_ms: i64) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'static>> {
+        let wait = std::time::Duration::from_millis(u64::try_from(at_ms.saturating_sub(self.now_ms())).unwrap_or(0));
+        Box::pin(mixdog_rt::ticker::ticker().wait_until(std::time::Instant::now() + wait))
+    }
 }
 
 pub struct SystemClock;

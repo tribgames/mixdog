@@ -203,14 +203,17 @@ const CASES = [
     { path: 'desktop.activityRailPins', value: ['a'], mode: 'initializeIfMissing' },
   ],
   ['updateActivityRailPins', [['a']], 'config/value/write', { path: 'desktop.activityRailPins', value: ['a'] }],
-  ['updateSetting', ['reduceMotion', true], 'config/value/write', { path: 'desktop.reduceMotion', value: true }],
-  ['updateNotificationVolume', [0.5], 'config/value/write', { path: 'desktop.notificationVolume', value: 0.5 }],
-  ['updateBrowserPermissions', [POLICY], 'config/value/write', { path: 'desktop.browserPermissions', value: POLICY }],
+  ['updateSetting', ['reduceMotion', true], 'config/value/write', { path: 'desktop.reduceMotion', value: true, announce: 'desktop' }],
+  ['updateSetting', ['autoClear', false], 'config/value/write', { path: 'agent.autoClear.enabled', value: false, announce: 'desktop' }],
+  ['updateSetting', ['autoCompact', true], 'config/value/write', { path: 'agent.compaction.auto', value: true, announce: 'desktop' }],
+  ['updateSetting', ['computerControl', true], 'config/value/write', { path: 'desktop.computerControl', value: true, announce: 'desktop' }],
+  ['updateNotificationVolume', [0.5], 'config/value/write', { path: 'desktop.notificationVolume', value: 0.5, announce: 'desktop' }],
+  ['updateBrowserPermissions', [POLICY], 'config/value/write', { path: 'desktop.browserPermissions', value: POLICY, announce: 'desktop' }],
   [
     'updateSessionRetention',
     ['sessionAutoDeleteDays', 30],
     'config/value/write',
-    { path: 'desktop.sessionAutoDeleteDays', value: 30 },
+    { path: 'desktop.sessionAutoDeleteDays', value: 30, announce: 'desktop' },
   ],
   ['updateZoom', [1], 'config/value/write', { path: 'desktop.zoom', value: 1 }],
   ['sendTestNotification', ['dev1'], 'notify/test', { target: 'dev1' }],
@@ -362,6 +365,11 @@ test('termEnsure without a tab id sends none: the core spawns a new terminal and
 test('an argument the core has no param for is refused, not dropped', () => {
   assert.throws(() => routeDesktopOperation('gitCommit', [R, 'm', 'extra']), /takes at most 2 arguments/);
   assert.throws(() => routeDesktopOperation('updateSessionRetention', ['nope', 1]), /retention setting is invalid/);
+  // Node's operation refused a flag that is no boolean before it wrote anything (desktop-operations.ts `updateActivityRailPins`).
+  for (const flag of ['yes', 1, null]) {
+    assert.throws(() => routeDesktopOperation('updateActivityRailPins', [['a'], flag]), /initializeIfMissing must be a boolean/);
+  }
+  assert.equal(routeDesktopOperation('updateActivityRailPins', [['a'], true]).params.mode, 'initializeIfMissing');
 });
 
 test('the routed operations are the spec map targets with params the Rust schema declares', () => {

@@ -52,7 +52,7 @@ fn parse_int(text: &str) -> f64 {
 
 /// `resolveTimeoutMs`: the first env name holding a positive number, clamped,
 /// else the fallback, clamped.
-fn resolve_timeout_ms(get: &impl Fn(&str) -> Option<String>, names: &[&str], fallback: f64, min: f64, max: f64) -> f64 {
+pub(crate) fn resolve_timeout_ms(get: &impl Fn(&str) -> Option<String>, names: &[&str], fallback: f64, min: f64, max: f64) -> f64 {
     for name in names {
         if let Some(raw) = get(name).filter(|r| !r.is_empty()) {
             let n = string_to_number(&raw);
@@ -72,7 +72,7 @@ fn stall_abort_s(get: &impl Fn(&str) -> Option<String>) -> f64 {
 
 /// `stall-policy.mjs`: the provider deadlines derive from the stall thresholds. The stall warning
 /// window in ms and `PROVIDER_MAX_BEFORE_WARN_MS`.
-fn stall_windows_ms(get: &impl Fn(&str) -> Option<String>) -> (f64, f64) {
+pub(crate) fn stall_windows_ms(get: &impl Fn(&str) -> Option<String>) -> (f64, f64) {
     let abort_s = stall_abort_s(get);
     let warn_s = if abort_s > 300.0 { 300.0 } else { (abort_s / 2.0).floor() };
     (warn_s * 1000.0, (warn_s * 1000.0 - 15_000.0).max(1000.0))
@@ -89,6 +89,22 @@ pub fn semantic_idle_ms(get: impl Fn(&str) -> Option<String>) -> Option<f64> {
     }
     let max = (stall_abort_s(&get) * 1000.0 - 15_000.0).max(10_000.0);
     Some(resolve_timeout_ms(&get, &["MIXDOG_PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS", "MIXDOG_PROVIDER_SSE_IDLE_TIMEOUT_MS"], 300_000.0, 10_000.0, max))
+}
+
+/// `WS_HEDGE_MS` (`openai-ws-connect.mjs`, 3 s, 0.5-60 s) and `PROVIDER_WS_ACQUIRE_TIMEOUT_MS` (15 s, 5 s up to the
+/// provider ceiling) in ms.
+pub fn ws_connect_ms(get: impl Fn(&str) -> Option<String>) -> (f64, f64) {
+    let (_, max_before_warn) = stall_windows_ms(&get);
+    let hedge = resolve_timeout_ms(&get, &["MIXDOG_PROVIDER_WS_HEDGE_MS"], 3_000.0, 500.0, 60_000.0);
+    let acquire = resolve_timeout_ms(&get, &["MIXDOG_PROVIDER_WS_ACQUIRE_TIMEOUT_MS"], 15_000.0, 5_000.0, max_before_warn);
+    (hedge, acquire)
+}
+
+/// `PROVIDER_HTTP_RESPONSE_TIMEOUT_MS` (`stall-policy.mjs`, 60 s, 10 s up to the provider ceiling) in ms: the initial-response
+/// window of the OpenAI HTTP/SSE request.
+pub fn http_response_ms(get: impl Fn(&str) -> Option<String>) -> f64 {
+    let (_, max_before_warn) = stall_windows_ms(&get);
+    resolve_timeout_ms(&get, &["MIXDOG_PROVIDER_HTTP_RESPONSE_TIMEOUT_MS"], 60_000.0, 10_000.0, max_before_warn)
 }
 
 /// `PROVIDER_FIRST_BYTE_TIMEOUT_MS` and `PROVIDER_SSE_IDLE_TIMEOUT_MS` in ms.

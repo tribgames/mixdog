@@ -33,12 +33,14 @@ pub mod seams;
 mod service;
 pub mod secret_changes;
 mod watch;
+mod channel_follow;
 
 pub use secret_changes::AnnouncingStore;
 pub use secret_changes::SecretChanges;
 pub use seams::ConfigFeatureGate;
 pub use service::ConfigService;
 pub use watch::ConfigWatcher;
+pub use channel_follow::ChannelConfigFollow;
 pub use service::set_worktree_settings;
 pub use seams::ConfigLocalProviderSettings;
 pub use seams::ConfigVoiceEnabled;
@@ -835,6 +837,16 @@ impl Shared {
         {
             set_in(doc, &["notifications", "migratedAt"], Value::from(epoch_ms()));
         }
+        // The settings-store writers copy the sections they touch before they store or drop a value (`{ ...record(current.desktop) }`,
+        // `next.agent = agent`): a value that equals its default, or a section that held something else, still leaves an object.
+        if schema::SETTING_UPDATE_PATHS.contains(&path) || schema::DESKTOP_WRITER_PATHS.contains(&path) {
+            if path.starts_with("desktop.") {
+                ensure_section(doc, "desktop");
+            }
+            if schema::SETTING_UPDATE_PATHS.contains(&path) {
+                ensure_section(doc, "agent");
+            }
+        }
         let wants = |kind: schema::Kind| std::mem::discriminant(&kind) == std::mem::discriminant(&key.kind);
         let parts: Vec<&str> = path.split('.').collect();
         if matches!(edit.mode, ConfigWriteMode::MergePatch | ConfigWriteMode::MergePatchBots) {
@@ -868,6 +880,10 @@ impl Shared {
         }
         if matches!(key.kind, schema::Kind::Pins) {
             return write_pins(doc, &edit.value, edit.mode, path);
+        }
+        if matches!(key.kind, schema::Kind::MarkdownView) {
+            set_in(doc, &parts, schema::markdown_view(&edit.value));
+            return Ok(());
         }
         if matches!(key.kind, schema::Kind::CookieAutoImport) {
             let stored = schema::cookie_auto_import(&edit.value).expect("accepted by the schema");
@@ -909,6 +925,14 @@ impl Shared {
             set_in(doc, &parts, edit.value.clone());
         }
         Ok(())
+    }
+}
+
+/// The top-level section `name` as an object, in its place; one that is missing is added last, one that holds anything else is
+/// replaced by an empty one.
+fn ensure_section(doc: &mut Doc, name: &str) {
+    if !doc.get(name).is_some_and(Value::is_object) {
+        doc.insert(name.to_owned(), Value::Object(Map::new()));
     }
 }
 

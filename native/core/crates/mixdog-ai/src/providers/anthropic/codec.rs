@@ -84,6 +84,12 @@ pub struct AnthropicConfig {
     pub message_threads: bool,
     /// The thread state of every conversation: the process-wide one.
     pub threads: Arc<Threads>,
+    /// A gateway's map from its routing slug to the Claude id the capabilities are read from
+    /// (`config.capabilityModel`); the request still names the slug.
+    pub capability_model: Option<Arc<dyn Fn(&str) -> Option<String> + Send + Sync>>,
+    /// A gateway's own reasoning control (`config.messagesEffort`): the effort to send, `none` for no thinking at
+    /// all, or `None` to keep the engine's own handling.
+    pub gateway_effort: Option<Arc<dyn Fn(&ModelRequest) -> Option<String> + Send + Sync>>,
 }
 
 /// Layers `extra` over `headers`: a same-named header (any case) is replaced,
@@ -114,6 +120,8 @@ impl AnthropicConfig {
             fast_mode: Arc::clone(fast_mode::process()),
             message_threads: std::env::var("MIXDOG_ANTHROPIC_MESSAGE_THREADS").map_or(true, |v| v != "0"),
             threads: Arc::clone(threads::process()),
+            capability_model: None,
+            gateway_effort: None,
         }
     }
 
@@ -209,6 +217,7 @@ pub(crate) fn vertex_body(caps: &super::caps::CapsLookup, request: &ModelRequest
         official_url: false,
         beta_headers: false,
         fast_mode: fast_mode::process(),
+        gateway_effort: None,
     };
     let built = build_body(&cfg, &sent)?;
     let body = serde_json::from_slice(&built.bytes).expect("a built body is a JSON object");
@@ -237,6 +246,8 @@ pub(super) fn beta_names(wire: &WireRequest) -> Vec<String> {
 /// A request built for one attempt, before any thread plan.
 pub(super) struct Plain {
     pub wire: WireRequest,
+    /// The body's prefix fingerprint, recorded when the request is sent.
+    pub prefix: super::prefix_trace::Fingerprint,
 }
 
 impl AnthropicCodec {
@@ -281,8 +292,12 @@ impl AnthropicCodec {
 
     /// The full request, unthreaded: what Node's request builder makes and a cache warm sends.
     pub(super) fn encode_plain(&self, request: &ModelRequest) -> Result<Plain, ProviderError> {
-        let caps = (self.config.caps)(&request.model);
+        // A gateway's capabilities are read from the Claude id its slug stands for; the wire names the slug.
+        let capability = self.config.capability_model.as_ref().and_then(|map| map(&request.model));
+        let caps = (self.config.caps)(capability.as_deref().unwrap_or(&request.model));
+        let gateway_effort = self.config.gateway_effort.as_ref().and_then(|control| control(request));
         let cfg = BodyConfig {
+            gateway_effort: gateway_effort.as_deref(),
             flavor: self.flavor,
             provider_name: self.flavor.provider_name(),
             owner: &self.owner,
@@ -330,6 +345,7 @@ impl AnthropicCodec {
                 headers,
                 body: built.bytes,
             },
+            prefix: built.prefix,
         })
     }
 }

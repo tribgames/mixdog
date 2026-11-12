@@ -4,6 +4,8 @@
 
 use crate::deadlines::STARTUP;
 use crate::deadlines::expired;
+use crate::google_mcp::GoogleFetch;
+use crate::google_mcp::NetworkFetch;
 use mixdog_rt::Liveness;
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -41,6 +43,8 @@ pub struct HttpTransport {
     incoming: IncomingTx,
     shutdown: CancellationToken,
     auth: Option<Arc<dyn Authorizer>>,
+    /// Where the Google calls of a built-in Google connector's server go (that server answers in this process).
+    google: Option<Arc<dyn GoogleFetch>>,
 }
 
 fn request_error(error: reqwest::Error) -> TransportError {
@@ -64,6 +68,11 @@ impl HttpTransport {
         }
         let (incoming, rx) = mpsc::unbounded_channel();
         let client = reqwest::Client::builder().build().map_err(request_error)?;
+        // `*.mixdog.invalid` never resolves: the built-in Google connectors are answered here (`connectors/google-mcp.mjs`).
+        let google = match crate::google_mcp::service(&url) {
+            Some(_) => Some(Arc::new(NetworkFetch::new().map_err(TransportError::Request)?) as Arc<dyn GoogleFetch>),
+            None => None,
+        };
         Ok((
             Self {
                 client,
@@ -74,9 +83,18 @@ impl HttpTransport {
                 incoming,
                 shutdown: CancellationToken::new(),
                 auth,
+                google,
             },
             rx,
         ))
+    }
+
+    /// Sends the Google calls of a built-in Google connector through `fetch` instead of the network.
+    pub fn with_google_fetch(mut self, fetch: Arc<dyn GoogleFetch>) -> Self {
+        if self.google.is_some() {
+            self.google = Some(fetch);
+        }
+        self
     }
 
     fn decorate(&self, builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
@@ -285,6 +303,10 @@ impl Transport for HttpTransport {
     }
 
     fn initialized(&self) {
+        // The reserved address answers a GET `405`: it has no stream to listen on.
+        if self.google.is_some() {
+            return;
+        }
         let Ok(base) = self
             .decorate(self.client.get(self.url.clone()))
             .header(reqwest::header::ACCEPT, "text/event-stream")
@@ -372,9 +394,53 @@ impl Transport for HttpTransport {
 }
 
 impl HttpTransport {
+    /// `post_message` to a built-in Google connector: the same refusal, renewal and answer rules, with the answer made in this
+    /// process ([`crate::google_mcp::answer`]) instead of by a server.
+    async fn post_reserved(&self, google: &dyn GoogleFetch, message: &Value) -> Result<(), TransportError> {
+        let now_ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64);
+        let text = message.to_string();
+        let body = text.as_bytes();
+        let ask = |token: Option<String>| {
+            let authorization = token.map(|token| format!("Bearer {token}"));
+            async move { crate::google_mcp::answer(&self.url, "POST", authorization.as_deref(), body, google, now_ms).await }
+        };
+        let attempted = match &self.auth {
+            Some(auth) => auth.token().await?,
+            None => None,
+        };
+        let mut sent = attempted.clone();
+        let mut answer = ask(attempted.clone()).await.map_err(TransportError::Request)?;
+        if let Some(auth) = &self.auth
+            && crate::transport::refused(answer.status, answer.www_authenticate.as_deref())
+        {
+            auth.renew(attempted.clone(), answer.www_authenticate.clone()).await?;
+            let fresh = auth.token().await?;
+            answer = ask(fresh.clone()).await.map_err(TransportError::Request)?;
+            if crate::transport::refused(answer.status, answer.www_authenticate.as_deref()) {
+                auth.refused_after_renewal(attempted.as_deref());
+                return Err(TransportError::AuthRequired);
+            }
+            sent = fresh;
+        }
+        if !(200..300).contains(&answer.status) {
+            let body: String = answer.body.map(|b| b.to_string()).unwrap_or_default().chars().take(ERROR_BODY_CHARS).collect();
+            return Err(TransportError::Http { status: answer.status, body });
+        }
+        if let Some(auth) = &self.auth {
+            auth.answered(sent.as_deref());
+        }
+        if let Some(value) = answer.body.filter(|_| answer.status != 202 && answer.status != 204) {
+            self.deliver(value);
+        }
+        Ok(())
+    }
+
     async fn post_message(&self, message: Value) -> Result<(), TransportError> {
         if self.shutdown.is_cancelled() {
             return Err(TransportError::Closed);
+        }
+        if let Some(google) = &self.google {
+            return self.post_reserved(google.as_ref(), &message).await;
         }
         let post = |token: Option<String>| {
             let mut request = self

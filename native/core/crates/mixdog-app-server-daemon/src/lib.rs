@@ -24,6 +24,7 @@ mod compose_test_support;
 pub mod compose_core;
 pub mod compose_mcp;
 pub mod connection_close;
+pub mod effort_judge_host;
 pub mod fencing_ownership;
 pub mod code_graph_trust;
 pub mod compose_flip;
@@ -47,6 +48,8 @@ pub mod late_seams;
 pub mod late_tool_surface;
 pub mod os_probe;
 pub mod control;
+pub mod crash_record;
+pub mod stale_temps;
 pub mod daemon_log;
 pub mod desktop_defaults;
 pub mod discovery;
@@ -56,6 +59,8 @@ pub mod event_pipeline;
 pub mod held_requests;
 #[cfg(test)]
 mod held_runs_tests;
+#[cfg(test)]
+mod workers_stop_tests;
 #[cfg(test)]
 mod session_host_replay_tests;
 pub mod memory_callers;
@@ -153,7 +158,7 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens) -> Result<(), Ser
         &data_dir,
         compose::ext_host_config(&js_runtime, &data_dir, &tokens),
         serving::StartIn {
-            runtime_root,
+            runtime_root: runtime_root.clone(),
             exiter: std::sync::Arc::new(lifecycle::ProcessExiter),
             update_text: control::UPDATE_TEXT.to_owned(),
         },
@@ -174,6 +179,7 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens) -> Result<(), Ser
     let sweep_dir = data_dir.clone();
     let config = compose::ComposeConfig {
         user_data_dir: data_dir.join("userdata"),
+        runtime_root,
         data_dir,
         js_runtime,
         ort_library,
@@ -243,6 +249,8 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens) -> Result<(), Ser
     core.start_heartbeat();
     // `startPostgresInBackground` (daemon.mjs:1274), after ready: the memory database starts here only where a cluster already exists.
     core.open_memory_in_background();
+    // A pinned channel session outlives the core that pinned it (daemon.mjs:1284-1293): restored after ready, off the boot path.
+    core.restore_remote_intent();
     // The report-only stall monitor (LR §5.4): the runtime probe and the lanes' wedge watch. It lives as long as the process serves.
     let _stall_monitor = serving.watch_stalls(executors.clone());
     // A stop that arrived on the way is handed over now: the watcher has been live since boot.

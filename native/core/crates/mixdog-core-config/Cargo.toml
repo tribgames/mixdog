@@ -46,6 +46,8 @@ count-work = []
 [dev-dependencies]
 mixdog-testkit = { workspace = true }
 tempfile = { workspace = true }
+chrono-tz = { workspace = true }
+mixdog-services = { workspace = true, features = ["test-support"] }
 mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }
@@ -77,3 +79,6 @@ mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 fancy-regex = { workspace = true, features = ["perf", "probe", "std", "unicode", "variable-lookbehinds"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-trace = { workspace = true, features = ["flush-probe"] }

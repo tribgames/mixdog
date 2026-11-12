@@ -34,6 +34,8 @@ pub use watchdog::StreamWatch;
 #[cfg(test)]
 mod claude_replay_wire_tests;
 #[cfg(test)]
+mod first_response_budget_tests;
+#[cfg(test)]
 mod conformance;
 #[cfg(test)]
 pub(crate) mod wire_tests;
@@ -41,6 +43,8 @@ pub(crate) mod wire_tests;
 mod tool_accept_tests;
 #[cfg(test)]
 mod maas_wire_tests;
+#[cfg(test)]
+mod stream_replay_tests;
 #[cfg(test)]
 mod usage_wire_tests;
 #[cfg(test)]
@@ -157,6 +161,7 @@ pub async fn antigravity(
     traits: Arc<dyn ModelTraits>,
     env: Arc<dyn crate::registry::keys::Environment>,
     now_ms: Box<dyn Fn() -> u64 + Send + Sync>,
+    function_calling_mode: Option<&str>,
 ) -> Result<GoogleAdapter, ProviderError> {
     let auth = Arc::new(AntigravityAuth::new(http.clone(), store, now_ms));
     let tokens = auth.current().await?;
@@ -167,7 +172,8 @@ pub async fn antigravity(
             client_version,
             traits,
         )
-        .with_env(env),
+        .with_env(env)
+        .with_function_calling_mode(function_calling_mode),
         policy::antigravity(),
         http,
         auth,

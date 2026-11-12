@@ -838,6 +838,16 @@ pub async fn record_meta_boundary(directory: &SessionDirectory, thread: &ThreadI
     Ok(true)
 }
 
+/// `recordAppliedSkills` on the live thread: the skills a turn's prompt loaded, stamped on its durable row `iid`
+/// and shown on its line (`thread/appliedSkills/set`).
+pub async fn record_applied_skills(directory: &SessionDirectory, thread: &ThreadId, iid: &mixdog_core_api::ids::ItemId, names: &[String]) -> Result<(), mixdog_core_api::CoreError> {
+    let ctx = CallContext::internal("applied-skills");
+    let handle = directory.open_handle(thread, &ctx).await?;
+    let params = json!({ "iid": iid.as_str(), "names": names });
+    handle.request(CoreRequest { method: Method("thread/appliedSkills/set"), params, op: None, ctx }).await?;
+    Ok(())
+}
+
 /// A header's keys changed by `after`: the patch and the values it was computed from.
 fn header_patch(before: &Header, after: &Header) -> (Map<String, Value>, Vec<String>, Map<String, Value>) {
     let mut set = Map::new();

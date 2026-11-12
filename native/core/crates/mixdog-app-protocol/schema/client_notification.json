@@ -679,7 +679,7 @@
           "type": "object"
         },
         {
-          "description": "The account pool moves on to the next account (`StreamEvent::AccountStage`, Node `onStageChange('reconnecting')`).",
+          "description": "The account pool moves on to the next account (`StreamEvent::AccountStage`, Node `onStageChange('reconnecting')`); credential-shaped text in the message is redacted.",
           "properties": {
             "message": {
               "type": "string"
@@ -698,11 +698,8 @@
           "type": "object"
         },
         {
-          "description": "A fallback account became the selected one (`StreamEvent::AccountStage`, Node `onStageChange('account-changed')`).",
+          "description": "A fallback account became the selected one (`StreamEvent::AccountStage`, Node `onStageChange('account-changed')`). The PC's account id never leaves it (Node's `scalarDetail` drops it): provider and time only.",
           "properties": {
-            "accountId": {
-              "type": "string"
-            },
             "at": {
               "format": "int64",
               "type": "integer"
@@ -718,9 +715,45 @@
             }
           },
           "required": [
-            "accountId",
             "at",
             "provider",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A tool of the request the PC's adapter left out for its input schema (`ToolExclusionReport`, Node `onToolExcluded`); credential-shaped text in each string is redacted.",
+          "properties": {
+            "index": {
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "message": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "pointer": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "toolExcluded"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "index",
+            "message",
+            "name",
+            "pointer",
+            "reason",
             "type"
           ],
           "type": "object"
@@ -753,6 +786,32 @@
             }
           },
           "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Anthropic's content-block summary of the turn (`StreamEvent::ContentSummary`, Node `hasThinkingContent` / `contentBlockTypes`).",
+          "properties": {
+            "block_types": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "has_thinking": {
+              "type": "boolean"
+            },
+            "type": {
+              "enum": [
+                "contentSummary"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "block_types",
+            "has_thinking",
             "type"
           ],
           "type": "object"

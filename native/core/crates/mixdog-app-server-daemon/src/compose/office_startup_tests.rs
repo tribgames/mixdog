@@ -47,7 +47,7 @@ async fn session_start_sweeps_the_complete_recorded_office_subject() {
     let stop = mixdog_rt::CancellationToken::new();
     let mut completed = crate::office_startup::completions().subscribe();
     let core = mixdog_rt::time::timeout(Duration::from_secs(60), compose(&tokens, ComposeConfig {
-        data_dir: data.clone(), user_data_dir: dir.path().join("userdata"),
+        data_dir: data.clone(), user_data_dir: dir.path().join("userdata"), runtime_root: dir.path().join("runtime"),
         js_runtime: js, ort_library: OrtRuntime::NoBinding,
         outgoing: mixdog_app_server::Outgoing::new(),
         ownership: Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()),

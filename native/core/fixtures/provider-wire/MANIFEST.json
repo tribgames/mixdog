@@ -23,7 +23,7 @@
     "vertex-claude-cancel/retry-wait retrySleeps delayMs: the jittered wait Node armed; the core's wait is shown entered (its send pending after the retry's discard, under a paused clock) and ended by the cancel before the clock moves, not measured; that wait's deadline is 30 s of virtual time (the clock is paused, so a send that ignores the cancel runs it out at once: with the retry wait ignoring the cancel the replay fails on it in 0.1 s of real time, measured)",
     "vertex-claude-cancel HEAD requests: none excluded; Node's Vertex provider runs no socket warm-up and its recording has no HEAD, and the replay compares every request the core sends, HEAD included, with the recorded list"
   ],
-  "fileCount": 186,
+  "fileCount": 192,
   "files": [
     {
       "bytes": 5943,
@@ -911,9 +911,39 @@
       "sha256": "74e0ddc072c7cea6865825ad13dfe432abd4483834a1ddd7a090d539196ccd2c"
     },
     {
-      "bytes": 7247,
+      "bytes": 4485,
+      "path": "vertex-maas/gpt-oss-effort/exchange.json",
+      "sha256": "572e4a1d42de5630034eaea7105f093a53f7625e3d5681f7c53d656f65182615"
+    },
+    {
+      "bytes": 733,
+      "path": "vertex-maas/gpt-oss-effort/input.json",
+      "sha256": "1ec50a40284394b201a2b0be074a8f0d2e5abd208d7d77804384d1bd051a9f24"
+    },
+    {
+      "bytes": 960,
+      "path": "vertex-maas/gpt-oss-effort/result.json",
+      "sha256": "58fc3907d61e8b37e2707bd33bdd519cb89af69c9e1331d42e8420387ca39018"
+    },
+    {
+      "bytes": 4479,
+      "path": "vertex-maas/other-family-no-effort/exchange.json",
+      "sha256": "c58a9004dc8cc5285edfbbf2f51b94d94f09dbced674437a61229ce126a97fe1"
+    },
+    {
+      "bytes": 749,
+      "path": "vertex-maas/other-family-no-effort/input.json",
+      "sha256": "c3568eceec4ce6af9271c5a5d5d0c30e5f47362301410f61a898985f4edb1f70"
+    },
+    {
+      "bytes": 976,
+      "path": "vertex-maas/other-family-no-effort/result.json",
+      "sha256": "087b8a5f2530f1e28f1b4bcd47ec743608958efdd3a9781829e28e0d57c5d978"
+    },
+    {
+      "bytes": 7679,
       "path": "vertex-maas/refresh-after-401/exchange.json",
-      "sha256": "fbb5229f5f6593554d30b99ce99e8968fc1a903e82ef5b881f5ce83336c7d7b8"
+      "sha256": "2f9f0bd12d2a93d7cab3374894825e6a381e2c79ce0426be5ed655b460105e43"
     },
     {
       "bytes": 703,
@@ -959,7 +989,7 @@
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/headers.mjs",
@@ -989,7 +1019,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-provider-wire.mjs",
-  "recorderSha256": "7cfddc815c3cbb87cec0f87b51c6fc6e2e4967c9fc646232710518693a048707",
+  "recorderSha256": "2ded1bafb3593544cba65a760b9832b2d5559e6890ed9dec4a32e49876438b88",
   "set": "provider-wire",
-  "totalBytes": 420951
+  "totalBytes": 433765
 }

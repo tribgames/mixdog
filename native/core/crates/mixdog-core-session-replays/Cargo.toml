@@ -69,7 +69,7 @@ mixdog-migrate = { workspace = true, features = ["crash-hook"] }
 mixdog-protocol = { workspace = true }
 mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 mixdog-scm = { workspace = true, features = ["write-queue-hook"] }
-mixdog-services = { workspace = true }
+mixdog-services = { workspace = true, features = ["test-support"] }
 mixdog-store = { workspace = true, features = ["crash-hook", "test-support"] }
 mixdog-testkit = { workspace = true }
 mixdog-workspace = { workspace = true, features = ["count-jobs", "kill-points", "replay-controls"] }
@@ -88,3 +88,6 @@ mixdog-core-rooms = { workspace = true, features = ["test-support"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 fancy-regex = { workspace = true, features = ["perf", "probe", "std", "unicode", "variable-lookbehinds"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-trace = { workspace = true, features = ["flush-probe"] }

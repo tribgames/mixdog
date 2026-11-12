@@ -22,6 +22,7 @@ mod models;
 mod nonstream;
 pub mod oauth;
 mod policy;
+pub mod prefix_trace;
 mod reminders;
 pub mod replay_blocks;
 mod threads;

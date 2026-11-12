@@ -9,9 +9,12 @@
 //! per model instance, never behind the shared CPU lanes. Whether the model is
 //! installed and trained on steps is read as a byte-bounded job on the interactive
 //! read lane; only installs and their hash checks use the CPU bulk lane, which Node
-//! also runs off its worker. The model loads on first use and stays resident; a
-//! failed load is remembered until the model is installed or repaired, so a broken
-//! model cannot add a load to every step.
+//! also runs off its worker. The model lives in a host process of its own ([`host`](crate::effort_judge::host)):
+//! a native fault in inference ends that process, not the core, and the next request starts a fresh one.
+//! It loads at a prewarm or the first judgment and is unloaded after [`KEEP_WARM`] without a judgment
+//! (never under a request, a load or a turn's lease: [`EffortJudgeModel::hold_warm`]); the first turn after
+//! such an unload waits for the reload ([`RELOAD_WAIT`]). A failed load is remembered until the model
+//! is installed or repaired, so a broken model cannot add a load to every step.
 //!
 //! Install triggers, as Node has them: the first judged step of the instance
 //! refreshes a model that is not the current release (in the background, the
@@ -20,7 +23,7 @@
 //! the first judged step.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use tokio::sync::oneshot;
@@ -32,6 +35,7 @@ use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
 use crate::effort_judge::error::JudgeError;
+use crate::effort_judge::host::{HostClient, HostLaunch};
 use crate::effort_judge::install::{self, Manifest};
 use crate::effort_judge::input::{TurnInput, clip_turn};
 use crate::effort_judge::ladder::StepLadder;
@@ -66,6 +70,49 @@ impl Resident for JudgeModel {
 enum Ask {
     Turn(TurnInput),
     Step(StepInput),
+}
+
+/// `EMBED_KEEP_WARM_MS` (`embedding-idle-lease.mjs`): how long the model stays loaded without a
+/// judgment, and how long a turn's lease holds it.
+pub const KEEP_WARM: Duration = Duration::from_secs(6 * 60);
+
+/// `RELOAD_WAIT_MS` (`judge-client.mjs`): a turn waits this long (at least the cold wait) for a model
+/// that has loaded before and was unloaded, so a session with a turn every few minutes is judged.
+pub const RELOAD_WAIT: Duration = Duration::from_secs(10);
+
+/// What the idle unload goes by.
+#[derive(Default)]
+struct Idle {
+    /// Bumped by every use: a ring acts only if it holds the latest value (Node's `touchIdle`).
+    epoch: AtomicU64,
+    /// Leases held ([`EffortJudgeModel::hold_warm`]) that have not run out.
+    leases: AtomicUsize,
+    /// The newest thread unloaded for being idle: a request that finds it so retries on a fresh load.
+    retired: AtomicU64,
+    /// The model has loaded in this process (Node's `loadedDirs`): its next load is a reload.
+    loaded_before: AtomicBool,
+}
+
+/// How an attempt to judge ended without an answer.
+enum Stop {
+    /// The thread was unloaded for being idle while the request waited for it.
+    Retry,
+    Fail(JudgeError),
+}
+
+impl From<JudgeError> for Stop {
+    fn from(error: JudgeError) -> Self {
+        Self::Fail(error)
+    }
+}
+
+/// The model's host process, started and loaded.
+fn start_host(config: &ModelConfig, launch: Option<&HostLaunch>, runtime: &tokio::runtime::Handle, alarm: &dyn Alarm) -> Result<Arc<dyn Resident>, JudgeError> {
+    let launch = match launch {
+        Some(launch) => launch.clone(),
+        None => HostLaunch::of(config)?,
+    };
+    HostClient::start(&launch, runtime, alarm).map(|client| Arc::new(client) as Arc<dyn Resident>)
 }
 
 /// The model's load: the generation of the judge thread holding it, or the remembered failure.
@@ -193,6 +240,9 @@ pub struct JudgeOptions {
     pub progress: Option<ProgressSink>,
     /// The waits of a step's judgment ([`EffortJudgeModel::probs`]); a turn passes its own.
     pub timing: JudgeTiming,
+    /// The host process the model loads in, for tests that start a real one.
+    #[cfg(test)]
+    pub(crate) host: Option<HostLaunch>,
 }
 
 /// The resident model and its serialised access. Shared by every run.
@@ -226,8 +276,11 @@ pub struct EffortJudgeModel {
     steps: std::sync::OnceLock<bool>,
     /// Ends installs this instance started in the background.
     cancel: CancellationToken,
+    idle: Idle,
     #[cfg(test)]
     script: Option<Script>,
+    #[cfg(test)]
+    host: Option<HostLaunch>,
 }
 
 impl EffortJudgeModel {
@@ -254,6 +307,31 @@ impl EffortJudgeModel {
         let mut judge = Self::create(config, lanes, options, alarm).expect("the bundled manifest");
         judge.script = Some(script);
         Arc::new(judge)
+    }
+
+    /// A judge whose model loads in a real host process started as `launch`.
+    #[cfg(test)]
+    pub(crate) fn hosted(config: ModelConfig, lanes: JudgeLanes, launch: HostLaunch) -> Arc<Self> {
+        Self::hosted_on(config, lanes, launch, Arc::new(TickerAlarm))
+    }
+
+    /// [`Self::hosted`] with every wait on `alarm`.
+    #[cfg(test)]
+    pub(crate) fn hosted_on(config: ModelConfig, lanes: JudgeLanes, launch: HostLaunch, alarm: Arc<dyn Alarm>) -> Arc<Self> {
+        let options = JudgeOptions { host: Some(launch), ..JudgeOptions::default() };
+        Arc::new(Self::create(config, lanes, options, alarm).expect("the bundled manifest"))
+    }
+
+    /// The latest use the idle ring goes by, for tests.
+    #[cfg(test)]
+    pub(crate) fn idle_epoch(&self) -> u64 {
+        self.idle.epoch.load(Ordering::Acquire)
+    }
+
+    /// Holds the turn gate as a judgment does, for tests.
+    #[cfg(test)]
+    pub(crate) async fn hold_turn(&self) -> mixdog_rt::GateGuard {
+        self.turn.enter(&self.cancel).await.expect("the gate is free to enter")
     }
 
     /// The judge's threads, for tests.
@@ -285,8 +363,11 @@ impl EffortJudgeModel {
             repair_started: AtomicBool::new(false),
             steps: std::sync::OnceLock::new(),
             cancel: CancellationToken::new(),
+            idle: Idle::default(),
             #[cfg(test)]
             script: None,
+            #[cfg(test)]
+            host: options.host,
         })
     }
 
@@ -386,20 +467,87 @@ impl EffortJudgeModel {
         self.model_state().take();
     }
 
-    /// The load job: tokenizer, session and the warm-up run, all on the judge's thread, which keeps
-    /// the model. Answers that thread's generation.
+    /// Lets thread `generation` go and forgets its model, if it is still the one taking jobs.
+    fn let_go_thread(&self, generation: u64) {
+        self.worker.retire(generation);
+        let mut state = self.model_state();
+        if matches!(*state, Some(Ok(g)) if g == generation) {
+            *state = None;
+        }
+    }
+
+    /// Renews the keep-warm lease for [`KEEP_WARM`]: the turn is about to judge, and the model is
+    /// not unloaded under it (Node's `holdEffortJudgeWarm`).
+    pub fn hold_warm(self: &Arc<Self>) {
+        self.idle.leases.fetch_add(1, Ordering::AcqRel);
+        let this = Arc::downgrade(self);
+        self.alarm.after(
+            KEEP_WARM,
+            Box::new(move || {
+                if let Some(this) = this.upgrade() {
+                    this.idle.leases.fetch_sub(1, Ordering::AcqRel);
+                }
+            }),
+        );
+    }
+
+    /// Whether a lease still holds the model loaded.
+    pub fn is_held_warm(&self) -> bool {
+        self.idle.leases.load(Ordering::Acquire) > 0
+    }
+
+    /// The model was used: it is looked at again after [`KEEP_WARM`] (Node's `touchIdle`).
+    fn touch_idle(self: &Arc<Self>) {
+        let epoch = self.idle.epoch.fetch_add(1, Ordering::AcqRel) + 1;
+        let this = Arc::downgrade(self);
+        self.alarm.after(
+            KEEP_WARM,
+            Box::new(move || {
+                if let Some(this) = this.upgrade() {
+                    this.idle_rang(epoch);
+                }
+            }),
+        );
+    }
+
+    /// The idle ring of use `epoch`. A lease, a load in progress or a request (the turn gate is held
+    /// or waited for) keeps the model: it is looked at again later, never unloaded under work.
+    pub(crate) fn idle_rang(self: &Arc<Self>, epoch: u64) {
+        if self.idle.epoch.load(Ordering::Acquire) != epoch {
+            return;
+        }
+        let Some(generation) = self.worker.generation() else { return };
+        if self.is_held_warm() || self.turn.is_busy() {
+            self.touch_idle();
+            return;
+        }
+        self.unload_idle(generation);
+    }
+
+    /// Unloads thread `generation` for being idle. Noted before the thread goes, so a request that
+    /// finds it gone knows why and asks again, on a fresh load.
+    pub(crate) fn unload_idle(&self, generation: u64) {
+        self.idle.retired.fetch_max(generation, Ordering::AcqRel);
+        self.let_go_thread(generation);
+        self.tick.bump();
+    }
+
+    /// The load job: the host process with the model in it, started and waited for on the judge's
+    /// thread, which keeps the client. Answers that thread's generation.
     fn load_job(&self) -> impl FnOnce(&mut Seat) -> Result<u64, JudgeError> + Send + 'static {
-        let (config, threads) = (self.config.clone(), self.lanes.thread);
+        let config = self.config.clone();
+        let runtime = tokio::runtime::Handle::current();
+        let alarm = self.alarm.clone();
         #[cfg(test)]
-        let script = self.script.clone();
+        let (script, host) = (self.script.clone(), self.host.clone());
         move |seat| {
             #[cfg(test)]
             let loaded = match script {
                 Some(script) => script(),
-                None => JudgeModel::load(&config, threads).map(|model| Arc::new(model) as Arc<dyn Resident>),
+                None => start_host(&config, host.as_ref(), &runtime, &*alarm),
             };
             #[cfg(not(test))]
-            let loaded = JudgeModel::load(&config, threads).map(|model| Arc::new(model) as Arc<dyn Resident>);
+            let loaded = start_host(&config, None, &runtime, &*alarm);
             seat.model = Some(loaded?);
             Ok(seat.generation)
         }
@@ -410,7 +558,7 @@ impl EffortJudgeModel {
     /// remembered: an install can follow. A thread that cannot take the job is not remembered
     /// either; a load failure is, a panicking load included. A load answered after the judge let
     /// its thread go (shutdown, new files) stores nothing.
-    async fn ensure_loaded(&self) -> Result<u64, JudgeError> {
+    async fn ensure_loaded(self: &Arc<Self>) -> Result<u64, JudgeError> {
         if let Some(outcome) = self.loaded() {
             return outcome;
         }
@@ -420,7 +568,9 @@ impl EffortJudgeModel {
             Err(error @ JudgeError::Load(_)) => Err(error),
             Err(error) => return Err(error),
         };
-        if matches!(outcome, Err(JudgeError::NotInstalled(_))) {
+        // A host that never became ready was killed at its limit: no failure to back off from, the
+        // next judgment starts a new one.
+        if matches!(outcome, Err(JudgeError::NotInstalled(_) | JudgeError::Worker(_))) {
             return outcome;
         }
         let mut state = self.model_state();
@@ -431,7 +581,12 @@ impl EffortJudgeModel {
             Ok(_) => self.set_load_state(String::new()),
             Err(error) => self.set_load_state(error.to_string()),
         }
+        self.idle.loaded_before.store(outcome.is_ok(), Ordering::Release);
         *state = Some(outcome.clone());
+        drop(state);
+        if outcome.is_ok() {
+            self.touch_idle();
+        }
         outcome
     }
 
@@ -454,24 +609,42 @@ impl EffortJudgeModel {
     /// Node's: a platform without a binding, an install in progress, a missing model, a recent load
     /// failure, a load that outlasts the cold wait, a queue that outlasts the queue wait, an answer
     /// that outlasts the deadline. Every wait is on the judge's alarm, armed before what it waits for.
+    ///
+    /// A request that finds its thread unloaded for being idle (Node's `retiredIdle`) is asked again
+    /// from the start, and so answered by a fresh load.
     async fn ask(self: &Arc<Self>, ask: Ask, timing: JudgeTiming) -> Result<(Vec<f64>, u64), JudgeError> {
+        let ask = Arc::new(ask);
+        loop {
+            match self.ask_once(&ask, timing).await {
+                Ok(answer) => return Ok(answer),
+                Err(Stop::Fail(error)) => return Err(error),
+                Err(Stop::Retry) => {}
+            }
+        }
+    }
+
+    async fn ask_once(self: &Arc<Self>, ask: &Arc<Ask>, timing: JudgeTiming) -> Result<(Vec<f64>, u64), Stop> {
         if !self.config.runtime_supported() {
-            return Err(JudgeError::Unsupported);
+            return Err(JudgeError::Unsupported.into());
         }
         self.refresh_once();
         if self.is_installing() {
-            return Err(JudgeError::Installing);
+            return Err(JudgeError::Installing.into());
         }
         match available_on(self.lanes.read, &self.config).await {
             Ok(true) => {}
-            Ok(false) => return Err(JudgeError::NotInstalled(self.config.dir.display().to_string())),
-            Err(error) => return Err(JudgeError::Run(error.to_string())),
+            Ok(false) => return Err(JudgeError::NotInstalled(self.config.dir.display().to_string()).into()),
+            Err(error) => return Err(JudgeError::Run(error.to_string()).into()),
         }
+        let unloaded_before = self.idle.retired.load(Ordering::Acquire);
         if !self.is_ready() {
             if let Some(why) = self.recent_load_failure(timing.retry) {
-                return Err(JudgeError::Load(why));
+                return Err(JudgeError::Load(why).into());
             }
-            let cold = deadline(&*self.alarm, timing.cold);
+            // A model that has loaded before and was unloaded for being idle is waited for longer.
+            let wait = if self.idle.loaded_before.load(Ordering::Acquire) { timing.cold.max(RELOAD_WAIT) } else { timing.cold };
+            self.touch_idle();
+            let cold = deadline(&*self.alarm, wait);
             let (done_tx, done_rx) = oneshot::channel();
             let this = self.clone();
             // A load outlives the cold wait that gave up on it (a big model takes longer than that);
@@ -487,51 +660,68 @@ impl EffortJudgeModel {
             };
             match loaded {
                 Some(Ok(Ok(()))) => {}
-                Some(Ok(Err(error @ (JudgeError::NotInstalled(_) | JudgeError::Installing | JudgeError::Unsupported)))) => return Err(error),
+                Some(Ok(Err(error @ (JudgeError::NotInstalled(_) | JudgeError::Installing | JudgeError::Unsupported)))) => return Err(error.into()),
                 // Node's `waitReady` answered false: the wait ran out, the load failed or the worker
                 // was ended (`:351-352`).
                 _ => {
                     let why = self.last_error();
-                    return Err(if why.is_empty() { JudgeError::Warming } else { JudgeError::Load(raw_load_message(&why).to_owned()) });
+                    return Err(if why.is_empty() { JudgeError::Warming } else { JudgeError::Load(raw_load_message(&why).to_owned()) }.into());
                 }
             }
+        } else {
+            self.touch_idle();
         }
+        let exited = || {
+            if self.idle.retired.load(Ordering::Acquire) > unloaded_before { Stop::Retry } else { Stop::Fail(JudgeError::Worker(EXITED.to_owned())) }
+        };
         // Node's `target`: the thread whose model is ready as the judgment arrives.
-        let Some(Ok(target)) = self.loaded() else { return Err(JudgeError::Worker(EXITED.to_owned())) };
+        let Some(Ok(target)) = self.loaded() else { return Err(exited()) };
         let queue = deadline(&*self.alarm, timing.queue);
         // The place in the queue is taken on the first poll, in arrival order; a judgment that is
         // still waiting when the queue wait runs out leaves the queue unsent (Node's `abandoned`).
         let entered = tokio::select! {
             biased;
             entered = self.turn.enter(&self.cancel) => entered,
-            () = queue => return Err(JudgeError::Busy),
+            () = queue => return Err(JudgeError::Busy.into()),
         };
-        let Ok(turn) = entered else { return Err(JudgeError::Worker(EXITED.to_owned())) };
+        let Ok(turn) = entered else { return Err(JudgeError::Worker(EXITED.to_owned()).into()) };
         // A thread let go while the judgment waited: Node's `worker !== target || !ready`.
         if !matches!(self.loaded(), Some(Ok(generation)) if generation == target) {
-            return Err(JudgeError::Worker(EXITED.to_owned()));
+            return Err(exited());
         }
         let warm = deadline(&*self.alarm, timing.warm);
         let began = std::time::Instant::now();
         let (result_tx, result_rx) = oneshot::channel();
         let this = self.clone();
-        let job = move |seat: &mut Seat| match ask {
-            Ask::Turn(input) => resident(seat)?.turn_probs(&clip_turn(&input)),
-            Ask::Step(input) => resident(seat)?.probs(&input),
+        let asked = ask.clone();
+        let job = move |seat: &mut Seat| match &*asked {
+            Ask::Turn(input) => resident(seat)?.turn_probs(&clip_turn(input)),
+            Ask::Step(input) => resident(seat)?.probs(input),
         };
         // Sent, the judgment holds the queue until its thread answers or is let go, whether or not
         // its caller still waits: Node sends the next request only then (`queueTail`, `:360`).
         mixdog_rt::spawn("services.effort-judge.judgment", TaskClass::Work, async move {
-            let _turn = turn;
-            drop(result_tx.send(this.worker.judge(target, job).await.and_then(|probs| probs)));
+            let answer = this.worker.judge(target, job).await.and_then(|probs| probs);
+            // A host that died under the request is gone: the next request starts a fresh one, now,
+            // not when its exit is noticed.
+            if matches!(answer, Err(JudgeError::Worker(_))) {
+                this.let_go_thread(target);
+            }
+            // The queue is free before the caller has its answer: whoever sees the answer sees a judge
+            // with nothing in flight (the idle period reads the queue).
+            drop(turn);
+            drop(result_tx.send(answer));
         });
         let answer = tokio::select! {
             biased;
             answer = result_rx => answer,
-            () = warm => return Err(JudgeError::Timeout),
+            () = warm => return Err(JudgeError::Timeout.into()),
         };
-        let probs = answer.map_err(|_| JudgeError::Worker(EXITED.to_owned()))??;
-        Ok((probs, u64::try_from(began.elapsed().as_millis()).unwrap_or(u64::MAX)))
+        match answer.map_err(|_| JudgeError::Worker(EXITED.to_owned())).and_then(|answer| answer) {
+            Ok(probs) => Ok((probs, u64::try_from(began.elapsed().as_millis()).unwrap_or(u64::MAX))),
+            Err(JudgeError::Worker(_)) => Err(exited()),
+            Err(error) => Err(error.into()),
+        }
     }
 
     /// A load that failed less than `retry` ago and has not been replaced: Node does not start a
@@ -639,6 +829,7 @@ impl EffortJudgeModel {
             // A lane that could not read it answers "not now"; the next prewarm asks again.
             return false;
         }
+        self.touch_idle();
         // A judgment or a load holds the gate: it is loaded or loading.
         if self.turn.is_busy() {
             return true;

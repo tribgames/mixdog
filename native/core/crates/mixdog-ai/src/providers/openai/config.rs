@@ -94,6 +94,10 @@ pub trait WireContext: Send + Sync {
     fn var(&self, name: &str) -> Option<String> {
         std::env::var(name).ok()
     }
+    /// `envFlag(name, false)` (`shared/env.mjs`): only the documented on/off spellings count, anything else is off.
+    fn flag(&self, name: &str) -> bool {
+        self.var(name).is_some_and(|v| matches!(v.trim().to_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+    }
 }
 
 /// The client identity the Codex backend fingerprints.

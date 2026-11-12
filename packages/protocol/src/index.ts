@@ -2416,7 +2416,13 @@ durationMs?: number,
 /**
  * Node's usage delta summary of the request, on `completed`.
  */
-usage?: JsonValue, };
+usage?: JsonValue,
+/**
+ * On `completed`: the tool calls the response streamed, in stream order, each `{ id, name, arguments }` (Node's
+ * `onAssistantToolCallObserved`, which a headless exec shows as the call's `item.started` before the request's
+ * completion). Absent when the response called no tool.
+ */
+toolCalls?: Array<JsonValue>, };
 
 /**
  * Today's `DesktopModelSelection`.
@@ -3016,6 +3022,8 @@ delivery?: DeliveryState, };
  */
 export type ProviderId = string;
 
+export type ProxyAccountRouting = { provider: string, accountId: string, sessionAccountId: string | null, };
+
 /**
  * The answer to a [`ProxyCall`].
  */
@@ -3070,7 +3078,7 @@ export type ProxyErrorKind = "overloaded" | "rateLimited" | "quotaExhausted" | "
 /**
  * One stream event of an attempt (`StreamEvent`).
  */
-export type ProxyEvent = { "type": "itemStart", item: ProxyItemKind, phase: ProxyPhase | null, } | { "type": "textDelta", text: string, } | { "type": "reasoningDelta", text: string, } | { "type": "reasoningReplay", replay: ProxyReplay, } | { "type": "toolCallStart", id: string, name: string, } | { "type": "toolCallArgsDelta", id: string, delta: string, } | { "type": "toolCallDone", call: ProxyToolCall, } | { "type": "usage", usage: ProxyUsage, } | { "type": "refusal", text: string, } | { "type": "citation", value: JsonValue, } | { "type": "serverToolBlock", value: JsonValue, } | { "type": "providerKeepalive" } | { "type": "progress", kind: ProxyProgress, } | { "type": "chunkProgress", kind: ProxyProgress | null, } | { "type": "finalContent", text: string, } | { "type": "returnedCalls", calls: Array<ProxyToolCall>, } | { "type": "thinkingBlocks", value: JsonValue, } | { "type": "providerState", state: JsonValue, } | { "type": "notice", message: string, warn: boolean, } | { "type": "servedModel", model: string, } | { "type": "providerMetadata", value: JsonValue, } | { "type": "responseId", id: string, } | { "type": "accountRouting", provider: string, accountId: string, sessionAccountId: string | null, } | { "type": "accountSwitching", message: string, } | { "type": "accountChanged", provider: string, accountId: string, at: number, } | { "type": "wireRerouted", route: JsonValue, } | { "type": "outputStarted" } | { "type": "completed", stop: ProxyStop | null, pricingModel: string | null, requestMs: number | null, } | { "type": "attemptDiscarded" } | { "type": "attemptAbandoned", usage: ProxyUsage, model: string | null, };
+export type ProxyEvent = { "type": "itemStart", item: ProxyItemKind, phase: ProxyPhase | null, } | { "type": "textDelta", text: string, } | { "type": "reasoningDelta", text: string, } | { "type": "reasoningReplay", replay: ProxyReplay, } | { "type": "toolCallStart", id: string, name: string, } | { "type": "toolCallArgsDelta", id: string, delta: string, } | { "type": "toolCallDone", call: ProxyToolCall, } | { "type": "usage", usage: ProxyUsage, } | { "type": "refusal", text: string, } | { "type": "citation", value: JsonValue, } | { "type": "serverToolBlock", value: JsonValue, } | { "type": "providerKeepalive" } | { "type": "progress", kind: ProxyProgress, } | { "type": "chunkProgress", kind: ProxyProgress | null, } | { "type": "finalContent", text: string, } | { "type": "returnedCalls", calls: Array<ProxyToolCall>, } | { "type": "thinkingBlocks", value: JsonValue, } | { "type": "providerState", state: JsonValue, } | { "type": "notice", message: string, warn: boolean, } | { "type": "servedModel", model: string, } | { "type": "providerMetadata", value: JsonValue, } | { "type": "responseId", id: string, } | { "type": "accountRouting", provider: string, accountId: string, sessionAccountId: string | null, } | { "type": "accountSwitching", message: string, } | { "type": "accountChanged", provider: string, at: number, } | { "type": "toolExcluded", name: string, index: number, pointer: string, reason: string, message: string, } | { "type": "wireRerouted", route: JsonValue, } | { "type": "outputStarted" } | { "type": "contentSummary", has_thinking: boolean, block_types: Array<string>, } | { "type": "completed", stop: ProxyStop | null, pricingModel: string | null, requestMs: number | null, } | { "type": "attemptDiscarded" } | { "type": "attemptAbandoned", usage: ProxyUsage, model: string | null, };
 
 /**
  * A failed call as the sender's retry and recovery read it (the classified `ProviderError`);
@@ -3092,7 +3100,12 @@ export type ProxyItemKind = "text" | "reasoning" | "tool";
 
 export type ProxyLocation = { country: string | null, region: string | null, city: string | null, timezone: string | null, };
 
-export type ProxyMessage = { role: ProxyRole, content: ProxyContent, cacheTier: ProxyCacheTier | null, toolCalls: Array<ProxyToolCall>, toolCallId: string | null, isError: boolean, phase: ProxyPhase | null, thinkingBlocks: JsonValue | null, assistantBlocks: JsonValue | null, nativeToolSearch: JsonValue | null, source: ProxyMessageSource | null, turnReminder: string | null, providerReplay: Array<ProxyReplay>, };
+export type ProxyMessage = { role: ProxyRole, content: ProxyContent, cacheTier: ProxyCacheTier | null, toolCalls: Array<ProxyToolCall>, toolCallId: string | null, isError: boolean, phase: ProxyPhase | null, thinkingBlocks: JsonValue | null, assistantBlocks: JsonValue | null, nativeToolSearch: JsonValue | null, source: ProxyMessageSource | null, turnReminder: string | null, providerReplay: Array<ProxyReplay>,
+/**
+ * The account that served this answer, as the server kept it from the run's `accountRouting` event (Node
+ * `providerMetadata.accountRouting`): the PC's pool reads it back from the history to keep the conversation on that account.
+ */
+accountRouting: ProxyAccountRouting | null, };
 
 export type ProxyMessageSource = "steering" | "streamCutRecovery" | "tailReminder";
 
@@ -3150,7 +3163,13 @@ export type ProxyNotice = { message: string, warn: boolean, };
  * `RequestOptions` field for field. The connection scope and the model's output ceiling are the
  * PC's to derive, so they are not carried.
  */
-export type ProxyOptions = { sessionId: string | null, effort: string | null, maxOutputTokensOverride: number | null, fast: boolean, toolChoice: string | null, verbosity: string | null, requestKind: string | null, iteration: number, promptCacheKey: string | null, promptCacheScope: string | null, xaiResponsesCacheScope: string | null, modelParameters: JsonValue | null, thread: ProxyThread | null, parentSessionId: string | null, parallelToolCalls: boolean | null, temperature: number | null, effortProjection: ProxyEffortProjection | null, hostedTools: Array<ProxyHostedTool>, sharedCachePrefixCount: number | null, providerState: JsonValue | null, };
+export type ProxyOptions = { sessionId: string | null, effort: string | null, maxOutputTokensOverride: number | null, fast: boolean, toolChoice: string | null, verbosity: string | null, requestKind: string | null, iteration: number, promptCacheKey: string | null, promptCacheScope: string | null, xaiResponsesCacheScope: string | null, modelParameters: JsonValue | null, thread: ProxyThread | null, parentSessionId: string | null, parallelToolCalls: boolean | null, temperature: number | null, effortProjection: ProxyEffortProjection | null, hostedTools: Array<ProxyHostedTool>, sharedCachePrefixCount: number | null, providerState: JsonValue | null,
+/**
+ * The server forked this request from a session (a side question) and gave it a transport scope of its own
+ * (`options.transportScope`). Its string means nothing on this PC, which allocates a scope for the request and
+ * releases it when the request ends.
+ */
+forkedTransportScope: boolean, };
 
 /**
  * How the PC's broker ended a failed send.

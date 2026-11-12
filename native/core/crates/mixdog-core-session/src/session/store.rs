@@ -950,13 +950,13 @@ impl StoreThreads {
     }
 }
 
-/// [`super::seams::TurnIngest`] over the session-search writer.
-pub struct SessionSearchTurns(pub Arc<mixdog_services::memory::session_search::ingest::SessionSearchIngest>);
+/// [`super::seams::TurnIngest`] over the session-search writer; `None` when the process has no memory runtime.
+pub struct SessionSearchTurns(pub Option<Arc<mixdog_services::memory::session_search::ingest::SessionSearchIngest>>);
 
 impl SessionSearchTurns {
     /// Over the memory service's one session-search writer (`SessionSearchIngest::new(db,
     /// sensitive)`, the same one `forgetSessionSearch` and the backfill use).
-    pub fn new(ingest: Arc<mixdog_services::memory::session_search::ingest::SessionSearchIngest>) -> Self {
+    pub fn new(ingest: Option<Arc<mixdog_services::memory::session_search::ingest::SessionSearchIngest>>) -> Self {
         Self(ingest)
     }
 }
@@ -981,7 +981,9 @@ pub(crate) fn search_session(
 
 impl super::seams::TurnIngest for SessionSearchTurns {
     fn ingest_turn(&self, id: &ThreadId, header: &mixdog_store::schema::record::Header, messages: Vec<Value>) {
-        self.0.ingest_turn(search_session(id, header, messages));
+        if let Some(ingest) = &self.0 {
+            ingest.ingest_turn(search_session(id, header, messages));
+        }
     }
 }
 
@@ -1443,29 +1445,46 @@ impl ThreadStore for StoreThreads {
         lane: &InLane<InteractiveIo>,
         id: &ThreadId,
     ) -> Result<(u64, Vec<ItemRecord>), CoreError> {
+        let (rev, rows, _) = self.history_tail(lane, id, usize::MAX)?;
+        Ok((rev, rows))
+    }
+
+    fn history_tail(
+        &self,
+        lane: &InLane<InteractiveIo>,
+        id: &ThreadId,
+        want: usize,
+    ) -> Result<(u64, Vec<ItemRecord>, bool), CoreError> {
         self.wait(lane, self.projector.caught_up())?;
         let _gate = self.read_gate();
         'read: loop {
             let opened = self.open(lane, id)?;
             let lineage = self.lineage(lane, &opened.fold)?;
             let (mut rows, mut cursor) = (Vec::new(), None);
-            loop {
+            let complete = loop {
                 let (page, next) = match self.index.history_page_on_lane(lane, &lineage, opened.fold.base_cut, cursor, WINDOW_ROWS) {
                     Ok(page) => page,
                     Err(DbError::CursorStale) => continue 'read,
                     Err(e) => return Err(internal("history", &e)),
                 };
-                for row in &page {
+                // Only the rows still wanted are read from the log.
+                let room = want - rows.len();
+                for row in page.iter().take(room) {
                     rows.push(self.history_item(lane, id, row)?);
                 }
+                if page.len() > room {
+                    break false;
+                }
+                // The index keeps a continuation cursor at its exact page limit, so with the wanted rows all read the
+                // next page says whether any row is left (it is read, empty, and ends the history).
                 match next {
                     Some(next) => cursor = Some(next),
-                    None => break,
+                    None => break true,
                 }
-            }
+            };
             // Pages run newest first; the seam returns rows oldest first.
             rows.reverse();
-            return Ok((opened.fold.history_rev, rows));
+            return Ok((opened.fold.history_rev, rows, complete));
         }
     }
 

@@ -54,6 +54,7 @@ struct Gateway {
 
 #[async_trait]
 impl ProviderAdapter for Gateway {
+    fn release_send(&self, _group: &str) {}
     fn id(&self) -> &ProviderId {
         &self.id
     }

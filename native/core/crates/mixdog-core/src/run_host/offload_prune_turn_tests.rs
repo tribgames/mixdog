@@ -40,6 +40,7 @@ impl ModelStream for Silent {
 
 #[async_trait]
 impl ProviderAdapter for Waiting {
+    fn release_send(&self, _group: &str) {}
     fn id(&self) -> &ProviderId {
         &self.id
     }

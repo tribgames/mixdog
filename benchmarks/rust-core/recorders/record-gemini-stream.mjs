@@ -12,7 +12,6 @@ const rec = await startRecording({
   entry: 'src/runtime/agent/orchestrator/providers/gemini-stream.mjs consumeGeminiRestStreamResponse(response, options) and createGeminiTextLeakGuard, called as the Node test calls them, on a REAL fetch Response: the recorder POSTs to the streamGenerateContent URL and the loopback endpoint serves the scripted status, headers and body chunks (each chunk its own socket write) - the input of every case is that served script, and the request as it arrived is recorded. The first-chunk window case is the test\'s silent response (the endpoint accepts and never writes a byte) with firstByteTimeoutMs 25, and the virtual clock is advanced by exactly 25 ms (the recorded clock step). Not run: a live endpoint.',
   compare: 'Serve each case\'s `input.served.chunks` from a loopback endpoint to the Rust Gemini decoder path (the recorded request is `requests[0]`) and compare `response` / `error` (typed code, status, retryAfterMs, details, unsafeToRetry, emittedToolCall, timeoutPhase, message) and the `progress` / `text` / `dispatched` callbacks in order; for first-chunk-window-follows-caller-and-names-phase serve a response that never writes a byte and advance a virtual clock by the recorded 25 ms step.',
   exclusions: [
-    "gemini-stream.test.mjs:118's `deferToolCalls: false` run (leaked-call-dispatched) is not recorded: no product caller of createGeminiTextLeakGuard passes false - `git grep -n \"createGeminiTextLeakGuard(\\|deferToolCalls\" b6f10295a -- src ':!*.test.mjs'` finds the two callers, antigravity-stream.mjs:80 (deferToolCalls: true, :85) and gemini-sdk-request.mjs:9 (deferToolCalls: true, :14); the default `false` (gemini-stream.mjs:331) is reached by tests only",
     '`response.candidates[].index` is not compared: the aggregation\'s own sort key (gemini-stream.mjs:159, :196); no reader of the aggregated response reads it (`[.?]index\\b` over gemini.mjs, gemini-response.mjs, antigravity-response.mjs, antigravity-stream.mjs, gemini-sdk-request.mjs finds none)',
     '`response.candidates[].content.role` is not compared: the aggregation writes it (gemini-stream.mjs:176) and the readers of the aggregated response read only `content.parts` (gemini-response.mjs:23, antigravity-response.mjs:53); mergeGeminiHops (gemini.mjs:133) copies it into a merged response read the same way',
   ],
@@ -43,9 +42,9 @@ const consume = async (response, options = {}) => {
   return { ...out, ...seen };
 };
 // The input of a case is the served script: status, content type and the body chunks as written to the socket; the product function reads a real fetch Response of it.
-const run = (id, line, chunks, fn, raw) => {
+const run = (id, line, chunks, fn, raw, leakGuard) => {
   const served = { status: 200, contentType: 'text/event-stream', chunks: [raw ?? frames(chunks)] };
-  return rec.run(id, `${SRC}:${line}`, { served }, async ({ net }) => {
+  return rec.run(id, `${SRC}:${line}`, leakGuard ? { served, leakGuard } : { served }, async ({ net }) => {
     net.reply = () => served;
     const response = await fetch(GEMINI_URL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
     return (fn ?? consume)(response);
@@ -66,16 +65,16 @@ for (const [label, chunks] of [
 ]) await run(`no-finish-${label}`, 69, chunks);
 await run('native-tool-chunks-replayable', 77, [{ candidates: [{ content: { parts: [partialPart] } }] }]);
 await run('visible-text-then-native-chunk', 94, [{ candidates: [{ content: { parts: [{ text: 'visible' }] } }] }, { candidates: [{ content: { parts: [partialPart] } }] }]);
-// Only the deferring guard: the test's `deferToolCalls: false` mode is one no product caller reaches (see the manifest exclusion).
-for (const deferToolCalls of [true]) {
+for (const deferToolCalls of [true, false]) {
   const leaked = '<invoke name="read"><parameter name="path">a.txt</parameter></invoke>';
   const chunks = [{ candidates: [{ content: { parts: [{ text: leaked }] } }] }];
-  await run('leaked-call-held-back', 118, chunks, async (response) => {
+  const leakGuard = { knownToolNames: ['read'], deferToolCalls };
+  await run(`leaked-call-${deferToolCalls ? 'held-back' : 'dispatched'}`, 118, chunks, async (response) => {
     const dispatched = [];
-    const textLeakGuard = createGeminiTextLeakGuard({ knownToolNames: ['read'], onToolCall: (call) => dispatched.push(call), deferToolCalls });
+    const textLeakGuard = createGeminiTextLeakGuard({ ...leakGuard, onToolCall: (call) => dispatched.push(call) });
     const out = await consume(response, { textLeakGuard });
     return { ...out, dispatched, leakedToolCalls: textLeakGuard.getLeakedToolCalls() };
-  });
+  }, undefined, leakGuard);
 }
 await run('ordered-parts-and-signatures', 140, [{ text: 'answer' }, nativePart].map((part, index) => cand([part], index === 1 ? { finishReason: 'STOP' } : {})));
 const inBand = { error: { code: 429, status: 'RESOURCE_EXHAUSTED', message: 'quota gone', details: [{ '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay: '5s' }] } };

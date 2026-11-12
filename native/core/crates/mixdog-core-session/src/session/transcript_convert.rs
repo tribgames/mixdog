@@ -577,6 +577,23 @@ mod tests {
         assert_eq!(display_bytes(&record, &body), Some(r#"{"kind":"assistant","text":"hi","id":"i9"}"#.len()));
     }
 
+    /// The roster account that served an answer is stored on the row (`providerMetadata.accountRouting`) and rides only the
+    /// model proxy's history; the items a phone or remote peer is sent from that row carry none of it (Node's transcript
+    /// rows have no `providerMetadata`).
+    #[test]
+    fn the_account_that_served_an_answer_is_not_in_the_items_a_peer_gets() {
+        let mut state = SessionState::new(16);
+        let row = json!({
+            "role": "assistant", "content": "ok",
+            "providerMetadata": { "accountRouting": { "provider": "custom-x", "accountId": "k2", "sessionAccountId": "k1" } },
+        });
+        let shown = commit(&mut state, "a1", row);
+        assert!(!shown.is_empty(), "the answer is shown");
+        let wire = serde_json::to_string(&shown.iter().map(|s| match s { Shown::Item(i) | Shown::Update(i) => i }).collect::<Vec<_>>()).unwrap();
+        assert!(wire.contains("ok"), "{wire}");
+        assert!(!wire.contains("accountRouting") && !wire.contains("k2") && !wire.contains("k1"), "{wire}");
+    }
+
     /// Node's `pendingToolCalls` has no entry for a skipped wait call, so its result attaches
     /// to nothing; here the stateless projection still names the call, and the view ignores it.
     #[test]

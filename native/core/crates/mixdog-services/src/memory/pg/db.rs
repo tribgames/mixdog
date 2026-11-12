@@ -133,6 +133,38 @@ where
     result
 }
 
+/// Runs `work` inside the stores' transaction on one pooled connection, with their statement text (`BEGIN`, then
+/// `COMMIT`, or `ROLLBACK` when `work` fails: core-memory-store.mjs:154-185). A connection whose transaction did not
+/// end (a failed `COMMIT` or `ROLLBACK`, or a call dropped part-way) is closed, never pooled.
+pub async fn transaction<T>(db: &Db, work: impl AsyncFnOnce(&Object) -> Result<T>) -> Result<T> {
+    struct Open(Option<Object>);
+    impl Drop for Open {
+        fn drop(&mut self) {
+            if let Some(client) = self.0.take() {
+                drop(Object::take(client));
+            }
+        }
+    }
+    let mut open = Open(Some(db.client().await?));
+    let client = open.0.as_ref().expect("the connection");
+    client.batch_execute("BEGIN").await?;
+    match work(client).await {
+        Ok(value) => {
+            client.batch_execute("COMMIT").await?;
+            // Ended: the connection goes back to the pool.
+            drop(open.0.take());
+            Ok(value)
+        }
+        // The failure is the call's, never the rollback's (Node ignores a failed `ROLLBACK`).
+        Err(error) => {
+            if client.batch_execute("ROLLBACK").await.is_ok() {
+                drop(open.0.take());
+            }
+            Err(error)
+        }
+    }
+}
+
 /// Creates the database and the cluster-wide extension once per call; both
 /// statements are idempotent and serialised by cluster advisory locks.
 async fn bootstrap(cluster: &PgCluster) -> Result<()> {

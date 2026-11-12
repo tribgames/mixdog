@@ -13,6 +13,7 @@ mod openai_delta;
 mod openai_fixtures;
 mod openai_labels;
 mod openai_login;
+mod openai_env_switches;
 mod openai_metadata;
 mod openai_models;
 mod openai_oauth;

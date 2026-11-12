@@ -2,21 +2,21 @@
   "command": "node benchmarks/rust-core/recorders/record-memory-scope-filter.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
   "entry": {
     "notRun": "the queries that embed the clause (hybrid SQL, browse): other test files",
-    "runs": "projectScopePredicate and appendProjectScopeClause (memory-recall-scope-filter.mjs)"
+    "runs": "projectScopePredicate and appendProjectScopeClause (memory-recall-scope-filter.mjs); resolveQueryProjectScope (query-search-plan.mjs) for the `wire` of non-string scopes"
   },
-  "exclusions": "case 3 (truthy non-string scopes): JS-only typing, recorded as Node behaves; the recording holds the clause and param count",
+  "exclusions": "none",
   "fileCount": 1,
   "files": [
     {
-      "bytes": 5674,
+      "bytes": 6208,
       "path": "golden.json",
-      "sha256": "7d0921164f8580789d7090f040ce3d29ca969bfd47aca061e78cea0b179cf052"
+      "sha256": "bc07fe4360fb8aeb7a94f6445296f917a77b5f785d675e4a659f3fa45017d7c5"
     }
   ],
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
@@ -53,11 +53,11 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-memory-scope-filter.mjs",
-  "recorderSha256": "71694ad984e0a5558ba98f7983ff759fc0fedec86316d952a6f9eb1943ba7694",
-  "replay": "mixdog-services memory/recall/filters.rs: pub fn append_project_scope (:35), called by recall/browse.rs:60, :177 and :885 (the browse, session and core-row queries); the projectScope argument is read by recall/plan.rs:95 and reaches those calls through the `memory/recall` request (Recall::recall, recall/mod.rs:240). The hybrid search builds its own filters (recall/hybrid.rs, not append_project_scope). A replay compares the predicate text/params the recorded scope inputs produce (clause, params, and the typing case of non-string scopes)",
+  "recorderSha256": "59cc8f70ee1a7650893a07d32a585a775bbc5e949ca471d981ccdd81f297fc7b",
+  "replay": "mixdog-services memory/recall/filters.rs project_scope_predicate and append_project_scope, called by recall/browse.rs (the browse, session and core-row queries) with the scope recall/plan.rs resolve_query_project_scope reads from the `memory/recall` request (Recall::recall). Every string-scope probe and append run is compared whole (clause, params); a non-string scope (case 1's numeric zero, case 3's number and object) is compared at the wire: the request's projectScope through resolve_query_project_scope with no cwd, then project_scope_predicate, against the recorded `wire` (resolved scope, clause, params)",
   "set": "memory-scope-filter",
   "timezone": "UTC (process.env.TZ set by lib/mc-record.mjs before any date formatting: local-time text in a recording is UTC)",
-  "totalBytes": 5674,
+  "totalBytes": 6208,
   "uuidsNormalised": "none",
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }

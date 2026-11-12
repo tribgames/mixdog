@@ -91,6 +91,11 @@ pub(crate) struct Preceding {
 }
 
 impl Preceding {
+    /// The call has no barrier at all: it starts at once.
+    pub(crate) fn none(&self) -> bool {
+        self.has == [false; 3]
+    }
+
     /// The calls whose settlement lets this one go.
     pub(crate) fn ids(&self) -> Vec<String> {
         self.ids.clone()

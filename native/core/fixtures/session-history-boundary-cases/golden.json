@@ -1,0 +1,90 @@
+{
+  "clock": {
+    "dateNow": 1800000000000,
+    "note": "Date.now was held at this value for the whole recording"
+  },
+  "cases": [
+    {
+      "case": "a compacted attachment opens; a cleared, capped, foreign or guessed id is refused",
+      "observed": {
+        "visible": {
+          "opened": "pasted before the last compaction"
+        },
+        "live": {
+          "opened": "pasted in the live window"
+        },
+        "cleared": {
+          "refusedAs": "not-linked",
+          "message": "This conversation has no such attachment."
+        },
+        "capped": {
+          "refusedAs": "not-linked",
+          "message": "This conversation has no such attachment."
+        },
+        "keptByCap": {
+          "opened": "pasted into the last segment of the cap test"
+        },
+        "otherSessionsId": {
+          "refusedAs": "not-linked",
+          "message": "This conversation has no such attachment."
+        },
+        "visibleIdOfOtherSession": {
+          "refusedAs": "not-linked",
+          "message": "This conversation has no such attachment."
+        },
+        "guessed": {
+          "refusedAs": "not-linked",
+          "message": "This conversation has no such attachment."
+        },
+        "noSuchSession": {
+          "refusedAs": "not-linked",
+          "message": "This conversation has no such attachment."
+        }
+      }
+    },
+    {
+      "case": "the stored history is read only when the held window does not name the id",
+      "observed": {
+        "afterHeld": [],
+        "afterCompacted": [
+          "s1"
+        ]
+      }
+    },
+    {
+      "case": "the desktop read answers attachment bytes and name only, never a transcript row",
+      "observed": {
+        "keys": [
+          "dataUrl",
+          "mimeType",
+          "name",
+          "size"
+        ],
+        "answer": {
+          "name": "image.png",
+          "mimeType": "image/png",
+          "size": 25,
+          "dataUrl": "data:image/png;base64,cGFzdGVkIGluIHRoZSBsaXZlIHdpbmRvdw=="
+        },
+        "namesTheMessage": false
+      }
+    },
+    {
+      "case": "no channel of the renderer, the paired phone or the service reaches the history as a transcript read",
+      "observed": {
+        "remoteHas": [
+          {
+            "name": "readSessionHistory",
+            "own": false
+          },
+          {
+            "name": "readSessionTranscript",
+            "own": false
+          }
+        ],
+        "ipcNamesAHistoryRead": false,
+        "handlerNamesAHistoryRead": false
+      }
+    }
+  ]
+}

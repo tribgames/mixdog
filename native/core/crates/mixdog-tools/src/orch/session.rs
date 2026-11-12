@@ -35,8 +35,9 @@ const USER_TITLE_ERROR: &str = "session: the user already titled this session; t
 /// Actions a heartbeat turn may take: read sessions and bots, record proposals.
 const HEARTBEAT_ACTIONS: [&str; 5] = ["read", "status", "list", "bots", "suggest"];
 const CONTROL_ACTIONS: [&str; 7] = ["list", "bots", "read", "send", "cancel", "delete", "create"];
-/// Actions whose `session_id` may name a bot (its home chat).
-const BOT_TARGET_ACTIONS: [&str; 5] = ["status", "read", "send", "bots", "list"];
+/// Actions whose `session_id` may name a bot (its home chat): `BOT_TARGET_ACTIONS` of `session-runtime/bot-target.mjs`. A bot id
+/// given to any other action is no session id: it is looked for as one (`cancel`, `delete`) or not looked at (`list`, `bots`, `create`).
+const BOT_TARGET_ACTIONS: [&str; 3] = ["read", "send", "status"];
 
 /// A thread the session tool acts for: a top-level conversation, never a delegated worker.
 fn is_top_level(surface: SurfaceKind) -> bool {
@@ -116,6 +117,9 @@ pub trait SessionPort: Send + Sync {
     /// A bot id names that bot's home chat; every check and the control run on the chat it
     /// resolves to. Other ids come back unchanged.
     async fn resolve_target(&self, target: &str) -> Result<String, PortError>;
+    /// The refusal for a bot-shaped `target` that is neither a session nor a known bot (`unknownBotError`): it names the
+    /// bots there are. `None` for a `target` that is not shaped like a bot id (`isBotShaped`).
+    async fn unknown_bot(&self, target: &str) -> Result<Option<String>, PortError>;
     /// `attachments` as stored prompt parts, resolved against the caller's conversation and
     /// folders; secret files are refused.
     async fn resolve_attachments(
@@ -244,7 +248,8 @@ impl SessionTool {
         {
             o.insert("session_id".to_owned(), Value::String(resolved));
         }
-        let value = self
+        let named = rest.get("session_id").and_then(Value::as_str).map(|id| mixdog_js::js_trim(id).to_owned()).unwrap_or_default();
+        let outcome = self
             .port
             .control(ControlCall {
                 action: action.to_owned(),
@@ -254,8 +259,17 @@ impl SessionTool {
                 cwd: ctx.cwd.as_path().to_string_lossy().into_owned(),
                 attachment_parts,
             })
-            .await?;
-        text(compact(&value))
+            .await;
+        // A bot id is resolved to its home chat before this, so a bot-shaped id the session service found no
+        // session for is no bot either: say which ids are.
+        if let Err(PortError::NotFound { message, .. }) = &outcome
+            && BOT_TARGET_ACTIONS.contains(&action)
+            && (message.contains(&format!("{named} is not available")) || message.contains(&format!("{named} is unavailable")))
+            && let Some(unknown) = self.port.unknown_bot(&named).await?
+        {
+            return Err(action_failed("session", unknown));
+        }
+        text(compact(&outcome?))
     }
 }
 

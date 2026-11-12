@@ -370,7 +370,7 @@ async fn a_stop_gives_up_on_a_postmaster_start_admitted_before_it_at_six_seconds
     let (admitted, mut admissions) = tokio::sync::mpsc::unbounded_channel::<()>();
     let (release, held) = tokio::sync::oneshot::channel::<()>();
     let held = Arc::new(std::sync::Mutex::new(Some(held)));
-    let before_spawn: Arc<dyn Fn() -> futures::future::BoxFuture<'static, ()> + Send + Sync> = Arc::new(move || {
+    let before_spawn: Arc<dyn Fn(u16) -> futures::future::BoxFuture<'static, ()> + Send + Sync> = Arc::new(move |_| {
         let _ = admitted.send(());
         let held = held.lock().expect("held").take().expect("one start");
         Box::pin(async move {
@@ -524,7 +524,7 @@ async fn a_stop_gives_up_on_an_opening_that_ignores_the_cancel_after_six_seconds
 }
 
 /// The cycles' host seams, none of which a held run calls.
-fn idle_cycles() -> crate::memory::boot::CycleBoot {
+pub(super) fn idle_cycles() -> crate::memory::boot::CycleBoot {
     struct Off;
     impl crate::memory::cycles::CycleConfig for Off {
         fn memory_section(&self) -> serde_json::Value {
@@ -756,4 +756,32 @@ async fn a_use_after_the_stop_of_an_open_stack_is_refused() {
     drop(awaiting("the first use", stack.db().client()).await.expect("opens"));
     awaiting("the stop", stack.stop()).await.expect("stops");
     assert_eq!(message(stack.db().client().await), SHUTTING_DOWN);
+}
+
+/// A port that was free when the start looked for one and is taken before the postmaster binds it (another cluster starting on the
+/// machine: `at_quit_the_last_client_leaves…` failed on it) moves the start to the next port instead of failing it. The port is taken in
+/// the gap the start leaves between its choice and the spawn.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_port_taken_between_the_choice_and_the_bind_moves_the_start_to_the_next_port() {
+    use crate::memory::pg::cluster::{PgCluster, PgRuntime, Start};
+    let runtime = PathBuf::from(std::env::var_os("MIXDOG_PG_RUNTIME").expect("MIXDOG_PG_RUNTIME names a bundled postgres runtime dir"));
+    let dir = tempfile::tempdir().expect("dir");
+    let preferred = 57_000 + (std::process::id() % 800) as u16 * 8 + 5;
+    // The port the start chose first (whichever it was: another process may hold `preferred` already), taken before its postmaster binds.
+    let taken = Arc::new(std::sync::Mutex::new(None::<(u16, std::net::TcpListener)>));
+    let holder = taken.clone();
+    let mut start = Start::node();
+    start.before_spawn = Some(Arc::new(move |chosen| {
+        let mut holder = holder.lock().expect("holder");
+        if holder.is_none() {
+            *holder = Some((chosen, std::net::TcpListener::bind(("127.0.0.1", chosen)).expect("the chosen port is still free")));
+        }
+        Box::pin(async {})
+    }));
+    let cluster = PgCluster::ensure(PgRuntime::new(&runtime), dir.path(), preferred, mixdog_rt::testing::tokens().durability_io, crate::tidy::process::Processes::for_tests(), &tokio_util::sync::CancellationToken::new(), &start, &|| true)
+        .await
+        .expect("the start moves on to the next port");
+    let first = taken.lock().expect("holder").as_ref().expect("the start reached its spawn").0;
+    assert!(cluster.port() > first, "the start used the port that was taken ({first}): {}", cluster.port());
+    cluster.stop(std::time::Duration::from_secs(15)).await.expect("stops");
 }

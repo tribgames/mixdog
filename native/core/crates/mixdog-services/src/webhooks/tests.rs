@@ -185,6 +185,68 @@ async fn content_type_json_and_self_comment_gates() {
     assert_eq!((reply.status, reply.body), (400, json!({"error":"invalid JSON"})));
 }
 
+/// The virtual clock the replay sets before each case, as the recording's `virtualClock` places its cases.
+struct CaseClock(std::sync::atomic::AtomicI64);
+
+impl crate::scheduler::Clock for CaseClock {
+    fn now(&self) -> chrono::DateTime<chrono::Utc> {
+        chrono::DateTime::from_timestamp_millis(self.0.load(std::sync::atomic::Ordering::SeqCst)).unwrap()
+    }
+}
+
+/// The recorder's `handleWebhook` seam: keeps what reached it and answers `200 {status:"accepted",id}`.
+#[derive(Default)]
+struct Reached(Mutex<Vec<Value>>);
+
+#[async_trait]
+impl WebhookDispatch for Reached {
+    async fn handle(&self, name: &str, payload: Value, _h: &Headers, id: &str, endpoint_in_table: bool) -> Result<HttpReply, String> {
+        self.0.lock().unwrap().push(json!({"name": name, "payload": payload, "endpointInTable": endpoint_in_table}));
+        Ok(HttpReply { status: 200, body: json!({"status":"accepted","id":id}) })
+    }
+}
+
+/// Node's receiver answering bodies that are not valid UTF-8, recorded by `record-webhook-invalid-utf8.mjs`
+/// (`fixtures/webhook-invalid-utf8`): each recorded request is sent as its bytes over TCP to the real listener with the
+/// recorded config (a config endpoint, the global secret); per case the reply and what reached the dispatch (Node's
+/// `handleWebhook`, the seam both sides answer `accepted` at) equal Node's, and so do the delivery rows the core's real
+/// store persisted, every column with its stamps, case `i` run at the recording's virtual instant `start + i * step`.
+#[tokio::test]
+async fn bodies_with_invalid_utf8_are_answered_as_node_answers_them() {
+    let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/webhook-invalid-utf8/golden.json")).unwrap();
+    let config: WebhookConfig = serde_json::from_value(golden["config"].clone()).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let (state, _) =
+        mixdog_store::state::CoreState::open(tokens.sqlite_writer_thread, tokens.interactive_io, &dir.path().join("core.sqlite")).unwrap();
+    let clock = Arc::new(CaseClock(std::sync::atomic::AtomicI64::new(0)));
+    let rows = Arc::new(super::records::StateWebhookStore::new(state, clock.clone()));
+    let dispatched = Arc::new(Reached::default());
+    let service = Arc::new(WebhookService::new(rows.clone(), dispatched.clone(), config, RunningWork::new(), Arc::new(|| 0)));
+    let listener = WebhookListener::start(service, 0).await.unwrap();
+    let (start, step) = (golden["virtualClock"]["start"].as_i64().unwrap(), golden["virtualClock"]["step"].as_i64().unwrap());
+    for (index, case) in golden["cases"].as_array().unwrap().iter().enumerate() {
+        clock.0.store(start + index as i64 * step, std::sync::atomic::Ordering::SeqCst);
+        let body: Vec<u8> = (0..case["request"]["bodyHex"].as_str().unwrap().len() / 2)
+            .map(|i| u8::from_str_radix(&case["request"]["bodyHex"].as_str().unwrap()[2 * i..2 * i + 2], 16).unwrap())
+            .collect();
+        let mut head = format!("POST /webhook/hook HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: {}\r\n", body.len());
+        for (name, value) in case["request"]["headers"].as_object().unwrap() {
+            head.push_str(&format!("{name}: {}\r\n", value.as_str().unwrap()));
+        }
+        head.push_str("\r\n");
+        let before = dispatched.0.lock().unwrap().len();
+        let (status, text) = exchange(listener.port(), &[head.as_bytes(), &body]).await;
+        let reached = dispatched.0.lock().unwrap()[before..].to_vec();
+        assert_eq!(
+            json!({"name": case["name"], "reply": {"status": status, "body": serde_json::from_str::<Value>(&text).unwrap()}, "dispatched": reached}),
+            json!({"name": case["name"], "reply": case["reply"], "dispatched": case["dispatched"]}),
+        );
+    }
+    assert_eq!(Value::Array(rows.delivery_rows().await), golden["deliveries"]);
+    listener.stop().await;
+}
+
 #[test]
 fn transport_collector_joins_chunks_and_caps_the_wire_body() {
     // Chunks split inside a multi-byte character join byte for byte.

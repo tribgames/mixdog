@@ -19,9 +19,7 @@ pub fn fault_from_io(err: &io::Error, connecting: bool) -> TransportFault {
     use io::ErrorKind as K;
     let os_code = err.raw_os_error();
     match err.kind() {
-        K::ConnectionReset | K::ConnectionAborted | K::BrokenPipe if !connecting => {
-            TransportFault::Reset
-        }
+        K::ConnectionReset | K::ConnectionAborted if !connecting => TransportFault::Reset,
         K::UnexpectedEof if !connecting => TransportFault::Closed,
         _ if connecting => TransportFault::Connect { os_code },
         _ => TransportFault::Io { os_code },

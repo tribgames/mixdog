@@ -48,6 +48,7 @@ pub fn reset_process_state() {
     oauth::carried::reset_registry();
     providers::anthropic::reset_process_state();
     providers::compat::schema::reset_warned();
+    providers::first_byte::FirstByteSettings::reset_process();
     providers::grok::reset_process_state();
     // The calling scope's scripts (the seams are per replay scope, `random::run_scoped`).
     random::script(Vec::new());

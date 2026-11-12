@@ -33,6 +33,7 @@ fn model_row(row: &Value) -> ModelRow {
         id: text("id"),
         display: text("display"),
         catalog_complete: row.get("catalogComplete") == Some(&Value::Bool(true)),
+        row: row.clone(),
     }
 }
 
@@ -74,8 +75,9 @@ mod tests {
 
     #[test]
     fn a_model_row_keeps_what_the_picker_matches_on() {
-        let row = model_row(&json!({ "provider": "p", "id": "m", "display": "M", "catalogComplete": true, "other": 1 }));
-        assert_eq!(row, ModelRow { provider: "p".into(), id: "m".into(), display: "M".into(), catalog_complete: true });
+        let whole = json!({ "provider": "p", "id": "m", "display": "M", "catalogComplete": true, "other": 1 });
+        let row = model_row(&whole);
+        assert_eq!(row, ModelRow { provider: "p".into(), id: "m".into(), display: "M".into(), catalog_complete: true, row: whole });
         assert!(!model_row(&json!({ "provider": "p", "id": "m" })).catalog_complete);
     }
 

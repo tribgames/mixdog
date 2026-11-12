@@ -22,8 +22,11 @@ pub mod fixture_fs;
 #[cfg(test)]
 mod mixy_presence_replay_tests;
 #[cfg(test)]
+mod named_attachment_replay_tests;
+#[cfg(test)]
 mod process_tests;
 #[cfg(test)]
+mod migrated_fixture;
 #[cfg(test)]
 mod wire_parity_tests;
 pub mod tool_exposure;
@@ -40,6 +43,14 @@ pub mod watchdog;
 pub mod quota_channel;
 pub mod proxy_providers;
 pub mod model_proxy_pc;
+#[cfg(test)]
+mod model_proxy_trust_replay_tests;
+#[cfg(test)]
+mod model_proxy_host_config_replay_tests;
+#[cfg(test)]
+mod model_proxy_host_run_replay_tests;
+#[cfg(test)]
+mod model_proxy_host_server_replay_tests;
 pub mod agent_dispatch;
 pub mod dispatch_sessions;
 mod failed_turn_rewind;
@@ -119,6 +130,8 @@ mod summary_mode_node_tests;
 mod presend_goal_reminder_node_tests;
 #[cfg(test)]
 mod offload_prune_tests;
+#[cfg(test)]
+mod fork_compact_node_tests;
 pub mod session_reactions;
 pub mod summary_host;
 pub mod title_completion;

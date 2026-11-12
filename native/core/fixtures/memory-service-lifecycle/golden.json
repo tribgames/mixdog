@@ -902,6 +902,65 @@
           ]
         }
       ]
+    },
+    {
+      "name": "at quit the last client leaves and the memory stop fails: what the memory process writes (memory-daemon-lifecycle.mjs:60-74)",
+      "quits": [
+        {
+          "failing": "storage",
+          "logs": [
+            "[memory-service] daemon client grace elapsed (last client deregistered); shutting down\n",
+            "[memory-service] daemon client-grace shutdown failed: database close failed\n"
+          ],
+          "exitCodes": [
+            1
+          ],
+          "calls": [
+            "start",
+            "initialize",
+            "listen",
+            [
+              "advertise",
+              3350
+            ],
+            [
+              "ready",
+              3350
+            ],
+            "withdraw",
+            "close",
+            "stop-background",
+            "shutdown"
+          ]
+        },
+        {
+          "failing": "worker stop and storage",
+          "logs": [
+            "[memory-service] daemon client grace elapsed (last client deregistered); shutting down\n",
+            "[memory-service] daemon client-grace shutdown failed: memory service shutdown failed\n"
+          ],
+          "exitCodes": [
+            1
+          ],
+          "calls": [
+            "start",
+            "initialize",
+            "listen",
+            [
+              "advertise",
+              3350
+            ],
+            [
+              "ready",
+              3350
+            ],
+            "withdraw",
+            "close",
+            "stopBackgroundWork",
+            "shutdown"
+          ]
+        }
+      ]
     }
   ]
 }
