@@ -2707,6 +2707,31 @@ async fn a_rebuilt_index_is_a_new_generation_whatever_its_counter() {
     store.close();
 }
 
+/// The migration's projection is the same bytes every time (generation 0); an index the runtime creates or rebuilds is
+/// numbered afresh, never 0 (the migrated one's) and never the one it replaces.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_projected_index_has_a_fixed_generation_and_a_runtime_built_one_a_fresh_one() {
+    let generation = |db: &Path| -> i64 {
+        rusqlite::Connection::open(db).unwrap().query_row("SELECT gen FROM worker_revision", [], |r| r.get(0)).unwrap()
+    };
+    let tmp = tempfile::tempdir().unwrap();
+    let (a, b) = (tmp.path().join("a.sqlite"), tmp.path().join("b.sqlite"));
+    project_index(tmp.path(), &a, &[]).unwrap();
+    project_index(tmp.path(), &b, &[]).unwrap();
+    assert_eq!((generation(&a), generation(&b)), (0, 0));
+
+    let mut store = open_index(tmp.path()).unwrap();
+    store.close();
+    let first = generation(&tmp.path().join(INDEX_FILE));
+    assert_eq!(first & 1, 1, "a runtime-built index is numbered, not left at the migration's 0");
+    let conn = rusqlite::Connection::open(tmp.path().join(INDEX_FILE)).unwrap();
+    conn.execute_batch("PRAGMA user_version = 1").unwrap();
+    drop(conn);
+    open_index(tmp.path()).unwrap().close();
+    let second = generation(&tmp.path().join(INDEX_FILE));
+    assert!(second & 1 == 1 && second != first, "a rebuilt index is a new generation");
+}
+
 /// Removal history is bounded to the last 4096 revisions; a reader older than that is handed the whole index, never a
 /// delta that lacks a removal.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -3144,7 +3169,7 @@ async fn an_index_of_the_previous_shape_is_rebuilt_from_the_logs() {
     let want = dump(&fresh);
     for ((table, got), (_, want)) in rebuilt.iter().zip(&want) {
         if table == "worker_revision" {
-            // The generation is random per index built: it is what tells a rebuilt index from the one before.
+            // The runtime numbers an index it builds afresh, the projection of a migration leaves 0: the generation is what tells a rebuilt index from the one before.
             assert_ne!(got, want, "{table}");
             continue;
         }

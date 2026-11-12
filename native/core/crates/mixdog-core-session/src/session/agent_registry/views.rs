@@ -102,7 +102,7 @@ impl Maps {
             out.order.insert(place.clone(), id.clone());
             out.by_id.insert(id, (place, map));
         }
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         work::note(|c| c.maps_rebuilt += out.len());
         out
     }
@@ -172,7 +172,7 @@ impl Maps {
     pub(super) fn same_as(&self, other: &Maps) -> bool {
         self.len() == other.len()
             && self.order.iter().zip(other.order.iter()).all(|((pa, a), (pb, b))| {
-                #[cfg(test)]
+                #[cfg(any(test, feature = "test-support"))]
                 work::note(|c| c.maps_compared += 1);
                 pa == pb && a == b && self.get(a) == other.get(b)
             })
@@ -288,7 +288,7 @@ pub(super) struct Listed {
 
 impl Listed {
     fn of(row: &Arc<Row>) -> Listed {
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         work::note(|c| c.rows_visited += 1);
         Listed { row: row.clone(), tag: clean(row.get("tag")), session: Arc::new(row_to_session(row)) }
     }
@@ -319,7 +319,7 @@ impl IntoIterator for RowsView {
     type IntoIter = std::vec::IntoIter<Row>;
 
     fn into_iter(self) -> Self::IntoIter {
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         work::note(|c| c.rows_copied += self.0.len());
         self.0.values().map(|listed| (*listed.row).clone()).collect::<Vec<_>>().into_iter()
     }
@@ -644,7 +644,7 @@ impl State {
                     view.remove(&prev.key);
                 }
                 if let Some((key, listed)) = &listed {
-                    #[cfg(test)]
+                    #[cfg(any(test, feature = "test-support"))]
                     work::note(|c| c.rows_scoped += 1);
                     if matches_scope(&listed.row, &view.scope) {
                         view.insert(key.clone(), listed.clone());
@@ -677,7 +677,7 @@ impl State {
             for row in &tombstones {
                 index.entry(tombstone_key(row)).or_insert_with(|| row.clone());
             }
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             work::note(|c| c.tombstones_copied += stored.len() + tombstones.len() + index.len());
             views.tombs = Some(Tombs { stored: Arc::new(stored), tombstones: Arc::new(tombstones), index: Arc::new(index) });
         }
@@ -711,7 +711,7 @@ impl State {
             for (id, _) in self.maps.iter() {
                 let Some(derived) = views.derived.get(id) else { continue };
                 let Some(row) = &derived.row else { continue };
-                #[cfg(test)]
+                #[cfg(any(test, feature = "test-support"))]
                 work::note(|c| c.rows_scoped += 1);
                 if matches_scope(row, scope) && !blocked(row, &index) {
                     view.insert(derived.key.clone(), Listed::of(row));
@@ -760,7 +760,7 @@ impl State {
         let all = view.bound != Some(generation);
         let rebind = std::mem::take(&mut view.rebind);
         let visit = |listed: &Listed| {
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             work::note(|c| c.rows_visited += 1);
             listed.row.clone()
         };
@@ -842,7 +842,7 @@ pub(super) struct TagPass {
 impl super::AgentRegistry {
     /// `getLiveSession` and the scan guard for a bound tag, read now.
     pub(super) fn tag_facts(&self, st: &State, tag: &str, session: &str, now: f64) -> Facts {
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         work::note(|c| c.tags_visited += 1);
         let found = self.live_session_row(st, session);
         let blocks = found.as_ref().is_some_and(|s| {
@@ -881,7 +881,7 @@ impl super::AgentRegistry {
         facts.loaded.clone_from(&loaded);
         let mut unstamped = HashSet::new();
         for session in &loaded {
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             work::note(|c| c.stamps_taken += 1);
             let Some(stamp) = self.live.stamp(session) else {
                 facts.stamps.remove(session);
@@ -957,7 +957,7 @@ impl super::AgentRegistry {
     /// scope does not list is not guarded (`add` would drop it anyway).
     pub(super) fn listing_session(&self, st: &State, pass: &TagPass, tag: &str, session: &str, scope: &Scope, now: f64) -> Option<Arc<Row>> {
         if pass.unstamped.contains(session) {
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             work::note(|c| c.tags_visited += 1);
             let found = self.live_session_row(st, session)?;
             if !matches_scope(&found, scope) {
