@@ -999,7 +999,9 @@ mod tests {
 
     #[async_trait]
     impl ProviderAdapter for Warming {
-        fn release_send(&self, _group: &str) {}
+        fn release_send(&self, group: &str) {
+            self.0.release_send(group);
+        }
         fn id(&self) -> &mixdog_protocol::ProviderId {
             self.0.id()
         }
