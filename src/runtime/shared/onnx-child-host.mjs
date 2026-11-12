@@ -11,7 +11,7 @@
 // are an IPC adapter with the same shape.
 import { EventEmitter } from 'node:events';
 import { fork } from 'node:child_process';
-import { isMainThread, parentPort as threadPort, workerData as threadData } from 'node:worker_threads';
+import { isMainThread, parentPort as threadPort, workerData as threadData, Worker } from 'node:worker_threads';
 import { workerExecArgv } from './worker-exec-argv.mjs';
 
 const DATA_ENV = 'MIXDOG_ONNX_HOST_DATA';
@@ -95,13 +95,28 @@ export class ChildWorker extends EventEmitter {
   }
 }
 
+// A host whose main thread is inside a native call never runs its 'disconnect'
+// handler. A thread of its own looks at the daemon and ends the process.
+const PARENT_WATCH_MS = 2000;
+function watchParent() {
+  const watcher = new Worker(
+    `const { workerData: { parent, self } } = require('node:worker_threads');
+     setInterval(() => { try { process.kill(parent, 0); } catch { process.kill(self, 'SIGKILL'); } }, ${PARENT_WATCH_MS});`,
+    { eval: true, workerData: { parent: process.ppid, self: process.pid } },
+  );
+  watcher.unref();
+}
+
 function childPort() {
   const port = new EventEmitter();
   port.postMessage = (msg) => process.send(msg);
   process.on('message', (msg) => port.emit('message', msg));
   // The daemon owns the child: when its IPC channel closes (daemon exit, crash
-  // or kill) the host ends instead of lingering as an orphan.
-  process.on('disconnect', () => process.exit(0));
+  // or kill) the host ends instead of lingering as an orphan. Ended with a kill, not
+  // process.exit: exit runs the native runtime's teardown, which waits for a load or
+  // an inference still running on its threads.
+  process.on('disconnect', () => process.kill(process.pid, 'SIGKILL'));
+  watchParent();
   return port;
 }
 
