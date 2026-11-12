@@ -1,0 +1,59 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-session-listing.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": "daemon-stored-session-views.mjs createStoredSessionViews().listSessions({ page }) over store-summary-reader.mjs listStoredSessionSummaryPage and readStoredSessionCatalogRow, on session records written to a data directory",
+  "exclusions": {
+    "archived flag": "the session tool's archived flag is the desktop sidebar's (`readSessionSidebarState`); the core keeps it in the store index from the record's archivedAt, so the recorder's sidebar flags the sessions whose record carries archivedAt",
+    "index-only fields": "the core's rows are the store index's summary, which also holds parentSessionId, presetName, effort, fast, modelParameters, permissionMode, schemaAllowedTools, taskType and compactCount; Node's JSON catalog rows (store-summary-catalog.mjs normalizedRow) do not carry them and the session tool never reads them from a list row, so the replay checks Node's row has none of them and drops them from the core's row before comparing the rest whole",
+    "json listing": "this Node's catalog DB is disabled (the bundled SQLite lacks the WAL-reset fix: `[session-catalog-db] disabled`, `catalog stays JSON`), and this process is not the desktop daemon's writer anyway, so Node answers from the JSON listing (store-summary-reader.mjs listJsonSummariesAsync)",
+    "live overlay": "the sessions with turns in flight are Node's runtimeState entries; the replay's overlay reports the recorded inFlightSessionActivity() as the runtime's facts",
+    "page size": "every walk asks an explicit page size, as the session tool does; the clamp of an absent or out-of-range limit is the session-list set",
+    "records without messages": "the sessions are header-only (messages: []): the store derives a row's preview and message count from the message log, which the replay's seeded store does not hold; the preview and count of a session with messages are not compared here",
+    "storage stamp": "a Node row carries `storageMtimeMs` and `storageSize`, the stat of the session's JSON file; the core's store has no such file (its rows hold 0), so the replay drops both from the two rows before comparing"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 143696,
+      "path": "golden.json",
+      "sha256": "e4bbaa01af446e9d18e77e2a1ddb46277250c2005607a967b9fdebd3893b6a42"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-session-listing.mjs",
+  "recorderSha256": "015f128167f854ee5fe8ee831015c8bb5bd6a20463558bb6044ccf42c0f06a81",
+  "replay": {
+    "compare": "every page of every walk whole and in recorded order, every foreign cursor, every row by id, the archived flag of each row, the live overlay",
+    "entry": "StoreListing (mixdog-core/src/run_host/tool_pool/session_control.rs) over a SqliteStore seeded with the same sessions: page (rows whole, order, page size, nextCursor, malformed cursor) and row, with the live overlay of the recorded turns in flight"
+  },
+  "sessions": 16,
+  "set": "session-listing",
+  "totalBytes": 143696,
+  "values": "JSON of the listing as Node answered"
+}

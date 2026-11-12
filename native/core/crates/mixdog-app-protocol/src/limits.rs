@@ -5,8 +5,6 @@ use mixdog_protocol::INLINE_MAX;
 use serde::Deserialize;
 use serde::Serialize;
 
-use crate::common::RequestClass;
-
 const KIB: u64 = 1024;
 const MIB: u64 = 1024 * 1024;
 
@@ -30,31 +28,6 @@ const BLOB_PUT_ENVELOPE_BYTES: u64 = 4 * KIB;
 /// the result is a multiple of 3) and envelope still fit `max_inbound_frame_bytes`.
 fn blob_put_chunk_for(max_inbound_frame_bytes: u64) -> u64 {
     (max_inbound_frame_bytes - BLOB_PUT_ENVELOPE_BYTES) / 4 * 3
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
-#[serde(rename_all = "camelCase")]
-pub struct ClassLimits {
-    #[cfg_attr(feature = "codegen", ts(type = "number"))]
-    pub c0: u32,
-    #[cfg_attr(feature = "codegen", ts(type = "number"))]
-    pub c1: u32,
-    #[cfg_attr(feature = "codegen", ts(type = "number"))]
-    pub c2: u32,
-    #[cfg_attr(feature = "codegen", ts(type = "number"))]
-    pub c3: u32,
-}
-
-impl ClassLimits {
-    pub fn cap(&self, class: RequestClass) -> u32 {
-        match class {
-            RequestClass::C0 => self.c0,
-            RequestClass::C1 => self.c1,
-            RequestClass::C2 => self.c2,
-            RequestClass::C3 => self.c3,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -97,8 +70,6 @@ pub struct Limits {
     /// Raw `blob/put` chunk bound, so the frame stays under `maxInboundFrameBytes` after base64.
     #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub max_blob_put_chunk_bytes: u64,
-    /// Per-connection in-flight cap per request class.
-    pub inflight: ClassLimits,
     #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub max_connections: u32,
     #[cfg_attr(feature = "codegen", ts(type = "number"))]
@@ -131,12 +102,6 @@ impl Default for Limits {
             terminal_ring_chars: 200_000,
             max_blob_page_bytes: MIB,
             max_blob_put_chunk_bytes: blob_put_chunk_for(max_inbound_frame_bytes),
-            inflight: ClassLimits {
-                c0: 64,
-                c1: 16,
-                c2: 8,
-                c3: 4,
-            },
             max_connections: 128,
             heartbeat_tick_ms: 15_000,
             max_processes: 64,

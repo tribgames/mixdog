@@ -1,0 +1,128 @@
+{
+  "cases": 1,
+  "command": "node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-corrupt-state-file-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "notRun": "no daemon, no Electron",
+    "runs": "the real registry (shared/projects.mjs), desktop preferences (project-preferences-file.ts), room store (agent-rooms.ts createAgentRoomFileStore), cycle health ledger and statusline reader, over a damaged file in a temp directory"
+  },
+  "exclusions": {
+    "$.cases[0].observed.runs[*] of memory-cycle-state.json, `read` / `readAfterWrite` (the statusline)": "the statusline reader is Node code; the core has no reader of memory-cycle-state.json, only the ledger that writes it",
+    "$.cases[0].observed.runs[*] where backup is true": "state/core.sqlite has no `.bak`: Node restores the last good copy of a file it sets aside, the core starts a new database and gives back from the session catalog what that records (projects, rooms); the restored content is Node-side data with no core counterpart",
+    "$.cases[0].observed.runs[*].read / .write / .readAfterWrite of the four files": "Node-specific value shapes (a project list, a preferences object, a room document, a statusline segment); the replay compares `shared`, which restates them as emptiness and presence"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 47010,
+      "path": "golden.json",
+      "sha256": "c6544b65d16b8fc148284b8964497d0d9bc7fe3c7c2c427393aea534d3d24e17"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
+      "sha256": "b4c0feda547d48e7012fdd6a2298a71f412a5422e28d873410bc86172af99002"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
+      "sha256": "6724d28ef81d587b260d713514d65dcdbb57e56ca79868c1a916f701e379910e"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
+      "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
+      "sha256": "37b55c8d6beeda2b0dd24d8edb49155cc6afed0693d8c5b5978c73f8faf4d2da"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "paths": [
+      "$.cases[0].observed.runs[0].write.entry.path",
+      "$.cases[0].observed.runs[0].readAfterWrite[0]",
+      "$.cases[0].observed.runs[1].read[0]",
+      "$.cases[0].observed.runs[1].write.entry.path",
+      "$.cases[0].observed.runs[1].readAfterWrite[0]",
+      "$.cases[0].observed.runs[1].readAfterWrite[1]",
+      "$.cases[0].observed.runs[2].write.entry.path",
+      "$.cases[0].observed.runs[2].readAfterWrite[0]",
+      "$.cases[0].observed.runs[3].read[0]",
+      "$.cases[0].observed.runs[3].write.entry.path",
+      "$.cases[0].observed.runs[3].readAfterWrite[0]",
+      "$.cases[0].observed.runs[3].readAfterWrite[1]",
+      "$.cases[0].observed.runs[4].write.entry.path",
+      "$.cases[0].observed.runs[4].readAfterWrite[0]",
+      "$.cases[0].observed.runs[5].damagedBytes",
+      "$.cases[0].observed.runs[5].read[0]",
+      "$.cases[0].observed.runs[5].afterRead.asides[0].bytes",
+      "$.cases[0].observed.runs[5].write.entry.path",
+      "$.cases[0].observed.runs[5].readAfterWrite[0]",
+      "$.cases[0].observed.runs[5].readAfterWrite[1]",
+      "$.cases[0].observed.runs[5].afterWrite.asides[0].bytes",
+      "$.cases[0].observed.runs[11].damagedBytes",
+      "$.cases[0].observed.runs[11].afterRead.asides[0].bytes",
+      "$.cases[0].observed.runs[11].afterWrite.asides[0].bytes"
+    ],
+    "reason": "per-run temp root written <root>"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-corrupt-state-file-cases.mjs",
+  "recorderSha256": "094899d485951df78488ba21292c1ae18d7082a9e82f6bcd86a8655e61ae9fec",
+  "replay": {
+    "compare": "mixdog-store state.rs CoreState::open_or_set_aside over a damaged state/core.sqlite (projects, desktop preferences and rooms are its tables), mixdog-services Ledger over a damaged memory-cycle-state.json: `shared` of every run without a `.bak`",
+    "entry": "Drive these public items on o1: mixdog-store/src/state.rs:399 CoreState::open_or_set_aside; mixdog-services/src/memory/cycles/ledger.rs:73 Ledger::write.",
+    "existsButNotPublicOnO1": [],
+    "missingOnO1": [
+      "a reader of memory-cycle-state.json (the statusline segment): Node-only, the core only writes the file"
+    ],
+    "normalised": {
+      "dataDir": "<root>, wherever it occurs"
+    },
+    "protocolMethods": [],
+    "rustTargets": [
+      {
+        "line": 399,
+        "name": "CoreState::open_or_set_aside",
+        "path": "native/core/crates/mixdog-store/src/state.rs"
+      },
+      {
+        "line": 73,
+        "name": "Ledger::write",
+        "path": "native/core/crates/mixdog-services/src/memory/cycles/ledger.rs"
+      }
+    ],
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
+  },
+  "set": "corrupt-state-file-cases",
+  "totalBytes": 47010,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
+}

@@ -197,6 +197,45 @@ mod tests {
         ledger.mark_done("cycle1", true, None).await;
         assert_eq!(read()["running"], Value::Null);
     }
+
+    /// Replay of `fixtures/corrupt-state-file-cases` (`record-corrupt-state-file-cases.mjs`, b6f10295a), the run over
+    /// `memory-cycle-state.json`: the file is rewritten whole by the next write, nothing is set aside, and the file then holds the
+    /// running marker. (The statusline's reader of the damaged file is Node code; the manifest lists it as not replayed.)
+    #[tokio::test]
+    async fn a_damaged_cycle_state_file_is_replaced_by_the_next_write_with_nothing_set_aside() {
+        const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/corrupt-state-file-cases/golden.json");
+        let recorded = mixdog_testkit::Exact::decode(&serde_json::from_str::<Value>(&GOLDEN).unwrap()).unwrap();
+        let mut replayed = 0;
+        for run in recorded.get("cases").as_array()[0].get("observed").get("runs").as_array() {
+            if run.get("file").as_str() != "memory-cycle-state.json" {
+                continue;
+            }
+            let plain = run.to_plain().unwrap();
+            let dir = tempfile::tempdir().unwrap();
+            let file = dir.path().join("memory-cycle-state.json");
+            let ledger = Ledger::new(file.clone(), mixdog_rt::testing::tokens().maintenance_io, Arc::new(|| 10_000_000));
+            ledger.mark_running("cycle1").await;
+            match plain["damage"]["kind"].as_str().unwrap() {
+                "truncated" => {
+                    let good = std::fs::read(&file).unwrap();
+                    std::fs::write(&file, &good[..good.len() / 2]).unwrap();
+                }
+                _ => std::fs::write(&file, plain["damage"]["bytes"].as_str().unwrap().chars().map(|c| c as u8).collect::<Vec<u8>>()).unwrap(),
+            }
+            ledger.mark_running("cycle1").await;
+            let names: Vec<String> = std::fs::read_dir(dir.path()).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).filter(|n| n.contains(".corrupt-")).collect();
+            let written = serde_json::from_slice::<Value>(&std::fs::read(&file).unwrap()).map_or(false, |state| state["running"]["cycle"] == "cycle1");
+            let actual = json!({ "asideSuffixes": names, "writeSucceeded": written, "readAfterWriteHasWrite": written, "asideSuffixesAfterWrite": names });
+            let shared = run.get("shared");
+            for key in ["asideSuffixes", "writeSucceeded", "readAfterWriteHasWrite", "asideSuffixesAfterWrite"] {
+                if let Some(difference) = mixdog_testkit::Exact::plain(&actual[key]).difference(shared.get(key)) {
+                    panic!("{} {key}: {difference}", plain["damage"]["kind"]);
+                }
+            }
+            replayed += 1;
+        }
+        assert_eq!(replayed, 3, "garbage, NUL-filled and truncated");
+    }
 }
 
 fn health_json(health: &CycleHealth) -> Value {

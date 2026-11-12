@@ -13,17 +13,19 @@ impl SessionWorkspaces {
     /// `switchProject(cwd, { classifyByMembership: true })` of the hosted `session`: `cwd` is the
     /// resolved folder, `desktop_session` the classification to store (`None`: the session has
     /// none). Background shells do not refuse it. Resolves the runtime cwd after the switch.
+    /// `own_turn`: the Lead's own `session set-project` call, which tolerates its calling turn.
     pub async fn switch_project(
         &self,
         session: &str,
         cwd: &str,
         desktop_session: Option<JsonValue>,
+        own_turn: bool,
         cancel: &CancellationToken,
     ) -> Result<String, ScmFailure> {
         let inner = &self.inner;
         let leave = inner.gate.begin_transition(session, &format!("project:{}", new_tx_id()))?;
         let mut journal = Journal::default();
-        let outcome = inner.switch_project(session, cwd, desktop_session, &mut journal, cancel).await;
+        let outcome = inner.switch_project(session, cwd, desktop_session, own_turn, &mut journal, cancel).await;
         if outcome.is_err() {
             journal.undo_all().await;
         }
@@ -38,10 +40,11 @@ impl Inner {
         session: &str,
         cwd: &str,
         desktop_session: Option<JsonValue>,
+        own_turn: bool,
         journal: &mut Journal,
         cancel: &CancellationToken,
     ) -> Result<String, ScmFailure> {
-        self.assert_lead_idle_with(session, false, false).await?;
+        self.assert_lead_idle_with(session, own_turn, false).await?;
         let view = self.hosted(session)?;
         if read_session_workspace(view.workspace.as_ref()).is_some_and(|workspace| workspace.is_bound()) {
             return Err(plain(WORKTREE_BOUND_SWITCH));

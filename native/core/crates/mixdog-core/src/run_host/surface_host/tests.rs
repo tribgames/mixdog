@@ -122,6 +122,10 @@ impl McpScopes for Scopes {
         self.opened.lock().unwrap().push((scope.to_owned(), owner.to_owned(), cwd.to_owned()));
         Ok(())
     }
+    fn start(&self, scope: &str, owner: &str, cwd: &Path) -> Result<(), ScopeReleased> {
+        self.opened.lock().unwrap().push((scope.to_owned(), owner.to_owned(), cwd.to_owned()));
+        Ok(())
+    }
     fn release(&self, owner: &str) {
         self.released.lock().unwrap().push(owner.to_owned());
     }
@@ -1209,9 +1213,9 @@ fn recording() -> Value {
 /// The order the daemon builds its pool in (`compose_flip`): `orch::register::tools`, then `code_graph`, the
 /// file, shell and git tools, the web tools and the memory tools. It is an input, not an expectation: Node's own
 /// order for the same tools is `STANDALONE_ORDER`'s to give.
-const DAEMON_ORDER: [&str; 36] = [
+const DAEMON_ORDER: [&str; 37] = [
     "load_tool", "call_tool", "Skill", "session", "agent", "explore", "todo", "goal", "ask_user", "handoff_user", "react", "setup", "media", "tidy", "office", "browser",
-    "browser_devtools", "visualize", "terminal", "computer", "code_graph", "read", "edit", "shell", "git", "github", "task", "grep", "glob", "find", "list", "apply_patch",
+    "browser_devtools", "visualize", "terminal", "computer", "code_graph", "read", "edit", "shell", "git", "github", "task", "grep", "glob", "find", "list", "machine", "apply_patch",
     "web_search", "web_fetch", "memory", "recall",
 ];
 

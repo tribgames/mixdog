@@ -1,0 +1,114 @@
+{
+  "cases": 5,
+  "command": "node benchmarks/rust-core/recorders/record-task-notification-envelope-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "notRun": "the two shell cases of the Node test (closed elsewhere); entry enqueuedAt is the held clock (golden.clock.dateNow)",
+    "runs": "task-notification-envelope.mjs renderAgentCompletionEnvelope, parseTaskNotification, taskNotificationId; tool-execution-contract.mjs isModelVisibleToolCompletionWrapper, isInternalRuntimeNotificationText, backgroundTaskHeaderStatus, modelVisibleToolCompletionMessage; session-ingest.mjs shouldExcludeIngestMessage; manager/pending-message-entry.mjs markCompletionEntry; manager/delivered-completions.mjs"
+  },
+  "exclusions": {
+    "exitCode": "parsed.exitCode is read only by renderBackgroundTaskNotification and renderBackgroundTask (src/runtime/shared/background-tasks.mjs), Node's shell task renderers; the core renders shell completions from its job rows (mixdog-tools exec/jobs.rs) and never parses an envelope for it. Owner that keeps it: src/runtime/shared/background-tasks.mjs",
+    "headerStatus": "backgroundTaskHeaderStatus (tool-execution-contract.mjs) is read only by shouldPersistModelVisibleToolCompletion's `background task` header branch (runtime-tool-routing.mjs), a form the core never produces: its envelope status is parsed.status, compared; the core's model_visible (agent_registry/flow.rs) persists envelopes only. Owner that keeps it: src/runtime/shared/tool-execution-contract.mjs",
+    "modelVisibleOfLegacy": "modelVisibleToolCompletionMessage turns a legacy quoted wrapper into the current envelope: the core queues only envelopes it rendered itself (agent_registry/flow.rs model_visible), so no Rust function converts a legacy row; the recorded value is kept and not replayed",
+    "outputFile": "parsed.outputFile: same reader and owner as exitCode (src/runtime/shared/background-tasks.mjs)"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 209916,
+      "path": "golden.json",
+      "sha256": "8dabeabb4fc65a91b0ecdfca55fbffe26d6dc8aa0ab6d8897a5f57edbd4dc0d2"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
+      "sha256": "b4c0feda547d48e7012fdd6a2298a71f412a5422e28d873410bc86172af99002"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
+      "sha256": "6724d28ef81d587b260d713514d65dcdbb57e56ca79868c1a916f701e379910e"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
+      "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
+      "sha256": "5eec3d45f5ed1676b4ca430e0a0b1ee2060cc7d8fb5140664e27057b07eb7589"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "paths": [],
+    "reason": "per-run temp path (or generated name) replaced by a placeholder"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-task-notification-envelope-cases.mjs",
+  "recorderSha256": "50c0d3b3b4036cf91000f045b8122d77506f48e4c05f5734eb3faf2807697b66",
+  "replay": {
+    "compare": "render_agent_completion for each recorded input and compare the text; the classifiers over the recorded texts; completions::entry and DeliveredCompletions over the legacy and current texts",
+    "entry": "Drive these public items on o1: mixdog-agent/src/agent_tool/board.rs:255 render_agent_completion; mixdog-agent/src/project.rs:196 is_model_visible_tool_completion_wrapper; mixdog-protocol/src/text_class.rs:76 parse_task_notification; mixdog-core-session/src/session/delivered.rs:66 DeliveredCompletions.",
+    "existsButNotPublicOnO1": [
+      "mixdog-core-session/src/session/delivered.rs:28 `task_notification_id`, completions.rs `entry` and agent_registry/flow.rs `model_visible` are crate-internal: the replay is an in-crate test"
+    ],
+    "missingOnO1": [
+      "modelVisibleToolCompletionMessage of a legacy quoted wrapper (the core queues only the envelopes it renders itself)"
+    ],
+    "normalised": {},
+    "protocolMethods": [],
+    "rustTargets": [
+      {
+        "line": 255,
+        "name": "render_agent_completion",
+        "path": "native/core/crates/mixdog-agent/src/agent_tool/board.rs"
+      },
+      {
+        "line": 196,
+        "name": "is_model_visible_tool_completion_wrapper",
+        "path": "native/core/crates/mixdog-agent/src/project.rs"
+      },
+      {
+        "line": 76,
+        "name": "parse_task_notification",
+        "path": "native/core/crates/mixdog-protocol/src/text_class.rs"
+      },
+      {
+        "line": 66,
+        "name": "DeliveredCompletions",
+        "path": "native/core/crates/mixdog-core-session/src/session/delivered.rs"
+      }
+    ],
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
+  },
+  "set": "task-notification-envelope-cases",
+  "totalBytes": 209916,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
+}

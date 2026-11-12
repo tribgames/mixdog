@@ -37,7 +37,6 @@ use mixdog_core_run::run_host::failure_log::RunFailureLog;
 use super::factory::{Assembled, AssembleInput, GateBuilder, GateContext, RunParts, SkillContext, SkillsBuilder};
 use super::hooks::{PostToolDispatch, SessionToolHooks};
 use super::reactions::{LoopReactions, ReactionScope, ReactionTargets};
-use super::result_reuse::ToolResultReuse;
 use mixdog_core_run::run_host::route_fallback::HopHost;
 use mixdog_core_run::run_host::route_fallback::RouteHop;
 use mixdog_core_ports::ports::gate::GateEnv;
@@ -64,6 +63,7 @@ pub struct RunSettings {
     pub step_auto_effort: Option<mixdog_agent::step_effort::StepAutoEffort>,
     pub text_only: Option<mixdog_agent::text_only::TextOnlyInput>,
     pub attachments: Option<Arc<dyn mixdog_agent::attachments::AttachmentText>>,
+    pub file_text: Option<Arc<dyn mixdog_agent::text_only::MediaText>>,
     pub model_max_output_tokens: Option<u32>,
 }
 
@@ -273,7 +273,7 @@ fn text<'a>(header: &'a Header, key: &str) -> &'a str {
 /// `snapshotProviderRequestTools` at a request boundary: `tools` as the provider is sent them, with the catalog tools the
 /// transcript's native tool searches (`native`, [`super::factory::native_searches`]) reference. The turn's boundary and
 /// the snapshot both take the request's tools here.
-fn boundary_tools(header: &Header, tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>, native: &[Value]) -> Vec<mixdog_core_api::domain::provider::ToolDefinition> {
+pub(crate) fn boundary_tools(header: &Header, tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>, native: &[Value]) -> Vec<mixdog_core_api::domain::provider::ToolDefinition> {
     let provider = text(header, "provider").to_lowercase();
     let referenced = native.iter().flat_map(|record| super::context_world::native_references(Some(record), &provider)).collect();
     super::context_world::snapshot_tools(header, tools, referenced, &provider)
@@ -629,6 +629,11 @@ impl RunParts for HostRunParts {
         // a side question's attempts do not (Node's `send-phase` is the loop's).
         config.request_begin = Some(super::tool_exclusions::request_begin(s.exclusions.clone(), thread.clone(), s.directory.clone()));
         config.options = options;
+        // `prepareToolCall` rereads the session's folder for each call: a Project switch the turn makes moves the calls after it.
+        config.live_cwd = {
+            let live = directory.live_header(thread);
+            Some(Arc::new(move || live.header().get("cwd").and_then(Value::as_str).filter(|cwd| !cwd.is_empty()).and_then(AbsPath::new)))
+        };
         config.hidden_agent = hidden;
         config.agent_mode = settings.agent_mode;
         config.limits = settings.limits;
@@ -656,6 +661,7 @@ impl RunParts for HostRunParts {
         config.step_auto_effort = step_auto_effort;
         config.text_only = settings.text_only;
         config.attachments = settings.attachments;
+        config.file_text = settings.file_text;
         config.slot = input.slot;
         // `loop-state.mjs`: a compaction between turns parked a one-shot intent; the turn's first send takes it and the record
         // drops it.
@@ -725,11 +731,8 @@ impl RunParts for HostRunParts {
                 }) as SkillsBuilder
             }),
             hooks: Some(Arc::new(SessionToolHooks::new(session_id, &cwd, seams.post_tool_dispatch()))),
-            reuse: Some({
-                let reuse = Arc::new(ToolResultReuse::new(s.io, session_id, &cwd, read_body, s.clock.clone()));
-                s.reuses.track(&reuse);
-                reuse
-            }),
+            // The session's own cache: the one its earlier turns filled (Node's `_bySession`), not one per run.
+            reuse: Some(s.reuses.run(s.io, session_id, &cwd, read_body, s.clock.clone())),
             reactions: Some(Arc::new(LoopReactions::new(session_id, s.reaction_targets.clone(), rows, mixdog_protocol::text_class::is_internal_transcript_display_text))),
             reaction_scope: Some(ReactionScope::new(s.reaction_targets.clone(), session_id)),
             tail: Some(self.tail_reminder(header)),

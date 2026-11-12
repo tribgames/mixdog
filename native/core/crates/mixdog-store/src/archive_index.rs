@@ -150,6 +150,7 @@ impl<'a> Compactions<'a> {
             text = parts.text.is_some();
             calls.iter_mut().for_each(|d| *d = true);
         } else if !ids.is_empty() {
+            let iid = facets.id_of(iid);
             let call_ids: Vec<&str> = facets.calls.iter().map(String::as_str).collect();
             let call_json = serde_json::to_string(&call_ids).expect("strings serialize");
             // Per session of the lineage: the compactions whose ids hold a part of this row.

@@ -1,0 +1,55 @@
+{
+  "cases": 209,
+  "command": "node --import apps/desktop/scripts/test-env.mjs --import apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-desktop-setting-writes.mjs --tree <git archive of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "notRun": "the Electron window (a stand-in answers the zoom calls), config.mjs's own debounce timer and file watch (the forced pass an in-process write starts is run when the call settled), and the notification store",
+    "runs": "registerWindowSettingsIpc (ipc-window-settings.ts) with the settings store of createDesktopOperations over config.mjs (the local connection), and the operations writeMarkdownDefaultView and updateActivityRailPins of createDesktopOperations"
+  },
+  "exclusions": {
+    "activityRailPinsEvent": "Node raised 'activity-rail-pins-changed' from its operation; on a core connection the pins reach a client as the config section it reads (`readActivityRailPins`), so the replay compares what the second client reads, not that event",
+    "errorName": "a refusal is compared by its message: the window's handler rethrows the error and Electron hands the page the text; Node's class (TypeError, RangeError for the 300-site limit) is not kept across a core connection",
+    "markdownDefaultViewFile": "Node keeps the Markdown default view in <userData>/User/settings.json (a JSONC structural edit); the core keeps it as the config key desktop.editor.markdownDefaultView (editorcfg.rs user scope). For this call the replay compares the answer, the events and what a second client reads, and that the view the core stored is the one Node answered; the config bytes and snapshots are not compared",
+    "notificationsSubtree": "the core keeps Node's notification-preferences.json as the `notifications` subtree of mixdog-config.json; the replay seeds it (last key) and takes it out of the bytes it compares",
+    "snapshots": "the snapshot kinds each call wrote (backups/user-data), as a multiset: the file names carry the time, one process-wide counter and the scope's hash"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 1301181,
+      "path": "golden.json",
+      "sha256": "a28aa1fd072dd5312652b90b065ffcc58ab6451211e664b5f23caf58d8b0907a"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-desktop-setting-writes.mjs",
+  "recorderSha256": "53bb37ba1d98b984dfc5ece383e655deabdb014906129a94174b9c89d9d9ef4b",
+  "set": "desktop-setting-writes",
+  "totalBytes": 1301181
+}

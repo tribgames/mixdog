@@ -12,13 +12,18 @@ use async_trait::async_trait;
 use mixdog_services::bots::delivery::env::{RoomRelay, WakeFollow};
 use mixdog_services::bots::live::{WakeOptions, WakeTurn};
 
+use super::room_ask::RoomAsk;
+
 /// `agentRoomHost()` with nothing registered.
 pub const NO_HOST: &str = "group rooms run in the desktop app, and no desktop app is attached to this runtime";
+
+/// A registered host: its relay, and its `member` / `ask` when it takes messages from other sessions.
+type Host = (u64, Arc<dyn RoomRelay>, Option<Arc<dyn RoomAsk>>);
 
 #[derive(Default)]
 struct Hosts {
     next: u64,
-    list: Vec<(u64, Arc<dyn RoomRelay>)>,
+    list: Vec<Host>,
 }
 
 /// The registered room hosts, newest last.
@@ -34,16 +39,26 @@ impl RoomHostRegistry {
 
     /// `registerAgentRoomHost`: the host is now the active one. The same host registered twice is two entries.
     pub fn register(self: &Arc<Self>, host: Arc<dyn RoomRelay>) -> Registration {
+        self.register_host(host, None)
+    }
+
+    /// `registerAgentRoomHost` of a host that also takes messages from other sessions.
+    pub fn register_host(self: &Arc<Self>, host: Arc<dyn RoomRelay>, ask: Option<Arc<dyn RoomAsk>>) -> Registration {
         let mut hosts = self.lock();
         let id = hosts.next;
         hosts.next += 1;
-        hosts.list.push((id, host));
+        hosts.list.push((id, host, ask));
         Registration { registry: self.clone(), id }
     }
 
     /// `agentRoomHost()`: the most recently registered host, else Node's error.
     pub fn active(&self) -> Result<Arc<dyn RoomRelay>, String> {
-        self.lock().list.last().map(|(_, host)| host.clone()).ok_or_else(|| NO_HOST.to_owned())
+        self.lock().list.last().map(|(_, host, _)| host.clone()).ok_or_else(|| NO_HOST.to_owned())
+    }
+
+    /// `agentRoomHost()`'s `member` / `ask`: the most recently registered host's, else Node's error.
+    pub fn active_ask(&self) -> Result<Arc<dyn RoomAsk>, String> {
+        self.lock().list.last().and_then(|(_, _, ask)| ask.clone()).ok_or_else(|| NO_HOST.to_owned())
     }
 }
 
@@ -57,7 +72,7 @@ pub struct Registration {
 impl Registration {
     /// Removes the entry this registration added; a second call finds nothing and does nothing.
     pub fn unregister(&self) {
-        self.registry.lock().list.retain(|(id, _)| *id != self.id);
+        self.registry.lock().list.retain(|(id, _, _)| *id != self.id);
     }
 }
 

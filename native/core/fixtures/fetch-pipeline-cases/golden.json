@@ -1,0 +1,711 @@
+{
+  "note": "Node's fetch pipeline at b6f10295a2f698afc85332467192de28500bd146, per case of benchmarks/rust-core/recorders/record-fetch-pipeline-cases.mjs",
+  "test": "src/runtime/web-search/lib/fetch-pipeline.test.mjs",
+  "url": "http://127.0.0.1:9/docs",
+  "cases": [
+    {
+      "case": "HTTP success avoids browser startup and reports only actual attempts",
+      "kind": "runs",
+      "runs": [
+        {
+          "spec": {
+            "http": [
+              {
+                "status": 200,
+                "body": "Useful page content.",
+                "headers": {}
+              }
+            ],
+            "browser": "lazy"
+          },
+          "outcome": {
+            "page": {
+              "title": "",
+              "content": "Useful page content.",
+              "extractor": "raw"
+            },
+            "triedExtractors": [
+              "http"
+            ],
+            "failures": [],
+            "attempts": [
+              {
+                "stage": "http",
+                "status": "success"
+              }
+            ],
+            "delays": []
+          }
+        }
+      ]
+    },
+    {
+      "case": "empty documents, HTTP 403 and explicit challenge responses escalate once",
+      "kind": "runs",
+      "runs": [
+        {
+          "spec": {
+            "http": [
+              {
+                "status": 200,
+                "body": "",
+                "headers": {}
+              }
+            ],
+            "browser": "page"
+          },
+          "outcome": {
+            "page": {
+              "title": "Guide",
+              "content": "Useful page content.",
+              "extractor": null
+            },
+            "triedExtractors": [
+              "http",
+              "puppeteer"
+            ],
+            "failures": [
+              {
+                "extractor": "http",
+                "error": "No readable content in response",
+                "code": "EMPTY_CONTENT"
+              }
+            ],
+            "attempts": [
+              {
+                "stage": "http",
+                "status": "error",
+                "code": "EMPTY_CONTENT"
+              },
+              {
+                "stage": "puppeteer",
+                "status": "success"
+              }
+            ],
+            "delays": []
+          }
+        },
+        {
+          "spec": {
+            "http": [
+              {
+                "status": 403,
+                "body": "",
+                "headers": {}
+              }
+            ],
+            "browser": "page"
+          },
+          "outcome": {
+            "page": {
+              "title": "Guide",
+              "content": "Useful page content.",
+              "extractor": null
+            },
+            "triedExtractors": [
+              "http",
+              "puppeteer"
+            ],
+            "failures": [
+              {
+                "extractor": "http",
+                "error": "HTTP 403",
+                "code": "HTTP_BLOCKED",
+                "status": 403
+              }
+            ],
+            "attempts": [
+              {
+                "stage": "http",
+                "status": "error",
+                "code": "HTTP_BLOCKED"
+              },
+              {
+                "stage": "puppeteer",
+                "status": "success"
+              }
+            ],
+            "delays": []
+          }
+        },
+        {
+          "spec": {
+            "http": [
+              {
+                "status": 200,
+                "body": "   ",
+                "headers": {}
+              }
+            ],
+            "browser": "page"
+          },
+          "outcome": {
+            "page": {
+              "title": "Guide",
+              "content": "Useful page content.",
+              "extractor": null
+            },
+            "triedExtractors": [
+              "http",
+              "puppeteer"
+            ],
+            "failures": [
+              {
+                "extractor": "http",
+                "error": "No readable content in response",
+                "code": "EMPTY_CONTENT"
+              }
+            ],
+            "attempts": [
+              {
+                "stage": "http",
+                "status": "error",
+                "code": "EMPTY_CONTENT"
+              },
+              {
+                "stage": "puppeteer",
+                "status": "success"
+              }
+            ],
+            "delays": []
+          }
+        },
+        {
+          "spec": {
+            "http": [
+              {
+                "status": 200,
+                "body": "",
+                "headers": {
+                  "cf-mitigated": "challenge"
+                }
+              }
+            ],
+            "browser": "page"
+          },
+          "outcome": {
+            "page": {
+              "title": "Guide",
+              "content": "Useful page content.",
+              "extractor": null
+            },
+            "triedExtractors": [
+              "http",
+              "puppeteer"
+            ],
+            "failures": [
+              {
+                "extractor": "http",
+                "error": "Challenge response (cf-mitigated: challenge)",
+                "code": "BLOCKED_CONTENT",
+                "status": 200
+              }
+            ],
+            "attempts": [
+              {
+                "stage": "http",
+                "status": "error",
+                "code": "BLOCKED_CONTENT"
+              },
+              {
+                "stage": "puppeteer",
+                "status": "success"
+              }
+            ],
+            "delays": []
+          }
+        },
+        {
+          "spec": {
+            "http": [
+              {
+                "status": 403,
+                "body": "",
+                "headers": {
+                  "cf-mitigated": "challenge"
+                }
+              }
+            ],
+            "browser": "page"
+          },
+          "outcome": {
+            "page": {
+              "title": "Guide",
+              "content": "Useful page content.",
+              "extractor": null
+            },
+            "triedExtractors": [
+              "http",
+              "puppeteer"
+            ],
+            "failures": [
+              {
+                "extractor": "http",
+                "error": "Challenge response (cf-mitigated: challenge)",
+                "code": "BLOCKED_CONTENT",
+                "status": 403
+              }
+            ],
+            "attempts": [
+              {
+                "stage": "http",
+                "status": "error",
+                "code": "BLOCKED_CONTENT"
+              },
+              {
+                "stage": "puppeteer",
+                "status": "success"
+              }
+            ],
+            "delays": []
+          }
+        },
+        {
+          "spec": {
+            "http": [
+              {
+                "status": 503,
+                "body": "",
+                "headers": {
+                  "cf-mitigated": "challenge"
+                }
+              }
+            ],
+            "browser": "page"
+          },
+          "outcome": {
+            "page": {
+              "title": "Guide",
+              "content": "Useful page content.",
+              "extractor": null
+            },
+            "triedExtractors": [
+              "http",
+              "puppeteer"
+            ],
+            "failures": [
+              {
+                "extractor": "http",
+                "error": "Challenge response (cf-mitigated: challenge)",
+                "code": "BLOCKED_CONTENT",
+                "status": 503
+              }
+            ],
+            "attempts": [
+              {
+                "stage": "http",
+                "status": "error",
+                "code": "BLOCKED_CONTENT"
+              },
+              {
+                "stage": "puppeteer",
+                "status": "success"
+              }
+            ],
+            "delays": []
+          }
+        },
+        {
+          "spec": {
+            "http": [
+              {
+                "status": 403,
+                "body": "",
+                "headers": {}
+              }
+            ],
+            "browser": "challenge"
+          },
+          "outcome": {
+            "error": {
+              "code": "BLOCKED_CONTENT",
+              "message": "Explicit challenge response",
+              "status": 200
+            },
+            "triedExtractors": [
+              "http",
+              "puppeteer"
+            ],
+            "failures": [
+              {
+                "extractor": "http",
+                "error": "HTTP 403",
+                "code": "HTTP_BLOCKED",
+                "status": 403
+              },
+              {
+                "extractor": "puppeteer",
+                "error": "Explicit challenge response",
+                "code": "BLOCKED_CONTENT",
+                "status": 200
+              }
+            ],
+            "attempts": [
+              {
+                "stage": "http",
+                "status": "error",
+                "code": "HTTP_BLOCKED"
+              },
+              {
+                "stage": "puppeteer",
+                "status": "error",
+                "code": "BLOCKED_CONTENT"
+              }
+            ],
+            "delays": []
+          }
+        }
+      ]
+    },
+    {
+      "case": "security blocks and terminal HTTP errors do not retry or launch a browser",
+      "kind": "runs",
+      "runs": [
+        {
+          "spec": {
+            "http": "private",
+            "browser": "terminal"
+          },
+          "outcome": {
+            "error": {
+              "code": "POLICY_BLOCKED",
+              "message": "Blocked request to private address: 127.0.0.1",
+              "status": null
+            },
+            "triedExtractors": [
+              "http"
+            ],
+            "failures": [
+              {
+                "extractor": "http",
+                "error": "Blocked request to private address: 127.0.0.1",
+                "code": "POLICY_BLOCKED"
+              }
+            ],
+            "attempts": [
+              {
+                "stage": "http",
+                "status": "error",
+                "code": "POLICY_BLOCKED"
+              }
+            ],
+            "delays": []
+          }
+        },
+        {
+          "spec": {
+            "http": [
+              {
+                "status": 404,
+                "body": "",
+                "headers": {}
+              }
+            ],
+            "browser": "terminal"
+          },
+          "outcome": {
+            "error": {
+              "code": "HTTP_ERROR",
+              "message": "HTTP 404",
+              "status": 404
+            },
+            "triedExtractors": [
+              "http"
+            ],
+            "failures": [
+              {
+                "extractor": "http",
+                "error": "HTTP 404",
+                "code": "HTTP_ERROR",
+                "status": 404
+              }
+            ],
+            "attempts": [
+              {
+                "stage": "http",
+                "status": "error",
+                "code": "HTTP_ERROR"
+              }
+            ],
+            "delays": []
+          }
+        },
+        {
+          "spec": {
+            "http": [
+              {
+                "status": 401,
+                "body": "",
+                "headers": {}
+              }
+            ],
+            "browser": "terminal"
+          },
+          "outcome": {
+            "error": {
+              "code": "LOGIN_REQUIRED",
+              "message": "HTTP 401",
+              "status": 401
+            },
+            "triedExtractors": [
+              "http"
+            ],
+            "failures": [
+              {
+                "extractor": "http",
+                "error": "HTTP 401",
+                "code": "LOGIN_REQUIRED",
+                "status": 401
+              }
+            ],
+            "attempts": [
+              {
+                "stage": "http",
+                "status": "error",
+                "code": "LOGIN_REQUIRED"
+              }
+            ],
+            "delays": []
+          }
+        }
+      ]
+    },
+    {
+      "case": "transient HTTP failures retry within budget and respect Retry-After",
+      "kind": "runs",
+      "runs": [
+        {
+          "spec": {
+            "http": [
+              {
+                "status": 429,
+                "body": "",
+                "headers": {
+                  "retry-after": "0.45"
+                }
+              },
+              {
+                "status": 200,
+                "body": "Useful page content.",
+                "headers": {}
+              }
+            ],
+            "browser": "none"
+          },
+          "outcome": {
+            "page": {
+              "title": "",
+              "content": "Useful page content.",
+              "extractor": "raw"
+            },
+            "triedExtractors": [
+              "http",
+              "http"
+            ],
+            "failures": [
+              {
+                "extractor": "http",
+                "error": "HTTP 429",
+                "code": "RATE_LIMITED",
+                "status": 429
+              }
+            ],
+            "attempts": [
+              {
+                "stage": "http",
+                "status": "error",
+                "code": "RATE_LIMITED"
+              },
+              {
+                "stage": "http",
+                "status": "success"
+              }
+            ],
+            "delays": [
+              450
+            ]
+          }
+        },
+        {
+          "spec": {
+            "http": [
+              {
+                "status": 429,
+                "body": "",
+                "headers": {
+                  "retry-after": "10"
+                }
+              }
+            ],
+            "browser": "rate-limit",
+            "timeoutMs": 100
+          },
+          "outcome": {
+            "error": {
+              "code": "RATE_LIMITED",
+              "message": "HTTP 429",
+              "status": 429
+            },
+            "triedExtractors": [
+              "http"
+            ],
+            "failures": [
+              {
+                "extractor": "http",
+                "error": "HTTP 429",
+                "code": "RATE_LIMITED",
+                "status": 429
+              }
+            ],
+            "attempts": [
+              {
+                "stage": "http",
+                "status": "error",
+                "code": "RATE_LIMITED"
+              }
+            ],
+            "delays": []
+          }
+        },
+        {
+          "spec": {
+            "http": [
+              {
+                "status": 429,
+                "body": "",
+                "headers": {
+                  "cf-mitigated": "challenge",
+                  "retry-after": "10"
+                }
+              }
+            ],
+            "browser": "rate-limit",
+            "timeoutMs": 100
+          },
+          "outcome": {
+            "error": {
+              "code": "BLOCKED_CONTENT",
+              "message": "Challenge response (cf-mitigated: challenge)",
+              "status": 429
+            },
+            "triedExtractors": [
+              "http"
+            ],
+            "failures": [
+              {
+                "extractor": "http",
+                "error": "Challenge response (cf-mitigated: challenge)",
+                "code": "BLOCKED_CONTENT",
+                "status": 429
+              }
+            ],
+            "attempts": [
+              {
+                "stage": "http",
+                "status": "error",
+                "code": "BLOCKED_CONTENT"
+              }
+            ],
+            "delays": []
+          }
+        }
+      ]
+    },
+    {
+      "case": "total deadline and caller cancellation stop queued or hanging stages",
+      "kind": "runs",
+      "runs": [
+        {
+          "spec": {
+            "http": "hang",
+            "browser": "hang",
+            "timeoutMs": 120
+          },
+          "outcome": {
+            "error": {
+              "code": "FETCH_TIMEOUT",
+              "message": "Fetch exceeded 120ms total budget",
+              "status": null
+            },
+            "triedExtractors": [
+              "http",
+              "puppeteer"
+            ],
+            "failures": [
+              {
+                "extractor": "http",
+                "error": "http timed out",
+                "code": "STAGE_TIMEOUT"
+              },
+              {
+                "extractor": "puppeteer",
+                "error": "Fetch exceeded 120ms total budget",
+                "code": "FETCH_TIMEOUT"
+              }
+            ],
+            "attempts": [
+              {
+                "stage": "http",
+                "status": "error",
+                "code": "STAGE_TIMEOUT"
+              },
+              {
+                "stage": "puppeteer",
+                "status": "error",
+                "code": "FETCH_TIMEOUT"
+              }
+            ],
+            "delays": []
+          }
+        },
+        {
+          "spec": {
+            "http": "cancel",
+            "browser": "cancelled"
+          },
+          "outcome": {
+            "error": {
+              "code": "FETCH_CANCELLED",
+              "message": "user stopped",
+              "status": null
+            },
+            "triedExtractors": [
+              "http"
+            ],
+            "failures": [
+              {
+                "extractor": "http",
+                "error": "user stopped",
+                "code": "NETWORK_ERROR"
+              }
+            ],
+            "attempts": [
+              {
+                "stage": "http",
+                "status": "error",
+                "code": "NETWORK_ERROR"
+              }
+            ],
+            "delays": []
+          }
+        }
+      ]
+    },
+    {
+      "case": "host pacing serializes a site, isolates other sites and skips cancelled waiters",
+      "kind": "pacer",
+      "recorded": {
+        "beforeRelease": [
+          "first",
+          "other"
+        ],
+        "afterRelease": [
+          "first",
+          "other",
+          "third"
+        ],
+        "cancelled": "rejected"
+      }
+    }
+  ]
+}

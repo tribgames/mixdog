@@ -127,6 +127,205 @@ async fn the_tail_ingest_matches_the_recorded_node_run() {
     assert!(reloaded.get_offset(&file).is_none());
 }
 
+/// `fixtures/session-transcript/restart.json`: the turn's transcript was written and the writing runtime was gone before
+/// any ingest ran (the kill between save and feed). Node's watcher ingest then stores every line once, across a start
+/// killed after its inserts but before its read position was persisted (the next start sends the same rows again, which
+/// the unique source reference keeps single) and a start with nothing new. The same starts here over the same file.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs Postgres (MIXDOG_PG_RUNTIME)"]
+async fn a_transcript_written_before_a_restart_is_stored_once_as_node_stores_it() {
+    if std::env::var_os("MIXDOG_KILL_CHILD").is_some() {
+        return restart_kill_child().await;
+    }
+    let writer: Value = serde_json::from_str(include_str!("../../../../../fixtures/session-transcript/writer.json")).expect("writer recording");
+    let restart: Value = serde_json::from_str(include_str!("../../../../../fixtures/session-transcript/restart.json")).expect("restart recording");
+    let now = 1_772_600_767_890_i64;
+    assert_eq!(writer["now"], "2026-03-04T05:06:07.890Z");
+    let source = writer["cases"].as_array().unwrap().iter().find(|c| c["name"] == "restart-source").expect("the written turn");
+    let pg = TestPg::start().await;
+    let db = memory_db(&pg).await;
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("sess_restart.jsonl");
+    let escaped = serde_json::to_string(&dir.path().to_string_lossy()).unwrap();
+    let text = source["file"]["text"].as_str().unwrap().replace("<cwd>", &escaped[1..escaped.len() - 1]);
+    std::fs::write(&file, &text).unwrap();
+    let starts = restart["starts"].as_array().unwrap();
+    let rows_of = |inserts: &Value| -> Vec<Value> { inserts.as_array().unwrap().clone() };
+    let start = || async {
+        let ingest = TranscriptIngest::new(db.clone(), io(), Arc::new(move || now));
+        ingest.load_transcript_offsets().await;
+        let count = ingest.ingest_transcript_file(&file, Some(dir.path())).await.unwrap();
+        (ingest, count)
+    };
+
+    // The first start is killed (the ingest's kill point) after its last insert returned and before its position was
+    // persisted: the core's own ingest in a child process over this database. What it leaves is Node's recording: every
+    // line stored, and the blob a kill there leaves (none: Node's `persisted` of the first start is empty).
+    assert_eq!(starts[0]["count"].as_u64().unwrap(), starts[0]["inserts"].as_array().unwrap().len() as u64, "{}", starts[0]["label"]);
+    kill_ingest_at("a_transcript_written_before_a_restart_is_stored_once_as_node_stores_it", &pg, starts[0]["inserts"].as_array().unwrap().len() as u64, &file, dir.path()).await;
+    assert_eq!(stored_rows(&db).await, rows_of(&starts[0]["inserts"]));
+    let (_, left) = on_disk(&db).await;
+    assert_eq!(if left.is_null() { json!({}) } else { left }, starts[0]["persisted"], "the blob the kill left");
+
+    // The next start reads the file from where the blob says (its start) and sends the same rows again: still one each.
+    assert_eq!(starts[1]["inserts"], starts[0]["inserts"], "Node resends the same rows");
+    let (ingest, count) = start().await;
+    assert_eq!(count, 0, "every row it sends is already stored");
+    assert_eq!(stored_rows(&db).await, rows_of(&starts[0]["inserts"]));
+    let position = ingest.get_offset(&file).expect("a position");
+    assert_eq!(position.bytes as usize, text.len());
+    assert_eq!(position.line_index, starts[1]["position"]["lineIndex"].as_f64().unwrap());
+    assert_eq!(position.generation, starts[1]["position"]["generation"].as_f64().unwrap());
+
+    // A start with nothing new stores nothing.
+    let (_, count) = start().await;
+    assert_eq!(count as u64, starts[2]["count"].as_u64().unwrap(), "{}", starts[2]["label"]);
+    assert!(starts[2]["inserts"].as_array().unwrap().is_empty());
+    assert_eq!(stored_rows(&db).await, rows_of(&starts[0]["inserts"]));
+}
+
+/// Every `entries` row whole, as Node's recorder reads them (`to_jsonb`), in id order, and the positions blob.
+async fn on_disk(db: &Db) -> (Value, Value) {
+    let rows = db.query("SELECT to_jsonb(e) FROM entries e ORDER BY id", &[]).await.expect("rows");
+    let positions = crate::memory::schema::get_meta(db, "state.transcript_offsets").await.expect("meta");
+    (Value::Array(rows.iter().map(|r| r.get::<_, Value>(0)).collect()), positions.unwrap_or(Value::Null))
+}
+
+/// `fixtures/transcript-restart/restart-kill.json` (`record-transcript-restart.mjs`): Node's watcher ingest over its real
+/// memory database, killed (SIGKILL) right after its k-th row insert returned, k = 1 .. n (the last, the point between
+/// the last insert and the position save), then started again. Here the same file: the core's own ingest, never killed,
+/// stores what Node's stores; then, for each point, the core's ingest in a child process killed at the same boundary
+/// (after its k-th insert returned, `transcript/tail.rs`'s kill point) leaves Node's disk, and the core's restart on that
+/// database stores every line once and leaves Node's rows, ids and position.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs Postgres (MIXDOG_PG_RUNTIME)"]
+async fn a_watcher_killed_between_a_store_and_its_position_save_restarts_as_nodes_does() {
+    if std::env::var_os("MIXDOG_KILL_CHILD").is_some() {
+        return restart_kill_child().await;
+    }
+    let path = |rel: &str| format!("{}/../../fixtures/{rel}", env!("CARGO_MANIFEST_DIR"));
+    let read = |rel: &str| -> Value { serde_json::from_str(&std::fs::read_to_string(path(rel)).expect("recording")).expect("json") };
+    let writer = read("session-transcript/writer.json");
+    let recorded = read("transcript-restart/restart-kill.json");
+    let now = RESTART_NOW;
+    assert_eq!(writer["now"], "2026-03-04T05:06:07.890Z");
+    let source = writer["cases"].as_array().unwrap().iter().find(|c| c["name"] == "restart-source").expect("the written turn");
+    let pg = TestPg::start().await;
+    // One database per run: each point starts from an empty store.
+    let fresh = || async {
+        let db = memory_db(&pg).await;
+        db.batch("TRUNCATE entries RESTART IDENTITY CASCADE; DELETE FROM meta WHERE key = 'state.transcript_offsets';").await.expect("empty store");
+        db
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let work = dir.path().join("work");
+    std::fs::create_dir(&work).unwrap();
+    let file = work.join("sess_restart.jsonl");
+    let escaped = serde_json::to_string(&work.to_string_lossy()).unwrap();
+    let cwd = escaped[1..escaped.len() - 1].to_owned();
+    let text = source["file"]["text"].as_str().unwrap().replace("<cwd>", &cwd);
+    std::fs::write(&file, &text).unwrap();
+    // The file's length follows its directory's: a position Node saved at the end of its file (`fileBytes`) is the
+    // end of this one.
+    let key = format!("<cwd>{}sess_restart.jsonl", std::path::MAIN_SEPARATOR);
+    let named = |value: Value, node_bytes: &Value| -> Value {
+        let mut value: Value = serde_json::from_str(&value.to_string().replace(&cwd, "<cwd>")).unwrap();
+        if let Some(position) = value.pointer_mut("/positions").and_then(|p| p.get_mut(&key)) {
+            if position["bytes"] == json!(text.len()) {
+                position["bytes"] = node_bytes.clone();
+            }
+        }
+        value
+    };
+    let start = |db: Db| {
+        let file = file.clone();
+        let work = work.clone();
+        async move {
+            let ingest = TranscriptIngest::new(db, io(), Arc::new(move || now));
+            ingest.load_transcript_offsets().await;
+            ingest.ingest_transcript_file(&file, Some(&work)).await.unwrap()
+        }
+    };
+
+    let db = fresh().await;
+    let count = start(db.clone()).await;
+    let (rows, positions) = on_disk(&db).await;
+    let unkilled = &recorded["unkilled"];
+    assert_eq!(
+        named(json!({ "fileBytes": unkilled["fileBytes"], "count": count, "rows": rows, "positions": positions }), &unkilled["fileBytes"]),
+        *unkilled,
+        "the watcher never killed"
+    );
+
+    for point in recorded["points"].as_array().unwrap() {
+        let k = point["k"].as_u64().unwrap();
+        let db = fresh().await;
+        // The core's own ingest in a child process, killed after its k-th insert returned (the ingest's kill point),
+        // over this database.
+        kill_ingest_at("a_watcher_killed_between_a_store_and_its_position_save_restarts_as_nodes_does", &pg, k, &file, &work).await;
+        let (rows, positions) = on_disk(&db).await;
+        assert_eq!(
+            named(json!({ "rows": rows, "positions": positions }), &point["fileBytes"]),
+            json!({ "rows": point["atKill"]["rows"], "positions": point["atKill"]["positions"] }),
+            "point {k}: the disk the kill left"
+        );
+        // The restart on the same database.
+        let count = start(db.clone()).await;
+        let (rows, positions) = on_disk(&db).await;
+        assert_eq!(
+            named(json!({ "count": count, "rows": rows, "positions": positions }), &point["fileBytes"]),
+            point["restart"],
+            "point {k}: after the restart"
+        );
+    }
+}
+
+/// The core's ingest of `file` (working folder `work`) in a child process over `pg`'s database, killed at the kill point after
+/// its `k`-th insert returned (`restart_kill_child`). The child is hidden, ended when this future is dropped, and waited for
+/// under one deadline.
+async fn kill_ingest_at(parent: &str, pg: &TestPg, k: u64, file: &Path, work: &Path) {
+    const DEADLINE: Duration = Duration::from_secs(180);
+    let mut command = tokio::process::Command::new(std::env::current_exe().expect("the test binary"));
+    command
+        .args(["--exact", &format!("memory::tests::jobs::{parent}"), "--include-ignored", "--nocapture", "--test-threads=1"])
+        .env("MIXDOG_KILL_CHILD", "1")
+        .env("MIXDOG_KILL_AT", format!("memory-transcript-insert:{k}"))
+        .env("MIXDOG_KILL_PG_PROFILE", pg.dir.path())
+        .env("MIXDOG_KILL_PG_PORT", pg.cluster.port().to_string())
+        .env("MIXDOG_KILL_FILE", file)
+        .env("MIXDOG_KILL_WORK", work)
+        .stdin(std::process::Stdio::null())
+        .kill_on_drop(true);
+    #[cfg(windows)]
+    command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    let mut child = command.spawn().expect("the child runs");
+    let status = tokio::time::timeout(DEADLINE, child.wait())
+        .await
+        .unwrap_or_else(|_| panic!("point {k}: the killed ingest child did not end within {DEADLINE:?}"))
+        .expect("the child's status");
+    assert!(!status.success() && status.code() != Some(101), "point {k}: the child dies at its kill point, it neither ends nor fails: {status:?}");
+}
+
+/// The instant the restart recording ran at (`writer.json`'s `now`).
+const RESTART_NOW: i64 = 1_772_600_767_890;
+
+/// The killed child of the tests that call [`kill_ingest_at`]: the test itself, re-run by its exact name with
+/// `MIXDOG_KILL_CHILD` set, takes this role instead of its own (so no test passes without doing its work). The core's
+/// ingest of the recorded file over the parent's database, which dies at the kill point the environment names
+/// (`MIXDOG_KILL_AT`, `mixdog_workspace::killpoint`).
+async fn restart_kill_child() {
+    let var = |name: &str| std::env::var_os(name).unwrap_or_else(|| panic!("{name} is set by the parent"));
+    let runtime = PathBuf::from(var("MIXDOG_PG_RUNTIME"));
+    let port: u16 = var("MIXDOG_KILL_PG_PORT").to_string_lossy().parse().expect("a port");
+    let processes = crate::tidy::process::Processes::for_tests();
+    let cluster = crate::memory::pg::cluster::PgCluster::over(crate::memory::pg::cluster::PgRuntime::new(&runtime), Path::new(&var("MIXDOG_KILL_PG_PROFILE")), port, mixdog_rt::testing::tokens().durability_io, processes);
+    let db = Db::open(&cluster, Schema::Memory).await.expect("the parent's database");
+    let ingest = TranscriptIngest::new(db, io(), Arc::new(|| RESTART_NOW));
+    ingest.load_transcript_offsets().await;
+    ingest.ingest_transcript_file(Path::new(&var("MIXDOG_KILL_FILE")), Some(Path::new(&var("MIXDOG_KILL_WORK")))).await.expect("the ingest");
+    panic!("the ingest ended without reaching {:?}", std::env::var("MIXDOG_KILL_AT"));
+}
+
 fn assert_offset(ingest: &TranscriptIngest, file: &Path, expected: &Value) {
     let got = ingest.get_offset(file).expect("a stored position");
     assert_eq!(

@@ -80,15 +80,37 @@ impl mixdog_services::memory::service::MemoryModule for Memory {
 #[tokio::test]
 async fn a_closing_session_is_ingested_by_the_memory_module() {
     let memory = Arc::new(Memory::default());
-    let ingest = super::MemoryCloseIngest::new(Some(memory.clone()));
+    let sensitive = Arc::new(mixdog_services::memory::sensitive::SensitiveStore::default());
+    let ingest = super::MemoryCloseIngest::new(Some(memory.clone()), sensitive.clone());
     let messages = vec![json!({ "role": "user", "content": "hi" })];
     ingest.ingest(&ThreadId::from("sess_1"), "/ws", messages.clone()).await;
     ingest.ingest(&ThreadId::from("sess_2"), "/ws", Vec::new()).await;
-    super::MemoryCloseIngest::new(None).ingest(&ThreadId::from("sess_3"), "/ws", messages.clone()).await;
+    super::MemoryCloseIngest::new(None, sensitive).ingest(&ThreadId::from("sess_3"), "/ws", messages.clone()).await;
     assert_eq!(
         *lock(&memory.0),
         [json!({ "action": "ingest_session", "sessionId": "sess_1", "cwd": "/ws", "messages": messages })]
     );
+}
+
+/// What goes to memory carries the session's sensitive values redacted as Node redacts them
+/// (`fixtures/tools/memory/sensitive/golden.json`), on every route that feeds memory: they all
+/// go through this seam (unload, live feed, session switch).
+#[tokio::test]
+async fn memory_is_fed_with_the_sessions_sensitive_values_redacted() {
+    let golden: Value =
+        serde_json::from_str(include_str!("../../../../fixtures/tools/memory/sensitive/golden.json")).expect("golden");
+    let sessions = golden["sessions"].as_array().expect("sessions");
+    let session = sessions.iter().find(|s| !s["messages"].is_null()).expect("a recorded message redaction");
+    let id = session["id"].as_str().expect("id");
+    let sensitive = Arc::new(mixdog_services::memory::sensitive::SensitiveStore::default());
+    for s in sessions.iter().filter(|s| s["id"] == session["id"]) {
+        sensitive.remember(id, s["calls"].as_array().map(Vec::as_slice).unwrap_or_default());
+    }
+    let memory = Arc::new(Memory::default());
+    let ingest = super::MemoryCloseIngest::new(Some(memory.clone()), sensitive);
+    let input = session["messages"]["input"].as_array().expect("input").clone();
+    ingest.ingest(&ThreadId::from(id), "/ws", input).await;
+    assert_eq!(lock(&memory.0)[0]["messages"], session["messages"]["output"]);
 }
 
 /// The real thread store opens over a data dir without a `sessions` folder and makes it.
@@ -116,7 +138,7 @@ fn auto_effort_mode_follows_the_env_then_the_config() {
     let no_env = |_: &str| None;
     let on = json!({ "modules": { "autoEffort": { "enabled": true } } }).as_object().cloned().unwrap();
     let off = json!({ "modules": { "autoEffort": { "enabled": false } } }).as_object().cloned().unwrap();
-    let mode = super::effort_prewarm::auto_effort_mode;
+    let mode = super::auto_effort_mode::auto_effort_mode;
     assert_eq!(mode(Some(" ON "), &off, &no_env), "on");
     assert_eq!(mode(Some("observe"), &off, &no_env), "observe");
     assert_eq!(mode(Some("sometimes"), &on, &no_env), "off");

@@ -11,7 +11,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { commitStage, parseArgs, refreshSetManifest, resolveTree, stageSet } from '../../../../benchmarks/rust-core/recorders/lib/common.mjs';
+import { commitStage, exactProductIdentity, parseArgs, refreshSetManifest, resolveTree, stageSet } from '../../../../benchmarks/rust-core/recorders/lib/common.mjs';
+import { recorderProvenance } from '../../../../benchmarks/rust-core/recorders/lib/provenance.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const nodeRoot = resolveTree(parseArgs());
@@ -333,11 +334,17 @@ try {
 } finally {
   rmSync(dataRoot, { recursive: true, force: true });
 }
-refreshSetManifest(stage, nodeRoot, 'HEAD', {
-  exclusions: {
-    ...JSON.parse(readFileSync(join(stage, 'MANIFEST.json'), 'utf8')).exclusions,
-    'run events other than the text deltas (golden/*.json "deltas")': 'the loop reports to its caller only through the hooks the caller passes (agent-loop.mjs:42-49, sendOpts); this recorder installs onTextDelta alone, so Node produced no stage, tool-call, usage, steering or compaction events here and the Rust run\'s RunEvent variants other than TextDelta have no recorded counterpart in this set. What the loop did around them is compared through the transcript, the result and the requests of every scenario',
-  },
-});
+// `exclusions` is a list of {path, scope, reason}: the entries the set already holds stay, this recorder's own is added once.
+const loopEvents = {
+  path: 'golden/*.json',
+  scope: '"deltas": run events other than the text deltas',
+  reason: 'the loop reports to its caller only through the hooks the caller passes (agent-loop.mjs:42-49, sendOpts); this recorder installs onTextDelta alone, so Node produced no stage, tool-call, usage, steering or compaction events here and the Rust run\'s RunEvent variants other than TextDelta have no recorded counterpart in this set. What the loop did around them is compared through the transcript, the result and the requests of every scenario',
+};
+const held = JSON.parse(readFileSync(join(stage, 'MANIFEST.json'), 'utf8')).exclusions ?? [];
+refreshSetManifest(stage, nodeRoot, 'HEAD', { exclusions: [...held.filter((e) => e.path !== loopEvents.path || e.scope !== loopEvents.scope), loopEvents] });
+// The set's manifest also states what made it: this recorder, every module it loads and the Node that ran it.
+const manifestPath = join(stage, 'MANIFEST.json');
+const manifest = { ...JSON.parse(readFileSync(manifestPath, 'utf8')), ...recorderProvenance(import.meta.url), product: exactProductIdentity(nodeRoot, 'b6f10295a2f698afc85332467192de28500bd146') };
+writeFileSync(manifestPath, `${JSON.stringify(Object.fromEntries(Object.entries(manifest).sort(([a], [b]) => (a < b ? -1 : 1))), null, 2)}\n`);
 commitStage(stage, here);
 process.exit(0);

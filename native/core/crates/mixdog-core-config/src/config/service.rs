@@ -228,31 +228,23 @@ async fn value_write(config: &Config, params: &Value, relay: bool) -> Result<Val
             detail: None,
         });
     }
+    // Node's `updateZoom` (settings-store.ts) never touched the config: the application always uses native scale, so the one
+    // factor it accepts is answered and anything else is its TypeError. No file is written and nothing is announced.
+    if edit.path == "desktop.zoom" {
+        if edit.value.as_f64() != Some(1.0) {
+            return Err(invalid(&edit.path, "Desktop zoom is fixed at 100%."));
+        }
+        let saved: Map<String, Value> =
+            SAVED_SUBTREES.iter().filter_map(|name| config.get(name).map(|value| ((*name).to_owned(), value))).collect();
+        return Ok(json!({ "revision": config.revision(), "values": [1], "config": saved }));
+    }
     write(config, vec![edit], announce).await
 }
 
 /// The `desktop` flags Node's relay `updateSetting` wrote (b6f10295a remote-methods.ts:1093-1101): the
 /// `DesktopSettingKey`s `requiredDesktopSettingKey` accepted (ipc-validation.ts:2195-2217), each a boolean, stored by
 /// `DesktopSettingsStore.update` (settings-store.ts:317-381) under `desktop`, `autoClear` and `autoCompact` under `agent`.
-const RELAY_SETTING_PATHS: &[&str] = &[
-    "agent.autoClear.enabled",
-    "agent.compaction.auto",
-    "desktop.keepAwake",
-    "desktop.runInBackground",
-    "desktop.usagePinned",
-    "desktop.usageRailShortLong",
-    "desktop.usageAccountsExpanded",
-    "desktop.usageRailSlotsThree",
-    "desktop.usageRailSlotsAll",
-    "desktop.computerControl",
-    "desktop.computerObserveOnly",
-    "desktop.browserControl",
-    "desktop.browserAutoSignIn",
-    "desktop.browserHidDevices",
-    "desktop.saveChatLogins",
-    "desktop.computerInstalled",
-    "desktop.browserInstalled",
-];
+const RELAY_SETTING_PATHS: &[&str] = super::schema::SETTING_UPDATE_PATHS;
 
 /// Whether a paired phone may make `edit`: exactly the config writes of Node's relay method table (b6f10295a
 /// remote-methods.ts `createRemoteMethods`): `updateSetting` ([`RELAY_SETTING_PATHS`]), `updateActivityRailPins` (:915,

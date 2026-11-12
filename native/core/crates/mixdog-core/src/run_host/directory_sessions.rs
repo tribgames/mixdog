@@ -37,11 +37,19 @@ pub struct DirectorySessions {
     state: Arc<dyn ThreadState>,
     /// The archive stamps the host's own archive hands out too (Node's one `lastArchiveStamp`).
     stamps: Arc<ArchiveStamps>,
+    /// `updateSessionRoute`: a created session's first route is seated through it (its model's window with it); without it
+    /// the route is written as plain header fields.
+    routes: Option<Arc<dyn mixdog_core_ports::ports::route::RouteSession>>,
 }
 
 impl DirectorySessions {
     pub fn new(directory: Arc<SessionDirectory>, state: Arc<dyn ThreadState>) -> Self {
-        Self { directory, state, stamps: Arc::default() }
+        Self { directory, state, stamps: Arc::default(), routes: None }
+    }
+
+    /// Seats a created session's first route through the session route adapter.
+    pub fn with_routes(self, routes: Arc<dyn mixdog_core_ports::ports::route::RouteSession>) -> Self {
+        Self { routes: Some(routes), ..self }
     }
 
     /// Shares the host's archive stamps (`ThreadSettingsParts::archive_stamps`).
@@ -127,10 +135,27 @@ impl SessionOps for DirectorySessions {
         if let Some(fields) = params.as_object() {
             header.extend(fields.clone());
         }
-        self.directory
-            .create_with_id(ThreadId::from(session_id), header, params.clone())
-            .await
-            .map_err(port)
+        // A home or room member session is Node's `createSession` with `sessionOptions` (`session-options.mjs:47`): a user's
+        // Lead's tool policy (the goal tools denied) that runs as its home agent.
+        mixdog_core_session::session::session_options::write_header(&Default::default(), &mut header);
+        if let Some(agent) = params.pointer("/sessionProfile/homeAgent").and_then(Value::as_str).map(str::trim).filter(|a| !a.is_empty()) {
+            header.insert("agent".into(), json!(agent));
+        }
+        // The route is the thread's first route, seated as a new task's is: `createSession` resolves the model's window with it
+        // (`resolveSessionContextMeta`, `session-lifecycle.mjs:281`), without which no compaction has a budget.
+        let Some(routes) = &self.routes else {
+            return self.directory.create_seeded_with_id(ThreadId::from(session_id), header, params.clone()).await.map_err(port);
+        };
+        let route: Map<String, Value> = ["provider", "model", "effort"]
+            .iter()
+            .filter_map(|key| header.shift_remove(*key).filter(|v| !v.is_null()).map(|v| ((*key).to_owned(), v)))
+            .collect();
+        let thread = ThreadId::from(session_id);
+        self.directory.create_seeded_with_id(thread.clone(), header, params.clone()).await.map_err(port)?;
+        if route.is_empty() {
+            return Ok(());
+        }
+        routes.update_route(&thread, route, false).await.map(|_| ()).map_err(port)
     }
 
     async fn set_route(&self, session_id: &str, route: &Value) -> Result<(), RoomError> {
@@ -182,6 +207,17 @@ impl SessionOps for DirectorySessions {
             self.set_archived(archive_as, true).await?;
         }
         self.request(&thread, "thread/clear", Self::op_params(&thread, json!({}))).await.map(|_| ()).map_err(port)
+    }
+
+    async fn set_room_members(&self, session_id: &str, members: &[String]) -> Result<(), RoomError> {
+        self.patch(session_id, Map::from_iter([("roomMembers".to_owned(), json!(members))])).await
+    }
+
+    async fn seed_room_members(&self, session_id: &str, members: &[String]) -> Result<(), RoomError> {
+        match self.header(session_id).await? {
+            Some(header) if !header.contains_key("roomMembers") => self.set_room_members(session_id, members).await,
+            _ => Ok(()),
+        }
     }
 
     async fn delete(&self, session_id: &str) -> Result<(), RoomError> {
@@ -239,6 +275,14 @@ mod tests {
         sessions.set_retired_title("home_free", "[mixdog-runtime]").await.unwrap();
         assert_eq!(sessions.header("home_free").await.unwrap().unwrap().get("title"), Some(&json!("Ada the bot")));
         sessions.set_retired_title("nope", "Ada").await.unwrap();
+        // A log without the record of its room's members is given it; one that has it keeps what its room's changes wrote.
+        let members = |ids: &[&str]| ids.iter().map(|id| (*id).to_owned()).collect::<Vec<_>>();
+        sessions.seed_room_members("home_free", &members(&["lead", "bench"])).await.unwrap();
+        assert_eq!(sessions.header("home_free").await.unwrap().unwrap().get("roomMembers"), Some(&json!(["lead", "bench"])));
+        sessions.set_room_members("home_free", &members(&["lead"])).await.unwrap();
+        sessions.seed_room_members("home_free", &members(&["lead", "bench"])).await.unwrap();
+        assert_eq!(sessions.header("home_free").await.unwrap().unwrap().get("roomMembers"), Some(&json!(["lead"])));
+        sessions.seed_room_members("nope", &members(&["lead"])).await.unwrap();
         sessions.set_archived("home_bench", true).await.unwrap();
         // An empty conversation keeps no archive copy and clears in place.
         sessions.clear("home_bench", "arch_1").await.unwrap();

@@ -56,22 +56,6 @@ pub(crate) fn scenarios(group: &str) -> Vec<String> {
     names
 }
 
-/// Node's provider name of a replay envelope as the Rust owner of the same provider.
-fn owner_of(node: &str) -> ProviderId {
-    ProviderId::from(match node {
-        "antigravity" => "antigravity-oauth",
-        other => other,
-    })
-}
-
-/// The inverse of [`owner_of`]: the Rust owner of an envelope as Node's provider name.
-fn node_tag(owner: &ProviderId) -> String {
-    match owner.as_str() {
-        "antigravity-oauth" => "antigravity".to_owned(),
-        other => other.to_owned(),
-    }
-}
-
 /// A Node transcript message (`{role, content, toolCalls, toolCallId, providerReplay}`) as the neutral message. A Gemini-shaped
 /// replay (`items` a parts array, `requestContext.model`) becomes the Google codecs' envelope `{parts, model}`.
 pub(crate) fn message(node: &Value) -> Message {
@@ -100,7 +84,7 @@ pub(crate) fn message(node: &Value) -> Message {
         if let Some(model) = replay.pointer("/requestContext/model") {
             items["model"] = model.clone();
         }
-        message.push_replay(ProviderReplay { owner: owner_of(replay["provider"].as_str().expect("provider")), items });
+        message.push_replay(ProviderReplay { owner: ProviderId::from(replay["provider"].as_str().expect("provider")), items });
     }
     message
 }
@@ -110,7 +94,7 @@ pub(crate) fn message(node: &Value) -> Message {
 fn node_replay(replay: &ProviderReplay) -> Value {
     let mut out = Map::new();
     out.insert("version".into(), json!(1));
-    out.insert("provider".into(), json!(node_tag(&replay.owner)));
+    out.insert("provider".into(), json!(replay.owner.as_str()));
     match replay.items.get("parts") {
         Some(parts) => {
             out.insert("items".into(), parts.clone());
@@ -126,7 +110,7 @@ fn node_replay(replay: &ProviderReplay) -> Value {
 }
 
 /// A stop reason as the provider spelled it (Node `stopReason`).
-fn stop_text(stop: &StopReason) -> String {
+pub(crate) fn stop_text(stop: &StopReason) -> String {
     match stop {
         StopReason::EndTurn => "end_turn".into(),
         StopReason::ToolUse => "tool_use".into(),
@@ -145,8 +129,6 @@ fn call_json(call: &ToolCall) -> Value {
 
 /// Node's whole recorded result (`ok` and the calls dispatched live), with only the fields the core has no counterpart
 /// of left out, each declared in the manifest's exclusions (`fixtures/provider-wire/MANIFEST.json`):
-/// - `hasThinkingContent`, `contentBlockTypes`: Anthropic's summary of its blocks for the empty-turn trace
-///   (ask-turn-commit.mjs:65-66), derived from the blocks the compared replay carries;
 /// - `assistantBlocks`: Anthropic's block list, which Node also returns as `providerReplay.items`
 ///   (turn-outcome.mjs:156-157): checked equal to it here, and the replay is compared;
 /// - `requestServiceTier`: stamped on the result object by Node's accounting (usage-accounting.mjs:98); the core's
@@ -161,9 +143,7 @@ pub(crate) fn node_result(result: &Value) -> Value {
     if let Some(blocks) = map.shift_remove("assistantBlocks") {
         assert_eq!(Some(&blocks), map.get("providerReplay").and_then(|r| r.get("items")), "Node returns its blocks twice");
     }
-    for key in ["hasThinkingContent", "contentBlockTypes", "requestServiceTier"] {
-        map.shift_remove(key);
-    }
+    map.shift_remove("requestServiceTier");
     if map.get("stopReason").is_some_and(Value::is_null) {
         map.shift_remove("stopReason");
     }
@@ -232,6 +212,10 @@ pub(crate) fn core_result_at(events: &[StreamEvent], at: &[i64], requested: &str
             }
             StreamEvent::ResponseId(id) => {
                 ok.insert("responseId".into(), json!(id));
+            }
+            StreamEvent::ContentSummary { has_thinking, block_types } => {
+                ok.insert("hasThinkingContent".into(), json!(has_thinking));
+                ok.insert("contentBlockTypes".into(), json!(block_types));
             }
             StreamEvent::Usage(usage) => {
                 let mut out = Map::new();
@@ -798,6 +782,7 @@ pub(crate) async fn built_on(
         accounts: crate::accounts::AccountStore::new(dir.path().to_path_buf(), io.clone()),
         anthropic_caps: inputs.caps,
         google_traits: inputs.traits,
+        route_traits: Arc::new(|_| None),
         openai_facts: inputs.facts,
         openai_context: Arc::new(crate::providers::openai::adapter::SessionContext::new()),
         codex_identity: inputs.codex,

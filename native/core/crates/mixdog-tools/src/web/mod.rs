@@ -22,11 +22,19 @@ mod ssrf;
 mod tools;
 
 #[cfg(test)]
+mod document_node_cases;
+#[cfg(test)]
+mod fetch_output_node_cases;
+#[cfg(test)]
+mod fetch_pipeline_node_cases;
+#[cfg(test)]
 mod hosted_native_tests;
 #[cfg(test)]
 mod render_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod node_cases;
 
 pub use cache::CacheFile;
 pub use lanes::WebLanes;

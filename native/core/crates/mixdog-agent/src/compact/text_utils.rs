@@ -2,6 +2,7 @@
 //! marker per media part, JS-exact middle truncation, and bounded tool-call
 //! lines with secrets redacted.
 
+use mixdog_core_api::domain::provider::BinarySource;
 use mixdog_core_api::domain::provider::Content;
 use mixdog_core_api::domain::provider::ContentPart;
 use mixdog_core_api::domain::provider::DocumentSource;
@@ -41,26 +42,82 @@ pub fn truncate_middle(text: &str, max_chars: usize) -> String {
     format!("{} … {}", from_units(&units[..head]), from_units(&units[units.len() - tail..]))
 }
 
+/// `inlineFileKind(...) === 'pdf'`: the label says so, or the bytes start with `%PDF-`.
+fn is_pdf(mime: &str, base64_data: &str) -> bool {
+    use base64::Engine;
+    use base64::engine::general_purpose::STANDARD;
+    if js_trim(mime.split(';').next().unwrap_or("")) == "application/pdf" {
+        return true;
+    }
+    let head: String = base64_data.chars().take(8).collect();
+    head.chars().count() == 8
+        && STANDARD.decode(head.trim_end_matches('=')).or_else(|_| STANDARD.decode(&head)).is_ok_and(|b| b.starts_with(b"%PDF-"))
+        || base64_data.starts_with("JVBERi0")
+}
+
 fn media_marker(part: &ContentPart) -> String {
-    let pdf = |name: &str, mime: &str| {
-        if mime.eq_ignore_ascii_case("application/pdf") {
+    // A part without a type label defaults to a PDF, as lowering does.
+    let marker = |name: &str, mime: &str, data: &str| {
+        let mime = if mime.is_empty() { "application/pdf".to_owned() } else { mime.to_lowercase() };
+        if is_pdf(&mime, data) {
             format!("[PDF: {}]", if name.is_empty() { "document.pdf" } else { name })
         } else {
-            format!("[file: {}]", if !name.is_empty() { name } else if !mime.is_empty() { mime } else { "attachment" })
+            format!("[file: {}]", if !name.is_empty() { name } else { &mime })
         }
     };
     match part {
         ContentPart::Text(_, _) => String::new(),
         ContentPart::Image(_) => "[image]".to_owned(),
-        ContentPart::File { mime_type, filename, .. } => pdf(js_trim(filename.as_deref().unwrap_or("")), mime_type),
-        ContentPart::Document { source, title } => {
-            let mime = match source {
-                DocumentSource::Base64 { media_type, .. } => media_type.as_str(),
-                _ => "application/pdf",
+        ContentPart::File { mime_type, filename, source, .. } => {
+            let data = match source {
+                BinarySource::Base64(data) => data.as_str(),
+                _ => "",
             };
-            pdf(js_trim(title.as_deref().unwrap_or("")), mime)
+            marker(js_trim(filename.as_deref().unwrap_or("")), mime_type, data)
+        }
+        ContentPart::Document { source, title } => {
+            let (mime, data) = match source {
+                DocumentSource::Base64 { media_type, data } => (media_type.as_str(), data.as_str()),
+                _ => ("application/pdf", ""),
+            };
+            marker(js_trim(title.as_deref().unwrap_or("")), mime, data)
         }
     }
+}
+
+/// `ATTACHMENT_TEXT_MAX_CHARS`: what the summarizer reads of one stored text attachment.
+const ATTACHMENT_TEXT_MAX_CHARS: usize = 24_000;
+
+/// A stored text attachment as the attachment store reads it for the summarizer.
+pub enum StoredText {
+    Text(String),
+    /// The blob is permanently gone or corrupt.
+    Gone,
+}
+
+fn is_text_reference(part: &ContentPart) -> bool {
+    matches!(part, ContentPart::File { source: BinarySource::AttachmentRef(_), text: Some(_), .. })
+}
+
+/// `referencedText` over the summarizer's input: each stored text attachment becomes its text,
+/// bounded, and a gone blob `[attachment unavailable]`. A transient read error fails the
+/// compaction instead of shrinking it.
+pub async fn with_referenced_text(
+    seam: &dyn super::fresh::AttachmentSeam,
+    mut messages: Vec<AgentMessage>,
+) -> Result<Vec<AgentMessage>, crate::env::CompactError> {
+    for message in &mut messages {
+        let Content::Parts(parts) = &mut message.message.content else { continue };
+        for part in parts.iter_mut().filter(|p| is_text_reference(p)) {
+            let text = match seam.stored_text(part).await.map_err(crate::env::CompactError::Failed)? {
+                Some(StoredText::Text(text)) => truncate_middle(&text, ATTACHMENT_TEXT_MAX_CHARS),
+                Some(StoredText::Gone) => "[attachment unavailable]".to_owned(),
+                None => continue,
+            };
+            *part = ContentPart::Text(text, None);
+        }
+    }
+    Ok(messages)
 }
 
 /// A content as the summarizer reads it: text parts and a fixed marker per
@@ -184,6 +241,46 @@ pub fn tool_result_id(message: &AgentMessage) -> String {
     match message.tool_call_id() {
         Some(id) if message.role() == Role::Tool && !id.is_empty() => format!(" tool_result={id}"),
         _ => String::new(),
+    }
+}
+
+/// `text-utils-attachments.test.mjs`.
+#[cfg(test)]
+mod tests {
+    use mixdog_core_api::domain::provider::ImageSource;
+
+    use super::*;
+
+    fn user(parts: Vec<ContentPart>) -> AgentMessage {
+        let mut message = AgentMessage::user("");
+        message.message.content = Content::Parts(parts);
+        message
+    }
+
+    fn file(source: BinarySource, mime: &str, name: &str) -> ContentPart {
+        ContentPart::File { source, mime_type: mime.into(), filename: Some(name.into()), text: None }
+    }
+
+    #[test]
+    fn a_pdf_is_recognised_by_the_kind_rule_not_label_or_extension_alone() {
+        use base64::Engine;
+        let pdf = base64::engine::general_purpose::STANDARD.encode("%PDF-1.4\nrest");
+        let marker = |part: ContentPart| extract_text(&user(vec![part]));
+        assert_eq!(marker(file(BinarySource::Base64(pdf), "application/octet-stream", "report")), "[PDF: report]");
+        assert_eq!(marker(file(BinarySource::AttachmentRef("e".repeat(64)), "application/pdf", "scan")), "[PDF: scan]");
+        assert_eq!(marker(file(BinarySource::Base64("AAAA".into()), "application/zip", "trick.pdf")), "[file: trick.pdf]");
+    }
+
+    #[test]
+    fn media_parts_are_marked_so_the_summarizer_knows_they_existed() {
+        let text = extract_text(&user(vec![
+            ContentPart::Text("compare these".into(), None),
+            ContentPart::Image(ImageSource::Base64 { data: "AAAA".into(), mime_type: "image/png".into() }),
+            file(BinarySource::AttachmentRef("b".repeat(64)), "application/pdf", "spec.pdf"),
+            file(BinarySource::AttachmentRef("c".repeat(64)), "application/zip", "bundle.zip"),
+            ContentPart::Document { source: DocumentSource::Base64 { media_type: "application/pdf".into(), data: "AAAA".into() }, title: Some("read.pdf".into()) },
+        ]));
+        assert_eq!(text, "compare these\n[image]\n[PDF: spec.pdf]\n[file: bundle.zip]\n[PDF: read.pdf]");
     }
 }
 

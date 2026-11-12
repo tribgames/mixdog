@@ -144,6 +144,9 @@ RECORDS = [
                       "op": {"id": "0190f0a0-1c2d-7e3f-8a4b-5c6d7e8f9a0d", "method": "route/set",
                              "digest": digest("route")},
                       "entry": {"inline": {"provider": "openai", "modelId": "gpt-5.1", "at": 1793306570700}}}),
+    ("draft", {"k": "draft", "rid": "run_2", "body": {"inline": {"text": "partial ", "tools": False}}}),
+    ("draft_reset", {"k": "draft", "rid": "run_2", "body": {"inline": {
+        "reset": True, "text": "the code is [redacted]", "reasoning": "", "calls": [], "results": []}}}),
     ("checkpoint", {"k": "checkpoint", "state": {"inline": {
         "log_id": LOG_ID, "covers_ordinal": 12, "history_rev": 1, "rows": 8, "visible_rows": 7,
         "context": {"ordinal": 6, "file_no": 0, "offset": 2048},

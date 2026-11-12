@@ -3,10 +3,10 @@
 //! session, named by the first 24 hex digits of the SHA-256 of the session id.
 //!
 //! - `<hash>.json`: the turns' Git baselines and the session scopes (the paths a session owns);
-//! - `changes/<hash>.json`: every retained turn's frozen change record, with its own patches;
+//! - `changes/<hash>.jsonl` (and the previous format's `changes/<hash>.json`): every retained turn's
+//!   frozen change record, with its own patches ([`changes`]);
 //! - `cleared/<hash>.json`: the "history deleted" marker.
 
-use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -17,7 +17,6 @@ use mixdog_rt::KeyedChains;
 
 use indexmap::IndexMap;
 use mixdog_js::json_stringify;
-use mixdog_js::locale_compare;
 use serde_json::Value;
 use sha2::Digest;
 use sha2::Sha256;
@@ -49,6 +48,13 @@ const CHANGE_RECORDS_CACHE_SESSIONS: usize = 8;
 const CHANGE_RECORDS_CACHE_BYTES: u64 = 64 * 1024 * 1024;
 
 pub type Record = Obj;
+
+mod changes;
+
+pub use changes::SharedRecord;
+#[cfg(test)]
+pub(super) use changes::CHANGES_LOCK_WAIT;
+use changes::ChangeCache;
 
 fn root_key(value: &str) -> String {
     let trimmed = clean(value).trim_end_matches(['/', '\\']).to_owned();
@@ -176,24 +182,7 @@ pub struct Store {
     root: PathBuf,
     chains: Arc<KeyedChains>,
     sweep_done: Mutex<(bool, bool)>,
-    cache: Mutex<ChangeCache>,
-}
-
-#[derive(Default)]
-struct ChangeCache {
-    order: Vec<String>,
-    entries: HashMap<String, (String, u64, Arc<Vec<Record>>)>,
-}
-
-fn changes_file_ok(parsed: &Value, session_id: &str) -> Option<Obj> {
-    let obj = parsed.as_object()?;
-    if obj.get("version").and_then(Value::as_u64) != Some(CHANGES_VERSION) || obj.get("sessionId").and_then(Value::as_str) != Some(session_id) {
-        return None;
-    }
-    if !obj.get("records").is_some_and(Value::is_array) {
-        return None;
-    }
-    Some(obj.clone())
+    cache: Arc<Mutex<ChangeCache>>,
 }
 
 /// Oldest-first sweep of one record directory (`sweepDirectory`).
@@ -202,7 +191,7 @@ pub(super) async fn sweep_dir(disk: &dyn ReviewDisk, directory: &Path, ttl_ms: f
     let now = disk.now_ms();
     let mut kept: Vec<(PathBuf, f64)> = Vec::new();
     for (name, stamp) in names {
-        if !name.ends_with(".json") {
+        if !name.ends_with(".json") && !name.ends_with(".jsonl") {
             continue;
         }
         let path = directory.join(&name);
@@ -226,7 +215,7 @@ impl Store {
             root: data_dir.join("turn-snapshots"),
             chains: KeyedChains::new(),
             sweep_done: Mutex::new((false, false)),
-            cache: Mutex::new(ChangeCache::default()),
+            cache: Arc::new(Mutex::new(ChangeCache::default())),
         }
     }
 
@@ -242,7 +231,16 @@ impl Store {
         self.root.join("changes")
     }
 
+    // The appendable format lives in its own `.jsonl` file. The previous version parsed
+    // `<hash>.json` as one JSON document, so it must never find appended lines there: after a
+    // downgrade it sees no history (and writes its own file beside ours) instead of misreading and
+    // overwriting what it cannot parse.
     fn changes_path(&self, session_id: &str) -> PathBuf {
+        self.changes_root().join(format!("{}.jsonl", session_hash(session_id)))
+    }
+
+    /// The previous format's file, read as it is until the first write migrates it.
+    fn legacy_changes_path(&self, session_id: &str) -> PathBuf {
         self.changes_root().join(format!("{}.json", session_hash(session_id)))
     }
 
@@ -444,12 +442,9 @@ impl Store {
         }
         let key = format!("changes:{id}");
         let guard = self.chained(&key).await;
-        let records = self.read_changes_file(&id).await.map(|f| obj_list(&f, "records").len()).unwrap_or(0);
-        let removed = self.disk.remove(&self.changes_path(&id)).await;
-        self.cache.lock().unwrap_or_else(|e| e.into_inner()).forget(&id);
+        let removed = self.clear_change_records(&id).await;
         drop(guard);
-        removed?;
-        Ok(records)
+        removed
     }
 
     async fn end_cleared_history(&self, session_id: &str) {
@@ -474,318 +469,5 @@ impl Store {
         let guard = self.chained(&id).await;
         let _ = self.disk.remove(&self.cleared_path(&id)).await;
         drop(guard);
-    }
-
-    // ── Per-turn change records ──────────────────────────────────────────────
-
-    async fn parse_changes_file(&self, session_id: &str) -> std::io::Result<Option<Obj>> {
-        let Some(bytes) = self.disk.read(&self.changes_path(session_id)).await? else {
-            return Err(std::io::Error::from(std::io::ErrorKind::NotFound));
-        };
-        let parsed: Value = serde_json::from_slice(&bytes).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-        Ok(changes_file_ok(&parsed, session_id))
-    }
-
-    async fn read_changes_file(&self, session_id: &str) -> Option<Obj> {
-        self.parse_changes_file(session_id).await.ok().flatten()
-    }
-
-    async fn write_change_records(&self, session_id: &str, records: &[Record]) -> std::io::Result<()> {
-        self.cache.lock().unwrap_or_else(|e| e.into_inner()).forget(session_id);
-        self.disk.create_dir_all(&self.changes_root()).await?;
-        let sweep = {
-            let mut done = self.sweep_done.lock().unwrap_or_else(|e| e.into_inner());
-            let first = !done.1;
-            done.1 = true;
-            first
-        };
-        if sweep {
-            self.sweep_directory(&self.changes_root(), CHANGE_RECORD_TTL_MS, MAX_CHANGE_RECORD_FILES).await;
-        }
-        let mut payload = Obj::new();
-        payload.insert("version".into(), Value::from(CHANGES_VERSION));
-        payload.insert("sessionId".into(), Value::String(session_id.to_owned()));
-        payload.insert("records".into(), Value::Array(records.iter().cloned().map(Value::Object).collect()));
-        let result = self.write_json(&self.changes_path(session_id), &Value::Object(payload)).await;
-        // A read between the drop above and the rename may have cached the old file.
-        self.cache.lock().unwrap_or_else(|e| e.into_inner()).forget(session_id);
-        result
-    }
-
-    /// Upsert one turn's frozen changes. Every file of the new freeze is `applied`; a file the
-    /// user had already undone and that the new net diff no longer contains keeps its `reverted`
-    /// entry, so Reapply survives a re-seal. The revision bumps only when the record actually
-    /// changed. Resolves to the stored record.
-    pub async fn upsert_turn_change_record(&self, session_id: &str, next: &Obj) -> std::io::Result<Option<Record>> {
-        let id = clean(session_id).to_owned();
-        let checkpoint_id = clean(obj_str(next, "checkpointId")).to_owned();
-        if id.is_empty() || checkpoint_id.is_empty() {
-            return Ok(None);
-        }
-        let key = format!("changes:{id}");
-        let guard = self.chained(&key).await;
-        let result = self.upsert_locked(&id, &checkpoint_id, next).await;
-        drop(guard);
-        result
-    }
-
-    async fn upsert_locked(&self, id: &str, checkpoint_id: &str, next: &Obj) -> std::io::Result<Option<Record>> {
-        let mut records = self.read_changes_file(id).await.map(|f| obj_list(&f, "records")).unwrap_or_default();
-        let index = records.iter().position(|r| r.get("checkpointId").and_then(Value::as_str) == Some(checkpoint_id));
-        let prior = index.map(|i| records[i].clone());
-        let mut files: Vec<Obj> = obj_list(next, "files")
-            .into_iter()
-            .map(|mut file| {
-                file.insert("state".into(), Value::String("applied".into()));
-                file
-            })
-            .collect();
-        let present: Vec<String> = files.iter().map(|f| root_key(obj_str(f, "path"))).collect();
-        for file in prior.as_ref().map(|p| obj_list(p, "files")).unwrap_or_default() {
-            if obj_str(&file, "state") == "reverted" && !present.contains(&root_key(obj_str(&file, "path"))) {
-                files.push(file);
-            }
-        }
-        files.sort_by(|l, r| locale_compare(obj_str(l, "path"), obj_str(r, "path")));
-        let kind = match clean(obj_str(next, "kind")) {
-            "" => "git",
-            other => other,
-        };
-        let mut candidate = Obj::new();
-        candidate.insert("checkpointId".into(), Value::String(checkpoint_id.to_owned()));
-        candidate.insert("kind".into(), Value::String(kind.to_owned()));
-        candidate.insert("root".into(), Value::String(clean(obj_str(next, "root")).to_owned()));
-        candidate.insert("agents".into(), Value::Array(next.get("agents").and_then(Value::as_array).cloned().unwrap_or_default()));
-        // `own`: each file's patch is the session's own tool writes (first before to last after,
-        // raw bytes) and its counts their summed deltas; an older record without it holds the net
-        // worktree diff and counts.
-        if !clean(obj_str(next, "counts")).is_empty() {
-            candidate.insert("counts".into(), Value::String(clean(obj_str(next, "counts")).to_owned()));
-        }
-        candidate.insert("files".into(), Value::Array(files.into_iter().map(Value::Object).collect()));
-        // View-only edits outside the root of a Git turn: never undone or replayed, listed only by
-        // the session review.
-        let outside = next.get("outside").and_then(Value::as_array).cloned().unwrap_or_default();
-        if !outside.is_empty() {
-            candidate.insert("outside".into(), Value::Array(outside));
-        }
-        if let Some(prior) = &prior
-            && change_content(prior) == change_content(&candidate) {
-                return Ok(Some(prior.clone()));
-            }
-        let now = self.disk.now_ms();
-        let mut record = candidate;
-        let prior_revision = prior.as_ref().map_or(0.0, |p| {
-            let n = obj_f64(p, "revision");
-            if n.is_nan() { 0.0 } else { n }
-        });
-        record.insert("revision".into(), mixdog_js::json_number(prior_revision + 1.0));
-        let created = prior.as_ref().map_or(0.0, |p| {
-            let n = obj_f64(p, "createdAt");
-            if n.is_nan() { 0.0 } else { n }
-        });
-        record.insert("createdAt".into(), mixdog_js::json_number(if created != 0.0 { created } else { now }));
-        record.insert("updatedAt".into(), mixdog_js::json_number(now));
-        match index {
-            Some(i) => records[i] = record,
-            None => records.push(record),
-        }
-        bound_change_records(&mut records, checkpoint_id);
-        self.write_change_records(id, &records).await?;
-        // Any new turn record (Git or not) starts the history again.
-        self.end_cleared_history(id).await;
-        Ok(records.into_iter().find(|r| r.get("checkpointId").and_then(Value::as_str) == Some(checkpoint_id)))
-    }
-
-    /// Apply `mutate(record)` (returning the next files, or `None` for no change) and bump the
-    /// revision. Serialized with every other write of the session.
-    pub async fn update_turn_change_record(
-        &self,
-        session_id: &str,
-        checkpoint_id: &str,
-        mutate: impl FnOnce(&Record) -> Option<Vec<Obj>>,
-    ) -> std::io::Result<Option<Record>> {
-        let id = clean(session_id).to_owned();
-        let key = clean(checkpoint_id).to_owned();
-        if id.is_empty() || key.is_empty() {
-            return Ok(None);
-        }
-        let chain_key = format!("changes:{id}");
-        let guard = self.chained(&chain_key).await;
-        let result = async {
-            let mut records = self.read_changes_file(&id).await.map(|f| obj_list(&f, "records")).unwrap_or_default();
-            let Some(index) = records.iter().position(|r| r.get("checkpointId").and_then(Value::as_str) == Some(key.as_str())) else {
-                return Ok(None);
-            };
-            let Some(files) = mutate(&records[index]) else { return Ok(Some(records[index].clone())) };
-            let record = &mut records[index];
-            record.insert("files".into(), Value::Array(files.into_iter().map(Value::Object).collect()));
-            let revision = {
-                let n = obj_f64(record, "revision");
-                if n.is_nan() { 0.0 } else { n }
-            };
-            record.insert("revision".into(), mixdog_js::json_number(revision + 1.0));
-            record.insert("updatedAt".into(), mixdog_js::json_number(self.disk.now_ms()));
-            let updated = record.clone();
-            self.write_change_records(&id, &records).await?;
-            Ok(Some(updated))
-        }
-        .await;
-        drop(guard);
-        result
-    }
-
-    /// One turn's change record by its exact checkpoint id; never a fallback.
-    pub async fn load_turn_change_record(&self, session_id: &str, checkpoint_id: &str) -> Option<Record> {
-        let id = clean(session_id);
-        let key = clean(checkpoint_id);
-        if id.is_empty() || key.is_empty() {
-            return None;
-        }
-        let records = self.load_turn_change_records(id).await;
-        records.iter().find(|r| r.get("checkpointId").and_then(Value::as_str) == Some(key)).cloned()
-    }
-
-    /// Every retained turn's change record of a session, oldest first. Parsed records are cached
-    /// while the file's mtime and size are unchanged.
-    pub async fn load_turn_change_records(&self, session_id: &str) -> Arc<Vec<Record>> {
-        let id = clean(session_id);
-        if id.is_empty() {
-            return Arc::new(Vec::new());
-        }
-        let stamp = match self.disk.stat(&self.changes_path(id)).await {
-            Ok(Some(stamp)) => stamp,
-            _ => {
-                self.cache.lock().unwrap_or_else(|e| e.into_inner()).forget(id);
-                return Arc::new(Vec::new());
-            }
-        };
-        let signature = format!("{}:{}", mixdog_js::number_to_string(stamp.mtime_ms), stamp.size);
-        if let Some(hit) = self.cache.lock().unwrap_or_else(|e| e.into_inner()).hit(id, &signature) {
-            return hit;
-        }
-        let Ok(Some(file)) = self.parse_changes_file(id).await else {
-            // A failed read is not remembered: the next call reads the file again.
-            return Arc::new(Vec::new());
-        };
-        let mut records = obj_list(&file, "records");
-        records.sort_by(|l, r| {
-            let (a, b) = (obj_f64(l, "createdAt"), obj_f64(r, "createdAt"));
-            let (a, b) = (if a.is_nan() { 0.0 } else { a }, if b.is_nan() { 0.0 } else { b });
-            a.partial_cmp(&b).unwrap_or(std::cmp::Ordering::Equal)
-        });
-        let records = Arc::new(records);
-        self.cache.lock().unwrap_or_else(|e| e.into_inner()).put(id, signature, stamp.size, records.clone());
-        records
-    }
-}
-
-impl ChangeCache {
-    fn forget(&mut self, id: &str) {
-        self.entries.remove(id);
-        self.order.retain(|k| k != id);
-    }
-
-    fn hit(&mut self, id: &str, signature: &str) -> Option<Arc<Vec<Record>>> {
-        let (sig, _, records) = self.entries.get(id)?;
-        if sig != signature {
-            self.forget(id);
-            return None;
-        }
-        let records = records.clone();
-        self.order.retain(|k| k != id);
-        self.order.push(id.to_owned());
-        Some(records)
-    }
-
-    fn put(&mut self, id: &str, signature: String, bytes: u64, records: Arc<Vec<Record>>) {
-        self.forget(id);
-        self.entries.insert(id.to_owned(), (signature, bytes, records));
-        self.order.push(id.to_owned());
-        // Least recently used first; bounded by session count and by the summed file bytes (the
-        // newest entry always stays, however large).
-        loop {
-            let total: u64 = self.entries.values().map(|(_, b, _)| *b).sum();
-            if self.order.len() > 1 && (self.order.len() > CHANGE_RECORDS_CACHE_SESSIONS || total > CHANGE_RECORDS_CACHE_BYTES) {
-                let oldest = self.order.remove(0);
-                self.entries.remove(&oldest);
-            } else {
-                break;
-            }
-        }
-    }
-}
-
-fn change_content(record: &Obj) -> String {
-    let get = |key: &str| record.get(key).cloned().unwrap_or(Value::Array(Vec::new()));
-    let counts = match record.get("counts") {
-        Some(v) if super::patch::is_truthy(v) => v.clone(),
-        _ => Value::String(String::new()),
-    };
-    json_stringify(&Value::Array(vec![
-        record.get("kind").cloned().unwrap_or(Value::Null),
-        record.get("root").cloned().unwrap_or(Value::Null),
-        counts,
-        match record.get("agents") {
-            Some(v) if super::patch::is_truthy(v) => v.clone(),
-            _ => Value::Array(Vec::new()),
-        },
-        get("files"),
-        get("outside"),
-    ]))
-}
-
-fn weight(file: &Obj) -> usize {
-    ["patch", "viewPatch"].iter().map(|key| file.get(*key).and_then(Value::as_str).map_or(0, str::len)).sum()
-}
-
-/// Evict the oldest turns until the session fits its byte budget; a turn that alone exceeds it
-/// drops its largest patches (those files stop being revertable) instead of the whole record.
-fn bound_change_records(records: &mut Vec<Record>, keep_checkpoint_id: &str) {
-    let size_of = |record: &Record| json_stringify(&Value::Object(record.clone())).len();
-    let mut sizes: Vec<usize> = records.iter().map(size_of).collect();
-    let mut total: usize = sizes.iter().sum();
-    let mut index = 0usize;
-    while total > MAX_CHANGE_BYTES_PER_SESSION && index < records.len() {
-        if records[index].get("checkpointId").and_then(Value::as_str) == Some(keep_checkpoint_id) {
-            index += 1;
-            continue;
-        }
-        total -= sizes[index];
-        records.remove(index);
-        sizes.remove(index);
-    }
-    if total <= MAX_CHANGE_BYTES_PER_SESSION {
-        return;
-    }
-    let Some(kept) = records.iter_mut().find(|r| r.get("checkpointId").and_then(Value::as_str) == Some(keep_checkpoint_id)) else { return };
-    // Replay patches and display patches share one budget, measured in UTF-8 bytes.
-    let mut targets: Vec<(&'static str, usize, usize)> = Vec::new();
-    for list in ["files", "outside"] {
-        if let Some(files) = kept.get(list).and_then(Value::as_array) {
-            for (i, file) in files.iter().enumerate() {
-                if let Some(o) = file.as_object() {
-                    let w = weight(o);
-                    if w > 0 {
-                        targets.push((list, i, w));
-                    }
-                }
-            }
-        }
-    }
-    targets.sort_by_key(|t| std::cmp::Reverse(t.2));
-    for (list, i, w) in targets {
-        if total <= MAX_CHANGE_BYTES_PER_SESSION {
-            break;
-        }
-        total -= w;
-        if let Some(file) = kept.get_mut(list).and_then(Value::as_array_mut).and_then(|a| a[i].as_object_mut()) {
-            file.insert("patch".into(), Value::Null);
-            file.shift_remove("patchEncoding");
-            file.shift_remove("viewPatch");
-            file.insert("revertable".into(), Value::Bool(false));
-            file.insert("reason".into(), Value::String("change is too large to keep for undo".into()));
-            file.insert("patchOmitted".into(), Value::Bool(true));
-        }
     }
 }

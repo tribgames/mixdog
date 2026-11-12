@@ -1,0 +1,64 @@
+diff --git a/src/standalone/session-transport/call-route.mjs b/src/standalone/session-transport/call-route.mjs
+--- a/src/standalone/session-transport/call-route.mjs
++++ b/src/standalone/session-transport/call-route.mjs
+@@ -76,10 +76,13 @@ export function createCallRoute({
+     const name = String(body.name || '');
+     const callId = body.callId ? String(body.callId) : null;
+     const args = body.args || {};
+-    // Scheduling fairness follows the addressed session, but idempotency
+-    // belongs to the CALLING PROCESS. Two clients legitimately issuing the
+-    // same callId against one shared session must not dedupe each other.
+-    const cacheOwnerKey = clientCallOwner(c, clientToken);
++    // A call id is accepted once per addressed SESSION: the standalone proxy
++    // retries the same callId on a replacement attachment (another client
++    // token, session-proxy/transport-calls.mjs:107), and running that retry
++    // would submit the user's prompt twice. The retry gets the first call's
++    // answer. A call that addresses no session keeps its calling process.
++    const addressedSessionId = String(args?.sessionId || '').trim();
++    const cacheOwnerKey = addressedSessionId ? `session:${addressedSessionId}` : clientCallOwner(c, clientToken);
+     const cacheKey = callId && !REPLAY_SAFE_CALLS.has(name) ? `${cacheOwnerKey}\u0000${callId}` : null;
+     // A retry is the SAME payload under the same id. A different payload
+     // that reuses an id (submission ids are caller-supplied) is a NEW call
+diff --git a/src/standalone/session-transport/call-route-session-idempotency.test.mjs b/src/standalone/session-transport/call-route-session-idempotency.test.mjs
+new file mode 100644
+--- /dev/null
++++ b/src/standalone/session-transport/call-route-session-idempotency.test.mjs
+@@ -0,0 +1,38 @@
++import assert from 'node:assert/strict';
++import test from 'node:test';
++import { createCallLanes } from './call-lanes.mjs';
++import { createCallRoute } from './call-route.mjs';
++
++test('the same callId for one session from two client tokens runs once and both get its answer', async () => {
++  const runs = [];
++  const cache = new Map();
++  const lanes = createCallLanes();
++  const route = createCallRoute({
++    handleCall: async (name, args) => {
++      runs.push([name, args.prompt]);
++      return { accepted: true, run: runs.length };
++    },
++    clients: new Map([
++      ['first', { leadPid: 1 }],
++      ['second', { leadPid: 2 }],
++    ]),
++    lanes,
++    callCache: { get: (key) => cache.get(key) || null, track: (key, promise, signature) => cache.set(key, { promise, signature }) },
++    nowMs: () => 1,
++    onCallStarted() {},
++    onCallSettled() {},
++  });
++  const answers = [];
++  const res = () => ({ writeHead() {}, end: (body) => answers.push(JSON.parse(body)) });
++  const args = { sessionId: 'sess_1', prompt: 'same payload' };
++  await route({ token: 'first', name: 'session.submit', callId: 'retry-1', args }, res());
++  await route({ token: 'second', name: 'session.submit', callId: 'retry-1', args }, res());
++  assert.deepEqual(runs, [['session.submit', 'same payload']]);
++  assert.deepEqual(answers, [{ result: { accepted: true, run: 1 } }, { result: { accepted: true, run: 1 } }]);
++  // A call that addresses no session keeps its calling process as the owner.
++  await route({ token: 'first', name: 'project.add', callId: 'retry-2', args: { path: 'p' } }, res());
++  await route({ token: 'second', name: 'project.add', callId: 'retry-2', args: { path: 'p' } }, res());
++  assert.equal(runs.length, 3);
++  lanes.close('test end');
++});
++

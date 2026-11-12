@@ -234,7 +234,7 @@ fn is_lead_pool_agent(agent: &str) -> bool {
 }
 
 /// `errorLine`: the presented text, headed `Error:` unless it already is.
-fn error_line(presented: &str) -> String {
+pub(crate) fn error_line(presented: &str) -> String {
     let t = mixdog_js::js_trim_start(presented).to_lowercase();
     let headed = t.strip_prefix("error").is_some_and(|rest| mixdog_js::js_trim_start(rest).starts_with(':'));
     if headed { presented.to_owned() } else { format!("Error: {presented}") }

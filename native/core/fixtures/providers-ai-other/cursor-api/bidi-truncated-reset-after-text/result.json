@@ -1,18 +1,18 @@
 {
-  "dispatchedToolCalls": [],
   "error": {
-    "code": "incomplete_stream",
-    "connectCode": null,
-    "cursorCode": "incomplete_stream",
-    "liveTextEmitted": true,
-    "message": "Cursor stream closed before its end frame",
     "name": "Error",
-    "providerRecoveryExhausted": null,
-    "reauthRequired": null,
-    "retryAfterMs": null,
-    "retryable": null,
+    "message": "Cursor stream closed before its end frame",
     "status": null,
+    "code": "incomplete_stream",
+    "cursorCode": "incomplete_stream",
+    "connectCode": null,
+    "retryable": null,
+    "retryAfterMs": null,
+    "reauthRequired": null,
     "truncatedStream": null,
-    "unsafeToRetry": true
-  }
+    "unsafeToRetry": true,
+    "liveTextEmitted": true,
+    "providerRecoveryExhausted": null
+  },
+  "dispatchedToolCalls": []
 }

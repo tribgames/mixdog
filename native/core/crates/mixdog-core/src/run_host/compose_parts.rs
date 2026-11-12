@@ -248,8 +248,10 @@ pub struct ReadyRows {
 pub fn provider_registry(
     process: &ProcessServices,
     env: mixdog_ai::registry::builder::BuilderEnv,
+    images: Arc<dyn mixdog_core_api::domain::ext::ProfiledImageResizer>,
 ) -> (Arc<ProviderRegistry>, Arc<mixdog_ai::registry::builder::DefaultProviderBuilder>) {
-    let builder = Arc::new(mixdog_ai::registry::builder::DefaultProviderBuilder::new(env));
+    // `images`: the extension host's `sharp`, which every Messages engine fits its images with.
+    let builder = Arc::new(mixdog_ai::registry::builder::DefaultProviderBuilder::new(env).with_images(images));
     // The concrete builder is handed back with the registry: `ProviderAdmin::production` takes the same `Arc` (wp-ai-svc-21).
     let registry = Arc::new(ProviderRegistry::new(builder.clone()).with_accounting(super::accounting_scope::accounting_deps(process)));
     (registry, builder)
@@ -264,6 +266,10 @@ pub fn ready_rows(process: &ProcessServices, input: ReadyIn) -> ReadyRows {
             store: input.blobs,
             interactive: process.lanes.interactive_io,
         }),
+        media: Some(Arc::new({
+            let source = hop.source.clone();
+            move |session: &serde_json::Value| source.media(session)
+        })),
         heartbeats: input.heartbeats,
         ceilings: Arc::new(CatalogCeilings::new(process.catalog.clone())),
         auto_effort: Arc::new(super::auto_effort::ConfigAutoEffort::new(process.config.clone(), input.env)),
@@ -346,6 +352,8 @@ pub struct Owed {
     pub liveness: Arc<mixdog_services::task_reports::runtime_state::RuntimeLiveness>,
     /// The hosted web search's usage registry (`TurnPathParts.search_usage`), made before the web tools are built.
     pub search_usage: Arc<mixdog_tools::web::NativeSearchUsageSinks>,
+    /// The sessions' result caches (`TurnPathParts.reuses`), made before the manual compaction that resets them.
+    pub reuses: Arc<super::result_reuse::LiveReuses>,
 }
 
 /// The whole `TurnPathParts`: the flip only adds the calls that produce `process`, `early`,
@@ -392,6 +400,7 @@ pub fn turn_path_parts(process: &ProcessServices, registry: Arc<ProviderRegistry
         shells: owed.shells,
         liveness: owed.liveness,
         search_usage: owed.search_usage,
+        reuses: owed.reuses,
     }
 }
 
@@ -701,7 +710,8 @@ mod tests {
     #[tokio::test]
     async fn the_registry_is_built_once_and_shared_with_readiness() {
         let world = world(&[], json!({}), Vec::new()).await;
-        let (registry, builder) = provider_registry(&world.services, crate::run_host::builder_env::builder_env(&world.services));
+        let images = Arc::new(mixdog_exthost::ExtImageCodec::new(Arc::new(mixdog_core_api::domain::mock::MockExtPool::new(1))));
+        let (registry, builder) = provider_registry(&world.services, crate::run_host::builder_env::builder_env(&world.services), images);
         assert!(Arc::strong_count(&builder) >= 2, "the registry holds the builder it hands back");
         let readiness = mixdog_ai::catalog::ProviderReadiness::new(registry.clone(), world.services.catalog.clone());
         assert!(Arc::strong_count(&registry) >= 2, "readiness holds the registry the turn path is given");

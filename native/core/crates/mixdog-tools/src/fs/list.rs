@@ -264,6 +264,50 @@ async fn meta_suffix(ctx: &ToolContext, path: &AbsPath, known: Option<FileStat>)
     format!("\t{}\t{mtime}\t{}{lines}", stat.len, mode_octal(&stat))
 }
 
+/// The integer argument `key` of list as Node's guard leaves it (arg-guard.mjs `guardList`, `checkHeadLimit`,
+/// `coerceIntegerString`): null is absent; a number must be a finite integer; a numeric string (`-?\d+(\.\d+)?`, trimmed,
+/// integral) is its number; a negative value, a fraction and any other type are refused, with the guard's wording
+/// (`head_limit` is worded `limit`, the name the model sees).
+fn guarded_int(args: &JsonValue, key: &str) -> Result<Option<u64>, ToolError> {
+    let Some(raw) = args.get(key).filter(|v| !v.is_null()) else { return Ok(None) };
+    let coerced = match raw {
+        JsonValue::String(s) => {
+            let t = mixdog_js::js_trim(s);
+            let unsigned = t.strip_prefix('-').unwrap_or(t);
+            let (whole, fraction) = unsigned.split_once('.').map_or((unsigned, None), |(w, f)| (w, Some(f)));
+            let digits = |part: &str| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit());
+            (digits(whole) && fraction.is_none_or(digits)).then(|| t.parse::<f64>().ok()).flatten().filter(|n| n.is_finite() && n.fract() == 0.0)
+        }
+        JsonValue::Number(n) => n.as_f64().filter(|n| n.is_finite() && n.fract() == 0.0),
+        _ => None,
+    };
+    let (field, name) = if key == "offset" { ("offset", "offset") } else { ("head_limit", "limit") };
+    let Some(n) = coerced else {
+        let got = super::read_legacy::describe_type(raw);
+        return Err(invalid(
+            field,
+            "type",
+            if key == "offset" {
+                format!("Error: list arg \"offset\" must be a non-negative integer (got {got})")
+            } else {
+                format!("Error: list arg \"limit\" must be a finite integer (got {got})")
+            },
+        ));
+    };
+    if n < 0.0 {
+        return Err(invalid(
+            field,
+            "range",
+            if key == "offset" {
+                "Error: list arg \"offset\" must be a non-negative integer (got number)".to_owned()
+            } else {
+                format!("Error: list arg \"{name}\" must be >= 0 (0 means no cap); got {}", mixdog_js::number_to_string(n))
+            },
+        ));
+    }
+    Ok(Some(n as u64))
+}
+
 #[async_trait]
 impl Tool for ListTool {
     fn spec(&self) -> &ToolSpec {
@@ -276,8 +320,14 @@ impl Tool for ListTool {
             .unwrap_or(".");
         let hidden = arg_bool(&args, "hidden");
         let meta = arg_bool(&args, "meta");
-        let offset = arg_u64(&args, "offset").unwrap_or(0) as usize;
-        let limit = match arg_u64(&args, "limit") {
+        let offset = match guarded_int(&args, "offset")? {
+            Some(n) => n as usize,
+            None => 0,
+        };
+        // arg-guard.mjs `normalizeCompactSurfaceArgs`: `limit` is the short spelling of `head_limit`, which wins when it is
+        // given (a null counts as not given: `dropUndefinedArgs` removes it first).
+        let spelling = if args.get("head_limit").is_some_and(|v| !v.is_null()) { "head_limit" } else { "limit" };
+        let limit = match guarded_int(&args, spelling)? {
             Some(0) => 0,
             Some(n) => n.min(DEFAULT_PAGE) as usize,
             None => DEFAULT_PAGE as usize,

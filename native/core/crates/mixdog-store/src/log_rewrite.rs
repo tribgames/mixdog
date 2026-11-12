@@ -221,6 +221,7 @@ fn inline(record: &Record, blobs: &BlobStore) -> Result<Record, String> {
             }
         }
         Record::ModelSwitch(r) => own(&mut r.entry, None, &mut resolve)?,
+        Record::Draft(r) => own(&mut r.body, None, &mut resolve)?,
         Record::Rewind(_) => {}
     }
     Ok(out)
@@ -248,6 +249,7 @@ fn slot_digests(record: &Record, out: &mut BTreeSet<Digest>) {
         Record::Queue(r) => r.entry.iter().for_each(|s| one(s, out)),
         Record::Op(r) => r.detail.iter().for_each(|s| one(s, out)),
         Record::ModelSwitch(r) => one(&r.entry, out),
+        Record::Draft(r) => one(&r.body, out),
         Record::Rewind(_) => {}
     }
 }

@@ -24,6 +24,7 @@ use crate::schema::sql::STATE_DDL;
 use crate::schema::sql::STATE_USER_VERSION;
 use crate::sqlite::DbError;
 use crate::sqlite::ReadPool;
+use crate::sqlite::needs_rebuild;
 use crate::sqlite::open_schema;
 
 /// `ops.state`.
@@ -234,6 +235,8 @@ type Job = Box<dyn FnOnce(&mut Connection) + Send>;
 struct Shared {
     path: PathBuf,
     pool: Arc<ReadPool>,
+    #[cfg(any(test, feature = "test-support"))]
+    commit_fault: std::sync::atomic::AtomicBool,
 }
 
 /// Brings a `user_version` 1 file to 2 in one transaction. Any other file is left to `open_schema`'s checks.
@@ -251,6 +254,151 @@ pub(crate) fn upgrade_v1(path: &Path) -> Result<(), DbError> {
         tx.commit()?;
     }
     Ok(())
+}
+
+/// What [`CoreState::open_or_set_aside`] kept out of the way, for the caller to log.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct SetAside {
+    /// The unusable database: where it was kept and why it did not open. Its tables are all gone from the new file.
+    pub file: Option<(PathBuf, String)>,
+    /// `projects` rows moved into `meta` because no column read could parse them.
+    pub project_rows: usize,
+}
+
+/// Whether the file may be set aside: SQLite itself, with the WAL applied (a newer schema's `user_version` may live only there,
+/// while another reader holds the WAL open), reads it as damage (not a database, or a damaged page) or as another identity or an
+/// older schema. Only a file of this application a newer build wrote is intact and never set aside (Node's newer-version
+/// guard), and one SQLite cannot be asked about (busy, I/O) is not judged. The probe opens read-only: it changes nothing.
+#[allow(clippy::disallowed_methods, reason = "part of `CoreState::open_or_set_aside`, which opens the SQLite file itself on the same boot call")]
+fn may_be_set_aside(path: &Path) -> bool {
+    let read = || -> rusqlite::Result<(i32, i32)> {
+        let conn = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX)?;
+        Ok((conn.pragma_query_value(None, "application_id", |r| r.get(0))?, conn.pragma_query_value(None, "user_version", |r| r.get(0))?))
+    };
+    match read() {
+        Ok((app, version)) => !(app == STATE_APPLICATION_ID && version > STATE_USER_VERSION),
+        Err(e) => matches!(e.sqlite_error_code(), Some(rusqlite::ErrorCode::NotADatabase | rusqlite::ErrorCode::DatabaseCorrupt)),
+    }
+}
+
+fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
+    let mut name = path.as_os_str().to_owned();
+    name.push(suffix);
+    PathBuf::from(name)
+}
+
+// Test support: the step a set-aside fails before (0 = the marker write, 1-3 = the `-wal`, `-shm` and `-journal` moves, 4 = the
+// database's, 5 = the marker's removal), as a crash would stop it.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static SET_ASIDE_FAULT: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+}
+
+fn before_step(step: usize) -> Result<(), DbError> {
+    #[cfg(test)]
+    if SET_ASIDE_FAULT.with(std::cell::Cell::get) == Some(step) {
+        return Err(DbError::Write(format!("injected fault before set-aside step {step}")));
+    }
+    let _ = step;
+    Ok(())
+}
+
+/// The marker of a set-aside under way. Written (whole, by rename) before the first file moves; it names the set-aside's
+/// `.corrupt-<ms>` suffix, so the next start finishes the same set-aside whatever step a crash stopped it at.
+const SET_ASIDE_MARKER: &str = ".set-aside";
+
+/// Sets the database aside, interruption-safe: the marker first, then the `-wal`, `-shm` and `-journal` files, the database
+/// last (the name is free for a new database only once nothing of the old one is left beside it), then the marker goes.
+/// A crash before the marker leaves everything as it was; after it, [`finish_set_aside`] runs the rest, so the kept
+/// `<file>.corrupt-<ms>` always holds the database with its WAL and no new database ever meets an old WAL.
+pub(crate) fn set_aside_file(path: &Path) -> Result<PathBuf, DbError> {
+    let proof = mixdog_fsio::Unlaned;
+    let aside = mixdog_statefile::quarantine_path(&proof, path);
+    let suffix = aside.file_name().and_then(|n| n.to_str()).and_then(|n| n.strip_prefix(path.file_name()?.to_str()?)).map(str::to_owned);
+    let suffix = suffix.ok_or_else(|| DbError::Write(format!("set-aside name {}", aside.display())))?;
+    let marker = with_suffix(path, SET_ASIDE_MARKER);
+    before_step(0)?;
+    // Durable before the first file moves: a power loss that kept a move but lost the marker would leave the next start to
+    // open the database without its WAL.
+    crate::fsio::publish_file_unlaned(&marker, suffix.as_bytes()).map_err(|e| DbError::Write(format!("marking the set-aside of {}: {e}", path.display())))?;
+    run_set_aside(path, &aside)?;
+    Ok(aside)
+}
+
+/// The steps after the marker; each moves only what is still at its old name, so a start after a crash repeats them.
+fn run_set_aside(path: &Path, aside: &Path) -> Result<(), DbError> {
+    let proof = mixdog_fsio::Unlaned;
+    for (step, suffix) in ["-wal", "-shm", "-journal", ""].into_iter().enumerate() {
+        before_step(step + 1)?;
+        let (from, to) = (with_suffix(path, suffix), with_suffix(aside, suffix));
+        if !mixdog_fsio::exists(&proof, &from).unwrap_or(false) {
+            continue;
+        }
+        if mixdog_fsio::exists(&proof, &to).unwrap_or(true) {
+            return Err(DbError::Write(format!("setting aside {}: {} is in the way", from.display(), to.display())));
+        }
+        // Each move is durable before the next starts, so what a power loss leaves is always a prefix of these steps.
+        crate::fsio::durable_rename(&from, &to).map_err(|e| DbError::Write(format!("setting aside {}: {e}", from.display())))?;
+    }
+    before_step(5)?;
+    let marker = with_suffix(path, SET_ASIDE_MARKER);
+    let finishing = |e: &dyn std::fmt::Display| DbError::Write(format!("finishing the set-aside of {}: {e}", path.display()));
+    mixdog_fsio::remove_file(&proof, &marker).map_err(|e| finishing(&e))?;
+    // The marker's removal too: a marker that came back after a power loss would only repeat steps with nothing left to move.
+    crate::fsio::sync_dir(marker.parent().filter(|dir| !dir.as_os_str().is_empty()).unwrap_or(Path::new("."))).map_err(|e| finishing(&e))
+}
+
+/// A set-aside a crash stopped is finished before anything opens the file: returns where the database was kept.
+fn finish_set_aside(path: &Path) -> Result<Option<PathBuf>, DbError> {
+    let proof = mixdog_fsio::Unlaned;
+    let marker = with_suffix(path, SET_ASIDE_MARKER);
+    if !mixdog_fsio::exists(&proof, &marker).map_err(|e| DbError::Write(format!("{}: {e}", marker.display())))? {
+        return Ok(None);
+    }
+    let suffix = mixdog_fsio::read_to_string(&proof, &marker).map_err(|e| DbError::Write(format!("{}: {e}", marker.display())))?;
+    if !suffix.starts_with(".corrupt-") || suffix.contains(['/', '\\']) {
+        return Err(DbError::Write(format!("the set-aside marker of {} names {suffix:?}", path.display())));
+    }
+    let aside = with_suffix(path, &suffix);
+    run_set_aside(path, &aside)?;
+    Ok(Some(aside))
+}
+
+fn cell_json(cell: &rusqlite::types::Value) -> serde_json::Value {
+    use rusqlite::types::Value as Cell;
+    match cell {
+        Cell::Null => serde_json::Value::Null,
+        Cell::Integer(n) => (*n).into(),
+        Cell::Real(f) => serde_json::Number::from_f64(*f).map_or(serde_json::Value::Null, serde_json::Value::Number),
+        Cell::Text(s) => s.clone().into(),
+        Cell::Blob(b) => b.iter().map(|byte| format!("{byte:02x}")).collect::<String>().into(),
+    }
+}
+
+/// Moves every `projects` row that [`project_row`] cannot read into `meta` (`corrupt:projects:<path>`: its six cells as a JSON
+/// array); a row the page itself cannot deliver fails the scan, which sets the whole file aside.
+fn set_aside_project_rows(tx: &Transaction<'_>) -> Result<usize, DbError> {
+    use rusqlite::types::Value as Cell;
+    let mut unreadable: Vec<Vec<Cell>> = Vec::new();
+    {
+        let mut stmt = tx.prepare("SELECT path, alias, hidden, hidden_rank, last_used_at, name FROM projects")?;
+        let mut rows = stmt.query([])?;
+        while let Some(row) = rows.next()? {
+            if project_row(row).is_err() {
+                unreadable.push((0..6).map(|i| row.get::<_, Cell>(i)).collect::<Result<_, _>>()?);
+            }
+        }
+    }
+    for cells in &unreadable {
+        let key = match &cells[0] {
+            Cell::Text(path) => format!("corrupt:projects:{path}"),
+            other => format!("corrupt:projects:{other:?}"),
+        };
+        let text = serde_json::Value::Array(cells.iter().map(cell_json).collect()).to_string();
+        tx.execute("INSERT INTO meta (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value", params![key, text])?;
+        tx.execute("DELETE FROM projects WHERE path IS ?1", params![&cells[0]])?;
+    }
+    Ok(unreadable.len())
 }
 
 /// Test support: every table of the SQLite file at `path` (`sqlite_*` internals aside), by name, with every row's columns as
@@ -307,10 +455,46 @@ impl CoreState {
     /// any op can start: every `inProgress` op becomes `externalUnknown`; returns how many.
     /// Reads run as jobs on `read_lane`.
     pub fn open(thread: SqliteWriterThread, read_lane: InteractiveIo, path: &Path) -> Result<(CoreState, usize), DbError> {
+        let (state, recovered, _) = Self::open_with(thread, read_lane, path, false)?;
+        Ok((state, recovered))
+    }
+
+    /// [`CoreState::open`] for the daemon: one damaged file does not stop it, as Node carries on with a state file it finds
+    /// corrupt (`atomic-file.mjs`: moved aside to `<file>.corrupt-<ms>`, then empty). A file that is not a usable database (bytes
+    /// SQLite cannot read, a damaged page, another `application_id`, an older `user_version`) is moved aside whole, with its WAL, to
+    /// `<file>.corrupt-<ms>` (the registry's name, `mixdog_statefile::quarantine_path`) and a new database is started; the
+    /// answer says what was kept where, for the caller to log. A file a newer build wrote is intact, not damaged: it is
+    /// left alone and the open fails. A `projects` row no column read can parse is moved into `meta` (`corrupt:projects:<path>`),
+    /// which Node's whole-file set-aside of its registry would have cost every row.
+    pub fn open_or_set_aside(thread: SqliteWriterThread, read_lane: InteractiveIo, path: &Path) -> Result<(CoreState, usize, SetAside), DbError> {
+        match Self::open_with(thread, read_lane, path, true) {
+            Err(e) if needs_rebuild(&e) && may_be_set_aside(path) => {
+                let kept = set_aside_file(path)?;
+                let (state, recovered, mut aside) = Self::open_with(thread, read_lane, path, true)?;
+                aside.file = Some((kept, e.to_string()));
+                Ok((state, recovered, aside))
+            }
+            other => other,
+        }
+    }
+
+    fn open_with(thread: SqliteWriterThread, read_lane: InteractiveIo, path: &Path, scan_rows: bool) -> Result<(CoreState, usize, SetAside), DbError> {
+        let resumed = finish_set_aside(path)?;
         upgrade_v1(path)?;
         let mut conn = open_schema(path, STATE_DDL, STATE_APPLICATION_ID, STATE_USER_VERSION)?;
+        if scan_rows {
+            // Every page is read once now: a file cut short or damaged below the header would open and then fail table by table.
+            let verdict: String = conn.query_row("PRAGMA quick_check(1)", [], |r| r.get(0))?;
+            if verdict != "ok" {
+                return Err(DbError::Sqlite(rusqlite::Error::SqliteFailure(
+                    rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CORRUPT),
+                    Some(verdict),
+                )));
+            }
+        }
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let recovered = tx.execute("UPDATE ops SET state = 'externalUnknown' WHERE state = 'inProgress'", [])?;
+        let project_rows = if scan_rows { set_aside_project_rows(&tx)? } else { 0 };
         tx.commit()?;
         let (sender, rx) = mpsc::channel::<Job>();
         thread
@@ -324,16 +508,36 @@ impl CoreState {
             shared: Arc::new(Shared {
                 path: path.to_path_buf(),
                 pool: ReadPool::new(path, read_lane),
+                #[cfg(any(test, feature = "test-support"))]
+                commit_fault: std::sync::atomic::AtomicBool::new(false),
             }),
             sender,
         };
-        Ok((state, recovered))
+        let file = resumed.map(|kept| (kept, "an earlier start was interrupted while setting this database aside".to_owned()));
+        Ok((state, recovered, SetAside { file, project_rows }))
+    }
+
+    /// Moves a `rooms` row whose document the owner cannot read into `meta` (`corrupt:rooms:<id>`, the text as it was) and
+    /// out of the table, so the other rooms keep loading and the next save does not delete what is kept.
+    pub async fn set_aside_room(&self, room_id: &str, doc: &str) -> Result<(), DbError> {
+        let (room_id, doc) = (room_id.to_owned(), doc.to_owned());
+        self.write(move |tx| {
+            tx.put_meta(&format!("corrupt:rooms:{room_id}"), &doc)?;
+            tx.delete_room(&room_id)?;
+            Ok(())
+        })
+        .await
     }
 
     /// The writer's connection to the file is replaced by an in-memory one (closing the file; a later write fails against an
     /// empty database) and the read pool's idle connections close, so the files can be removed while other handles still exist
     /// (a test's teardown; the exec's private root after its core stopped). Returns once the writer has done it.
     pub fn close(&self) {
+        self.replace_writer();
+        self.shared.pool.close();
+    }
+
+    fn replace_writer(&self) {
         let (done, closed) = mpsc::channel::<()>();
         let job: Job = Box::new(move |conn| {
             *conn = Connection::open_in_memory().expect("an in-memory database opens");
@@ -342,7 +546,13 @@ impl CoreState {
         if self.sender.send(job).is_ok() {
             let _ = closed.recv();
         }
-        self.shared.pool.close();
+    }
+
+    /// Test support: every later write fails with an I/O error at the step that makes it durable (its commit), as a failing
+    /// rename publishing a registry file does: the transaction is rolled back and the file stays as it was.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn fail_commits(&self) {
+        self.shared.commit_fault.store(true, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// Runs `f` in one `BEGIN IMMEDIATE` transaction on the writer; commits when it
@@ -353,10 +563,16 @@ impl CoreState {
         R: Send + 'static,
     {
         let (ack, rx) = oneshot::channel();
+        #[cfg(any(test, feature = "test-support"))]
+        let shared = self.shared.clone();
         let job: Job = Box::new(move |conn| {
             let result = (|| {
                 let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
                 let out = f(&StateTx { tx: &tx })?;
+                #[cfg(any(test, feature = "test-support"))]
+                if shared.commit_fault.load(std::sync::atomic::Ordering::SeqCst) {
+                    return Err(DbError::Write(std::io::Error::other("injected EIO at the commit").to_string()));
+                }
                 tx.commit()?;
                 Ok(out)
             })();

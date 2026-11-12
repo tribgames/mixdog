@@ -37,6 +37,11 @@ const handlers = {
   spin: async () => {
     for (;;);
   },
+  // The same, recording its pid in `params.pidFile` first (a parser that never looks at the cancel).
+  spinWithPid: async ({ params }) => {
+    writeFileSync(params.pidFile, String(process.pid));
+    for (;;);
+  },
   crash: async () => process.exit(3),
   // Starts a helper that outlives this worker unless the core kills the whole group, records its
   // pid in `params.pidFile`, then crashes.

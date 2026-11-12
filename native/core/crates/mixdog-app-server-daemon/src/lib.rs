@@ -22,6 +22,8 @@ pub mod compose;
 #[cfg(test)]
 mod compose_test_support;
 pub mod compose_core;
+#[cfg(all(test, windows))]
+mod lead_request_tests;
 pub mod compose_mcp;
 pub mod connection_close;
 pub mod effort_judge_host;
@@ -49,6 +51,7 @@ pub mod late_tool_surface;
 pub mod os_probe;
 pub mod control;
 pub mod crash_record;
+pub mod stale_temps;
 pub mod daemon_log;
 pub mod desktop_defaults;
 pub mod discovery;
@@ -58,6 +61,8 @@ pub mod event_pipeline;
 pub mod held_requests;
 #[cfg(test)]
 mod held_runs_tests;
+#[cfg(test)]
+mod workers_stop_tests;
 #[cfg(test)]
 mod session_host_replay_tests;
 pub mod memory_callers;

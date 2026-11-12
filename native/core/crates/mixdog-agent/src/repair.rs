@@ -135,41 +135,84 @@ pub fn repair_before_send(messages: &mut Vec<AgentMessage>) -> bool {
 
 /// A tool call id is unique within a transcript: local and compatible servers
 /// reuse ids across turns, and the pairing repairs drop a second assistant
-/// turn that reuses one. A call whose id the history or this round already
-/// holds gets the smallest free `<id>-<n>`.
+/// turn that reuses one. One of these serves one provider round
+/// (`createToolCallIdResolver`): a call keeps its id unless the history, an id
+/// this round already handed out or (in the final batch) another call of the
+/// batch holds it, and then gets the smallest free `<id>-<n>`.
+///
+/// A call is seen twice per round: as the stream finishes it ([`Self::resolve`])
+/// and in the response's final batch ([`Self::resolve_all`]). The n-th call
+/// carrying an original id in the final batch is the n-th one the stream
+/// finished, so both get the same new id, while two calls sharing an id stay
+/// distinct.
 pub struct ToolCallIds {
-    taken: HashSet<String>,
+    history: HashSet<String>,
+    handed_out: HashSet<String>,
+    by_original: std::collections::HashMap<String, Vec<String>>,
 }
 
 impl ToolCallIds {
     pub fn new(messages: &[AgentMessage]) -> Self {
-        let mut taken = HashSet::new();
+        let mut history = HashSet::new();
         for message in messages {
             if message.role() == Role::Tool
                 && let Some(id) = message.tool_call_id()
             {
-                taken.insert(id.to_owned());
+                history.insert(id.to_owned());
             }
-            taken.extend(message.assistant_call_ids());
+            history.extend(message.assistant_call_ids());
         }
-        Self { taken }
+        Self { history, handed_out: HashSet::new(), by_original: std::collections::HashMap::new() }
     }
 
-    pub fn resolve(&mut self, call: &mut ToolCall) {
-        if call.id.is_empty() {
-            return;
-        }
+    fn is_taken(&self, id: &str, reserved: &HashSet<&str>) -> bool {
+        self.handed_out.contains(id) || reserved.contains(id) || self.history.contains(id)
+    }
+
+    fn allocate(&mut self, call: &mut ToolCall, reserved: &HashSet<&str>) {
         let original = call.id.clone();
         let mut id = original.clone();
-        if self.taken.contains(&id) {
+        if self.is_taken(&id, &HashSet::new()) {
             let mut n = 2;
-            while self.taken.contains(&format!("{original}-{n}")) {
+            while self.is_taken(&format!("{original}-{n}"), reserved) {
                 n += 1;
             }
             id = format!("{original}-{n}");
         }
-        self.taken.insert(id.clone());
+        self.handed_out.insert(id.clone());
+        self.by_original.entry(original).or_default().push(id.clone());
         call.id = id;
+    }
+
+    /// A call the stream finished.
+    pub fn resolve(&mut self, call: &mut ToolCall) {
+        if call.id.is_empty() {
+            return;
+        }
+        self.allocate(call, &HashSet::new());
+    }
+
+    /// The final batch of the response.
+    pub fn resolve_all(&mut self, calls: &mut [ToolCall]) {
+        let originals: Vec<String> = calls.iter().map(|call| call.id.clone()).collect();
+        let mut seen: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+        for (index, call) in calls.iter_mut().enumerate() {
+            if call.id.is_empty() {
+                continue;
+            }
+            let original = originals[index].as_str();
+            let nth = seen.entry(original).or_insert(0);
+            let mapped = self.by_original.get(original).and_then(|ids| ids.get(*nth)).cloned();
+            *nth += 1;
+            match mapped {
+                Some(id) => call.id = id,
+                None => {
+                    // Ids later in the batch that no earlier pass has placed yet stay theirs.
+                    let reserved: HashSet<&str> = originals[index + 1..].iter().map(String::as_str).filter(|id| !id.is_empty()).collect();
+                    self.allocate(call, &reserved);
+                }
+            }
+        }
     }
 }
 
@@ -215,6 +258,82 @@ mod tests {
         ];
         assert!(repair_before_send(&mut messages));
         assert_eq!(messages.len(), 1);
+    }
+
+    fn recorded_scenarios() -> Vec<JsonValue> {
+        let doc: JsonValue = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/tools-untested/agent-tool-call-ids.json")).unwrap();
+        doc["scenarios"].as_array().unwrap().clone()
+    }
+
+    fn turn(ids: &[String]) -> Vec<AgentMessage> {
+        let calls = ids.iter().map(|id| call(id)).collect();
+        std::iter::once(AgentMessage::assistant("", calls))
+            .chain(ids.iter().map(|id| AgentMessage::tool_text(id, "r", ToolKind::Normal)))
+            .collect()
+    }
+
+    fn strings(value: &JsonValue) -> Vec<String> {
+        value.as_array().map_or_else(Vec::new, |ids| ids.iter().map(|id| id.as_str().unwrap().to_owned()).collect())
+    }
+
+    /// Node's `createToolCallIdResolver` over its test's histories and batches: every round's streamed calls, then its
+    /// final batch, with the ids the round ended with appended to the history as one more turn.
+    #[test]
+    fn ids_are_resolved_per_round_as_node_resolves_them() {
+        let mut failures = Vec::new();
+        for scenario in recorded_scenarios() {
+            let mut messages = vec![AgentMessage::user("x")];
+            for ids in scenario["history"].as_array().unwrap() {
+                messages.extend(turn(&strings(ids)));
+            }
+            for (index, round) in scenario["rounds"].as_array().unwrap().iter().enumerate() {
+                let mut ids = ToolCallIds::new(&messages);
+                let streamed: Vec<String> = strings(&round["streamed"]).iter().map(|id| {
+                    let mut c = call(id);
+                    ids.resolve(&mut c);
+                    c.id
+                }).collect();
+                let final_ids = round["final"].as_array().map(|_| {
+                    let mut batch: Vec<ToolCall> = strings(&round["final"]).iter().map(|id| call(id)).collect();
+                    ids.resolve_all(&mut batch);
+                    batch.into_iter().map(|c| c.id).collect::<Vec<_>>()
+                });
+                if streamed != strings(&round["streamedOut"]) || final_ids.as_ref().map(|f| f.as_slice()) != round["finalOut"].as_array().map(|_| strings(&round["finalOut"])).as_deref() {
+                    failures.push(format!("{} round {index}: Node {} / {}, here {streamed:?} / {final_ids:?}", scenario["name"], round["streamedOut"], round["finalOut"]));
+                }
+                messages.extend(turn(&final_ids.unwrap_or(streamed)));
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    /// The same, through the builder a provider's stream is folded by: the calls a stream finished, then the response's
+    /// returned batch, must end as the ids Node's final batch ends with.
+    #[test]
+    fn a_response_folded_from_a_stream_carries_node_resolved_ids() {
+        use crate::response::ResponseBuilder;
+        use mixdog_core_api::domain::provider::StreamEvent;
+        let mut failures = Vec::new();
+        for scenario in recorded_scenarios() {
+            let mut messages = vec![AgentMessage::user("x")];
+            for ids in scenario["history"].as_array().unwrap() {
+                messages.extend(turn(&strings(ids)));
+            }
+            for (index, round) in scenario["rounds"].as_array().unwrap().iter().enumerate() {
+                let Some(final_want) = round["finalOut"].as_array().map(|_| strings(&round["finalOut"])) else { continue };
+                let mut builder = ResponseBuilder::new("m", ToolCallIds::new(&messages));
+                for id in strings(&round["streamed"]) {
+                    builder.push(StreamEvent::ToolCallDone(call(&id)));
+                }
+                builder.push(StreamEvent::ReturnedCalls(strings(&round["final"]).iter().map(|id| call(id)).collect()));
+                let got: Vec<String> = builder.finish().tool_calls.into_iter().map(|c| c.id).collect();
+                if got != final_want {
+                    failures.push(format!("{} round {index}: Node {final_want:?}, here {got:?}", scenario["name"]));
+                }
+                messages.extend(turn(&final_want));
+            }
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
     }
 
     #[test]

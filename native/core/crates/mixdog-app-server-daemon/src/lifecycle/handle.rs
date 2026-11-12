@@ -22,7 +22,10 @@ use tokio::sync::watch;
 use super::machine::Machine;
 use super::model::ActivityInfo;
 use super::model::Blocked;
+use super::grace::ThreadTimer;
+use super::model::ClientGrace;
 use super::model::ClientKind;
+use super::ports::GraceTimer;
 use super::model::CommandError;
 use super::model::CoreStatus;
 use super::model::DiscoveryPhase;
@@ -71,6 +74,9 @@ pub struct Lifecycle {
     stalled_ms: AtomicU64,
     /// See [`Lifecycle::note_trigger`].
     trigger: Mutex<Option<String>>,
+    timer: Arc<dyn GraceTimer>,
+    /// The pending no-clients grace; dropping it cancels the timer.
+    grace_timer: Mutex<Option<Box<dyn Send>>>,
 }
 
 fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -83,7 +89,12 @@ impl Lifecycle {
     }
 
     pub fn with_budgets(cfg: LifecycleConfig, ports: Ports, budgets: ReleaseBudgets) -> Arc<Self> {
-        let machine = Machine::new(cfg.instance_id.clone(), cfg.version.clone());
+        Self::with_grace(cfg, ports, budgets, ClientGrace::node(), Arc::new(ThreadTimer))
+    }
+
+    /// As [`Lifecycle::with_budgets`], with the no-clients grace durations and the clock that runs them.
+    pub fn with_grace(cfg: LifecycleConfig, ports: Ports, budgets: ReleaseBudgets, grace: ClientGrace, timer: Arc<dyn GraceTimer>) -> Arc<Self> {
+        let machine = Machine::new(cfg.instance_id.clone(), cfg.version.clone()).with_client_grace(grace);
         let status = ArcSwap::from_pointee(machine.status());
         let (state_tx, _) = watch::channel(machine.core_state());
         let (hold_tx, _) = watch::channel(false);
@@ -98,6 +109,8 @@ impl Lifecycle {
             budgets,
             stalled_ms: AtomicU64::new(0),
             trigger: Mutex::new(None),
+            timer,
+            grace_timer: Mutex::new(None),
         })
     }
 
@@ -348,6 +361,19 @@ impl Lifecycle {
             Effect::CutNewTasks => self.ports.core.cut_new_tasks(),
             Effect::ReleaseDecision { pid } => self.ports.core.release_decision(pid),
             Effect::NodeTrigger(text) => self.note_trigger(text),
+            Effect::ArmGrace { generation, delay } => {
+                let lifecycle = Arc::downgrade(self);
+                let pending = self.timer.after(
+                    delay,
+                    Box::new(move || {
+                        if let Some(lifecycle) = lifecycle.upgrade() {
+                            lifecycle.apply(|m| m.grace_expired(generation));
+                        }
+                    }),
+                );
+                *locked(&self.grace_timer) = Some(pending);
+            }
+            Effect::CancelGrace => drop(locked(&self.grace_timer).take()),
             Effect::BeginRelease(cause) => {
                 let lifecycle = Arc::clone(self);
                 std::thread::Builder::new()

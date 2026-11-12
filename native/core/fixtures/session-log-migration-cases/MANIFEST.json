@@ -1,0 +1,52 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-session-log-migration-cases.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "compared": "after each case's steps: every session as Node's reader reads it from its log (valid, header, messages), whether every legacy json kept its bytes and mtime, and the leftover .tmp files; the disk-full case also after its failed run",
+  "differences": {
+    "legacy jsons after a completed run": "Node keeps every legacy json byte for byte (jsonsUnchanged: true); the core removes them once the run is verified complete. Decision: no rollback support (rust-core decisions.md:12, \"Version transition\"); the core asserts it in native/core/crates/mixdog-migrate/tests/it/recorded_145.rs:149 (`data/sessions/*.json` removed by contract). The replay checks that Node kept them, that the core left none after a complete run, and that a run which did not complete changed none."
+  },
+  "excluded": {
+    "a busy session is skipped and retried at the next start": "equality impossible: Node skips a session whose writer claim another process holds (session-log-migration.mjs:250, MIGRATION_SKIP.BUSY :43), migrating after boot beside running writers; the core migrates at boot step 5 under the data dir's lock, before anything serves (native/core/crates/mixdog-app-server-daemon/src/boot.rs:1-7), so no writer can hold a session",
+    "a file that fails verification is skipped permanently until it changes": "nothing outside the module can reach it: VERIFY_MISMATCH (session-log-migration.mjs:56) needs a loader that reads the same json differently twice; the test injects one (`unstableLoad`, session-log-migration.test.mjs:104); the product's LEGACY_SESSION_LOADER is a pure parse of the bytes, so no product json fails this verification"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 7258,
+      "path": "golden.json",
+      "sha256": "7ae86fcdbcaa07b6eab68408597b99cebc93cea26401cc273b3e137c57d86950"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "loader": "the product's LEGACY_SESSION_LOADER (the test passes its fixture loader); the claim is the test's held claim",
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-session-log-migration-cases.mjs",
+  "recorderSha256": "0c5b82ad9cd5078c68c7299e2624da11375f5da8e3e4966fa5877a6f4dd9a3a7",
+  "set": "session-log-migration-cases",
+  "totalBytes": 7258
+}

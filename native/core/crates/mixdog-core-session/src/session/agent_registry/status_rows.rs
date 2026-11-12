@@ -343,9 +343,9 @@ impl AgentToolStatus {
     /// host has only the record's `messageCount`.
     async fn message_count(&self, id: &str, session: &Row) -> u64 {
         if self.directory.handle(&ThreadId::from(id)).is_some()
-            && let Ok(rows) = self.directory.model_context(&ThreadId::from(id)).read().await
+            && let Ok(count) = self.directory.model_context(&ThreadId::from(id)).len().await
         {
-            return rows.len() as u64;
+            return count as u64;
         }
         count_of(session, "messages", "messageCount")
     }

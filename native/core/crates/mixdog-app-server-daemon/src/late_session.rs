@@ -553,50 +553,71 @@ impl Bound for LateListCatalog {
 }
 
 /// `ThreadRequests` of the `session` tool's port over the live directory (the port is built with the pool, before the directory).
-pub struct LateRequests(pub Arc<LateDirectory>);
+/// Bound with the thread settings service (`SettingsRequests`), which answers the methods the thread actor does not.
+#[derive(Default)]
+pub struct LateRequests(OnceLock<Arc<dyn mixdog_core::run_host::tool_pool::session_port::ThreadRequests>>);
+
+impl LateRequests {
+    pub fn bind(&self, requests: Arc<dyn mixdog_core::run_host::tool_pool::session_port::ThreadRequests>) -> Result<(), &'static str> {
+        self.0.set(requests).map_err(|_| "session tool requests")
+    }
+
+    fn bound(&self) -> &Arc<dyn mixdog_core::run_host::tool_pool::session_port::ThreadRequests> {
+        self.0.get().expect("session tool requests bound (compose::verify_bound)")
+    }
+}
 
 #[async_trait]
 impl mixdog_core::run_host::tool_pool::session_port::ThreadRequests for LateRequests {
     async fn request(&self, thread: &ThreadId, method: &'static str, params: Value) -> Result<Value, mixdog_core_api::CoreError> {
-        match self.0.directory() {
-            Some(directory) => mixdog_core::run_host::tool_pool::session_port::ThreadRequests::request(&*directory, thread, method, params).await,
+        match self.0.get() {
+            Some(requests) => requests.request(thread, method, params).await,
+            None => Err(mixdog_core_base::support::failed("session", "the session directory is not bound")),
+        }
+    }
+
+    async fn set_caller_cwd(&self, thread: &ThreadId, path: &str) -> Result<String, mixdog_core_api::CoreError> {
+        match self.0.get() {
+            Some(requests) => requests.set_caller_cwd(thread, path).await,
             None => Err(mixdog_core_base::support::failed("session", "the session directory is not bound")),
         }
     }
 
     fn interrupt(&self, thread: &ThreadId) -> Result<bool, mixdog_core_api::CoreError> {
-        mixdog_core::run_host::tool_pool::session_port::ThreadRequests::interrupt(&*self.0.directory().expect("session directory bound (compose::verify_bound)"), thread)
+        self.bound().interrupt(thread)
     }
 
     async fn transcript(&self, thread: &ThreadId) -> Result<Vec<mixdog_protocol::ThreadItem>, mixdog_core_api::CoreError> {
-        match self.0.directory() {
-            Some(directory) => mixdog_core::run_host::tool_pool::session_port::ThreadRequests::transcript(&*directory, thread).await,
-            None => Err(mixdog_core_base::support::failed("session", "the session directory is not bound")),
-        }
+        self.bound().transcript(thread).await
     }
 
     fn compact_after_turn(&self, thread: &ThreadId) -> Result<(), mixdog_core_api::CoreError> {
-        mixdog_core::run_host::tool_pool::session_port::ThreadRequests::compact_after_turn(&*self.0.directory().expect("session directory bound (compose::verify_bound)"), thread)
+        self.bound().compact_after_turn(thread)
     }
 
     async fn submit(&self, thread: &ThreadId, content: &Value, id: &str, hop: u32, bot_chain: &[String], from_agent: Option<&str>) -> Result<bool, mixdog_core_api::CoreError> {
-        match self.0.directory() {
-            Some(directory) => mixdog_core::run_host::tool_pool::session_port::ThreadRequests::submit(&*directory, thread, content, id, hop, bot_chain, from_agent).await,
-            None => Err(mixdog_core_base::support::failed("session", "the session directory is not bound")),
-        }
+        self.bound().submit(thread, content, id, hop, bot_chain, from_agent).await
     }
 
     async fn start(&self, params: Value) -> Result<Value, mixdog_core_api::CoreError> {
-        match self.0.directory() {
-            Some(directory) => mixdog_core::run_host::tool_pool::session_port::ThreadRequests::start(&*directory, params).await,
-            None => Err(mixdog_core_base::support::failed("session", "the session directory is not bound")),
-        }
+        self.bound().start(params).await
     }
 
     fn turn_state(&self, thread: &ThreadId) -> (u32, Vec<String>) {
-        mixdog_core::run_host::tool_pool::session_port::ThreadRequests::turn_state(&*self.0.directory().expect("session directory bound (compose::verify_bound)"), thread)
+        self.bound().turn_state(thread)
     }
 }
+
+impl Bound for LateRequests {
+    fn cell(&self) -> &'static str {
+        "session tool requests"
+    }
+
+    fn is_bound(&self) -> bool {
+        self.0.get().is_some()
+    }
+}
+
 /// `context.cwd` of a recorded tool change: the live header's folder (`ThreadCwd`); a thread that is not loaded has none, and the review keeps the path as given.
 pub struct LiveThreadCwd(pub Arc<LateDirectory>);
 
@@ -778,6 +799,10 @@ impl LateNewPlace {
 impl mixdog_core_session::session::NewThreadPlace for LateNewPlace {
     async fn projects(&self) -> Result<Vec<String>, String> {
         self.0.get().expect("new thread place bound (compose::verify_bound)").projects().await
+    }
+
+    async fn touch_project(&self, path: &str) -> Result<(), String> {
+        self.0.get().expect("new thread place bound (compose::verify_bound)").touch_project(path).await
     }
 
     async fn enter_worktree(

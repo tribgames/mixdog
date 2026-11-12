@@ -1,0 +1,91 @@
+{
+  "cases": 8,
+  "command": "node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs benchmarks/rust-core/recorders/record-session-final-answer-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "hops": "No wire in the Node test.",
+    "notRun": "no real session host: readSession is scripted and its argument list recorded",
+    "runs": "sessionFinalAnswer, isSessionMissingError, SESSION_NOT_AVAILABLE_CODE (session-final-answer.ts), SessionHost.prototype.readSessionFinalAnswer called on a stand-in `this` with a scripted readSession, restoreTranscriptItems"
+  },
+  "exclusions": {},
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 3629,
+      "path": "golden.json",
+      "sha256": "157c2d5f6fd82ecc048d4922a86098bc96e84a25ee2eddabbf71c5c432cef8e4"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
+      "sha256": "b4c0feda547d48e7012fdd6a2298a71f412a5422e28d873410bc86172af99002"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/final-answer-scenarios.mjs",
+      "sha256": "e70e892cfc27668d30032b72cf291d5cdcd29f30b455b36ceaf0ede3ccdeaaa5"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
+      "sha256": "6724d28ef81d587b260d713514d65dcdbb57e56ca79868c1a916f701e379910e"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
+      "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
+      "sha256": "7a592667b9ccf0e1dfe5250eb203c75a6ad672c12cdfc764e85891f7609c72b7"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "paths": [],
+    "reason": "per-run temp path (or generated name) replaced by a placeholder"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-session-final-answer-cases.mjs",
+  "recorderSha256": "5baad2b9c4be7829735fa8184a3a6a2d556bd3fc0676a19ce8be0de56a2a760b",
+  "replay": {
+    "compare": "the desktop's final-answer announcement and its host read on the product modules (the core serves the read as thread/finalAnswer/read); compare each case whole",
+    "entry": "Drive these public items on o1: thread/finalAnswer/read.",
+    "existsButNotPublicOnO1": [],
+    "missingOnO1": [],
+    "normalised": {},
+    "protocolMethods": [
+      "thread/finalAnswer/read"
+    ],
+    "rustTargets": [],
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
+  },
+  "set": "session-final-answer-cases",
+  "totalBytes": 3629,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
+}

@@ -1,0 +1,185 @@
+{
+  "note": "Node's spawn flow at b6f10295a2f698afc85332467192de28500bd146, per case of benchmarks/rust-core/recorders/record-spawn-flow-cases.mjs",
+  "test": "src/session-runtime/services/agent-tool/spawn-flow.test.mjs",
+  "cases": [
+    {
+      "case": "agent job lifecycle publishes status immediately and after terminal settlement",
+      "kind": "status",
+      "recorded": {
+        "atStart": {
+          "status": "running",
+          "publications": 1
+        },
+        "settled": {
+          "status": "completed",
+          "publications": 2
+        }
+      }
+    },
+    {
+      "case": "agent job completion uses immutable caller owner and never invokes stale notify context",
+      "kind": "owner",
+      "recorded": {
+        "status": "completed",
+        "staleCalls": 0,
+        "deliveries": [
+          {
+            "sessionId": "lead-owner",
+            "text": "<task-notification>\n<task-id><task></task-id>\n<tag>owner-test</tag>\n<status>completed</status>\n<summary>Agent \"owner-test\" completed</summary>\n<result>\nowner handoff\n</result>\n</task-notification>",
+            "meta": {
+              "type": "agent_task_result",
+              "execution_surface": "agent",
+              "execution_id": "<task>",
+              "status": "completed",
+              "instruction": "Agent \"<task>\" completed",
+              "caller_session_id": "lead-owner",
+              "client_host_pid": "<pid>"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "case": "a spawn's host-set skill selection reaches the worker's turn on both runtimes; none is invented",
+      "kind": "skills",
+      "runs": [
+        {
+          "canonical": true,
+          "args": {
+            "skillSelection": "trusted $a"
+          }
+        },
+        {
+          "canonical": true,
+          "args": {}
+        },
+        {
+          "canonical": false,
+          "args": {
+            "skillSelection": ""
+          }
+        },
+        {
+          "canonical": false,
+          "args": {}
+        }
+      ],
+      "recorded": {
+        "turns": [
+          {
+            "canonical": true,
+            "present": true,
+            "value": "trusted $a"
+          },
+          {
+            "canonical": true,
+            "present": false,
+            "value": null
+          },
+          {
+            "canonical": false,
+            "present": true,
+            "value": ""
+          },
+          {
+            "canonical": false,
+            "present": false,
+            "value": null
+          }
+        ]
+      }
+    },
+    {
+      "case": "agent close of a running agent notifies the owner once, as cancelled, with the partial output",
+      "kind": "close",
+      "partial": "half of the review",
+      "recorded": {
+        "closed": {
+          "closed": true,
+          "tag": "close-worker",
+          "sessionId": "sess_close_worker",
+          "task_id": null
+        },
+        "status": "cancelled",
+        "closures": [
+          [
+            "sess_close_worker",
+            "agent-task-cancel",
+            {
+              "tombstone": false
+            }
+          ],
+          [
+            "sess_close_worker",
+            "cli-agent-close",
+            {
+              "tombstone": false,
+              "ownerClose": true
+            }
+          ]
+        ],
+        "deliveries": [
+          {
+            "sessionId": "sess_close_lead",
+            "text": "<task-notification>\n<task-id><task></task-id>\n<tag>close-worker</tag>\n<status>cancelled</status>\n<summary>Agent \"close-worker\" was cancelled (cancelled by agent close)</summary>\n<result>\nhalf of the review\n</result>\n</task-notification>",
+            "meta": {
+              "type": "agent_task_result",
+              "execution_surface": "agent",
+              "execution_id": "<task>",
+              "status": "cancelled",
+              "instruction": "Agent \"<task>\" was cancelled",
+              "caller_session_id": "sess_close_lead",
+              "client_host_pid": "<pid>"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "case": "agent close of a running agent without output sends the header-only cancelled notification",
+      "kind": "close",
+      "partial": "",
+      "recorded": {
+        "closed": {
+          "closed": true,
+          "tag": "close-worker",
+          "sessionId": "sess_close_worker",
+          "task_id": null
+        },
+        "status": "cancelled",
+        "closures": [
+          [
+            "sess_close_worker",
+            "agent-task-cancel",
+            {
+              "tombstone": false
+            }
+          ],
+          [
+            "sess_close_worker",
+            "cli-agent-close",
+            {
+              "tombstone": false,
+              "ownerClose": true
+            }
+          ]
+        ],
+        "deliveries": [
+          {
+            "sessionId": "sess_close_lead",
+            "text": "<task-notification>\n<task-id><task></task-id>\n<tag>close-worker</tag>\n<status>cancelled</status>\n<summary>Agent \"close-worker\" was cancelled (cancelled by agent close)</summary>\n</task-notification>",
+            "meta": {
+              "type": "agent_task_result",
+              "execution_surface": "agent",
+              "execution_id": "<task>",
+              "status": "cancelled",
+              "instruction": "Agent \"<task>\" was cancelled",
+              "caller_session_id": "sess_close_lead",
+              "client_host_pid": "<pid>"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -59,6 +59,16 @@ pub trait RoomHost: Send + Sync {
     async fn set_archived(&self, session_id: &str, archived: bool) -> Result<(), RoomError>;
     /// Deletes each session; the number that could not be deleted.
     async fn delete_sessions(&self, session_ids: &[String]) -> usize;
+    /// Keeps who is in the room on the room's log, the one record a rebuilt room takes its members from (a member session proves
+    /// nothing: the removal of its member may have failed to delete it). Called with the membership before it is saved.
+    async fn record_members(&self, _room_id: &str, _members: &[String]) -> Result<(), RoomError> {
+        Ok(())
+    }
+    /// [`Self::record_members`] for a room whose log has no such record yet (one saved before its log kept its members): written
+    /// only then, so a record the room's changes wrote is never replaced.
+    async fn seed_members(&self, _room_id: &str, _members: &[String]) -> Result<(), RoomError> {
+        Ok(())
+    }
     /// `startSessionOver`: the session is cleared in place and its conversation kept under a new archived id
     /// (`None` when it had nothing to keep).
     async fn start_over(&self, session_id: &str) -> Result<Option<String>, RoomError>;
@@ -193,6 +203,15 @@ fn failure(error: RoomError) -> CoreError {
     coded("room", code, error.to_string())
 }
 
+/// Has `rooms` keep each room's members on its log through `host` ([`RoomHost::record_members`]) at every save that changes
+/// them, whichever call makes the change.
+pub fn log_members_through<S: RoomStore>(rooms: &Rooms<S>, host: Arc<dyn RoomHost>) {
+    rooms.log_members_with(Arc::new(move |room_id, members| {
+        let host = host.clone();
+        Box::pin(async move { host.record_members(&room_id, &members).await })
+    }));
+}
+
 pub struct RoomService<S: RoomStore, H: RoomHost, R: RoomRunner> {
     rooms: Arc<Rooms<S>>,
     host: Arc<H>,
@@ -216,6 +235,7 @@ impl<S: RoomStore + 'static, H: RoomHost + 'static, R: RoomRunner + 'static> Roo
         ready: Arc<RoomsReady>,
         sender: Arc<dyn RoomSend>,
     ) -> Self {
+        log_members_through(&rooms, host.clone());
         Self { rooms, host, runner, ops, names, ready, sender }
     }
 

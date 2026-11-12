@@ -110,7 +110,11 @@ fn read_document(path: &Path) -> Probe<Document> {
             _ => Probe::Unreadable,
         },
         Err(err) if err.kind() == io::ErrorKind::NotFound => Probe::Absent,
-        Err(_) => Probe::Unreadable,
+        Err(error) => {
+            // Node's watched-file cache logs the re-read of a watched input that failed (`watched-file-cache.mjs`), and keeps going.
+            tracing::warn!("[watch] re-read of {} failed: {error}", path.display());
+            Probe::Unreadable
+        }
     }
 }
 
@@ -158,6 +162,12 @@ impl CredentialFile {
 
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// The credentials this file's account holds now, as its provider read or wrote them: each is a credential the process
+    /// redacts from then on (`carried::keep`, the file naming the account).
+    pub fn keep(&self, values: &[&str]) {
+        super::carried::keep(&format!("file {}", self.path.display()), values);
     }
 
     async fn read_job(&self) -> Probe<Document> {

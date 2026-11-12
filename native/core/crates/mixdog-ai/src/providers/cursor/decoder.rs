@@ -9,6 +9,7 @@
 //! back on the open request body.
 
 use std::collections::HashSet;
+use std::sync::LazyLock;
 
 use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::ErrorKind;
@@ -52,6 +53,19 @@ use crate::providers::leak::Recovered;
 use crate::providers::connect::frame::FrameReader;
 use crate::providers::connect::provider_error;
 use crate::retry::advice;
+
+/// `REQUEST_TOO_LARGE_RE` (cursor-wire-transport.mjs:80): only explicit wording about the tool catalog or the request
+/// payload being too large counts.
+static REQUEST_TOO_LARGE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(
+        r"(?i)(?-u:\b)(?:tool\s+(?:catalog|definitions?|schemas?)|tools|payload|request(?:\s+body)?)(?-u:\b)[^.\n]{0,80}?(?-u:\b)(?:too\s+(?:large|big)|exceed(?:s|ed)?(?-u:\b)[^.\n]{0,30}?(?-u:\b)(?:size|limit|maximum))",
+    )
+    .expect("constant pattern")
+});
+
+/// `THROTTLE_CUE_RE`: rate or quota wording wins over the size match.
+static THROTTLE_CUE: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"(?i)too\s+many\s+requests|quota|rate[\s_-]*limit|throttl").expect("constant pattern"));
 
 const UNAVAILABLE: &str = "Tool not available in this environment. Use a Mixdog tool instead.";
 const REJECT_REASON: &str = "This Cursor-side interaction is unavailable. Use the Mixdog tools instead.";
@@ -661,20 +675,22 @@ impl CursorDecoder {
             .and_then(|text| {
                 advice::from_headers(&[("retry-after".to_owned(), text)], std::time::SystemTime::now())
             });
+        // `parseEndStream`'s `tooLarge`: a `resource_exhausted` whose text names the tool catalog or the request payload as
+        // too large is a 413 `request_too_large`, terminal before any output; rate or quota wording keeps it a throttle.
+        let too_large = code == "resource_exhausted" && !THROTTLE_CUE.is_match(detail) && REQUEST_TOO_LARGE.is_match(detail);
         let mut error = provider_error(
             ConnectFailure {
-                code: code.clone(),
+                code: if too_large { String::new() } else { code.clone() },
                 message: format!("Cursor {code}: {detail}"),
-                http_status: None,
+                http_status: too_large.then_some(413),
                 retry_after,
             },
             DeliveryState::Accepted,
         );
+        if too_large {
+            error.code = Some("request_too_large".to_owned());
+        }
         error.exposure = self.exposure;
-        // The product reports every end-stream failure as an aborted stream;
-        // the kind above keeps the retry verdict of the stream's own code.
-        error.code = Some("stream_aborted".to_owned());
-        error.status = None;
         Some(error)
     }
 

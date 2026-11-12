@@ -174,13 +174,49 @@ async fn a_worker_stuck_in_sync_code_keeps_its_slot_until_stopped() {
     let mut waiting = pool.call(call("b", "echo", json!("after"))).unwrap();
     assert!(
         mixdog_rt::time::timeout(Duration::from_millis(300), waiting.next()).await.is_err(),
-        "no timer reclaims a slot"
+        "the slot is held until the cancel's grace has passed (a_parser_that_ignores_the_cancel_is_ended_after_the_grace)"
     );
     assert_eq!(busy(&pool.status()), 1);
     pool.stop_worker(worker).unwrap();
     // A replacement worker serves the call that was waiting.
     assert_eq!(finish(&mut waiting).await.1.unwrap(), json!("after"));
     assert!(matches!(pool.stop_worker(ExtWorkerId(999)), Err(ExtError::UnknownWorker)));
+}
+
+/// A parser that never looks at the cancel (the PDF read after its 60,000 ms deadline drops the call): the process is ended
+/// once `CANCEL_GRACE` has passed, with nobody stopping the worker, and the next call (the only worker is the parser's) is
+/// answered by a fresh worker: that answer is the fact this waits on, and the parser's process is gone by then. The grace
+/// is the pool's own seam (`ExtHostPool::with_grace`): it ends only when this test releases it, the test's one explicit
+/// advance of the grace; before that the parser is found alive and the next call unanswered.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_parser_that_ignores_the_cancel_is_ended_after_the_grace() {
+    let asked = std::sync::Arc::new(tokio::sync::Semaphore::new(0));
+    let (release, released) = tokio::sync::watch::channel(false);
+    let grace: mixdog_exthost::GraceWait = {
+        let asked = asked.clone();
+        std::sync::Arc::new(move || {
+            asked.add_permits(1);
+            let mut released = released.clone();
+            Box::pin(async move {
+                let _ = released.wait_for(|r| *r).await;
+            })
+        })
+    };
+    let pool = ExtHostPool::with_grace(config(1, &[]), grace).unwrap();
+    let pid_file = pid_file("ignores-cancel");
+    let spinning = pool.call(call("a", "spinWithPid", json!({"pidFile": pid_file}))).unwrap();
+    let parser = helper_pid(&pid_file).await;
+    let _ = std::fs::remove_file(&pid_file);
+    drop(spinning);
+    let mut waiting = pool.call(call("b", "echo", json!("after"))).unwrap();
+    // The pool has asked for the grace of the dropped call: the cancel is sent and the end of the grace is awaited.
+    asked.acquire().await.expect("the pool asks for the grace").forget();
+    assert!(alive(parser).await, "the parser is still running before its grace has ended");
+    assert!(tokio::time::timeout(Duration::ZERO, waiting.next()).await.is_err(), "the slot is held until the grace has ended");
+    release.send(true).unwrap();
+    let (_, outcome) = finish(&mut waiting).await;
+    assert_eq!(outcome.unwrap(), json!("after"), "a fresh worker serves the next call");
+    assert!(!alive(parser).await, "the parser process is gone");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -501,10 +537,17 @@ async fn document_text_equals_nodes_recorded_extraction_for_every_format_error_a
         }
     }
     let pdf = load("pdf.json");
-    assert_eq!(pdf.len(), 3);
+    assert_eq!(pdf.len(), 5);
     for case in &pdf {
         let got = within(media.pdf_text(&thread, case["dataBase64"].as_str().unwrap())).await.unwrap();
-        assert_eq!(Some(got.as_str()), case["text"].as_str(), "pdf case {}", case["name"]);
+        if let Some(bytes) = case["textBytes"].as_u64() {
+            // Too large to keep whole: the golden holds its size, hash and end.
+            assert_eq!(got.len() as u64, bytes, "pdf case {}", case["name"]);
+            assert_eq!(format!("{:x}", sha2::Sha256::digest(got.as_bytes())), case["textSha256"].as_str().unwrap());
+            assert!(got.ends_with(case["textTail"].as_str().unwrap()));
+        } else {
+            assert_eq!(Some(got.as_str()), case["text"].as_str(), "pdf case {}", case["name"]);
+        }
     }
     // The intake's counts: a text PDF, a scan, a mix (one text page, one stamped number only, one
     // image) and bytes the parser rejects.

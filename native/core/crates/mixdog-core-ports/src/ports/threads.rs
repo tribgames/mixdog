@@ -87,6 +87,9 @@ pub enum Section {
     /// `set({ spinner: { ...spinner, quiet } })`). The rest of the section stays as it was.
     SpinnerQuiet(Option<Value>),
     Route(ThreadRoute),
+    /// `turnEffort` of the route section alone (`None` clears it): the effort the turn in flight
+    /// runs at. The rest of the section stays as it was.
+    TurnEffort(Option<String>),
     Context(ThreadContext),
     Todo(Option<Value>),
     Goal(Option<Value>),

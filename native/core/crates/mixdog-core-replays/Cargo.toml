@@ -34,7 +34,7 @@ path = "tests/dispatch/main.rs"
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [dev-dependencies]
-mixdog-exthost = { workspace = true }
+mixdog-exthost = { workspace = true, features = ["test-support"] }
 mixdog-statefile = { workspace = true }
 mixdog-tools = { workspace = true, features = ["policy-observer"] }
 rand = { workspace = true }
@@ -52,7 +52,7 @@ reqwest = { workspace = true }
 rustls = { workspace = true, features = ["ring", "std"] }
 tokio-rustls = { workspace = true, features = ["ring"] }
 mixdog-migrate = { workspace = true, features = ["crash-hook"] }
-mixdog-trace = { workspace = true }
+mixdog-trace = { workspace = true, features = ["flush-probe"] }
 mixdog-core ={ workspace = true, features = ["count-work", "test-support"] }
 async-trait = { workspace = true }
 base64 = { workspace = true }

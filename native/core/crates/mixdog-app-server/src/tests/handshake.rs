@@ -42,7 +42,9 @@ async fn initialize_reports_the_core_and_latches() {
     assert_eq!(result["serverInstanceId"], json!("instance-1"));
     assert_eq!(result["coreState"], json!({ "state": "serving" }));
     assert_eq!(result["connection"]["origin"], json!("ssh"));
-    assert_eq!(result["limits"]["inflight"]["c2"], json!(8));
+    // Node caps no call's start per client (`MIXDOG_SESSION_ACTIVE_CALLS` is unset: `call-lanes.mjs:41`), so the handshake offers no
+    // in-flight cap to enforce; only the lanes' queue bounds refuse.
+    assert!(result["limits"].get("inflight").is_none(), "{}", result["limits"]);
 
     client.initialize(VERSION, json!({}));
     let again = client.response(0).await;

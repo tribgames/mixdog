@@ -159,9 +159,9 @@
       "sha256": "c0b66247e7c17c99266c79aea3bdd763355a145ee0787f83d4b27775cfef6258"
     },
     {
-      "bytes": 31646,
+      "bytes": 31653,
       "path": "path-arg-shapes.json",
-      "sha256": "9eada400ffabc8b517dd313a7fb9d8deb89ade5a35afac84bd5a8060b799cf40"
+      "sha256": "3468878a62c64da86f16cdd89161b1914b25953ccd6f19054f8d3339f8bb9501"
     },
     {
       "bytes": 21316,
@@ -179,9 +179,9 @@
       "sha256": "7c5e6d3788bcf7f778834dfded64c000063ec750861c66a6413009d30214915f"
     },
     {
-      "bytes": 9251,
+      "bytes": 9258,
       "path": "read-modes.json",
-      "sha256": "a1c9ffae807ab9945dd4a6035884b33b3cb27081b671319c42968957b632cfd1"
+      "sha256": "c6a472d2a446b667aab76ed868cdbfccb886da35398231e476d5a56892b46a77"
     },
     {
       "bytes": 21325,
@@ -261,7 +261,7 @@
   ],
   "graphBinary": {
     "builtFrom": "b6f10295a2f698afc85332467192de28500bd146:native/mixdog-graph (cargo build --locked --bin mixdog-graph, dev profile)",
-    "sha256": "6bd2206f4af7ab867f89619046568e3e86f61e15582721dbdd93f08b3e058ec8"
+    "sha256": "be2abdb0b1c28647332531ac149a4ebba17e8cfb7093b7d5694a4be8bd21e369"
   },
   "inputs": [
     {
@@ -284,7 +284,7 @@
   ],
   "oplockHolder": {
     "path": "benchmarks/rust-core/recorders/lib/oplock-holder.ps1",
-    "sha256": "4c7c3ef152539ae1bc4e19effdbf9181e5cd89a2a3cd23fe64d9245b18bb1fd6"
+    "sha256": "cb8c2a2dcd07311487f0c8ec79950a7765003748daf1467fe15489a4177fd99d"
   },
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
@@ -292,7 +292,7 @@
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
     "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
     "exact": true,
-    "files": 9141,
+    "files": 9146,
     "patches": [
       {
         "file": "node-fix-code-graph-self-federation.patch",
@@ -309,15 +309,34 @@
           "src/runtime/agent/orchestrator/tools/builtin/search-glob-verbatim-path.test.mjs"
         ],
         "sha256": "eb66c8c717f5836d7b8007ed1de31683a01529f54540fa9c453d86bee33c74f1"
+      },
+      {
+        "file": "node-change-shell-cover-tools.patch",
+        "paths": [
+          "src/runtime/agent/orchestrator/session/loop/tool-exec.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/arg-guard.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/bash-tool/misuse-guard.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/bash-tool/misuse-guard.test.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/bash-tool/tool-cover.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/bash-tool/tool-cover.test.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/machine-tool.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/machine-tool.test.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/read-args.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/read-tail.test.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/read-tool.mjs"
+        ],
+        "sha256": "ca6b18ef1d71590b7e55ff03af464ed2956ffa94e67533b412d1b01df2a99088"
       }
     ],
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
       "commitFilesMissingFromTree": 0,
       "exact": false,
-      "filesDifferingFromCommit": 4
+      "filesDifferingFromCommit": 17
     },
-    "srcSha256": "c74e0d8787c28bf9ebfd4980aca5070e86adce567ba1ed928cbac6e7d909d6ff",
+    "srcSha256": "931a810cda9e2c37b2fb8b8585d5e88370c4a4b6eaa3fe4e8eb4d08fa1bb2a36",
     "tree": "product tree loaded by the recorder",
     "treeKind": "archive",
     "version": "1.4.5"
@@ -376,5 +395,5 @@
     "search-admission-waiter-telemetry"
   ],
   "set": "tools-fs-search",
-  "totalBytes": 4067312
+  "totalBytes": 4067326
 }

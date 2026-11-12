@@ -1,116 +1,89 @@
-//! Admission by request class and its liveness rule (P §7.3, SPEC R6; §14.8).
+//! Admission through the call lanes, on the wire (`call_lanes.rs` replays the lanes themselves against Node's recording): a control
+//! call is answered at once while reads wait, and a backlog past the lane's queue is refused with the message Node's lane gives.
 
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_api::ids::TurnId;
+use serde_json::Value;
 use serde_json::json;
 
 use super::Rig;
-use super::reason;
 use super::settle;
 
 fn focus(client: &super::Client, id: i64) {
     client.request(id, "terminal/focus", json!({ "tabId": format!("tab{id}"), "focused": true }));
 }
 
-#[tokio::test(start_paused = true)]
-async fn saturating_a_class_is_answered_at_once_and_retries_ride_on_own_responses() {
-    let rig = Rig::gated(&["terminal"]);
-    let client = rig.ready(1, json!({}));
-    let cap = 8;
-    for id in 1..=cap {
-        focus(&client, id);
-    }
-    // Every admitted request is in flight (distinct tabs run side by side).
-    settle().await;
-    assert_eq!(rig.gate("terminal").log().len(), cap as usize);
-    assert!(client.drain().is_empty());
-
-    // One over the cap: answered immediately, not queued.
-    focus(&client, 9);
-    let refused = client.drain();
-    assert_eq!(refused.len(), 1);
-    assert_eq!(refused[0].body["id"], json!(9));
-    assert_eq!(refused[0].body["error"]["code"], json!(-32001));
-    assert_eq!(
-        refused[0].body["error"]["data"],
-        json!({ "reason": "inflightLimit", "class": "C2", "limit": 8 })
-    );
-
-    // A response to an own outstanding request frees room before it is written, so the retry
-    // that response triggers is admitted.
-    rig.gate("terminal").permits.add_permits(1);
-    let first = client.frames(1).await;
-    assert!(first[0].body.get("result").is_some());
-    focus(&client, 9);
-    settle().await;
-    assert!(client.drain().is_empty(), "the retry was admitted and waits");
-    assert_eq!(rig.gate("terminal").log().len(), cap as usize + 2);
-    rig.gate("terminal").permits.add_permits(cap as usize);
-    let rest = client.frames(cap as usize).await;
-    assert!(rest.iter().all(|wire| wire.body.get("result").is_some()));
+/// The refusal Node's recording has for the 1025th call of one owner in the normal lane.
+fn recorded_queue_full() -> String {
+    let recording: Value = serde_json::from_str(&mixdog_testkit::fixture!("../../fixtures/session-call-lanes/golden.json")).unwrap();
+    let case = recording["cases"].as_array().unwrap().iter().find(|case| case["case"] == "the normal lane refuses past its 1024 queue for one owner").unwrap();
+    case["observed"]["refused"][0]["message"].as_str().unwrap().to_owned()
 }
 
 // The recorded model-proxy burst and refusal are replayed from the wire through this admission to the real
 // `ModelProxyService` in model_proxy_wire.rs.
 
+/// `config/read` is a normal-lane call (Node's `session.list` class): 1024 wait for their turn and the next is refused as Node's
+/// lane refuses it; the answer is `{ error: message }` with no status.
 #[tokio::test(start_paused = true)]
-async fn control_requests_stay_admitted_while_a_class_is_saturated() {
-    let rig = Rig::gated(&["terminal"]);
-    let thread = rig
-        .core
-        .mock
-        .directory()
-        .insert(ThreadId::from("t1"));
+async fn a_backlog_past_the_lane_queue_is_refused_with_nodes_message() {
+    let rig = Rig::routed(super::domain_methods(), vec![("config", &["config/read"])]);
+    let client = rig.ready(1, json!({}));
+    for id in 1..=1025 {
+        client.request(id, "config/read", json!({}));
+    }
+    let refused = client.drain();
+    assert_eq!(refused.len(), 1, "only the one past the queue: {refused:?}");
+    assert_eq!(refused[0].body["id"], json!(1025));
+    assert_eq!(refused[0].body["error"]["data"]["message"], json!(recorded_queue_full()));
+}
+
+/// A stop sent while reads wait their turn is answered before any of them has started (Node's critical lane never queues).
+#[tokio::test(start_paused = true)]
+async fn a_stop_is_answered_while_reads_wait_in_the_lane() {
+    let rig = Rig::routed(super::domain_methods(), vec![("config", &["config/read"])]);
+    let thread = rig.core.mock.directory().insert(ThreadId::from("t1"));
     thread.set_active_turn(Some(TurnId::from("turn1")));
     let client = rig.ready(1, json!({}));
-    for id in 1..=8 {
-        focus(&client, id);
+    for id in 1..=100 {
+        client.request(id, "config/read", json!({}));
     }
-    focus(&client, 9);
-    assert_eq!(reason(&client.drain()[0].body), "inflightLimit");
-
-    client.request(20, "turn/interrupt", json!({ "threadId": "t1", "turnId": "turn1" }));
-    let reply = client.response(20).await;
-    assert_eq!(
-        reply["result"],
-        json!({ "cancelRequested": true, "turnId": "turn1", "aborted": true, "restoreText": "", "pastedImages": null, "pastedTexts": null, "discardPastedImages": null, "discardPastedTexts": null, "restoredSubmissionIds": [] })
-    );
+    client.request(200, "turn/interrupt", json!({ "threadId": "t1", "turnId": "turn1" }));
+    // The lane starts one read per turn of the runtime: within ten turns the stop is answered, with most reads still waiting.
+    let mut answer = None;
+    for _ in 0..10 {
+        tokio::task::yield_now().await;
+        answer = client.drain().into_iter().find(|wire| wire.body["id"] == json!(200));
+        if answer.is_some() {
+            break;
+        }
+    }
+    let answer = answer.expect("the stop is answered within ten turns of the runtime").body;
+    assert_eq!(answer["result"]["cancelRequested"], json!(true));
+    let started = rig.gate("config").log().len();
+    assert!(started <= 10, "the stop was answered after {started} of 100 reads had started");
+    // The reads still run, one per turn of the lane, and every one is answered.
+    rig.gate("config").permits.add_permits(100);
+    let rest = client.frames(100).await;
+    assert!(rest.iter().all(|wire| wire.body.get("result").is_some()), "{rest:?}");
 }
 
+/// The core is told of each started request for as long as its slot is held (`CoreHandle::request_started`): the daemon's lifecycle
+/// counts them as Node's `inFlightWork().activeCalls`.
 #[tokio::test(start_paused = true)]
-async fn classes_are_counted_apart() {
-    let rig = Rig::gated(&["terminal"]);
-    let client = rig.ready(1, json!({}));
-    for id in 1..=8 {
-        focus(&client, id);
-    }
-    // C1 has its own cap, untouched by the saturated C2.
-    client.request(30, "project/list", json!({}));
-    let reply = client.response(30).await;
-    assert!(reply.get("result").is_some(), "{reply}");
-}
-
-/// The core is told of each admitted request for as long as its slot is held (`CoreHandle::request_started`): the daemon's lifecycle
-/// counts them as Node's `inFlightWork().activeCalls`. A request refused at the class cap never took a slot, so it is no call.
-#[tokio::test(start_paused = true)]
-async fn an_admitted_request_is_a_call_in_flight_until_its_slot_is_freed() {
+async fn a_started_request_is_a_call_in_flight_until_its_slot_is_freed() {
     let rig = Rig::gated(&["terminal"]);
     let client = rig.ready(1, json!({}));
     assert_eq!(rig.core.mock.requests_in_flight(), 0);
-    let cap = 8;
-    for id in 1..=cap {
+    for id in 1..=8 {
         focus(&client, id);
     }
     settle().await;
-    assert_eq!(rig.gate("terminal").log().len(), cap as usize);
-    assert_eq!(rig.core.mock.requests_in_flight(), cap as usize, "every admitted request is a call in flight");
+    assert_eq!(rig.gate("terminal").log().len(), 8);
+    assert_eq!(rig.core.mock.requests_in_flight(), 8, "every started request is a call in flight");
 
-    focus(&client, 9);
-    assert_eq!(reason(&client.drain()[0].body), "inflightLimit");
-    assert_eq!(rig.core.mock.requests_in_flight(), cap as usize, "the refused one took no slot");
-
-    rig.gate("terminal").permits.add_permits(cap as usize);
-    let answered = client.frames(cap as usize).await;
+    rig.gate("terminal").permits.add_permits(8);
+    let answered = client.frames(8).await;
     assert!(answered.iter().all(|wire| wire.body.get("result").is_some()));
     assert_eq!(rig.core.mock.requests_in_flight(), 0, "the slots are free before the responses are written");
 }

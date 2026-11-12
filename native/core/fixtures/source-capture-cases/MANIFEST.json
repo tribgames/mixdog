@@ -1,0 +1,48 @@
+{
+  "command": "node --import <tree>/apps/desktop/node_modules/tsx/dist/esm/index.mjs benchmarks/rust-core/recorders/record-source-capture-cases.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "compared": "per scenario the whole outcome: each capture's stop, the source's track, each sender's track, the reports",
+  "declared": "The core's source is a frame source: a capture's `stopped` is its release (drop) and the source's track is the capture whose pictures are shown; both are compared whole. Not compared, each with its reason: `senders` and `sendersWhenTheOlderEnded` (the tracks RTCRtpSenders carry, source-capture.ts:77-86: the core's viewers read the one shared source, so there is no per-sender track); `reports` (the renderer's `source-captured` events, source-capture.ts:88-97, which the core's remote does not emit); `drawnIsSource` (restates `source` for the drawn track). The core's source always has a first capture, which Node's scenarios lack: it is not in the comparison. A scenario is played by role, as capture_tests.rs says: the renderer settles ownership by the order captures started, the core's source by the order they arrive",
+  "excluded": {
+    "draw switches every sender in place onto a drawn track; a capture switches them back": "replaceTrack on RTCRtpSenders of a connection (source-capture.ts:96-112) has no core counterpart: the core's viewers read one shared frame source (webrtc/capture.rs), so there is no per-sender swap to compare"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 2114,
+      "path": "golden.json",
+      "sha256": "505fbdd3d77d788c4fc1ef28eacd8809458a2fe813f9028bfc4afd6a0c5af2d8"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-source-capture-cases.mjs",
+  "recorderSha256": "e4a2fd455c0a1bbf441365830677af4d62e45176b4347dede2966d98771997ec",
+  "set": "source-capture-cases",
+  "totalBytes": 2114
+}

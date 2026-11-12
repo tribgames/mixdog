@@ -1,6 +1,5 @@
-//! Queued input as the run's steering drain hands it over (`ask-turn-steering-drain.mjs`): a
-//! steered entry one input each, the rest of the queue grouped by mode, the prompts merged
-//! into one input and each task notification on its own (`_groupPendingMessageEntries`).
+//! Queued input as the run's steering drain hands it over (`ask-turn-steering-drain.mjs`,
+//! the TUI's `drainPendingSteering`): every entry, steered or queued, one input of its own.
 
 use mixdog_core_api::ids::QueuedId;
 use serde_json::Value;
@@ -12,7 +11,7 @@ use super::run::SteerMode;
 /// A steered entry as the host drain hands it over, alone and unmerged.
 pub(crate) fn steered(qid: QueuedId, entry: &Value) -> SteerInput {
     SteerInput {
-        queued_ids: vec![qid],
+        queued_ids: vec![submission_of(qid, entry)],
         content: entry.get("message").cloned().unwrap_or(Value::Null),
         text: entry.get("text").and_then(Value::as_str).map(str::to_owned),
         mode: SteerMode::Prompt,
@@ -22,23 +21,20 @@ pub(crate) fn steered(qid: QueuedId, entry: &Value) -> SteerInput {
     }
 }
 
-/// `_groupPendingMessageEntries`: the prompts merged into one input (carrying every prompt's
-/// id), then each task notification on its own, in queue order. Empty when nothing carries
-/// content.
+/// The drain as the TUI's `drainPendingSteering` hands it over (`steering.mjs:204`): every
+/// accepted entry is its own input, in queue order, a task notification carrying its
+/// execution. Entries that carry no content are left out.
 pub(crate) fn groups(entries: &[(QueuedId, Value)]) -> Vec<SteerInput> {
-    let (notes, prompts): (Vec<_>, Vec<_>) =
-        entries.iter().partition(|(_, entry)| completions::is_notification(entry));
     let mut out = Vec::new();
-    let normalized: Vec<Normalized> = prompts.iter().filter_map(|(_, entry)| normalize(entry)).collect();
-    if let Some(merged) = merge(&normalized) {
-        out.push(input(prompts.iter().map(|(id, _)| id.clone()).collect(), merged, SteerMode::Prompt, None));
-    }
-    for (id, entry) in notes {
+    for (id, entry) in entries {
         let Some(merged) = normalize(entry).and_then(|n| merge(&[n])) else {
             continue;
         };
-        let execution = completions::execution(entry);
-        out.push(input(vec![id.clone()], merged, SteerMode::TaskNotification, execution));
+        if completions::is_notification(entry) {
+            out.push(input(vec![submission_of(id.clone(), entry)], merged, SteerMode::TaskNotification, completions::execution(entry)));
+        } else {
+            out.push(input(vec![submission_of(id.clone(), entry)], merged, SteerMode::Prompt, None));
+        }
     }
     out
 }
@@ -48,18 +44,16 @@ fn meta_of(entry: &Value) -> Option<&Value> {
     entry.get("transcriptMeta").filter(|meta| meta.is_object())
 }
 
-/// The `transcriptMeta` of the steering inputs [`groups`] makes of `entries`, in the same order
-/// (`mergeSteeringMetadata`, `steering.mjs:62-83`): the merged prompts carry the first prompt
-/// entry's, each task notification its own. A group without one is absent.
+/// The id a delivered row names its entry by: the client's submission (`options.clientSubmissionId`, Node's `submissionIds`),
+/// else the queue id.
+fn submission_of(qid: QueuedId, entry: &Value) -> QueuedId {
+    entry.pointer("/options/clientSubmissionId").and_then(Value::as_str).filter(|id| !id.is_empty()).map_or(qid, QueuedId::from)
+}
+
+/// The `transcriptMeta` of the steering inputs [`groups`] makes of `entries`, in the same order:
+/// each entry's own. An entry without one is absent.
 pub(crate) fn group_metas(entries: &[(QueuedId, Value)]) -> Vec<&Value> {
-    let (notes, prompts): (Vec<_>, Vec<_>) = entries.iter().partition(|(_, entry)| completions::is_notification(entry));
-    let mut out = Vec::new();
-    let any_prompt = prompts.iter().any(|(_, entry)| normalize(entry).is_some());
-    if any_prompt && let Some(meta) = prompts.iter().find_map(|(_, entry)| meta_of(entry)) {
-        out.push(meta);
-    }
-    out.extend(notes.iter().filter(|(_, entry)| normalize(entry).is_some()).filter_map(|(_, entry)| meta_of(entry)));
-    out
+    entries.iter().filter(|(_, entry)| normalize(entry).is_some()).filter_map(|(_, entry)| meta_of(entry)).collect()
 }
 
 /// A steered entry's own `transcriptMeta`.
@@ -283,43 +277,52 @@ mod tests {
             (id("n2"), json!({ "message": "Async agent task task_2 (completed) finished.\n\nResult:\n> done", "mode": "task-notification", "execution": agent })),
         ];
         let groups = groups(&entries);
-        assert_eq!(groups.len(), 3);
+        assert_eq!(groups.len(), 4);
         assert_eq!(groups[0].mode, SteerMode::Prompt);
-        assert_eq!(groups[0].content, json!("먼저 이것\n그리고 저것"));
-        assert_eq!(groups[0].queued_ids, [id("u1"), id("u2")]);
+        assert_eq!(groups[0].content, json!("먼저 이것"));
+        assert_eq!(groups[0].queued_ids, [id("u1")]);
         assert_eq!(groups[1].mode, SteerMode::TaskNotification);
         assert_eq!(groups[1].execution, Some(shell));
         assert_eq!(groups[1].queued_ids, [id("n1")]);
-        assert_eq!(groups[2].execution, Some(agent));
-        for group in &groups[1..] {
-            assert!(!group.content.as_str().unwrap().contains("이것"));
-        }
+        assert_eq!(groups[2].content, json!("그리고 저것"));
+        assert_eq!(groups[2].queued_ids, [id("u2")]);
+        assert_eq!(groups[3].execution, Some(agent));
     }
 
-    /// `mergeNormalizedContentEntries`: structured content becomes one parts array, a newline
-    /// part between entries and none trailing; the display text joins each entry's text.
+    /// Each entry is its own input; structured content stays one parts array, a blank entry
+    /// is left out.
     #[test]
-    fn structured_prompts_merge_into_one_parts_array() {
+    fn structured_prompts_are_one_input_each() {
         let image = json!({ "type": "image", "data": "AA==", "mimeType": "image/png" });
         let entries = [
             (id("u1"), json!({ "message": "  look  " })),
             (id("u2"), json!({ "message": [{ "type": "text", "text": "at this" }, image] })),
             (id("u3"), json!({ "message": "   " })),
         ];
-        let [merged] = groups(&entries).try_into().expect("one group");
-        assert_eq!(
-            merged.content,
-            json!([{ "type": "text", "text": "look" }, { "type": "text", "text": "\n" }, { "type": "text", "text": "at this" }, image])
-        );
-        assert_eq!(merged.text.as_deref(), Some("look\nat this\n[Image]"));
-        assert_eq!(merged.queued_ids, [id("u1"), id("u2"), id("u3")]);
+        let [first, second] = groups(&entries).try_into().expect("two inputs");
+        assert_eq!(first.content, json!("look"));
+        assert_eq!(first.queued_ids, [id("u1")]);
+        assert_eq!(second.content, json!([{ "type": "text", "text": "at this" }, image]));
+        assert_eq!(second.text.as_deref(), Some("at this\n[Image]"));
+        assert_eq!(second.queued_ids, [id("u2")]);
         assert!(groups(&[(id("u4"), json!({ "message": " \n" }))]).is_empty());
     }
 
-    /// `mergeSteeringMetadata`: the merged prompts carry the first prompt entry's
-    /// `transcriptMeta`, each task notification its own; an entry that is no object has none.
+    /// A delivered entry names the client's submission (Node's `submissionIds`), else its queue id.
     #[test]
-    fn a_group_carries_the_first_entry_meta_and_a_notification_its_own() {
+    fn an_entry_is_named_by_its_client_submission() {
+        let entries = [
+            (id("q1"), json!({ "message": "a", "options": { "clientSubmissionId": "sub-1" } })),
+            (id("q2"), json!({ "message": "b" })),
+        ];
+        let [first, second] = groups(&entries).try_into().expect("two inputs");
+        assert_eq!(first.queued_ids, [id("sub-1")]);
+        assert_eq!(second.queued_ids, [id("q2")]);
+    }
+
+    /// Each input carries its own entry's `transcriptMeta`; an entry that is no object has none.
+    #[test]
+    fn a_group_carries_its_own_entry_meta() {
         let shell = json!({ "surface": "shell", "id": "j1" });
         let entries = [
             (id("u1"), json!({ "message": "a" })),
@@ -329,7 +332,7 @@ mod tests {
             (id("n2"), json!({ "message": "done too", "mode": "task-notification", "transcriptMeta": "no" })),
         ];
         let metas = group_metas(&entries);
-        assert_eq!(metas, [&json!({ "hop": 2, "botChain": ["x"] }), &json!({ "hop": 1 })]);
+        assert_eq!(metas, [&json!({ "hop": 2, "botChain": ["x"] }), &json!({ "hop": 5 }), &json!({ "hop": 1 })]);
         assert_eq!(steered_meta(&entries[2].1), Some(&json!({ "hop": 5 })));
         assert_eq!(steered_meta(&entries[0].1), None);
     }

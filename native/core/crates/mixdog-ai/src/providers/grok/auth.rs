@@ -138,7 +138,7 @@ pub fn refresh_form(tokens: &StoredTokens) -> String {
 /// secrets redacted, its first 200 characters>`; the body's OAuth `error`, lower-cased, is its code (none when it names
 /// none); `invalid_grant` and `invalid_client` are terminal (no further attempt, a new sign-in), everything else
 /// leaves the refresh token valid and is tried again.
-pub fn refresh_error(status: u16, headers: &[(String, String)], body: &[u8]) -> ProviderError {
+pub fn refresh_error(status: u16, headers: &[(String, String)], body: &[u8], secrets: &[&str]) -> ProviderError {
     let parsed: Value = serde_json::from_slice(body).unwrap_or(Value::Null);
     // `String(json?.error || '').toLowerCase()`.
     let truthy = |value: &&Value| match value {
@@ -153,7 +153,7 @@ pub fn refresh_error(status: u16, headers: &[(String, String)], body: &[u8]) -> 
     let mut error = provider_error(
         ConnectFailure {
             code: String::new(),
-            message: format!("[grok-oauth] token refresh {status}: {}", crate::oauth::scrub::scrubbed_prefix(&text, &[], 200)),
+            message: format!("[grok-oauth] token refresh {status}: {}", crate::oauth::scrub::scrubbed_prefix(&text, secrets, 200)),
             http_status: Some(status),
             retry_after: advice::from_headers(headers, SystemTime::now()),
         },
@@ -199,7 +199,7 @@ pub async fn refresh(http: &dyn HttpSend, pace: &dyn Pace, tokens: &StoredTokens
     let success = head.is_success();
     let response = head.read_all().await?;
     if !success {
-        return Err(refresh_error(response.status.unwrap_or(0), &response.headers, &response.body));
+        return Err(refresh_error(response.status.unwrap_or(0), &response.headers, &response.body, &[&tokens.refresh_token, &tokens.access_token]));
     }
     let json: Value = serde_json::from_slice(&response.body).unwrap_or(Value::Null);
     let Some(access) = json.get("access_token").and_then(Value::as_str).filter(|s| !s.is_empty()) else {
@@ -353,6 +353,7 @@ async fn discover_token_endpoint(http: &dyn HttpSend) -> Result<(String, Box<dyn
 /// `_postRefresh`: one exchange, its tokens saved over the whole file (`saveTokens`, under the file's write lock).
 async fn post_refresh(http: &dyn HttpSend, pace: &dyn Pace, file: &CredentialFile, tokens: &StoredTokens) -> Result<StoredTokens, ProviderError> {
     let fresh = refresh(http, pace, tokens).await?;
+    file.keep(&[&fresh.access_token, &fresh.refresh_token]);
     file.replace(saved_document(&fresh)).await.map_err(|_| storage_error("the refreshed tokens could not be stored"))?;
     Ok(fresh)
 }
@@ -384,7 +385,10 @@ fn is_invalid_grant(error: &ProviderError) -> bool {
 /// The stored generation `_loadOwnTokens` reads: one with both tokens, else none.
 async fn load_own(file: &CredentialFile) -> Option<StoredTokens> {
     match file.load::<StoredTokens>().await {
-        Probe::Present(tokens) if !tokens.access_token.is_empty() && !tokens.refresh_token.is_empty() => Some(tokens),
+        Probe::Present(tokens) if !tokens.access_token.is_empty() && !tokens.refresh_token.is_empty() => {
+            file.keep(&[&tokens.access_token, &tokens.refresh_token]);
+            Some(tokens)
+        }
         _ => None,
     }
 }
@@ -555,6 +559,7 @@ impl GrokCredential {
             && !tokens.access_token.is_empty()
             && !tokens.refresh_token.is_empty()
         {
+            self.file.keep(&[&tokens.access_token, &tokens.refresh_token]);
             return Ok(tokens.clone());
         }
         if let Some(held) = self.current.load_full() {
@@ -822,6 +827,7 @@ impl PkceProvider for GrokLogin {
             principal_id: text("principal_id").unwrap_or_default().to_owned(),
             email: email.clone(),
         };
+        self.file.keep(&[&tokens.access_token, &tokens.refresh_token]);
         self.file
             .save(&tokens)
             .await
@@ -861,10 +867,10 @@ mod tests {
 
     #[test]
     fn dead_grants_need_a_new_sign_in_and_throttles_do_not() {
-        let dead = refresh_error(400, &[], br#"{"error":"invalid_grant"}"#);
+        let dead = refresh_error(400, &[], br#"{"error":"invalid_grant"}"#, &[]);
         assert!(dead.reauth_required);
         assert_eq!(dead.code.as_deref(), Some("invalid_grant"));
-        let throttled = refresh_error(429, &[], b"slow down");
+        let throttled = refresh_error(429, &[], b"slow down", &[]);
         assert!(!throttled.reauth_required);
         assert_eq!(throttled.kind, ErrorKind::RateLimited);
     }

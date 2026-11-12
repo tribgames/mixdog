@@ -1,0 +1,4644 @@
+{
+  "set": "provider-gemini-send-retry",
+  "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "shared": [],
+  "cases": [
+    {
+      "id": "first-chunk-timeouts-spend-the-stream-ladder",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-retry-policy.mjs:60",
+      "input": {
+        "ladder": "window",
+        "windowMs": 60000
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "GeminiTimeoutError",
+          "message": "Gemini REST streamGenerateContent first byte timed out after 60000ms",
+          "code": "EGEMINITIMEOUT",
+          "props": {
+            "name": "GeminiTimeoutError",
+            "timeoutPhase": "first-chunk",
+            "providerRecoveryExhausted": true,
+            "providerRecoveryOwner": "gemini-connection"
+          }
+        },
+        "stages": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "first_response_timeout",
+              "attempt": 2,
+              "max": 4,
+              "waitMs": 1000,
+              "retryAt": 1794225661000,
+              "reason": "Model still thinking: no output in 1m; the provider sent nothing yet",
+              "classifier": null,
+              "message": "Model still thinking: no output in 1m; the provider sent nothing yet · retry 2/4 in 1s"
+            }
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "first_response_timeout",
+              "attempt": 3,
+              "max": 4,
+              "waitMs": 2000,
+              "retryAt": 1794225723000,
+              "reason": "Model still thinking: no output in 1m; the provider sent nothing yet",
+              "classifier": null,
+              "message": "Model still thinking: no output in 1m; the provider sent nothing yet · retry 3/4 in 2s"
+            }
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "first_response_timeout",
+              "attempt": 4,
+              "max": 4,
+              "waitMs": 4000,
+              "retryAt": 1794225787000,
+              "reason": "Model still thinking: no output in 1m; the provider sent nothing yet",
+              "classifier": null,
+              "message": "Model still thinking: no output in 1m; the provider sent nothing yet · retry 4/4 in 4s"
+            }
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          }
+        ],
+        "text": [],
+        "stderr": [
+          "[gemini] retry attempt 2 after Gemini REST streamGenerateContent first byte timed out after 60000ms\n",
+          "[gemini] retry attempt 3 after Gemini REST streamGenerateContent first byte timed out after 60000ms\n",
+          "[gemini] retry attempt 4 after Gemini REST streamGenerateContent first byte timed out after 60000ms\n"
+        ]
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/gemini.mjs.GeminiProvider",
+          "args": [
+            {
+              "apiKey": "fixture-key",
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini.mjs.GeminiProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "gemini-3-pro",
+            [],
+            {
+              "onStageChange": {
+                "callback": "onStageChange"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              }
+            }
+          ]
+        }
+      ],
+      "clock": [
+        {
+          "advanceMs": 60000,
+          "fromMs": 0,
+          "fired": [
+            {
+              "dueMs": 499
+            },
+            {
+              "dueMs": 60000
+            }
+          ],
+          "toMs": 60000
+        },
+        {
+          "advanceMs": 1000,
+          "fromMs": 60000,
+          "fired": [
+            {
+              "dueMs": 61000
+            }
+          ],
+          "toMs": 61000
+        },
+        {
+          "advanceMs": 60000,
+          "fromMs": 61000,
+          "fired": [
+            {
+              "dueMs": 121000
+            }
+          ],
+          "toMs": 121000
+        },
+        {
+          "advanceMs": 2000,
+          "fromMs": 121000,
+          "fired": [
+            {
+              "dueMs": 123000
+            }
+          ],
+          "toMs": 123000
+        },
+        {
+          "advanceMs": 60000,
+          "fromMs": 123000,
+          "fired": [
+            {
+              "dueMs": 183000
+            }
+          ],
+          "toMs": 183000
+        },
+        {
+          "advanceMs": 4000,
+          "fromMs": 183000,
+          "fired": [
+            {
+              "dueMs": 187000
+            }
+          ],
+          "toMs": 187000
+        },
+        {
+          "advanceMs": 60000,
+          "fromMs": 187000,
+          "fired": [
+            {
+              "dueMs": 247000
+            }
+          ],
+          "toMs": 247000
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-3-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "fixture-key"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [],
+            "hold": true
+          },
+          "clientClosedConnection": true
+        },
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-3-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "fixture-key"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [],
+            "hold": true
+          },
+          "clientClosedConnection": true
+        },
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-3-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "fixture-key"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [],
+            "hold": true
+          },
+          "clientClosedConnection": true
+        },
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-3-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "fixture-key"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [],
+            "hold": true
+          },
+          "clientClosedConnection": true
+        },
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-3-pro:generateContent",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "fixture-key"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 503,
+            "contentType": "application/json",
+            "body": "{\"error\":{\"code\":503,\"message\":\"busy\",\"status\":\"UNAVAILABLE\"}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "idle-timeouts-spend-the-stream-ladder",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-retry-policy.mjs:60",
+      "input": {
+        "ladder": "window",
+        "windowMs": 120000,
+        "afterPayload": true,
+        "env": {
+          "MIXDOG_PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS": "120000"
+        }
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "GeminiTimeoutError",
+          "message": "Gemini REST streamGenerateContent SSE idle timed out after 120000ms",
+          "code": "EGEMINITIMEOUT",
+          "props": {
+            "name": "GeminiTimeoutError",
+            "timeoutPhase": "idle",
+            "providerRecoveryExhausted": true,
+            "providerRecoveryOwner": "gemini-connection"
+          }
+        },
+        "stages": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "stalled",
+              "attempt": 2,
+              "max": 4,
+              "waitMs": 1000,
+              "retryAt": 1794225968000,
+              "reason": "No progress 2m",
+              "classifier": null,
+              "message": "No progress 2m · retry 2/4 in 1s"
+            }
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "stalled",
+              "attempt": 3,
+              "max": 4,
+              "waitMs": 2000,
+              "retryAt": 1794226090000,
+              "reason": "No progress 2m",
+              "classifier": null,
+              "message": "No progress 2m · retry 3/4 in 2s"
+            }
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "stalled",
+              "attempt": 4,
+              "max": 4,
+              "waitMs": 4000,
+              "retryAt": 1794226214000,
+              "reason": "No progress 2m",
+              "classifier": null,
+              "message": "No progress 2m · retry 4/4 in 4s"
+            }
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          }
+        ],
+        "text": [],
+        "stderr": [
+          "[gemini] retry attempt 2 after Gemini REST streamGenerateContent SSE idle timed out after 120000ms\n",
+          "[gemini] retry attempt 3 after Gemini REST streamGenerateContent SSE idle timed out after 120000ms\n",
+          "[gemini] retry attempt 4 after Gemini REST streamGenerateContent SSE idle timed out after 120000ms\n"
+        ]
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/gemini.mjs.GeminiProvider",
+          "args": [
+            {
+              "apiKey": "fixture-key",
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini.mjs.GeminiProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "gemini-3-pro",
+            [],
+            {
+              "onStageChange": {
+                "callback": "onStageChange"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              }
+            }
+          ]
+        }
+      ],
+      "clock": [
+        {
+          "advanceMs": 120000,
+          "fromMs": 247000,
+          "fired": [
+            {
+              "dueMs": 367000
+            }
+          ],
+          "toMs": 367000
+        },
+        {
+          "advanceMs": 1000,
+          "fromMs": 367000,
+          "fired": [
+            {
+              "dueMs": 368000
+            }
+          ],
+          "toMs": 368000
+        },
+        {
+          "advanceMs": 120000,
+          "fromMs": 368000,
+          "fired": [
+            {
+              "dueMs": 488000
+            }
+          ],
+          "toMs": 488000
+        },
+        {
+          "advanceMs": 2000,
+          "fromMs": 488000,
+          "fired": [
+            {
+              "dueMs": 490000
+            }
+          ],
+          "toMs": 490000
+        },
+        {
+          "advanceMs": 120000,
+          "fromMs": 490000,
+          "fired": [
+            {
+              "dueMs": 610000
+            }
+          ],
+          "toMs": 610000
+        },
+        {
+          "advanceMs": 4000,
+          "fromMs": 610000,
+          "fired": [
+            {
+              "dueMs": 614000
+            }
+          ],
+          "toMs": 614000
+        },
+        {
+          "advanceMs": 120000,
+          "fromMs": 614000,
+          "fired": [
+            {
+              "dueMs": 734000
+            }
+          ],
+          "toMs": 734000
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-3-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "fixture-key"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"\"}]}}]}\n\n"
+            ],
+            "hold": true
+          },
+          "clientClosedConnection": true
+        },
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-3-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "fixture-key"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"\"}]}}]}\n\n"
+            ],
+            "hold": true
+          },
+          "clientClosedConnection": true
+        },
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-3-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "fixture-key"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"\"}]}}]}\n\n"
+            ],
+            "hold": true
+          },
+          "clientClosedConnection": true
+        },
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-3-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "fixture-key"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"\"}]}}]}\n\n"
+            ],
+            "hold": true
+          },
+          "clientClosedConnection": true
+        },
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-3-pro:generateContent",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "fixture-key"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 503,
+            "contentType": "application/json",
+            "body": "{\"error\":{\"code\":503,\"message\":\"busy\",\"status\":\"UNAVAILABLE\"}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "resets-after-a-quiet-payload-spend-the-stream-ladder",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-retry-policy.mjs:60",
+      "input": {
+        "ladder": "retries"
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "TypeError",
+          "message": "terminated",
+          "cause": {
+            "$exact": "error",
+            "name": "Error",
+            "message": "read ECONNRESET",
+            "code": "ECONNRESET",
+            "props": {
+              "errno": -4077,
+              "syscall": "read"
+            }
+          },
+          "props": {
+            "providerRecoveryExhausted": true,
+            "providerRecoveryOwner": "gemini-connection"
+          }
+        },
+        "stages": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "other",
+              "attempt": 2,
+              "max": 4,
+              "waitMs": 1000,
+              "retryAt": 1794226335000,
+              "reason": "Connection interrupted",
+              "classifier": null,
+              "message": "Connection interrupted · retry 2/4 in 1s"
+            }
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "other",
+              "attempt": 3,
+              "max": 4,
+              "waitMs": 2000,
+              "retryAt": 1794226337000,
+              "reason": "Connection interrupted",
+              "classifier": null,
+              "message": "Connection interrupted · retry 3/4 in 2s"
+            }
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "other",
+              "attempt": 4,
+              "max": 4,
+              "waitMs": 4000,
+              "retryAt": 1794226341000,
+              "reason": "Connection interrupted",
+              "classifier": null,
+              "message": "Connection interrupted · retry 4/4 in 4s"
+            }
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          }
+        ],
+        "text": [],
+        "stderr": [
+          "[gemini] retry attempt 2 after terminated\n",
+          "[gemini] retry attempt 3 after terminated\n",
+          "[gemini] retry attempt 4 after terminated\n"
+        ]
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/gemini.mjs.GeminiProvider",
+          "args": [
+            {
+              "apiKey": "fixture-key",
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini.mjs.GeminiProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "gemini-3-pro",
+            [],
+            {
+              "onStageChange": {
+                "callback": "onStageChange"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              }
+            }
+          ]
+        }
+      ],
+      "clock": [
+        {
+          "advanceMs": 1000,
+          "fromMs": 734000,
+          "fired": [
+            {
+              "dueMs": 735000
+            }
+          ],
+          "toMs": 735000
+        },
+        {
+          "advanceMs": 2000,
+          "fromMs": 735000,
+          "fired": [
+            {
+              "dueMs": 737000
+            }
+          ],
+          "toMs": 737000
+        },
+        {
+          "advanceMs": 4000,
+          "fromMs": 737000,
+          "fired": [
+            {
+              "dueMs": 741000
+            }
+          ],
+          "toMs": 741000
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-3-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "fixture-key"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"\"}]}}]}\n\n"
+            ],
+            "hold": true,
+            "reset": true
+          },
+          "clientClosedConnection": true
+        },
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-3-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "fixture-key"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"\"}]}}]}\n\n"
+            ],
+            "hold": true,
+            "reset": true
+          },
+          "clientClosedConnection": true
+        },
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-3-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "fixture-key"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"\"}]}}]}\n\n"
+            ],
+            "hold": true,
+            "reset": true
+          },
+          "clientClosedConnection": true
+        },
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-3-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "fixture-key"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"\"}]}}]}\n\n"
+            ],
+            "hold": true,
+            "reset": true
+          },
+          "clientClosedConnection": true
+        },
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-3-pro:generateContent",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "fixture-key"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 503,
+            "contentType": "application/json",
+            "body": "{\"error\":{\"code\":503,\"message\":\"busy\",\"status\":\"UNAVAILABLE\"}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "a-reset-after-shown-text-is-not-retried",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-retry-policy.mjs:60",
+      "input": {
+        "ladder": "retries"
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "TypeError",
+          "message": "terminated",
+          "cause": {
+            "$exact": "error",
+            "name": "Error",
+            "message": "read ECONNRESET",
+            "code": "ECONNRESET",
+            "props": {
+              "errno": -4077,
+              "syscall": "read"
+            }
+          },
+          "props": {
+            "liveTextEmitted": true,
+            "unsafeToRetry": true,
+            "providerRecoveryExhausted": true,
+            "providerRecoveryOwner": "gemini-connection"
+          }
+        },
+        "stages": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          }
+        ],
+        "text": [
+          "partial answer"
+        ],
+        "stderr": []
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/gemini.mjs.GeminiProvider",
+          "args": [
+            {
+              "apiKey": "fixture-key",
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini.mjs.GeminiProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "gemini-3-pro",
+            [],
+            {
+              "onStageChange": {
+                "callback": "onStageChange"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              }
+            }
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-3-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "fixture-key"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"partial answer\"}]}}]}\n\n"
+            ],
+            "hold": true,
+            "reset": true
+          },
+          "clientClosedConnection": true
+        }
+      ]
+    },
+    {
+      "id": "in-band-errors-spend-the-stream-ladder",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-retry-policy.mjs:60",
+      "input": {
+        "ladder": "retries"
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "GeminiInBandError",
+          "message": "Gemini REST streamGenerateContent in-band error 503: overloaded",
+          "code": "unavailable",
+          "props": {
+            "name": "GeminiInBandError",
+            "status": 503,
+            "httpStatus": 503,
+            "geminiStatus": "UNAVAILABLE",
+            "error": {
+              "code": 503,
+              "message": "overloaded",
+              "status": "UNAVAILABLE"
+            },
+            "providerRecoveryExhausted": true,
+            "providerRecoveryOwner": "gemini-connection"
+          }
+        },
+        "stages": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "server_error",
+              "attempt": 2,
+              "max": 4,
+              "waitMs": 1000,
+              "retryAt": 1794226342000,
+              "reason": "Provider server error",
+              "classifier": "unavailable",
+              "message": "Provider server error · retry 2/4 in 1s"
+            }
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "server_error",
+              "attempt": 3,
+              "max": 4,
+              "waitMs": 2000,
+              "retryAt": 1794226344000,
+              "reason": "Provider server error",
+              "classifier": "unavailable",
+              "message": "Provider server error · retry 3/4 in 2s"
+            }
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "server_error",
+              "attempt": 4,
+              "max": 4,
+              "waitMs": 4000,
+              "retryAt": 1794226348000,
+              "reason": "Provider server error",
+              "classifier": "unavailable",
+              "message": "Provider server error · retry 4/4 in 4s"
+            }
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          }
+        ],
+        "text": [],
+        "stderr": [
+          "[gemini] retry attempt 2 after Gemini REST streamGenerateContent in-band error 503: overloaded\n",
+          "[gemini] retry attempt 3 after Gemini REST streamGenerateContent in-band error 503: overloaded\n",
+          "[gemini] retry attempt 4 after Gemini REST streamGenerateContent in-band error 503: overloaded\n"
+        ]
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/gemini.mjs.GeminiProvider",
+          "args": [
+            {
+              "apiKey": "fixture-key",
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini.mjs.GeminiProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "gemini-3-pro",
+            [],
+            {
+              "onStageChange": {
+                "callback": "onStageChange"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              }
+            }
+          ]
+        }
+      ],
+      "clock": [
+        {
+          "advanceMs": 1000,
+          "fromMs": 741000,
+          "fired": [
+            {
+              "dueMs": 742000
+            }
+          ],
+          "toMs": 742000
+        },
+        {
+          "advanceMs": 2000,
+          "fromMs": 742000,
+          "fired": [
+            {
+              "dueMs": 744000
+            }
+          ],
+          "toMs": 744000
+        },
+        {
+          "advanceMs": 4000,
+          "fromMs": 744000,
+          "fired": [
+            {
+              "dueMs": 747000
+            },
+            {
+              "dueMs": 748000
+            }
+          ],
+          "toMs": 748000
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-3-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "fixture-key"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"error\":{\"code\":503,\"message\":\"overloaded\",\"status\":\"UNAVAILABLE\"}}\n\n"
+            ]
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-3-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "fixture-key"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"error\":{\"code\":503,\"message\":\"overloaded\",\"status\":\"UNAVAILABLE\"}}\n\n"
+            ]
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-3-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "fixture-key"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"error\":{\"code\":503,\"message\":\"overloaded\",\"status\":\"UNAVAILABLE\"}}\n\n"
+            ]
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-3-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "fixture-key"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 200,
+            "contentType": "text/event-stream",
+            "chunks": [
+              "data: {\"error\":{\"code\":503,\"message\":\"overloaded\",\"status\":\"UNAVAILABLE\"}}\n\n"
+            ]
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-3-pro:generateContent",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "fixture-key"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 503,
+            "contentType": "application/json",
+            "body": "{\"error\":{\"code\":503,\"message\":\"busy\",\"status\":\"UNAVAILABLE\"}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "refusals-spend-the-connection-ladder",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-retry-policy.mjs:33",
+      "input": {
+        "ladder": "retries"
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "Gemini REST streamGenerateContent 503: {\"error\":{\"code\":503,\"message\":\"busy\",\"status\":\"UNAVAILABLE\"}}",
+          "code": "unavailable",
+          "props": {
+            "status": 503,
+            "httpStatus": 503,
+            "headers": {
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "application/json"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
+                ]
+              ]
+            },
+            "initialResponseError": true,
+            "error": {
+              "code": 503,
+              "message": "busy",
+              "status": "UNAVAILABLE"
+            },
+            "data": {
+              "error": {
+                "code": 503,
+                "message": "busy",
+                "status": "UNAVAILABLE"
+              }
+            },
+            "geminiStatus": "UNAVAILABLE",
+            "providerRecoveryExhausted": true,
+            "providerRecoveryTerminal": true,
+            "providerRecoveryOwner": "withRetry",
+            "providerRecoveryAttempts": 10
+          }
+        },
+        "stages": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "server_error",
+              "attempt": 2,
+              "max": 10,
+              "waitMs": 4307,
+              "retryAt": 1794226352307,
+              "reason": "Provider server error",
+              "classifier": "unavailable",
+              "message": "Provider server error · retry 2/10 in 4s"
+            }
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "server_error",
+              "attempt": 3,
+              "max": 10,
+              "waitMs": 12952,
+              "retryAt": 1794226365259,
+              "reason": "Provider server error",
+              "classifier": "unavailable",
+              "message": "Provider server error · retry 3/10 in 13s"
+            }
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "server_error",
+              "attempt": 4,
+              "max": 10,
+              "waitMs": 15365,
+              "retryAt": 1794226380624,
+              "reason": "Provider server error",
+              "classifier": "unavailable",
+              "message": "Provider server error · retry 4/10 in 15s"
+            }
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "server_error",
+              "attempt": 5,
+              "max": 10,
+              "waitMs": 36864,
+              "retryAt": 1794226417488,
+              "reason": "Provider server error",
+              "classifier": "unavailable",
+              "message": "Provider server error · retry 5/10 in 37s"
+            }
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "server_error",
+              "attempt": 6,
+              "max": 10,
+              "waitMs": 34624,
+              "retryAt": 1794226452112,
+              "reason": "Provider server error",
+              "classifier": "unavailable",
+              "message": "Provider server error · retry 6/10 in 35s"
+            }
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "server_error",
+              "attempt": 7,
+              "max": 10,
+              "waitMs": 27010,
+              "retryAt": 1794226479122,
+              "reason": "Provider server error",
+              "classifier": "unavailable",
+              "message": "Provider server error · retry 7/10 in 27s"
+            }
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "server_error",
+              "attempt": 8,
+              "max": 10,
+              "waitMs": 27681,
+              "retryAt": 1794226506803,
+              "reason": "Provider server error",
+              "classifier": "unavailable",
+              "message": "Provider server error · retry 8/10 in 28s"
+            }
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "server_error",
+              "attempt": 9,
+              "max": 10,
+              "waitMs": 37827,
+              "retryAt": 1794226544630,
+              "reason": "Provider server error",
+              "classifier": "unavailable",
+              "message": "Provider server error · retry 9/10 in 38s"
+            }
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "server_error",
+              "attempt": 10,
+              "max": 10,
+              "waitMs": 36290,
+              "retryAt": 1794226580920,
+              "reason": "Provider server error",
+              "classifier": "unavailable",
+              "message": "Provider server error · retry 10/10 in 36s"
+            }
+          },
+          {
+            "stage": "requesting"
+          }
+        ],
+        "text": [],
+        "stderr": [
+          "[gemini] retry attempt 2 after Gemini REST streamGenerateContent 503: {\"error\":{\"code\":503,\"message\":\"busy\",\"status\":\"UNAVAILABLE\"}}\n",
+          "[gemini] retry attempt 3 after Gemini REST streamGenerateContent 503: {\"error\":{\"code\":503,\"message\":\"busy\",\"status\":\"UNAVAILABLE\"}}\n",
+          "[gemini] retry attempt 4 after Gemini REST streamGenerateContent 503: {\"error\":{\"code\":503,\"message\":\"busy\",\"status\":\"UNAVAILABLE\"}}\n",
+          "[gemini] retry attempt 5 after Gemini REST streamGenerateContent 503: {\"error\":{\"code\":503,\"message\":\"busy\",\"status\":\"UNAVAILABLE\"}}\n",
+          "[gemini] retry attempt 6 after Gemini REST streamGenerateContent 503: {\"error\":{\"code\":503,\"message\":\"busy\",\"status\":\"UNAVAILABLE\"}}\n",
+          "[gemini] retry attempt 7 after Gemini REST streamGenerateContent 503: {\"error\":{\"code\":503,\"message\":\"busy\",\"status\":\"UNAVAILABLE\"}}\n",
+          "[gemini] retry attempt 8 after Gemini REST streamGenerateContent 503: {\"error\":{\"code\":503,\"message\":\"busy\",\"status\":\"UNAVAILABLE\"}}\n",
+          "[gemini] retry attempt 9 after Gemini REST streamGenerateContent 503: {\"error\":{\"code\":503,\"message\":\"busy\",\"status\":\"UNAVAILABLE\"}}\n",
+          "[gemini] retry attempt 10 after Gemini REST streamGenerateContent 503: {\"error\":{\"code\":503,\"message\":\"busy\",\"status\":\"UNAVAILABLE\"}}\n"
+        ]
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/gemini.mjs.GeminiProvider",
+          "args": [
+            {
+              "apiKey": "fixture-key",
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini.mjs.GeminiProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "gemini-3-pro",
+            [],
+            {
+              "onStageChange": {
+                "callback": "onStageChange"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              }
+            }
+          ]
+        }
+      ],
+      "clock": [
+        {
+          "advanceMs": 4307,
+          "fromMs": 748000,
+          "fired": [
+            {
+              "dueMs": 751000
+            },
+            {
+              "dueMs": 752307
+            }
+          ],
+          "toMs": 752307
+        },
+        {
+          "advanceMs": 12952,
+          "fromMs": 752307,
+          "fired": [
+            {
+              "dueMs": 765259
+            }
+          ],
+          "toMs": 765259
+        },
+        {
+          "advanceMs": 15365,
+          "fromMs": 765259,
+          "fired": [
+            {
+              "dueMs": 768259
+            },
+            {
+              "dueMs": 771259
+            },
+            {
+              "dueMs": 780624
+            }
+          ],
+          "toMs": 780624
+        },
+        {
+          "advanceMs": 36864,
+          "fromMs": 780624,
+          "fired": [
+            {
+              "dueMs": 817488
+            }
+          ],
+          "toMs": 817488
+        },
+        {
+          "advanceMs": 34624,
+          "fromMs": 817488,
+          "fired": [
+            {
+              "dueMs": 820488
+            },
+            {
+              "dueMs": 823488
+            },
+            {
+              "dueMs": 852112
+            }
+          ],
+          "toMs": 852112
+        },
+        {
+          "advanceMs": 27010,
+          "fromMs": 852112,
+          "fired": [
+            {
+              "dueMs": 879122
+            }
+          ],
+          "toMs": 879122
+        },
+        {
+          "advanceMs": 27681,
+          "fromMs": 879122,
+          "fired": [
+            {
+              "dueMs": 882122
+            },
+            {
+              "dueMs": 885122
+            },
+            {
+              "dueMs": 906803
+            }
+          ],
+          "toMs": 906803
+        },
+        {
+          "advanceMs": 37827,
+          "fromMs": 906803,
+          "fired": [
+            {
+              "dueMs": 944630
+            }
+          ],
+          "toMs": 944630
+        },
+        {
+          "advanceMs": 36290,
+          "fromMs": 944630,
+          "fired": [
+            {
+              "dueMs": 947630
+            },
+            {
+              "dueMs": 950630
+            },
+            {
+              "dueMs": 980920
+            }
+          ],
+          "toMs": 980920
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-3-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "fixture-key"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 503,
+            "contentType": "application/json",
+            "body": "{\"error\":{\"code\":503,\"message\":\"busy\",\"status\":\"UNAVAILABLE\"}}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-3-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "fixture-key"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 503,
+            "contentType": "application/json",
+            "body": "{\"error\":{\"code\":503,\"message\":\"busy\",\"status\":\"UNAVAILABLE\"}}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-3-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "fixture-key"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 503,
+            "contentType": "application/json",
+            "body": "{\"error\":{\"code\":503,\"message\":\"busy\",\"status\":\"UNAVAILABLE\"}}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-3-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "fixture-key"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 503,
+            "contentType": "application/json",
+            "body": "{\"error\":{\"code\":503,\"message\":\"busy\",\"status\":\"UNAVAILABLE\"}}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-3-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "fixture-key"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 503,
+            "contentType": "application/json",
+            "body": "{\"error\":{\"code\":503,\"message\":\"busy\",\"status\":\"UNAVAILABLE\"}}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-3-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "fixture-key"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 503,
+            "contentType": "application/json",
+            "body": "{\"error\":{\"code\":503,\"message\":\"busy\",\"status\":\"UNAVAILABLE\"}}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-3-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "fixture-key"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 503,
+            "contentType": "application/json",
+            "body": "{\"error\":{\"code\":503,\"message\":\"busy\",\"status\":\"UNAVAILABLE\"}}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-3-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "fixture-key"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 503,
+            "contentType": "application/json",
+            "body": "{\"error\":{\"code\":503,\"message\":\"busy\",\"status\":\"UNAVAILABLE\"}}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-3-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "fixture-key"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 503,
+            "contentType": "application/json",
+            "body": "{\"error\":{\"code\":503,\"message\":\"busy\",\"status\":\"UNAVAILABLE\"}}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-3-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "fixture-key"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 503,
+            "contentType": "application/json",
+            "body": "{\"error\":{\"code\":503,\"message\":\"busy\",\"status\":\"UNAVAILABLE\"}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "rate-limits-with-advice-spend-the-connection-ladder",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-retry-policy.mjs:33",
+      "input": {
+        "ladder": "retries"
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "Gemini REST streamGenerateContent 429: {\"error\":{\"code\":429,\"message\":\"slow down\",\"status\":\"RESOURCE_EXHAUSTED\"}}",
+          "code": "resource_exhausted",
+          "props": {
+            "status": 429,
+            "httpStatus": 429,
+            "headers": {
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "application/json"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "retry-after",
+                  "7"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
+                ]
+              ]
+            },
+            "initialResponseError": true,
+            "error": {
+              "code": 429,
+              "message": "slow down",
+              "status": "RESOURCE_EXHAUSTED"
+            },
+            "data": {
+              "error": {
+                "code": 429,
+                "message": "slow down",
+                "status": "RESOURCE_EXHAUSTED"
+              }
+            },
+            "geminiStatus": "RESOURCE_EXHAUSTED",
+            "providerRecoveryExhausted": true,
+            "providerRecoveryTerminal": true,
+            "providerRecoveryOwner": "withRetry",
+            "providerRecoveryAttempts": 10
+          }
+        },
+        "stages": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "rate_limited",
+              "attempt": 2,
+              "max": 10,
+              "waitMs": 7290,
+              "retryAt": 1794226588210,
+              "reason": "Rate limited by the provider",
+              "classifier": "resource_exhausted",
+              "message": "Rate limited by the provider · retry 2/10 in 7s"
+            }
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "rate_limited",
+              "attempt": 3,
+              "max": 10,
+              "waitMs": 11665,
+              "retryAt": 1794226599875,
+              "reason": "Rate limited by the provider",
+              "classifier": "resource_exhausted",
+              "message": "Rate limited by the provider · retry 3/10 in 12s"
+            }
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "rate_limited",
+              "attempt": 4,
+              "max": 10,
+              "waitMs": 22629,
+              "retryAt": 1794226622504,
+              "reason": "Rate limited by the provider",
+              "classifier": "resource_exhausted",
+              "message": "Rate limited by the provider · retry 4/10 in 23s"
+            }
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "rate_limited",
+              "attempt": 5,
+              "max": 10,
+              "waitMs": 34019,
+              "retryAt": 1794226656523,
+              "reason": "Rate limited by the provider",
+              "classifier": "resource_exhausted",
+              "message": "Rate limited by the provider · retry 5/10 in 34s"
+            }
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "rate_limited",
+              "attempt": 6,
+              "max": 10,
+              "waitMs": 34413,
+              "retryAt": 1794226690936,
+              "reason": "Rate limited by the provider",
+              "classifier": "resource_exhausted",
+              "message": "Rate limited by the provider · retry 6/10 in 34s"
+            }
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "rate_limited",
+              "attempt": 7,
+              "max": 10,
+              "waitMs": 26456,
+              "retryAt": 1794226717392,
+              "reason": "Rate limited by the provider",
+              "classifier": "resource_exhausted",
+              "message": "Rate limited by the provider · retry 7/10 in 26s"
+            }
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "rate_limited",
+              "attempt": 8,
+              "max": 10,
+              "waitMs": 32176,
+              "retryAt": 1794226749568,
+              "reason": "Rate limited by the provider",
+              "classifier": "resource_exhausted",
+              "message": "Rate limited by the provider · retry 8/10 in 32s"
+            }
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "rate_limited",
+              "attempt": 9,
+              "max": 10,
+              "waitMs": 24926,
+              "retryAt": 1794226774494,
+              "reason": "Rate limited by the provider",
+              "classifier": "resource_exhausted",
+              "message": "Rate limited by the provider · retry 9/10 in 25s"
+            }
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "rate_limited",
+              "attempt": 10,
+              "max": 10,
+              "waitMs": 38041,
+              "retryAt": 1794226812535,
+              "reason": "Rate limited by the provider",
+              "classifier": "resource_exhausted",
+              "message": "Rate limited by the provider · retry 10/10 in 38s"
+            }
+          },
+          {
+            "stage": "requesting"
+          }
+        ],
+        "text": [],
+        "stderr": [
+          "[gemini] retry attempt 2 after Gemini REST streamGenerateContent 429: {\"error\":{\"code\":429,\"message\":\"slow down\",\"status\":\"RESOURCE_EXHAUSTED\"}}\n",
+          "[gemini] retry attempt 3 after Gemini REST streamGenerateContent 429: {\"error\":{\"code\":429,\"message\":\"slow down\",\"status\":\"RESOURCE_EXHAUSTED\"}}\n",
+          "[gemini] retry attempt 4 after Gemini REST streamGenerateContent 429: {\"error\":{\"code\":429,\"message\":\"slow down\",\"status\":\"RESOURCE_EXHAUSTED\"}}\n",
+          "[gemini] retry attempt 5 after Gemini REST streamGenerateContent 429: {\"error\":{\"code\":429,\"message\":\"slow down\",\"status\":\"RESOURCE_EXHAUSTED\"}}\n",
+          "[gemini] retry attempt 6 after Gemini REST streamGenerateContent 429: {\"error\":{\"code\":429,\"message\":\"slow down\",\"status\":\"RESOURCE_EXHAUSTED\"}}\n",
+          "[gemini] retry attempt 7 after Gemini REST streamGenerateContent 429: {\"error\":{\"code\":429,\"message\":\"slow down\",\"status\":\"RESOURCE_EXHAUSTED\"}}\n",
+          "[gemini] retry attempt 8 after Gemini REST streamGenerateContent 429: {\"error\":{\"code\":429,\"message\":\"slow down\",\"status\":\"RESOURCE_EXHAUSTED\"}}\n",
+          "[gemini] retry attempt 9 after Gemini REST streamGenerateContent 429: {\"error\":{\"code\":429,\"message\":\"slow down\",\"status\":\"RESOURCE_EXHAUSTED\"}}\n",
+          "[gemini] retry attempt 10 after Gemini REST streamGenerateContent 429: {\"error\":{\"code\":429,\"message\":\"slow down\",\"status\":\"RESOURCE_EXHAUSTED\"}}\n"
+        ]
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/gemini.mjs.GeminiProvider",
+          "args": [
+            {
+              "apiKey": "fixture-key",
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini.mjs.GeminiProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "gemini-3-pro",
+            [],
+            {
+              "onStageChange": {
+                "callback": "onStageChange"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              }
+            }
+          ]
+        }
+      ],
+      "clock": [
+        {
+          "advanceMs": 7290,
+          "fromMs": 980920,
+          "fired": [
+            {
+              "dueMs": 988210
+            }
+          ],
+          "toMs": 988210
+        },
+        {
+          "advanceMs": 11665,
+          "fromMs": 988210,
+          "fired": [
+            {
+              "dueMs": 991210
+            },
+            {
+              "dueMs": 994210
+            },
+            {
+              "dueMs": 999875
+            }
+          ],
+          "toMs": 999875
+        },
+        {
+          "advanceMs": 22629,
+          "fromMs": 999875,
+          "fired": [
+            {
+              "dueMs": 1022504
+            }
+          ],
+          "toMs": 1022504
+        },
+        {
+          "advanceMs": 34019,
+          "fromMs": 1022504,
+          "fired": [
+            {
+              "dueMs": 1025504
+            },
+            {
+              "dueMs": 1028504
+            },
+            {
+              "dueMs": 1056523
+            }
+          ],
+          "toMs": 1056523
+        },
+        {
+          "advanceMs": 34413,
+          "fromMs": 1056523,
+          "fired": [
+            {
+              "dueMs": 1090936
+            }
+          ],
+          "toMs": 1090936
+        },
+        {
+          "advanceMs": 26456,
+          "fromMs": 1090936,
+          "fired": [
+            {
+              "dueMs": 1093936
+            },
+            {
+              "dueMs": 1096936
+            },
+            {
+              "dueMs": 1117392
+            }
+          ],
+          "toMs": 1117392
+        },
+        {
+          "advanceMs": 32176,
+          "fromMs": 1117392,
+          "fired": [
+            {
+              "dueMs": 1149568
+            }
+          ],
+          "toMs": 1149568
+        },
+        {
+          "advanceMs": 24926,
+          "fromMs": 1149568,
+          "fired": [
+            {
+              "dueMs": 1152568
+            },
+            {
+              "dueMs": 1155568
+            },
+            {
+              "dueMs": 1174494
+            }
+          ],
+          "toMs": 1174494
+        },
+        {
+          "advanceMs": 38041,
+          "fromMs": 1174494,
+          "fired": [
+            {
+              "dueMs": 1212535
+            }
+          ],
+          "toMs": 1212535
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-3-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "fixture-key"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 429,
+            "contentType": "application/json",
+            "headers": {
+              "retry-after": "7"
+            },
+            "body": "{\"error\":{\"code\":429,\"message\":\"slow down\",\"status\":\"RESOURCE_EXHAUSTED\"}}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-3-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "fixture-key"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 429,
+            "contentType": "application/json",
+            "headers": {
+              "retry-after": "7"
+            },
+            "body": "{\"error\":{\"code\":429,\"message\":\"slow down\",\"status\":\"RESOURCE_EXHAUSTED\"}}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-3-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "fixture-key"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 429,
+            "contentType": "application/json",
+            "headers": {
+              "retry-after": "7"
+            },
+            "body": "{\"error\":{\"code\":429,\"message\":\"slow down\",\"status\":\"RESOURCE_EXHAUSTED\"}}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-3-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "fixture-key"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 429,
+            "contentType": "application/json",
+            "headers": {
+              "retry-after": "7"
+            },
+            "body": "{\"error\":{\"code\":429,\"message\":\"slow down\",\"status\":\"RESOURCE_EXHAUSTED\"}}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-3-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "fixture-key"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 429,
+            "contentType": "application/json",
+            "headers": {
+              "retry-after": "7"
+            },
+            "body": "{\"error\":{\"code\":429,\"message\":\"slow down\",\"status\":\"RESOURCE_EXHAUSTED\"}}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-3-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "fixture-key"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 429,
+            "contentType": "application/json",
+            "headers": {
+              "retry-after": "7"
+            },
+            "body": "{\"error\":{\"code\":429,\"message\":\"slow down\",\"status\":\"RESOURCE_EXHAUSTED\"}}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-3-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "fixture-key"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 429,
+            "contentType": "application/json",
+            "headers": {
+              "retry-after": "7"
+            },
+            "body": "{\"error\":{\"code\":429,\"message\":\"slow down\",\"status\":\"RESOURCE_EXHAUSTED\"}}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-3-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "fixture-key"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 429,
+            "contentType": "application/json",
+            "headers": {
+              "retry-after": "7"
+            },
+            "body": "{\"error\":{\"code\":429,\"message\":\"slow down\",\"status\":\"RESOURCE_EXHAUSTED\"}}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-3-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "fixture-key"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 429,
+            "contentType": "application/json",
+            "headers": {
+              "retry-after": "7"
+            },
+            "body": "{\"error\":{\"code\":429,\"message\":\"slow down\",\"status\":\"RESOURCE_EXHAUSTED\"}}"
+          }
+        },
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-3-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "fixture-key"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 429,
+            "contentType": "application/json",
+            "headers": {
+              "retry-after": "7"
+            },
+            "body": "{\"error\":{\"code\":429,\"message\":\"slow down\",\"status\":\"RESOURCE_EXHAUSTED\"}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "an-invalid-request-is-not-retried",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-retry-policy.mjs:33",
+      "input": {
+        "ladder": "retries"
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "Gemini REST streamGenerateContent 400: {\"error\":{\"code\":400,\"message\":\"bad field\",\"status\":\"INVALID_ARGUMENT\"}}",
+          "code": "invalid_argument",
+          "props": {
+            "status": 400,
+            "httpStatus": 400,
+            "headers": {
+              "headers": [
+                [
+                  "connection",
+                  "keep-alive"
+                ],
+                [
+                  "content-type",
+                  "application/json"
+                ],
+                [
+                  "date",
+                  "Thu, 01 Jan 2026 00:00:00 GMT"
+                ],
+                [
+                  "keep-alive",
+                  "timeout=5"
+                ],
+                [
+                  "transfer-encoding",
+                  "chunked"
+                ]
+              ]
+            },
+            "initialResponseError": true,
+            "error": {
+              "code": 400,
+              "message": "bad field",
+              "status": "INVALID_ARGUMENT"
+            },
+            "data": {
+              "error": {
+                "code": 400,
+                "message": "bad field",
+                "status": "INVALID_ARGUMENT"
+              }
+            },
+            "geminiStatus": "INVALID_ARGUMENT"
+          }
+        },
+        "stages": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          }
+        ],
+        "text": [],
+        "stderr": []
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/gemini.mjs.GeminiProvider",
+          "args": [
+            {
+              "apiKey": "fixture-key",
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini.mjs.GeminiProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "gemini-3-pro",
+            [],
+            {
+              "onStageChange": {
+                "callback": "onStageChange"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              }
+            }
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "POST",
+          "origin": "https://generativelanguage.googleapis.com",
+          "path": "/v1beta/models/gemini-3-pro:streamGenerateContent?alt=sse",
+          "headers": [
+            [
+              "host",
+              "generativelanguage.googleapis.com"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ],
+            [
+              "x-goog-api-key",
+              "fixture-key"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ],
+            [
+              "content-length",
+              "117"
+            ]
+          ],
+          "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"hi\"}]}],\"generationConfig\":{\"thinkingConfig\":{\"includeThoughts\":true}}}",
+          "reply": {
+            "status": 400,
+            "contentType": "application/json",
+            "body": "{\"error\":{\"code\":400,\"message\":\"bad field\",\"status\":\"INVALID_ARGUMENT\"}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "refused-connections-spend-the-connection-ladder",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-retry-policy.mjs:33",
+      "input": {
+        "ladder": "retries",
+        "fault": "refused"
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "TypeError",
+          "message": "fetch failed",
+          "cause": {
+            "$exact": "error",
+            "name": "Error",
+            "message": "connect ECONNREFUSED 127.0.0.1:47652",
+            "code": "ECONNREFUSED",
+            "props": {
+              "errno": -4078,
+              "syscall": "connect",
+              "address": "127.0.0.1",
+              "port": 47652
+            }
+          },
+          "props": {
+            "providerRecoveryExhausted": true,
+            "providerRecoveryTerminal": true,
+            "providerRecoveryOwner": "withRetry",
+            "providerRecoveryAttempts": 10
+          }
+        },
+        "stages": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "other",
+              "attempt": 2,
+              "max": 10,
+              "waitMs": 4650,
+              "retryAt": 1794226817185,
+              "reason": "Connection interrupted",
+              "classifier": null,
+              "message": "Connection interrupted · retry 2/10 in 5s"
+            }
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "other",
+              "attempt": 3,
+              "max": 10,
+              "waitMs": 7284,
+              "retryAt": 1794226824469,
+              "reason": "Connection interrupted",
+              "classifier": null,
+              "message": "Connection interrupted · retry 3/10 in 7s"
+            }
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "other",
+              "attempt": 4,
+              "max": 10,
+              "waitMs": 16765,
+              "retryAt": 1794226841234,
+              "reason": "Connection interrupted",
+              "classifier": null,
+              "message": "Connection interrupted · retry 4/10 in 17s"
+            }
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "other",
+              "attempt": 5,
+              "max": 10,
+              "waitMs": 25312,
+              "retryAt": 1794226866546,
+              "reason": "Connection interrupted",
+              "classifier": null,
+              "message": "Connection interrupted · retry 5/10 in 25s"
+            }
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "other",
+              "attempt": 6,
+              "max": 10,
+              "waitMs": 30236,
+              "retryAt": 1794226896782,
+              "reason": "Connection interrupted",
+              "classifier": null,
+              "message": "Connection interrupted · retry 6/10 in 30s"
+            }
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "other",
+              "attempt": 7,
+              "max": 10,
+              "waitMs": 24280,
+              "retryAt": 1794226921062,
+              "reason": "Connection interrupted",
+              "classifier": null,
+              "message": "Connection interrupted · retry 7/10 in 24s"
+            }
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "other",
+              "attempt": 8,
+              "max": 10,
+              "waitMs": 30432,
+              "retryAt": 1794226951494,
+              "reason": "Connection interrupted",
+              "classifier": null,
+              "message": "Connection interrupted · retry 8/10 in 30s"
+            }
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "other",
+              "attempt": 9,
+              "max": 10,
+              "waitMs": 22776,
+              "retryAt": 1794226974270,
+              "reason": "Connection interrupted",
+              "classifier": null,
+              "message": "Connection interrupted · retry 9/10 in 23s"
+            }
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "other",
+              "attempt": 10,
+              "max": 10,
+              "waitMs": 38866,
+              "retryAt": 1794227013136,
+              "reason": "Connection interrupted",
+              "classifier": null,
+              "message": "Connection interrupted · retry 10/10 in 39s"
+            }
+          },
+          {
+            "stage": "requesting"
+          }
+        ],
+        "text": [],
+        "stderr": [
+          "[gemini] retry attempt 2 after fetch failed\n",
+          "[gemini] retry attempt 3 after fetch failed\n",
+          "[gemini] retry attempt 4 after fetch failed\n",
+          "[gemini] retry attempt 5 after fetch failed\n",
+          "[gemini] retry attempt 6 after fetch failed\n",
+          "[gemini] retry attempt 7 after fetch failed\n",
+          "[gemini] retry attempt 8 after fetch failed\n",
+          "[gemini] retry attempt 9 after fetch failed\n",
+          "[gemini] retry attempt 10 after fetch failed\n"
+        ]
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/gemini.mjs.GeminiProvider",
+          "args": [
+            {
+              "apiKey": "fixture-key",
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini.mjs.GeminiProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "gemini-3-pro",
+            [],
+            {
+              "onStageChange": {
+                "callback": "onStageChange"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              }
+            }
+          ]
+        }
+      ],
+      "clock": [
+        {
+          "advanceMs": 4650,
+          "fromMs": 1212535,
+          "fired": [
+            {
+              "dueMs": 1215535
+            },
+            {
+              "dueMs": 1215535
+            },
+            {
+              "dueMs": 1217185
+            }
+          ],
+          "toMs": 1217185
+        },
+        {
+          "advanceMs": 7284,
+          "fromMs": 1217185,
+          "fired": [
+            {
+              "dueMs": 1224469
+            }
+          ],
+          "toMs": 1224469
+        },
+        {
+          "advanceMs": 16765,
+          "fromMs": 1224469,
+          "fired": [
+            {
+              "dueMs": 1241234
+            }
+          ],
+          "toMs": 1241234
+        },
+        {
+          "advanceMs": 25312,
+          "fromMs": 1241234,
+          "fired": [
+            {
+              "dueMs": 1266546
+            }
+          ],
+          "toMs": 1266546
+        },
+        {
+          "advanceMs": 30236,
+          "fromMs": 1266546,
+          "fired": [
+            {
+              "dueMs": 1296782
+            }
+          ],
+          "toMs": 1296782
+        },
+        {
+          "advanceMs": 24280,
+          "fromMs": 1296782,
+          "fired": [
+            {
+              "dueMs": 1321062
+            }
+          ],
+          "toMs": 1321062
+        },
+        {
+          "advanceMs": 30432,
+          "fromMs": 1321062,
+          "fired": [
+            {
+              "dueMs": 1351494
+            }
+          ],
+          "toMs": 1351494
+        },
+        {
+          "advanceMs": 22776,
+          "fromMs": 1351494,
+          "fired": [
+            {
+              "dueMs": 1374270
+            }
+          ],
+          "toMs": 1374270
+        },
+        {
+          "advanceMs": 38866,
+          "fromMs": 1374270,
+          "fired": [
+            {
+              "dueMs": 1413136
+            }
+          ],
+          "toMs": 1413136
+        }
+      ]
+    },
+    {
+      "id": "tls-failures-spend-the-connection-ladder",
+      "source": "src/runtime/agent/orchestrator/providers/gemini-retry-policy.mjs:33",
+      "input": {
+        "ladder": "retries",
+        "fault": "tls"
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "TypeError",
+          "message": "fetch failed",
+          "cause": {
+            "$exact": "error",
+            "name": "Error",
+            "message": "read ECONNRESET",
+            "code": "ECONNRESET",
+            "props": {
+              "errno": -4077,
+              "syscall": "read"
+            }
+          },
+          "props": {
+            "providerRecoveryExhausted": true,
+            "providerRecoveryTerminal": true,
+            "providerRecoveryOwner": "withRetry",
+            "providerRecoveryAttempts": 10
+          }
+        },
+        "stages": [
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "other",
+              "attempt": 2,
+              "max": 10,
+              "waitMs": 5135,
+              "retryAt": 1794227018271,
+              "reason": "Connection interrupted",
+              "classifier": null,
+              "message": "Connection interrupted · retry 2/10 in 5s"
+            }
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "other",
+              "attempt": 3,
+              "max": 10,
+              "waitMs": 12700,
+              "retryAt": 1794227030971,
+              "reason": "Connection interrupted",
+              "classifier": null,
+              "message": "Connection interrupted · retry 3/10 in 13s"
+            }
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "other",
+              "attempt": 4,
+              "max": 10,
+              "waitMs": 17011,
+              "retryAt": 1794227047982,
+              "reason": "Connection interrupted",
+              "classifier": null,
+              "message": "Connection interrupted · retry 4/10 in 17s"
+            }
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "other",
+              "attempt": 5,
+              "max": 10,
+              "waitMs": 27346,
+              "retryAt": 1794227075328,
+              "reason": "Connection interrupted",
+              "classifier": null,
+              "message": "Connection interrupted · retry 5/10 in 27s"
+            }
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "other",
+              "attempt": 6,
+              "max": 10,
+              "waitMs": 35482,
+              "retryAt": 1794227110810,
+              "reason": "Connection interrupted",
+              "classifier": null,
+              "message": "Connection interrupted · retry 6/10 in 35s"
+            }
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "other",
+              "attempt": 7,
+              "max": 10,
+              "waitMs": 28596,
+              "retryAt": 1794227139406,
+              "reason": "Connection interrupted",
+              "classifier": null,
+              "message": "Connection interrupted · retry 7/10 in 29s"
+            }
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "other",
+              "attempt": 8,
+              "max": 10,
+              "waitMs": 37769,
+              "retryAt": 1794227177175,
+              "reason": "Connection interrupted",
+              "classifier": null,
+              "message": "Connection interrupted · retry 8/10 in 38s"
+            }
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "other",
+              "attempt": 9,
+              "max": 10,
+              "waitMs": 29282,
+              "retryAt": 1794227206457,
+              "reason": "Connection interrupted",
+              "classifier": null,
+              "message": "Connection interrupted · retry 9/10 in 29s"
+            }
+          },
+          {
+            "stage": "requesting"
+          },
+          {
+            "stage": "reconnecting",
+            "payload": {
+              "reasonClass": "other",
+              "attempt": 10,
+              "max": 10,
+              "waitMs": 38465,
+              "retryAt": 1794227244922,
+              "reason": "Connection interrupted",
+              "classifier": null,
+              "message": "Connection interrupted · retry 10/10 in 38s"
+            }
+          },
+          {
+            "stage": "requesting"
+          }
+        ],
+        "text": [],
+        "stderr": [
+          "[gemini] retry attempt 2 after fetch failed\n",
+          "[gemini] retry attempt 3 after fetch failed\n",
+          "[gemini] retry attempt 4 after fetch failed\n",
+          "[gemini] retry attempt 5 after fetch failed\n",
+          "[gemini] retry attempt 6 after fetch failed\n",
+          "[gemini] retry attempt 7 after fetch failed\n",
+          "[gemini] retry attempt 8 after fetch failed\n",
+          "[gemini] retry attempt 9 after fetch failed\n",
+          "[gemini] retry attempt 10 after fetch failed\n"
+        ]
+      },
+      "calls": [
+        {
+          "entry": "new src/runtime/agent/orchestrator/providers/gemini.mjs.GeminiProvider",
+          "args": [
+            {
+              "apiKey": "fixture-key",
+              "preconnect": false
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/providers/gemini.mjs.GeminiProvider#send",
+          "args": [
+            [
+              {
+                "role": "user",
+                "content": "hi"
+              }
+            ],
+            "gemini-3-pro",
+            [],
+            {
+              "onStageChange": {
+                "callback": "onStageChange"
+              },
+              "onTextDelta": {
+                "callback": "onTextDelta"
+              }
+            }
+          ]
+        }
+      ],
+      "clock": [
+        {
+          "advanceMs": 5135,
+          "fromMs": 1413136,
+          "fired": [
+            {
+              "dueMs": 1418271
+            }
+          ],
+          "toMs": 1418271
+        },
+        {
+          "advanceMs": 12700,
+          "fromMs": 1418271,
+          "fired": [
+            {
+              "dueMs": 1430971
+            }
+          ],
+          "toMs": 1430971
+        },
+        {
+          "advanceMs": 17011,
+          "fromMs": 1430971,
+          "fired": [
+            {
+              "dueMs": 1447982
+            }
+          ],
+          "toMs": 1447982
+        },
+        {
+          "advanceMs": 27346,
+          "fromMs": 1447982,
+          "fired": [
+            {
+              "dueMs": 1475328
+            }
+          ],
+          "toMs": 1475328
+        },
+        {
+          "advanceMs": 35482,
+          "fromMs": 1475328,
+          "fired": [
+            {
+              "dueMs": 1510810
+            }
+          ],
+          "toMs": 1510810
+        },
+        {
+          "advanceMs": 28596,
+          "fromMs": 1510810,
+          "fired": [
+            {
+              "dueMs": 1539406
+            }
+          ],
+          "toMs": 1539406
+        },
+        {
+          "advanceMs": 37769,
+          "fromMs": 1539406,
+          "fired": [
+            {
+              "dueMs": 1577175
+            }
+          ],
+          "toMs": 1577175
+        },
+        {
+          "advanceMs": 29282,
+          "fromMs": 1577175,
+          "fired": [
+            {
+              "dueMs": 1606457
+            }
+          ],
+          "toMs": 1606457
+        },
+        {
+          "advanceMs": 38465,
+          "fromMs": 1606457,
+          "fired": [
+            {
+              "dueMs": 1644922
+            }
+          ],
+          "toMs": 1644922
+        }
+      ]
+    }
+  ]
+}

@@ -682,7 +682,7 @@
       "input": {
         "file_path": ""
       },
-      "text": "Error: read target 1 must be a path string or {file_path, offset?, limit?}",
+      "text": "Error: read target 1 must be a path string or {file_path, offset?, limit?, tail?}",
       "isError": true
     },
     {
