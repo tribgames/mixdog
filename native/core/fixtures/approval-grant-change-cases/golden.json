@@ -1,0 +1,86 @@
+{
+  "clock": {
+    "dateNow": 1800000000000,
+    "note": "Date.now was held at this value for the whole recording"
+  },
+  "cases": [
+    {
+      "case": "this PC: an approval that remembers a grant broadcasts the permissions change",
+      "observed": [
+        {
+          "remember": "agent",
+          "answered": true,
+          "ops": [
+            [
+              "notifySettingsChanged",
+              [
+                "permissions"
+              ]
+            ]
+          ]
+        },
+        {
+          "remember": "always",
+          "answered": true,
+          "ops": [
+            [
+              "notifySettingsChanged",
+              [
+                "permissions"
+              ]
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "case": "this PC: an approval without a remembered grant, or one not accepted, broadcasts nothing",
+      "observed": {
+        "withoutRemember": true,
+        "once": true,
+        "plainOps": [],
+        "refusedAnswer": false,
+        "refusedOps": []
+      }
+    },
+    {
+      "case": "a paired phone: an approval that remembers a grant broadcasts the permissions change",
+      "observed": [
+        {
+          "remember": "agent",
+          "answered": true,
+          "ops": [
+            [
+              "notifySettingsChanged",
+              [
+                "permissions"
+              ]
+            ]
+          ]
+        },
+        {
+          "remember": "always",
+          "answered": true,
+          "ops": [
+            [
+              "notifySettingsChanged",
+              [
+                "permissions"
+              ]
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "case": "a paired phone: an approval without a remembered grant, or one not accepted, broadcasts nothing",
+      "observed": {
+        "withoutRemember": true,
+        "once": true,
+        "plainOps": [],
+        "refusedAnswer": false,
+        "refusedOps": []
+      }
+    }
+  ]
+}
