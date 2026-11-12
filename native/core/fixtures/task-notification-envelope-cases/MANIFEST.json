@@ -1,0 +1,111 @@
+{
+  "cases": 4,
+  "command": "node benchmarks/rust-core/recorders/record-task-notification-envelope-cases.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "entry": {
+    "notRun": "the two shell cases of the Node test (closed elsewhere); entry enqueuedAt is the held clock (golden.clock.dateNow)",
+    "runs": "task-notification-envelope.mjs renderAgentCompletionEnvelope, parseTaskNotification, taskNotificationId; tool-execution-contract.mjs isModelVisibleToolCompletionWrapper, isInternalRuntimeNotificationText, backgroundTaskHeaderStatus, modelVisibleToolCompletionMessage; session-ingest.mjs shouldExcludeIngestMessage; manager/pending-message-entry.mjs markCompletionEntry; manager/delivered-completions.mjs"
+  },
+  "exclusions": {
+    "modelVisibleOfLegacy": "modelVisibleToolCompletionMessage turns a legacy quoted wrapper into the current envelope: the core queues only envelopes it rendered itself (agent_registry/flow.rs model_visible), so no Rust function converts a legacy row; the recorded value is kept and not replayed"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 207085,
+      "path": "golden.json",
+      "sha256": "4f7e25e2fe3071336132ccf2db78f271d5a03fd88f589500b75befb3353f8045"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
+      "sha256": "b4c0feda547d48e7012fdd6a2298a71f412a5422e28d873410bc86172af99002"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "0487a3ab24d455f97157a840011ab8b465859cffa2d603f47d3806580cc6c85d"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/normalise-paths.mjs",
+      "sha256": "6724d28ef81d587b260d713514d65dcdbb57e56ca79868c1a916f701e379910e"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
+      "sha256": "0bbec20b3c40dc79aa2aa6f791868a372601f188c84bdc1b3a5d8392d8a087f1"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
+      "sha256": "978e77a538b0585a18fdf4212bf208aa9a4bd5f5bc340732f30fd031aa571720"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "normalised": {
+    "paths": [],
+    "reason": "per-run temp path (or generated name) replaced by a placeholder"
+  },
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-task-notification-envelope-cases.mjs",
+  "recorderSha256": "c16cb93b89897cd1997e06f3a943187cc450f0b6635b4b51e0cb180d88fff1af",
+  "replay": {
+    "compare": "render_agent_completion for each recorded input and compare the text; the classifiers over the recorded texts; completions::entry and DeliveredCompletions over the legacy and current texts",
+    "entry": "Drive these public items on o1: mixdog-agent/src/agent_tool/board.rs:255 render_agent_completion; mixdog-agent/src/project.rs:96 parse_task_notification; mixdog-agent/src/project.rs:196 is_model_visible_tool_completion_wrapper; mixdog-core-session/src/session/delivered.rs:66 DeliveredCompletions.",
+    "existsButNotPublicOnO1": [
+      "mixdog-core-session/src/session/delivered.rs:28 `task_notification_id` and completions.rs `entry` are crate-internal: the replay is an in-crate test"
+    ],
+    "missingOnO1": [
+      "modelVisibleToolCompletionMessage of a legacy quoted wrapper (the core queues only the envelopes it renders itself)"
+    ],
+    "normalised": {},
+    "protocolMethods": [],
+    "rustTargets": [
+      {
+        "line": 255,
+        "name": "render_agent_completion",
+        "path": "native/core/crates/mixdog-agent/src/agent_tool/board.rs"
+      },
+      {
+        "line": 96,
+        "name": "parse_task_notification",
+        "path": "native/core/crates/mixdog-agent/src/project.rs"
+      },
+      {
+        "line": 196,
+        "name": "is_model_visible_tool_completion_wrapper",
+        "path": "native/core/crates/mixdog-agent/src/project.rs"
+      },
+      {
+        "line": 66,
+        "name": "DeliveredCompletions",
+        "path": "native/core/crates/mixdog-core-session/src/session/delivered.rs"
+      }
+    ],
+    "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"
+  },
+  "set": "task-notification-envelope-cases",
+  "totalBytes": 207085,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
+}
