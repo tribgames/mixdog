@@ -404,8 +404,25 @@ export function applyDeferredToolSurface(session, mode, extraTools = [], options
 // The surface's catalog, rebuilt from the full catalog, not just its eager
 // projection. Current definitions still take precedence over retained
 // definitions. Bridge definitions belong to the exposure, never to the catalog.
+// A new session stores its standalone tools projected without title and trigger (the projection _getMcpTools makes), so its deferred listing named a
+// tool by its cut description while the rebuilt surface named the trigger it declares: the text a first request carried depended on whether the
+// settings moved before it. A stored definition missing either takes it from the whole definition the surface is given.
+function withDeclaredListing(tool, declared) {
+  if (!declared) return tool;
+  let out = tool;
+  for (const key of ['title', 'trigger']) {
+    if (declared[key] !== undefined && out[key] === undefined) out = { ...out, [key]: declared[key] };
+  }
+  return out;
+}
+
 function surfaceCatalog(session, extraTools, options) {
   const byName = new Map();
+  const declaredByName = new Map();
+  for (const tool of extraTools || []) {
+    const name = clean(tool?.name);
+    if (name && !declaredByName.has(name)) declaredByName.set(name, tool);
+  }
   const candidates = filterDisallowedTools(
     filterModelEditTools(
       [...session.tools, ...(extraTools || []), ...deferredCatalogUnion(session)].filter(
@@ -418,7 +435,7 @@ function surfaceCatalog(session, extraTools, options) {
   for (const tool of candidates) {
     const name = clean(tool?.name);
     if (!name || byName.has(name)) continue;
-    byName.set(name, activeToolForSurface(tool));
+    byName.set(name, activeToolForSurface(withDeclaredListing(tool, declaredByName.get(name))));
   }
   return sortedCatalogByMeasuredUsage([...byName.values()]);
 }
