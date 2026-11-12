@@ -28,7 +28,9 @@ const modules = {
   ...(await set.load('apps/desktop/src/main/remote-methods.ts')),
   ...(await set.load('apps/desktop/src/main/session-attachments.ts')),
   ...(await set.load('src/runtime/agent/orchestrator/session/store-summary-reader.mjs')),
-  ...(await set.load('src/runtime/agent/orchestrator/session/compaction-archive.mjs')),
+  ...(await set.load('src/runtime/agent/orchestrator/session/compaction-archive-capture.mjs')),
+  ...(await set.load('src/runtime/agent/orchestrator/session/store.mjs')),
+  ...(await set.load('src/runtime/agent/orchestrator/session/manager/session-crud.mjs')),
 };
 try {
   for (const [name, scenario] of Object.entries(historyBoundaryScenarios(modules))) await set.run(name, scenario);
@@ -37,7 +39,7 @@ try {
 }
 
 await set.finish({
-  entry: { runs: 'readSessionAttachment (session-attachments.ts), registerSessionIpc, createRemoteMethods, readStoredSessionTranscript (store-summary-reader.mjs) and compactionSegmentLine over session files written into a scratch MIXDOG_DATA_DIR', notRun: 'the test\'s last case (a scan of the app\'s source files for the name of the history read) is a property of the source tree, not of a call; no real attachment store (the blobs are a scripted map)', hops: 'No wire in the Node test.' },
+  entry: { runs: 'readSessionAttachment (session-attachments.ts), registerSessionIpc, createRemoteMethods, readStoredSessionTranscript (store-summary-reader.mjs) over session files the store writes in a scratch MIXDOG_DATA_DIR: the archive\'s segments by the compaction capture (scheduleCompactionArchive, the cap by its byte cap), the hide by the real clear (clearSessionMessages), the records by saveSessionAsync', notRun: 'the test\'s last case (a scan of the app\'s source files for the name of the history read) is a property of the source tree, not of a call; no real attachment store (the blobs are a scripted map); the compactions are the capture the compaction runner calls with the messages it dropped, not a summarising run', hops: 'No wire in the Node test.' },
   replay: { entry: 'the desktop attachment read on the product modules over the same stored sessions (the core serves a session\'s attachments as thread/attachment/list); compare each case whole', normalised: {} },
 });
 process.exit(0);

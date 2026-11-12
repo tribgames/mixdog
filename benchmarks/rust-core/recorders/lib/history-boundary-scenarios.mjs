@@ -14,31 +14,43 @@ const bytes = {
   cleared: Buffer.from('pasted before a clear'),
   capped: Buffer.from('pasted before the archive cap'),
   other: Buffer.from('another session attachment'),
+  filler: Buffer.from('pasted into a segment of the cap test'),
 };
 const blobs = new Map(Object.values(bytes).map((buffer) => [sha(buffer), buffer]));
 const ids = Object.fromEntries(Object.entries(bytes).map(([key, buffer]) => [key, sha(buffer)]));
 
-export function historyBoundaryScenarios({ dataDir, DESKTOP_IPC, fileDownloadErrorReason, registerSessionIpc, createRemoteMethods, readSessionAttachment, readStoredSessionTranscript, compactionSegmentLine }) {
+export function historyBoundaryScenarios({ dataDir, DESKTOP_IPC, fileDownloadErrorReason, registerSessionIpc, createRemoteMethods, readSessionAttachment, readStoredSessionTranscript, loadSession, saveSessionAsync, releaseIdleSessionWriter, clearSessionMessages, scheduleCompactionArchive, flushCompactionArchiveWrites, stampCompactionMessageIds }) {
   const sessionsDir = join(dataDir, 'sessions');
   mkdirSync(sessionsDir, { recursive: true });
-  const segment = (seq, buffer) =>
-    compactionSegmentLine({
-      seq,
-      prev: seq > 1 ? seq - 1 : null,
-      at: seq,
-      items: [
-        { id: `arch${seq}_0_1`, kind: 'user', text: `PRIVATE ROW TEXT ${seq}`, archived: true, attachments: [record(buffer, 'image.png')] },
-        { id: `arch${seq}_divider`, kind: 'statusdone', status: 'compacted' },
-      ],
-    });
-  function storeSession(sessionId, { messages, segments = [], archive = null }) {
-    writeFileSync(join(sessionsDir, `${sessionId}.json`), JSON.stringify({ id: sessionId, createdAt: 1_000, updatedAt: 2_000, status: 'idle', owner: 'user', messages, ...(archive ? { compaction: { archive } } : {}) }));
-    if (segments.length) writeFileSync(join(sessionsDir, `${sessionId}.compaction-archive.jsonl`), `${segments.map(([seq, buffer]) => segment(seq, buffer)).join('\n')}\n`);
-  }
-  const sentMessage = (text, buffer) => ({ role: 'user', content: text, meta: { transcript: { messageId: `msg_${sha(Buffer.from(text)).slice(0, 8)}`, attachments: [record(buffer, 'image.png')] } } });
-  // s1: segment 1 was cleared (hidden), 2 is visible; segment 0 was dropped by the cap (not in the file at all). s2 holds the other attachment.
-  storeSession('s1', { messages: [sentMessage('newest', bytes.live)], segments: [[1, bytes.cleared], [2, bytes.visible]], archive: { nextSeq: 3, clearedThrough: 1 } });
-  storeSession('s2', { messages: [sentMessage('other session', bytes.other)] });
+  // A session as a shipped record of the store holds it (the capture publishes only for a session whose record exists); what the sessions hold
+  // beyond it is done to them by the operations below.
+  const storedRecord = (id, messages) => writeFileSync(join(sessionsDir, `${id}.json`), JSON.stringify({ id, createdAt: 1_000, updatedAt: 2_000, status: 'idle', owner: 'user', messages }));
+  const sentMessage = (text, buffer, pad = 0) => ({ role: 'user', content: `${text} ${'x'.repeat(pad)}`, meta: { transcript: { messageId: `msg_${sha(Buffer.from(text)).slice(0, 8)}`, attachments: [record(buffer, 'image.png')] } } });
+  const conversation = (text, buffer, pad) => [sentMessage(text, buffer, pad), { role: 'assistant', content: `reply to ${text} ${'x'.repeat(pad)}` }, { role: 'user', content: `follow-up to ${text} ${'x'.repeat(pad)}` }, { role: 'assistant', content: `answer to ${text} ${'x'.repeat(pad)}` }];
+  // The segments of the archive are written by the compaction's own capture (scheduleCompactionArchive, what the compaction runner calls
+  // with the messages it dropped), the hide by the real clear (clearSessionMessages), the cap by the capture's own writer over its byte
+  // cap: s1's first segment holds the id the clear hides; after the clear three large segments follow, the first holding the id the cap drops, and a small last one the id that stays.
+  const CAP = 20_000;
+  const compacted = async (session, messages) => {
+    stampCompactionMessageIds(messages, session.id);
+    scheduleCompactionArchive({ session, before: messages, after: [], maxBytes: CAP });
+    await flushCompactionArchiveWrites();
+    await saveSessionAsync(session);
+  };
+  const ready = (async () => {
+    storedRecord('s1', []);
+    const s1 = loadSession('s1');
+    await compacted(s1, conversation('cleared', bytes.cleared, 2_000));
+    await clearSessionMessages('s1');
+    const cleared = loadSession('s1');
+    await compacted(cleared, conversation('capped', bytes.capped, 2_000));
+    await compacted(cleared, conversation('filler one', bytes.filler, 2_000));
+    await compacted(cleared, conversation('filler two', bytes.filler, 2_000));
+    await compacted(cleared, conversation('visible', bytes.visible));    cleared.messages = [sentMessage('newest', bytes.live)];
+    await saveSessionAsync(cleared);
+    storedRecord('s2', [sentMessage('other session', bytes.other)]);
+    await releaseIdleSessionWriter('s1');
+  })();
   /** The host as the app wires it: the window it holds, the daemon's attachment history read, and the attachment store. */
   function hostFor(window = { items: [] }) {
     const historyReads = [];
@@ -61,6 +73,7 @@ export function historyBoundaryScenarios({ dataDir, DESKTOP_IPC, fileDownloadErr
   };
   return {
     'a compacted attachment opens; a cleared, capped, foreign or guessed id is refused': async () => {
+      await ready;
       const host = hostFor();
       return {
         visible: await outcome(readSessionAttachment(host, 's1', ids.visible)),
@@ -81,14 +94,16 @@ export function historyBoundaryScenarios({ dataDir, DESKTOP_IPC, fileDownloadErr
       return { afterHeld, afterCompacted: [...host.historyReads] };
     },
     'the desktop read answers attachment bytes and name only, never a transcript row': async () => {
+      await ready;
       const host = hostFor();
       const handlers = registered(host);
       const sessionId = `sess_desktop_${'a'.repeat(64)}`;
-      storeSession(sessionId, { messages: [sentMessage('a desktop message', bytes.live)] });
+      storedRecord(sessionId, [sentMessage('a desktop message', bytes.live)]);
       const answer = await handlers.get(DESKTOP_IPC.readSessionAttachment)({}, sessionId, ids.live);
       return { keys: Object.keys(answer).sort(), answer, namesTheMessage: JSON.stringify(answer).includes('a desktop message') };
     },
     'no channel of the renderer, the paired phone or the service reaches the history as a transcript read': async () => {
+      await ready;
       const host = hostFor();
       const remote = createRemoteMethods({ host });
       const handlers = registered(host);
