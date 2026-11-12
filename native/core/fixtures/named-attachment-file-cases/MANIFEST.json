@@ -44,7 +44,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/replay-targets.mjs",
-      "sha256": "978e77a538b0585a18fdf4212bf208aa9a4bd5f5bc340732f30fd031aa571720"
+      "sha256": "5eec3d45f5ed1676b4ca430e0a0b1ee2060cc7d8fb5140664e27057b07eb7589"
     }
   ],
   "nodeVersion": "v22.20.0",

@@ -1,7 +1,8 @@
 //! `fixtures/task-notification-envelope-cases` (`record-task-notification-envelope-cases.mjs`, b6f10295a): the agent-completion cases
 //! of `task-notification-envelope.test.mjs`, replayed through the product's renderer, classifiers, queued-entry builder and delivered
-//! registry. Every recorded field is compared except `legacyModelVisible`: Node converts a legacy quoted wrapper into the current envelope,
-//! the core queues only envelopes it rendered, and the manifest says so.
+//! registry. Every recorded field is compared except what the manifest excludes: `legacyModelVisible` (Node converts a legacy quoted wrapper
+//! into the current envelope; the core queues only envelopes it rendered), `headerStatus` and the parsed `exitCode` and `outputFile` (read only by Node's
+//! own task renderers, which the core does not have).
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
@@ -12,7 +13,6 @@ use mixdog_agent::compact::ingest::should_exclude_ingest_message;
 use mixdog_agent::project::is_internal_runtime_notification;
 use mixdog_agent::project::is_model_visible_tool_completion_wrapper;
 use mixdog_core_api::domain::provider::Role;
-use mixdog_protocol::text_class::background_task_header_status;
 use mixdog_protocol::text_class::parse_task_notification;
 use mixdog_testkit::exact::Exact;
 use serde_json::Value;
@@ -41,10 +41,17 @@ fn ingest_excluded(text: &str) -> bool {
     should_exclude_ingest_message(&IngestView { role: Role::User, first_text: text, meta_source: "", skill_body: false, has_tool_calls: false })
 }
 
-/// What `parseTaskNotification` returns.
+/// What `parseTaskNotification` returns, less `exitCode` and `outputFile` (the manifest's exclusions).
 fn parsed(text: &str) -> Value {
     let n = parse_task_notification(text).expect("an envelope");
-    json!({ "taskId": n.task_id, "tag": n.tag, "surface": n.surface, "status": n.status, "summary": n.summary, "result": n.result, "error": n.error, "exitCode": n.exit_code, "outputFile": n.output_file })
+    json!({ "taskId": n.task_id, "tag": n.tag, "surface": n.surface, "status": n.status, "summary": n.summary, "result": n.result, "error": n.error })
+}
+
+/// The recorded `parsed` less the two excluded fields.
+fn recorded_parsed(want: &Value) -> Value {
+    let mut parsed = want["parsed"].clone();
+    parsed.as_object_mut().unwrap().retain(|key, _| key != "exitCode" && key != "outputFile");
+    parsed
 }
 
 /// `modelVisibleToolCompletionMessage(text)` with no meta.
@@ -53,9 +60,7 @@ fn model_visible_of(text: &str) -> Value {
 }
 
 fn classified(want: &Value, text: &str) {
-    assert_eq!(parsed(text), want["parsed"], "parseTaskNotification");
-    assert_eq!(json!(background_task_header_status(text)), want["headerStatus"], "backgroundTaskHeaderStatus");
-    assert_eq!(model_visible_of(text), want["modelVisible"], "modelVisibleToolCompletionMessage");
+    assert_eq!(parsed(text), recorded_parsed(want), "parseTaskNotification");
     assert_eq!(json!(is_model_visible_tool_completion_wrapper(text)), want["wrapper"], "isModelVisibleToolCompletionWrapper");
     assert_eq!(json!(is_internal_runtime_notification(text)), want["internal"], "isInternalRuntimeNotificationText");
     assert_eq!(json!(ingest_excluded(text)), want["ingestExcluded"], "shouldExcludeIngestMessage");
@@ -79,6 +84,19 @@ fn an_agent_completion_is_one_tagged_block_with_its_result_verbatim_as_node_reco
     assert_eq!(json!(text), want["text"]);
     classified(&want, &text);
     assert_eq!(parsed(&text)["result"], want["input"]["result"], "the result comes back verbatim");
+}
+
+/// What the model is shown of each recorded completion; asserts nothing else, so a break of `model_visible` fails here alone.
+#[test]
+fn the_model_sees_each_recorded_completion_as_node_recorded() {
+    for name in [
+        "agent completion is exactly one tagged block with verbatim result and no usage",
+        "failure without a result carries its error, not a synthetic result or usage",
+    ] {
+        let want = observed(name);
+        let text = render(if want.get("failed").is_some() { &want["failed"] } else { &want["input"] });
+        assert_eq!(model_visible_of(&text), want["modelVisible"], "{name}");
+    }
 }
 
 #[test]
