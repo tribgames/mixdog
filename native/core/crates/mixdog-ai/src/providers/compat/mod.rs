@@ -21,6 +21,8 @@ pub mod wire_route;
 pub(crate) mod xai_cache;
 
 #[cfg(test)]
+mod chat_stream_replay_tests;
+#[cfg(test)]
 mod deepseek_replay_tests;
 #[cfg(test)]
 mod tests;
