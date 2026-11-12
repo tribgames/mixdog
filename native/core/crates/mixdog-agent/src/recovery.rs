@@ -129,9 +129,10 @@ fn error_code(error: &ProviderError) -> String {
     error.code.as_deref().map(|c| c.trim().to_lowercase()).unwrap_or_default()
 }
 
-/// `isInvalidImageCode`.
+/// `isInvalidImageCode`: `ANTHROPIC_IMAGE_PREPARATION_FAILED` is the Messages wire's local rejection of an image it cannot
+/// decode or fit (`prepareAnthropicImages`), raised before any request is sent.
 fn is_invalid_image_code(code: &str) -> bool {
-    matches!(code, "invalid_image" | "invalid-image")
+    matches!(code, "invalid_image" | "invalid-image" | "anthropic_image_preparation_failed")
 }
 
 fn says_invalid_image(error: &ProviderError) -> bool {
@@ -317,6 +318,23 @@ mod tests {
                 ContentPart::Text(IMAGE_STRIP_PLACEHOLDER.into(), None),
             ])
         );
+    }
+
+    /// The Messages wire refuses an image it cannot decode before sending anything, with a 400 and its own code
+    /// (`ANTHROPIC_IMAGE_PREPARATION_FAILED`): the loop heals it as an image rejection. A machine that cannot resize
+    /// (`ANTHROPIC_IMAGE_RUNTIME_UNAVAILABLE`) says nothing of the image, which stays.
+    #[test]
+    fn the_messages_wires_local_image_refusal_is_an_image_rejection_and_the_runtime_failure_is_not() {
+        use mixdog_core_api::domain::provider::{DeliveryState, ErrorKind};
+        let local = |code: &str| {
+            let mut error = ProviderError::new(ErrorKind::InvalidRequest, DeliveryState::NotSent);
+            error.status = Some(400);
+            error.code = Some(code.to_owned());
+            error
+        };
+        assert!(is_image_processing_error(&local("ANTHROPIC_IMAGE_PREPARATION_FAILED")));
+        assert!(confirmed_image_rejection(&local("ANTHROPIC_IMAGE_PREPARATION_FAILED")));
+        assert!(!is_image_processing_error(&local("ANTHROPIC_IMAGE_RUNTIME_UNAVAILABLE")));
     }
 
     #[test]

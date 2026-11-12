@@ -16,6 +16,7 @@ mod decoder;
 mod effort_updates;
 pub(crate) mod errors;
 pub mod fast_mode;
+pub mod images;
 mod lowering;
 mod models;
 pub mod oauth;

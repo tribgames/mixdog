@@ -22,6 +22,7 @@ use flate2::Compression;
 use flate2::write::GzEncoder;
 use mixdog_core_api::domain::cache_warm::CacheWarmSend;
 use mixdog_core_api::domain::cache_warm::cache_warm_request;
+use mixdog_core_api::domain::ext::ProfiledImageResizer;
 use mixdog_core_api::domain::keepalive::KeepaliveSchedule;
 use mixdog_core_api::domain::keepalive::TransportKind;
 use mixdog_core_api::domain::provider::DeliveryState;
@@ -178,6 +179,8 @@ pub struct AnthropicAdapter {
     preconnect: Option<Preconnect>,
     /// The process settings the request reads (Node's `process.env`).
     settings: Setting,
+    /// `prepareAnthropicImages`' resizer: every inline image of a request is fitted before it is built.
+    images: Option<Arc<dyn ProfiledImageResizer>>,
 }
 
 /// The origin the subscription route warms (`anthropic-oauth.mjs:352`, `:535`), whatever its base URL.
@@ -233,7 +236,14 @@ impl AnthropicAdapter {
             gzip_lane,
             preconnect: None,
             settings: Arc::new(|name| std::env::var(name).ok()),
+            images: None,
         }
+    }
+
+    /// Prepares the images of every request with `resizer` ([`super::images::prepare_request`]).
+    pub fn with_images(mut self, resizer: Option<Arc<dyn ProfiledImageResizer>>) -> Self {
+        self.images = resizer;
+        self
     }
 
     /// The process settings read from `settings` instead of the process environment.
@@ -451,8 +461,13 @@ impl CacheWarmSend for AnthropicAdapter {
         cancel: &CancellationToken,
         on_usage: &mut (dyn for<'u> FnMut(&'u WarmUsage) + Send),
     ) -> Result<WarmUsage, WarmFailure> {
+        let warm = cache_warm_request(request);
+        let warm = match &self.images {
+            Some(resizer) => super::images::prepare_request(Arc::new(warm), resizer.as_ref()).await.map_err(|e| WarmFailure::new(e.message))?,
+            None => Arc::new(warm),
+        };
         // A warm never threads: Node builds its body with the plain request builder.
-        let wire = self.codec.encode_plain(&cache_warm_request(request)).map_err(|e| WarmFailure::new(e.message))?.wire;
+        let wire = self.codec.encode_plain(&warm).map_err(|e| WarmFailure::new(e.message))?.wire;
         let secret = self.credentials.current().await.map_err(|e| WarmFailure::new(e.message))?;
         let post: Post<'_> = Box::new(move || {
             Box::pin(async move {
@@ -506,6 +521,10 @@ impl ProviderAdapter for AnthropicAdapter {
         if let Some(preconnect) = &self.preconnect {
             preconnect.warm(ANTHROPIC_ORIGIN);
         }
+        let request = match &self.images {
+            Some(resizer) => super::images::prepare_request(request, resizer.as_ref()).await?,
+            None => request,
+        };
         let mut plain = self.codec.encode_plain(&request)?;
         let mut secret = self.credentials.current().await?;
         let mut refreshed = false;
