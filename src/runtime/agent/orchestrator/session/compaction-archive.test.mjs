@@ -33,10 +33,15 @@ const {
   droppedByCompaction,
   flushCompactionArchiveWrites,
   hideCompactionArchive,
+  prepareCompactionArchive,
   scheduleCompactionArchive,
   stampCompactionMessageIds,
 } = await import('./compaction-archive-capture.mjs');
 const { stampMessageIds } = await import('./message-ids.mjs');
+const { readSessionRecord } = await import('./store/session-record.mjs');
+const { encodeCompacted, encodePatch, encodeSessionRecord, newLogId } = await import(
+  './store/session-log-format.mjs'
+);
 const { schedulePendingWrite, takePendingWrite } = await import('./store/pending-writes.mjs');
 const { publishSessionPersistence } = await import('./store/session-persistence-events.mjs');
 const { rememberSensitiveValues } = await import('./sensitive-values.mjs');
@@ -75,6 +80,23 @@ const SUMMARY = [
   '- continue',
 ].join('\n');
 
+/** A legacy record whose save committed every archive segment number below
+ *  `nextSeq` (the proof a compaction was saved: session-record, same save as
+ *  the shortened transcript). */
+const committedRecord = (id, nextSeq = 1000) => JSON.stringify({ id, compaction: { archive: { nextSeq } } });
+
+/** The same proof in a log-born record: header, empty history, and the patch
+ *  a save appends after its transcript record. */
+function writeLogRecord(id, nextSeq = 1000) {
+  const compaction = JSON.stringify({ archive: { nextSeq } });
+  writeFileSync(
+    join(sessionsDir, `${id}.log.jsonl`),
+    encodeSessionRecord({ logId: newLogId(), id, header: { id } }) +
+      encodeCompacted(1, []) +
+      encodePatch(2, [['compaction', compaction]], [])
+  );
+}
+
 let sequence = 0;
 function storedSession(tag) {
   const id = `compact-archive-${process.pid}-${tag}-${++sequence}`;
@@ -92,7 +114,7 @@ function storedSession(tag) {
       { role: 'assistant', content: `answer ${turn} ${'detail '.repeat(400)}` }
     );
   }
-  writeFileSync(join(sessionsDir, `${id}.json`), JSON.stringify({ id }));
+  writeFileSync(join(sessionsDir, `${id}.json`), committedRecord(id));
   return {
     id,
     provider: 'anthropic-oauth',
@@ -477,7 +499,7 @@ test('a committed compaction archives what it dropped as one display-only segmen
 
 test('an automatic pre-send compaction archives what it dropped once it adopts the result', async () => {
   const id = `compact-archive-presend-${process.pid}`;
-  writeFileSync(join(sessionsDir, `${id}.json`), JSON.stringify({ id }));
+  writeFileSync(join(sessionsDir, `${id}.json`), committedRecord(id));
   const session = {
     id,
     owner: 'agent',
@@ -1034,7 +1056,7 @@ test('a publication refused while the session is live waits for its save to land
   assert.equal(immediates, 0);
   assert.equal(existsSync(compactionArchivePath(sessionsDir, session.id)), false);
   // The save lands: both segments are written, in order, none lost.
-  writeFileSync(recordPath, JSON.stringify({ id: session.id }));
+  writeFileSync(recordPath, committedRecord(session.id));
   takePendingWrite(session.id);
   publishSessionPersistence(session.id, 'landed');
   assert.ok(await scheduled.written);
@@ -1069,7 +1091,7 @@ test('a close before the record exists keeps the segment; the next process publi
   // Restart: nothing in memory; the session is saved again.
   _resetCompactionArchiveState();
   takePendingWrite(session.id);
-  writeFileSync(recordPath, JSON.stringify({ id: session.id }));
+  writeFileSync(recordPath, committedRecord(session.id));
   publishSessionPersistence(session.id, 'landed');
   await flushCompactionArchiveWrites();
   assert.deepEqual(
@@ -1180,7 +1202,7 @@ test('a delete removes a cold pending sidecar, so a recreated id imports no dele
   rmSync(join(sessionsDir, `${session.id}.json`));
   assert.equal(await deleteSession(session.id), true);
   assert.equal(existsSync(pending), false);
-  writeFileSync(join(sessionsDir, `${session.id}.json`), JSON.stringify({ id: session.id }));
+  writeFileSync(join(sessionsDir, `${session.id}.json`), committedRecord(session.id));
   publishSessionPersistence(session.id, 'landed');
   assert.equal(await recoverPendingCompactionArchives(), 0);
   await flushCompactionArchiveWrites();
@@ -1254,6 +1276,162 @@ test('a record that is gone with no save pending is a skip that gives its number
     log,
     new RegExp(`compaction archive write skipped \\(sess=${session.id}, seq=1\\): session record missing`)
   );
+});
+
+/** A session whose only record is its log, as every new session is. */
+function logOnlySession(tag) {
+  const session = storedSession(tag);
+  rmSync(join(sessionsDir, `${session.id}.json`));
+  writeLogRecord(session.id);
+  return session;
+}
+
+test('a log-only session (no json record) gets its segment published', async () => {
+  const session = logOnlySession('log-only');
+  const log = await captureStderr(async () => {
+    scheduleCompactionArchive({ session, before: itemsOf(1, 2), after: [] });
+    await flushCompactionArchiveWrites();
+  });
+  assert.deepEqual(
+    archiveLines(session.id).map((line) => compactionSegmentHead(line).seq),
+    [1]
+  );
+  assert.equal(session.compaction.archive.nextSeq, 2);
+  assert.doesNotMatch(log, /record missing/);
+});
+
+test('the startup scan publishes the pending segment of a log-only session', async (t) => {
+  const { session, pending } = await coldSidecar(t, 'cold-log-only');
+  rmSync(join(sessionsDir, `${session.id}.json`));
+  writeLogRecord(session.id);
+  assert.equal(await recoverPendingCompactionArchives(), 1);
+  await flushCompactionArchiveWrites();
+  assert.deepEqual(
+    archiveLines(session.id).map((line) => compactionSegmentHead(line).seq),
+    [1]
+  );
+  assert.equal(existsSync(pending), false);
+});
+
+const RECORD_KINDS = {
+  'log-only': (id, nextSeq) => {
+    rmSync(join(sessionsDir, `${id}.json`), { force: true });
+    writeLogRecord(id, nextSeq);
+  },
+  'json-backed': (id, nextSeq) => writeFileSync(join(sessionsDir, `${id}.json`), committedRecord(id, nextSeq)),
+};
+
+for (const [kind, writeRecord] of Object.entries(RECORD_KINDS)) {
+  test(`startup recovery discards the pending segment of a compaction that was never saved (${kind})`, async (t) => {
+    const session = storedSession(`unsaved-${kind}`);
+    // The record as the last save left it: this compaction's number is not in it.
+    writeRecord(session.id, 1);
+    // Crash after the sidecar is durable, before the shortened transcript is adopted or saved.
+    const prepared = prepareCompactionArchive({ session, before: itemsOf(1, 2), after: [] });
+    await prepared.durable;
+    const pending = join(sessionsDir, `${session.id}.compaction-archive.pending`);
+    assert.equal(existsSync(pending), true);
+    _resetCompactionArchiveState();
+    t.after(() => _resetCompactionArchiveState());
+    const log = await captureStderr(async () => {
+      assert.equal(await recoverPendingCompactionArchives(), 0);
+      await flushCompactionArchiveWrites();
+    });
+    assert.deepEqual(archiveLines(session.id), []);
+    assert.equal(existsSync(pending), false);
+    assert.match(log, new RegExp(`write skipped \\(sess=${session.id}, seq=1\\): .*never saved`));
+    // Its number is free: the next compaction of the reloaded session claims it again.
+    const reloaded = storedSession(`unsaved-${kind}-again`);
+    writeRecord(session.id, 1);
+    reloaded.id = session.id;
+    scheduleCompactionArchive({ session: reloaded, before: itemsOf(1, 2), after: [] });
+    assert.equal(reloaded.compaction.archive.nextSeq, 2);
+  });
+}
+
+test('a live segment waits for the record to commit its compaction, then publishes', async (t) => {
+  const session = logOnlySession('live-uncommitted');
+  writeLogRecord(session.id, 1);
+  t.after(() => _resetCompactionArchiveState());
+  const parked = new Promise((resolve) => _setCompactionArchiveParkHook(resolve));
+  t.after(() => _setCompactionArchiveParkHook(null));
+  const scheduled = scheduleCompactionArchive({ session, before: itemsOf(1, 2), after: [] });
+  await parked;
+  assert.deepEqual(archiveLines(session.id), []);
+  // A save that lands without the compaction publishes nothing.
+  const again = new Promise((resolve) => _setCompactionArchiveParkHook(resolve));
+  publishSessionPersistence(session.id, 'landed');
+  await again;
+  assert.deepEqual(archiveLines(session.id), []);
+  // The save that carries the shortened transcript commits the number.
+  writeLogRecord(session.id, 2);
+  publishSessionPersistence(session.id, 'landed');
+  assert.ok(await scheduled.written);
+  assert.deepEqual(
+    archiveLines(session.id).map((line) => compactionSegmentHead(line).seq),
+    [1]
+  );
+});
+
+/** Runs `deliver` once, right after the first publication check read the record
+ *  and before it answers — the window in which a save's `landed` or a
+ *  close's `closed` can arrive. The check still sees the record it read. */
+function eventDuringRecordCheck(t, deliver) {
+  let delivered = false;
+  _setCompactionArchiveFs({
+    readSessionRecord: async (...args) => {
+      const outcome = await readSessionRecord(...args);
+      if (!delivered) {
+        delivered = true;
+        deliver();
+      }
+      return outcome;
+    },
+  });
+  t.after(() => _setCompactionArchiveFs(null));
+}
+
+/** Settles with the archive writes, or fails the test if they never do. */
+async function flushedWithin(ms) {
+  let timer;
+  const stuck = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error('archive writes still pending: a delivered event was missed')), ms);
+  });
+  try {
+    await Promise.race([flushCompactionArchiveWrites(), stuck]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+test('a save that lands while the record is being checked is not missed', async (t) => {
+  const session = logOnlySession('landed-in-check');
+  writeLogRecord(session.id, 1);
+  t.after(() => _resetCompactionArchiveState());
+  // The committing save writes the record after the check read the old one.
+  eventDuringRecordCheck(t, () => {
+    writeLogRecord(session.id, 2);
+    publishSessionPersistence(session.id, 'landed');
+  });
+  const scheduled = scheduleCompactionArchive({ session, before: itemsOf(1, 2), after: [] });
+  await flushedWithin(2000);
+  assert.ok(await scheduled.written);
+  assert.deepEqual(
+    archiveLines(session.id).map((line) => compactionSegmentHead(line).seq),
+    [1]
+  );
+});
+
+test('a close that arrives while the record is being checked ends the write and keeps the segment', async (t) => {
+  const session = logOnlySession('closed-in-check');
+  writeLogRecord(session.id, 1);
+  t.after(() => _resetCompactionArchiveState());
+  eventDuringRecordCheck(t, () => publishSessionPersistence(session.id, 'closed'));
+  const scheduled = scheduleCompactionArchive({ session, before: itemsOf(1, 2), after: [] });
+  await flushedWithin(2000);
+  assert.equal(await scheduled.written, null);
+  assert.deepEqual(archiveLines(session.id), []);
+  assert.equal(existsSync(join(sessionsDir, `${session.id}.compaction-archive.pending`)), true);
 });
 
 /** Makes the sidecar read of `path` fail with `code`; every other read is real. */

@@ -24,13 +24,20 @@
  * its cap (or holding lines the next reader must not see) is rewritten.
  */
 import { randomBytes } from 'node:crypto';
-import { existsSync, readFileSync, unlinkSync } from 'node:fs';
-import { open, readdir, rename, unlink } from 'node:fs/promises';
+import { readFileSync, unlinkSync } from 'node:fs';
+import { open, readdir, unlink } from 'node:fs/promises';
 import { basename, join } from 'node:path';
-import { quarantinePath, renameWithRetrySync } from '../../../shared/atomic-file.mjs';
+import { quarantinePath, renameWithRetry, renameWithRetrySync } from '../../../shared/atomic-file.mjs';
 import { writeStderrBestEffort } from '../../../shared/best-effort-stderr.mjs';
 
 import { getStoreDir } from './store/session-paths.mjs';
+import {
+  ABSENT_RECORD_STAMP,
+  readSessionRecord,
+  readSessionRecordSync,
+  recordSession,
+  sessionRecordStampOfSync,
+} from './store/session-record.mjs';
 import { hasPendingSessionWrite as _hasPendingPersistence } from './store/pending-writes.mjs';
 import { _messagesForDisk } from './store/serialize.mjs';
 import { subscribeSessionPersistence } from './store/session-persistence-events.mjs';
@@ -251,26 +258,46 @@ export function _setCompactionArchiveFsync(sync) {
   syncFile = typeof sync === 'function' ? sync : (handle) => handle.sync();
 }
 
-const realFs = { readFileSync, readdir };
+const realFs = { readFileSync, readdir, readSessionRecord };
 let fsOps = realFs;
-/** Test seam: replaces the pending-sidecar read (`readFileSync`) and the store
- *  listing (`readdir`); null restores them. */
+/** Test seam: replaces the pending-sidecar read (`readFileSync`), the store
+ *  listing (`readdir`) and the record read of a publication check
+ *  (`readSessionRecord`); null restores them. */
 export function _setCompactionArchiveFs(ops) {
   fsOps = ops ? { ...realFs, ...ops } : realFs;
 }
 
-const recordExists = (dir, sessionId) => existsSync(join(dir, `${sessionId}.json`));
+// The one record-presence seam (session-record.mjs): a session exists when its
+// record resolves to a log or a legacy document, whichever the store holds.
+const recordExists = (dir, sessionId) => sessionRecordStampOfSync(dir, sessionId) !== ABSENT_RECORD_STAMP;
 
-/** Why a segment cannot be published now, or null. A delete that bumped the
- *  epoch since `epoch` was captured is final. A missing record is final too
- *  unless a save of that session is still pending — that save is what creates
- *  it, so the write is kept (`retry`). */
-function publicationRefusal(dir, sessionId, epoch) {
+/** The segment numbers the persisted record has committed: every `seq` below
+ *  the returned value belongs to a compaction whose save landed. The record
+ *  carries `compaction.archive.nextSeq` in the same save as the shortened
+ *  transcript, so it is the one proof a compaction was saved; a record that
+ *  does not resolve to this session proves nothing (0). */
+const committedSeqOf = (outcome, sessionId) => {
+  const next = Math.floor(Number(recordSession(outcome, sessionId)?.compaction?.archive?.nextSeq));
+  return next > 0 ? next : 0;
+};
+
+/** Why a segment `seq` cannot be published now, or null. A delete that bumped
+ *  the epoch since `epoch` was captured is final. A missing record is final
+ *  too unless a save of that session is still pending — that save is what
+ *  creates it, so the write is kept (`retry`). A record that does not yet
+ *  commit `seq` means the compaction owning it was not saved: the write is
+ *  kept until a save lands (`retry`), and never published before. */
+async function publicationRefusal(dir, sessionId, epoch, seq) {
   if (compactionArchiveDeleteEpoch(sessionId) !== epoch) return { reason: 'session deleted', retry: false };
-  if (recordExists(dir, sessionId)) return null;
-  return _hasPendingPersistence(sessionId)
-    ? { reason: 'session record missing while its save is pending', retry: true }
-    : { reason: 'session record missing', retry: false };
+  if (!recordExists(dir, sessionId)) {
+    return _hasPendingPersistence(sessionId)
+      ? { reason: 'session record missing while its save is pending', retry: true }
+      : { reason: 'session record missing', retry: false };
+  }
+  const outcome = await fsOps.readSessionRecord(dir, sessionId, { messages: false });
+  return committedSeqOf(outcome, sessionId) > seq
+    ? null
+    : { reason: 'compaction not saved in the session record yet', retry: true };
 }
 
 const removeQuietly = (path) => unlink(path).catch(() => {});
@@ -293,7 +320,7 @@ async function writeFully(handle, data, position) {
  *  `epoch` was captured wins, and one that lands while the rename runs
  *  removes what it published. Any outcome but a rename removes the temp file.
  *  Returns null once published, else the fence's refusal. */
-async function publishArchive({ dir, path, sessionId, data, epoch }) {
+async function publishArchive({ dir, path, sessionId, seq, data, epoch }) {
   const tmp = join(dir, `${basename(path)}.mixdog-tmp-${randomBytes(4).toString('hex')}`);
   try {
     const handle = await open(tmp, 'wx', 0o600);
@@ -308,13 +335,13 @@ async function publishArchive({ dir, path, sessionId, data, epoch }) {
     await removeQuietly(tmp);
     throw error;
   }
-  const refusal = publicationRefusal(dir, sessionId, epoch);
+  const refusal = await publicationRefusal(dir, sessionId, epoch, seq);
   if (refusal) {
     await removeQuietly(tmp);
     return refusal;
   }
   try {
-    await rename(tmp, path);
+    await renameWithRetry(tmp, path);
   } catch (error) {
     await removeQuietly(tmp);
     throw error;
@@ -336,7 +363,7 @@ async function appendSegment({ sessionId, seq, at, items, clearedThrough, maxByt
   const dir = getStoreDir();
   const path = compactionArchivePath(dir, sessionId);
   // A deleted session must not regrow its archive.
-  const early = publicationRefusal(dir, sessionId, epoch);
+  const early = await publicationRefusal(dir, sessionId, epoch, seq);
   if (early) return early;
   let handle = null;
   try {
@@ -355,7 +382,7 @@ async function appendSegment({ sessionId, seq, at, items, clearedThrough, maxByt
     if (handle && kept.length === entries.length && size <= maxBytes && tilesArchive(entries, size)) {
       if (publishHook) await publishHook({ sessionId, path, tmp: null });
       // Past the fence a delete only unlinks the file this handle writes.
-      const refusal = publicationRefusal(dir, sessionId, epoch);
+      const refusal = await publicationRefusal(dir, sessionId, epoch, seq);
       if (refusal) return refusal;
       await writeFully(handle, Buffer.from(`${segment.line}\n`, 'utf8'), size);
       await syncFile(handle);
@@ -383,7 +410,7 @@ async function appendSegment({ sessionId, seq, at, items, clearedThrough, maxByt
     await handle?.close().catch(() => {});
   }
   parts.push(Buffer.from(`${segment.line}\n`, 'utf8'));
-  const refusal = await publishArchive({ dir, path, sessionId, data: Buffer.concat(parts), epoch });
+  const refusal = await publishArchive({ dir, path, sessionId, seq, data: Buffer.concat(parts), epoch });
   if (refusal) return refusal;
   return { segments: [...kept.map((entry) => entry.head), compactionSegmentHead(segment.line)] };
 }
@@ -419,6 +446,12 @@ const unpublished = new Map();
 const recovered = new Set();
 const sidecarOnDisk = new Set();
 const waiters = new Map();
+// What the session's persistence signal did while it has unpublished jobs:
+// `gen` counts its `landed`/`closed` events and `closed` is whether the last
+// one was a close. A flush reads `gen` before it checks the record and parks
+// only if it is unchanged afterwards, so an event delivered during that
+// (asynchronous) check is never missed; a closed session never parks.
+const sessionEvents = new Map();
 
 const jobsOf = (id) => {
   let list = unpublished.get(id);
@@ -484,7 +517,7 @@ async function writePending(id) {
     } finally {
       await handle.close();
     }
-    await rename(tmp, path);
+    await renameWithRetry(tmp, path);
   } catch (error) {
     await removeQuietly(tmp);
     writeStderrBestEffort(
@@ -542,15 +575,25 @@ function recoverPending(id) {
     recovered.add(id);
     return;
   }
+  // A job a previous process left is published only if that process's save of
+  // its compaction landed (the record commits its seq). One that did not
+  // describes history the saved transcript still holds: it is discarded here,
+  // before any new number is claimed, and its number is free again (the
+  // record never claimed it).
+  const committed = committedSeqOf(readSessionRecordSync(getStoreDir(), id, { messages: false }), id);
   const list = jobsOf(id);
   const epoch = compactionArchiveDeleteEpoch(id);
+  const never = [];
   for (const job of saved) {
     if (list.some((held) => held.seq === job.seq)) continue;
-    list.push({ ...job, id, session: null, epoch, segments: null });
+    if (job.seq >= committed) never.push(job);
+    else list.push({ ...job, id, session: null, epoch, segments: null });
   }
   list.sort((a, b) => a.seq - b.seq);
   sidecarOnDisk.add(id);
   recovered.add(id);
+  for (const job of never) logArchiveSkip(id, job.seq, 'skipped', 'its compaction was never saved in the session record');
+  if (never.length) void persistPending(id);
 }
 
 /** recoverPending for callers that cannot refuse (a save event, the startup
@@ -620,6 +663,17 @@ function waitForSessionEvent(id) {
   });
 }
 
+/** Forgets the session's unpublished jobs and the events counted for them. */
+function releaseJobs(id) {
+  unpublished.delete(id);
+  sessionEvents.delete(id);
+}
+
+function noteSessionEvent(id, event) {
+  if (!unpublished.has(id) || (event !== 'landed' && event !== 'closed')) return;
+  sessionEvents.set(id, { gen: (sessionEvents.get(id)?.gen ?? 0) + 1, closed: event === 'closed' });
+}
+
 function wakeWaiters(id, event) {
   const set = waiters.get(id);
   if (!set) return;
@@ -633,7 +687,7 @@ function dropJobs(id, reason, only = null) {
   if (!list) return;
   const dropped = only ? list.filter((job) => job === only) : list.splice(0);
   if (only) list.splice(list.indexOf(only), 1);
-  if (!list.length) unpublished.delete(id);
+  if (!list.length) releaseJobs(id);
   for (const job of [...dropped].reverse()) {
     logArchiveSkip(id, job.seq, 'skipped', reason);
     if (job.session) releaseClaimedSeq(job.session, job.seq);
@@ -672,9 +726,10 @@ async function flushUnpublished(id) {
     const list = unpublished.get(id);
     const job = list?.[0];
     if (!job) {
-      unpublished.delete(id);
+      releaseJobs(id);
       return;
     }
+    const seen = sessionEvents.get(id)?.gen ?? 0;
     let outcome;
     try {
       outcome = await publishJob(job);
@@ -698,11 +753,16 @@ async function flushUnpublished(id) {
       continue;
     }
     if (outcome.retry) {
-      // The session's own save is what creates its record: wait for that save
-      // to land (no polling). A delete ends the wait; a close keeps the jobs
-      // for the next process.
+      // The session's own save is what creates its record and commits this
+      // compaction: wait for that save to land (no polling). A delete ends the
+      // wait; a close keeps the jobs for the next process.
       if (!job.deferred) logArchiveSkip(id, job.seq, 'deferred', `${outcome.reason}; waiting for it`);
       job.deferred = true;
+      // No await between this check and the registration below: an event that
+      // came during the publication check is seen here, never waited for.
+      const events = sessionEvents.get(id);
+      if (events?.closed) return;
+      if ((events?.gen ?? 0) !== seen) continue;
       const waiting = waitForSessionEvent(id);
       parkHook?.({ sessionId: id, seq: job.seq });
       const event = await waiting;
@@ -729,6 +789,7 @@ function enqueueFlush(id) {
 }
 
 subscribeSessionPersistence((id, event) => {
+  noteSessionEvent(id, event);
   wakeWaiters(id, event);
   if (event !== 'landed') return;
   if (!tryRecoverPending(id)) return;
@@ -747,6 +808,7 @@ registerSessionPurgeHook((id) => {
 /** Test seam: forget all in-memory state (a restart); sidecars stay on disk. */
 export function _resetCompactionArchiveState() {
   unpublished.clear();
+  sessionEvents.clear();
   recovered.clear();
   sidecarOnDisk.clear();
   waiters.clear();
@@ -814,7 +876,7 @@ export function prepareCompactionArchive({
     const list = unpublished.get(id);
     const index = list ? list.indexOf(job) : -1;
     if (index >= 0) list.splice(index, 1);
-    if (list && !list.length) unpublished.delete(id);
+    if (list && !list.length) releaseJobs(id);
     releaseClaimedSeq(session, seq);
     logArchiveSkip(id, seq, 'aborted', 'pending sidecar not written; compaction not applied');
     throw new Error(`compaction archive: pending sidecar for ${id} could not be written`);

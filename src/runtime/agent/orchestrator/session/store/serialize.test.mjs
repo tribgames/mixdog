@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { _sessionForDisk, _storedSessionFromFile } from './serialize.mjs';
+import { _sessionForDisk } from './serialize.mjs';
+import { storedSessionSync } from './stored-session.mjs';
 
 test('provider prefix guard remains runtime-local across media-safe persistence', () => {
   const guard = {
@@ -54,7 +55,7 @@ test('legacy stored provider prefix guards are discarded on load', async () => {
       'utf8'
     );
 
-    const loaded = _storedSessionFromFile(dir, `${id}.json`);
+    const loaded = storedSessionSync(dir, id);
 
     assert.ok(loaded);
     assert.equal(Object.hasOwn(loaded, '_providerPrefixGuardState'), false);
