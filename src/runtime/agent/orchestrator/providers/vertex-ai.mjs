@@ -2,6 +2,7 @@ import { resolveProviderApiKey } from '../../../shared/provider-api-key.mjs';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
 import { sanitizeToolPairs } from '../session/context-utils.mjs';
 import { noteRequestServiceTier } from '../../../shared/llm/usage-context.mjs';
+import { makeModelCache } from './model-cache.mjs';
 import { buildGeminiRequest } from './gemini-request-body.mjs';
 import { geminiDocumentedThinkingLevels } from './gemini-thinking.mjs';
 import { geminiEndsWithFunctionResponse, runGeminiStreamAttempts } from './gemini-retry-policy.mjs';
@@ -57,6 +58,14 @@ export {
   VERTEX_REGIONAL_PRICING_SUFFIX,
   VERTEX_SERVICE_TIER_PARAMETER,
 } from './vertex-ai-models.mjs';
+
+const VERTEX_MODEL_CACHE_TTL_MS = 24 * 60 * 60_000;
+const _modelCache = makeModelCache({
+  fileName: 'vertex-ai-models.json',
+  ttlMs: VERTEX_MODEL_CACHE_TTL_MS,
+  version: 1,
+});
+let _modelRefreshInFlight = null;
 
 const VERTEX_ANTHROPIC_VERSION = 'vertex-2023-10-16';
 
@@ -549,19 +558,148 @@ export class VertexAIProvider {
     }
   }
 
-  async listModels() {
-    return VERTEX_MODELS.map((model) => {
-      const tierOption = vertexTierOption(model.id);
-      // The picker offers effort only from a declared ladder; these models'
-      // levels are documented rather than listed by a catalog.
-      const levels = geminiDocumentedThinkingLevels(model.id);
-      return {
-        ...model,
-        provider: this.name,
-        ...(levels ? { supportsReasoning: true, reasoningOptions: [{ type: 'effort', values: levels }] } : {}),
-        ...(tierOption ? { modelParameterOptions: [tierOption] } : {}),
-      };
+  _decorateModel(model) {
+    const tierOption = vertexTierOption(model.id);
+    const levels = geminiDocumentedThinkingLevels(model.id);
+    return {
+      ...model,
+      provider: this.name,
+      ...(levels ? { supportsReasoning: true, reasoningOptions: [{ type: 'effort', values: levels }] } : {}),
+      ...(tierOption ? { modelParameterOptions: [tierOption] } : {}),
+    };
+  }
+
+  _staticModels() {
+    return VERTEX_MODELS.map((model) => this._decorateModel(model));
+  }
+
+  async _fetchPublisherModels(publisher, target = null, signal = null) {
+    const items = [];
+    let pageToken = '';
+    do {
+      const params = new URLSearchParams({ pageSize: '100' });
+      if (pageToken) params.set('pageToken', pageToken);
+      const url = `https://aiplatform.googleapis.com/v1beta1/publishers/${encodeURIComponent(publisher)}/models?${params}`;
+      const res = await this._authorizedFetch(url, { method: 'GET', signal }, target?.identity);
+      if (!res.ok) throw new Error(`[vertex-ai] list publisher models for ${publisher} failed (${res.status})`);
+      const data = await res.json();
+      const list = Array.isArray(data?.publisherModels) ? data.publisherModels : [];
+      items.push(...list);
+      pageToken = typeof data?.nextPageToken === 'string' ? data.nextPageToken : '';
+    } while (pageToken);
+    return items;
+  }
+
+  async _fetchLiveModels({ signal = null } = {}) {
+    const express = this._express();
+    let target = null;
+    if (express) {
+      if (!this._expressKey()) return null;
+    } else {
+      await this._auth.ready();
+      if (!this._projectId()) return null;
+      target = { identity: this._auth.identity(), project: this._projectId() };
+    }
+
+    const publishers = express ? ['google'] : ['google', 'anthropic'];
+    const results = await Promise.allSettled(
+      publishers.map((publisher) => this._fetchPublisherModels(publisher, target, signal))
+    );
+
+    const fetchedModels = [];
+    for (let i = 0; i < publishers.length; i++) {
+      const outcome = results[i];
+      if (outcome.status === 'fulfilled') {
+        const publisher = publishers[i];
+        for (const raw of outcome.value) {
+          const rawName = String(raw?.name || '');
+          const match = /^publishers\/([^/]+)\/models\/([^/]+)$/.exec(rawName);
+          const modelId = match ? match[2] : (raw?.versionId || rawName.replace(/^.*\/models\//, ''));
+          if (!modelId) continue;
+          const isGoogle = publisher === 'google';
+          const isClaude = publisher === 'anthropic';
+          const contextWindow =
+            Number(raw?.inputTokenLimit) || (isGoogle && /^gemini-[34]/.test(modelId) ? 1048576 : null);
+          const displayName = raw?.displayName || modelId;
+          const entry = {
+            id: modelId,
+            name: displayName,
+            provider: this.name,
+            ...(contextWindow ? { contextWindow } : {}),
+            ...(isClaude ? { family: modelId.replace(/^claude-([a-z]+)-.*$/, '$1') } : {}),
+          };
+          fetchedModels.push(entry);
+        }
+      }
+    }
+
+    if (!fetchedModels.length) return null;
+
+    // Merge fetched models on top of static models: static entries preserve curated
+    // locations, open-model MaaS entries, and verified descriptions/contextWindows.
+    const staticList = this._staticModels();
+    const staticById = new Map(staticList.map((m) => [m.id, m]));
+    const merged = [];
+
+    // First add static entries (updating with any fetched metadata if matched)
+    for (const staticModel of staticList) {
+      const fetched = fetchedModels.find((m) => m.id === staticModel.id);
+      merged.push(this._decorateModel({ ...staticModel, ...(fetched || {}) }));
+    }
+
+    // Then add newly discovered models not in the static list
+    for (const fetched of fetchedModels) {
+      if (!staticById.has(fetched.id)) {
+        merged.push(this._decorateModel(fetched));
+      }
+    }
+
+    const { enrichModels } = await import('./model-catalog.mjs');
+    const { sanitizeModelList } = await import('./model-list-sanitize.mjs');
+    const enriched = sanitizeModelList(await enrichModels(merged, { fetchFn: this._fetch }), {
+      provider: this.name,
     });
+    const finalModels = enriched.length ? enriched : merged;
+    _modelCache.save(finalModels);
+    return finalModels;
+  }
+
+  async listModels({ signal = null } = {}) {
+    const cached = _modelCache.loadSync();
+    if (cached) return cached;
+    try {
+      const live = await this._fetchLiveModels({ signal });
+      if (live && live.length) return live;
+    } catch (err) {
+      if (!process.env.MIXDOG_QUIET_PROVIDER_LOG) {
+        process.stderr.write(`[vertex-ai] listModels fetch failed (${err.message})\n`);
+      }
+    }
+    return this._staticModels();
+  }
+
+  async _refreshModelCache() {
+    if (_modelRefreshInFlight) return _modelRefreshInFlight;
+    const refresh = (async () => {
+      try {
+        const live = await this._fetchLiveModels();
+        if (live && !process.env.MIXDOG_QUIET_PROVIDER_LOG) {
+          process.stderr.write(`[vertex-ai] catalog refreshed (${live.length} models)\n`);
+        }
+        return live || this._staticModels();
+      } catch (err) {
+        if (!process.env.MIXDOG_QUIET_PROVIDER_LOG) {
+          process.stderr.write(`[vertex-ai] catalog refresh failed (${err.message})\n`);
+        }
+        return this._staticModels();
+      }
+    })();
+    _modelRefreshInFlight = refresh;
+    try {
+      return await refresh;
+    } finally {
+      if (_modelRefreshInFlight === refresh) _modelRefreshInFlight = null;
+    }
   }
 
   async isAvailable() {

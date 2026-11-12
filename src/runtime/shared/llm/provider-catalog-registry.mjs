@@ -60,7 +60,7 @@ const PROVIDER_CATALOGS = Object.freeze({
   gemini: { modelsDev: 'google', sameEndpoint: true, rosterFiles: ['gemini-models.json'] },
   // *aiplatform.googleapis.com: Gemini and Claude publisher models, priced by
   // the LiteLLM `vertex_ai/` rows (model-catalog.mjs prefix table).
-  'vertex-ai': { modelsDev: 'google-vertex', sameEndpoint: true },
+  'vertex-ai': { modelsDev: 'google-vertex', sameEndpoint: true, rosterFiles: ['vertex-ai-models.json'] },
   // cli-chat-proxy.grok.com, not api.x.ai.
   'grok-oauth': {
     modelsDev: 'xai',

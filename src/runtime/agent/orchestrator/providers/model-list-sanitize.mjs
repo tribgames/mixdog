@@ -31,6 +31,8 @@ const HOSTED_PROVIDERS = new Set([
   'anthropic-oauth',
   'gemini',
   'google',
+  'vertex-ai',
+  'google-vertex',
   'xai',
   'grok-oauth',
   'deepseek',
