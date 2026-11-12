@@ -39,6 +39,8 @@ fn recording() -> Value {
 #[derive(Clone)]
 enum Step {
     Tool(&'static str),
+    /// The call `call_2` reading `call_1.txt` again, a turn later: the session's result cache answers it (`killrequestcachehit`).
+    Reread,
     Text(&'static str),
     Hang,
 }
@@ -50,6 +52,7 @@ enum Step {
 fn sse(step: &Step) -> Vec<u8> {
     let (text, call) = match step {
         Step::Tool(id) => ("Reading.", Some(*id)),
+        Step::Reread => ("Reading.", Some("call_2")),
         Step::Text(text) => (*text, None),
         Step::Hang => unreachable!(),
     };
@@ -66,7 +69,7 @@ fn sse(step: &Step) -> Vec<u8> {
     index += 1;
     if let Some(call) = call {
         events.push(json!({ "type": "content_block_start", "index": index, "content_block": { "type": "tool_use", "id": call, "name": "read", "input": {} } }));
-        events.push(json!({ "type": "content_block_delta", "index": index, "delta": { "type": "input_json_delta", "partial_json": json!({ "path": format!("{call}.txt") }).to_string() } }));
+        events.push(json!({ "type": "content_block_delta", "index": index, "delta": { "type": "input_json_delta", "partial_json": json!({ "path": if matches!(step, Step::Reread) { "call_1.txt".to_owned() } else { format!("{call}.txt") } }).to_string() } }));
         events.push(json!({ "type": "content_block_stop", "index": index }));
     }
     let stop = if call.is_some() { "tool_use" } else { "end_turn" };
@@ -146,8 +149,9 @@ struct NodeTool {
     read: Option<Arc<mixdog_tools::fs::ReadTool>>,
     reads: Arc<AtomicUsize>,
     hang_at: Option<usize>,
-    /// The recorded `killrequestcancelled` scenario: the read of `call_2.txt` really returns the text `Cancelled`.
-    cancelled: bool,
+    /// The file whose read really returns the text `Cancelled` (an after-hook's override, which the result cache then keeps):
+    /// `call_2.txt` in `killrequestcancelled`, `call_1.txt` in `killrequestcachehit` (where the cache then answers `call_2`'s read of it).
+    cancelled: Option<&'static str>,
     kill: tokio::sync::mpsc::UnboundedSender<&'static str>,
 }
 
@@ -168,7 +172,7 @@ impl Tool for NodeTool {
             let _ = self.kill.send("a tool run");
             std::future::pending::<()>().await;
         }
-        if self.cancelled && args["path"] == "call_2.txt" {
+        if self.cancelled.is_some_and(|path| args["path"] == path) {
             return Ok(mixdog_core_api::domain::tool::ToolOutput { parts: vec![mixdog_core_api::domain::tool::ToolPart::Text("Cancelled".to_owned())], ..Default::default() });
         }
         read.call(ctx, args).await
@@ -181,7 +185,8 @@ struct Session {
     tools: Value,
     reads: Arc<AtomicUsize>,
     hang_at: Option<usize>,
-    cancelled: bool,
+    cancelled: Option<&'static str>,
+    reuse: std::sync::OnceLock<Arc<crate::run_host::result_reuse::ToolResultReuse>>,
     kill: tokio::sync::mpsc::UnboundedSender<&'static str>,
 }
 
@@ -228,7 +233,20 @@ impl RunParts for Session {
             route: None,
             skills: None,
             hooks: None,
-            reuse: None,
+            // Node's read cache is the session's, so a read of an earlier turn is answered from it; one cache serves the process.
+            reuse: Some(
+                self.reuse
+                    .get_or_init(|| {
+                        Arc::new(crate::run_host::result_reuse::ToolResultReuse::new(
+                            ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io },
+                            input.thread.as_str(),
+                            &self.workspace,
+                            false,
+                            Arc::new(Fixed),
+                        ))
+                    })
+                    .clone(),
+            ),
             reactions: None,
             reaction_scope: None,
             rows: Arc::default(),
@@ -245,7 +263,7 @@ impl RunParts for Session {
 }
 
 /// Node's tool definitions as tools, `read` calling the core's read tool.
-fn node_tools(tools: &Value, reads: &Arc<AtomicUsize>, hang_at: Option<usize>, cancelled: bool, kill: &tokio::sync::mpsc::UnboundedSender<&'static str>) -> Vec<Arc<dyn Tool>> {
+fn node_tools(tools: &Value, reads: &Arc<AtomicUsize>, hang_at: Option<usize>, cancelled: Option<&'static str>, kill: &tokio::sync::mpsc::UnboundedSender<&'static str>) -> Vec<Arc<dyn Tool>> {
     let read = Arc::new(mixdog_tools::fs::ReadTool::new(None, None));
     tools
         .as_array()
@@ -280,7 +298,7 @@ struct Boot {
     workspace: std::path::PathBuf,
     tools: Value,
     hang_at: Option<usize>,
-    cancelled: bool,
+    cancelled: Option<&'static str>,
     kill: tokio::sync::mpsc::UnboundedSender<&'static str>,
 }
 
@@ -332,7 +350,7 @@ async fn process_over(boot: Boot, hook: Option<mixdog_core_session::session::tes
     let mut deps = rig.deps_parts(threads);
     // The production display of stored rows: what a client reads is compared with Node's read below.
     deps.transcript = Arc::new(mixdog_core_session::session::transcript::RecordTranscript::new());
-    let session = Session { provider, workspace: boot.workspace.clone(), tools: boot.tools.clone(), reads: Arc::default(), hang_at: boot.hang_at, cancelled: boot.cancelled, kill: boot.kill.clone() };
+    let session = Session { provider, workspace: boot.workspace.clone(), tools: boot.tools.clone(), reads: Arc::default(), hang_at: boot.hang_at, cancelled: boot.cancelled, reuse: Default::default(), kill: boot.kill.clone() };
     deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(session)));
     let directory = SessionDirectory::new(Arc::new(deps));
     Process { rig, directory }
@@ -619,7 +637,11 @@ async fn boot(dir: &std::path::Path, url: String, case: &Case, hang_at: Option<u
         workspace: dir.join("workspace"),
         tools: case.tools.clone(),
         hang_at,
-        cancelled: case.phase == "killrequestcancelled",
+        cancelled: match case.phase.as_str() {
+            "killrequestcancelled" => Some("call_2.txt"),
+            "killrequestcachehit" => Some("call_1.txt"),
+            _ => None,
+        },
         kill,
     }
 }
@@ -783,6 +805,7 @@ async fn replay_after(name: &str, recovery_kill: Option<usize>) -> bool {
     let script = match case.phase.as_str() {
         "idle" => vec![Step::Tool("call_1"), Step::Text("done one"), Step::Tool("call_2"), Step::Text("done two")],
         "killtool" => vec![Step::Tool("call_1"), Step::Text("done one"), Step::Tool("call_2"), Step::Tool("call_3")],
+        "killrequestcachehit" => vec![Step::Tool("call_1"), Step::Text("done one"), Step::Reread, Step::Hang],
         _ => vec![Step::Tool("call_1"), Step::Text("done one"), Step::Tool("call_2"), Step::Hang],
     };
     let (kill, mut killed) = tokio::sync::mpsc::unbounded_channel();
@@ -922,6 +945,20 @@ async fn a_real_cancelled_result_before_a_kill_keeps_nodes_requests() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_second_kill_after_a_real_cancelled_result_keeps_nodes_requests() {
     killed_at_every_point_of_the_recovery("restart-killrequest-cancelled-recoverkill").await;
+}
+
+/// An after-hook replaced a result with `Cancelled`, the result cache kept that body, and a later call's cache hit answered with
+/// it (a real result with no timing); the kill came with the next request on the wire. Node keeps that result as the request's
+/// tail, so the core must not take it for a row its recovery wrote.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_cache_hit_on_a_hook_cancelled_body_before_a_kill_keeps_nodes_requests() {
+    replay("restart-killrequest-cachehit").await;
+}
+
+/// The same, killed again at every point of the recovery.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_second_kill_after_a_cache_hit_on_a_hook_cancelled_body_keeps_nodes_requests() {
+    killed_at_every_point_of_the_recovery("restart-killrequest-cachehit-recoverkill").await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

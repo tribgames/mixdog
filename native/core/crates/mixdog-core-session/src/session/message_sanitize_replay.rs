@@ -170,6 +170,16 @@ async fn line_96_an_interrupted_turn_keeps_notifications_and_tool_work() {
     second.open_handle(&id, &CallContext::internal("replay")).await.expect("the thread reopens");
     let mut recovered = model_messages(&second, &id).await;
     recovered[0] = without_prompt_id(recovered[0].clone());
+    // The one field compared less: the core's own stored mark on the rows its recovery wrote (`meta.restartRecovery`,
+    // FORMAT.md §5.2), which Node, recovering from its checkpoint, has no row to carry.
+    for row in &mut recovered {
+        if let Some(meta) = row.get_mut("meta").and_then(Value::as_object_mut) {
+            meta.shift_remove("restartRecovery");
+            if meta.is_empty() {
+                row.as_object_mut().expect("a row").shift_remove("meta");
+            }
+        }
+    }
     // Node's two flags as the client sees them: the turn's prompt is still the conversation's (not handed back), and
     // the response the turn made (every row after the prompt but the restart line) is still in it.
     let user_turn_preserved = recovered.first() == Some(&messages[0]);
