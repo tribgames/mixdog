@@ -97,12 +97,7 @@ pub fn target_dimensions(original_width: u32, original_height: u32) -> (u32, u32
 
 /// `supersedingImageMetadataText(dims)` for an image whose display size differs from its original.
 pub fn superseding_metadata_text(original: ImageSize, display: ImageSize) -> String {
-    let scale = mixdog_js::math::to_fixed(f64::from(original.width) / f64::from(display.width), 2);
-    format!(
-        "[Image: {}x{}, displayed at {}x{}. Multiply coordinates by {scale} to map to the original image.] \
-         These display dimensions supersede any earlier display-size annotation for the following image.",
-        original.width, original.height, display.width, display.height
-    )
+    mixdog_ai::providers::anthropic::images::superseding_metadata_text((original.width, original.height), (display.width, display.height))
 }
 
 /// `normalizeFmt`: a missing or empty format reads as png, `jpg` as jpeg.

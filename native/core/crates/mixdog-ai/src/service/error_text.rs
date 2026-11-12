@@ -873,7 +873,7 @@ fn js_round(value: f64) -> f64 {
     (value + 0.5).floor()
 }
 
-fn format_duration_ms(value: f64) -> String {
+pub(crate) fn format_duration_ms(value: f64) -> String {
     let ms = if value.is_finite() { value.max(0.0) } else { 0.0 };
     if ms >= 60_000.0 && ms % 60_000.0 == 0.0 {
         return format!("{}m", number_to_string(js_round(ms / 60_000.0)));
@@ -916,7 +916,7 @@ fn humanize_retry_after_token(token: &str) -> String {
 }
 
 /// The window a provider timeout names, or 0.
-fn timed_out_ms(text: &str) -> f64 {
+pub(crate) fn timed_out_ms(text: &str) -> f64 {
     re!(r"(?i)(?:timed out after|within) ([0-9]+)ms").captures(text).map_or(0.0, |c| digits(&c[1]))
 }
 

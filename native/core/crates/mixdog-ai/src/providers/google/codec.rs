@@ -3,6 +3,7 @@
 //! the adapter's; the codec writes none.
 
 use std::sync::Arc;
+use std::time::SystemTime;
 
 use mixdog_core_api::domain::keepalive::TransportKind;
 use mixdog_core_api::domain::provider::DeliveryState;
@@ -45,6 +46,7 @@ use super::serving::VertexAccount;
 use super::serving::VertexPlace;
 use super::serving::Wire;
 use super::traits::ModelTraits;
+use crate::registry::keys::Environment;
 
 pub const GEMINI_ORIGIN: &str = "https://generativelanguage.googleapis.com";
 pub const ANTIGRAVITY_ORIGIN: &str = "https://daily-cloudcode-pa.googleapis.com";
@@ -74,8 +76,23 @@ pub struct GoogleCodec {
     provider: ProviderId,
     /// The Anthropic catalog's model capabilities, for Claude on Vertex AI ([`Self::with_claude_caps`]).
     claude_caps: CapsLookup,
-    /// Antigravity's default `functionCallingConfig.mode` ([Self::with_function_calling_mode]).
+    /// The environment Antigravity's default function-calling mode is read from on every request
+    /// ([`Self::with_env`]); none reads the default.
+    env: Option<Arc<dyn Environment>>,
+    /// The label a gateway engine's errors carry in place of the Gemini REST one ([`Self::with_error_label`]).
+    error_label: Option<&'static str>,
+    /// Antigravity's default `functionCallingConfig.mode` ([Self::with_function_calling_mode]); the environment's, when one is set, wins.
     function_calling_mode: &'static str,
+}
+
+/// `FUNCTION_CALLING_MODES`: the values `MIXDOG_ANTIGRAVITY_FC_MODE` may override the default with.
+const FUNCTION_CALLING_MODES: [&str; 3] = ["AUTO", "ANY", "VALIDATED"];
+
+/// `antigravityFunctionCallingMode(env)`: the mode sent when the caller sets no tool choice, `VALIDATED` (what the
+/// Antigravity client sends) unless `MIXDOG_ANTIGRAVITY_FC_MODE` names another of [`FUNCTION_CALLING_MODES`].
+pub fn antigravity_function_calling_mode(env: &dyn Environment) -> &'static str {
+    let raw = mixdog_js::js_trim(&env.var("MIXDOG_ANTIGRAVITY_FC_MODE").unwrap_or_default()).to_uppercase();
+    FUNCTION_CALLING_MODES.iter().find(|mode| **mode == raw).copied().unwrap_or("VALIDATED")
 }
 
 /// `encodeURIComponent` with `@` kept: a version suffix (`claude-…@default`)
@@ -98,7 +115,7 @@ pub(super) fn antigravity_user_agent(client_version: &str) -> String {
 }
 
 fn uuid_v4() -> String {
-    let mut b: [u8; 16] = rand::random();
+    let mut b: [u8; 16] = crate::random::bytes();
     b[6] = (b[6] & 0x0f) | 0x40;
     b[8] = (b[8] & 0x3f) | 0x80;
     let hex: Vec<String> = b.iter().map(|x| format!("{x:02x}")).collect();
@@ -136,8 +153,17 @@ impl GoogleCodec {
             traits,
             provider: ProviderId::from("gemini"),
             claude_caps: Arc::new(|_| None),
+            env: None,
+            error_label: None,
             function_calling_mode: "VALIDATED",
         }
+    }
+
+    /// The Gemini wire of a gateway: its refusals and stream errors name the gateway's route
+    /// (`OpenCode Go Gemini streamGenerateContent`, opencode-go-gemini.mjs:104).
+    pub fn with_error_label(mut self, label: &'static str) -> Self {
+        self.error_label = Some(label);
+        self
     }
 
     pub fn vertex(place: VertexPlace, traits: Arc<dyn ModelTraits>) -> Self {
@@ -146,6 +172,8 @@ impl GoogleCodec {
             traits,
             provider: ProviderId::from("vertex-ai"),
             claude_caps: Arc::new(|_| None),
+            env: None,
+            error_label: None,
             function_calling_mode: "VALIDATED",
         }
     }
@@ -165,6 +193,8 @@ impl GoogleCodec {
             traits,
             provider: ProviderId::from("antigravity-oauth"),
             claude_caps: Arc::new(|_| None),
+            env: None,
+            error_label: None,
             function_calling_mode: "VALIDATED",
         }
     }
@@ -176,7 +206,14 @@ impl GoogleCodec {
         self
     }
 
-    /// ntigravityFunctionCallingMode: MIXDOG_ANTIGRAVITY_FC_MODE (trimmed, upper-cased) when it names AUTO, ANY or
+    /// The process environment Antigravity's default function-calling mode is read from
+    /// ([`antigravity_function_calling_mode`]).
+    pub fn with_env(mut self, env: Arc<dyn Environment>) -> Self {
+        self.env = Some(env);
+        self
+    }
+
+    /// `antigravityFunctionCallingMode`: MIXDOG_ANTIGRAVITY_FC_MODE (trimmed, upper-cased) when it names AUTO, ANY or
     /// VALIDATED, else VALIDATED.
     pub fn with_function_calling_mode(mut self, raw: Option<&str>) -> Self {
         self.function_calling_mode = match raw.unwrap_or_default().trim().to_uppercase().as_str() {
@@ -200,6 +237,8 @@ impl GoogleCodec {
     fn replay_owner(&self) -> ProviderId {
         match self.target {
             Target::Vertex { .. } => ProviderId::from("gemini"),
+            // Node's Antigravity envelopes are `antigravity` (antigravity-response.mjs:60), not the account provider id.
+            Target::Antigravity { .. } => ProviderId::from("antigravity"),
             _ => self.provider.clone(),
         }
     }
@@ -214,7 +253,6 @@ impl GoogleCodec {
             system_role: Some("system"),
             function_ids: true,
             family_gated: false,
-            replay_same_model: true,
             default_tool_mode: None,
             omit_ignored_sampling: false,
         };
@@ -228,8 +266,7 @@ impl GoogleCodec {
             Target::Antigravity { .. } => Dialect {
                 system_role: Some("user"),
                 family_gated: true,
-                replay_same_model: false,
-                default_tool_mode: Some(self.function_calling_mode),
+                default_tool_mode: Some(self.env.as_deref().map_or(self.function_calling_mode, antigravity_function_calling_mode)),
                 ..base
             },
         }
@@ -244,7 +281,7 @@ impl GoogleCodec {
         let mut error = match (&maas, &claude) {
             (Some(_), _) => maas::classify(response),
             (_, Some(_)) => claude::classify(response),
-            _ => classify(response, self.error_dialect()),
+            _ => classify(response, &self.error_dialect(), SystemTime::now()),
         };
         let vertex = match maas.or(claude) {
             Some(model) => Some(model),
@@ -306,10 +343,19 @@ impl GoogleCodec {
         claude::wire(&self.claude_caps, request, model, &base)
     }
 
+    /// The labels Node's senders give `geminiRestError` and the stream consumer (`gemini.mjs`, `vertex-ai.mjs`), and
+    /// the endpoint `antigravityError` names.
     fn error_dialect(&self) -> ErrorDialect {
-        ErrorDialect {
-            capacity_by_status: matches!(self.target, Target::Antigravity { .. }),
+        match &self.target {
+            Target::Gemini { .. } => ErrorDialect::gemini(self.error_label.unwrap_or("Gemini REST streamGenerateContent")),
+            Target::Vertex { .. } => ErrorDialect::gemini("Vertex AI Gemini streamGenerateContent"),
+            Target::Antigravity { origin, .. } => ErrorDialect::antigravity(origin.clone()),
         }
+    }
+
+    /// The `label` the route hands its stream consumer.
+    pub(crate) fn stream_label(&self) -> &'static str {
+        self.error_dialect().label
     }
 
     /// The model id as the endpoint's path names it. Vertex routes the id ([`vertex_model`]); only Google's Gemini
@@ -348,7 +394,7 @@ impl WireCodec for GoogleCodec {
     }
 
     fn classify(&self, response: &ErrorResponse) -> ProviderError {
-        classify(response, self.error_dialect())
+        classify(response, &self.error_dialect(), SystemTime::now())
     }
 }
 
@@ -401,8 +447,10 @@ impl GoogleCodec {
             }
             None => inner.clone(),
         };
-        // The Gemini API's own spelling (`geminiApiHeaders`, gemini.mjs:94), which undici keeps on the wire.
-        let content_type = if matches!(self.target, Target::Gemini { .. }) { "Content-Type" } else { "content-type" };
+        // Node's own spelling (`geminiApiHeaders`, gemini.mjs:94; `_sendGemini`, vertex-ai.mjs:355-358), which undici
+        // keeps on the wire.
+        // Antigravity's (`antigravity-oauth.mjs:166-172`) is spelled the same way.
+        let content_type = "Content-Type";
         let mut headers = vec![(content_type.to_owned(), "application/json".to_owned())];
         let (url, body) = match &self.target {
             Target::Gemini { origin } => (
@@ -415,7 +463,7 @@ impl GoogleCodec {
                 let location = if global { "global".to_owned() } else { place.choose(&route, tier)? };
                 let base = place.base(&location)?;
                 if let Some(value) = tier.header_value() {
-                    headers.push(("x-vertex-ai-llm-shared-request-type".into(), value.into()));
+                    headers.push(("X-Vertex-AI-LLM-Shared-Request-Type".into(), value.into()));
                 }
                 (
                     format!("{base}/publishers/google/models/{}:streamGenerateContent?alt=sse", path_segment(id)),
@@ -425,25 +473,29 @@ impl GoogleCodec {
             Target::Antigravity { origin, project, client_version } => {
                 // antigravity-oauth.mjs:166-172: the bearer leads the head (its slot, filled where the request is
                 // authorized), and a Claude model gets the interleaved-thinking beta.
-                headers.insert(0, ("authorization".into(), String::new()));
-                headers.push(("accept".into(), "text/event-stream".into()));
-                headers.push(("user-agent".into(), antigravity_user_agent(&client_version.get())));
+                headers.insert(0, ("Authorization".into(), String::new()));
+                headers.push(("Accept".into(), "text/event-stream".into()));
+                headers.push(("User-Agent".into(), antigravity_user_agent(&client_version.get())));
                 if super::request::antigravity_claude(&id) {
                     headers.push(("anthropic-beta".into(), "interleaved-thinking-2025-05-14".into()));
                 }
                 let contents = inner["contents"].as_array().cloned().unwrap_or_default();
                 inner["sessionId"] = json!(session_id(&contents));
-                (
-                    format!("{origin}/v1internal:streamGenerateContent?alt=sse"),
-                    json!({
+                let mut envelope = json!({
                         "project": project,
                         "model": id,
                         "request": inner,
                         "requestType": "agent",
                         "userAgent": "antigravity",
-                        "requestId": format!("agent-{}", uuid_v4()),
-                    }),
-                )
+                        "requestId": format!("agent-{}", request.options.send_identity.get_or_mint(uuid_v4)),
+                });
+                // An account with no project sends none (`JSON.stringify` drops an undefined `project`).
+                if project.is_empty()
+                    && let Some(map) = envelope.as_object_mut()
+                {
+                    map.shift_remove("project");
+                }
+                (format!("{origin}/v1internal:streamGenerateContent?alt=sse"), envelope)
             }
         };
         let body = serde_json::to_vec(&body).map_err(|e| {
@@ -568,7 +620,7 @@ mod tests {
             }
             let mut sent = Vec::new();
             for (name, value) in &wire.headers {
-                if !NOT_COMPARED.contains(&name.as_str()) {
+                if !NOT_COMPARED.contains(&name.to_ascii_lowercase().as_str()) {
                     sent.push((name.to_ascii_lowercase(), value.clone()));
                 }
             }

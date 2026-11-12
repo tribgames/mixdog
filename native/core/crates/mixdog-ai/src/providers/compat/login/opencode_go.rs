@@ -293,6 +293,7 @@ impl LoginFlow for OpenCodeGoLogin {
             })
             .await?;
             let credentials = credentials_for(&http, grant).await?;
+            file.keep(&[&credentials.access_token, &credentials.refresh_token]);
             file.save(&credentials).await.map_err(|err| failed("store", err.to_string()))?;
             Ok(credentials.email.clone().or(credentials.account_id.clone()))
         }))
@@ -324,8 +325,11 @@ impl OpenCodeGoAuth {
     }
 
     async fn stored(&self) -> Result<OpenCodeGoCredentials, RefreshError> {
-        match self.file.load().await {
-            Probe::Present(credentials) => Ok(credentials),
+        match self.file.load::<OpenCodeGoCredentials>().await {
+            Probe::Present(credentials) => {
+                self.file.keep(&[&credentials.access_token, &credentials.refresh_token]);
+                Ok(credentials)
+            }
             Probe::Absent => Err(RefreshError::Reauth("credentials removed".into(), 401)),
             Probe::Unreadable => Err(RefreshError::Failed("credential file is unreadable".into(), None)),
         }
@@ -393,6 +397,7 @@ impl OpenCodeGoAuth {
             org_name: if org_changed { grant.org_id } else { disk.org_name.clone() },
             ..disk.clone()
         };
+        self.file.keep(&[&next.access_token, &next.refresh_token]);
         let update = match serde_json::to_value(&next) {
             Ok(JsonValue::Object(map)) => map,
             _ => return Err(RefreshError::Failed("credential is not an object".into(), None)),

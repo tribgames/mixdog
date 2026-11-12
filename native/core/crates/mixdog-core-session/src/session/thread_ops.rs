@@ -66,7 +66,7 @@ pub(crate) fn op_ref_of(record: &Record) -> Option<&OpRef> {
         Record::ModelSwitch(r) => r.op.as_ref(),
         Record::Queue(r) => r.op.as_ref(),
         Record::Op(r) => Some(&r.op),
-        Record::Checkpoint(_) => None,
+        Record::Checkpoint(_) | Record::Draft(_) => None,
     }
 }
 

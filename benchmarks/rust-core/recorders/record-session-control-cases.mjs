@@ -356,6 +356,7 @@ await set.finish({
     },
   },
   exclusions: {
+    'scripted catalog': "the catalog (listSessions pages and cursors such as `earlier`, readRow rows) is the recorder's own input, as are the live work and the archived flags: Node's real listing is not run here, so the replay may script the same seam (`ScriptedListing`). The production listing (`StoreListing` over a store) is compared against Node's real catalog by the session-listing set (rows whole, order, page size, next cursor, malformed cursor, archived flag, live overlay)",
     'service bookkeeping': "a case records the catalog pages asked for (listSessions), the prompts the runtime took (runtime.submitAsync) and the session a create made (service.createSession); the service's own calls (materializeSession, the wrapper calls) and the log lines are Node internals; `skipSlashCommands`, which the service stamps on the prompt of a home chat, is dropped",
     'random names': "a created session id (sess_daemon_<ms>_<32 hex>) is <created>, a create's request id (atask_<uuid>) is <request> and the caller's folder (a temporary directory) is <WORK>",
     'attached files': "a file forwarded with send/create needs the caller's conversation files; the core refuses attachments in this runtime (session_port.rs resolve_attachments)",

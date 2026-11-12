@@ -36,6 +36,8 @@ mod chat_routes_tests;
 #[cfg(test)]
 mod model_catalog_feed_tests;
 #[cfg(test)]
+mod config_snapshot_node_cases;
+#[cfg(test)]
 mod model_list_node_tests;
 #[cfg(test)]
 mod model_list_tests;

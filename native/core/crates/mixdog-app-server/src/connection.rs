@@ -1,19 +1,16 @@
-//! Per-connection state (P §4.3): the initialize latch, the RPC gate, in-flight counters,
+//! Per-connection state (P §4.3): the initialize latch, the RPC gate,
 //! subscriptions and the pending `host/*` requests. Everything here belongs to one
 //! connection, so its locks are never shared with another connection's work.
 
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::OnceLock;
 use std::sync::atomic::AtomicBool;
-use std::sync::atomic::AtomicU32;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
-use mixdog_app_protocol::RequestClass;
 use mixdog_app_protocol::RequestId;
 use mixdog_app_protocol::v1::ClientInfo;
 use mixdog_app_protocol::v1::HostCapabilities;
@@ -83,17 +80,10 @@ pub(crate) struct Connection {
     /// Set once the initialize response is queued. The session is latched earlier, so this
     /// is what keeps a server request from overtaking the response on the control lane.
     handshake_done: AtomicBool,
-    inflight: [AtomicU32; 4],
-    /// Reads that found their class full, per class in arrival order; `None` once closed. A freed place goes to the
-    /// oldest of them, and the count only falls with no read waiting, both under this lock.
-    queued: Mutex<Option<[VecDeque<Queued>; 4]>>,
     subs: Mutex<Option<HashMap<FeedId, Sub>>>,
     next_sub: AtomicU64,
     host: Mutex<HostState>,
 }
-
-/// A read waiting for an in-flight place: given the connection once it holds one ([`Connection::granted`]).
-pub(crate) type Queued = Box<dyn FnOnce(Arc<Connection>) + Send>;
 
 /// What a closing connection leaves behind for the caller to release.
 pub(crate) struct Closed {
@@ -107,42 +97,26 @@ pub(crate) enum Registered {
     Replaced(Option<Sub>),
 }
 
-/// An in-flight slot of one request class; dropping it frees the slot. The response is
-/// written only after the slot is freed, so a client that retries on a response finds room
-/// (P §7.3).
+/// What a started request holds until it ends: the core's count of it ([`mixdog_core_api::handle::CoreHandle::request_started`]) and
+/// its place in its call lane (Node's `active` of the lane and of the owner). The response is written only after the slot is
+/// dropped, so a client that retries on a response finds room.
 #[must_use]
 pub(crate) struct Slot {
-    conn: Arc<Connection>,
-    class: RequestClass,
-    /// What the core holds for the request while it runs ([`mixdog_core_api::handle::CoreHandle::request_started`]); freed with the slot.
     _request: mixdog_core_api::handle::RequestGuard,
+    ended: Option<Box<dyn FnOnce() + Send>>,
+}
+
+impl Slot {
+    pub(crate) fn new(request: mixdog_core_api::handle::RequestGuard, ended: impl FnOnce() + Send + 'static) -> Self {
+        Self { _request: request, ended: Some(Box::new(ended)) }
+    }
 }
 
 impl Drop for Slot {
     fn drop(&mut self) {
-        let index = class_index(self.class);
-        let next = {
-            let mut queued = lock(&self.conn.queued);
-            let next = queued.as_mut().and_then(|queued| queued[index].pop_front());
-            if next.is_none() {
-                self.conn.inflight[index].fetch_sub(1, Ordering::AcqRel);
-            }
-            next
-        };
-        // The place passes to the oldest waiting read, which runs on its own task (never inside this drop).
-        if let Some(next) = next {
-            let conn = Arc::clone(&self.conn);
-            mixdog_rt::spawn("request", mixdog_rt::TaskClass::Work, async move { next(conn) });
+        if let Some(ended) = self.ended.take() {
+            ended();
         }
-    }
-}
-
-fn class_index(class: RequestClass) -> usize {
-    match class {
-        RequestClass::C0 => 0,
-        RequestClass::C1 => 1,
-        RequestClass::C2 => 2,
-        RequestClass::C3 => 3,
     }
 }
 
@@ -154,8 +128,6 @@ impl Connection {
             cancel: CancellationToken::new(),
             session: OnceLock::new(),
             handshake_done: AtomicBool::new(false),
-            inflight: Default::default(),
-            queued: Mutex::new(Some(Default::default())),
             subs: Mutex::new(Some(HashMap::new())),
             next_sub: AtomicU64::new(1),
             host: Mutex::new(HostState {
@@ -177,58 +149,6 @@ impl Connection {
     /// follow it. The caller then re-delivers what was published in between.
     pub(crate) fn finish_handshake(&self) {
         self.handshake_done.store(true, Ordering::Release);
-    }
-
-    /// Takes an in-flight slot of `class`, or answers the class cap.
-    /// `request_started` runs only for an admitted request: its guard goes into the slot.
-    pub(crate) fn admit(
-        self: &Arc<Self>,
-        class: RequestClass,
-        cap: u32,
-        request_started: impl FnOnce() -> mixdog_core_api::handle::RequestGuard,
-    ) -> Result<Slot, u32> {
-        self.inflight[class_index(class)]
-            .try_update(Ordering::AcqRel, Ordering::Acquire, |count| {
-                (count < cap).then_some(count + 1)
-            })
-            .map(|_| Slot {
-                conn: Arc::clone(self),
-                class,
-                _request: request_started(),
-            })
-            .map_err(|_| cap)
-    }
-
-    /// [`Self::admit`] for a read: a full class queues it (`later` makes what runs once it has a place) unless `bound`
-    /// reads already wait. `Ok` gives the slot and `item` back; `Err(None)` is queued; `Err(Some(cap))` is refused.
-    pub(crate) fn admit_or_queue<T>(
-        self: &Arc<Self>,
-        class: RequestClass,
-        cap: u32,
-        bound: usize,
-        item: T,
-        request_started: impl FnOnce(&T) -> mixdog_core_api::handle::RequestGuard,
-        later: impl FnOnce(T) -> Queued,
-    ) -> Result<(Slot, T), Option<u32>> {
-        let index = class_index(class);
-        let mut queued = lock(&self.queued);
-        let Some(queued) = queued.as_mut() else { return Err(Some(cap)) };
-        let admitted = queued[index].is_empty()
-            && self.inflight[index].try_update(Ordering::AcqRel, Ordering::Acquire, |count| (count < cap).then_some(count + 1)).is_ok();
-        if admitted {
-            let guard = request_started(&item);
-            return Ok((Slot { conn: Arc::clone(self), class, _request: guard }, item));
-        }
-        if queued[index].len() >= bound {
-            return Err(Some(cap));
-        }
-        queued[index].push_back(later(item));
-        Err(None)
-    }
-
-    /// The slot a queued read was handed by the slot that freed its place (the count already holds it).
-    pub(crate) fn granted(self: &Arc<Self>, class: RequestClass, request: mixdog_core_api::handle::RequestGuard) -> Slot {
-        Slot { conn: Arc::clone(self), class, _request: request }
     }
 
     pub(crate) fn next_subscription_id(&self) -> SubscriptionId {
@@ -374,9 +294,6 @@ impl Connection {
     /// elsewhere. Pending `host/*` requests are dropped, which fails their waiters.
     pub(crate) fn close(&self) -> Closed {
         self.cancel.cancel();
-        // Waiting reads are dropped unanswered, as the connection's running work is cancelled.
-        let waiting = lock(&self.queued).take();
-        drop(waiting);
         let subs = lock(&self.subs)
             .take()
             .map(|subs| subs.into_values().collect())

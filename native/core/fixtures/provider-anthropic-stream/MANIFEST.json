@@ -1,6 +1,6 @@
 {
   "calls": "every call the recorder made to a product export (function, class constructor `new X`, instance method `X#m`) with its arguments viewed at call time, in order; an argument over 4000 bytes of JSON is stored once in the set `shared` table and referenced as {\"$shared\": n}",
-  "command": "node benchmarks/rust-core/recorders/record-anthropic-stream.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "command": "node benchmarks/rust-core/recorders/record-anthropic-stream.mjs --tree <export of b6f10295a2f698afc85332467192de28500bd146>",
   "compare": "mixdog-ai providers::anthropic decoder.rs (UsageAcc::update :110-135, :182 refusal, :259-296 thinking shapes, :278-283): feed `input.events` and compare `result` whole (usage slots, stopReason/stopDetails, toolCalls incl. the invalid-args marker, thinkingBlocks) and the callbacks (`toolCalls`, `streamDeltas`) in order. K1 gap: Rust drops stopDetails/category (row 1, low).",
   "describedValues": {
     "{\"$instance\": name, constructedWith: [args]}": "an instance of a product class, as the arguments it was constructed with",
@@ -10,6 +10,8 @@
   },
   "entry": "anthropic.mjs AnthropicProvider({ apiKey }).send(messages, model, tools, { onStreamDelta, onToolCall }) against the loopback endpoint serving the scripted SSE body; openai-compat-stream.mjs isInvalidToolArgsMarker. Not run: a live endpoint.",
   "exclusions": [
+    "`stopDetails` is not compared: the send copies the turn's stop_details into its result (anthropic-sse-turn/turn-outcome.mjs:141, anthropic-turn-result.mjs:60) and nothing reads it after (`[.?]stopDetails\\b` over src/ without tests finds only those copies and the write at turn-events/message-events.mjs:27)",
+    "`onStreamDelta('transport')` is not compared: one call per network read of the body (anthropic-sse.mjs:275), a count the socket's chunking sets; its readers (markSessionStreamDelta, session/manager/runtime-liveness.mjs:273, and the idle deadlines) read only that a read came, never the count",
     "no string is rewritten: the data directory is the fixed D:/mixdog-build/tmp/w22/<set> and the product tree D:/mixdog-build/tmp/b6f-tree (paths as Node produced them, Windows separators where Node wrote them): a replay maps its own temp directory to that prefix",
     "net requests: the VALUES of the request headers x-stainless-os, x-stainless-arch and x-stainless-runtime-version (the SDK client stack writes the recording host's OS, architecture and Node version) are replaced by the marker `<recording host <header name>>` at exactly those header names; every other header is recorded and compared as it arrived",
     "net requests: the recorder's x-bench-origin header is left out and `host` is the host of the origin the product addressed (the loopback port is random)"
@@ -25,7 +27,7 @@
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/deterministic-world.mjs",
@@ -41,7 +43,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provider-case-recorder.mjs",
-      "sha256": "274ef58a415230971ff6ac34562315575695ee51bc084e0ab5fc35e426465d57"
+      "sha256": "14328d15667d2c5ad8f14803aeae9164c02ffe2894fde446c53e204612064d30"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/recorder-error.mjs",
@@ -117,7 +119,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-anthropic-stream.mjs",
-  "recorderSha256": "6e7a3de7b35a5dd5dd161820cc46fcd0bb76e19f5acb18fbd0449a5d47f74665",
+  "recorderSha256": "c2dd51b66c3895c699fa2ac5d397712fd33b34c5833667efe636598987e2d4dd",
   "replay": "Rust entry (pub, on o1): mixdog_ai::providers::anthropic::AnthropicAdapter (anthropic/adapter.rs:169) and AnthropicCodec (anthropic/codec.rs:148), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079), built by mixdog_ai::registry DefaultProviderBuilder::build (registry/builder.rs:1295).",
   "replayExclusions": {
     "request headers": "the whole request as it arrived is recorded and compared: method, path, EVERY header in arrival order (including host, connection, accept, accept-language, sec-fetch-mode, accept-encoding and the client library's user-agent) and the body bytes; no header is excluded from the comparison"

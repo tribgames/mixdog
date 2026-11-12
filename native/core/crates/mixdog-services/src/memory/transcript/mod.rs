@@ -93,7 +93,12 @@ impl Offsets {
     }
 
     pub fn set(&self, path: &str, position: Position) {
-        self.lock().insert(path.to_owned(), json!({"bytes": position.bytes, "lineIndex": position.line_index, "generation": position.generation}));
+        // JS numbers, as Node's JSON.stringify writes them (782, not 782.0).
+        let number = mixdog_js::json_number;
+        self.lock().insert(
+            path.to_owned(),
+            json!({"bytes": number(position.bytes), "lineIndex": number(position.line_index), "generation": number(position.generation)}),
+        );
     }
 
     fn forget(&self, path: &str) -> bool {
@@ -103,6 +108,49 @@ impl Offsets {
     pub fn reset(&self) {
         self.lock().clear();
     }
+}
+
+/// A transcript's text mapped to the same lines, each possibly changed.
+pub type LineRewrite = Box<dyn FnOnce(String) -> String + Send>;
+
+/// Replaces `path` atomically with `rewrite` of its text, on `lane`; the old and new bytes, or
+/// `None` when the file is missing or unchanged.
+// Boxed as `Send` here: the lane's higher-ranked job closure otherwise defeats the `Send` proof of
+// every async caller that awaits it.
+pub fn rewrite_lines_file<L: mixdog_fsio::WriteLane + Send + 'static>(
+    lane: L,
+    path: &Path,
+    rewrite: LineRewrite,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = std::io::Result<Option<(Vec<u8>, Vec<u8>)>>> + Send>> {
+    let file = path.to_owned();
+    Box::pin(async move { rewrite_lines_job(lane, file, rewrite).await })
+}
+
+async fn rewrite_lines_job<L: mixdog_fsio::WriteLane>(lane: L, file: std::path::PathBuf, rewrite: LineRewrite) -> std::io::Result<Option<(Vec<u8>, Vec<u8>)>> {
+    let job = lane
+        .submit_wait(&mixdog_rt::CancellationToken::new(), move |lane| -> std::io::Result<Option<(Vec<u8>, Vec<u8>)>> {
+            let Ok(stat) = mixdog_statefile::metadata(lane, &file) else { return Ok(None) };
+            let old = mixdog_statefile::read_range(lane, &file, 0, stat.len() as usize)?;
+            let new = rewrite(String::from_utf8_lossy(&old).into_owned()).into_bytes();
+            if new == old {
+                return Ok(None);
+            }
+            mixdog_statefile::write_file(lane, &file, &new, &mixdog_statefile::Opts::default()).map_err(std::io::Error::other)?;
+            Ok(Some((old, new)))
+        })
+        .await
+        .map_err(|e| std::io::Error::other(format!("{e:?}")))?;
+    job.await.map_err(|e| std::io::Error::other(e.to_string()))?
+}
+
+/// The offset in `new` that ends the same number of lines `bytes` ends in `old`.
+pub fn same_line_offset(old: &[u8], new: &[u8], bytes: f64) -> f64 {
+    let end = (bytes.max(0.0) as usize).min(old.len());
+    let lines = old[..end].iter().filter(|b| **b == b'\n').count();
+    if lines == 0 {
+        return 0.0;
+    }
+    new.iter().enumerate().filter(|(_, b)| **b == b'\n').nth(lines - 1).map_or(new.len(), |(at, _)| at + 1) as f64
 }
 
 /// `createTranscriptIngest`: ingest of one transcript at a time per file, over the offsets.
@@ -156,6 +204,38 @@ impl TranscriptIngest {
         let outcome = {
             let _turn = gate.acquire().await;
             tail::ingest_transcript_tail(self, path, cwd).await
+        };
+        self.release(&key, gate);
+        outcome
+    }
+
+    /// A transcript rewritten in place line for line (`rewrite` maps the file's text to text with
+    /// the same lines, in order, each possibly changed): under the file's ingest gate, so no ingest
+    /// reads it half-replaced, the file is replaced atomically and the persisted read position moves
+    /// to the same line of the new text. The watcher then neither skips a line nor reads one again
+    /// (the generation and line index stay; only the byte offset follows the rewritten lengths).
+    /// `false` when the file is missing or `rewrite` leaves it as it was.
+    pub async fn rewrite_transcript(&self, path: &Path, rewrite: LineRewrite) -> std::io::Result<bool> {
+        let key = std::path::absolute(path).unwrap_or_else(|_| path.to_owned()).to_string_lossy().into_owned();
+        let gate = self.gate(&key);
+        let outcome = {
+            let _turn = gate.acquire().await;
+            let mut keys = vec![path.to_string_lossy().into_owned()];
+            if !keys.contains(&key) {
+                keys.push(key.clone());
+            }
+            let held: Vec<(String, Position)> = keys.into_iter().filter_map(|k| self.offsets.get(&k).map(|p| (k, p))).collect();
+            match rewrite_lines_file(self.io.maintenance, path, rewrite).await {
+                Ok(Some((old, new))) => {
+                    for (k, position) in held {
+                        self.offsets.set(&k, Position { bytes: same_line_offset(&old, &new, position.bytes), ..position });
+                    }
+                    self.offsets.persist(&self.db).await;
+                    Ok(true)
+                }
+                Ok(None) => Ok(false),
+                Err(error) => Err(error),
+            }
         };
         self.release(&key, gate);
         outcome

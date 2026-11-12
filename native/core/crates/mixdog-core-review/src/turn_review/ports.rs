@@ -151,6 +151,20 @@ pub trait BlockingFs: ReadFs {
     fn remove_tree(&self, path: &Path) -> std::io::Result<()>;
     /// `mkdir(path, { recursive: true, mode: 0o700 })`.
     fn create_private_dir_all(&self, path: &Path) -> std::io::Result<()>;
+    /// Appends `bytes` to `path` (created when missing) and reads them back from where they were
+    /// written. Bytes that are not all there are cut away (the file returns to its prior size)
+    /// before the error is returned, so a later read never applies them and a partial line never
+    /// stays in the middle of the file.
+    fn append_verified(&self, path: &Path, bytes: &[u8]) -> std::io::Result<Appended>;
+}
+
+/// What [`BlockingFs::append_verified`] left in the file.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Appended {
+    /// The size the file had before the append.
+    pub prior_size: u64,
+    /// The file after it.
+    pub stamp: FileStamp,
 }
 
 pub type BlockingJob = Box<dyn FnOnce(&dyn BlockingFs) + Send>;
@@ -194,11 +208,11 @@ pub trait ReviewDisk: Send + Sync {
     async fn create_dir_all(&self, dir: &Path) -> std::io::Result<()>;
     /// lstat(path); a missing path is None.
     async fn lstat(&self, path: &Path) -> std::io::Result<Option<LinkStat>>;
-    /// Runs `job` on the durability lane, under `lock`'s file lock (`<lock>.lock`, ten seconds' wait)
-    /// when given. A refused lock is the `Err`; the job did not run.
     /// Runs `job` on the interactive read lane, so a read never queues behind writes.
     async fn blocking_read(&self, job: ReadJob) -> std::io::Result<()>;
-    async fn blocking(&self, lock: Option<&Path>, job: BlockingJob) -> std::io::Result<()>;
+    /// Runs `job` on the durability lane, under `lock`'s file lock (`<lock>.lock`, waited for as long as given)
+    /// when given. A lock not taken in that time is the `Err`; the job did not run.
+    async fn blocking(&self, lock: Option<(&Path, Duration)>, job: BlockingJob) -> std::io::Result<()>;
     /// `currentFile({ root, path })` of the session review: the recorded file read under the link
     /// rules of `currentText`.
     async fn current_file(&self, root: &str, path: &str) -> CurrentFile;

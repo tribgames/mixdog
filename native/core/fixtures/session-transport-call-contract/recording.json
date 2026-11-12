@@ -241,7 +241,8 @@
         "callId": "same-process-local-id",
         "cwd": "C:\\recorded\\cwd",
         "leadPid": 4242,
-        "ppid": 4241
+        "ppid": 4241,
+        "node": "base commit b6f10295a"
       },
       "result": {
         "steps": [
@@ -1070,47 +1071,30 @@
       }
     },
     {
-      "name": "session-protocol-acks-intake-and-unsubscribe-never-interrupts-execution",
-      "testLine": 243,
+      "name": "call-idempotency-is-isolated-per-client-process--with-the-fix",
+      "testLine": 156,
       "input": {
         "clients": [
-          "terminal (frames)",
-          "desktop"
-        ],
-        "submit": {
-          "prompt": "keep running",
-          "options": {
-            "id": "durable-submit"
+          {
+            "leadPid": 4242
           },
-          "callId": "session-submit:durable-session:durable-submit"
-        },
-        "runtime": "detachable: submit leaves it busy until the recorder calls finishWork",
+          {
+            "leadPid": 4241
+          }
+        ],
+        "callId": "same-process-local-id",
         "cwd": "C:\\recorded\\cwd",
         "leadPid": 4242,
-        "ppid": 4241
+        "ppid": 4241,
+        "node": "base commit b6f10295a with node-fix-call-id-once-per-session.patch applied"
       },
       "result": {
         "steps": [
           {
-            "step": "terminal session.create",
+            "step": "first.session.create",
             "ok": {
               "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000014",
               "reservedOnly": true,
-              "revision": 1700000000000001,
-              "full": {
-                "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000014",
-                "items": [],
-                "busy": false
-              }
-            },
-            "eagerSessionCreates": 0
-          },
-          {
-            "step": "desktop session.subscribe",
-            "ok": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000014",
-              "reservedOnly": true,
-              "subscribed": true,
               "revision": 1700000000000001,
               "full": {
                 "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000014",
@@ -1120,7 +1104,7 @@
             }
           },
           {
-            "step": "terminal session.submit (callId session-submit:durable-session:durable-submit)",
+            "step": "first.submit callId same-process-local-id",
             "ok": {
               "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000014",
               "reservedOnly": false,
@@ -1130,104 +1114,48 @@
                 "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000014",
                 "items": [
                   {
-                    "id": "prompt",
-                    "text": "keep running"
+                    "id": 1,
+                    "text": "same payload"
                   }
                 ],
-                "busy": true
-              }
-            }
-          },
-          {
-            "step": "terminal stream reports busy",
-            "snapshot": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000014",
-              "items": [
-                {
-                  "id": "prompt",
-                  "text": "keep running"
-                }
-              ],
-              "busy": true
-            }
-          },
-          {
-            "step": "desktop unsubscribe + close",
-            "abortCalls": 0,
-            "serviceSize": 1
-          },
-          {
-            "step": "work finished; terminal snapshot",
-            "snapshot": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000014",
-              "items": [
-                {
-                  "id": "prompt",
-                  "text": "keep running"
-                },
-                {
-                  "id": "answer",
-                  "text": "completed after detach"
-                }
-              ],
-              "busy": false
-            },
-            "abortCalls": 0
-          }
-        ],
-        "terminalFrames": [
-          {
-            "type": "session-state",
-            "key": "session-state:sess_daemon_1700000000000_00000000000040008000000000000014",
-            "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000014",
-            "revision": 1700000000000001,
-            "full": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000014",
-              "items": [],
-              "busy": false
-            }
-          },
-          {
-            "type": "session-state",
-            "key": "session-state:sess_daemon_1700000000000_00000000000040008000000000000014",
-            "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000014",
-            "revision": 1700000000000002,
-            "baseRevision": 1700000000000001,
-            "patch": {
-              "set": {
-                "busy": true
-              },
-              "remove": [],
-              "itemsAppend": {
-                "from": 0,
-                "values": [
-                  {
-                    "id": "prompt",
-                    "text": "keep running"
-                  }
-                ]
-              }
-            }
-          },
-          {
-            "type": "session-state",
-            "key": "session-state:sess_daemon_1700000000000_00000000000040008000000000000014",
-            "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000014",
-            "revision": 1700000000000003,
-            "baseRevision": 1700000000000002,
-            "patch": {
-              "set": {
                 "busy": false
-              },
-              "remove": [],
-              "itemsAppend": {
-                "from": 1,
-                "values": [
+              }
+            }
+          },
+          {
+            "step": "second.submit callId same-process-local-id (other leadPid)",
+            "ok": {
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000014",
+              "reservedOnly": false,
+              "accepted": true,
+              "revision": 1700000000000002,
+              "full": {
+                "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000014",
+                "items": [
                   {
-                    "id": "answer",
-                    "text": "completed after detach"
+                    "id": 1,
+                    "text": "same payload"
                   }
-                ]
+                ],
+                "busy": false
+              }
+            }
+          },
+          {
+            "step": "first.read",
+            "ok": {
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000014",
+              "reservedOnly": false,
+              "revision": 1700000000000002,
+              "full": {
+                "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000014",
+                "items": [
+                  {
+                    "id": 1,
+                    "text": "same payload"
+                  }
+                ],
+                "busy": false
               }
             }
           }
@@ -1257,37 +1185,10 @@
             }
           },
           {
-            "name": "session.subscribe",
-            "args": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000014"
-            },
-            "context": {
-              "clientToken": "00000000-0000-4000-8000-000000000013",
-              "leadPid": 4242,
-              "cwd": "C:\\recorded\\cwd",
-              "revision": 6,
-              "queuedMs": 0
-            },
-            "result": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000014",
-              "reservedOnly": true,
-              "subscribed": true,
-              "revision": 1700000000000001,
-              "full": {
-                "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000014",
-                "items": [],
-                "busy": false
-              }
-            }
-          },
-          {
             "name": "session.submit",
             "args": {
               "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000014",
-              "prompt": "keep running",
-              "options": {
-                "id": "durable-submit"
-              }
+              "prompt": "same payload"
             },
             "context": {
               "clientToken": "00000000-0000-4000-8000-000000000011",
@@ -1305,33 +1206,16 @@
                 "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000014",
                 "items": [
                   {
-                    "id": "prompt",
-                    "text": "keep running"
+                    "id": 1,
+                    "text": "same payload"
                   }
                 ],
-                "busy": true
+                "busy": false
               }
             }
           },
           {
-            "name": "session.unsubscribe",
-            "args": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000014"
-            },
-            "context": {
-              "clientToken": "00000000-0000-4000-8000-000000000013",
-              "leadPid": 4242,
-              "cwd": "C:\\recorded\\cwd",
-              "revision": 6,
-              "queuedMs": 0
-            },
-            "result": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000014",
-              "unsubscribed": true
-            }
-          },
-          {
-            "name": "session.unsubscribe",
+            "name": "session.read",
             "args": {
               "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000014"
             },
@@ -1344,7 +1228,18 @@
             },
             "result": {
               "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000014",
-              "unsubscribed": true
+              "reservedOnly": false,
+              "revision": 1700000000000002,
+              "full": {
+                "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000014",
+                "items": [
+                  {
+                    "id": 1,
+                    "text": "same payload"
+                  }
+                ],
+                "busy": false
+              }
             }
           }
         ],
@@ -1438,7 +1333,7 @@
                   "keep-alive"
                 ]
               ],
-              "body": "{\"leadPid\":4242,\"cwd\":\"C:\\\\recorded\\\\cwd\",\"lifecycle\":true,\"clientKind\":\"session\",\"registrationId\":\"00000000-0000-4000-8000-000000000012\",\"protocol\":1,\"revision\":6}"
+              "body": "{\"leadPid\":4241,\"cwd\":\"C:\\\\recorded\\\\cwd\",\"lifecycle\":true,\"clientKind\":\"session\",\"registrationId\":\"00000000-0000-4000-8000-000000000012\",\"protocol\":1,\"revision\":6}"
             },
             "response": {
               "startLine": "HTTP/1.1 200 OK",
@@ -1530,8 +1425,7 @@
               "frames": [
                 ": attached",
                 "data: {\"type\":\"session-state\",\"key\":\"session-state:sess_daemon_1700000000000_00000000000040008000000000000014\",\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000014\",\"revision\":1700000000000001,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000014\",\"items\":[],\"busy\":false}}",
-                "data: {\"type\":\"session-state\",\"key\":\"session-state:sess_daemon_1700000000000_00000000000040008000000000000014\",\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000014\",\"revision\":1700000000000002,\"baseRevision\":1700000000000001,\"patch\":{\"set\":{\"busy\":true},\"remove\":[],\"itemsAppend\":{\"from\":0,\"values\":[{\"id\":\"prompt\",\"text\":\"keep running\"}]}}}",
-                "data: {\"type\":\"session-state\",\"key\":\"session-state:sess_daemon_1700000000000_00000000000040008000000000000014\",\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000014\",\"revision\":1700000000000003,\"baseRevision\":1700000000000002,\"patch\":{\"set\":{\"busy\":false},\"remove\":[],\"itemsAppend\":{\"from\":1,\"values\":[{\"id\":\"answer\",\"text\":\"completed after detach\"}]}}}"
+                "data: {\"type\":\"session-state\",\"key\":\"session-state:sess_daemon_1700000000000_00000000000040008000000000000014\",\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000014\",\"revision\":1700000000000002,\"baseRevision\":1700000000000001,\"patch\":{\"set\":{},\"remove\":[],\"itemsAppend\":{\"from\":0,\"values\":[{\"id\":1,\"text\":\"same payload\"}]}}}"
               ]
             }
           },
@@ -1588,8 +1482,7 @@
                 ]
               ],
               "frames": [
-                ": attached",
-                "data: {\"type\":\"session-state\",\"key\":\"session-state:sess_daemon_1700000000000_00000000000040008000000000000014\",\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000014\",\"revision\":1700000000000002,\"baseRevision\":1700000000000001,\"patch\":{\"set\":{\"busy\":true},\"remove\":[],\"itemsAppend\":{\"from\":0,\"values\":[{\"id\":\"prompt\",\"text\":\"keep running\"}]}}}"
+                ": attached"
               ]
             }
           },
@@ -1657,6 +1550,132 @@
             }
           },
           {
+            "connection": 4,
+            "request": {
+              "startLine": "POST /call HTTP/1.1",
+              "headers": [
+                [
+                  "X-Mixdog-Daemon-Token",
+                  "00000000-0000-4000-8000-000000000009"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ],
+                [
+                  "Content-Length",
+                  "211"
+                ],
+                [
+                  "Host",
+                  "127.0.0.1:<port>"
+                ],
+                [
+                  "Connection",
+                  "keep-alive"
+                ]
+              ],
+              "body": "{\"token\":\"00000000-0000-4000-8000-000000000011\",\"name\":\"session.submit\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000014\",\"prompt\":\"same payload\"},\"callId\":\"same-process-local-id\"}"
+            },
+            "response": {
+              "startLine": "HTTP/1.1 200 OK",
+              "headers": [
+                [
+                  "Content-Type",
+                  "application/json; charset=utf-8"
+                ],
+                [
+                  "Content-Length",
+                  "286"
+                ],
+                [
+                  "Cache-Control",
+                  "no-store"
+                ],
+                [
+                  "X-Content-Type-Options",
+                  "nosniff"
+                ],
+                [
+                  "Date",
+                  "<date>"
+                ],
+                [
+                  "Connection",
+                  "keep-alive"
+                ],
+                [
+                  "Keep-Alive",
+                  "timeout=5"
+                ]
+              ],
+              "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000014\",\"reservedOnly\":false,\"accepted\":true,\"revision\":1700000000000002,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000014\",\"items\":[{\"id\":1,\"text\":\"same payload\"}],\"busy\":false}}}"
+            }
+          },
+          {
+            "connection": 4,
+            "request": {
+              "startLine": "POST /call HTTP/1.1",
+              "headers": [
+                [
+                  "X-Mixdog-Daemon-Token",
+                  "00000000-0000-4000-8000-000000000009"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ],
+                [
+                  "Content-Length",
+                  "211"
+                ],
+                [
+                  "Host",
+                  "127.0.0.1:<port>"
+                ],
+                [
+                  "Connection",
+                  "keep-alive"
+                ]
+              ],
+              "body": "{\"token\":\"00000000-0000-4000-8000-000000000013\",\"name\":\"session.submit\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000014\",\"prompt\":\"same payload\"},\"callId\":\"same-process-local-id\"}"
+            },
+            "response": {
+              "startLine": "HTTP/1.1 200 OK",
+              "headers": [
+                [
+                  "Content-Type",
+                  "application/json; charset=utf-8"
+                ],
+                [
+                  "Content-Length",
+                  "286"
+                ],
+                [
+                  "Cache-Control",
+                  "no-store"
+                ],
+                [
+                  "X-Content-Type-Options",
+                  "nosniff"
+                ],
+                [
+                  "Date",
+                  "<date>"
+                ],
+                [
+                  "Connection",
+                  "keep-alive"
+                ],
+                [
+                  "Keep-Alive",
+                  "timeout=5"
+                ]
+              ],
+              "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000014\",\"reservedOnly\":false,\"accepted\":true,\"revision\":1700000000000002,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000014\",\"items\":[{\"id\":1,\"text\":\"same payload\"}],\"busy\":false}}}"
+            }
+          },
+          {
             "connection": 3,
             "request": {
               "startLine": "POST /call HTTP/1.1",
@@ -1671,7 +1690,7 @@
                 ],
                 [
                   "Content-Length",
-                  "157"
+                  "152"
                 ],
                 [
                   "Host",
@@ -1682,7 +1701,7 @@
                   "keep-alive"
                 ]
               ],
-              "body": "{\"token\":\"00000000-0000-4000-8000-000000000013\",\"name\":\"session.subscribe\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000014\"}}"
+              "body": "{\"token\":\"00000000-0000-4000-8000-000000000011\",\"name\":\"session.read\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000014\"}}"
             },
             "response": {
               "startLine": "HTTP/1.1 200 OK",
@@ -1693,7 +1712,7 @@
                 ],
                 [
                   "Content-Length",
-                  "257"
+                  "270"
                 ],
                 [
                   "Cache-Control",
@@ -1716,133 +1735,7 @@
                   "timeout=5"
                 ]
               ],
-              "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000014\",\"reservedOnly\":true,\"subscribed\":true,\"revision\":1700000000000001,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000014\",\"items\":[],\"busy\":false}}}"
-            }
-          },
-          {
-            "connection": 4,
-            "request": {
-              "startLine": "POST /call HTTP/1.1",
-              "headers": [
-                [
-                  "X-Mixdog-Daemon-Token",
-                  "00000000-0000-4000-8000-000000000009"
-                ],
-                [
-                  "Content-Type",
-                  "application/json"
-                ],
-                [
-                  "Content-Length",
-                  "269"
-                ],
-                [
-                  "Host",
-                  "127.0.0.1:<port>"
-                ],
-                [
-                  "Connection",
-                  "keep-alive"
-                ]
-              ],
-              "body": "{\"token\":\"00000000-0000-4000-8000-000000000011\",\"name\":\"session.submit\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000014\",\"prompt\":\"keep running\",\"options\":{\"id\":\"durable-submit\"}},\"callId\":\"session-submit:durable-session:durable-submit\"}"
-            },
-            "response": {
-              "startLine": "HTTP/1.1 200 OK",
-              "headers": [
-                [
-                  "Content-Type",
-                  "application/json; charset=utf-8"
-                ],
-                [
-                  "Content-Length",
-                  "292"
-                ],
-                [
-                  "Cache-Control",
-                  "no-store"
-                ],
-                [
-                  "X-Content-Type-Options",
-                  "nosniff"
-                ],
-                [
-                  "Date",
-                  "<date>"
-                ],
-                [
-                  "Connection",
-                  "keep-alive"
-                ],
-                [
-                  "Keep-Alive",
-                  "timeout=5"
-                ]
-              ],
-              "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000014\",\"reservedOnly\":false,\"accepted\":true,\"revision\":1700000000000002,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000014\",\"items\":[{\"id\":\"prompt\",\"text\":\"keep running\"}],\"busy\":true}}}"
-            }
-          },
-          {
-            "connection": 4,
-            "request": {
-              "startLine": "POST /call HTTP/1.1",
-              "headers": [
-                [
-                  "X-Mixdog-Daemon-Token",
-                  "00000000-0000-4000-8000-000000000009"
-                ],
-                [
-                  "Content-Type",
-                  "application/json"
-                ],
-                [
-                  "Content-Length",
-                  "159"
-                ],
-                [
-                  "Host",
-                  "127.0.0.1:<port>"
-                ],
-                [
-                  "Connection",
-                  "keep-alive"
-                ]
-              ],
-              "body": "{\"token\":\"00000000-0000-4000-8000-000000000013\",\"name\":\"session.unsubscribe\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000014\"}}"
-            },
-            "response": {
-              "startLine": "HTTP/1.1 200 OK",
-              "headers": [
-                [
-                  "Content-Type",
-                  "application/json; charset=utf-8"
-                ],
-                [
-                  "Content-Length",
-                  "105"
-                ],
-                [
-                  "Cache-Control",
-                  "no-store"
-                ],
-                [
-                  "X-Content-Type-Options",
-                  "nosniff"
-                ],
-                [
-                  "Date",
-                  "<date>"
-                ],
-                [
-                  "Connection",
-                  "keep-alive"
-                ],
-                [
-                  "Keep-Alive",
-                  "timeout=5"
-                ]
-              ],
-              "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000014\",\"unsubscribed\":true}}"
+              "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000014\",\"reservedOnly\":false,\"revision\":1700000000000002,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000014\",\"items\":[{\"id\":1,\"text\":\"same payload\"}],\"busy\":false}}}"
             }
           },
           {
@@ -1906,69 +1799,6 @@
                 ]
               ],
               "body": "{\"ok\":true}"
-            }
-          },
-          {
-            "connection": 4,
-            "request": {
-              "startLine": "POST /call HTTP/1.1",
-              "headers": [
-                [
-                  "X-Mixdog-Daemon-Token",
-                  "00000000-0000-4000-8000-000000000009"
-                ],
-                [
-                  "Content-Type",
-                  "application/json"
-                ],
-                [
-                  "Content-Length",
-                  "159"
-                ],
-                [
-                  "Host",
-                  "127.0.0.1:<port>"
-                ],
-                [
-                  "Connection",
-                  "keep-alive"
-                ]
-              ],
-              "body": "{\"token\":\"00000000-0000-4000-8000-000000000011\",\"name\":\"session.unsubscribe\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000014\"}}"
-            },
-            "response": {
-              "startLine": "HTTP/1.1 200 OK",
-              "headers": [
-                [
-                  "Content-Type",
-                  "application/json; charset=utf-8"
-                ],
-                [
-                  "Content-Length",
-                  "105"
-                ],
-                [
-                  "Cache-Control",
-                  "no-store"
-                ],
-                [
-                  "X-Content-Type-Options",
-                  "nosniff"
-                ],
-                [
-                  "Date",
-                  "<date>"
-                ],
-                [
-                  "Connection",
-                  "keep-alive"
-                ],
-                [
-                  "Keep-Alive",
-                  "timeout=5"
-                ]
-              ],
-              "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000014\",\"unsubscribed\":true}}"
             }
           },
           {
@@ -2038,14 +1868,21 @@
       }
     },
     {
-      "name": "session-faults-answer-as-call-errors-and-non-serializable-values-are-dropped",
-      "testLine": 299,
+      "name": "session-protocol-acks-intake-and-unsubscribe-never-interrupts-execution",
+      "testLine": 243,
       "input": {
-        "actions": [
-          "getProfile (stub throws \"stub failure\")",
-          "getOutputStyle (not on the stub)",
-          "getTheme (returns {ok, callback: fn, when: Date(0)})"
+        "clients": [
+          "terminal (frames)",
+          "desktop"
         ],
+        "submit": {
+          "prompt": "keep running",
+          "options": {
+            "id": "durable-submit"
+          },
+          "callId": "session-submit:durable-session:durable-submit"
+        },
+        "runtime": "detachable: submit leaves it busy until the recorder calls finishWork",
         "cwd": "C:\\recorded\\cwd",
         "leadPid": 4242,
         "ppid": 4241
@@ -2053,49 +1890,142 @@
       "result": {
         "steps": [
           {
-            "step": "session.create",
+            "step": "terminal session.create",
             "ok": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000018",
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000020",
               "reservedOnly": true,
               "revision": 1700000000000001,
               "full": {
-                "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000018",
+                "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000020",
+                "items": [],
+                "busy": false
+              }
+            },
+            "eagerSessionCreates": 0
+          },
+          {
+            "step": "desktop session.subscribe",
+            "ok": {
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000020",
+              "reservedOnly": true,
+              "subscribed": true,
+              "revision": 1700000000000001,
+              "full": {
+                "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000020",
                 "items": [],
                 "busy": false
               }
             }
           },
           {
-            "step": "session.read action getProfile",
-            "error": {
-              "$exact": "error",
-              "name": "Error",
-              "message": "stub failure",
-              "props": {}
-            }
-          },
-          {
-            "step": "session.read action getOutputStyle",
-            "error": {
-              "$exact": "error",
-              "name": "Error",
-              "message": "session action getOutputStyle is unavailable",
-              "props": {}
-            }
-          },
-          {
-            "step": "session.read action getTheme",
+            "step": "terminal session.submit (callId session-submit:durable-session:durable-submit)",
             "ok": {
-              "value": {
-                "ok": true,
-                "when": "1970-01-01T00:00:00.000Z"
-              },
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000018",
-              "revision": 1700000000000001,
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000020",
+              "reservedOnly": false,
+              "accepted": true,
+              "revision": 1700000000000002,
               "full": {
-                "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000018",
-                "items": [],
+                "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000020",
+                "items": [
+                  {
+                    "id": "prompt",
+                    "text": "keep running"
+                  }
+                ],
+                "busy": true
+              }
+            }
+          },
+          {
+            "step": "terminal stream reports busy",
+            "snapshot": {
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000020",
+              "items": [
+                {
+                  "id": "prompt",
+                  "text": "keep running"
+                }
+              ],
+              "busy": true
+            }
+          },
+          {
+            "step": "desktop unsubscribe + close",
+            "abortCalls": 0,
+            "serviceSize": 1
+          },
+          {
+            "step": "work finished; terminal snapshot",
+            "snapshot": {
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000020",
+              "items": [
+                {
+                  "id": "prompt",
+                  "text": "keep running"
+                },
+                {
+                  "id": "answer",
+                  "text": "completed after detach"
+                }
+              ],
+              "busy": false
+            },
+            "abortCalls": 0
+          }
+        ],
+        "terminalFrames": [
+          {
+            "type": "session-state",
+            "key": "session-state:sess_daemon_1700000000000_00000000000040008000000000000020",
+            "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000020",
+            "revision": 1700000000000001,
+            "full": {
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000020",
+              "items": [],
+              "busy": false
+            }
+          },
+          {
+            "type": "session-state",
+            "key": "session-state:sess_daemon_1700000000000_00000000000040008000000000000020",
+            "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000020",
+            "revision": 1700000000000002,
+            "baseRevision": 1700000000000001,
+            "patch": {
+              "set": {
+                "busy": true
+              },
+              "remove": [],
+              "itemsAppend": {
+                "from": 0,
+                "values": [
+                  {
+                    "id": "prompt",
+                    "text": "keep running"
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "type": "session-state",
+            "key": "session-state:sess_daemon_1700000000000_00000000000040008000000000000020",
+            "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000020",
+            "revision": 1700000000000003,
+            "baseRevision": 1700000000000002,
+            "patch": {
+              "set": {
                 "busy": false
+              },
+              "remove": [],
+              "itemsAppend": {
+                "from": 1,
+                "values": [
+                  {
+                    "id": "answer",
+                    "text": "completed after detach"
+                  }
+                ]
               }
             }
           }
@@ -2114,64 +2044,48 @@
               "queuedMs": 0
             },
             "result": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000018",
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000020",
               "reservedOnly": true,
               "revision": 1700000000000001,
               "full": {
-                "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000018",
+                "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000020",
                 "items": [],
                 "busy": false
               }
             }
           },
           {
-            "name": "session.read",
+            "name": "session.subscribe",
             "args": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000018",
-              "action": "getProfile",
-              "args": []
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000020"
             },
             "context": {
-              "clientToken": "00000000-0000-4000-8000-000000000017",
+              "clientToken": "00000000-0000-4000-8000-000000000019",
               "leadPid": 4242,
               "cwd": "C:\\recorded\\cwd",
               "revision": 6,
               "queuedMs": 0
             },
-            "error": {
-              "$exact": "error",
-              "name": "Error",
-              "message": "stub failure",
-              "props": {}
+            "result": {
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000020",
+              "reservedOnly": true,
+              "subscribed": true,
+              "revision": 1700000000000001,
+              "full": {
+                "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000020",
+                "items": [],
+                "busy": false
+              }
             }
           },
           {
-            "name": "session.read",
+            "name": "session.submit",
             "args": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000018",
-              "action": "getOutputStyle",
-              "args": []
-            },
-            "context": {
-              "clientToken": "00000000-0000-4000-8000-000000000017",
-              "leadPid": 4242,
-              "cwd": "C:\\recorded\\cwd",
-              "revision": 6,
-              "queuedMs": 0
-            },
-            "error": {
-              "$exact": "error",
-              "name": "TypeError",
-              "message": "session action getOutputStyle is unavailable",
-              "props": {}
-            }
-          },
-          {
-            "name": "session.read",
-            "args": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000018",
-              "action": "getTheme",
-              "args": []
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000020",
+              "prompt": "keep running",
+              "options": {
+                "id": "durable-submit"
+              }
             },
             "context": {
               "clientToken": "00000000-0000-4000-8000-000000000017",
@@ -2181,17 +2095,54 @@
               "queuedMs": 0
             },
             "result": {
-              "value": {
-                "ok": true,
-                "when": "1970-01-01T00:00:00.000Z"
-              },
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000018",
-              "revision": 1700000000000001,
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000020",
+              "reservedOnly": false,
+              "accepted": true,
+              "revision": 1700000000000002,
               "full": {
-                "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000018",
-                "items": [],
-                "busy": false
+                "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000020",
+                "items": [
+                  {
+                    "id": "prompt",
+                    "text": "keep running"
+                  }
+                ],
+                "busy": true
               }
+            }
+          },
+          {
+            "name": "session.unsubscribe",
+            "args": {
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000020"
+            },
+            "context": {
+              "clientToken": "00000000-0000-4000-8000-000000000019",
+              "leadPid": 4242,
+              "cwd": "C:\\recorded\\cwd",
+              "revision": 6,
+              "queuedMs": 0
+            },
+            "result": {
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000020",
+              "unsubscribed": true
+            }
+          },
+          {
+            "name": "session.unsubscribe",
+            "args": {
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000020"
+            },
+            "context": {
+              "clientToken": "00000000-0000-4000-8000-000000000017",
+              "leadPid": 4242,
+              "cwd": "C:\\recorded\\cwd",
+              "revision": 6,
+              "queuedMs": 0
+            },
+            "result": {
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000020",
+              "unsubscribed": true
             }
           }
         ],
@@ -2260,6 +2211,69 @@
             }
           },
           {
+            "connection": 0,
+            "request": {
+              "startLine": "POST /client/register HTTP/1.1",
+              "headers": [
+                [
+                  "X-Mixdog-Daemon-Token",
+                  "00000000-0000-4000-8000-000000000015"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ],
+                [
+                  "Content-Length",
+                  "164"
+                ],
+                [
+                  "Host",
+                  "127.0.0.1:<port>"
+                ],
+                [
+                  "Connection",
+                  "keep-alive"
+                ]
+              ],
+              "body": "{\"leadPid\":4242,\"cwd\":\"C:\\\\recorded\\\\cwd\",\"lifecycle\":true,\"clientKind\":\"session\",\"registrationId\":\"00000000-0000-4000-8000-000000000018\",\"protocol\":1,\"revision\":6}"
+            },
+            "response": {
+              "startLine": "HTTP/1.1 200 OK",
+              "headers": [
+                [
+                  "Content-Type",
+                  "application/json; charset=utf-8"
+                ],
+                [
+                  "Content-Length",
+                  "85"
+                ],
+                [
+                  "Cache-Control",
+                  "no-store"
+                ],
+                [
+                  "X-Content-Type-Options",
+                  "nosniff"
+                ],
+                [
+                  "Date",
+                  "<date>"
+                ],
+                [
+                  "Connection",
+                  "keep-alive"
+                ],
+                [
+                  "Keep-Alive",
+                  "timeout=5"
+                ]
+              ],
+              "body": "{\"token\":\"00000000-0000-4000-8000-000000000019\",\"pid\":4242,\"protocol\":1,\"revision\":6}"
+            }
+          },
+          {
             "connection": 1,
             "request": {
               "startLine": "GET /events?token=00000000-0000-4000-8000-000000000017 HTTP/1.1",
@@ -2313,12 +2327,72 @@
               ],
               "frames": [
                 ": attached",
-                "data: {\"type\":\"session-state\",\"key\":\"session-state:sess_daemon_1700000000000_00000000000040008000000000000018\",\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000018\",\"revision\":1700000000000001,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000018\",\"items\":[],\"busy\":false}}"
+                "data: {\"type\":\"session-state\",\"key\":\"session-state:sess_daemon_1700000000000_00000000000040008000000000000020\",\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000020\",\"revision\":1700000000000001,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000020\",\"items\":[],\"busy\":false}}",
+                "data: {\"type\":\"session-state\",\"key\":\"session-state:sess_daemon_1700000000000_00000000000040008000000000000020\",\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000020\",\"revision\":1700000000000002,\"baseRevision\":1700000000000001,\"patch\":{\"set\":{\"busy\":true},\"remove\":[],\"itemsAppend\":{\"from\":0,\"values\":[{\"id\":\"prompt\",\"text\":\"keep running\"}]}}}",
+                "data: {\"type\":\"session-state\",\"key\":\"session-state:sess_daemon_1700000000000_00000000000040008000000000000020\",\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000020\",\"revision\":1700000000000003,\"baseRevision\":1700000000000002,\"patch\":{\"set\":{\"busy\":false},\"remove\":[],\"itemsAppend\":{\"from\":1,\"values\":[{\"id\":\"answer\",\"text\":\"completed after detach\"}]}}}"
               ]
             }
           },
           {
             "connection": 2,
+            "request": {
+              "startLine": "GET /events?token=00000000-0000-4000-8000-000000000019 HTTP/1.1",
+              "headers": [
+                [
+                  "Accept",
+                  "text/event-stream"
+                ],
+                [
+                  "X-Mixdog-Daemon-Token",
+                  "00000000-0000-4000-8000-000000000015"
+                ],
+                [
+                  "Host",
+                  "127.0.0.1:<port>"
+                ],
+                [
+                  "Connection",
+                  "keep-alive"
+                ]
+              ],
+              "body": ""
+            },
+            "response": {
+              "startLine": "HTTP/1.1 200 OK",
+              "headers": [
+                [
+                  "Content-Type",
+                  "text/event-stream; charset=utf-8"
+                ],
+                [
+                  "Cache-Control",
+                  "no-cache, no-transform"
+                ],
+                [
+                  "Connection",
+                  "keep-alive"
+                ],
+                [
+                  "X-Accel-Buffering",
+                  "no"
+                ],
+                [
+                  "Date",
+                  "<date>"
+                ],
+                [
+                  "Transfer-Encoding",
+                  "chunked"
+                ]
+              ],
+              "frames": [
+                ": attached",
+                "data: {\"type\":\"session-state\",\"key\":\"session-state:sess_daemon_1700000000000_00000000000040008000000000000020\",\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000020\",\"revision\":1700000000000002,\"baseRevision\":1700000000000001,\"patch\":{\"set\":{\"busy\":true},\"remove\":[],\"itemsAppend\":{\"from\":0,\"values\":[{\"id\":\"prompt\",\"text\":\"keep running\"}]}}}"
+              ]
+            }
+          },
+          {
+            "connection": 3,
             "request": {
               "startLine": "POST /call HTTP/1.1",
               "headers": [
@@ -2377,7 +2451,668 @@
                   "timeout=5"
                 ]
               ],
-              "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000018\",\"reservedOnly\":true,\"revision\":1700000000000001,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000018\",\"items\":[],\"busy\":false}}}"
+              "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000020\",\"reservedOnly\":true,\"revision\":1700000000000001,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000020\",\"items\":[],\"busy\":false}}}"
+            }
+          },
+          {
+            "connection": 3,
+            "request": {
+              "startLine": "POST /call HTTP/1.1",
+              "headers": [
+                [
+                  "X-Mixdog-Daemon-Token",
+                  "00000000-0000-4000-8000-000000000015"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ],
+                [
+                  "Content-Length",
+                  "157"
+                ],
+                [
+                  "Host",
+                  "127.0.0.1:<port>"
+                ],
+                [
+                  "Connection",
+                  "keep-alive"
+                ]
+              ],
+              "body": "{\"token\":\"00000000-0000-4000-8000-000000000019\",\"name\":\"session.subscribe\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000020\"}}"
+            },
+            "response": {
+              "startLine": "HTTP/1.1 200 OK",
+              "headers": [
+                [
+                  "Content-Type",
+                  "application/json; charset=utf-8"
+                ],
+                [
+                  "Content-Length",
+                  "257"
+                ],
+                [
+                  "Cache-Control",
+                  "no-store"
+                ],
+                [
+                  "X-Content-Type-Options",
+                  "nosniff"
+                ],
+                [
+                  "Date",
+                  "<date>"
+                ],
+                [
+                  "Connection",
+                  "keep-alive"
+                ],
+                [
+                  "Keep-Alive",
+                  "timeout=5"
+                ]
+              ],
+              "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000020\",\"reservedOnly\":true,\"subscribed\":true,\"revision\":1700000000000001,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000020\",\"items\":[],\"busy\":false}}}"
+            }
+          },
+          {
+            "connection": 4,
+            "request": {
+              "startLine": "POST /call HTTP/1.1",
+              "headers": [
+                [
+                  "X-Mixdog-Daemon-Token",
+                  "00000000-0000-4000-8000-000000000015"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ],
+                [
+                  "Content-Length",
+                  "269"
+                ],
+                [
+                  "Host",
+                  "127.0.0.1:<port>"
+                ],
+                [
+                  "Connection",
+                  "keep-alive"
+                ]
+              ],
+              "body": "{\"token\":\"00000000-0000-4000-8000-000000000017\",\"name\":\"session.submit\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000020\",\"prompt\":\"keep running\",\"options\":{\"id\":\"durable-submit\"}},\"callId\":\"session-submit:durable-session:durable-submit\"}"
+            },
+            "response": {
+              "startLine": "HTTP/1.1 200 OK",
+              "headers": [
+                [
+                  "Content-Type",
+                  "application/json; charset=utf-8"
+                ],
+                [
+                  "Content-Length",
+                  "292"
+                ],
+                [
+                  "Cache-Control",
+                  "no-store"
+                ],
+                [
+                  "X-Content-Type-Options",
+                  "nosniff"
+                ],
+                [
+                  "Date",
+                  "<date>"
+                ],
+                [
+                  "Connection",
+                  "keep-alive"
+                ],
+                [
+                  "Keep-Alive",
+                  "timeout=5"
+                ]
+              ],
+              "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000020\",\"reservedOnly\":false,\"accepted\":true,\"revision\":1700000000000002,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000020\",\"items\":[{\"id\":\"prompt\",\"text\":\"keep running\"}],\"busy\":true}}}"
+            }
+          },
+          {
+            "connection": 4,
+            "request": {
+              "startLine": "POST /call HTTP/1.1",
+              "headers": [
+                [
+                  "X-Mixdog-Daemon-Token",
+                  "00000000-0000-4000-8000-000000000015"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ],
+                [
+                  "Content-Length",
+                  "159"
+                ],
+                [
+                  "Host",
+                  "127.0.0.1:<port>"
+                ],
+                [
+                  "Connection",
+                  "keep-alive"
+                ]
+              ],
+              "body": "{\"token\":\"00000000-0000-4000-8000-000000000019\",\"name\":\"session.unsubscribe\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000020\"}}"
+            },
+            "response": {
+              "startLine": "HTTP/1.1 200 OK",
+              "headers": [
+                [
+                  "Content-Type",
+                  "application/json; charset=utf-8"
+                ],
+                [
+                  "Content-Length",
+                  "105"
+                ],
+                [
+                  "Cache-Control",
+                  "no-store"
+                ],
+                [
+                  "X-Content-Type-Options",
+                  "nosniff"
+                ],
+                [
+                  "Date",
+                  "<date>"
+                ],
+                [
+                  "Connection",
+                  "keep-alive"
+                ],
+                [
+                  "Keep-Alive",
+                  "timeout=5"
+                ]
+              ],
+              "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000020\",\"unsubscribed\":true}}"
+            }
+          },
+          {
+            "connection": 0,
+            "request": {
+              "startLine": "POST /client/deregister HTTP/1.1",
+              "headers": [
+                [
+                  "X-Mixdog-Daemon-Token",
+                  "00000000-0000-4000-8000-000000000015"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ],
+                [
+                  "Content-Length",
+                  "48"
+                ],
+                [
+                  "Host",
+                  "127.0.0.1:<port>"
+                ],
+                [
+                  "Connection",
+                  "keep-alive"
+                ]
+              ],
+              "body": "{\"token\":\"00000000-0000-4000-8000-000000000019\"}"
+            },
+            "response": {
+              "startLine": "HTTP/1.1 200 OK",
+              "headers": [
+                [
+                  "Content-Type",
+                  "application/json; charset=utf-8"
+                ],
+                [
+                  "Content-Length",
+                  "11"
+                ],
+                [
+                  "Cache-Control",
+                  "no-store"
+                ],
+                [
+                  "X-Content-Type-Options",
+                  "nosniff"
+                ],
+                [
+                  "Date",
+                  "<date>"
+                ],
+                [
+                  "Connection",
+                  "keep-alive"
+                ],
+                [
+                  "Keep-Alive",
+                  "timeout=5"
+                ]
+              ],
+              "body": "{\"ok\":true}"
+            }
+          },
+          {
+            "connection": 4,
+            "request": {
+              "startLine": "POST /call HTTP/1.1",
+              "headers": [
+                [
+                  "X-Mixdog-Daemon-Token",
+                  "00000000-0000-4000-8000-000000000015"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ],
+                [
+                  "Content-Length",
+                  "159"
+                ],
+                [
+                  "Host",
+                  "127.0.0.1:<port>"
+                ],
+                [
+                  "Connection",
+                  "keep-alive"
+                ]
+              ],
+              "body": "{\"token\":\"00000000-0000-4000-8000-000000000017\",\"name\":\"session.unsubscribe\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000020\"}}"
+            },
+            "response": {
+              "startLine": "HTTP/1.1 200 OK",
+              "headers": [
+                [
+                  "Content-Type",
+                  "application/json; charset=utf-8"
+                ],
+                [
+                  "Content-Length",
+                  "105"
+                ],
+                [
+                  "Cache-Control",
+                  "no-store"
+                ],
+                [
+                  "X-Content-Type-Options",
+                  "nosniff"
+                ],
+                [
+                  "Date",
+                  "<date>"
+                ],
+                [
+                  "Connection",
+                  "keep-alive"
+                ],
+                [
+                  "Keep-Alive",
+                  "timeout=5"
+                ]
+              ],
+              "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000020\",\"unsubscribed\":true}}"
+            }
+          },
+          {
+            "connection": 0,
+            "request": {
+              "startLine": "POST /client/deregister HTTP/1.1",
+              "headers": [
+                [
+                  "X-Mixdog-Daemon-Token",
+                  "00000000-0000-4000-8000-000000000015"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ],
+                [
+                  "Content-Length",
+                  "48"
+                ],
+                [
+                  "Host",
+                  "127.0.0.1:<port>"
+                ],
+                [
+                  "Connection",
+                  "keep-alive"
+                ]
+              ],
+              "body": "{\"token\":\"00000000-0000-4000-8000-000000000017\"}"
+            },
+            "response": {
+              "startLine": "HTTP/1.1 200 OK",
+              "headers": [
+                [
+                  "Content-Type",
+                  "application/json; charset=utf-8"
+                ],
+                [
+                  "Content-Length",
+                  "11"
+                ],
+                [
+                  "Cache-Control",
+                  "no-store"
+                ],
+                [
+                  "X-Content-Type-Options",
+                  "nosniff"
+                ],
+                [
+                  "Date",
+                  "<date>"
+                ],
+                [
+                  "Connection",
+                  "keep-alive"
+                ],
+                [
+                  "Keep-Alive",
+                  "timeout=5"
+                ]
+              ],
+              "body": "{\"ok\":true}"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "session-faults-answer-as-call-errors-and-non-serializable-values-are-dropped",
+      "testLine": 299,
+      "input": {
+        "actions": [
+          "getProfile (stub throws \"stub failure\")",
+          "getOutputStyle (not on the stub)",
+          "getTheme (returns {ok, callback: fn, when: Date(0)})"
+        ],
+        "cwd": "C:\\recorded\\cwd",
+        "leadPid": 4242,
+        "ppid": 4241
+      },
+      "result": {
+        "steps": [
+          {
+            "step": "session.create",
+            "ok": {
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000024",
+              "reservedOnly": true,
+              "revision": 1700000000000001,
+              "full": {
+                "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000024",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "step": "session.read action getProfile",
+            "error": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "stub failure",
+              "props": {}
+            }
+          },
+          {
+            "step": "session.read action getOutputStyle",
+            "error": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "session action getOutputStyle is unavailable",
+              "props": {}
+            }
+          },
+          {
+            "step": "session.read action getTheme",
+            "ok": {
+              "value": {
+                "ok": true,
+                "when": "1970-01-01T00:00:00.000Z"
+              },
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000024",
+              "revision": 1700000000000001,
+              "full": {
+                "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000024",
+                "items": [],
+                "busy": false
+              }
+            }
+          }
+        ],
+        "serviceCalls": [
+          {
+            "name": "session.create",
+            "args": {
+              "cwd": "C:\\recorded\\cwd"
+            },
+            "context": {
+              "clientToken": "00000000-0000-4000-8000-000000000023",
+              "leadPid": 4242,
+              "cwd": "C:\\recorded\\cwd",
+              "revision": 6,
+              "queuedMs": 0
+            },
+            "result": {
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000024",
+              "reservedOnly": true,
+              "revision": 1700000000000001,
+              "full": {
+                "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000024",
+                "items": [],
+                "busy": false
+              }
+            }
+          },
+          {
+            "name": "session.read",
+            "args": {
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000024",
+              "action": "getProfile",
+              "args": []
+            },
+            "context": {
+              "clientToken": "00000000-0000-4000-8000-000000000023",
+              "leadPid": 4242,
+              "cwd": "C:\\recorded\\cwd",
+              "revision": 6,
+              "queuedMs": 0
+            },
+            "error": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "stub failure",
+              "props": {}
+            }
+          },
+          {
+            "name": "session.read",
+            "args": {
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000024",
+              "action": "getOutputStyle",
+              "args": []
+            },
+            "context": {
+              "clientToken": "00000000-0000-4000-8000-000000000023",
+              "leadPid": 4242,
+              "cwd": "C:\\recorded\\cwd",
+              "revision": 6,
+              "queuedMs": 0
+            },
+            "error": {
+              "$exact": "error",
+              "name": "TypeError",
+              "message": "session action getOutputStyle is unavailable",
+              "props": {}
+            }
+          },
+          {
+            "name": "session.read",
+            "args": {
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000024",
+              "action": "getTheme",
+              "args": []
+            },
+            "context": {
+              "clientToken": "00000000-0000-4000-8000-000000000023",
+              "leadPid": 4242,
+              "cwd": "C:\\recorded\\cwd",
+              "revision": 6,
+              "queuedMs": 0
+            },
+            "result": {
+              "value": {
+                "ok": true,
+                "when": "1970-01-01T00:00:00.000Z"
+              },
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000024",
+              "revision": 1700000000000001,
+              "full": {
+                "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000024",
+                "items": [],
+                "busy": false
+              }
+            }
+          }
+        ],
+        "wire": [
+          {
+            "connection": 0,
+            "request": {
+              "startLine": "POST /client/register HTTP/1.1",
+              "headers": [
+                [
+                  "X-Mixdog-Daemon-Token",
+                  "00000000-0000-4000-8000-000000000021"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ],
+                [
+                  "Content-Length",
+                  "164"
+                ],
+                [
+                  "Host",
+                  "127.0.0.1:<port>"
+                ],
+                [
+                  "Connection",
+                  "keep-alive"
+                ]
+              ],
+              "body": "{\"leadPid\":4242,\"cwd\":\"C:\\\\recorded\\\\cwd\",\"lifecycle\":true,\"clientKind\":\"session\",\"registrationId\":\"00000000-0000-4000-8000-000000000022\",\"protocol\":1,\"revision\":6}"
+            },
+            "response": {
+              "startLine": "HTTP/1.1 200 OK",
+              "headers": [
+                [
+                  "Content-Type",
+                  "application/json; charset=utf-8"
+                ],
+                [
+                  "Content-Length",
+                  "85"
+                ],
+                [
+                  "Cache-Control",
+                  "no-store"
+                ],
+                [
+                  "X-Content-Type-Options",
+                  "nosniff"
+                ],
+                [
+                  "Date",
+                  "<date>"
+                ],
+                [
+                  "Connection",
+                  "keep-alive"
+                ],
+                [
+                  "Keep-Alive",
+                  "timeout=5"
+                ]
+              ],
+              "body": "{\"token\":\"00000000-0000-4000-8000-000000000023\",\"pid\":4242,\"protocol\":1,\"revision\":6}"
+            }
+          },
+          {
+            "connection": 1,
+            "request": {
+              "startLine": "GET /events?token=00000000-0000-4000-8000-000000000023 HTTP/1.1",
+              "headers": [
+                [
+                  "Accept",
+                  "text/event-stream"
+                ],
+                [
+                  "X-Mixdog-Daemon-Token",
+                  "00000000-0000-4000-8000-000000000021"
+                ],
+                [
+                  "Host",
+                  "127.0.0.1:<port>"
+                ],
+                [
+                  "Connection",
+                  "keep-alive"
+                ]
+              ],
+              "body": ""
+            },
+            "response": {
+              "startLine": "HTTP/1.1 200 OK",
+              "headers": [
+                [
+                  "Content-Type",
+                  "text/event-stream; charset=utf-8"
+                ],
+                [
+                  "Cache-Control",
+                  "no-cache, no-transform"
+                ],
+                [
+                  "Connection",
+                  "keep-alive"
+                ],
+                [
+                  "X-Accel-Buffering",
+                  "no"
+                ],
+                [
+                  "Date",
+                  "<date>"
+                ],
+                [
+                  "Transfer-Encoding",
+                  "chunked"
+                ]
+              ],
+              "frames": [
+                ": attached",
+                "data: {\"type\":\"session-state\",\"key\":\"session-state:sess_daemon_1700000000000_00000000000040008000000000000024\",\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000024\",\"revision\":1700000000000001,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000024\",\"items\":[],\"busy\":false}}"
+              ]
             }
           },
           {
@@ -2387,7 +3122,70 @@
               "headers": [
                 [
                   "X-Mixdog-Daemon-Token",
-                  "00000000-0000-4000-8000-000000000015"
+                  "00000000-0000-4000-8000-000000000021"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ],
+                [
+                  "Content-Length",
+                  "107"
+                ],
+                [
+                  "Host",
+                  "127.0.0.1:<port>"
+                ],
+                [
+                  "Connection",
+                  "keep-alive"
+                ]
+              ],
+              "body": "{\"token\":\"00000000-0000-4000-8000-000000000023\",\"name\":\"session.create\",\"args\":{\"cwd\":\"C:\\\\recorded\\\\cwd\"}}"
+            },
+            "response": {
+              "startLine": "HTTP/1.1 200 OK",
+              "headers": [
+                [
+                  "Content-Type",
+                  "application/json; charset=utf-8"
+                ],
+                [
+                  "Content-Length",
+                  "239"
+                ],
+                [
+                  "Cache-Control",
+                  "no-store"
+                ],
+                [
+                  "X-Content-Type-Options",
+                  "nosniff"
+                ],
+                [
+                  "Date",
+                  "<date>"
+                ],
+                [
+                  "Connection",
+                  "keep-alive"
+                ],
+                [
+                  "Keep-Alive",
+                  "timeout=5"
+                ]
+              ],
+              "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000024\",\"reservedOnly\":true,\"revision\":1700000000000001,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000024\",\"items\":[],\"busy\":false}}}"
+            }
+          },
+          {
+            "connection": 2,
+            "request": {
+              "startLine": "POST /call HTTP/1.1",
+              "headers": [
+                [
+                  "X-Mixdog-Daemon-Token",
+                  "00000000-0000-4000-8000-000000000021"
                 ],
                 [
                   "Content-Type",
@@ -2406,7 +3204,7 @@
                   "keep-alive"
                 ]
               ],
-              "body": "{\"token\":\"00000000-0000-4000-8000-000000000017\",\"name\":\"session.read\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000018\",\"action\":\"getProfile\",\"args\":[]}}"
+              "body": "{\"token\":\"00000000-0000-4000-8000-000000000023\",\"name\":\"session.read\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000024\",\"action\":\"getProfile\",\"args\":[]}}"
             },
             "response": {
               "startLine": "HTTP/1.1 200 OK",
@@ -2450,7 +3248,7 @@
               "headers": [
                 [
                   "X-Mixdog-Daemon-Token",
-                  "00000000-0000-4000-8000-000000000015"
+                  "00000000-0000-4000-8000-000000000021"
                 ],
                 [
                   "Content-Type",
@@ -2469,7 +3267,7 @@
                   "keep-alive"
                 ]
               ],
-              "body": "{\"token\":\"00000000-0000-4000-8000-000000000017\",\"name\":\"session.read\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000018\",\"action\":\"getOutputStyle\",\"args\":[]}}"
+              "body": "{\"token\":\"00000000-0000-4000-8000-000000000023\",\"name\":\"session.read\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000024\",\"action\":\"getOutputStyle\",\"args\":[]}}"
             },
             "response": {
               "startLine": "HTTP/1.1 200 OK",
@@ -2513,7 +3311,7 @@
               "headers": [
                 [
                   "X-Mixdog-Daemon-Token",
-                  "00000000-0000-4000-8000-000000000015"
+                  "00000000-0000-4000-8000-000000000021"
                 ],
                 [
                   "Content-Type",
@@ -2532,7 +3330,7 @@
                   "keep-alive"
                 ]
               ],
-              "body": "{\"token\":\"00000000-0000-4000-8000-000000000017\",\"name\":\"session.read\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000018\",\"action\":\"getTheme\",\"args\":[]}}"
+              "body": "{\"token\":\"00000000-0000-4000-8000-000000000023\",\"name\":\"session.read\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000024\",\"action\":\"getTheme\",\"args\":[]}}"
             },
             "response": {
               "startLine": "HTTP/1.1 200 OK",
@@ -2566,7 +3364,7 @@
                   "timeout=5"
                 ]
               ],
-              "body": "{\"result\":{\"value\":{\"ok\":true,\"when\":\"1970-01-01T00:00:00.000Z\"},\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000018\",\"revision\":1700000000000001,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000018\",\"items\":[],\"busy\":false}}}"
+              "body": "{\"result\":{\"value\":{\"ok\":true,\"when\":\"1970-01-01T00:00:00.000Z\"},\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000024\",\"revision\":1700000000000001,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000024\",\"items\":[],\"busy\":false}}}"
             }
           },
           {
@@ -2576,7 +3374,7 @@
               "headers": [
                 [
                   "X-Mixdog-Daemon-Token",
-                  "00000000-0000-4000-8000-000000000015"
+                  "00000000-0000-4000-8000-000000000021"
                 ],
                 [
                   "Content-Type",
@@ -2595,7 +3393,7 @@
                   "keep-alive"
                 ]
               ],
-              "body": "{\"token\":\"00000000-0000-4000-8000-000000000017\"}"
+              "body": "{\"token\":\"00000000-0000-4000-8000-000000000023\"}"
             },
             "response": {
               "startLine": "HTTP/1.1 200 OK",
@@ -2814,11 +3612,11 @@
           {
             "step": "session.create",
             "ok": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000022",
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000028",
               "reservedOnly": true,
               "revision": 1700000000000001,
               "full": {
-                "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000022",
+                "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000028",
                 "items": [],
                 "busy": false
               }
@@ -2827,12 +3625,12 @@
           {
             "step": "session.submit once (callId stable-call-id)",
             "ok": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000022",
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000028",
               "reservedOnly": false,
               "accepted": true,
               "revision": 1700000000000002,
               "full": {
-                "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000022",
+                "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000028",
                 "items": [
                   {
                     "id": 1,
@@ -2846,12 +3644,12 @@
           {
             "step": "session.submit once again (same callId, same payload)",
             "ok": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000022",
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000028",
               "reservedOnly": false,
               "accepted": true,
               "revision": 1700000000000002,
               "full": {
-                "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000022",
+                "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000028",
                 "items": [
                   {
                     "id": 1,
@@ -2865,11 +3663,11 @@
           {
             "step": "session.read",
             "ok": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000022",
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000028",
               "reservedOnly": false,
               "revision": 1700000000000002,
               "full": {
-                "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000022",
+                "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000028",
                 "items": [
                   {
                     "id": 1,
@@ -2888,18 +3686,18 @@
               "cwd": "C:\\recorded\\cwd"
             },
             "context": {
-              "clientToken": "00000000-0000-4000-8000-000000000021",
+              "clientToken": "00000000-0000-4000-8000-000000000027",
               "leadPid": 4242,
               "cwd": "C:\\recorded\\cwd",
               "revision": 6,
               "queuedMs": 0
             },
             "result": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000022",
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000028",
               "reservedOnly": true,
               "revision": 1700000000000001,
               "full": {
-                "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000022",
+                "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000028",
                 "items": [],
                 "busy": false
               }
@@ -2908,23 +3706,23 @@
           {
             "name": "session.submit",
             "args": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000022",
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000028",
               "prompt": "once"
             },
             "context": {
-              "clientToken": "00000000-0000-4000-8000-000000000021",
+              "clientToken": "00000000-0000-4000-8000-000000000027",
               "leadPid": 4242,
               "cwd": "C:\\recorded\\cwd",
               "revision": 6,
               "queuedMs": 0
             },
             "result": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000022",
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000028",
               "reservedOnly": false,
               "accepted": true,
               "revision": 1700000000000002,
               "full": {
-                "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000022",
+                "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000028",
                 "items": [
                   {
                     "id": 1,
@@ -2938,21 +3736,21 @@
           {
             "name": "session.read",
             "args": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000022"
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000028"
             },
             "context": {
-              "clientToken": "00000000-0000-4000-8000-000000000021",
+              "clientToken": "00000000-0000-4000-8000-000000000027",
               "leadPid": 4242,
               "cwd": "C:\\recorded\\cwd",
               "revision": 6,
               "queuedMs": 0
             },
             "result": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000022",
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000028",
               "reservedOnly": false,
               "revision": 1700000000000002,
               "full": {
-                "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000022",
+                "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000028",
                 "items": [
                   {
                     "id": 1,
@@ -2972,7 +3770,7 @@
               "headers": [
                 [
                   "X-Mixdog-Daemon-Token",
-                  "00000000-0000-4000-8000-000000000019"
+                  "00000000-0000-4000-8000-000000000025"
                 ],
                 [
                   "Content-Type",
@@ -2991,7 +3789,7 @@
                   "keep-alive"
                 ]
               ],
-              "body": "{\"leadPid\":4242,\"cwd\":\"C:\\\\recorded\\\\cwd\",\"lifecycle\":true,\"clientKind\":\"session\",\"registrationId\":\"00000000-0000-4000-8000-000000000020\",\"protocol\":1,\"revision\":6}"
+              "body": "{\"leadPid\":4242,\"cwd\":\"C:\\\\recorded\\\\cwd\",\"lifecycle\":true,\"clientKind\":\"session\",\"registrationId\":\"00000000-0000-4000-8000-000000000026\",\"protocol\":1,\"revision\":6}"
             },
             "response": {
               "startLine": "HTTP/1.1 200 OK",
@@ -3025,13 +3823,13 @@
                   "timeout=5"
                 ]
               ],
-              "body": "{\"token\":\"00000000-0000-4000-8000-000000000021\",\"pid\":4242,\"protocol\":1,\"revision\":6}"
+              "body": "{\"token\":\"00000000-0000-4000-8000-000000000027\",\"pid\":4242,\"protocol\":1,\"revision\":6}"
             }
           },
           {
             "connection": 1,
             "request": {
-              "startLine": "GET /events?token=00000000-0000-4000-8000-000000000021 HTTP/1.1",
+              "startLine": "GET /events?token=00000000-0000-4000-8000-000000000027 HTTP/1.1",
               "headers": [
                 [
                   "Accept",
@@ -3039,7 +3837,7 @@
                 ],
                 [
                   "X-Mixdog-Daemon-Token",
-                  "00000000-0000-4000-8000-000000000019"
+                  "00000000-0000-4000-8000-000000000025"
                 ],
                 [
                   "Host",
@@ -3082,8 +3880,8 @@
               ],
               "frames": [
                 ": attached",
-                "data: {\"type\":\"session-state\",\"key\":\"session-state:sess_daemon_1700000000000_00000000000040008000000000000022\",\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000022\",\"revision\":1700000000000001,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000022\",\"items\":[],\"busy\":false}}",
-                "data: {\"type\":\"session-state\",\"key\":\"session-state:sess_daemon_1700000000000_00000000000040008000000000000022\",\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000022\",\"revision\":1700000000000002,\"baseRevision\":1700000000000001,\"patch\":{\"set\":{},\"remove\":[],\"itemsAppend\":{\"from\":0,\"values\":[{\"id\":1,\"text\":\"once\"}]}}}"
+                "data: {\"type\":\"session-state\",\"key\":\"session-state:sess_daemon_1700000000000_00000000000040008000000000000028\",\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000028\",\"revision\":1700000000000001,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000028\",\"items\":[],\"busy\":false}}",
+                "data: {\"type\":\"session-state\",\"key\":\"session-state:sess_daemon_1700000000000_00000000000040008000000000000028\",\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000028\",\"revision\":1700000000000002,\"baseRevision\":1700000000000001,\"patch\":{\"set\":{},\"remove\":[],\"itemsAppend\":{\"from\":0,\"values\":[{\"id\":1,\"text\":\"once\"}]}}}"
               ]
             }
           },
@@ -3094,7 +3892,7 @@
               "headers": [
                 [
                   "X-Mixdog-Daemon-Token",
-                  "00000000-0000-4000-8000-000000000019"
+                  "00000000-0000-4000-8000-000000000025"
                 ],
                 [
                   "Content-Type",
@@ -3113,7 +3911,7 @@
                   "keep-alive"
                 ]
               ],
-              "body": "{\"token\":\"00000000-0000-4000-8000-000000000021\",\"name\":\"session.create\",\"args\":{\"cwd\":\"C:\\\\recorded\\\\cwd\"}}"
+              "body": "{\"token\":\"00000000-0000-4000-8000-000000000027\",\"name\":\"session.create\",\"args\":{\"cwd\":\"C:\\\\recorded\\\\cwd\"}}"
             },
             "response": {
               "startLine": "HTTP/1.1 200 OK",
@@ -3147,7 +3945,7 @@
                   "timeout=5"
                 ]
               ],
-              "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000022\",\"reservedOnly\":true,\"revision\":1700000000000001,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000022\",\"items\":[],\"busy\":false}}}"
+              "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000028\",\"reservedOnly\":true,\"revision\":1700000000000001,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000028\",\"items\":[],\"busy\":false}}}"
             }
           },
           {
@@ -3157,7 +3955,7 @@
               "headers": [
                 [
                   "X-Mixdog-Daemon-Token",
-                  "00000000-0000-4000-8000-000000000019"
+                  "00000000-0000-4000-8000-000000000025"
                 ],
                 [
                   "Content-Type",
@@ -3176,7 +3974,7 @@
                   "keep-alive"
                 ]
               ],
-              "body": "{\"token\":\"00000000-0000-4000-8000-000000000021\",\"name\":\"session.submit\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000022\",\"prompt\":\"once\"},\"callId\":\"stable-call-id\"}"
+              "body": "{\"token\":\"00000000-0000-4000-8000-000000000027\",\"name\":\"session.submit\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000028\",\"prompt\":\"once\"},\"callId\":\"stable-call-id\"}"
             },
             "response": {
               "startLine": "HTTP/1.1 200 OK",
@@ -3210,7 +4008,7 @@
                   "timeout=5"
                 ]
               ],
-              "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000022\",\"reservedOnly\":false,\"accepted\":true,\"revision\":1700000000000002,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000022\",\"items\":[{\"id\":1,\"text\":\"once\"}],\"busy\":false}}}"
+              "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000028\",\"reservedOnly\":false,\"accepted\":true,\"revision\":1700000000000002,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000028\",\"items\":[{\"id\":1,\"text\":\"once\"}],\"busy\":false}}}"
             }
           },
           {
@@ -3220,7 +4018,7 @@
               "headers": [
                 [
                   "X-Mixdog-Daemon-Token",
-                  "00000000-0000-4000-8000-000000000019"
+                  "00000000-0000-4000-8000-000000000025"
                 ],
                 [
                   "Content-Type",
@@ -3239,7 +4037,7 @@
                   "keep-alive"
                 ]
               ],
-              "body": "{\"token\":\"00000000-0000-4000-8000-000000000021\",\"name\":\"session.submit\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000022\",\"prompt\":\"once\"},\"callId\":\"stable-call-id\"}"
+              "body": "{\"token\":\"00000000-0000-4000-8000-000000000027\",\"name\":\"session.submit\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000028\",\"prompt\":\"once\"},\"callId\":\"stable-call-id\"}"
             },
             "response": {
               "startLine": "HTTP/1.1 200 OK",
@@ -3273,7 +4071,7 @@
                   "timeout=5"
                 ]
               ],
-              "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000022\",\"reservedOnly\":false,\"accepted\":true,\"revision\":1700000000000002,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000022\",\"items\":[{\"id\":1,\"text\":\"once\"}],\"busy\":false}}}"
+              "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000028\",\"reservedOnly\":false,\"accepted\":true,\"revision\":1700000000000002,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000028\",\"items\":[{\"id\":1,\"text\":\"once\"}],\"busy\":false}}}"
             }
           },
           {
@@ -3283,7 +4081,7 @@
               "headers": [
                 [
                   "X-Mixdog-Daemon-Token",
-                  "00000000-0000-4000-8000-000000000019"
+                  "00000000-0000-4000-8000-000000000025"
                 ],
                 [
                   "Content-Type",
@@ -3302,7 +4100,7 @@
                   "keep-alive"
                 ]
               ],
-              "body": "{\"token\":\"00000000-0000-4000-8000-000000000021\",\"name\":\"session.read\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000022\"}}"
+              "body": "{\"token\":\"00000000-0000-4000-8000-000000000027\",\"name\":\"session.read\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000028\"}}"
             },
             "response": {
               "startLine": "HTTP/1.1 200 OK",
@@ -3336,7 +4134,7 @@
                   "timeout=5"
                 ]
               ],
-              "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000022\",\"reservedOnly\":false,\"revision\":1700000000000002,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000022\",\"items\":[{\"id\":1,\"text\":\"once\"}],\"busy\":false}}}"
+              "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000028\",\"reservedOnly\":false,\"revision\":1700000000000002,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000028\",\"items\":[{\"id\":1,\"text\":\"once\"}],\"busy\":false}}}"
             }
           },
           {
@@ -3346,7 +4144,7 @@
               "headers": [
                 [
                   "X-Mixdog-Daemon-Token",
-                  "00000000-0000-4000-8000-000000000019"
+                  "00000000-0000-4000-8000-000000000025"
                 ],
                 [
                   "Content-Type",
@@ -3365,7 +4163,7 @@
                   "keep-alive"
                 ]
               ],
-              "body": "{\"token\":\"00000000-0000-4000-8000-000000000021\"}"
+              "body": "{\"token\":\"00000000-0000-4000-8000-000000000027\"}"
             },
             "response": {
               "startLine": "HTTP/1.1 200 OK",
@@ -3428,7 +4226,7 @@
             "step": "createSession({cwd})",
             "isRemoteSession": true,
             "state": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000027",
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000033",
               "items": [],
               "busy": false
             },
@@ -3442,18 +4240,18 @@
                   "desktopSession": null
                 },
                 "context": {
-                  "clientToken": "00000000-0000-4000-8000-000000000025",
+                  "clientToken": "00000000-0000-4000-8000-000000000031",
                   "leadPid": 4242,
                   "cwd": "C:\\recorded\\cwd",
                   "revision": 6,
                   "queuedMs": 0
                 },
                 "result": {
-                  "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000027",
+                  "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000033",
                   "reservedOnly": true,
                   "revision": 1700000000000001,
                   "full": {
-                    "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000027",
+                    "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000033",
                     "items": [],
                     "busy": false
                   }
@@ -3468,7 +4266,7 @@
                   "headers": [
                     [
                       "X-Mixdog-Daemon-Token",
-                      "00000000-0000-4000-8000-000000000023"
+                      "00000000-0000-4000-8000-000000000029"
                     ],
                     [
                       "Host",
@@ -3523,7 +4321,7 @@
                   "headers": [
                     [
                       "X-Mixdog-Daemon-Token",
-                      "00000000-0000-4000-8000-000000000023"
+                      "00000000-0000-4000-8000-000000000029"
                     ],
                     [
                       "Content-Type",
@@ -3542,7 +4340,7 @@
                       "keep-alive"
                     ]
                   ],
-                  "body": "{\"leadPid\":4242,\"cwd\":\"C:\\\\recorded\\\\cwd\",\"lifecycle\":true,\"clientKind\":\"session\",\"registrationId\":\"00000000-0000-4000-8000-000000000024\",\"protocol\":1,\"revision\":6}"
+                  "body": "{\"leadPid\":4242,\"cwd\":\"C:\\\\recorded\\\\cwd\",\"lifecycle\":true,\"clientKind\":\"session\",\"registrationId\":\"00000000-0000-4000-8000-000000000030\",\"protocol\":1,\"revision\":6}"
                 },
                 "response": {
                   "startLine": "HTTP/1.1 200 OK",
@@ -3576,13 +4374,13 @@
                       "timeout=5"
                     ]
                   ],
-                  "body": "{\"token\":\"00000000-0000-4000-8000-000000000025\",\"pid\":4242,\"protocol\":1,\"revision\":6}"
+                  "body": "{\"token\":\"00000000-0000-4000-8000-000000000031\",\"pid\":4242,\"protocol\":1,\"revision\":6}"
                 }
               },
               {
                 "connection": 1,
                 "request": {
-                  "startLine": "GET /events?token=00000000-0000-4000-8000-000000000025 HTTP/1.1",
+                  "startLine": "GET /events?token=00000000-0000-4000-8000-000000000031 HTTP/1.1",
                   "headers": [
                     [
                       "Accept",
@@ -3590,7 +4388,7 @@
                     ],
                     [
                       "X-Mixdog-Daemon-Token",
-                      "00000000-0000-4000-8000-000000000023"
+                      "00000000-0000-4000-8000-000000000029"
                     ],
                     [
                       "Host",
@@ -3633,7 +4431,7 @@
                   ],
                   "frames": [
                     ": attached",
-                    "data: {\"type\":\"session-state\",\"key\":\"session-state:sess_daemon_1700000000000_00000000000040008000000000000027\",\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000027\",\"revision\":1700000000000001,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000027\",\"items\":[],\"busy\":false}}"
+                    "data: {\"type\":\"session-state\",\"key\":\"session-state:sess_daemon_1700000000000_00000000000040008000000000000033\",\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000033\",\"revision\":1700000000000001,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000033\",\"items\":[],\"busy\":false}}"
                   ]
                 }
               },
@@ -3644,7 +4442,7 @@
                   "headers": [
                     [
                       "X-Mixdog-Daemon-Token",
-                      "00000000-0000-4000-8000-000000000023"
+                      "00000000-0000-4000-8000-000000000029"
                     ],
                     [
                       "Content-Type",
@@ -3663,7 +4461,7 @@
                       "keep-alive"
                     ]
                   ],
-                  "body": "{\"token\":\"00000000-0000-4000-8000-000000000025\",\"name\":\"session.create\",\"args\":{\"cwd\":\"C:\\\\recorded\\\\cwd\",\"toolMode\":\"full\",\"remote\":false,\"desktopSession\":null},\"callId\":\"session-create:4242:00000000-0000-4000-8000-000000000026\"}"
+                  "body": "{\"token\":\"00000000-0000-4000-8000-000000000031\",\"name\":\"session.create\",\"args\":{\"cwd\":\"C:\\\\recorded\\\\cwd\",\"toolMode\":\"full\",\"remote\":false,\"desktopSession\":null},\"callId\":\"session-create:4242:00000000-0000-4000-8000-000000000032\"}"
                 },
                 "response": {
                   "startLine": "HTTP/1.1 200 OK",
@@ -3697,7 +4495,7 @@
                       "timeout=5"
                     ]
                   ],
-                  "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000027\",\"reservedOnly\":true,\"revision\":1700000000000001,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000027\",\"items\":[],\"busy\":false}}}"
+                  "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000033\",\"reservedOnly\":true,\"revision\":1700000000000001,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000033\",\"items\":[],\"busy\":false}}}"
                 }
               }
             ]
@@ -3706,7 +4504,7 @@
             "step": "runtime.submit('through the proxy')",
             "ok": true,
             "state": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000027",
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000033",
               "items": [],
               "busy": false
             },
@@ -3716,7 +4514,7 @@
           {
             "step": "proxy mirrors its own submission",
             "state": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000027",
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000033",
               "items": [
                 {
                   "id": 1,
@@ -3731,7 +4529,7 @@
             "step": "runtime.setProgressHint('working')",
             "ok": true,
             "state": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000027",
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000033",
               "items": [
                 {
                   "id": 1,
@@ -3748,7 +4546,7 @@
               {
                 "name": "session.configure",
                 "args": {
-                  "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000027",
+                  "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000033",
                   "action": "setProgressHint",
                   "args": [
                     "working"
@@ -3762,7 +4560,7 @@
                   "baseRevision": 1700000000000002
                 },
                 "context": {
-                  "clientToken": "00000000-0000-4000-8000-000000000025",
+                  "clientToken": "00000000-0000-4000-8000-000000000031",
                   "leadPid": 4242,
                   "cwd": "C:\\recorded\\cwd",
                   "revision": 6,
@@ -3770,7 +4568,7 @@
                 },
                 "result": {
                   "value": true,
-                  "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000027",
+                  "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000033",
                   "revision": 1700000000000003,
                   "baseRevision": 1700000000000002,
                   "patch": {
@@ -3799,7 +4597,7 @@
                   "headers": [
                     [
                       "X-Mixdog-Daemon-Token",
-                      "00000000-0000-4000-8000-000000000023"
+                      "00000000-0000-4000-8000-000000000029"
                     ],
                     [
                       "Content-Type",
@@ -3818,7 +4616,7 @@
                       "keep-alive"
                     ]
                   ],
-                  "body": "{\"token\":\"00000000-0000-4000-8000-000000000025\",\"name\":\"session.configure\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000027\",\"action\":\"setProgressHint\",\"args\":[\"working\"],\"open\":{\"cwd\":\"C:\\\\recorded\\\\cwd\",\"toolMode\":\"full\",\"remote\":false,\"desktopSession\":null},\"baseRevision\":1700000000000002},\"callId\":\"00000000-0000-4000-8000-000000000028\"}"
+                  "body": "{\"token\":\"00000000-0000-4000-8000-000000000031\",\"name\":\"session.configure\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000033\",\"action\":\"setProgressHint\",\"args\":[\"working\"],\"open\":{\"cwd\":\"C:\\\\recorded\\\\cwd\",\"toolMode\":\"full\",\"remote\":false,\"desktopSession\":null},\"baseRevision\":1700000000000002},\"callId\":\"00000000-0000-4000-8000-000000000034\"}"
                 },
                 "response": {
                   "startLine": "HTTP/1.1 200 OK",
@@ -3852,7 +4650,7 @@
                       "timeout=5"
                     ]
                   ],
-                  "body": "{\"result\":{\"value\":true,\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000027\",\"revision\":1700000000000003,\"baseRevision\":1700000000000002,\"patch\":{\"set\":{\"busy\":true},\"remove\":[],\"itemsAppend\":{\"from\":1,\"values\":[{\"id\":2,\"text\":\"working\"}]}}}}"
+                  "body": "{\"result\":{\"value\":true,\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000033\",\"revision\":1700000000000003,\"baseRevision\":1700000000000002,\"patch\":{\"set\":{\"busy\":true},\"remove\":[],\"itemsAppend\":{\"from\":1,\"values\":[{\"id\":2,\"text\":\"working\"}]}}}}"
                 }
               }
             ]
@@ -3860,7 +4658,7 @@
           {
             "step": "runtime.abortAsync({ restorePrompt: false })",
             "ok": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000027",
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000033",
               "reservedOnly": false,
               "aborted": true,
               "restoreText": "",
@@ -3876,7 +4674,7 @@
               }
             },
             "state": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000027",
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000033",
               "items": [
                 {
                   "id": 1,
@@ -3893,7 +4691,7 @@
               {
                 "name": "session.abort",
                 "args": {
-                  "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000027",
+                  "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000033",
                   "open": {
                     "cwd": "C:\\recorded\\cwd",
                     "toolMode": "full",
@@ -3906,14 +4704,14 @@
                   "baseRevision": 1700000000000003
                 },
                 "context": {
-                  "clientToken": "00000000-0000-4000-8000-000000000025",
+                  "clientToken": "00000000-0000-4000-8000-000000000031",
                   "leadPid": 4242,
                   "cwd": "C:\\recorded\\cwd",
                   "revision": 6,
                   "queuedMs": 0
                 },
                 "result": {
-                  "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000027",
+                  "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000033",
                   "reservedOnly": false,
                   "aborted": true,
                   "restoreText": "",
@@ -3938,7 +4736,7 @@
                   "headers": [
                     [
                       "X-Mixdog-Daemon-Token",
-                      "00000000-0000-4000-8000-000000000023"
+                      "00000000-0000-4000-8000-000000000029"
                     ],
                     [
                       "Content-Type",
@@ -3957,7 +4755,7 @@
                       "keep-alive"
                     ]
                   ],
-                  "body": "{\"token\":\"00000000-0000-4000-8000-000000000025\",\"name\":\"session.abort\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000027\",\"open\":{\"cwd\":\"C:\\\\recorded\\\\cwd\",\"toolMode\":\"full\",\"remote\":false,\"desktopSession\":null},\"options\":{\"restorePrompt\":false},\"baseRevision\":1700000000000003},\"callId\":\"00000000-0000-4000-8000-000000000029\"}"
+                  "body": "{\"token\":\"00000000-0000-4000-8000-000000000031\",\"name\":\"session.abort\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000033\",\"open\":{\"cwd\":\"C:\\\\recorded\\\\cwd\",\"toolMode\":\"full\",\"remote\":false,\"desktopSession\":null},\"options\":{\"restorePrompt\":false},\"baseRevision\":1700000000000003},\"callId\":\"00000000-0000-4000-8000-000000000035\"}"
                 },
                 "response": {
                   "startLine": "HTTP/1.1 200 OK",
@@ -3991,7 +4789,7 @@
                       "timeout=5"
                     ]
                   ],
-                  "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000027\",\"reservedOnly\":false,\"aborted\":true,\"restoreText\":\"\",\"pastedImages\":null,\"revision\":1700000000000004,\"baseRevision\":1700000000000003,\"patch\":{\"set\":{\"busy\":false},\"remove\":[],\"itemsAppend\":null}}}"
+                  "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000033\",\"reservedOnly\":false,\"aborted\":true,\"restoreText\":\"\",\"pastedImages\":null,\"revision\":1700000000000004,\"baseRevision\":1700000000000003,\"patch\":{\"set\":{\"busy\":false},\"remove\":[],\"itemsAppend\":null}}}"
                 }
               }
             ]
@@ -4000,7 +4798,7 @@
             "step": "runtime.setProgressHint('working') again",
             "ok": true,
             "state": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000027",
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000033",
               "items": [
                 {
                   "id": 1,
@@ -4021,7 +4819,7 @@
               {
                 "name": "session.configure",
                 "args": {
-                  "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000027",
+                  "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000033",
                   "action": "setProgressHint",
                   "args": [
                     "working"
@@ -4035,7 +4833,7 @@
                   "baseRevision": 1700000000000004
                 },
                 "context": {
-                  "clientToken": "00000000-0000-4000-8000-000000000025",
+                  "clientToken": "00000000-0000-4000-8000-000000000031",
                   "leadPid": 4242,
                   "cwd": "C:\\recorded\\cwd",
                   "revision": 6,
@@ -4043,7 +4841,7 @@
                 },
                 "result": {
                   "value": true,
-                  "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000027",
+                  "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000033",
                   "revision": 1700000000000005,
                   "baseRevision": 1700000000000004,
                   "patch": {
@@ -4072,7 +4870,7 @@
                   "headers": [
                     [
                       "X-Mixdog-Daemon-Token",
-                      "00000000-0000-4000-8000-000000000023"
+                      "00000000-0000-4000-8000-000000000029"
                     ],
                     [
                       "Content-Type",
@@ -4091,7 +4889,7 @@
                       "keep-alive"
                     ]
                   ],
-                  "body": "{\"token\":\"00000000-0000-4000-8000-000000000025\",\"name\":\"session.configure\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000027\",\"action\":\"setProgressHint\",\"args\":[\"working\"],\"open\":{\"cwd\":\"C:\\\\recorded\\\\cwd\",\"toolMode\":\"full\",\"remote\":false,\"desktopSession\":null},\"baseRevision\":1700000000000004},\"callId\":\"00000000-0000-4000-8000-000000000030\"}"
+                  "body": "{\"token\":\"00000000-0000-4000-8000-000000000031\",\"name\":\"session.configure\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000033\",\"action\":\"setProgressHint\",\"args\":[\"working\"],\"open\":{\"cwd\":\"C:\\\\recorded\\\\cwd\",\"toolMode\":\"full\",\"remote\":false,\"desktopSession\":null},\"baseRevision\":1700000000000004},\"callId\":\"00000000-0000-4000-8000-000000000036\"}"
                 },
                 "response": {
                   "startLine": "HTTP/1.1 200 OK",
@@ -4125,7 +4923,7 @@
                       "timeout=5"
                     ]
                   ],
-                  "body": "{\"result\":{\"value\":true,\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000027\",\"revision\":1700000000000005,\"baseRevision\":1700000000000004,\"patch\":{\"set\":{\"busy\":true},\"remove\":[],\"itemsAppend\":{\"from\":2,\"values\":[{\"id\":3,\"text\":\"working\"}]}}}}"
+                  "body": "{\"result\":{\"value\":true,\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000033\",\"revision\":1700000000000005,\"baseRevision\":1700000000000004,\"patch\":{\"set\":{\"busy\":true},\"remove\":[],\"itemsAppend\":{\"from\":2,\"values\":[{\"id\":3,\"text\":\"working\"}]}}}}"
                 }
               }
             ]
@@ -4133,7 +4931,7 @@
           {
             "step": "runtime.abortAsync()",
             "ok": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000027",
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000033",
               "reservedOnly": false,
               "aborted": true,
               "restoreText": "restored prompt",
@@ -4153,7 +4951,7 @@
               }
             },
             "state": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000027",
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000033",
               "items": [
                 {
                   "id": 1,
@@ -4174,7 +4972,7 @@
               {
                 "name": "session.abort",
                 "args": {
-                  "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000027",
+                  "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000033",
                   "open": {
                     "cwd": "C:\\recorded\\cwd",
                     "toolMode": "full",
@@ -4185,14 +4983,14 @@
                   "baseRevision": 1700000000000005
                 },
                 "context": {
-                  "clientToken": "00000000-0000-4000-8000-000000000025",
+                  "clientToken": "00000000-0000-4000-8000-000000000031",
                   "leadPid": 4242,
                   "cwd": "C:\\recorded\\cwd",
                   "revision": 6,
                   "queuedMs": 0
                 },
                 "result": {
-                  "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000027",
+                  "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000033",
                   "reservedOnly": false,
                   "aborted": true,
                   "restoreText": "restored prompt",
@@ -4221,7 +5019,7 @@
                   "headers": [
                     [
                       "X-Mixdog-Daemon-Token",
-                      "00000000-0000-4000-8000-000000000023"
+                      "00000000-0000-4000-8000-000000000029"
                     ],
                     [
                       "Content-Type",
@@ -4240,7 +5038,7 @@
                       "keep-alive"
                     ]
                   ],
-                  "body": "{\"token\":\"00000000-0000-4000-8000-000000000025\",\"name\":\"session.abort\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000027\",\"open\":{\"cwd\":\"C:\\\\recorded\\\\cwd\",\"toolMode\":\"full\",\"remote\":false,\"desktopSession\":null},\"options\":{},\"baseRevision\":1700000000000005},\"callId\":\"00000000-0000-4000-8000-000000000031\"}"
+                  "body": "{\"token\":\"00000000-0000-4000-8000-000000000031\",\"name\":\"session.abort\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000033\",\"open\":{\"cwd\":\"C:\\\\recorded\\\\cwd\",\"toolMode\":\"full\",\"remote\":false,\"desktopSession\":null},\"options\":{},\"baseRevision\":1700000000000005},\"callId\":\"00000000-0000-4000-8000-000000000037\"}"
                 },
                 "response": {
                   "startLine": "HTTP/1.1 200 OK",
@@ -4274,7 +5072,7 @@
                       "timeout=5"
                     ]
                   ],
-                  "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000027\",\"reservedOnly\":false,\"aborted\":true,\"restoreText\":\"restored prompt\",\"pastedImages\":{\"image_1\":{\"filename\":\"restored.png\"}},\"revision\":1700000000000006,\"baseRevision\":1700000000000005,\"patch\":{\"set\":{\"busy\":false},\"remove\":[],\"itemsAppend\":null}}}"
+                  "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000033\",\"reservedOnly\":false,\"aborted\":true,\"restoreText\":\"restored prompt\",\"pastedImages\":{\"image_1\":{\"filename\":\"restored.png\"}},\"revision\":1700000000000006,\"baseRevision\":1700000000000005,\"patch\":{\"set\":{\"busy\":false},\"remove\":[],\"itemsAppend\":null}}}"
                 }
               }
             ]
@@ -4283,7 +5081,7 @@
             "step": "runtime.newSession()",
             "ok": true,
             "state": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000033",
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000039",
               "items": [],
               "busy": false
             },
@@ -4297,18 +5095,18 @@
                   "desktopSession": null
                 },
                 "context": {
-                  "clientToken": "00000000-0000-4000-8000-000000000025",
+                  "clientToken": "00000000-0000-4000-8000-000000000031",
                   "leadPid": 4242,
                   "cwd": "C:\\recorded\\cwd",
                   "revision": 6,
                   "queuedMs": 0
                 },
                 "result": {
-                  "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000033",
+                  "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000039",
                   "reservedOnly": true,
                   "revision": 1700000000000007,
                   "full": {
-                    "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000033",
+                    "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000039",
                     "items": [],
                     "busy": false
                   }
@@ -4317,17 +5115,17 @@
               {
                 "name": "session.unsubscribe",
                 "args": {
-                  "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000027"
+                  "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000033"
                 },
                 "context": {
-                  "clientToken": "00000000-0000-4000-8000-000000000025",
+                  "clientToken": "00000000-0000-4000-8000-000000000031",
                   "leadPid": 4242,
                   "cwd": "C:\\recorded\\cwd",
                   "revision": 6,
                   "queuedMs": 0
                 },
                 "result": {
-                  "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000027",
+                  "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000033",
                   "unsubscribed": true
                 }
               }
@@ -4340,7 +5138,7 @@
                   "headers": [
                     [
                       "X-Mixdog-Daemon-Token",
-                      "00000000-0000-4000-8000-000000000023"
+                      "00000000-0000-4000-8000-000000000029"
                     ],
                     [
                       "Content-Type",
@@ -4359,7 +5157,7 @@
                       "keep-alive"
                     ]
                   ],
-                  "body": "{\"token\":\"00000000-0000-4000-8000-000000000025\",\"name\":\"session.create\",\"args\":{\"cwd\":\"C:\\\\recorded\\\\cwd\",\"toolMode\":\"full\",\"remote\":false,\"desktopSession\":null},\"callId\":\"session-create:4242:00000000-0000-4000-8000-000000000032\"}"
+                  "body": "{\"token\":\"00000000-0000-4000-8000-000000000031\",\"name\":\"session.create\",\"args\":{\"cwd\":\"C:\\\\recorded\\\\cwd\",\"toolMode\":\"full\",\"remote\":false,\"desktopSession\":null},\"callId\":\"session-create:4242:00000000-0000-4000-8000-000000000038\"}"
                 },
                 "response": {
                   "startLine": "HTTP/1.1 200 OK",
@@ -4393,7 +5191,7 @@
                       "timeout=5"
                     ]
                   ],
-                  "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000033\",\"reservedOnly\":true,\"revision\":1700000000000007,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000033\",\"items\":[],\"busy\":false}}}"
+                  "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000039\",\"reservedOnly\":true,\"revision\":1700000000000007,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000039\",\"items\":[],\"busy\":false}}}"
                 }
               },
               {
@@ -4403,7 +5201,7 @@
                   "headers": [
                     [
                       "X-Mixdog-Daemon-Token",
-                      "00000000-0000-4000-8000-000000000023"
+                      "00000000-0000-4000-8000-000000000029"
                     ],
                     [
                       "Content-Type",
@@ -4422,7 +5220,7 @@
                       "keep-alive"
                     ]
                   ],
-                  "body": "{\"token\":\"00000000-0000-4000-8000-000000000025\",\"name\":\"session.unsubscribe\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000027\"}}"
+                  "body": "{\"token\":\"00000000-0000-4000-8000-000000000031\",\"name\":\"session.unsubscribe\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000033\"}}"
                 },
                 "response": {
                   "startLine": "HTTP/1.1 200 OK",
@@ -4456,16 +5254,16 @@
                       "timeout=5"
                     ]
                   ],
-                  "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000027\",\"unsubscribed\":true}}"
+                  "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000033\",\"unsubscribed\":true}}"
                 }
               }
             ]
           },
           {
             "step": "after New task",
-            "previousSessionId": "sess_daemon_1700000000000_00000000000040008000000000000027",
+            "previousSessionId": "sess_daemon_1700000000000_00000000000040008000000000000033",
             "state": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000033",
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000039",
               "items": [],
               "busy": false
             }
@@ -4476,7 +5274,7 @@
               "$exact": "undefined"
             },
             "state": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000035",
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000041",
               "items": [],
               "busy": false
             },
@@ -4490,18 +5288,18 @@
                   "desktopSession": null
                 },
                 "context": {
-                  "clientToken": "00000000-0000-4000-8000-000000000025",
+                  "clientToken": "00000000-0000-4000-8000-000000000031",
                   "leadPid": 4242,
                   "cwd": "C:\\recorded\\cwd",
                   "revision": 6,
                   "queuedMs": 0
                 },
                 "result": {
-                  "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000035",
+                  "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000041",
                   "reservedOnly": true,
                   "revision": 1700000000000008,
                   "full": {
-                    "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000035",
+                    "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000041",
                     "items": [],
                     "busy": false
                   }
@@ -4516,7 +5314,7 @@
                   "headers": [
                     [
                       "X-Mixdog-Daemon-Token",
-                      "00000000-0000-4000-8000-000000000023"
+                      "00000000-0000-4000-8000-000000000029"
                     ],
                     [
                       "Content-Type",
@@ -4535,7 +5333,7 @@
                       "keep-alive"
                     ]
                   ],
-                  "body": "{\"token\":\"00000000-0000-4000-8000-000000000025\",\"name\":\"session.create\",\"args\":{\"cwd\":\"C:\\\\recorded\\\\cwd\",\"toolMode\":\"full\",\"remote\":false,\"desktopSession\":null},\"callId\":\"session-create:4242:00000000-0000-4000-8000-000000000034\"}"
+                  "body": "{\"token\":\"00000000-0000-4000-8000-000000000031\",\"name\":\"session.create\",\"args\":{\"cwd\":\"C:\\\\recorded\\\\cwd\",\"toolMode\":\"full\",\"remote\":false,\"desktopSession\":null},\"callId\":\"session-create:4242:00000000-0000-4000-8000-000000000040\"}"
                 },
                 "response": {
                   "startLine": "HTTP/1.1 200 OK",
@@ -4569,7 +5367,7 @@
                       "timeout=5"
                     ]
                   ],
-                  "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000035\",\"reservedOnly\":true,\"revision\":1700000000000008,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000035\",\"items\":[],\"busy\":false}}}"
+                  "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000041\",\"reservedOnly\":true,\"revision\":1700000000000008,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000041\",\"items\":[],\"busy\":false}}}"
                 }
               }
             ]
@@ -4577,12 +5375,12 @@
           {
             "step": "second view state",
             "state": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000035",
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000041",
               "items": [],
               "busy": false
             },
             "firstViewState": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000033",
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000039",
               "items": [],
               "busy": false
             }
@@ -4590,7 +5388,7 @@
         ],
         "notifiedStates": [
           {
-            "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000027",
+            "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000033",
             "items": [
               {
                 "id": 1,
@@ -4600,7 +5398,7 @@
             "busy": false
           },
           {
-            "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000027",
+            "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000033",
             "items": [
               {
                 "id": 1,
@@ -4614,7 +5412,7 @@
             "busy": true
           },
           {
-            "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000027",
+            "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000033",
             "items": [
               {
                 "id": 1,
@@ -4628,7 +5426,7 @@
             "busy": false
           },
           {
-            "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000027",
+            "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000033",
             "items": [
               {
                 "id": 1,
@@ -4646,7 +5444,7 @@
             "busy": true
           },
           {
-            "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000027",
+            "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000033",
             "items": [
               {
                 "id": 1,
@@ -4674,18 +5472,18 @@
               "desktopSession": null
             },
             "context": {
-              "clientToken": "00000000-0000-4000-8000-000000000025",
+              "clientToken": "00000000-0000-4000-8000-000000000031",
               "leadPid": 4242,
               "cwd": "C:\\recorded\\cwd",
               "revision": 6,
               "queuedMs": 0
             },
             "result": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000027",
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000033",
               "reservedOnly": true,
               "revision": 1700000000000001,
               "full": {
-                "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000027",
+                "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000033",
                 "items": [],
                 "busy": false
               }
@@ -4694,7 +5492,7 @@
           {
             "name": "session.submit",
             "args": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000027",
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000033",
               "prompt": "through the proxy",
               "options": {
                 "id": "session-submit-4242-1700000000000-1"
@@ -4708,14 +5506,14 @@
               "baseRevision": 1700000000000001
             },
             "context": {
-              "clientToken": "00000000-0000-4000-8000-000000000025",
+              "clientToken": "00000000-0000-4000-8000-000000000031",
               "leadPid": 4242,
               "cwd": "C:\\recorded\\cwd",
               "revision": 6,
               "queuedMs": 0
             },
             "result": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000027",
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000033",
               "reservedOnly": false,
               "accepted": true,
               "revision": 1700000000000002,
@@ -4738,7 +5536,7 @@
           {
             "name": "session.configure",
             "args": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000027",
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000033",
               "action": "setProgressHint",
               "args": [
                 "working"
@@ -4752,7 +5550,7 @@
               "baseRevision": 1700000000000002
             },
             "context": {
-              "clientToken": "00000000-0000-4000-8000-000000000025",
+              "clientToken": "00000000-0000-4000-8000-000000000031",
               "leadPid": 4242,
               "cwd": "C:\\recorded\\cwd",
               "revision": 6,
@@ -4760,7 +5558,7 @@
             },
             "result": {
               "value": true,
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000027",
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000033",
               "revision": 1700000000000003,
               "baseRevision": 1700000000000002,
               "patch": {
@@ -4783,7 +5581,7 @@
           {
             "name": "session.abort",
             "args": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000027",
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000033",
               "open": {
                 "cwd": "C:\\recorded\\cwd",
                 "toolMode": "full",
@@ -4796,14 +5594,14 @@
               "baseRevision": 1700000000000003
             },
             "context": {
-              "clientToken": "00000000-0000-4000-8000-000000000025",
+              "clientToken": "00000000-0000-4000-8000-000000000031",
               "leadPid": 4242,
               "cwd": "C:\\recorded\\cwd",
               "revision": 6,
               "queuedMs": 0
             },
             "result": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000027",
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000033",
               "reservedOnly": false,
               "aborted": true,
               "restoreText": "",
@@ -4822,7 +5620,7 @@
           {
             "name": "session.configure",
             "args": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000027",
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000033",
               "action": "setProgressHint",
               "args": [
                 "working"
@@ -4836,7 +5634,7 @@
               "baseRevision": 1700000000000004
             },
             "context": {
-              "clientToken": "00000000-0000-4000-8000-000000000025",
+              "clientToken": "00000000-0000-4000-8000-000000000031",
               "leadPid": 4242,
               "cwd": "C:\\recorded\\cwd",
               "revision": 6,
@@ -4844,7 +5642,7 @@
             },
             "result": {
               "value": true,
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000027",
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000033",
               "revision": 1700000000000005,
               "baseRevision": 1700000000000004,
               "patch": {
@@ -4867,7 +5665,7 @@
           {
             "name": "session.abort",
             "args": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000027",
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000033",
               "open": {
                 "cwd": "C:\\recorded\\cwd",
                 "toolMode": "full",
@@ -4878,14 +5676,14 @@
               "baseRevision": 1700000000000005
             },
             "context": {
-              "clientToken": "00000000-0000-4000-8000-000000000025",
+              "clientToken": "00000000-0000-4000-8000-000000000031",
               "leadPid": 4242,
               "cwd": "C:\\recorded\\cwd",
               "revision": 6,
               "queuedMs": 0
             },
             "result": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000027",
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000033",
               "reservedOnly": false,
               "aborted": true,
               "restoreText": "restored prompt",
@@ -4914,18 +5712,18 @@
               "desktopSession": null
             },
             "context": {
-              "clientToken": "00000000-0000-4000-8000-000000000025",
+              "clientToken": "00000000-0000-4000-8000-000000000031",
               "leadPid": 4242,
               "cwd": "C:\\recorded\\cwd",
               "revision": 6,
               "queuedMs": 0
             },
             "result": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000033",
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000039",
               "reservedOnly": true,
               "revision": 1700000000000007,
               "full": {
-                "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000033",
+                "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000039",
                 "items": [],
                 "busy": false
               }
@@ -4934,17 +5732,17 @@
           {
             "name": "session.unsubscribe",
             "args": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000027"
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000033"
             },
             "context": {
-              "clientToken": "00000000-0000-4000-8000-000000000025",
+              "clientToken": "00000000-0000-4000-8000-000000000031",
               "leadPid": 4242,
               "cwd": "C:\\recorded\\cwd",
               "revision": 6,
               "queuedMs": 0
             },
             "result": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000027",
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000033",
               "unsubscribed": true
             }
           },
@@ -4957,18 +5755,18 @@
               "desktopSession": null
             },
             "context": {
-              "clientToken": "00000000-0000-4000-8000-000000000025",
+              "clientToken": "00000000-0000-4000-8000-000000000031",
               "leadPid": 4242,
               "cwd": "C:\\recorded\\cwd",
               "revision": 6,
               "queuedMs": 0
             },
             "result": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000035",
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000041",
               "reservedOnly": true,
               "revision": 1700000000000008,
               "full": {
-                "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000035",
+                "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000041",
                 "items": [],
                 "busy": false
               }
@@ -4977,34 +5775,34 @@
           {
             "name": "session.unsubscribe",
             "args": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000035"
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000041"
             },
             "context": {
-              "clientToken": "00000000-0000-4000-8000-000000000025",
+              "clientToken": "00000000-0000-4000-8000-000000000031",
               "leadPid": 4242,
               "cwd": "C:\\recorded\\cwd",
               "revision": 6,
               "queuedMs": 0
             },
             "result": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000035",
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000041",
               "unsubscribed": true
             }
           },
           {
             "name": "session.unsubscribe",
             "args": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000033"
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000039"
             },
             "context": {
-              "clientToken": "00000000-0000-4000-8000-000000000025",
+              "clientToken": "00000000-0000-4000-8000-000000000031",
               "leadPid": 4242,
               "cwd": "C:\\recorded\\cwd",
               "revision": 6,
               "queuedMs": 0
             },
             "result": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000033",
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000039",
               "unsubscribed": true
             }
           }
@@ -5017,7 +5815,7 @@
               "headers": [
                 [
                   "X-Mixdog-Daemon-Token",
-                  "00000000-0000-4000-8000-000000000023"
+                  "00000000-0000-4000-8000-000000000029"
                 ],
                 [
                   "Host",
@@ -5072,7 +5870,7 @@
               "headers": [
                 [
                   "X-Mixdog-Daemon-Token",
-                  "00000000-0000-4000-8000-000000000023"
+                  "00000000-0000-4000-8000-000000000029"
                 ],
                 [
                   "Content-Type",
@@ -5091,7 +5889,7 @@
                   "keep-alive"
                 ]
               ],
-              "body": "{\"leadPid\":4242,\"cwd\":\"C:\\\\recorded\\\\cwd\",\"lifecycle\":true,\"clientKind\":\"session\",\"registrationId\":\"00000000-0000-4000-8000-000000000024\",\"protocol\":1,\"revision\":6}"
+              "body": "{\"leadPid\":4242,\"cwd\":\"C:\\\\recorded\\\\cwd\",\"lifecycle\":true,\"clientKind\":\"session\",\"registrationId\":\"00000000-0000-4000-8000-000000000030\",\"protocol\":1,\"revision\":6}"
             },
             "response": {
               "startLine": "HTTP/1.1 200 OK",
@@ -5125,13 +5923,13 @@
                   "timeout=5"
                 ]
               ],
-              "body": "{\"token\":\"00000000-0000-4000-8000-000000000025\",\"pid\":4242,\"protocol\":1,\"revision\":6}"
+              "body": "{\"token\":\"00000000-0000-4000-8000-000000000031\",\"pid\":4242,\"protocol\":1,\"revision\":6}"
             }
           },
           {
             "connection": 1,
             "request": {
-              "startLine": "GET /events?token=00000000-0000-4000-8000-000000000025 HTTP/1.1",
+              "startLine": "GET /events?token=00000000-0000-4000-8000-000000000031 HTTP/1.1",
               "headers": [
                 [
                   "Accept",
@@ -5139,7 +5937,7 @@
                 ],
                 [
                   "X-Mixdog-Daemon-Token",
-                  "00000000-0000-4000-8000-000000000023"
+                  "00000000-0000-4000-8000-000000000029"
                 ],
                 [
                   "Host",
@@ -5182,14 +5980,14 @@
               ],
               "frames": [
                 ": attached",
-                "data: {\"type\":\"session-state\",\"key\":\"session-state:sess_daemon_1700000000000_00000000000040008000000000000027\",\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000027\",\"revision\":1700000000000001,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000027\",\"items\":[],\"busy\":false}}",
-                "data: {\"type\":\"session-state\",\"key\":\"session-state:sess_daemon_1700000000000_00000000000040008000000000000027\",\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000027\",\"revision\":1700000000000002,\"baseRevision\":1700000000000001,\"patch\":{\"set\":{},\"remove\":[],\"itemsAppend\":{\"from\":0,\"values\":[{\"id\":1,\"text\":\"through the proxy\"}]}}}",
-                "data: {\"type\":\"session-state\",\"key\":\"session-state:sess_daemon_1700000000000_00000000000040008000000000000027\",\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000027\",\"revision\":1700000000000003,\"baseRevision\":1700000000000002,\"patch\":{\"set\":{\"busy\":true},\"remove\":[],\"itemsAppend\":{\"from\":1,\"values\":[{\"id\":2,\"text\":\"working\"}]}}}",
-                "data: {\"type\":\"session-state\",\"key\":\"session-state:sess_daemon_1700000000000_00000000000040008000000000000027\",\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000027\",\"revision\":1700000000000004,\"baseRevision\":1700000000000003,\"patch\":{\"set\":{\"busy\":false},\"remove\":[],\"itemsAppend\":null}}",
-                "data: {\"type\":\"session-state\",\"key\":\"session-state:sess_daemon_1700000000000_00000000000040008000000000000027\",\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000027\",\"revision\":1700000000000005,\"baseRevision\":1700000000000004,\"patch\":{\"set\":{\"busy\":true},\"remove\":[],\"itemsAppend\":{\"from\":2,\"values\":[{\"id\":3,\"text\":\"working\"}]}}}",
-                "data: {\"type\":\"session-state\",\"key\":\"session-state:sess_daemon_1700000000000_00000000000040008000000000000027\",\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000027\",\"revision\":1700000000000006,\"baseRevision\":1700000000000005,\"patch\":{\"set\":{\"busy\":false},\"remove\":[],\"itemsAppend\":null}}",
-                "data: {\"type\":\"session-state\",\"key\":\"session-state:sess_daemon_1700000000000_00000000000040008000000000000033\",\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000033\",\"revision\":1700000000000007,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000033\",\"items\":[],\"busy\":false}}",
-                "data: {\"type\":\"session-state\",\"key\":\"session-state:sess_daemon_1700000000000_00000000000040008000000000000035\",\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000035\",\"revision\":1700000000000008,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000035\",\"items\":[],\"busy\":false}}"
+                "data: {\"type\":\"session-state\",\"key\":\"session-state:sess_daemon_1700000000000_00000000000040008000000000000033\",\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000033\",\"revision\":1700000000000001,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000033\",\"items\":[],\"busy\":false}}",
+                "data: {\"type\":\"session-state\",\"key\":\"session-state:sess_daemon_1700000000000_00000000000040008000000000000033\",\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000033\",\"revision\":1700000000000002,\"baseRevision\":1700000000000001,\"patch\":{\"set\":{},\"remove\":[],\"itemsAppend\":{\"from\":0,\"values\":[{\"id\":1,\"text\":\"through the proxy\"}]}}}",
+                "data: {\"type\":\"session-state\",\"key\":\"session-state:sess_daemon_1700000000000_00000000000040008000000000000033\",\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000033\",\"revision\":1700000000000003,\"baseRevision\":1700000000000002,\"patch\":{\"set\":{\"busy\":true},\"remove\":[],\"itemsAppend\":{\"from\":1,\"values\":[{\"id\":2,\"text\":\"working\"}]}}}",
+                "data: {\"type\":\"session-state\",\"key\":\"session-state:sess_daemon_1700000000000_00000000000040008000000000000033\",\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000033\",\"revision\":1700000000000004,\"baseRevision\":1700000000000003,\"patch\":{\"set\":{\"busy\":false},\"remove\":[],\"itemsAppend\":null}}",
+                "data: {\"type\":\"session-state\",\"key\":\"session-state:sess_daemon_1700000000000_00000000000040008000000000000033\",\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000033\",\"revision\":1700000000000005,\"baseRevision\":1700000000000004,\"patch\":{\"set\":{\"busy\":true},\"remove\":[],\"itemsAppend\":{\"from\":2,\"values\":[{\"id\":3,\"text\":\"working\"}]}}}",
+                "data: {\"type\":\"session-state\",\"key\":\"session-state:sess_daemon_1700000000000_00000000000040008000000000000033\",\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000033\",\"revision\":1700000000000006,\"baseRevision\":1700000000000005,\"patch\":{\"set\":{\"busy\":false},\"remove\":[],\"itemsAppend\":null}}",
+                "data: {\"type\":\"session-state\",\"key\":\"session-state:sess_daemon_1700000000000_00000000000040008000000000000039\",\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000039\",\"revision\":1700000000000007,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000039\",\"items\":[],\"busy\":false}}",
+                "data: {\"type\":\"session-state\",\"key\":\"session-state:sess_daemon_1700000000000_00000000000040008000000000000041\",\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000041\",\"revision\":1700000000000008,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000041\",\"items\":[],\"busy\":false}}"
               ]
             }
           },
@@ -5200,7 +5998,7 @@
               "headers": [
                 [
                   "X-Mixdog-Daemon-Token",
-                  "00000000-0000-4000-8000-000000000023"
+                  "00000000-0000-4000-8000-000000000029"
                 ],
                 [
                   "Content-Type",
@@ -5219,7 +6017,7 @@
                   "keep-alive"
                 ]
               ],
-              "body": "{\"token\":\"00000000-0000-4000-8000-000000000025\",\"name\":\"session.create\",\"args\":{\"cwd\":\"C:\\\\recorded\\\\cwd\",\"toolMode\":\"full\",\"remote\":false,\"desktopSession\":null},\"callId\":\"session-create:4242:00000000-0000-4000-8000-000000000026\"}"
+              "body": "{\"token\":\"00000000-0000-4000-8000-000000000031\",\"name\":\"session.create\",\"args\":{\"cwd\":\"C:\\\\recorded\\\\cwd\",\"toolMode\":\"full\",\"remote\":false,\"desktopSession\":null},\"callId\":\"session-create:4242:00000000-0000-4000-8000-000000000032\"}"
             },
             "response": {
               "startLine": "HTTP/1.1 200 OK",
@@ -5253,7 +6051,7 @@
                   "timeout=5"
                 ]
               ],
-              "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000027\",\"reservedOnly\":true,\"revision\":1700000000000001,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000027\",\"items\":[],\"busy\":false}}}"
+              "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000033\",\"reservedOnly\":true,\"revision\":1700000000000001,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000033\",\"items\":[],\"busy\":false}}}"
             }
           },
           {
@@ -5263,7 +6061,7 @@
               "headers": [
                 [
                   "X-Mixdog-Daemon-Token",
-                  "00000000-0000-4000-8000-000000000023"
+                  "00000000-0000-4000-8000-000000000029"
                 ],
                 [
                   "Content-Type",
@@ -5282,7 +6080,7 @@
                   "keep-alive"
                 ]
               ],
-              "body": "{\"token\":\"00000000-0000-4000-8000-000000000025\",\"name\":\"session.submit\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000027\",\"prompt\":\"through the proxy\",\"options\":{\"id\":\"session-submit-4242-1700000000000-1\"},\"open\":{\"cwd\":\"C:\\\\recorded\\\\cwd\",\"toolMode\":\"full\",\"remote\":false,\"desktopSession\":null},\"baseRevision\":1700000000000001},\"callId\":\"session-submit:sess_daemon_1700000000000_00000000000040008000000000000027:session-submit-4242-1700000000000-1\"}"
+              "body": "{\"token\":\"00000000-0000-4000-8000-000000000031\",\"name\":\"session.submit\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000033\",\"prompt\":\"through the proxy\",\"options\":{\"id\":\"session-submit-4242-1700000000000-1\"},\"open\":{\"cwd\":\"C:\\\\recorded\\\\cwd\",\"toolMode\":\"full\",\"remote\":false,\"desktopSession\":null},\"baseRevision\":1700000000000001},\"callId\":\"session-submit:sess_daemon_1700000000000_00000000000040008000000000000033:session-submit-4242-1700000000000-1\"}"
             },
             "response": {
               "startLine": "HTTP/1.1 200 OK",
@@ -5316,7 +6114,7 @@
                   "timeout=5"
                 ]
               ],
-              "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000027\",\"reservedOnly\":false,\"accepted\":true,\"revision\":1700000000000002,\"baseRevision\":1700000000000001,\"patch\":{\"set\":{},\"remove\":[],\"itemsAppend\":{\"from\":0,\"values\":[{\"id\":1,\"text\":\"through the proxy\"}]}}}}"
+              "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000033\",\"reservedOnly\":false,\"accepted\":true,\"revision\":1700000000000002,\"baseRevision\":1700000000000001,\"patch\":{\"set\":{},\"remove\":[],\"itemsAppend\":{\"from\":0,\"values\":[{\"id\":1,\"text\":\"through the proxy\"}]}}}}"
             }
           },
           {
@@ -5326,7 +6124,7 @@
               "headers": [
                 [
                   "X-Mixdog-Daemon-Token",
-                  "00000000-0000-4000-8000-000000000023"
+                  "00000000-0000-4000-8000-000000000029"
                 ],
                 [
                   "Content-Type",
@@ -5345,7 +6143,7 @@
                   "keep-alive"
                 ]
               ],
-              "body": "{\"token\":\"00000000-0000-4000-8000-000000000025\",\"name\":\"session.configure\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000027\",\"action\":\"setProgressHint\",\"args\":[\"working\"],\"open\":{\"cwd\":\"C:\\\\recorded\\\\cwd\",\"toolMode\":\"full\",\"remote\":false,\"desktopSession\":null},\"baseRevision\":1700000000000002},\"callId\":\"00000000-0000-4000-8000-000000000028\"}"
+              "body": "{\"token\":\"00000000-0000-4000-8000-000000000031\",\"name\":\"session.configure\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000033\",\"action\":\"setProgressHint\",\"args\":[\"working\"],\"open\":{\"cwd\":\"C:\\\\recorded\\\\cwd\",\"toolMode\":\"full\",\"remote\":false,\"desktopSession\":null},\"baseRevision\":1700000000000002},\"callId\":\"00000000-0000-4000-8000-000000000034\"}"
             },
             "response": {
               "startLine": "HTTP/1.1 200 OK",
@@ -5379,7 +6177,7 @@
                   "timeout=5"
                 ]
               ],
-              "body": "{\"result\":{\"value\":true,\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000027\",\"revision\":1700000000000003,\"baseRevision\":1700000000000002,\"patch\":{\"set\":{\"busy\":true},\"remove\":[],\"itemsAppend\":{\"from\":1,\"values\":[{\"id\":2,\"text\":\"working\"}]}}}}"
+              "body": "{\"result\":{\"value\":true,\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000033\",\"revision\":1700000000000003,\"baseRevision\":1700000000000002,\"patch\":{\"set\":{\"busy\":true},\"remove\":[],\"itemsAppend\":{\"from\":1,\"values\":[{\"id\":2,\"text\":\"working\"}]}}}}"
             }
           },
           {
@@ -5389,7 +6187,7 @@
               "headers": [
                 [
                   "X-Mixdog-Daemon-Token",
-                  "00000000-0000-4000-8000-000000000023"
+                  "00000000-0000-4000-8000-000000000029"
                 ],
                 [
                   "Content-Type",
@@ -5408,7 +6206,7 @@
                   "keep-alive"
                 ]
               ],
-              "body": "{\"token\":\"00000000-0000-4000-8000-000000000025\",\"name\":\"session.abort\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000027\",\"open\":{\"cwd\":\"C:\\\\recorded\\\\cwd\",\"toolMode\":\"full\",\"remote\":false,\"desktopSession\":null},\"options\":{\"restorePrompt\":false},\"baseRevision\":1700000000000003},\"callId\":\"00000000-0000-4000-8000-000000000029\"}"
+              "body": "{\"token\":\"00000000-0000-4000-8000-000000000031\",\"name\":\"session.abort\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000033\",\"open\":{\"cwd\":\"C:\\\\recorded\\\\cwd\",\"toolMode\":\"full\",\"remote\":false,\"desktopSession\":null},\"options\":{\"restorePrompt\":false},\"baseRevision\":1700000000000003},\"callId\":\"00000000-0000-4000-8000-000000000035\"}"
             },
             "response": {
               "startLine": "HTTP/1.1 200 OK",
@@ -5442,7 +6240,7 @@
                   "timeout=5"
                 ]
               ],
-              "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000027\",\"reservedOnly\":false,\"aborted\":true,\"restoreText\":\"\",\"pastedImages\":null,\"revision\":1700000000000004,\"baseRevision\":1700000000000003,\"patch\":{\"set\":{\"busy\":false},\"remove\":[],\"itemsAppend\":null}}}"
+              "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000033\",\"reservedOnly\":false,\"aborted\":true,\"restoreText\":\"\",\"pastedImages\":null,\"revision\":1700000000000004,\"baseRevision\":1700000000000003,\"patch\":{\"set\":{\"busy\":false},\"remove\":[],\"itemsAppend\":null}}}"
             }
           },
           {
@@ -5452,7 +6250,7 @@
               "headers": [
                 [
                   "X-Mixdog-Daemon-Token",
-                  "00000000-0000-4000-8000-000000000023"
+                  "00000000-0000-4000-8000-000000000029"
                 ],
                 [
                   "Content-Type",
@@ -5471,7 +6269,7 @@
                   "keep-alive"
                 ]
               ],
-              "body": "{\"token\":\"00000000-0000-4000-8000-000000000025\",\"name\":\"session.configure\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000027\",\"action\":\"setProgressHint\",\"args\":[\"working\"],\"open\":{\"cwd\":\"C:\\\\recorded\\\\cwd\",\"toolMode\":\"full\",\"remote\":false,\"desktopSession\":null},\"baseRevision\":1700000000000004},\"callId\":\"00000000-0000-4000-8000-000000000030\"}"
+              "body": "{\"token\":\"00000000-0000-4000-8000-000000000031\",\"name\":\"session.configure\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000033\",\"action\":\"setProgressHint\",\"args\":[\"working\"],\"open\":{\"cwd\":\"C:\\\\recorded\\\\cwd\",\"toolMode\":\"full\",\"remote\":false,\"desktopSession\":null},\"baseRevision\":1700000000000004},\"callId\":\"00000000-0000-4000-8000-000000000036\"}"
             },
             "response": {
               "startLine": "HTTP/1.1 200 OK",
@@ -5505,7 +6303,7 @@
                   "timeout=5"
                 ]
               ],
-              "body": "{\"result\":{\"value\":true,\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000027\",\"revision\":1700000000000005,\"baseRevision\":1700000000000004,\"patch\":{\"set\":{\"busy\":true},\"remove\":[],\"itemsAppend\":{\"from\":2,\"values\":[{\"id\":3,\"text\":\"working\"}]}}}}"
+              "body": "{\"result\":{\"value\":true,\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000033\",\"revision\":1700000000000005,\"baseRevision\":1700000000000004,\"patch\":{\"set\":{\"busy\":true},\"remove\":[],\"itemsAppend\":{\"from\":2,\"values\":[{\"id\":3,\"text\":\"working\"}]}}}}"
             }
           },
           {
@@ -5515,7 +6313,7 @@
               "headers": [
                 [
                   "X-Mixdog-Daemon-Token",
-                  "00000000-0000-4000-8000-000000000023"
+                  "00000000-0000-4000-8000-000000000029"
                 ],
                 [
                   "Content-Type",
@@ -5534,7 +6332,7 @@
                   "keep-alive"
                 ]
               ],
-              "body": "{\"token\":\"00000000-0000-4000-8000-000000000025\",\"name\":\"session.abort\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000027\",\"open\":{\"cwd\":\"C:\\\\recorded\\\\cwd\",\"toolMode\":\"full\",\"remote\":false,\"desktopSession\":null},\"options\":{},\"baseRevision\":1700000000000005},\"callId\":\"00000000-0000-4000-8000-000000000031\"}"
+              "body": "{\"token\":\"00000000-0000-4000-8000-000000000031\",\"name\":\"session.abort\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000033\",\"open\":{\"cwd\":\"C:\\\\recorded\\\\cwd\",\"toolMode\":\"full\",\"remote\":false,\"desktopSession\":null},\"options\":{},\"baseRevision\":1700000000000005},\"callId\":\"00000000-0000-4000-8000-000000000037\"}"
             },
             "response": {
               "startLine": "HTTP/1.1 200 OK",
@@ -5568,7 +6366,7 @@
                   "timeout=5"
                 ]
               ],
-              "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000027\",\"reservedOnly\":false,\"aborted\":true,\"restoreText\":\"restored prompt\",\"pastedImages\":{\"image_1\":{\"filename\":\"restored.png\"}},\"revision\":1700000000000006,\"baseRevision\":1700000000000005,\"patch\":{\"set\":{\"busy\":false},\"remove\":[],\"itemsAppend\":null}}}"
+              "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000033\",\"reservedOnly\":false,\"aborted\":true,\"restoreText\":\"restored prompt\",\"pastedImages\":{\"image_1\":{\"filename\":\"restored.png\"}},\"revision\":1700000000000006,\"baseRevision\":1700000000000005,\"patch\":{\"set\":{\"busy\":false},\"remove\":[],\"itemsAppend\":null}}}"
             }
           },
           {
@@ -5578,7 +6376,7 @@
               "headers": [
                 [
                   "X-Mixdog-Daemon-Token",
-                  "00000000-0000-4000-8000-000000000023"
+                  "00000000-0000-4000-8000-000000000029"
                 ],
                 [
                   "Content-Type",
@@ -5597,7 +6395,7 @@
                   "keep-alive"
                 ]
               ],
-              "body": "{\"token\":\"00000000-0000-4000-8000-000000000025\",\"name\":\"session.create\",\"args\":{\"cwd\":\"C:\\\\recorded\\\\cwd\",\"toolMode\":\"full\",\"remote\":false,\"desktopSession\":null},\"callId\":\"session-create:4242:00000000-0000-4000-8000-000000000032\"}"
+              "body": "{\"token\":\"00000000-0000-4000-8000-000000000031\",\"name\":\"session.create\",\"args\":{\"cwd\":\"C:\\\\recorded\\\\cwd\",\"toolMode\":\"full\",\"remote\":false,\"desktopSession\":null},\"callId\":\"session-create:4242:00000000-0000-4000-8000-000000000038\"}"
             },
             "response": {
               "startLine": "HTTP/1.1 200 OK",
@@ -5631,7 +6429,7 @@
                   "timeout=5"
                 ]
               ],
-              "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000033\",\"reservedOnly\":true,\"revision\":1700000000000007,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000033\",\"items\":[],\"busy\":false}}}"
+              "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000039\",\"reservedOnly\":true,\"revision\":1700000000000007,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000039\",\"items\":[],\"busy\":false}}}"
             }
           },
           {
@@ -5641,7 +6439,7 @@
               "headers": [
                 [
                   "X-Mixdog-Daemon-Token",
-                  "00000000-0000-4000-8000-000000000023"
+                  "00000000-0000-4000-8000-000000000029"
                 ],
                 [
                   "Content-Type",
@@ -5660,196 +6458,7 @@
                   "keep-alive"
                 ]
               ],
-              "body": "{\"token\":\"00000000-0000-4000-8000-000000000025\",\"name\":\"session.unsubscribe\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000027\"}}"
-            },
-            "response": {
-              "startLine": "HTTP/1.1 200 OK",
-              "headers": [
-                [
-                  "Content-Type",
-                  "application/json; charset=utf-8"
-                ],
-                [
-                  "Content-Length",
-                  "105"
-                ],
-                [
-                  "Cache-Control",
-                  "no-store"
-                ],
-                [
-                  "X-Content-Type-Options",
-                  "nosniff"
-                ],
-                [
-                  "Date",
-                  "<date>"
-                ],
-                [
-                  "Connection",
-                  "keep-alive"
-                ],
-                [
-                  "Keep-Alive",
-                  "timeout=5"
-                ]
-              ],
-              "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000027\",\"unsubscribed\":true}}"
-            }
-          },
-          {
-            "connection": 2,
-            "request": {
-              "startLine": "POST /call HTTP/1.1",
-              "headers": [
-                [
-                  "X-Mixdog-Daemon-Token",
-                  "00000000-0000-4000-8000-000000000023"
-                ],
-                [
-                  "Content-Type",
-                  "application/json"
-                ],
-                [
-                  "Content-Length",
-                  "230"
-                ],
-                [
-                  "Host",
-                  "127.0.0.1:<port>"
-                ],
-                [
-                  "Connection",
-                  "keep-alive"
-                ]
-              ],
-              "body": "{\"token\":\"00000000-0000-4000-8000-000000000025\",\"name\":\"session.create\",\"args\":{\"cwd\":\"C:\\\\recorded\\\\cwd\",\"toolMode\":\"full\",\"remote\":false,\"desktopSession\":null},\"callId\":\"session-create:4242:00000000-0000-4000-8000-000000000034\"}"
-            },
-            "response": {
-              "startLine": "HTTP/1.1 200 OK",
-              "headers": [
-                [
-                  "Content-Type",
-                  "application/json; charset=utf-8"
-                ],
-                [
-                  "Content-Length",
-                  "239"
-                ],
-                [
-                  "Cache-Control",
-                  "no-store"
-                ],
-                [
-                  "X-Content-Type-Options",
-                  "nosniff"
-                ],
-                [
-                  "Date",
-                  "<date>"
-                ],
-                [
-                  "Connection",
-                  "keep-alive"
-                ],
-                [
-                  "Keep-Alive",
-                  "timeout=5"
-                ]
-              ],
-              "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000035\",\"reservedOnly\":true,\"revision\":1700000000000008,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000035\",\"items\":[],\"busy\":false}}}"
-            }
-          },
-          {
-            "connection": 3,
-            "request": {
-              "startLine": "POST /call HTTP/1.1",
-              "headers": [
-                [
-                  "X-Mixdog-Daemon-Token",
-                  "00000000-0000-4000-8000-000000000023"
-                ],
-                [
-                  "Content-Type",
-                  "application/json"
-                ],
-                [
-                  "Content-Length",
-                  "159"
-                ],
-                [
-                  "Host",
-                  "127.0.0.1:<port>"
-                ],
-                [
-                  "Connection",
-                  "keep-alive"
-                ]
-              ],
-              "body": "{\"token\":\"00000000-0000-4000-8000-000000000025\",\"name\":\"session.unsubscribe\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000035\"}}"
-            },
-            "response": {
-              "startLine": "HTTP/1.1 200 OK",
-              "headers": [
-                [
-                  "Content-Type",
-                  "application/json; charset=utf-8"
-                ],
-                [
-                  "Content-Length",
-                  "105"
-                ],
-                [
-                  "Cache-Control",
-                  "no-store"
-                ],
-                [
-                  "X-Content-Type-Options",
-                  "nosniff"
-                ],
-                [
-                  "Date",
-                  "<date>"
-                ],
-                [
-                  "Connection",
-                  "keep-alive"
-                ],
-                [
-                  "Keep-Alive",
-                  "timeout=5"
-                ]
-              ],
-              "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000035\",\"unsubscribed\":true}}"
-            }
-          },
-          {
-            "connection": 3,
-            "request": {
-              "startLine": "POST /call HTTP/1.1",
-              "headers": [
-                [
-                  "X-Mixdog-Daemon-Token",
-                  "00000000-0000-4000-8000-000000000023"
-                ],
-                [
-                  "Content-Type",
-                  "application/json"
-                ],
-                [
-                  "Content-Length",
-                  "159"
-                ],
-                [
-                  "Host",
-                  "127.0.0.1:<port>"
-                ],
-                [
-                  "Connection",
-                  "keep-alive"
-                ]
-              ],
-              "body": "{\"token\":\"00000000-0000-4000-8000-000000000025\",\"name\":\"session.unsubscribe\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000033\"}}"
+              "body": "{\"token\":\"00000000-0000-4000-8000-000000000031\",\"name\":\"session.unsubscribe\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000033\"}}"
             },
             "response": {
               "startLine": "HTTP/1.1 200 OK",
@@ -5887,13 +6496,202 @@
             }
           },
           {
+            "connection": 2,
+            "request": {
+              "startLine": "POST /call HTTP/1.1",
+              "headers": [
+                [
+                  "X-Mixdog-Daemon-Token",
+                  "00000000-0000-4000-8000-000000000029"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ],
+                [
+                  "Content-Length",
+                  "230"
+                ],
+                [
+                  "Host",
+                  "127.0.0.1:<port>"
+                ],
+                [
+                  "Connection",
+                  "keep-alive"
+                ]
+              ],
+              "body": "{\"token\":\"00000000-0000-4000-8000-000000000031\",\"name\":\"session.create\",\"args\":{\"cwd\":\"C:\\\\recorded\\\\cwd\",\"toolMode\":\"full\",\"remote\":false,\"desktopSession\":null},\"callId\":\"session-create:4242:00000000-0000-4000-8000-000000000040\"}"
+            },
+            "response": {
+              "startLine": "HTTP/1.1 200 OK",
+              "headers": [
+                [
+                  "Content-Type",
+                  "application/json; charset=utf-8"
+                ],
+                [
+                  "Content-Length",
+                  "239"
+                ],
+                [
+                  "Cache-Control",
+                  "no-store"
+                ],
+                [
+                  "X-Content-Type-Options",
+                  "nosniff"
+                ],
+                [
+                  "Date",
+                  "<date>"
+                ],
+                [
+                  "Connection",
+                  "keep-alive"
+                ],
+                [
+                  "Keep-Alive",
+                  "timeout=5"
+                ]
+              ],
+              "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000041\",\"reservedOnly\":true,\"revision\":1700000000000008,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000041\",\"items\":[],\"busy\":false}}}"
+            }
+          },
+          {
+            "connection": 3,
+            "request": {
+              "startLine": "POST /call HTTP/1.1",
+              "headers": [
+                [
+                  "X-Mixdog-Daemon-Token",
+                  "00000000-0000-4000-8000-000000000029"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ],
+                [
+                  "Content-Length",
+                  "159"
+                ],
+                [
+                  "Host",
+                  "127.0.0.1:<port>"
+                ],
+                [
+                  "Connection",
+                  "keep-alive"
+                ]
+              ],
+              "body": "{\"token\":\"00000000-0000-4000-8000-000000000031\",\"name\":\"session.unsubscribe\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000041\"}}"
+            },
+            "response": {
+              "startLine": "HTTP/1.1 200 OK",
+              "headers": [
+                [
+                  "Content-Type",
+                  "application/json; charset=utf-8"
+                ],
+                [
+                  "Content-Length",
+                  "105"
+                ],
+                [
+                  "Cache-Control",
+                  "no-store"
+                ],
+                [
+                  "X-Content-Type-Options",
+                  "nosniff"
+                ],
+                [
+                  "Date",
+                  "<date>"
+                ],
+                [
+                  "Connection",
+                  "keep-alive"
+                ],
+                [
+                  "Keep-Alive",
+                  "timeout=5"
+                ]
+              ],
+              "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000041\",\"unsubscribed\":true}}"
+            }
+          },
+          {
+            "connection": 3,
+            "request": {
+              "startLine": "POST /call HTTP/1.1",
+              "headers": [
+                [
+                  "X-Mixdog-Daemon-Token",
+                  "00000000-0000-4000-8000-000000000029"
+                ],
+                [
+                  "Content-Type",
+                  "application/json"
+                ],
+                [
+                  "Content-Length",
+                  "159"
+                ],
+                [
+                  "Host",
+                  "127.0.0.1:<port>"
+                ],
+                [
+                  "Connection",
+                  "keep-alive"
+                ]
+              ],
+              "body": "{\"token\":\"00000000-0000-4000-8000-000000000031\",\"name\":\"session.unsubscribe\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000039\"}}"
+            },
+            "response": {
+              "startLine": "HTTP/1.1 200 OK",
+              "headers": [
+                [
+                  "Content-Type",
+                  "application/json; charset=utf-8"
+                ],
+                [
+                  "Content-Length",
+                  "105"
+                ],
+                [
+                  "Cache-Control",
+                  "no-store"
+                ],
+                [
+                  "X-Content-Type-Options",
+                  "nosniff"
+                ],
+                [
+                  "Date",
+                  "<date>"
+                ],
+                [
+                  "Connection",
+                  "keep-alive"
+                ],
+                [
+                  "Keep-Alive",
+                  "timeout=5"
+                ]
+              ],
+              "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000039\",\"unsubscribed\":true}}"
+            }
+          },
+          {
             "connection": 0,
             "request": {
               "startLine": "POST /client/deregister HTTP/1.1",
               "headers": [
                 [
                   "X-Mixdog-Daemon-Token",
-                  "00000000-0000-4000-8000-000000000023"
+                  "00000000-0000-4000-8000-000000000029"
                 ],
                 [
                   "Content-Type",
@@ -5912,7 +6710,7 @@
                   "keep-alive"
                 ]
               ],
-              "body": "{\"token\":\"00000000-0000-4000-8000-000000000025\"}"
+              "body": "{\"token\":\"00000000-0000-4000-8000-000000000031\"}"
             },
             "response": {
               "startLine": "HTTP/1.1 200 OK",
@@ -5970,11 +6768,11 @@
           {
             "step": "session.create",
             "ok": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000039",
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000045",
               "reservedOnly": true,
               "revision": 1700000000000001,
               "full": {
-                "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000039",
+                "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000045",
                 "items": [],
                 "busy": false
               }
@@ -5983,12 +6781,12 @@
           {
             "step": "session.submit prompt first (callId conflicting-call-id)",
             "ok": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000039",
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000045",
               "reservedOnly": false,
               "accepted": true,
               "revision": 1700000000000002,
               "full": {
-                "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000039",
+                "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000045",
                 "items": [
                   {
                     "id": 1,
@@ -6012,11 +6810,11 @@
           {
             "step": "session.read",
             "ok": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000039",
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000045",
               "reservedOnly": false,
               "revision": 1700000000000002,
               "full": {
-                "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000039",
+                "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000045",
                 "items": [
                   {
                     "id": 1,
@@ -6035,18 +6833,18 @@
               "cwd": "C:\\recorded\\cwd"
             },
             "context": {
-              "clientToken": "00000000-0000-4000-8000-000000000038",
+              "clientToken": "00000000-0000-4000-8000-000000000044",
               "leadPid": 4242,
               "cwd": "C:\\recorded\\cwd",
               "revision": 6,
               "queuedMs": 0
             },
             "result": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000039",
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000045",
               "reservedOnly": true,
               "revision": 1700000000000001,
               "full": {
-                "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000039",
+                "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000045",
                 "items": [],
                 "busy": false
               }
@@ -6055,23 +6853,23 @@
           {
             "name": "session.submit",
             "args": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000039",
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000045",
               "prompt": "first"
             },
             "context": {
-              "clientToken": "00000000-0000-4000-8000-000000000038",
+              "clientToken": "00000000-0000-4000-8000-000000000044",
               "leadPid": 4242,
               "cwd": "C:\\recorded\\cwd",
               "revision": 6,
               "queuedMs": 0
             },
             "result": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000039",
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000045",
               "reservedOnly": false,
               "accepted": true,
               "revision": 1700000000000002,
               "full": {
-                "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000039",
+                "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000045",
                 "items": [
                   {
                     "id": 1,
@@ -6085,21 +6883,21 @@
           {
             "name": "session.read",
             "args": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000039"
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000045"
             },
             "context": {
-              "clientToken": "00000000-0000-4000-8000-000000000038",
+              "clientToken": "00000000-0000-4000-8000-000000000044",
               "leadPid": 4242,
               "cwd": "C:\\recorded\\cwd",
               "revision": 6,
               "queuedMs": 0
             },
             "result": {
-              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000039",
+              "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000045",
               "reservedOnly": false,
               "revision": 1700000000000002,
               "full": {
-                "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000039",
+                "sessionId": "sess_daemon_1700000000000_00000000000040008000000000000045",
                 "items": [
                   {
                     "id": 1,
@@ -6119,7 +6917,7 @@
               "headers": [
                 [
                   "X-Mixdog-Daemon-Token",
-                  "00000000-0000-4000-8000-000000000036"
+                  "00000000-0000-4000-8000-000000000042"
                 ],
                 [
                   "Content-Type",
@@ -6138,7 +6936,7 @@
                   "keep-alive"
                 ]
               ],
-              "body": "{\"leadPid\":4242,\"cwd\":\"C:\\\\recorded\\\\cwd\",\"lifecycle\":true,\"clientKind\":\"session\",\"registrationId\":\"00000000-0000-4000-8000-000000000037\",\"protocol\":1,\"revision\":6}"
+              "body": "{\"leadPid\":4242,\"cwd\":\"C:\\\\recorded\\\\cwd\",\"lifecycle\":true,\"clientKind\":\"session\",\"registrationId\":\"00000000-0000-4000-8000-000000000043\",\"protocol\":1,\"revision\":6}"
             },
             "response": {
               "startLine": "HTTP/1.1 200 OK",
@@ -6172,13 +6970,13 @@
                   "timeout=5"
                 ]
               ],
-              "body": "{\"token\":\"00000000-0000-4000-8000-000000000038\",\"pid\":4242,\"protocol\":1,\"revision\":6}"
+              "body": "{\"token\":\"00000000-0000-4000-8000-000000000044\",\"pid\":4242,\"protocol\":1,\"revision\":6}"
             }
           },
           {
             "connection": 1,
             "request": {
-              "startLine": "GET /events?token=00000000-0000-4000-8000-000000000038 HTTP/1.1",
+              "startLine": "GET /events?token=00000000-0000-4000-8000-000000000044 HTTP/1.1",
               "headers": [
                 [
                   "Accept",
@@ -6186,7 +6984,7 @@
                 ],
                 [
                   "X-Mixdog-Daemon-Token",
-                  "00000000-0000-4000-8000-000000000036"
+                  "00000000-0000-4000-8000-000000000042"
                 ],
                 [
                   "Host",
@@ -6229,8 +7027,8 @@
               ],
               "frames": [
                 ": attached",
-                "data: {\"type\":\"session-state\",\"key\":\"session-state:sess_daemon_1700000000000_00000000000040008000000000000039\",\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000039\",\"revision\":1700000000000001,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000039\",\"items\":[],\"busy\":false}}",
-                "data: {\"type\":\"session-state\",\"key\":\"session-state:sess_daemon_1700000000000_00000000000040008000000000000039\",\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000039\",\"revision\":1700000000000002,\"baseRevision\":1700000000000001,\"patch\":{\"set\":{},\"remove\":[],\"itemsAppend\":{\"from\":0,\"values\":[{\"id\":1,\"text\":\"first\"}]}}}"
+                "data: {\"type\":\"session-state\",\"key\":\"session-state:sess_daemon_1700000000000_00000000000040008000000000000045\",\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000045\",\"revision\":1700000000000001,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000045\",\"items\":[],\"busy\":false}}",
+                "data: {\"type\":\"session-state\",\"key\":\"session-state:sess_daemon_1700000000000_00000000000040008000000000000045\",\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000045\",\"revision\":1700000000000002,\"baseRevision\":1700000000000001,\"patch\":{\"set\":{},\"remove\":[],\"itemsAppend\":{\"from\":0,\"values\":[{\"id\":1,\"text\":\"first\"}]}}}"
               ]
             }
           },
@@ -6241,7 +7039,7 @@
               "headers": [
                 [
                   "X-Mixdog-Daemon-Token",
-                  "00000000-0000-4000-8000-000000000036"
+                  "00000000-0000-4000-8000-000000000042"
                 ],
                 [
                   "Content-Type",
@@ -6260,7 +7058,7 @@
                   "keep-alive"
                 ]
               ],
-              "body": "{\"token\":\"00000000-0000-4000-8000-000000000038\",\"name\":\"session.create\",\"args\":{\"cwd\":\"C:\\\\recorded\\\\cwd\"}}"
+              "body": "{\"token\":\"00000000-0000-4000-8000-000000000044\",\"name\":\"session.create\",\"args\":{\"cwd\":\"C:\\\\recorded\\\\cwd\"}}"
             },
             "response": {
               "startLine": "HTTP/1.1 200 OK",
@@ -6294,7 +7092,7 @@
                   "timeout=5"
                 ]
               ],
-              "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000039\",\"reservedOnly\":true,\"revision\":1700000000000001,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000039\",\"items\":[],\"busy\":false}}}"
+              "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000045\",\"reservedOnly\":true,\"revision\":1700000000000001,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000045\",\"items\":[],\"busy\":false}}}"
             }
           },
           {
@@ -6304,7 +7102,7 @@
               "headers": [
                 [
                   "X-Mixdog-Daemon-Token",
-                  "00000000-0000-4000-8000-000000000036"
+                  "00000000-0000-4000-8000-000000000042"
                 ],
                 [
                   "Content-Type",
@@ -6323,7 +7121,7 @@
                   "keep-alive"
                 ]
               ],
-              "body": "{\"token\":\"00000000-0000-4000-8000-000000000038\",\"name\":\"session.submit\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000039\",\"prompt\":\"first\"},\"callId\":\"conflicting-call-id\"}"
+              "body": "{\"token\":\"00000000-0000-4000-8000-000000000044\",\"name\":\"session.submit\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000045\",\"prompt\":\"first\"},\"callId\":\"conflicting-call-id\"}"
             },
             "response": {
               "startLine": "HTTP/1.1 200 OK",
@@ -6357,7 +7155,7 @@
                   "timeout=5"
                 ]
               ],
-              "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000039\",\"reservedOnly\":false,\"accepted\":true,\"revision\":1700000000000002,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000039\",\"items\":[{\"id\":1,\"text\":\"first\"}],\"busy\":false}}}"
+              "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000045\",\"reservedOnly\":false,\"accepted\":true,\"revision\":1700000000000002,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000045\",\"items\":[{\"id\":1,\"text\":\"first\"}],\"busy\":false}}}"
             }
           },
           {
@@ -6367,7 +7165,7 @@
               "headers": [
                 [
                   "X-Mixdog-Daemon-Token",
-                  "00000000-0000-4000-8000-000000000036"
+                  "00000000-0000-4000-8000-000000000042"
                 ],
                 [
                   "Content-Type",
@@ -6386,7 +7184,7 @@
                   "keep-alive"
                 ]
               ],
-              "body": "{\"token\":\"00000000-0000-4000-8000-000000000038\",\"name\":\"session.submit\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000039\",\"prompt\":\"second\"},\"callId\":\"conflicting-call-id\"}"
+              "body": "{\"token\":\"00000000-0000-4000-8000-000000000044\",\"name\":\"session.submit\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000045\",\"prompt\":\"second\"},\"callId\":\"conflicting-call-id\"}"
             },
             "response": {
               "startLine": "HTTP/1.1 200 OK",
@@ -6430,7 +7228,7 @@
               "headers": [
                 [
                   "X-Mixdog-Daemon-Token",
-                  "00000000-0000-4000-8000-000000000036"
+                  "00000000-0000-4000-8000-000000000042"
                 ],
                 [
                   "Content-Type",
@@ -6449,7 +7247,7 @@
                   "keep-alive"
                 ]
               ],
-              "body": "{\"token\":\"00000000-0000-4000-8000-000000000038\",\"name\":\"session.read\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000039\"}}"
+              "body": "{\"token\":\"00000000-0000-4000-8000-000000000044\",\"name\":\"session.read\",\"args\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000045\"}}"
             },
             "response": {
               "startLine": "HTTP/1.1 200 OK",
@@ -6483,7 +7281,7 @@
                   "timeout=5"
                 ]
               ],
-              "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000039\",\"reservedOnly\":false,\"revision\":1700000000000002,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000039\",\"items\":[{\"id\":1,\"text\":\"first\"}],\"busy\":false}}}"
+              "body": "{\"result\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000045\",\"reservedOnly\":false,\"revision\":1700000000000002,\"full\":{\"sessionId\":\"sess_daemon_1700000000000_00000000000040008000000000000045\",\"items\":[{\"id\":1,\"text\":\"first\"}],\"busy\":false}}}"
             }
           },
           {
@@ -6493,7 +7291,7 @@
               "headers": [
                 [
                   "X-Mixdog-Daemon-Token",
-                  "00000000-0000-4000-8000-000000000036"
+                  "00000000-0000-4000-8000-000000000042"
                 ],
                 [
                   "Content-Type",
@@ -6512,7 +7310,7 @@
                   "keep-alive"
                 ]
               ],
-              "body": "{\"token\":\"00000000-0000-4000-8000-000000000038\"}"
+              "body": "{\"token\":\"00000000-0000-4000-8000-000000000044\"}"
             },
             "response": {
               "startLine": "HTTP/1.1 200 OK",

@@ -58,13 +58,13 @@ fn terminate(pid: u32) {
     }
 }
 
-/// The binary under test, hard-linked into a folder of its own with no `js-runtime.json` beside it.
-fn binary() -> PathBuf {
-    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("crash-record-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let exe = dir.join("mixdogd.exe");
+/// The binary under test, hard-linked into a folder of its own with no `js-runtime.json` beside it. The folder is removed
+/// with the guard: a link left behind keeps every later build's old binary on disk.
+fn binary() -> (tempfile::TempDir, PathBuf) {
+    let dir = tempfile::Builder::new().prefix("crash-record-").tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
+    let exe = dir.path().join("mixdogd.exe");
     std::fs::hard_link(env!("CARGO_BIN_EXE_mixdogd"), &exe).unwrap();
-    exe
+    (dir, exe)
 }
 
 fn command(exe: &Path, data: &Path, scenario: &str, text: &str) -> Command {
@@ -232,7 +232,7 @@ fn next_boot(exe: &Path, data: &Path) {
 /// One end of the recording replayed: a start ends as `scenario` (killed from outside for `killed`), the next core starts
 /// when Node's did, and the sidecar is Node's. Answers the exit code and the fd 2 text.
 fn replay(case: &str, scenario: &str, dead_pipe: bool) -> (Option<i32>, String) {
-    let exe = binary();
+    let (_folder, exe) = binary();
     let data = tempfile::tempdir().unwrap();
     let golden = golden_case(case);
     let mut boot = Boot::start(&exe, data.path(), STEM, scenario, case, dead_pipe);
@@ -313,7 +313,7 @@ fn a_dead_launchers_stderr_pipe_neither_blocks_nor_replaces_the_record() {
 /// code the stop exits with. Node's process ends at such an error, so the record after the stop has no recording.
 #[test]
 fn a_caught_worker_panic_is_in_the_record_when_it_happens_and_the_stop_after_it_names_it() {
-    let exe = binary();
+    let (_folder, exe) = binary();
     let data = tempfile::tempdir().unwrap();
     let mut boot = Boot::start(&exe, data.path(), "daemon-20261111-041600-999999998-0bad", "caught-panic", "uncaught", false);
     boot.heard("caught");

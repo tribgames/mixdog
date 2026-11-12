@@ -1,0 +1,104 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-session-gaps.mjs --tree <export of b6f10295a with the patch applied> --patch benchmarks/rust-core/recorders/node-patches/node-fix-manual-compaction-ends-with-session.patch",
+  "exclusions": [
+    "attachment-preflight: each send records the Responses request body Node builds from the messages it hands the provider (`wire`: openai-responses-payload.mjs buildRequestBody, public OpenAI route); the replay compares the body the core's openai body builder makes from the request the run hands its provider, whole; the run reads each stored file itself before that (the host's attachment resolver, as Node's builder reads it with readAttachmentBase64). The recorded `messages` (which carry the file parts' measured facts) are not compared for these cases: the body is what is sent",
+    "text-only-scan: no `wire` is recorded for it in this set (`wire` is the Responses body of the public OpenAI route). The chat body a provider that takes a PDF as text (deepseek, nativePdf = false) sends for a stored PDF, after preparePdfTextForProvider has read it through pdf.js, is recorded and replayed through the core's send path in the media-wire set (`native/core/fixtures/media-wire/table.json`, the `deepseek-chat` rows). The replay compares the request messages the core hands the provider, with Node's file part without the measured facts (sizeBytes, pageCount, textPages, textChars), which the core prices from the part's stored row, and those facts compared whole with that row",
+    "compaction-pasted-text: the whole set is recorded from the tree with benchmarks/rust-core/recorders/node-patches/node-fix-manual-compaction-ends-with-session.patch applied (Node 1.4.5 gave a manual compaction no signal of its own, so closing the session or the runtime could not stop one in flight and its result came back after the close; the patch registers the compaction with the session's controller and with the runtime's active turns). The patch changes only that path: the cases that run no close record the same results, and their summary send now carries the signal (recorded as its state, { aborted: false }); closed, deleted and shutdown exist only because of it. Those three also record `after`: whether each summary send's signal was aborted, the stored session (transcript whole, and the header keys that differ from the header before the compaction), the events published (the session ops' pre/post compact hooks, through which these cases start the compaction) and a second start (its answer, and how many summary sends it made); the first start's summary send never answers, a start after it does. The replay compares: the hooks whole; that the core dropped the summary stream in flight (Node: the send's signal aborted); the transcript whole; the header as a set (no key changed that Node's did not: closed's keys are Node's own tombstone bookkeeping); a deleted session as nothing stored in Node, and in the core as gone or carrying its delete mark with no summary applied (the core's log keeps the mark); a start after the end of closed and deleted as one that begins no compaction and asks no summary. The start after shutdown is not compared: Node's runtime stays up after abortActiveTurns and compacts again, the core's shutdown ends the directory",
+    "image-strip, error-after-partial-output: the error carries what the provider's stream tracker put on it (partialContent, partialToolCalls, toolCallsDispatched, liveTextEmitted) and the stamps stampStreamOutcome adds; the replay builds each from the text and completed calls the core's stream delivered before it failed",
+    "image-strip, preparation-* cases: the provider throws a plain Error carrying what the recovery reads of AnthropicImagePreparationError (its code, its 400 as httpStatus, its message and the image's base64 on the non-enumerable failingImageData), not the class itself, whose name the replay's error row does not carry; the recovery decides on those fields alone (isImagePreparationFailed, stripFailingImage)",
+    "legacy-json-keys: the document is recorded as 1.4.5 read it (a lone surrogate kept: exact's utf16 tag; two-distinct-lone-surrogates holds two such keys); the migration replay compares it with each lone surrogate read as U+FFFD and the keys that are equal after that as one (the last value at the first's place), because the core's store holds UTF-8 text and no UTF-8 text holds a lone surrogate (mixdog-migrate json::replace_lone_surrogates, long_session_log.rs)",
+    "attachment-preflight, compaction-pasted-text: the data directory inside a recorded value is written <data>",
+    "compaction-pasted-text: the replay compares a thrown failure by name and message only; its errno fields (code, errno, syscall, path) are recorded but not compared, because the core's attachment reader carries the read's text and no errno (ReadError::Other, run_host/media.rs resolve_ref)"
+  ],
+  "fileCount": 4,
+  "files": [
+    {
+      "bytes": 425242,
+      "path": "attachment-preflight.json",
+      "sha256": "7e8e72f07731d57bc7271e16a5bf163b6bc10a99ece3f25fcc0361c16acf6e4d"
+    },
+    {
+      "bytes": 801204,
+      "path": "compaction-pasted-text.json",
+      "sha256": "4c1bd65403404af9882d47060305cdd84091ca4638943d07b36405b8747fd0ac"
+    },
+    {
+      "bytes": 57062,
+      "path": "image-strip.json",
+      "sha256": "8c0f47c87e65b428e2504524e907c4ba2c578224811e1e466b876c5dfc73bb9c"
+    },
+    {
+      "bytes": 2860,
+      "path": "legacy-json-keys.json",
+      "sha256": "6dfa17a5e3745f0deccb5a4b14076cc1d704ccc34352be50c8fadca61d841368"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
+      "sha256": "19b5e18bfa90ac12f591a14212b13f8662f3fcdba0329a06efed26937f93d6ea"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9140,
+    "patch": {
+      "file": "benchmarks/rust-core/recorders/node-patches/node-fix-manual-compaction-ends-with-session.patch",
+      "paths": [
+        "src/runtime/agent/orchestrator/session/manager/manual-compaction-ends-with-session.test.mjs",
+        "src/runtime/agent/orchestrator/session/manager/runtime-liveness.mjs",
+        "src/runtime/agent/orchestrator/session/manager/session-close.mjs",
+        "src/runtime/agent/orchestrator/session/manager/session-crud.mjs",
+        "src/session-runtime/turn/session-ops.mjs"
+      ],
+      "sha256": "096e16b4ba11a27bc41b69950104d459618e851d955348371350e93edbc6b61d"
+    },
+    "patches": [
+      {
+        "file": "node-fix-manual-compaction-ends-with-session.patch",
+        "paths": [
+          "src/runtime/agent/orchestrator/session/manager/manual-compaction-ends-with-session.test.mjs",
+          "src/runtime/agent/orchestrator/session/manager/runtime-liveness.mjs",
+          "src/runtime/agent/orchestrator/session/manager/session-close.mjs",
+          "src/runtime/agent/orchestrator/session/manager/session-crud.mjs",
+          "src/session-runtime/turn/session-ops.mjs"
+        ],
+        "sha256": "096e16b4ba11a27bc41b69950104d459618e851d955348371350e93edbc6b61d"
+      }
+    ],
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": false,
+      "filesDifferingFromCommit": 5
+    },
+    "srcSha256": "0de8825704a21443c71d110b014b255f70f167085cf100102c72d370c997fa65",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-session-gaps.mjs",
+  "recorderSha256": "3f8a642ee817d1cffb5d101141de33f377754a5faa09652e4d553fb59fdcd657",
+  "scenarios": [
+    "legacy-json-keys",
+    "image-strip",
+    "attachment-preflight",
+    "compaction-pasted-text"
+  ],
+  "set": "session-gaps",
+  "totalBytes": 1286368,
+  "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
+}

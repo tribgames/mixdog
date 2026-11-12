@@ -1,0 +1,48 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-explicit-skills-sources-cases.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "compared": "per case: the skills loaded (Node's onSkillsApplied) and every stored message after the system prompt as role, text, meta.source and meta.transcript.appliedSkills (the two stores keep different row envelopes; these are the fields a client reads to show the turn, its skill chips and the notice provenance); the inputs Node built (webhook prompt and selection, the event notice) are compared with the core builders or given to the core as they are",
+  "excluded": {
+    "a webhook body or header naming a skill loads nothing; the endpoint instructions select: the first webhook prompt as the core builds it": "the core's webhook headers are a HashMap from the HTTP layer listed by name (BTreeMap), Node's keep arrival order, so the two builders order headers differently (x-skill, content-type vs content-type, x-skill); the core is given the prompt Node built for that run"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 7561,
+      "path": "golden.json",
+      "sha256": "1381665fb5e1494f09e94714db760b71289d314464ab0bb82ce4ecbb5397c55c"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "provider": "the test's provider: every request answers \"ok\"",
+  "recorder": "benchmarks/rust-core/recorders/record-explicit-skills-sources-cases.mjs",
+  "recorderSha256": "dcf3ee142c804430c6edb89a2a780749f17a82034077184f3db3f47ebe606d9c",
+  "set": "explicit-skills-sources-cases",
+  "totalBytes": 7561
+}

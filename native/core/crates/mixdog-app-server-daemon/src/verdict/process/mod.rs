@@ -19,7 +19,7 @@ use macos as sys;
 #[cfg(windows)]
 use windows as sys;
 
-/// A process by (pid, start time), as Codex's pid record check identifies one.
+/// A process by (pid, start time): the pid alone may name another process once it is reused.
 /// `start_ms` is the OS start time in Unix ms; 0 when the OS denies it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ProcessIdentity {

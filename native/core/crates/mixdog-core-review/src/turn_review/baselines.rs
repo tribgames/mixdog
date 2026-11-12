@@ -867,6 +867,9 @@ impl Loaded {
     }
 }
 
+/// `LOCK_TIMEOUT_MS` of `session-baseline-store.mjs`: how long a writer of a session's baseline index waits for its lock.
+const BASELINE_LOCK_WAIT: std::time::Duration = std::time::Duration::from_millis(10_000);
+
 /// Runs a read-only file job on the interactive read lane.
 async fn run_read<R: Send + 'static>(disk: &Arc<dyn ReviewDisk>, job: impl FnOnce(&dyn ReadFs) -> R + Send + 'static) -> std::io::Result<R> {
     let slot: Arc<Mutex<Option<R>>> = Arc::new(Mutex::new(None));
@@ -880,7 +883,7 @@ async fn run_read<R: Send + 'static>(disk: &Arc<dyn ReviewDisk>, job: impl FnOnc
 async fn run<R: Send + 'static>(disk: &Arc<dyn ReviewDisk>, lock: Option<&Path>, job: impl FnOnce(&dyn BlockingFs) -> R + Send + 'static) -> std::io::Result<R> {
     let slot: Arc<Mutex<Option<R>>> = Arc::new(Mutex::new(None));
     let put = slot.clone();
-    disk.blocking(lock, Box::new(move |fs| *put.lock().unwrap_or_else(|e| e.into_inner()) = Some(job(fs)))).await?;
+    disk.blocking(lock.map(|path| (path, BASELINE_LOCK_WAIT)), Box::new(move |fs| *put.lock().unwrap_or_else(|e| e.into_inner()) = Some(job(fs)))).await?;
     let taken = slot.lock().unwrap_or_else(|e| e.into_inner()).take();
     taken.ok_or_else(|| std::io::Error::other("file job did not run"))
 }

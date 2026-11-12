@@ -122,8 +122,10 @@ fn lowered_content(content: &Content, vision: bool) -> (String, Vec<ImageData>) 
                 source: DocumentSource::Text { data, .. },
                 ..
             } => text.push_str(data),
-            ContentPart::Document { .. } => text.push_str(&omitted("document")),
-            ContentPart::File { .. } => text.push_str(&omitted("file")),
+            ContentPart::Document { .. } | ContentPart::File { .. } => match crate::providers::file_text::file_part_text(part) {
+                Some(file) => text.push_str(&file),
+                None => text.push_str(&omitted("document")),
+            },
         }
     }
     (text, images)

@@ -791,6 +791,32 @@
           "type": "object"
         },
         {
+          "description": "Anthropic's content-block summary of the turn (`StreamEvent::ContentSummary`, Node `hasThinkingContent` / `contentBlockTypes`).",
+          "properties": {
+            "block_types": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "has_thinking": {
+              "type": "boolean"
+            },
+            "type": {
+              "enum": [
+                "contentSummary"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "block_types",
+            "has_thinking",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
           "description": "`pricing_model`: the catalog model the send bills as when it differs from the one sent. `request_ms`: the request's wall time as the usage ledger measured it (Node `usageDurationMs`).",
           "properties": {
             "pricingModel": {

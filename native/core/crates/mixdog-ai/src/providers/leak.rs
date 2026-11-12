@@ -506,7 +506,8 @@ pub fn dedupe_list(calls: Vec<ToolCall>) -> Vec<ToolCall> {
 }
 
 fn random_id(prefix: &str) -> String {
-    format!("{prefix}{:016x}", rand::random::<u64>())
+    let bytes: [u8; 8] = crate::random::bytes();
+    format!("{prefix}{:016x}", u64::from_be_bytes(bytes))
 }
 
 fn leaked_call(id: String, recovered: Recovered) -> ToolCall {

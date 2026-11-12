@@ -9,7 +9,9 @@
 // Tags: undefined | NaN | Infinity | -Infinity | -0 | hole (an empty array slot) | bigint {value} |
 //       date {ms, iso} (ms null for an invalid date) | bytes {type, base64} | map {entries} | set {values} |
 //       error {name, message, stack: never, code?, cause?, props} | object {entries} (an object that has its
-//       own "$exact" key, or a "__proto__" key).
+//       own "$exact" key, a "__proto__" key, or a key that is not well-formed UTF-16) |
+//       utf16 {units} (a string holding a lone surrogate, as its UTF-16 code units: JSON text that UTF-8
+//       readers accept cannot hold one).
 // Plain objects keep their keys in insertion order; an object of any other class throws unless `classes`
 // gives a function for its constructor name that returns the plain value to record in its place.
 //
@@ -22,7 +24,8 @@ export function exact(value, options = {}) {
   const classes = options.classes ?? {};
   const seen = new Set();
   const walk = (v, path) => {
-    if (v === null || typeof v === 'boolean' || typeof v === 'string') return v;
+    if (v === null || typeof v === 'boolean') return v;
+    if (typeof v === 'string') return v.isWellFormed() ? v : tag('utf16', { units: Array.from({ length: v.length }, (_, i) => v.charCodeAt(i)) });
     if (v === undefined) return tag('undefined');
     if (typeof v === 'number') {
       if (Number.isNaN(v)) return tag('NaN');
@@ -67,6 +70,7 @@ export function exact(value, options = {}) {
       }
       const keys = Object.keys(v);
       const entries = keys.map((key) => [key, walk(v[key], `${path}.${key}`)]);
+      if (keys.some((key) => !key.isWellFormed())) return tag('object', { entries: entries.map(([key, x]) => [walk(key, path), x]) });
       if (keys.includes(TAG) || keys.includes('__proto__')) return tag('object', { entries });
       return Object.fromEntries(entries);
     } finally {
@@ -112,9 +116,10 @@ export function fromExact(encoded) {
       for (const [key, x] of Object.entries(encoded.props)) error[key] = fromExact(x);
       return error;
     }
+    case 'utf16': return String.fromCharCode(...encoded.units);
     case 'object': {
       const out = {};
-      for (const [key, x] of encoded.entries) Object.defineProperty(out, key, { value: fromExact(x), writable: true, configurable: true, enumerable: true });
+      for (const [key, x] of encoded.entries) Object.defineProperty(out, fromExact(key), { value: fromExact(x), writable: true, configurable: true, enumerable: true });
       return out;
     }
     default: throw new TypeError(`fromExact: unknown tag ${JSON.stringify(encoded[TAG])}`);

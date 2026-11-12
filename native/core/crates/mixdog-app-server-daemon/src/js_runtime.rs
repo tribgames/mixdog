@@ -187,9 +187,9 @@ pub(crate) fn fixture(root: &Path) -> JsRuntime {
     std::fs::write(package.join(SKILL_ENTRY), "").unwrap();
     // The tree's own manifest: the composition reads its ersion (package_version).
     std::fs::write(package.join("package.json"), include_str!("../../../../../package.json")).unwrap();
-    // The shipped files the composition reads from <packageRoot>/src: prompt rules, output styles, agents, defaults and the voice manifest.
+    // The shipped files the composition reads from <packageRoot>/src: prompt rules, output styles, agents, defaults, workflow packs, orchestration texts and the voice manifest.
     let shipped = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../../src");
-    for dir in ["rules", "output-styles", "agents", "defaults", "runtime/channels/data"] {
+    for dir in ["rules", "output-styles", "agents", "defaults", "workflows", "orchestration", "runtime/channels/data"] {
         copy_dir(&shipped.join(dir), &package.join("src").join(dir));
     }
     std::fs::write(core.join(MANIFEST_FILE), r#"{"program":"./node","packageRoot":"../js"}"#).unwrap();

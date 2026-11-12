@@ -210,22 +210,97 @@ pub(crate) fn build_catalog(server: &str, tools: &[Value]) -> ToolCatalog {
     ToolCatalog { digest: digest.iter().map(|b| format!("{b:02x}")).collect(), entries }
 }
 
-/// Follows `nextCursor` to the end: a server returning many pages is a server fact.
-async fn list_tools(client: &RpcClient) -> Result<Vec<Value>, RpcError> {
-    let mut tools = Vec::new();
-    let mut cursor: Option<String> = None;
-    loop {
-        let params = match &cursor {
-            Some(c) => json!({"cursor": c}),
-            None => json!({}),
-        };
-        let page = client.request("tools/list", params, RequestOptions::default()).await?;
-        if let Some(items) = page.get("tools").and_then(Value::as_array) {
-            tools.extend(items.iter().cloned());
+/// Why a page of `tools/list` is no page.
+enum PageError {
+    Rpc(RpcError),
+    /// The result has no `tools` array: the text is the one Node's SDK throws for it.
+    Shape(String),
+}
+
+impl From<RpcError> for PageError {
+    fn from(error: RpcError) -> Self {
+        Self::Rpc(error)
+    }
+}
+
+impl From<PageError> for ConnectError {
+    fn from(error: PageError) -> Self {
+        match error {
+            PageError::Rpc(error) => Self::Rpc(error),
+            PageError::Shape(text) => Self::Failed(text),
         }
-        match page.get("nextCursor").and_then(Value::as_str) {
-            Some(next) if !next.is_empty() => cursor = Some(next.to_owned()),
-            _ => return Ok(tools),
+    }
+}
+
+/// The SDK's `Client.listTools` checks each result against `ListToolsResultSchema` before `listAllMcpTools` sees it, so
+/// a `tools` that is no array throws Zod's issue list, whichever page it is on (Node's own "invalid shape" checks
+/// never see such a result). Zod names the kind of what it received.
+fn tools_shape_error(page: &Value) -> Option<String> {
+    let received = match page.get("tools") {
+        Some(Value::Array(_)) => return None,
+        None => "undefined",
+        Some(Value::Null) => "null",
+        Some(Value::Bool(_)) => "boolean",
+        Some(Value::Number(_)) => "number",
+        Some(Value::String(_)) => "string",
+        Some(Value::Object(_)) => "object",
+    };
+    Some(format!(
+        "[\n  {{\n    \"expected\": \"array\",\n    \"code\": \"invalid_type\",\n    \"path\": [\n      \"tools\"\n    ],\n    \"message\": \"Invalid input: expected array, received {received}\"\n  }}\n]"
+    ))
+}
+
+/// One page of `tools/list`, and the cursor of the next one when there is one.
+async fn list_page(client: &RpcClient, cursor: Option<&str>) -> Result<(Vec<Value>, Option<String>), PageError> {
+    let params = match cursor {
+        Some(c) => json!({"cursor": c}),
+        None => json!({}),
+    };
+    let page = client.request("tools/list", params, RequestOptions::default()).await?;
+    if let Some(text) = tools_shape_error(&page) {
+        return Err(PageError::Shape(text));
+    }
+    let tools = page.get("tools").and_then(Value::as_array).cloned().unwrap_or_default();
+    let next = page.get("nextCursor").and_then(Value::as_str).filter(|next| !next.is_empty()).map(str::to_owned);
+    Ok((tools, next))
+}
+
+/// Node's `MAX_MCP_TOOL_PAGES`.
+const MAX_TOOL_PAGES: usize = 100;
+
+/// One walk over the pages of `tools/list` (`listAllMcpTools`): it ends when a page names no next cursor, names one
+/// it already followed, or `MAX_TOOL_PAGES` pages were read, so a server that never ends its cursor chain cannot
+/// keep the client listing. The tools gathered until then are the listing.
+#[derive(Default)]
+struct ToolPages {
+    tools: Vec<Value>,
+    cursor: Option<String>,
+    followed: std::collections::HashSet<String>,
+    pages: usize,
+}
+
+impl ToolPages {
+    /// Takes a page in; false when the walk is over.
+    fn take(&mut self, (tools, next): (Vec<Value>, Option<String>)) -> bool {
+        self.tools.extend(tools);
+        self.pages += 1;
+        match next {
+            Some(next) if self.pages < MAX_TOOL_PAGES && self.followed.insert(next.clone()) => {
+                self.cursor = Some(next);
+                true
+            }
+            _ => false,
+        }
+    }
+}
+
+/// Every tool of the server, page by page.
+async fn list_tools(client: &RpcClient) -> Result<Vec<Value>, ConnectError> {
+    let mut walk = ToolPages::default();
+    loop {
+        let page = list_page(client, walk.cursor.as_deref()).await?;
+        if !walk.take(page) {
+            return Ok(walk.tools);
         }
     }
 }
@@ -312,12 +387,13 @@ impl McpServer {
         let generation = self.generation.fetch_add(1, Ordering::AcqRel) + 1;
         self.state.send_replace(Arc::new(ServerState::Starting));
         let opened: Mutex<Option<Arc<RpcClient>>> = Mutex::new(None);
-        let outcome = match mixdog_rt::time::timeout(self.config.startup_timeout, self.handshake(&opened)).await {
-            Ok(result) => result,
-            Err(_) => Err(ConnectError::StartupTimeout {
-                name: self.config.name.clone(),
-                ms: self.config.startup_timeout.as_millis(),
-            }),
+        let outcome = match self.config.startup_timeout {
+            Some(budget) => match mixdog_rt::time::timeout(budget, self.handshake(&opened)).await {
+                Ok(result) => result,
+                Err(_) => Err(ConnectError::StartupTimeout { name: self.config.name.clone(), ms: budget.as_millis() }),
+            },
+            // The budget is disabled: the handshake is not bounded, as Node arms no deadline for it.
+            None => self.handshake(&opened).await,
         };
         match outcome {
             Ok(ready) => {
@@ -443,12 +519,32 @@ impl McpServer {
     }
 
     async fn relist(&self, generation: u64, client: &Arc<RpcClient>) {
-        let listed = mixdog_rt::time::timeout(self.config.startup_timeout, list_tools(client)).await;
-        let tools = match listed {
-            Ok(Ok(tools)) => tools,
-            Ok(Err(error)) => return tracing::warn!(server = self.name(), %error, "tools/list failed after list_changed"),
-            Err(_) => return tracing::warn!(server = self.name(), "tools/list timed out after list_changed"),
-        };
+        // Node's refresh gives each page's request the call timeout (`runToolRefresh`, `listAllMcpTools`), whatever the
+        // startup budget is; with the call timeout disabled a page is not bounded.
+        let mut walk = ToolPages::default();
+        loop {
+            let page = list_page(client, walk.cursor.as_deref());
+            let page = match self.config.call_timeout {
+                Some(bound) => match mixdog_rt::time::timeout(bound, page).await {
+                    Ok(page) => page,
+                    Err(_) => return tracing::warn!(server = self.name(), "tools/list timed out after list_changed"),
+                },
+                None => page.await,
+            };
+            match page {
+                Ok(page) => {
+                    if !walk.take(page) {
+                        break;
+                    }
+                }
+                // `runToolRefresh` keeps the listing it had and logs this line.
+                Err(PageError::Shape(text)) => {
+                    return tracing::warn!("[mcp-client] Failed to refresh tools for \"{}\": {}", self.name(), scrub(&text, &self.secrets));
+                }
+                Err(PageError::Rpc(error)) => return tracing::warn!(server = self.name(), %error, "tools/list failed after list_changed"),
+            }
+        }
+        let tools = walk.tools;
         let catalog = build_catalog(&self.config.name, &tools);
         let current = self.state();
         let ServerState::Ready(ready) = &*current else { return };
@@ -645,7 +741,33 @@ impl McpServer {
 mod catalog_tests {
     use serde_json::json;
 
+    use super::MAX_TOOL_PAGES;
+    use super::ToolPages;
     use super::build_catalog;
+
+    /// `listAllMcpTools`: a cursor already followed ends the walk with the tools gathered so far, and so does the
+    /// hundredth page whatever cursor it names.
+    #[test]
+    fn a_listing_ends_on_a_repeated_cursor_and_at_the_page_bound() {
+        let page = |tool: &str, next: Option<&str>| (vec![json!({"name": tool})], next.map(str::to_owned));
+        let mut walk = ToolPages::default();
+        assert!(walk.take(page("a", Some("c1"))));
+        assert_eq!(walk.cursor.as_deref(), Some("c1"));
+        assert!(walk.take(page("b", Some("c2"))));
+        assert!(!walk.take(page("c", Some("c1"))), "c1 was followed already");
+        assert_eq!(walk.tools.len(), 3, "the repeated page's tools are kept");
+
+        let mut walk = ToolPages::default();
+        assert!(!walk.take(page("only", None)));
+        assert!(!ToolPages::default().take(page("blank", None)));
+
+        let mut walk = ToolPages::default();
+        for n in 1..MAX_TOOL_PAGES {
+            assert!(walk.take(page("t", Some(&format!("c{n}")))), "page {n} is followed");
+        }
+        assert!(!walk.take(page("t", Some("one more"))), "the hundredth page is the last");
+        assert_eq!(walk.tools.len(), MAX_TOOL_PAGES);
+    }
 
     /// Node's `mcpServerTools` keeps an external tool's name, description, `inputSchema` and
     /// `annotations` (the title only inside them) and nothing else: a top-level `title` or

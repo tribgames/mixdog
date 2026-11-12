@@ -1,0 +1,105 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-session-transcript.mjs --tree <b6f10295a export with the patch applied> --patch benchmarks/rust-core/recorders/node-patches/node-fix-memory-sensitive.patch",
+  "fileCount": 4,
+  "files": [
+    {
+      "bytes": 2818,
+      "path": "restart.json",
+      "sha256": "0ab12a8bdecabdca7f1daab51879ab3dbf3a1865614f6b07f16646817762c36c"
+    },
+    {
+      "bytes": 1184,
+      "path": "turn-exec.json",
+      "sha256": "bc6f36fe78175c866a29f481990db9827d79f9380cfe50306bc0a4f5c77bdf49"
+    },
+    {
+      "bytes": 1301,
+      "path": "turn-lead.json",
+      "sha256": "fdb782adf342b42a918a733cb539059703b98833440929e24f7ab1e2868d2020"
+    },
+    {
+      "bytes": 9804,
+      "path": "writer.json",
+      "sha256": "dd892ab34d98cc3682a79b332b24deed427a9fba3198e9cf38c4c529b5033afd"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/determinism.mjs",
+      "sha256": "8f974af9f70f86e55bfba0850a7a19197ac0bec15fc13fa0fdfe3de29c9fa725"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/headers.mjs",
+      "sha256": "8efe01ce40d054e05bd788bf4256fb0a3e21f709dc5f41ce774fa70ec3ef645e"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/intercept.mjs",
+      "sha256": "a080fa2c7df9cf3629ae4304d14ca3c66e68e14c6afddc7ca8d22da38063e47a"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/node-patches/node-fix-memory-sensitive.patch",
+      "sha256": "fa8ea77851f35b7f996b1940564c87ab9cb1842ce60fbbb83ab0a37980c9a35b"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9140,
+    "patch": {
+      "file": "benchmarks/rust-core/recorders/node-patches/node-fix-memory-sensitive.patch",
+      "paths": [
+        "src/runtime/shared/buffered-appender.mjs",
+        "src/runtime/shared/transcript-writer-sensitive.test.mjs",
+        "src/runtime/shared/transcript-writer.mjs",
+        "src/runtime/shared/transcript-writer/transcript-file.mjs",
+        "src/session-runtime/lifecycle/memory-ingest.mjs"
+      ],
+      "sha256": "fa8ea77851f35b7f996b1940564c87ab9cb1842ce60fbbb83ab0a37980c9a35b"
+    },
+    "patches": [
+      {
+        "file": "node-fix-memory-sensitive.patch",
+        "paths": [
+          "src/runtime/shared/buffered-appender.mjs",
+          "src/runtime/shared/transcript-writer-sensitive.test.mjs",
+          "src/runtime/shared/transcript-writer.mjs",
+          "src/runtime/shared/transcript-writer/transcript-file.mjs",
+          "src/session-runtime/lifecycle/memory-ingest.mjs"
+        ],
+        "sha256": "fa8ea77851f35b7f996b1940564c87ab9cb1842ce60fbbb83ab0a37980c9a35b"
+      }
+    ],
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": false,
+      "filesDifferingFromCommit": 5
+    },
+    "srcSha256": "99d6cf3b26d70cf9ed0eaf19fb37f1bb1de51a6534b539196487329814a60582",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-session-transcript.mjs",
+  "recorderSha256": "07f2aba9626408eb546e75b3673cdfe5d52a5fb4ef21b8c13106ba0f9363abf6",
+  "scenarios": [
+    "turn-lead",
+    "turn-exec",
+    "writer",
+    "restart"
+  ],
+  "set": "session-transcript",
+  "totalBytes": 15107
+}

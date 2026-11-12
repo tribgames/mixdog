@@ -526,6 +526,10 @@ impl NodeClient {
         let name = rustls::pki_types::ServerName::try_from(bare)
             .map_err(|_| ProviderError::transport(TransportFault::Tls, DeliveryState::NotSent))?;
         let tls = tokio_rustls::TlsConnector::from(config).connect(name, tcp_stream).await.map_err(|e| {
+            // A socket reset during the handshake is the socket's fault, as undici reports it (`ECONNRESET`), not TLS's.
+            if matches!(e.kind(), io::ErrorKind::ConnectionReset | io::ErrorKind::ConnectionAborted) {
+                return io_error(&e, false, DeliveryState::NotSent, surface);
+            }
             let mut error = ProviderError::transport(TransportFault::Tls, DeliveryState::NotSent);
             error.message = surface.text(|| e.to_string());
             error

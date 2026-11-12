@@ -8,6 +8,10 @@ import { startRecording } from './lib/provider-case-recorder.mjs';
 const rec = await startRecording({
   recorderUrl: import.meta.url,
   set: 'provider-anthropic-stream',
+  exclusions: [
+    "`stopDetails` is not compared: the send copies the turn's stop_details into its result (anthropic-sse-turn/turn-outcome.mjs:141, anthropic-turn-result.mjs:60) and nothing reads it after (`[.?]stopDetails\\b` over src/ without tests finds only those copies and the write at turn-events/message-events.mjs:27)",
+    "`onStreamDelta('transport')` is not compared: one call per network read of the body (anthropic-sse.mjs:275), a count the socket's chunking sets; its readers (markSessionStreamDelta, session/manager/runtime-liveness.mjs:273, and the idle deadlines) read only that a read came, never the count",
+  ],
   entry: 'anthropic.mjs AnthropicProvider({ apiKey }).send(messages, model, tools, { onStreamDelta, onToolCall }) against the loopback endpoint serving the scripted SSE body; openai-compat-stream.mjs isInvalidToolArgsMarker. Not run: a live endpoint.',
   compare: 'mixdog-ai providers::anthropic decoder.rs (UsageAcc::update :110-135, :182 refusal, :259-296 thinking shapes, :278-283): feed `input.events` and compare `result` whole (usage slots, stopReason/stopDetails, toolCalls incl. the invalid-args marker, thinkingBlocks) and the callbacks (`toolCalls`, `streamDeltas`) in order. K1 gap: Rust drops stopDetails/category (row 1, low).',
   replay: "Rust entry (pub, on o1): mixdog_ai::providers::anthropic::AnthropicAdapter (anthropic/adapter.rs:169) and AnthropicCodec (anthropic/codec.rs:148), driven through mixdog_ai::broker ModelBroker::send (mixdog-ai/src/broker/send.rs:75) and ProviderAdapter::attempt (mixdog-core-api/src/domain/provider.rs:1079), built by mixdog_ai::registry DefaultProviderBuilder::build (registry/builder.rs:1295).",

@@ -1,0 +1,48 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-daemon-owner-lock-cases.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "compared": "every value each case observes, in order (contender verdicts, held, intact, the delete, the file read)",
+  "excluded": {
+    "only the process that took the lock knows it owns the data dir": "not a core behaviour: the flag gates only the prune of an index file the core does not have (see above); a second process on the data dir is refused `AlreadyOwned` (native/core/crates/mixdog-app-server-daemon/src/startup.rs:296), as the replayed case \"a held lock refuses every other process\" shows",
+    "releasing the lock ends this process ownership of the data dir": "not a core behaviour: there is no prune to stop (see above); the release itself is replayed in \"one process holds it once; release frees it\""
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 3107,
+      "path": "golden.json",
+      "sha256": "976fb6e3cdf6f04711e9e348d8178bd475902cff8e38730070c779115a74fcb0"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-daemon-owner-lock-cases.mjs",
+  "recorderSha256": "5b4f2d0adec47d40acad2ab93a6334798c56e5802373128b52172cb19a8affaa",
+  "set": "daemon-owner-lock-cases",
+  "totalBytes": 3107
+}

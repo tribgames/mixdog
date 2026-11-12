@@ -26,7 +26,7 @@
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+      "sha256": "9c4772a43d8d96e34e323df9c4d25e168e22bc3df1f2032f608d5541fd5f4a42"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/exact.mjs",
@@ -38,7 +38,7 @@
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/session-rec.mjs",
-      "sha256": "34e3adc0449c4a1eded6d0e27968c358972501a6f337ff86a75fc740834f3044"
+      "sha256": "da1f370e4e41df1b21edd733ec5db174423ef54a4cf7712d5b97922844c2e7b3"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/session-wire-harness.mjs",
@@ -52,14 +52,15 @@
   "nodeVersion": "v22.20.0",
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
-    "commit": null,
-    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
     "files": 9139,
     "refComparison": {
-      "closestCommit": "19d90a63aa99f29d5cc6c4b1a053d7b8bab0cb7e",
-      "commitFilesMissingFromTree": 199,
-      "exact": false,
-      "filesDifferingFromCommit": 238
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
     },
     "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
     "tree": "product tree loaded by the recorder",
@@ -67,8 +68,8 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-transport-steering-recovery.mjs",
-  "recorderSha256": "60185fdea316676a0c4d6a5ffe400a5d9bcea30d2a4b5df6707a1f3bfa9ecf2a",
-  "replay": "Replayed at what a client sees by native/core/crates/mixdog-app-server/src/tests/session_transport.rs (the server over a real session thread): case 14 a_held_submission_is_reclaimed_by_its_id (turn/interrupt {restorePrompt, submissionId} on a thread holding the submission answers Node's aborted/restoreText/pastedImages/pastedTexts/restoredSubmissionIds, and nothing of it is left), 75 a_queued_submission_keeps_its_id_across_a_restart (a prompt submitted while a turn runs is kept in the session log with its clientSubmissionId; a core restarted on that store hands it back by that id with its text; Node's spool file path, steeringPersistId and submittedAt are Node's storage), 139 a_stop_is_answered_while_reads_are_in_flight (turn/interrupt answered while thread/read calls are in flight) — the core holds 16 C1 calls of a connection in flight and refuses the rest with inflightLimit; the shipped client (packages/protocol-client/src/client.ts run/awaitRetryTrigger, SPEC R7) resends a refused call once a C1 answer has arrived and never surfaces the refusal, so the replay is that client and every one of the 64 reads is answered, as in Node. Node's scripted abort result (restoreText, pastedTexts of its stub) is not compared. Not replayed: 90 (the Node TUI's commandBusy state while it restores: client code, Rust-side client work).",
+  "recorderSha256": "cac672ca8e12d0b474bcdbcb4685ced97652f48ca2e752168c9dacb80967c210",
+  "replay": "Replayed over the transport harness of native/core/crates/mixdog-app-server/src/tests/wire.rs: the server behind its real WebSocket listener on a loopback port, real client connections driven as the daemon drives them, over a real session thread. Every frame each client received is compared whole and in order (session_transport.rs whole); the only normalization is wire::normalized: ids the core generates become <id:N> in order of first appearance and clock readings (*At fields, clientHostPid) become <clock>/<pid>. The recorded HTTP exchanges (wire: start lines, headers, Content-Length) are Node's HTTP/SSE framing of each call; the core's client transport is one WebSocket carrying each JSON-RPC message as one text frame (mixdog-app-server-transport websocket.rs), so the frame bodies are compared and the HTTP framing has no counterpart. Cases: 14 a_held_submission_is_reclaimed_by_its_id, 75 a_queued_submission_keeps_its_id_across_a_restart, 139 a_stop_is_answered_while_reads_are_in_flight (64 config/read requests, the core's settings read standing for Node's held getSettingsSnapshot calls, held by a gate the test releases, and a stop: all 64 start before the stop is sent (Node's startedBeforeAbort), each turn of the call lane starting one in request order (mixdog-app-server lanes.rs, replayed against fixtures/session-call-lanes), none refused, and the stop is answered while they are held. Node's abort answer is its stub runtime's, steering-recovery.test.mjs:198-205: the core's idle thread holds the queued prompt with its pasted text the stub returned and hands it back; its aborted is false as no turn ran. Each read answers what Node's read answered (readOutcomes[n].ok.value). What Node does not order is the arrival order of the 64 answers (the test collects them by index, steering-recovery.test.mjs:185, and the wire tap lists exchanges in request order): the replay opens the gate one call at a time in request order, so each frame is compared as it arrived, after the stop's answer, which Node's test saw before it opened the gate, steering-recovery.test.mjs:164-184). Not replayed: 90 (Node's TUI keeps its `commandBusy` set while its `resume(id, {quiet: true})` waits for the steering restore gate and releases it when the gate resolves; the core's thread restores its durable queue when it opens, as case 75 shows, and no Rust front end holds a `commandBusy`).",
   "set": "session-transport-steering-recovery",
   "testFile": "scripts/session-transport/steering-recovery.test.mjs",
   "totalBytes": 241038,

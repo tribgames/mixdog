@@ -1,0 +1,54 @@
+diff --git a/src/runtime/agent/orchestrator/session/manager/ask-turn-loop-options.mjs b/src/runtime/agent/orchestrator/session/manager/ask-turn-loop-options.mjs
+--- a/src/runtime/agent/orchestrator/session/manager/ask-turn-loop-options.mjs
++++ b/src/runtime/agent/orchestrator/session/manager/ask-turn-loop-options.mjs
+@@ -126,7 +126,9 @@
+       if (typeof askOpts?.onReasoningDelta === 'function') askOpts.onReasoningDelta(chunk);
+     },
+     onAssistantText: (text, detail) => {
+-      interruption.recordAssistantText(text);
++      // A committed message's own text (keepEndedAnswer) reports after its commit cleared the partial buffer;
++      // recording it again made the recovery of a process killed after the steered take append the answer twice.
++      if (detail?.committed !== true) interruption.recordAssistantText(text);
+       checkpoint.schedule(true);
+       if (typeof askOpts?.onAssistantText === 'function') askOpts.onAssistantText(text, detail);
+     },
+diff --git a/src/runtime/agent/orchestrator/session/manager/ask-turn-loop-options.committed-text.test.mjs b/src/runtime/agent/orchestrator/session/manager/ask-turn-loop-options.committed-text.test.mjs
+new file mode 100644
+--- /dev/null
++++ b/src/runtime/agent/orchestrator/session/manager/ask-turn-loop-options.committed-text.test.mjs
+@@ -0,0 +1,35 @@
++// A committed answer is reported again to the host after its commit (keepEndedAnswer, before queued input is taken in): the
++// interruption tracker must not take that text back into its partial buffer, or the recovery of a process killed after
++// the take appends the answer a second time.
++import assert from 'node:assert/strict';
++import test from 'node:test';
++
++const { buildAgentLoopOptions } = await import('./ask-turn-loop-options.mjs');
++const { createTurnInterruptionTracker } = await import('./turn-interruption.mjs');
++
++function optionsFor(interruption) {
++  return buildAgentLoopOptions({
++    sessionId: 'sess-committed-text',
++    session: {},
++    outgoing: [],
++    turn: {},
++    askOpts: {},
++    interruption,
++    checkpoint: { schedule() {} },
++  });
++}
++
++test('a committed answer reported again leaves the partial buffer empty', () => {
++  const interruption = createTurnInterruptionTracker();
++  const options = optionsFor(interruption);
++  options.onTextDelta('answer');
++  options.onAssistantMessageCommitted({ role: 'assistant', content: 'answer' });
++  options.onAssistantText('answer', { committed: true });
++  assert.equal(interruption.snapshot().partialAssistantContent, '');
++});
++
++test('a buffered provider segment that is not yet committed is still recorded', () => {
++  const interruption = createTurnInterruptionTracker();
++  optionsFor(interruption).onAssistantText('whole segment', { committed: false });
++  assert.equal(interruption.snapshot().partialAssistantContent, 'whole segment');
++});

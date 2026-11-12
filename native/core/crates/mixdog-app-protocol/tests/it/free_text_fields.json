@@ -2555,6 +2555,7 @@
     "answer model/proxy/execute /result/route/source",
     "notification host/power /event",
     "notification host/update/report /state/status",
+    "notification model/proxy/event /event/block_types/*",
     "notification model/proxy/event /event/item",
     "notification model/proxy/event /event/kind",
     "notification model/proxy/event /event/phase",

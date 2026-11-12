@@ -1,18 +1,18 @@
 {
-  "dispatchedToolCalls": [],
   "error": {
-    "code": "stream_aborted",
-    "connectCode": null,
-    "cursorCode": "stream_aborted",
-    "liveTextEmitted": null,
-    "message": "Cursor stream was aborted",
     "name": "Error",
-    "providerRecoveryExhausted": true,
-    "reauthRequired": null,
-    "retryAfterMs": null,
+    "message": "Cursor unauthenticated: fixture rejected Open /providers in Mixdog to sign in again.",
+    "status": 401,
+    "code": "unauthenticated",
+    "cursorCode": "unauthenticated",
+    "connectCode": null,
     "retryable": null,
-    "status": null,
+    "retryAfterMs": null,
+    "reauthRequired": null,
     "truncatedStream": null,
-    "unsafeToRetry": null
-  }
+    "unsafeToRetry": null,
+    "liveTextEmitted": null,
+    "providerRecoveryExhausted": null
+  },
+  "dispatchedToolCalls": []
 }

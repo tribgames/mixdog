@@ -41,6 +41,21 @@ impl HomeQueue for Home {
     async fn owned(&self) -> Result<Vec<Value>, String> {
         Ok(vec![json!({"runId": "o1"})])
     }
+    async fn watch(&self, _: Value) -> Result<(), crate::bots::delivery::queue::WatchError> {
+        Ok(())
+    }
+    async fn unwatch(&self, _: &str) -> Result<(), String> {
+        Ok(())
+    }
+    async fn own(&self, _: Value) -> Result<(), String> {
+        Ok(())
+    }
+    async fn disown_all(&self, _: Vec<String>) -> Result<(), String> {
+        Ok(())
+    }
+    async fn follow(&self, _: &str, _: &str) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 #[derive(Default)]

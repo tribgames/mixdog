@@ -107,6 +107,19 @@ pub struct CancelView {
     node: Arc<Node>,
 }
 
+/// A view of a plain token: it reports cancellation and never a reason.
+impl From<CancellationToken> for CancelView {
+    fn from(token: CancellationToken) -> Self {
+        Self {
+            token,
+            node: Arc::new(Node {
+                reason: OnceLock::new(),
+                parent: None,
+            }),
+        }
+    }
+}
+
 impl CancelView {
     pub fn token(&self) -> &CancellationToken {
         &self.token

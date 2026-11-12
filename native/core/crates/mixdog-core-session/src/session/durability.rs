@@ -4,9 +4,10 @@
 //! ordered acks back. The actor never awaits storage; this task never touches session state.
 //!
 //! Records arrive in units (one request's plan): a unit is committed whole in one batch, never split.
-//! After a failed barrier every queued record of that generation is dropped: the actor fails
-//! them all, resets its projected state and continues with the next generation — except the
-//! retained units of a write that was rolled back cleanly, which wait to go first with the next write.
+//! After a failed barrier every queued record of that generation is dropped and nothing is kept here: the actor's outbox
+//! is the one owner of everything not yet durable, in accept order, and hands again what it keeps (see
+//! [`super::outbox::Outbox::handoff`]). A second keeper here, writing its units ahead of what the actor hands, would put a
+//! kept unit before records accepted ahead of it.
 //!
 //! Limits, as Node's: a kept unit lives in memory only, so a crash before the next write loses it; Node's recorder keeps a
 //! failed batch the same way (`session-log-writer.mjs:1236-1242`, the bytes stay in `_unacked` for the next `_drain`, and
@@ -36,12 +37,8 @@ pub(crate) enum ToDurability {
     /// One unit: the records of one request's plan (or one record), `(entry id, record, bytes)` in order, committed together.
     Append {
         generation: u64,
-        /// A failed write keeps the unit for the next one.
-        retain: bool,
         records: Vec<(u64, CommitRecord, usize)>,
     },
-    /// The units kept from a failed write go now, with nothing new (the thread is closing).
-    Flush { generation: u64 },
     /// "Retry storage".
     Retry,
     /// A mark reached the thread with no record to commit (a mark carried from a session whose text it holds): the log
@@ -58,8 +55,6 @@ pub(crate) enum FromDurability {
     Failed {
         generation: u64,
         error: BarrierError,
-        /// The entry ids of the units kept, in order, to go with the next write (a rolled-back write of retained units).
-        retained: Vec<u64>,
     },
     /// Records wait behind an in-flight group commit (`durabilityPending`, RL §6.3).
     Pending(bool),
@@ -115,10 +110,8 @@ fn queued<R: Send + 'static>(
 }
 
 /// One unit of the queue: written whole in one commit, never split across two.
-#[derive(Clone)]
 struct Unit {
     generation: u64,
-    retain: bool,
     records: Vec<(u64, CommitRecord, usize)>,
 }
 
@@ -137,11 +130,6 @@ pub(crate) struct DurabilityTask {
     rx: mpsc::Receiver<ToDurability>,
     tx: mpsc::Sender<FromDurability>,
     queue: VecDeque<Unit>,
-    /// Units of a write that failed and was rolled back, kept in order to go first with the next write (Node's recorder
-    /// keeps a failed batch's bytes and writes them again with the next one, `session-log-writer.mjs` `_drain`).
-    held: Vec<Unit>,
-    /// The held units go now with nothing new, under this generation.
-    flush: Option<u64>,
     dropped_generation: Option<u64>,
     retry: bool,
     redact: bool,
@@ -151,14 +139,13 @@ pub(crate) struct DurabilityTask {
 fn lost() -> BarrierError {
     BarrierError::Indeterminate {
         io_kind: "writerLost".into(),
+        cause: "writerLost".into(),
     }
 }
 
 /// A job the io-durability lane never ran: nothing of it was applied.
 fn unrun() -> BarrierError {
-    BarrierError::Failed {
-        io_kind: "laneFull".into(),
-    }
+    BarrierError::failed("laneFull")
 }
 
 impl DurabilityTask {
@@ -180,8 +167,6 @@ impl DurabilityTask {
             rx,
             tx,
             queue: VecDeque::new(),
-            held: Vec::new(),
-            flush: None,
             dropped_generation: None,
             retry: false,
             redact: false,
@@ -210,12 +195,11 @@ impl DurabilityTask {
                 }
                 msg = self.rx.recv() => match msg {
                     None => return,
-                    Some(ToDurability::Append { generation, retain, records }) => {
+                    Some(ToDurability::Append { generation, records }) => {
                         if self.dropped_generation.is_none_or(|dropped| generation > dropped) {
-                            self.queue.push_back(Unit { generation, retain, records });
+                            self.queue.push_back(Unit { generation, records });
                         }
                     }
-                    Some(ToDurability::Flush { generation }) => self.flush = Some(generation),
                     Some(ToDurability::Retry) => self.retry = true,
                     Some(ToDurability::Redact) => self.redact = true,
                 },
@@ -246,30 +230,18 @@ impl DurabilityTask {
             *in_flight = Some(Box::pin(async move { Done::Redact(job.await) }));
             return;
         }
-        // Held units wait for the next write (a new unit) or a flush.
-        let generation = match (self.queue.front(), self.flush) {
-            (Some(front), _) => front.generation,
-            (None, Some(generation)) if !self.held.is_empty() => generation,
-            _ => return,
-        };
-        // The held units go first, under the generation of the write they go with.
-        let mut units: Vec<Unit> = std::mem::take(&mut self.held);
-        for unit in &mut units {
-            unit.generation = generation;
-        }
-        let mut bytes: usize = units.iter().map(Unit::bytes).sum();
-        let mut fresh = 0;
+        let Some(generation) = self.queue.front().map(|front| front.generation) else { return };
+        let mut units: Vec<Unit> = Vec::new();
+        let mut bytes = 0;
         while let Some(front) = self.queue.front() {
             // Whole units only; a unit larger than a batch is a batch of its own.
-            if front.generation != generation || (fresh > 0 && bytes + front.bytes() > self.batch_bytes) {
+            if front.generation != generation || (!units.is_empty() && bytes + front.bytes() > self.batch_bytes) {
                 break;
             }
             let unit = self.queue.pop_front().expect("front exists");
             bytes += unit.bytes();
-            fresh += 1;
             units.push(unit);
         }
-        self.flush = None;
         let batch: Vec<CommitRecord> = units.iter().flat_map(|unit| unit.records.iter().map(|(_, record, _)| record.clone())).collect();
         let store = self.store.clone();
         let thread = self.thread.clone();
@@ -301,13 +273,7 @@ impl DurabilityTask {
                     Err(error) => {
                         self.dropped_generation = Some(generation);
                         self.queue.retain(|unit| unit.generation > generation);
-                        // A write rolled back cleanly keeps its retained units for the next write; one whose outcome is
-                        // unknown keeps nothing.
-                        if matches!(error, BarrierError::Failed { .. }) {
-                            self.held = units.into_iter().filter(|unit| unit.retain).collect();
-                        }
-                        let retained = self.held.iter().flat_map(|unit| unit.records.iter().map(|(id, _, _)| *id)).collect();
-                        FromDurability::Failed { generation, error, retained }
+                        FromDurability::Failed { generation, error }
                     }
                 }
             }
@@ -320,9 +286,20 @@ impl DurabilityTask {
                 FromDurability::Redacted
             }
         };
-        self.tx.send(msg).await.is_ok()
+        #[cfg(any(test, feature = "test-support"))]
+        let failed = matches!(msg, FromDurability::Failed { .. });
+        let sent = self.tx.send(msg).await.is_ok();
+        #[cfg(any(test, feature = "test-support"))]
+        if failed && let Some(told) = FAILURE_SENT.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).take() {
+            let _ = told.send(());
+        }
+        sent
     }
 }
+
+/// Told once a failed barrier's outcome is in the actor's channel: a test holds the actor until then.
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) static FAILURE_SENT: Mutex<Option<std::sync::mpsc::Sender<()>>> = Mutex::new(None);
 
 enum Done {
     Commit {

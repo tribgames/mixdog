@@ -1,0 +1,1399 @@
+{
+  "note": "Node's code_graph tool at b6f10295a2f698afc85332467192de28500bd146, per call of benchmarks/rust-core/recorders/record-code-graph-cases.mjs",
+  "cases": [
+    {
+      "test": "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs",
+      "case": "unchanged non-call results stay byte-identical across the AST-only rewrite (46 queries)",
+      "calls": [
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n",
+            "src/store.js": "export class Store {\n  save(v) {\n    return v;\n  }\n  saveAll(items) {\n    return items.map((v) => this.save(v));\n  }\n}\n\nexport function copy(other) {\n  return other.save(3);\n}\n",
+            "py/service.py": "def run_task(value):\n    return helper(value)\n\n\ndef helper(value):\n    return value\n"
+          },
+          "input": {
+            "mode": "overview"
+          },
+          "text": "files\t4\nedges\t1\njavascript\t3\npython\t1"
+        },
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n",
+            "src/store.js": "export class Store {\n  save(v) {\n    return v;\n  }\n  saveAll(items) {\n    return items.map((v) => this.save(v));\n  }\n}\n\nexport function copy(other) {\n  return other.save(3);\n}\n",
+            "py/service.py": "def run_task(value):\n    return helper(value)\n\n\ndef helper(value):\n    return value\n"
+          },
+          "input": {
+            "mode": "overview",
+            "file": "src/svc.js"
+          },
+          "text": "file: src/svc.js\nlanguage: javascript\noutline:\nexport function runTask (L1-3)  function runTask(input)\nexport class Worker (L5-15)\n  method start (L6-8)  start()\n  method stop (L9-11)  stop()\n  method cleanup (L12-14)  cleanup()\nfunction helper (L17)  function helper(v)\nfunction Timer (L18)  function Timer(n)"
+        },
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n",
+            "src/store.js": "export class Store {\n  save(v) {\n    return v;\n  }\n  saveAll(items) {\n    return items.map((v) => this.save(v));\n  }\n}\n\nexport function copy(other) {\n  return other.save(3);\n}\n",
+            "py/service.py": "def run_task(value):\n    return helper(value)\n\n\ndef helper(value):\n    return value\n"
+          },
+          "input": {
+            "mode": "overview",
+            "file": "src/app.js"
+          },
+          "text": "file: src/app.js\nlanguage: javascript\noutline:\nexport function boot (L3-5)  function boot()\nexport function reboot (L7-9)  function reboot()\nexport variable handler (L11)\nimports: src/svc.js"
+        },
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n",
+            "src/store.js": "export class Store {\n  save(v) {\n    return v;\n  }\n  saveAll(items) {\n    return items.map((v) => this.save(v));\n  }\n}\n\nexport function copy(other) {\n  return other.save(3);\n}\n",
+            "py/service.py": "def run_task(value):\n    return helper(value)\n\n\ndef helper(value):\n    return value\n"
+          },
+          "input": {
+            "mode": "overview",
+            "file": "src/store.js"
+          },
+          "text": "file: src/store.js\nlanguage: javascript\noutline:\nexport class Store (L1-8)\n  method save (L2-4)  save(v)\n  method saveAll (L5-7)  saveAll(items)\nexport function copy (L10-12)  function copy(other)"
+        },
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n",
+            "src/store.js": "export class Store {\n  save(v) {\n    return v;\n  }\n  saveAll(items) {\n    return items.map((v) => this.save(v));\n  }\n}\n\nexport function copy(other) {\n  return other.save(3);\n}\n",
+            "py/service.py": "def run_task(value):\n    return helper(value)\n\n\ndef helper(value):\n    return value\n"
+          },
+          "input": {
+            "mode": "overview",
+            "file": "py/service.py"
+          },
+          "text": "file: py/service.py\nlanguage: python\noutline:\nexport function run_task (L1-2)  def run_task(value)\nexport function helper (L5-6)  def helper(value)"
+        },
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n",
+            "src/store.js": "export class Store {\n  save(v) {\n    return v;\n  }\n  saveAll(items) {\n    return items.map((v) => this.save(v));\n  }\n}\n\nexport function copy(other) {\n  return other.save(3);\n}\n",
+            "py/service.py": "def run_task(value):\n    return helper(value)\n\n\ndef helper(value):\n    return value\n"
+          },
+          "input": {
+            "mode": "symbols",
+            "file": "src/svc.js"
+          },
+          "text": "export function runTask (L1-3)  function runTask(input)\nexport class Worker (L5-15)\n  method start (L6-8)  start()\n  method stop (L9-11)  stop()\n  method cleanup (L12-14)  cleanup()\nfunction helper (L17)  function helper(v)\nfunction Timer (L18)  function Timer(n)"
+        },
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n",
+            "src/store.js": "export class Store {\n  save(v) {\n    return v;\n  }\n  saveAll(items) {\n    return items.map((v) => this.save(v));\n  }\n}\n\nexport function copy(other) {\n  return other.save(3);\n}\n",
+            "py/service.py": "def run_task(value):\n    return helper(value)\n\n\ndef helper(value):\n    return value\n"
+          },
+          "input": {
+            "mode": "symbols",
+            "file": "src/app.js"
+          },
+          "text": "export function boot (L3-5)  function boot()\nexport function reboot (L7-9)  function reboot()\nexport variable handler (L11)"
+        },
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n",
+            "src/store.js": "export class Store {\n  save(v) {\n    return v;\n  }\n  saveAll(items) {\n    return items.map((v) => this.save(v));\n  }\n}\n\nexport function copy(other) {\n  return other.save(3);\n}\n",
+            "py/service.py": "def run_task(value):\n    return helper(value)\n\n\ndef helper(value):\n    return value\n"
+          },
+          "input": {
+            "mode": "symbols",
+            "file": "src/store.js"
+          },
+          "text": "export class Store (L1-8)\n  method save (L2-4)  save(v)\n  method saveAll (L5-7)  saveAll(items)\nexport function copy (L10-12)  function copy(other)"
+        },
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n",
+            "src/store.js": "export class Store {\n  save(v) {\n    return v;\n  }\n  saveAll(items) {\n    return items.map((v) => this.save(v));\n  }\n}\n\nexport function copy(other) {\n  return other.save(3);\n}\n",
+            "py/service.py": "def run_task(value):\n    return helper(value)\n\n\ndef helper(value):\n    return value\n"
+          },
+          "input": {
+            "mode": "symbols",
+            "file": "py/service.py"
+          },
+          "text": "export function run_task (L1-2)  def run_task(value)\nexport function helper (L5-6)  def helper(value)"
+        },
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n",
+            "src/store.js": "export class Store {\n  save(v) {\n    return v;\n  }\n  saveAll(items) {\n    return items.map((v) => this.save(v));\n  }\n}\n\nexport function copy(other) {\n  return other.save(3);\n}\n",
+            "py/service.py": "def run_task(value):\n    return helper(value)\n\n\ndef helper(value):\n    return value\n"
+          },
+          "input": {
+            "mode": "imports",
+            "file": "src/svc.js"
+          },
+          "text": "(no imports)"
+        },
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n",
+            "src/store.js": "export class Store {\n  save(v) {\n    return v;\n  }\n  saveAll(items) {\n    return items.map((v) => this.save(v));\n  }\n}\n\nexport function copy(other) {\n  return other.save(3);\n}\n",
+            "py/service.py": "def run_task(value):\n    return helper(value)\n\n\ndef helper(value):\n    return value\n"
+          },
+          "input": {
+            "mode": "imports",
+            "file": "src/app.js"
+          },
+          "text": "src/svc.js\n\n# raw\n./svc.js"
+        },
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n",
+            "src/store.js": "export class Store {\n  save(v) {\n    return v;\n  }\n  saveAll(items) {\n    return items.map((v) => this.save(v));\n  }\n}\n\nexport function copy(other) {\n  return other.save(3);\n}\n",
+            "py/service.py": "def run_task(value):\n    return helper(value)\n\n\ndef helper(value):\n    return value\n"
+          },
+          "input": {
+            "mode": "imports",
+            "file": "src/store.js"
+          },
+          "text": "(no imports)"
+        },
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n",
+            "src/store.js": "export class Store {\n  save(v) {\n    return v;\n  }\n  saveAll(items) {\n    return items.map((v) => this.save(v));\n  }\n}\n\nexport function copy(other) {\n  return other.save(3);\n}\n",
+            "py/service.py": "def run_task(value):\n    return helper(value)\n\n\ndef helper(value):\n    return value\n"
+          },
+          "input": {
+            "mode": "imports",
+            "file": "py/service.py"
+          },
+          "text": "(no imports)"
+        },
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n",
+            "src/store.js": "export class Store {\n  save(v) {\n    return v;\n  }\n  saveAll(items) {\n    return items.map((v) => this.save(v));\n  }\n}\n\nexport function copy(other) {\n  return other.save(3);\n}\n",
+            "py/service.py": "def run_task(value):\n    return helper(value)\n\n\ndef helper(value):\n    return value\n"
+          },
+          "input": {
+            "mode": "dependents",
+            "file": "src/svc.js"
+          },
+          "text": "src/app.js:1"
+        },
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n",
+            "src/store.js": "export class Store {\n  save(v) {\n    return v;\n  }\n  saveAll(items) {\n    return items.map((v) => this.save(v));\n  }\n}\n\nexport function copy(other) {\n  return other.save(3);\n}\n",
+            "py/service.py": "def run_task(value):\n    return helper(value)\n\n\ndef helper(value):\n    return value\n"
+          },
+          "input": {
+            "mode": "dependents",
+            "file": "src/app.js"
+          },
+          "text": "(no dependents)"
+        },
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n",
+            "src/store.js": "export class Store {\n  save(v) {\n    return v;\n  }\n  saveAll(items) {\n    return items.map((v) => this.save(v));\n  }\n}\n\nexport function copy(other) {\n  return other.save(3);\n}\n",
+            "py/service.py": "def run_task(value):\n    return helper(value)\n\n\ndef helper(value):\n    return value\n"
+          },
+          "input": {
+            "mode": "dependents",
+            "file": "src/store.js"
+          },
+          "text": "(no dependents)"
+        },
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n",
+            "src/store.js": "export class Store {\n  save(v) {\n    return v;\n  }\n  saveAll(items) {\n    return items.map((v) => this.save(v));\n  }\n}\n\nexport function copy(other) {\n  return other.save(3);\n}\n",
+            "py/service.py": "def run_task(value):\n    return helper(value)\n\n\ndef helper(value):\n    return value\n"
+          },
+          "input": {
+            "mode": "dependents",
+            "file": "py/service.py"
+          },
+          "text": "(no dependents)"
+        },
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n",
+            "src/store.js": "export class Store {\n  save(v) {\n    return v;\n  }\n  saveAll(items) {\n    return items.map((v) => this.save(v));\n  }\n}\n\nexport function copy(other) {\n  return other.save(3);\n}\n",
+            "py/service.py": "def run_task(value):\n    return helper(value)\n\n\ndef helper(value):\n    return value\n"
+          },
+          "input": {
+            "mode": "related",
+            "file": "src/svc.js"
+          },
+          "text": "file\tsrc/svc.js\nlanguage\tjavascript\nimports\t0\ndependents\t1\nrelated\t1\n\n# imports\n(none)\n\n# dependents\nsrc/app.js\n\n# related\nsrc/app.js"
+        },
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n",
+            "src/store.js": "export class Store {\n  save(v) {\n    return v;\n  }\n  saveAll(items) {\n    return items.map((v) => this.save(v));\n  }\n}\n\nexport function copy(other) {\n  return other.save(3);\n}\n",
+            "py/service.py": "def run_task(value):\n    return helper(value)\n\n\ndef helper(value):\n    return value\n"
+          },
+          "input": {
+            "mode": "related",
+            "file": "src/app.js"
+          },
+          "text": "file\tsrc/app.js\nlanguage\tjavascript\nimports\t1\ndependents\t0\nrelated\t1\n\n# imports\nsrc/svc.js\n\n# dependents\n(none)\n\n# related\nsrc/svc.js"
+        },
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n",
+            "src/store.js": "export class Store {\n  save(v) {\n    return v;\n  }\n  saveAll(items) {\n    return items.map((v) => this.save(v));\n  }\n}\n\nexport function copy(other) {\n  return other.save(3);\n}\n",
+            "py/service.py": "def run_task(value):\n    return helper(value)\n\n\ndef helper(value):\n    return value\n"
+          },
+          "input": {
+            "mode": "related",
+            "file": "src/store.js"
+          },
+          "text": "file\tsrc/store.js\nlanguage\tjavascript\nimports\t0\ndependents\t0\nrelated\t0\n\n# imports\n(none)\n\n# dependents\n(none)"
+        },
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n",
+            "src/store.js": "export class Store {\n  save(v) {\n    return v;\n  }\n  saveAll(items) {\n    return items.map((v) => this.save(v));\n  }\n}\n\nexport function copy(other) {\n  return other.save(3);\n}\n",
+            "py/service.py": "def run_task(value):\n    return helper(value)\n\n\ndef helper(value):\n    return value\n"
+          },
+          "input": {
+            "mode": "related",
+            "file": "py/service.py"
+          },
+          "text": "file\tpy/service.py\nlanguage\tpython\nimports\t0\ndependents\t0\nrelated\t0\n\n# imports\n(none)\n\n# dependents\n(none)"
+        },
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n",
+            "src/store.js": "export class Store {\n  save(v) {\n    return v;\n  }\n  saveAll(items) {\n    return items.map((v) => this.save(v));\n  }\n}\n\nexport function copy(other) {\n  return other.save(3);\n}\n",
+            "py/service.py": "def run_task(value):\n    return helper(value)\n\n\ndef helper(value):\n    return value\n"
+          },
+          "input": {
+            "mode": "impact",
+            "file": "src/svc.js"
+          },
+          "text": "file\tsrc/svc.js\nlanguage\tjavascript\nimports\t0\ndependents\t1\nrelated\t1\nscanned_symbols\t7\nexternal_references\t4\nexternal_callers\t1\n\n# structural\nsrc/app.js\n\n# top symbol impact\nrunTask\trefs=4\tcallers=1 -> src/app.js\n\n# external callers\nsrc/app.js"
+        },
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n",
+            "src/store.js": "export class Store {\n  save(v) {\n    return v;\n  }\n  saveAll(items) {\n    return items.map((v) => this.save(v));\n  }\n}\n\nexport function copy(other) {\n  return other.save(3);\n}\n",
+            "py/service.py": "def run_task(value):\n    return helper(value)\n\n\ndef helper(value):\n    return value\n"
+          },
+          "input": {
+            "mode": "impact",
+            "file": "src/app.js"
+          },
+          "text": "file\tsrc/app.js\nlanguage\tjavascript\nimports\t1\ndependents\t0\nrelated\t1\nscanned_symbols\t3\nexternal_references\t0\nexternal_callers\t0\n\n# structural\nsrc/svc.js"
+        },
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n",
+            "src/store.js": "export class Store {\n  save(v) {\n    return v;\n  }\n  saveAll(items) {\n    return items.map((v) => this.save(v));\n  }\n}\n\nexport function copy(other) {\n  return other.save(3);\n}\n",
+            "py/service.py": "def run_task(value):\n    return helper(value)\n\n\ndef helper(value):\n    return value\n"
+          },
+          "input": {
+            "mode": "impact",
+            "file": "src/store.js"
+          },
+          "text": "file\tsrc/store.js\nlanguage\tjavascript\nimports\t0\ndependents\t0\nrelated\t0\nscanned_symbols\t4\nexternal_references\t0\nexternal_callers\t0"
+        },
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n",
+            "src/store.js": "export class Store {\n  save(v) {\n    return v;\n  }\n  saveAll(items) {\n    return items.map((v) => this.save(v));\n  }\n}\n\nexport function copy(other) {\n  return other.save(3);\n}\n",
+            "py/service.py": "def run_task(value):\n    return helper(value)\n\n\ndef helper(value):\n    return value\n"
+          },
+          "input": {
+            "mode": "impact",
+            "file": "py/service.py"
+          },
+          "text": "file\tpy/service.py\nlanguage\tpython\nimports\t0\ndependents\t0\nrelated\t0\nscanned_symbols\t2\nexternal_references\t0\nexternal_callers\t0"
+        },
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n",
+            "src/store.js": "export class Store {\n  save(v) {\n    return v;\n  }\n  saveAll(items) {\n    return items.map((v) => this.save(v));\n  }\n}\n\nexport function copy(other) {\n  return other.save(3);\n}\n",
+            "py/service.py": "def run_task(value):\n    return helper(value)\n\n\ndef helper(value):\n    return value\n"
+          },
+          "input": {
+            "mode": "impact",
+            "file": "src/svc.js",
+            "symbol": "runTask"
+          },
+          "text": "file\tsrc/svc.js\nlanguage\tjavascript\nimports\t0\ndependents\t1\nrelated\t1\nscanned_symbols\t1\nexternal_references\t4\nexternal_callers\t1\nsymbol\trunTask\n\n# structural\nsrc/app.js\n\n# symbol impact\nrunTask\trefs=4\tcallers=1 -> src/app.js\n\n# external callers\nsrc/app.js"
+        },
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n",
+            "src/store.js": "export class Store {\n  save(v) {\n    return v;\n  }\n  saveAll(items) {\n    return items.map((v) => this.save(v));\n  }\n}\n\nexport function copy(other) {\n  return other.save(3);\n}\n",
+            "py/service.py": "def run_task(value):\n    return helper(value)\n\n\ndef helper(value):\n    return value\n"
+          },
+          "input": {
+            "mode": "impact",
+            "file": "src/app.js",
+            "symbol": "runTask"
+          },
+          "text": "file\tsrc/app.js\nlanguage\tjavascript\nimports\t1\ndependents\t0\nrelated\t1\nscanned_symbols\t1\nexternal_references\t2\nexternal_callers\t1\nsymbol\trunTask\n\n# structural\nsrc/svc.js\n\n# symbol impact\nrunTask\trefs=2\tcallers=1 -> src/svc.js\n\n# external callers\nsrc/svc.js"
+        },
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n",
+            "src/store.js": "export class Store {\n  save(v) {\n    return v;\n  }\n  saveAll(items) {\n    return items.map((v) => this.save(v));\n  }\n}\n\nexport function copy(other) {\n  return other.save(3);\n}\n",
+            "py/service.py": "def run_task(value):\n    return helper(value)\n\n\ndef helper(value):\n    return value\n"
+          },
+          "input": {
+            "mode": "impact",
+            "file": "src/store.js",
+            "symbol": "runTask"
+          },
+          "text": "file\tsrc/store.js\nlanguage\tjavascript\nimports\t0\ndependents\t0\nrelated\t0\nscanned_symbols\t1\nexternal_references\t6\nexternal_callers\t2\nsymbol\trunTask\n\n# symbol impact\nrunTask\trefs=6\tcallers=2 -> src/app.js, src/svc.js\n\n# external callers\nsrc/app.js\nsrc/svc.js"
+        },
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n",
+            "src/store.js": "export class Store {\n  save(v) {\n    return v;\n  }\n  saveAll(items) {\n    return items.map((v) => this.save(v));\n  }\n}\n\nexport function copy(other) {\n  return other.save(3);\n}\n",
+            "py/service.py": "def run_task(value):\n    return helper(value)\n\n\ndef helper(value):\n    return value\n"
+          },
+          "input": {
+            "mode": "impact",
+            "file": "py/service.py",
+            "symbol": "runTask"
+          },
+          "text": "file\tpy/service.py\nlanguage\tpython\nimports\t0\ndependents\t0\nrelated\t0\nscanned_symbols\t1\nexternal_references\t0\nexternal_callers\t0\nsymbol\trunTask"
+        },
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n",
+            "src/store.js": "export class Store {\n  save(v) {\n    return v;\n  }\n  saveAll(items) {\n    return items.map((v) => this.save(v));\n  }\n}\n\nexport function copy(other) {\n  return other.save(3);\n}\n",
+            "py/service.py": "def run_task(value):\n    return helper(value)\n\n\ndef helper(value):\n    return value\n"
+          },
+          "input": {
+            "mode": "find_symbol",
+            "symbol": "missingSymbol"
+          },
+          "text": "(no symbol matches in cwd=<ROOT>)\ngraph: nodes=4"
+        },
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n",
+            "src/store.js": "export class Store {\n  save(v) {\n    return v;\n  }\n  saveAll(items) {\n    return items.map((v) => this.save(v));\n  }\n}\n\nexport function copy(other) {\n  return other.save(3);\n}\n",
+            "py/service.py": "def run_task(value):\n    return helper(value)\n\n\ndef helper(value):\n    return value\n"
+          },
+          "input": {
+            "mode": "symbol_search",
+            "symbol": "run"
+          },
+          "text": "# search keyword=run matches=2 shown=2\nrunTask\tsrc/svc.js:1-3:8\texport function\tfunction runTask(input)\nrun_task\tpy/service.py:1-2:1\texport function\tdef run_task(value)"
+        },
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n",
+            "src/store.js": "export class Store {\n  save(v) {\n    return v;\n  }\n  saveAll(items) {\n    return items.map((v) => this.save(v));\n  }\n}\n\nexport function copy(other) {\n  return other.save(3);\n}\n",
+            "py/service.py": "def run_task(value):\n    return helper(value)\n\n\ndef helper(value):\n    return value\n"
+          },
+          "input": {
+            "mode": "symbol_search",
+            "symbol": "save"
+          },
+          "text": "# search keyword=save matches=2 shown=2\nsave\tsrc/store.js:2-4:3\tmethod\tsave(v)\nsaveAll\tsrc/store.js:5-7:3\tmethod\tsaveAll(items)"
+        },
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n",
+            "src/store.js": "export class Store {\n  save(v) {\n    return v;\n  }\n  saveAll(items) {\n    return items.map((v) => this.save(v));\n  }\n}\n\nexport function copy(other) {\n  return other.save(3);\n}\n",
+            "py/service.py": "def run_task(value):\n    return helper(value)\n\n\ndef helper(value):\n    return value\n"
+          },
+          "input": {
+            "mode": "symbol_search",
+            "symbol": "task"
+          },
+          "text": "# search keyword=task matches=2 shown=2\nrunTask\tsrc/svc.js:1-3:8\texport function\tfunction runTask(input)\nrun_task\tpy/service.py:1-2:1\texport function\tdef run_task(value)"
+        },
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n",
+            "src/store.js": "export class Store {\n  save(v) {\n    return v;\n  }\n  saveAll(items) {\n    return items.map((v) => this.save(v));\n  }\n}\n\nexport function copy(other) {\n  return other.save(3);\n}\n",
+            "py/service.py": "def run_task(value):\n    return helper(value)\n\n\ndef helper(value):\n    return value\n"
+          },
+          "input": {
+            "mode": "symbol_search",
+            "symbol": "helper"
+          },
+          "text": "# search keyword=helper matches=1 shown=1\nhelper\tsrc/svc.js:17-17:1\tfunction\tfunction helper(v)"
+        },
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n",
+            "src/store.js": "export class Store {\n  save(v) {\n    return v;\n  }\n  saveAll(items) {\n    return items.map((v) => this.save(v));\n  }\n}\n\nexport function copy(other) {\n  return other.save(3);\n}\n",
+            "py/service.py": "def run_task(value):\n    return helper(value)\n\n\ndef helper(value):\n    return value\n"
+          },
+          "input": {
+            "mode": "symbol_search",
+            "symbol": "runTask",
+            "file": "src/svc.js"
+          },
+          "text": "# search keyword=runTask matches=1 shown=1\nrunTask\tsrc/svc.js:1-3:8\texport function\tfunction runTask(input)"
+        },
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n",
+            "src/store.js": "export class Store {\n  save(v) {\n    return v;\n  }\n  saveAll(items) {\n    return items.map((v) => this.save(v));\n  }\n}\n\nexport function copy(other) {\n  return other.save(3);\n}\n",
+            "py/service.py": "def run_task(value):\n    return helper(value)\n\n\ndef helper(value):\n    return value\n"
+          },
+          "input": {
+            "mode": "symbol_search",
+            "symbol": "save",
+            "file": "src/store.js"
+          },
+          "text": "# search keyword=save matches=2 shown=2\nsave\tsrc/store.js:2-4:3\tmethod\tsave(v)\nsaveAll\tsrc/store.js:5-7:3\tmethod\tsaveAll(items)"
+        },
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n",
+            "src/store.js": "export class Store {\n  save(v) {\n    return v;\n  }\n  saveAll(items) {\n    return items.map((v) => this.save(v));\n  }\n}\n\nexport function copy(other) {\n  return other.save(3);\n}\n",
+            "py/service.py": "def run_task(value):\n    return helper(value)\n\n\ndef helper(value):\n    return value\n"
+          },
+          "input": {
+            "mode": "search",
+            "symbol": "runTask"
+          },
+          "text": "# search keyword=runTask matches=2 shown=2\nrunTask\tsrc/svc.js:1-3:8\texport function\tfunction runTask(input)\nrun_task\tpy/service.py:1-2:1\texport function\tdef run_task(value)"
+        },
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n",
+            "src/store.js": "export class Store {\n  save(v) {\n    return v;\n  }\n  saveAll(items) {\n    return items.map((v) => this.save(v));\n  }\n}\n\nexport function copy(other) {\n  return other.save(3);\n}\n",
+            "py/service.py": "def run_task(value):\n    return helper(value)\n\n\ndef helper(value):\n    return value\n"
+          },
+          "input": {
+            "mode": "search",
+            "symbol": "save"
+          },
+          "text": "# search keyword=save matches=2 shown=2\nsave\tsrc/store.js:2-4:3\tmethod\tsave(v)\nsaveAll\tsrc/store.js:5-7:3\tmethod\tsaveAll(items)"
+        },
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n",
+            "src/store.js": "export class Store {\n  save(v) {\n    return v;\n  }\n  saveAll(items) {\n    return items.map((v) => this.save(v));\n  }\n}\n\nexport function copy(other) {\n  return other.save(3);\n}\n",
+            "py/service.py": "def run_task(value):\n    return helper(value)\n\n\ndef helper(value):\n    return value\n"
+          },
+          "input": {
+            "mode": "search",
+            "symbol": "helper"
+          },
+          "text": "# search keyword=helper matches=1 shown=1\nhelper\tsrc/svc.js:17-17:1\tfunction\tfunction helper(v)"
+        },
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n",
+            "src/store.js": "export class Store {\n  save(v) {\n    return v;\n  }\n  saveAll(items) {\n    return items.map((v) => this.save(v));\n  }\n}\n\nexport function copy(other) {\n  return other.save(3);\n}\n",
+            "py/service.py": "def run_task(value):\n    return helper(value)\n\n\ndef helper(value):\n    return value\n"
+          },
+          "input": {
+            "mode": "overview",
+            "file": "src/svc.js",
+            "depth": 2
+          },
+          "text": "file: src/svc.js\nlanguage: javascript\noutline:\nexport function runTask (L1-3)  function runTask(input)\nexport class Worker (L5-15)\n  method start (L6-8)  start()\n  method stop (L9-11)  stop()\n  method cleanup (L12-14)  cleanup()\nfunction helper (L17)  function helper(v)\nfunction Timer (L18)  function Timer(n)"
+        },
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n",
+            "src/store.js": "export class Store {\n  save(v) {\n    return v;\n  }\n  saveAll(items) {\n    return items.map((v) => this.save(v));\n  }\n}\n\nexport function copy(other) {\n  return other.save(3);\n}\n",
+            "py/service.py": "def run_task(value):\n    return helper(value)\n\n\ndef helper(value):\n    return value\n"
+          },
+          "input": {
+            "mode": "overview",
+            "file": "src/store.js",
+            "depth": 3
+          },
+          "text": "file: src/store.js\nlanguage: javascript\noutline:\nexport class Store (L1-8)\n  method save (L2-4)  save(v)\n  method saveAll (L5-7)  saveAll(items)\nexport function copy (L10-12)  function copy(other)"
+        },
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n",
+            "src/store.js": "export class Store {\n  save(v) {\n    return v;\n  }\n  saveAll(items) {\n    return items.map((v) => this.save(v));\n  }\n}\n\nexport function copy(other) {\n  return other.save(3);\n}\n",
+            "py/service.py": "def run_task(value):\n    return helper(value)\n\n\ndef helper(value):\n    return value\n"
+          },
+          "input": {
+            "mode": "symbols",
+            "file": "src/svc.js",
+            "depth": 2
+          },
+          "text": "export function runTask (L1-3)  function runTask(input)\nexport class Worker (L5-15)\n  method start (L6-8)  start()\n  method stop (L9-11)  stop()\n  method cleanup (L12-14)  cleanup()\nfunction helper (L17)  function helper(v)\nfunction Timer (L18)  function Timer(n)"
+        },
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n",
+            "src/store.js": "export class Store {\n  save(v) {\n    return v;\n  }\n  saveAll(items) {\n    return items.map((v) => this.save(v));\n  }\n}\n\nexport function copy(other) {\n  return other.save(3);\n}\n",
+            "py/service.py": "def run_task(value):\n    return helper(value)\n\n\ndef helper(value):\n    return value\n"
+          },
+          "input": {
+            "mode": "related",
+            "file": "py/service.py",
+            "depth": 2
+          },
+          "text": "file\tpy/service.py\nlanguage\tpython\nimports\t0\ndependents\t0\nrelated\t0\n\n# imports\n(none)\n\n# dependents\n(none)"
+        },
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n",
+            "src/store.js": "export class Store {\n  save(v) {\n    return v;\n  }\n  saveAll(items) {\n    return items.map((v) => this.save(v));\n  }\n}\n\nexport function copy(other) {\n  return other.save(3);\n}\n",
+            "py/service.py": "def run_task(value):\n    return helper(value)\n\n\ndef helper(value):\n    return value\n"
+          },
+          "input": {
+            "mode": "impact",
+            "file": "src/app.js",
+            "symbol": "boot"
+          },
+          "text": "file\tsrc/app.js\nlanguage\tjavascript\nimports\t1\ndependents\t0\nrelated\t1\nscanned_symbols\t1\nexternal_references\t0\nexternal_callers\t0\nsymbol\tboot\n\n# structural\nsrc/svc.js"
+        }
+      ],
+      "assertions": [
+        "Expected values to be strictly deep-equal:"
+      ]
+    },
+    {
+      "test": "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs",
+      "case": "AST callees: inSymbol match reports kind, receiver and 1-based column",
+      "calls": [
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n"
+          },
+          "input": {
+            "mode": "callees",
+            "symbol": "runTask"
+          },
+          "text": "# callees\nhelper\tcallsite src/svc.js:2:10\tdecl src/svc.js:17\t(in runTask)\tkind=call"
+        }
+      ],
+      "assertions": []
+    },
+    {
+      "test": "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs",
+      "case": "AST callees: a container symbol also reports the calls of its members",
+      "calls": [
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n"
+          },
+          "input": {
+            "mode": "callees",
+            "symbol": "Worker"
+          },
+          "text": "# callees\nrunTask\tcallsite src/svc.js:7:12\tdecl src/svc.js:1\t(in start)\tkind=call\ncleanup\tcallsite src/svc.js:10:17\tdecl src/svc.js:12\t(in stop)\tkind=method recv=this\nTimer\tcallsite src/svc.js:13:16\tdecl src/svc.js:18\t(in cleanup)\tkind=new"
+        }
+      ],
+      "assertions": []
+    },
+    {
+      "test": "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs",
+      "case": "container membership is the unified kind vocabulary plus `parent`, not a line span",
+      "calls": [
+        {
+          "files": {
+            "src/engine.rs": "pub struct Engine {\n    pub name: String,\n}\nimpl Engine {\n    pub fn start(&self) -> u8 {\n        boot(self)\n    }\n}\nfn mem() -> u8 { detach() }\ntrait Sink { fn flush(&self); }\n"
+          },
+          "input": {
+            "mode": "callees",
+            "symbol": "Engine"
+          },
+          "text": "(no callees)"
+        },
+        {
+          "files": {
+            "src/engine.rs": "pub struct Engine {\n    pub name: String,\n}\nimpl Engine {\n    pub fn start(&self) -> u8 {\n        boot(self)\n    }\n}\nfn mem() -> u8 { detach() }\ntrait Sink { fn flush(&self); }\n"
+          },
+          "input": {
+            "mode": "callees",
+            "symbol": "Sink"
+          },
+          "text": "(no callees)"
+        },
+        {
+          "files": {
+            "src/engine.rs": "pub struct Engine {\n    pub name: String,\n}\nimpl Engine {\n    pub fn start(&self) -> u8 {\n        boot(self)\n    }\n}\nfn mem() -> u8 { detach() }\ntrait Sink { fn flush(&self); }\n"
+          },
+          "input": {
+            "mode": "symbols",
+            "file": "src/engine.rs"
+          },
+          "text": "export struct Engine (L1-3)  pub struct Engine\nexport function start (L5-7)  pub fn start(&self) -> u8\nfunction mem (L9)  fn mem() -> u8\ntrait Sink (L10)\n  function flush (L10)  fn flush(&self)"
+        }
+      ],
+      "assertions": [
+        "The input did not match the regular expression /^boot\\tcallsite src\\/engine\\.rs:6:9\\t/m. Input:",
+        "The input did not match the regular expression /^drain\\tcallsite src\\/engine\\.rs:10:21\\t/m. Input:",
+        "Expected values to be strictly equal:"
+      ]
+    },
+    {
+      "test": "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs",
+      "case": "a kind outside the container set is not a container",
+      "calls": [
+        {
+          "files": {
+            "src/legacy-kind.js": "const Legacy = {\n  run() { return work(); },\n};\n"
+          },
+          "input": {
+            "mode": "callees",
+            "symbol": "Legacy"
+          },
+          "text": "(no callees)"
+        },
+        {
+          "files": {
+            "src/legacy-kind.js": "const Legacy = {\n  run() { return work(); },\n};\n"
+          },
+          "input": {
+            "mode": "callees",
+            "symbol": "run"
+          },
+          "text": "# callees\nwork\tcallsite src/legacy-kind.js:2:18\tdecl (external/builtin)\t(in run)\tkind=call"
+        },
+        {
+          "files": {
+            "src/legacy-kind.js": "const Legacy = {\n  run() { return work(); },\n};\n"
+          },
+          "input": {
+            "mode": "symbols",
+            "file": "src/legacy-kind.js"
+          },
+          "text": "variable Legacy (L1-3)\n  method run (L2)  run()"
+        }
+      ],
+      "assertions": [
+        "The input did not match the regular expression /^object Legacy \\(L1-3\\)\\n {2}method run \\(L2\\) {2}run\\(\\)$/m. Input:"
+      ]
+    },
+    {
+      "test": "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs",
+      "case": "callees are language-agnostic; a file the extractor skipped simply has none",
+      "calls": [
+        {
+          "files": {
+            "py/service.py": "def run_task(value):\n    return helper(value)\n\n\ndef helper(value):\n    return value\n"
+          },
+          "input": {
+            "mode": "callees",
+            "symbol": "run_task"
+          },
+          "text": "# callees\nhelper\tcallsite py/service.py:2:12\tdecl py/service.py:5\t(in run_task)\tkind=call"
+        },
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "py/service.py": "def run_task(value):\n    return helper(value)\n\n\ndef helper(value):\n    return value\n"
+          },
+          "input": {
+            "mode": "callees",
+            "symbol": "run_task"
+          },
+          "text": "# callees\nhelper\tcallsite py/service.py:2:12\tdecl py/service.py:5\t(in run_task)\tkind=call"
+        }
+      ],
+      "assertions": [
+        "Expected values to be strictly equal:"
+      ]
+    },
+    {
+      "test": "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs",
+      "case": "AST callers: same file plus direct importers, grouped by (file, inSymbol)",
+      "calls": [
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n",
+            "src/other/stray.js": "export function strayEntry(runner) {\n  return runTask('stray');\n}\n"
+          },
+          "input": {
+            "mode": "callers",
+            "symbol": "runTask"
+          },
+          "text": "# call sites\nsrc/app.js:4:10\tcall\tcaller=boot\treturn runTask('boot');\nsrc/app.js:8:10\tcall\tcaller=reboot\treturn runTask('again');\nsrc/svc.js:7:12\tcall\tcaller=Worker/start\treturn runTask('x');"
+        }
+      ],
+      "assertions": []
+    },
+    {
+      "test": "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs",
+      "case": "caller= renders the containment chain when the outline has spans, else the innermost name",
+      "calls": [
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n"
+          },
+          "input": {
+            "mode": "callers",
+            "symbol": "runTask"
+          },
+          "text": "# call sites\nsrc/app.js:4:10\tcall\tcaller=boot\treturn runTask('boot');\nsrc/app.js:8:10\tcall\tcaller=reboot\treturn runTask('again');\nsrc/svc.js:7:12\tcall\tcaller=Worker/start\treturn runTask('x');"
+        },
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n"
+          },
+          "input": {
+            "mode": "callers",
+            "symbol": "runTask"
+          },
+          "text": "# call sites\nsrc/app.js:4:10\tcall\tcaller=boot\treturn runTask('boot');\nsrc/app.js:8:10\tcall\tcaller=reboot\treturn runTask('again');\nsrc/svc.js:7:12\tcall\tcaller=Worker/start\treturn runTask('x');"
+        }
+      ],
+      "assertions": [
+        "The input did not match the regular expression /^src\\/svc\\.js:7:12\\tcall\\tcaller=start\\t/m. Input:"
+      ]
+    },
+    {
+      "test": "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs",
+      "case": "AST callers: method calls need a self receiver or an importing caller file",
+      "calls": [
+        {
+          "files": {
+            "src/store.js": "export class Store {\n  save(v) {\n    return v;\n  }\n  saveAll(items) {\n    return items.map((v) => this.save(v));\n  }\n}\n\nexport function copy(other) {\n  return other.save(3);\n}\n",
+            "src/use-store.js": "import { Store } from './store.js';\n\nexport function persist(store) {\n  return store.save(1);\n}\n",
+            "src/other/nostore.js": "export function keep(cache) {\n  return cache.save(2);\n}\n"
+          },
+          "input": {
+            "mode": "callers",
+            "symbol": "save"
+          },
+          "text": "# call sites\nsrc/store.js:6:34\tcall\tcaller=Store/saveAll\treturn items.map((v) => this.save(v));\nsrc/use-store.js:4:16\tcall\tcaller=persist\treturn store.save(1);"
+        }
+      ],
+      "assertions": []
+    },
+    {
+      "test": "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs",
+      "case": "no ADDITION: a call that reaches no declaration is not a caller",
+      "calls": [
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n",
+            "src/other/stray.js": "export function strayEntry(runner) {\n  return runTask('stray');\n}\n"
+          },
+          "input": {
+            "mode": "callers",
+            "symbol": "runTask"
+          },
+          "text": "# call sites\nsrc/app.js:4:10\tcall\tcaller=boot\treturn runTask('boot');\nsrc/app.js:8:10\tcall\tcaller=reboot\treturn runTask('again');\nsrc/svc.js:7:12\tcall\tcaller=Worker/start\treturn runTask('x');"
+        }
+      ],
+      "assertions": []
+    },
+    {
+      "test": "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs",
+      "case": "references: call rows come from `calls`, non-call identifier usages from the text scan",
+      "calls": [
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n"
+          },
+          "input": {
+            "mode": "references",
+            "symbol": "runTask"
+          },
+          "text": "# declaration\n# best declaration candidate\nsrc/svc.js:1-3:17 (javascript, export function, matches=2)\nsignature: function runTask(input)\n\n# references\nsrc/app.js:4:10\tcall\towner=boot\treturn runTask('boot');\nsrc/app.js:8:10\tcall\towner=reboot\treturn runTask('again');\nsrc/app.js:11:24\treference\towner=handler\texport const handler = runTask;\nsrc/svc.js:7:12\tcall\towner=Worker/start\treturn runTask('x');"
+        }
+      ],
+      "assertions": []
+    },
+    {
+      "test": "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs",
+      "case": "references still answer for a file the extractor produced no calls for",
+      "calls": [
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/legacy.js": "import { runTask } from './svc.js';\n\nexport const legacyAlias = runTask;\n"
+          },
+          "input": {
+            "mode": "references",
+            "symbol": "runTask"
+          },
+          "text": "# declaration\n# best declaration candidate\nsrc/svc.js:1-3:17 (javascript, export function, matches=2)\nsignature: function runTask(input)\n\n# references\nsrc/legacy.js:3:28\treference\towner=legacyAlias\texport const legacyAlias = runTask;\nsrc/svc.js:7:12\tcall\towner=Worker/start\treturn runTask('x');"
+        }
+      ],
+      "assertions": []
+    },
+    {
+      "test": "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs",
+      "case": "a call-shaped string literal is never a call row, and `calls: []` files still answer references",
+      "calls": [
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/literal.js": "import { runTask } from './svc.js';\n\nexport function shout() {\n  const pattern = \"runTask(\";\n  return [pattern, runTask];\n}\n"
+          },
+          "input": {
+            "mode": "references",
+            "symbol": "runTask"
+          },
+          "text": "# declaration\n# best declaration candidate\nsrc/svc.js:1-3:17 (javascript, export function, matches=2)\nsignature: function runTask(input)\n\n# references\nsrc/literal.js:5:20\treference\towner=shout\treturn [pattern, runTask];\nsrc/svc.js:7:12\tcall\towner=Worker/start\treturn runTask('x');"
+        },
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/literal.js": "import { runTask } from './svc.js';\n\nexport function shout() {\n  const pattern = \"runTask(\";\n  return [pattern, runTask];\n}\n"
+          },
+          "input": {
+            "mode": "callers",
+            "symbol": "runTask"
+          },
+          "text": "# call sites\nsrc/svc.js:7:12\tcall\tcaller=Worker/start\treturn runTask('x');"
+        }
+      ],
+      "assertions": []
+    },
+    {
+      "test": "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs",
+      "case": "references still answer when the graph has no call data at all",
+      "calls": [
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n"
+          },
+          "input": {
+            "mode": "references",
+            "symbol": "runTask"
+          },
+          "text": "# declaration\n# best declaration candidate\nsrc/svc.js:1-3:17 (javascript, export function, matches=2)\nsignature: function runTask(input)\n\n# references\nsrc/app.js:4:10\tcall\towner=boot\treturn runTask('boot');\nsrc/app.js:8:10\tcall\towner=reboot\treturn runTask('again');\nsrc/app.js:11:24\treference\towner=handler\texport const handler = runTask;\nsrc/svc.js:7:12\tcall\towner=Worker/start\treturn runTask('x');"
+        }
+      ],
+      "assertions": []
+    },
+    {
+      "test": "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs",
+      "case": "callers reach through a re-export forwarder, but not through a file that calls the symbol",
+      "calls": [
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/index.js": "export { runTask } from './svc.js';\n",
+            "src/via-barrel.js": "import { runTask } from './index.js';\n\nexport function viaBarrel() {\n  return runTask('barrel');\n}\n",
+            "src/facade.js": "import { runTask } from './svc.js';\n\nexport function reexport(v) {\n  return runTask(v);\n}\n",
+            "src/via-facade.js": "import { reexport } from './facade.js';\n\nexport function viaFacade() {\n  return runTask('facade');\n}\n"
+          },
+          "input": {
+            "mode": "callers",
+            "symbol": "runTask"
+          },
+          "text": "# call sites\nsrc/facade.js:4:10\tcall\tcaller=reexport\treturn runTask(v);\nsrc/svc.js:7:12\tcall\tcaller=Worker/start\treturn runTask('x');\nsrc/via-barrel.js:4:10\tcall\tcaller=viaBarrel\treturn runTask('barrel');"
+        }
+      ],
+      "assertions": []
+    },
+    {
+      "test": "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs",
+      "case": "a file that never mentions the symbol is not a forwarder",
+      "calls": [
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/opaque.js": "export { other } from './svc.js';\n",
+            "src/via-opaque.js": "import { other } from './opaque.js';\n\nexport function viaOpaque() {\n  return runTask('opaque');\n}\n"
+          },
+          "input": {
+            "mode": "callers",
+            "symbol": "runTask"
+          },
+          "text": "# call sites\nsrc/svc.js:7:12\tcall\tcaller=Worker/start\treturn runTask('x');"
+        }
+      ],
+      "assertions": []
+    },
+    {
+      "test": "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs",
+      "case": "two same-name declarations: both are anchors, a file scope picks one",
+      "calls": [
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n",
+            "src/other/unrelated.js": "function runTask(x) { return x; }\n\nexport function localOnly() {\n  return runTask(1);\n}\n"
+          },
+          "input": {
+            "mode": "callers",
+            "symbol": "runTask"
+          },
+          "text": "# call sites\nsrc/app.js:4:10\tcall\tcaller=boot\treturn runTask('boot');\nsrc/app.js:8:10\tcall\tcaller=reboot\treturn runTask('again');\nsrc/other/unrelated.js:4:10\tcall\tcaller=localOnly\treturn runTask(1);\nsrc/svc.js:7:12\tcall\tcaller=Worker/start\treturn runTask('x');"
+        },
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n",
+            "src/other/unrelated.js": "function runTask(x) { return x; }\n\nexport function localOnly() {\n  return runTask(1);\n}\n"
+          },
+          "input": {
+            "mode": "callers",
+            "symbol": "runTask",
+            "file": "src/other/unrelated.js"
+          },
+          "text": "# call sites\nsrc/other/unrelated.js:4:10\tcall\tcaller=localOnly\treturn runTask(1);"
+        }
+      ],
+      "assertions": []
+    },
+    {
+      "test": "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs",
+      "case": "a file whose imports resolved to nothing is still judged reachable",
+      "calls": [
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "py/test_svc.py": "from harness.svc import runTask\n\ndef test_runs():\n    return runTask('py')\n",
+            "src/other/stray.js": "export function strayEntry(runner) {\n  return runTask('stray');\n}\n"
+          },
+          "input": {
+            "mode": "callers",
+            "symbol": "runTask"
+          },
+          "text": "# call sites\npy/test_svc.py:4:12\tcall\tcaller=test_runs\treturn runTask('py')\nsrc/svc.js:7:12\tcall\tcaller=Worker/start\treturn runTask('x');"
+        }
+      ],
+      "assertions": []
+    },
+    {
+      "test": "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs",
+      "case": "computed receivers follow the import rule instead of the receiver text",
+      "calls": [
+        {
+          "files": {
+            "src/store.js": "export class Store {\n  save(v) {\n    return v;\n  }\n  saveAll(items) {\n    return items.map((v) => this.save(v));\n  }\n}\n\nexport function copy(other) {\n  return other.save(3);\n}\n",
+            "src/dyn.js": "import { Store } from './store.js';\nexport function persistAll(reg, key) {\n  return reg[key].save(7);\n}\n",
+            "src/other/dyn-outside.js": "export function touch(reg, key) {\n  return reg[key].save(9);\n}\n"
+          },
+          "input": {
+            "mode": "callers",
+            "symbol": "save"
+          },
+          "text": "# call sites\nsrc/dyn.js:3:19\tcall\tcaller=persistAll\treturn reg[key].save(7);\nsrc/store.js:6:34\tcall\tcaller=Store/saveAll\treturn items.map((v) => this.save(v));"
+        }
+      ],
+      "assertions": []
+    },
+    {
+      "test": "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs",
+      "case": "recursion is a real call site for callers, callees and the transitive walk",
+      "calls": [
+        {
+          "files": {
+            "src/recur.js": "export function walk(node) {\n  if (!node) return 0;\n  return walk(node.next) + 1;\n}\n"
+          },
+          "input": {
+            "mode": "callers",
+            "symbol": "walk"
+          },
+          "text": "# call sites\nsrc/recur.js:3:10\tcall\tcaller=walk\treturn walk(node.next) + 1;"
+        },
+        {
+          "files": {
+            "src/recur.js": "export function walk(node) {\n  if (!node) return 0;\n  return walk(node.next) + 1;\n}\n"
+          },
+          "input": {
+            "mode": "callees",
+            "symbol": "walk"
+          },
+          "text": "# callees\nwalk\tcallsite src/recur.js:3:10\tdecl src/recur.js:1\t(in walk)\tkind=call"
+        },
+        {
+          "files": {
+            "src/recur.js": "export function walk(node) {\n  if (!node) return 0;\n  return walk(node.next) + 1;\n}\n"
+          },
+          "input": {
+            "mode": "callers",
+            "symbol": "walk",
+            "depth": 2
+          },
+          "text": "(no callers)\n# 'walk' IS defined (src/recur.js:1-4:17) but is genuinely unreferenced in this graph — present, not missing. No re-scope / grep needed."
+        }
+      ],
+      "assertions": []
+    },
+    {
+      "test": "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs",
+      "case": "a top-level call site (inSymbol \"\") groups first and carries no caller",
+      "calls": [
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n",
+            "src/top.js": "import { runTask } from './svc.js';\n\nrunTask('top');\n"
+          },
+          "input": {
+            "mode": "callers",
+            "symbol": "runTask"
+          },
+          "text": "# call sites\nsrc/app.js:4:10\tcall\tcaller=boot\treturn runTask('boot');\nsrc/app.js:8:10\tcall\tcaller=reboot\treturn runTask('again');\nsrc/svc.js:7:12\tcall\tcaller=Worker/start\treturn runTask('x');\nsrc/top.js:3:1\tcall\trunTask('top');"
+        }
+      ],
+      "assertions": []
+    },
+    {
+      "test": "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs",
+      "case": "call rows are AST-only: a string literal that reads like a call is never one",
+      "calls": [
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n",
+            "src/literal.js": "export function shout() {\n  return 'runTask(now)';\n}\nexport const label = \"runTask(x)\";\nexport const alias = runTask;\n",
+            "src/blind.js": "export function blindBoot() {\n  return runTask('blind');\n}\nexport const blindAlias = runTask;\n",
+            "src/legacy.js": "import { runTask } from './svc.js';\n\nexport function legacyBoot() {\n  return runTask('legacy');\n}\n"
+          },
+          "input": {
+            "mode": "callers",
+            "symbol": "runTask"
+          },
+          "text": "# call sites\nsrc/app.js:4:10\tcall\tcaller=boot\treturn runTask('boot');\nsrc/app.js:8:10\tcall\tcaller=reboot\treturn runTask('again');\nsrc/legacy.js:4:10\tcall\tcaller=legacyBoot\treturn runTask('legacy');\nsrc/svc.js:7:12\tcall\tcaller=Worker/start\treturn runTask('x');"
+        },
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n",
+            "src/literal.js": "export function shout() {\n  return 'runTask(now)';\n}\nexport const label = \"runTask(x)\";\nexport const alias = runTask;\n",
+            "src/blind.js": "export function blindBoot() {\n  return runTask('blind');\n}\nexport const blindAlias = runTask;\n",
+            "src/legacy.js": "import { runTask } from './svc.js';\n\nexport function legacyBoot() {\n  return runTask('legacy');\n}\n"
+          },
+          "input": {
+            "mode": "references",
+            "symbol": "runTask"
+          },
+          "text": "# declaration\n# best declaration candidate\nsrc/svc.js:1-3:17 (javascript, export function, matches=2)\nsignature: function runTask(input)\n\n# references\nsrc/app.js:4:10\tcall\towner=boot\treturn runTask('boot');\nsrc/app.js:8:10\tcall\towner=reboot\treturn runTask('again');\nsrc/app.js:11:24\treference\towner=handler\texport const handler = runTask;\nsrc/blind.js:2:10\tcall\towner=blindBoot\treturn runTask('blind');\nsrc/blind.js:4:27\treference\towner=blindAlias\texport const blindAlias = runTask;\nsrc/legacy.js:4:10\tcall\towner=legacyBoot\treturn runTask('legacy');\nsrc/literal.js:5:22\treference\towner=alias\texport const alias = runTask;\nsrc/svc.js:7:12\tcall\towner=Worker/start\treturn runTask('x');"
+        }
+      ],
+      "assertions": [
+        "The input was expected to not match the regular expression /src\\/legacy\\.js/. Input:",
+        "The input was expected to not match the regular expression /src\\/blind\\.js:2:\\d+\\tcall/. Input:"
+      ]
+    },
+    {
+      "test": "src/runtime/agent/orchestrator/tools/code-graph/ast-calls.test.mjs",
+      "case": "references flags a project with no call data instead of reporting a short list",
+      "calls": [
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n"
+          },
+          "input": {
+            "mode": "references",
+            "symbol": "runTask"
+          },
+          "text": "# declaration\n# best declaration candidate\nsrc/svc.js:1-3:17 (javascript, export function, matches=2)\nsignature: function runTask(input)\n\n# references\nsrc/app.js:4:10\tcall\towner=boot\treturn runTask('boot');\nsrc/app.js:8:10\tcall\towner=reboot\treturn runTask('again');\nsrc/app.js:11:24\treference\towner=handler\texport const handler = runTask;\nsrc/svc.js:7:12\tcall\towner=Worker/start\treturn runTask('x');"
+        },
+        {
+          "files": {
+            "src/svc.js": "export function runTask(input) {\n  return helper(input);\n}\n\nexport class Worker {\n  start() {\n    return runTask('x');\n  }\n  stop() {\n    return this.cleanup();\n  }\n  cleanup() {\n    return new Timer(5);\n  }\n}\n\nfunction helper(v) { return v; }\nfunction Timer(n) { return n; }\n",
+            "src/app.js": "import { runTask } from './svc.js';\n\nexport function boot() {\n  return runTask('boot');\n}\n\nexport function reboot() {\n  return runTask('again');\n}\n\nexport const handler = runTask;\n"
+          },
+          "input": {
+            "mode": "references",
+            "symbol": "runTask"
+          },
+          "text": "# declaration\n# best declaration candidate\nsrc/svc.js:1-3:17 (javascript, export function, matches=2)\nsignature: function runTask(input)\n\n# references\nsrc/app.js:4:10\tcall\towner=boot\treturn runTask('boot');\nsrc/app.js:8:10\tcall\towner=reboot\treturn runTask('again');\nsrc/app.js:11:24\treference\towner=handler\texport const handler = runTask;\nsrc/svc.js:7:12\tcall\towner=Worker/start\treturn runTask('x');"
+        }
+      ],
+      "assertions": [
+        "The input did not match the regular expression /note: call sites are missing from this list/. Input:",
+        "The input did not match the regular expression /callsFormat: 2|carries call data/. Input:"
+      ]
+    },
+    {
+      "test": "src/runtime/agent/orchestrator/tools/code-graph/symbol-index.test.mjs",
+      "case": "outline rows nest members under their parent and mark exports",
+      "files": {
+        "src/a.mjs": "export class Worker {\n  start(input) {\n    function helper(v) { return v; }\n    return helper(input);\n  }\n}\n\nconst handler = () => 1;\n"
+      },
+      "calls": [
+        {
+          "input": {
+            "mode": "symbols",
+            "files": [
+              "src/a.mjs"
+            ]
+          },
+          "text": "export class Worker (L1-6)\n  method start (L2-5)  start(input)\n    function helper (L3)  function helper(v)\nvariable handler (L8)  handler = () =>"
+        }
+      ]
+    },
+    {
+      "test": "src/runtime/agent/orchestrator/tools/code-graph/symbol-index.test.mjs",
+      "case": "depth bounds the containment level and rows stay ordered by line",
+      "files": {
+        "src/a.mjs": "export class Worker {\n  start(input) {\n    function helper(v) { return v; }\n    return helper(input);\n  }\n}\n\nconst handler = () => 1;\n",
+        "src/many.mjs": "export function f0(a) { return a; }\nexport function f1(a) { return a; }\nexport function f2(a) { return a; }\nexport function f3(a) { return a; }\nexport function f4(a) { return a; }\nexport function f5(a) { return a; }\nexport function f6(a) { return a; }\nexport function f7(a) { return a; }\nexport function f8(a) { return a; }\nexport function f9(a) { return a; }\nexport function f10(a) { return a; }\nexport function f11(a) { return a; }\nexport function f12(a) { return a; }\nexport function f13(a) { return a; }\nexport function f14(a) { return a; }\nexport function f15(a) { return a; }\nexport function f16(a) { return a; }\nexport function f17(a) { return a; }\nexport function f18(a) { return a; }\nexport function f19(a) { return a; }\nexport function f20(a) { return a; }\nexport function f21(a) { return a; }\nexport function f22(a) { return a; }\nexport function f23(a) { return a; }\nexport function f24(a) { return a; }\nexport function f25(a) { return a; }\nexport function f26(a) { return a; }\nexport function f27(a) { return a; }\nexport function f28(a) { return a; }\nexport function f29(a) { return a; }\nexport function f30(a) { return a; }\nexport function f31(a) { return a; }\nexport function f32(a) { return a; }\nexport function f33(a) { return a; }\nexport function f34(a) { return a; }\nexport function f35(a) { return a; }\nexport function f36(a) { return a; }\nexport function f37(a) { return a; }\nexport function f38(a) { return a; }\nexport function f39(a) { return a; }\nexport function f40(a) { return a; }\nexport function f41(a) { return a; }\nexport function f42(a) { return a; }\nexport function f43(a) { return a; }\nexport function f44(a) { return a; }\nexport function f45(a) { return a; }\nexport function f46(a) { return a; }\nexport function f47(a) { return a; }\nexport function f48(a) { return a; }\nexport function f49(a) { return a; }\nexport function f50(a) { return a; }\nexport function f51(a) { return a; }\nexport function f52(a) { return a; }\nexport function f53(a) { return a; }\nexport function f54(a) { return a; }\nexport function f55(a) { return a; }\nexport function f56(a) { return a; }\nexport function f57(a) { return a; }\nexport function f58(a) { return a; }\nexport function f59(a) { return a; }\nexport function f60(a) { return a; }\nexport function f61(a) { return a; }\nexport function f62(a) { return a; }\nexport function f63(a) { return a; }\nexport function f64(a) { return a; }\nexport function f65(a) { return a; }\nexport function f66(a) { return a; }\nexport function f67(a) { return a; }\nexport function f68(a) { return a; }\nexport function f69(a) { return a; }\nexport function f70(a) { return a; }\nexport function f71(a) { return a; }\nexport function f72(a) { return a; }\nexport function f73(a) { return a; }\nexport function f74(a) { return a; }\nexport function f75(a) { return a; }\nexport function f76(a) { return a; }\nexport function f77(a) { return a; }\nexport function f78(a) { return a; }\nexport function f79(a) { return a; }\nexport function f80(a) { return a; }\nexport function f81(a) { return a; }\nexport function f82(a) { return a; }\nexport function f83(a) { return a; }\nexport function f84(a) { return a; }\nexport function f85(a) { return a; }\nexport function f86(a) { return a; }\nexport function f87(a) { return a; }\nexport function f88(a) { return a; }\nexport function f89(a) { return a; }\nexport function f90(a) { return a; }\nexport function f91(a) { return a; }\nexport function f92(a) { return a; }\nexport function f93(a) { return a; }\nexport function f94(a) { return a; }\nexport function f95(a) { return a; }\nexport function f96(a) { return a; }\nexport function f97(a) { return a; }\nexport function f98(a) { return a; }\nexport function f99(a) { return a; }\nexport function f100(a) { return a; }\nexport function f101(a) { return a; }\nexport function f102(a) { return a; }\nexport function f103(a) { return a; }\nexport function f104(a) { return a; }\nexport function f105(a) { return a; }\nexport function f106(a) { return a; }\nexport function f107(a) { return a; }\nexport function f108(a) { return a; }\nexport function f109(a) { return a; }\nexport function f110(a) { return a; }\nexport function f111(a) { return a; }\nexport function f112(a) { return a; }\nexport function f113(a) { return a; }\nexport function f114(a) { return a; }\nexport function f115(a) { return a; }\nexport function f116(a) { return a; }\nexport function f117(a) { return a; }\nexport function f118(a) { return a; }\nexport function f119(a) { return a; }\nexport function f120(a) { return a; }\nexport function f121(a) { return a; }\nexport function f122(a) { return a; }\nexport function f123(a) { return a; }\nexport function f124(a) { return a; }\n"
+      },
+      "calls": [
+        {
+          "input": {
+            "mode": "overview",
+            "files": [
+              "src/a.mjs"
+            ]
+          },
+          "text": "file: src/a.mjs\nlanguage: javascript\noutline:\nexport class Worker (L1-6)\n  method start (L2-5)  start(input)\nvariable handler (L8)  handler = () =>"
+        },
+        {
+          "input": {
+            "mode": "overview",
+            "files": [
+              "src/a.mjs"
+            ],
+            "depth": 2
+          },
+          "text": "file: src/a.mjs\nlanguage: javascript\noutline:\nexport class Worker (L1-6)\n  method start (L2-5)  start(input)\n    function helper (L3)  function helper(v)\nvariable handler (L8)  handler = () =>"
+        },
+        {
+          "input": {
+            "mode": "overview",
+            "files": [
+              "src/many.mjs"
+            ]
+          },
+          "text": "file: src/many.mjs\nlanguage: javascript\noutline:\nexport function f0 (L1)  function f0(a)\nexport function f1 (L2)  function f1(a)\nexport function f2 (L3)  function f2(a)\nexport function f3 (L4)  function f3(a)\nexport function f4 (L5)  function f4(a)\nexport function f5 (L6)  function f5(a)\nexport function f6 (L7)  function f6(a)\nexport function f7 (L8)  function f7(a)\nexport function f8 (L9)  function f8(a)\nexport function f9 (L10)  function f9(a)\nexport function f10 (L11)  function f10(a)\nexport function f11 (L12)  function f11(a)\nexport function f12 (L13)  function f12(a)\nexport function f13 (L14)  function f13(a)\nexport function f14 (L15)  function f14(a)\nexport function f15 (L16)  function f15(a)\nexport function f16 (L17)  function f16(a)\nexport function f17 (L18)  function f17(a)\nexport function f18 (L19)  function f18(a)\nexport function f19 (L20)  function f19(a)\nexport function f20 (L21)  function f20(a)\nexport function f21 (L22)  function f21(a)\nexport function f22 (L23)  function f22(a)\nexport function f23 (L24)  function f23(a)\nexport function f24 (L25)  function f24(a)\nexport function f25 (L26)  function f25(a)\nexport function f26 (L27)  function f26(a)\nexport function f27 (L28)  function f27(a)\nexport function f28 (L29)  function f28(a)\nexport function f29 (L30)  function f29(a)\nexport function f30 (L31)  function f30(a)\nexport function f31 (L32)  function f31(a)\nexport function f32 (L33)  function f32(a)\nexport function f33 (L34)  function f33(a)\nexport function f34 (L35)  function f34(a)\nexport function f35 (L36)  function f35(a)\nexport function f36 (L37)  function f36(a)\nexport function f37 (L38)  function f37(a)\nexport function f38 (L39)  function f38(a)\nexport function f39 (L40)  function f39(a)\nexport function f40 (L41)  function f40(a)\nexport function f41 (L42)  function f41(a)\nexport function f42 (L43)  function f42(a)\nexport function f43 (L44)  function f43(a)\nexport function f44 (L45)  function f44(a)\nexport function f45 (L46)  function f45(a)\nexport function f46 (L47)  function f46(a)\nexport function f47 (L48)  function f47(a)\nexport function f48 (L49)  function f48(a)\nexport function f49 (L50)  function f49(a)\nexport function f50 (L51)  function f50(a)\nexport function f51 (L52)  function f51(a)\nexport function f52 (L53)  function f52(a)\nexport function f53 (L54)  function f53(a)\nexport function f54 (L55)  function f54(a)\nexport function f55 (L56)  function f55(a)\nexport function f56 (L57)  function f56(a)\nexport function f57 (L58)  function f57(a)\nexport function f58 (L59)  function f58(a)\nexport function f59 (L60)  function f59(a)\nexport function f60 (L61)  function f60(a)\nexport function f61 (L62)  function f61(a)\nexport function f62 (L63)  function f62(a)\nexport function f63 (L64)  function f63(a)\nexport function f64 (L65)  function f64(a)\nexport function f65 (L66)  function f65(a)\nexport function f66 (L67)  function f66(a)\nexport function f67 (L68)  function f67(a)\nexport function f68 (L69)  function f68(a)\nexport function f69 (L70)  function f69(a)\nexport function f70 (L71)  function f70(a)\nexport function f71 (L72)  function f71(a)\nexport function f72 (L73)  function f72(a)\nexport function f73 (L74)  function f73(a)\nexport function f74 (L75)  function f74(a)\nexport function f75 (L76)  function f75(a)\nexport function f76 (L77)  function f76(a)\nexport function f77 (L78)  function f77(a)\nexport function f78 (L79)  function f78(a)\nexport function f79 (L80)  function f79(a)\nexport function f80 (L81)  function f80(a)\nexport function f81 (L82)  function f81(a)\nexport function f82 (L83)  function f82(a)\nexport function f83 (L84)  function f83(a)\nexport function f84 (L85)  function f84(a)\nexport function f85 (L86)  function f85(a)\nexport function f86 (L87)  function f86(a)\nexport function f87 (L88)  function f87(a)\nexport function f88 (L89)  function f88(a)\nexport function f89 (L90)  function f89(a)\nexport function f90 (L91)  function f90(a)\nexport function f91 (L92)  function f91(a)\nexport function f92 (L93)  function f92(a)\nexport function f93 (L94)  function f93(a)\nexport function f94 (L95)  function f94(a)\nexport function f95 (L96)  function f95(a)\nexport function f96 (L97)  function f96(a)\nexport function f97 (L98)  function f97(a)\nexport function f98 (L99)  function f98(a)\nexport function f99 (L100)  function f99(a)\nexport function f100 (L101)  function f100(a)\nexport function f101 (L102)  function f101(a)\nexport function f102 (L103)  function f102(a)\nexport function f103 (L104)  function f103(a)\nexport function f104 (L105)  function f104(a)\nexport function f105 (L106)  function f105(a)\nexport function f106 (L107)  function f106(a)\nexport function f107 (L108)  function f107(a)\nexport function f108 (L109)  function f108(a)\nexport function f109 (L110)  function f109(a)\nexport function f110 (L111)  function f110(a)\nexport function f111 (L112)  function f111(a)\nexport function f112 (L113)  function f112(a)\nexport function f113 (L114)  function f113(a)\nexport function f114 (L115)  function f114(a)\nexport function f115 (L116)  function f115(a)\nexport function f116 (L117)  function f116(a)\nexport function f117 (L118)  function f117(a)\nexport function f118 (L119)  function f118(a)\nexport function f119 (L120)  function f119(a)\n… +5 more (mode:symbols for the full outline)"
+        }
+      ]
+    },
+    {
+      "test": "src/runtime/agent/orchestrator/tools/code-graph/symbol-index.test.mjs",
+      "case": "the row grammar keeps the bare name in one position and trails the sig",
+      "files": {
+        "src/f.mjs": "export function f(a, b) {\n  return a + b;\n}\n",
+        "src/top.py": "async def top(x):\n    return x\n\n\nclass Service:\n    pass\n",
+        "src/sink.rs": "pub trait Sink {}\n\nconst MAX: u32 = 7;\n"
+      },
+      "calls": [
+        {
+          "input": {
+            "mode": "symbols",
+            "files": [
+              "src/f.mjs"
+            ]
+          },
+          "text": "export function f (L1-3)  function f(a, b)"
+        },
+        {
+          "input": {
+            "mode": "symbols",
+            "files": [
+              "src/top.py"
+            ]
+          },
+          "text": "export function top (L1-2)  async def top(x)\nexport class Service (L5-6)"
+        },
+        {
+          "input": {
+            "mode": "symbols",
+            "files": [
+              "src/sink.rs"
+            ]
+          },
+          "text": "export trait Sink (L1)  pub trait Sink\nconstant MAX (L3)  const MAX: u32"
+        }
+      ]
+    },
+    {
+      "test": "src/runtime/agent/orchestrator/tools/code-graph/symbol-index.test.mjs",
+      "case": "one record is one line, and the anchor terminates a name with inner spaces",
+      "files": {
+        "src/token.sol": "pragma solidity ^0.8.19;\n\ncontract Token {}\n",
+        "src/op.cpp": "struct V {\n  bool operator\n  ==(const V& o) const { return true; }\n};\n"
+      },
+      "calls": [
+        {
+          "input": {
+            "mode": "symbols",
+            "files": [
+              "src/token.sol"
+            ]
+          },
+          "text": "export class Token (L3)  contract Token"
+        },
+        {
+          "input": {
+            "mode": "symbols",
+            "files": [
+              "src/op.cpp"
+            ]
+          },
+          "text": "export struct V (L1-4)\n  export function operator == (L2-3)  bool operator ==(const V& o) const"
+        }
+      ]
+    },
+    {
+      "test": "src/runtime/agent/orchestrator/tools/code-graph/symbol-index.test.mjs",
+      "case": "a node without a native record contributes no rows and no tokens",
+      "files": {
+        "src/a.mjs": "",
+        "src/style.css": ".a { color: red; }\n"
+      },
+      "calls": [
+        {
+          "input": {
+            "mode": "symbols",
+            "files": [
+              "src/a.mjs"
+            ]
+          },
+          "text": "(no symbols)"
+        }
+      ]
+    },
+    {
+      "test": "src/runtime/agent/orchestrator/tools/code-graph/symbol-index.test.mjs",
+      "case": "candidate lookup uses native tokens only — no full-graph fallback",
+      "files": {
+        "src/a.mjs": "export function alpha() { return 1; }\n",
+        "src/b.mjs": "export const other = 2;\n"
+      },
+      "calls": [
+        {
+          "input": {
+            "mode": "find_symbol",
+            "symbols": [
+              "alpha"
+            ],
+            "body": false
+          },
+          "text": "# best declaration candidate\nsrc/a.mjs:1-1:17 (javascript, export function, matches=1)\nsignature: function alpha()"
+        }
+      ]
+    },
+    {
+      "test": "src/runtime/agent/orchestrator/tools/code-graph/keyword-search-unresolved.test.mjs",
+      "case": "fully resolved matches print no unresolved line",
+      "files": {
+        "a.mjs": "\n\nexport function alphaHelper() {\n  return 1;\n}\n"
+      },
+      "calls": [
+        {
+          "input": {
+            "mode": "symbol_search",
+            "symbols": [
+              "alpha"
+            ]
+          },
+          "text": "# search keyword=alpha matches=1 shown=1\nalphaHelper\ta.mjs:3-5:8\texport function\tfunction alphaHelper()"
+        }
+      ]
+    },
+    {
+      "test": "src/runtime/agent/orchestrator/tools/code-graph/search-references.test.mjs",
+      "case": "full symbol bodies are not elided at the old 120-line boundary",
+      "files": {
+        "src/long.mjs": "export function longBody() {\n  const v2 = 2;\n  const v3 = 3;\n  const v4 = 4;\n  const v5 = 5;\n  const v6 = 6;\n  const v7 = 7;\n  const v8 = 8;\n  const v9 = 9;\n  const v10 = 10;\n  const v11 = 11;\n  const v12 = 12;\n  const v13 = 13;\n  const v14 = 14;\n  const v15 = 15;\n  const v16 = 16;\n  const v17 = 17;\n  const v18 = 18;\n  const v19 = 19;\n  const v20 = 20;\n  const v21 = 21;\n  const v22 = 22;\n  const v23 = 23;\n  const v24 = 24;\n  const v25 = 25;\n  const v26 = 26;\n  const v27 = 27;\n  const v28 = 28;\n  const v29 = 29;\n  const v30 = 30;\n  const v31 = 31;\n  const v32 = 32;\n  const v33 = 33;\n  const v34 = 34;\n  const v35 = 35;\n  const v36 = 36;\n  const v37 = 37;\n  const v38 = 38;\n  const v39 = 39;\n  const v40 = 40;\n  const v41 = 41;\n  const v42 = 42;\n  const v43 = 43;\n  const v44 = 44;\n  const v45 = 45;\n  const v46 = 46;\n  const v47 = 47;\n  const v48 = 48;\n  const v49 = 49;\n  const v50 = 50;\n  const v51 = 51;\n  const v52 = 52;\n  const v53 = 53;\n  const v54 = 54;\n  const v55 = 55;\n  const v56 = 56;\n  const v57 = 57;\n  const v58 = 58;\n  const v59 = 59;\n  const v60 = 60;\n  const v61 = 61;\n  const v62 = 62;\n  const v63 = 63;\n  const v64 = 64;\n  const v65 = 65;\n  const v66 = 66;\n  const v67 = 67;\n  const v68 = 68;\n  const v69 = 69;\n  const v70 = 70;\n  const v71 = 71;\n  const v72 = 72;\n  const v73 = 73;\n  const v74 = 74;\n  const v75 = 75;\n  const v76 = 76;\n  const v77 = 77;\n  const v78 = 78;\n  const v79 = 79;\n  const v80 = 80;\n  const v81 = 81;\n  const v82 = 82;\n  const v83 = 83;\n  const v84 = 84;\n  const v85 = 85;\n  const v86 = 86;\n  const v87 = 87;\n  const v88 = 88;\n  const v89 = 89;\n  const v90 = 90;\n  const v91 = 91;\n  const v92 = 92;\n  const v93 = 93;\n  const v94 = 94;\n  const v95 = 95;\n  const v96 = 96;\n  const v97 = 97;\n  const v98 = 98;\n  const v99 = 99;\n  const v100 = 100;\n  const v101 = 101;\n  const v102 = 102;\n  const v103 = 103;\n  const v104 = 104;\n  const v105 = 105;\n  const v106 = 106;\n  const v107 = 107;\n  const v108 = 108;\n  const v109 = 109;\n  const v110 = 110;\n  const v111 = 111;\n  const v112 = 112;\n  const v113 = 113;\n  const v114 = 114;\n  const v115 = 115;\n  const v116 = 116;\n  const v117 = 117;\n  const v118 = 118;\n  const v119 = 119;\n  const v120 = 120;\n  const v121 = 121;\n  const v122 = 122;\n  const v123 = 123;\n  const v124 = 124;\n  const v125 = 125;\n  const v126 = 126;\n  const v127 = 127;\n  const v128 = 128;\n  const v129 = 129;\n  const v130 = 130;\n  const v131 = 131;\n  const v132 = 132;\n  const v133 = 133;\n  const v134 = 134;\n  const v135 = 135;\n  const v136 = 136;\n  const v137 = 137;\n  const v138 = 138;\n  const v139 = 139;\n  const v140 = 140;\n  const v141 = 141;\n  const v142 = 142;\n  const v143 = 143;\n  const v144 = 144;\n  const v145 = 145;\n  const v146 = 146;\n  const v147 = 147;\n  const v148 = 148;\n  const v149 = 149;\n  const v150 = 150;\n  const v151 = 151;\n  const v152 = 152;\n  const v153 = 153;\n  const v154 = 154;\n  const v155 = 155;\n  const v156 = 156;\n  const v157 = 157;\n  const v158 = 158;\n  const v159 = 159;\n  const v160 = 160;\n  const v161 = 161;\n  const v162 = 162;\n  const v163 = 163;\n  const v164 = 164;\n  const v165 = 165;\n  const v166 = 166;\n  const v167 = 167;\n  const v168 = 168;\n  const v169 = 169;\n  const v170 = 170;\n  const v171 = 171;\n  const v172 = 172;\n  const v173 = 173;\n  const v174 = 174;\n  const v175 = 175;\n  const v176 = 176;\n  const v177 = 177;\n  const v178 = 178;\n  const v179 = 179;\n}\n"
+      },
+      "calls": [
+        {
+          "input": {
+            "mode": "find_symbol",
+            "symbols": [
+              "longBody"
+            ],
+            "body": true
+          },
+          "text": "# best declaration candidate\nsrc/long.mjs:1-180:17 (javascript, export function, matches=1)\n1: export function longBody() {\n2:   const v2 = 2;\n3:   const v3 = 3;\n4:   const v4 = 4;\n5:   const v5 = 5;\n6:   const v6 = 6;\n7:   const v7 = 7;\n8:   const v8 = 8;\n9:   const v9 = 9;\n10:   const v10 = 10;\n11:   const v11 = 11;\n12:   const v12 = 12;\n13:   const v13 = 13;\n14:   const v14 = 14;\n15:   const v15 = 15;\n16:   const v16 = 16;\n17:   const v17 = 17;\n18:   const v18 = 18;\n19:   const v19 = 19;\n20:   const v20 = 20;\n21:   const v21 = 21;\n22:   const v22 = 22;\n23:   const v23 = 23;\n24:   const v24 = 24;\n25:   const v25 = 25;\n26:   const v26 = 26;\n27:   const v27 = 27;\n28:   const v28 = 28;\n29:   const v29 = 29;\n30:   const v30 = 30;\n31:   const v31 = 31;\n32:   const v32 = 32;\n33:   const v33 = 33;\n34:   const v34 = 34;\n35:   const v35 = 35;\n36:   const v36 = 36;\n37:   const v37 = 37;\n38:   const v38 = 38;\n39:   const v39 = 39;\n40:   const v40 = 40;\n41:   const v41 = 41;\n42:   const v42 = 42;\n43:   const v43 = 43;\n44:   const v44 = 44;\n45:   const v45 = 45;\n46:   const v46 = 46;\n47:   const v47 = 47;\n48:   const v48 = 48;\n49:   const v49 = 49;\n50:   const v50 = 50;\n51:   const v51 = 51;\n52:   const v52 = 52;\n53:   const v53 = 53;\n54:   const v54 = 54;\n55:   const v55 = 55;\n56:   const v56 = 56;\n57:   const v57 = 57;\n58:   const v58 = 58;\n59:   const v59 = 59;\n60:   const v60 = 60;\n61:   const v61 = 61;\n62:   const v62 = 62;\n63:   const v63 = 63;\n64:   const v64 = 64;\n65:   const v65 = 65;\n66:   const v66 = 66;\n67:   const v67 = 67;\n68:   const v68 = 68;\n69:   const v69 = 69;\n70:   const v70 = 70;\n71:   const v71 = 71;\n72:   const v72 = 72;\n73:   const v73 = 73;\n74:   const v74 = 74;\n75:   const v75 = 75;\n76:   const v76 = 76;\n77:   const v77 = 77;\n78:   const v78 = 78;\n79:   const v79 = 79;\n80:   const v80 = 80;\n81:   const v81 = 81;\n82:   const v82 = 82;\n83:   const v83 = 83;\n84:   const v84 = 84;\n85:   const v85 = 85;\n86:   const v86 = 86;\n87:   const v87 = 87;\n88:   const v88 = 88;\n89:   const v89 = 89;\n90:   const v90 = 90;\n91:   const v91 = 91;\n92:   const v92 = 92;\n93:   const v93 = 93;\n94:   const v94 = 94;\n95:   const v95 = 95;\n96:   const v96 = 96;\n97:   const v97 = 97;\n98:   const v98 = 98;\n99:   const v99 = 99;\n100:   const v100 = 100;\n101:   const v101 = 101;\n102:   const v102 = 102;\n103:   const v103 = 103;\n104:   const v104 = 104;\n105:   const v105 = 105;\n106:   const v106 = 106;\n107:   const v107 = 107;\n108:   const v108 = 108;\n109:   const v109 = 109;\n110:   const v110 = 110;\n111:   const v111 = 111;\n112:   const v112 = 112;\n113:   const v113 = 113;\n114:   const v114 = 114;\n115:   const v115 = 115;\n116:   const v116 = 116;\n117:   const v117 = 117;\n118:   const v118 = 118;\n119:   const v119 = 119;\n120:   const v120 = 120;\n121:   const v121 = 121;\n122:   const v122 = 122;\n123:   const v123 = 123;\n124:   const v124 = 124;\n125:   const v125 = 125;\n126:   const v126 = 126;\n127:   const v127 = 127;\n128:   const v128 = 128;\n129:   const v129 = 129;\n130:   const v130 = 130;\n131:   const v131 = 131;\n132:   const v132 = 132;\n133:   const v133 = 133;\n134:   const v134 = 134;\n135:   const v135 = 135;\n136:   const v136 = 136;\n137:   const v137 = 137;\n138:   const v138 = 138;\n139:   const v139 = 139;\n140:   const v140 = 140;\n141:   const v141 = 141;\n142:   const v142 = 142;\n143:   const v143 = 143;\n144:   const v144 = 144;\n145:   const v145 = 145;\n146:   const v146 = 146;\n147:   const v147 = 147;\n148:   const v148 = 148;\n149:   const v149 = 149;\n150:   const v150 = 150;\n151:   const v151 = 151;\n152:   const v152 = 152;\n153:   const v153 = 153;\n154:   const v154 = 154;\n155:   const v155 = 155;\n156:   const v156 = 156;\n157:   const v157 = 157;\n158:   const v158 = 158;\n159:   const v159 = 159;\n160:   const v160 = 160;\n161:   const v161 = 161;\n162:   const v162 = 162;\n163:   const v163 = 163;\n164:   const v164 = 164;\n165:   const v165 = 165;\n166:   const v166 = 166;\n167:   const v167 = 167;\n168:   const v168 = 168;\n169:   const v169 = 169;\n170:   const v170 = 170;\n171:   const v171 = 171;\n172:   const v172 = 172;\n173:   const v173 = 173;\n174:   const v174 = 174;\n175:   const v175 = 175;\n176:   const v176 = 176;\n177:   const v177 = 177;\n178:   const v178 = 178;\n179:   const v179 = 179;\n180: }"
+        }
+      ]
+    },
+    {
+      "test": "src/runtime/agent/orchestrator/tools/code-graph/encoding-isolation.test.mjs",
+      "case": "invalid source encoding is isolated and remains visible on cached graph queries",
+      "files": {
+        "package.json": "{}",
+        "valid.mjs": "export function GraphEncodingNeedle() { return 1; }\n"
+      },
+      "bytes": {
+        "invalid.cs": [
+          47,
+          47,
+          32,
+          233,
+          10
+        ]
+      },
+      "calls": [
+        {
+          "input": {
+            "mode": "find_symbol",
+            "symbols": [
+              "GraphEncodingNeedle"
+            ],
+            "body": false
+          },
+          "text": "[warning] 1 source file(s) could not be indexed; graph results are partial:\ninvalid.cs: unsupported source encoding; file not indexed\n# best declaration candidate\nvalid.mjs:1-1:17 (javascript, export function, matches=1)\nsignature: function GraphEncodingNeedle()"
+        },
+        {
+          "input": {
+            "mode": "find_symbol",
+            "symbols": [
+              "GraphEncodingNeedle"
+            ],
+            "body": false
+          },
+          "text": "[warning] 1 source file(s) could not be indexed; graph results are partial:\ninvalid.cs: unsupported source encoding; file not indexed\n# best declaration candidate\nvalid.mjs:1-1:17 (javascript, export function, matches=1)\nsignature: function GraphEncodingNeedle()"
+        },
+        {
+          "before": {
+            "valid.mjs": "export function GraphEncodingNeedle() { return 222; }\n"
+          },
+          "input": {
+            "mode": "find_symbol",
+            "symbols": [
+              "GraphEncodingNeedle"
+            ],
+            "body": false
+          },
+          "text": "[warning] 1 source file(s) could not be indexed; graph results are partial:\ninvalid.cs: unsupported source encoding; file not indexed\n# best declaration candidate\nvalid.mjs:1-1:17 (javascript, export function, matches=1)\nsignature: function GraphEncodingNeedle()"
+        }
+      ]
+    }
+  ]
+}

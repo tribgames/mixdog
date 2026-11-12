@@ -10,7 +10,7 @@ use mixdog_core_api::domain::provider::ToolCall;
 
 const INTERRUPT_MESSAGE: &str = "[Request interrupted by user]";
 const INTERRUPT_MESSAGE_FOR_TOOL_USE: &str = "[Request interrupted by user for tool use]";
-const PROCESS_RESTART_INTERRUPT_MESSAGE: &str = "[Request interrupted by process restart]";
+pub const PROCESS_RESTART_INTERRUPT_MESSAGE: &str = "[Request interrupted by process restart]";
 const SESSION_INTERRUPT_MESSAGE: &str = "[Request interrupted]";
 /// Short result body for any unfinished call closed by cancel or crash.
 const INTERRUPTED_TOOL_RESULT: &str = "Cancelled";
@@ -185,6 +185,34 @@ pub fn finalize_interrupted_turn(input: Interrupted) -> Finalized {
     }
 }
 
+/// The stored mark of a row `recover_after_restart` wrote (`meta.restartRecovery`, FORMAT.md §5.2). Only the recovery writes it;
+/// a run's rows, Node's rows and the other interruption path never carry it, so it is the one fact recovery reads of a row.
+const RECOVERY_MARK: &str = "restartRecovery";
+
+fn written_by_recovery(row: &serde_json::Value) -> bool {
+    row.pointer(&format!("/meta/{RECOVERY_MARK}")) == Some(&serde_json::Value::Bool(true))
+}
+
+/// The row as a client or a hook sees it: the stored recovery mark is the core's own provenance and no field of Node's row.
+pub fn without_recovery_mark(row: &mut serde_json::Value) {
+    let Some(object) = row.as_object_mut() else { return };
+    if let Some(meta) = object.get_mut("meta").and_then(serde_json::Value::as_object_mut) {
+        meta.shift_remove(RECOVERY_MARK);
+        if meta.is_empty() {
+            object.shift_remove("meta");
+        }
+    }
+}
+
+fn set_meta_mark(body: &mut serde_json::Value, key: &str) {
+    if let Some(object) = body.as_object_mut() {
+        let meta = object.entry("meta").or_insert_with(|| serde_json::json!({}));
+        if let Some(meta) = meta.as_object_mut() {
+            meta.insert(key.into(), serde_json::Value::Bool(true));
+        }
+    }
+}
+
 /// One row of a turn recovered after the process died in it.
 #[derive(Debug, PartialEq)]
 pub enum RecoveredRow {
@@ -201,9 +229,15 @@ pub enum RecoveredRow {
 /// tool phase when the last row is a call batch.
 pub fn recover_after_restart(rows: &[serde_json::Value]) -> Result<Vec<RecoveredRow>, String> {
     let known = rows.iter().map(crate::message_row::message_of).collect::<Result<Vec<_>, _>>()?;
-    let last = known.last();
+    // The turn as the process left it: a kill that cut an earlier recovery leaves the rows it had saved at the tail, and Node
+    // recovers from the checkpoint it kept until the recovery was saved, so they are derived again (they come back as the same
+    // stored rows) instead of being read as rows the turn itself produced. Node's checkpoint holds the turn as it ran; the core
+    // has no checkpoint, so a row says itself that the recovery wrote it (`meta.restartRecovery`, set on every `New` row below and
+    // by nothing else): no row is classified by its text, timing, kind or place.
+    let origin = rows.iter().rposition(|row| !written_by_recovery(row)).map_or(0, |last| last + 1);
+    let last = known[..origin].last();
     let finalized = finalize_interrupted_turn(Interrupted {
-        transcript: known.clone(),
+        transcript: known[..origin].to_vec(),
         current_user_text: String::new(),
         response_started: last.is_some_and(|message| message.role() != Role::User),
         partial_assistant: String::new(),
@@ -217,15 +251,19 @@ pub fn recover_after_restart(rows: &[serde_json::Value]) -> Result<Vec<Recovered
     for (index, message) in finalized.transcript.iter().enumerate() {
         let tail = finalized.sent_request_tail == Some(index);
         let stamp = |mut body: serde_json::Value| {
-            if tail && let Some(object) = body.as_object_mut() {
-                let meta = object.entry("meta").or_insert_with(|| serde_json::json!({}));
-                if let Some(meta) = meta.as_object_mut() {
-                    meta.insert("sentRequestTail".into(), serde_json::Value::Bool(true));
-                }
+            if tail {
+                set_meta_mark(&mut body, "sentRequestTail");
             }
             body
         };
-        if known.get(index).is_some_and(|was| was == message) {
+        // A cancelled result (or the restart line) an earlier recovery saved is the one derived again for its call, whatever else of
+        // the row it carries.
+        let saved = |was: &AgentMessage| {
+            index >= origin
+                && was.role() == message.role()
+                && if was.role() == Role::Tool { was.tool_call_id() == message.tool_call_id() } else { was.text() == message.text() }
+        };
+        if known.get(index).is_some_and(|was| was == message || saved(was)) {
             out.push(RecoveredRow::Kept { index, body: stamp(rows[index].clone()) });
         } else {
             let role = match message.role() {
@@ -233,7 +271,9 @@ pub fn recover_after_restart(rows: &[serde_json::Value]) -> Result<Vec<Recovered
                 Role::Tool => "tool",
                 _ => "user",
             };
-            out.push(RecoveredRow::New { role, body: stamp(crate::message_row::row_of(message)) });
+            let mut body = stamp(crate::message_row::row_of(message));
+            set_meta_mark(&mut body, RECOVERY_MARK);
+            out.push(RecoveredRow::New { role, body });
         }
     }
     Ok(out)
@@ -447,6 +487,107 @@ mod tests {
         let last_two: Vec<String> = done.transcript[2..].iter().map(AgentMessage::text).collect();
         assert_eq!(last_two, [INTERRUPTED_TOOL_RESULT, INTERRUPT_MESSAGE_FOR_TOOL_USE]);
         assert_eq!(done.transcript[2].tool_kind, Some(ToolKind::Error));
+    }
+
+    fn recovered(result: serde_json::Value) -> Vec<RecoveredRow> {
+        let rows = [
+            serde_json::json!({ "role": "user", "content": "go" }),
+            serde_json::json!({ "role": "assistant", "content": "", "toolCalls": [{ "id": "c1", "name": "read", "arguments": {} }] }),
+            result,
+        ];
+        recover_after_restart(&rows).unwrap()
+    }
+
+    /// A tool that really returned the text `Cancelled`, the process killed with the next request on the wire: Node's checkpoint
+    /// holds the real result, which the request ended with, so it is kept and stamped `sentRequestTail`.
+    #[test]
+    fn a_real_cancelled_result_is_the_sent_tail_not_a_recovery_row() {
+        let timing = serde_json::json!({ "dispatchStartedAt": 1, "executionStartedAt": 2, "executionCompletedAt": 3, "postprocessStartedAt": 4, "resultCompletedAt": 5 });
+        let rows = recovered(serde_json::json!({ "role": "tool", "content": "Cancelled", "toolCallId": "c1", "toolTiming": timing }));
+        let [_, _, RecoveredRow::Kept { index: 2, body }, RecoveredRow::New { role: "user", .. }] = &rows[..] else { panic!("{rows:?}") };
+        assert_eq!(body["meta"]["sentRequestTail"], true);
+        assert_eq!(body["content"], "Cancelled");
+    }
+
+    /// A result an earlier, cut recovery saved (it carries the recovery's mark) is derived again, whole, and is no sent tail: the
+    /// request ended with the call, not with it.
+    #[test]
+    fn a_cancelled_result_a_cut_recovery_saved_is_derived_again() {
+        let rows = recovered(serde_json::json!({ "role": "tool", "content": "Cancelled", "toolCallId": "c1", "toolKind": "error", "meta": { "restartRecovery": true } }));
+        let [_, _, RecoveredRow::Kept { index: 2, body }, RecoveredRow::New { role: "user", .. }] = &rows[..] else { panic!("{rows:?}") };
+        assert!(body.pointer("/meta/sentRequestTail").is_none(), "{body}");
+    }
+
+    fn bodies(rows: &[RecoveredRow]) -> Vec<serde_json::Value> {
+        rows.iter().map(|row| match row { RecoveredRow::Kept { body, .. } | RecoveredRow::New { body, .. } => body.clone() }).collect()
+    }
+
+    /// Every shape a finished result can take (text, timing, kind, error flag: a real tool's, a cache hit's, a denied call's, a
+    /// hook-written one, one whose text is the recovery's own) as the last row the request ended with, then every state a kill of
+    /// the recovery leaves (the rows it wrote cut after any number of them, or all saved): the recovery keeps the real row as
+    /// stored (but for the `sentRequestTail` stamp Node gives it), adds only the restart line, and derives the same rows again from
+    /// whatever its own earlier run left.
+    #[test]
+    fn recovery_never_touches_a_row_it_did_not_write() {
+        let timing = serde_json::json!({ "dispatchStartedAt": 1, "executionStartedAt": 2, "executionCompletedAt": 3, "postprocessStartedAt": 4, "resultCompletedAt": 5 });
+        let mut shapes = 0;
+        for text in ["Cancelled", "ok", "", "Denied by the user", "[Request interrupted by process restart]"] {
+            for with_timing in [false, true] {
+                for kind in [None, Some("normal"), Some("cache-hit"), Some("error"), Some("skipped")] {
+                    for flagged in [false, true] {
+                        let mut result = serde_json::json!({ "role": "tool", "content": text, "toolCallId": "c1" });
+                        if with_timing {
+                            result["toolTiming"] = timing.clone();
+                        }
+                        if let Some(kind) = kind {
+                            result["toolKind"] = kind.into();
+                        }
+                        if flagged {
+                            result["isError"] = true.into();
+                        }
+                        shapes += 1;
+                        let stored = vec![
+                            serde_json::json!({ "role": "user", "content": "go" }),
+                            serde_json::json!({ "role": "assistant", "content": "", "toolCalls": [{ "id": "c1", "name": "read", "arguments": {} }] }),
+                            result.clone(),
+                        ];
+                        let first = recover_after_restart(&stored).unwrap();
+                        let [_, _, RecoveredRow::Kept { index: 2, body }, RecoveredRow::New { role: "user", .. }] = &first[..] else { panic!("{result}: {first:?}") };
+                        let mut want = result.clone();
+                        want["meta"] = serde_json::json!({ "sentRequestTail": true });
+                        assert_eq!(body, &want, "{result}");
+                        let done = bodies(&first);
+                        // Killed after the restart line alone, or with it and the stamped row replaced.
+                        let mut states = vec![stored.clone(), [stored.clone(), vec![done[3].clone()]].concat(), done.clone()];
+                        states.push([vec![done[0].clone(), done[1].clone()], vec![done[2].clone()], vec![done[3].clone()]].concat());
+                        for state in states {
+                            assert_eq!(bodies(&recover_after_restart(&state).unwrap()), done, "{result}: from {state:?}");
+                        }
+                    }
+                }
+            }
+        }
+        assert_eq!(shapes, 5 * 2 * 5 * 2);
+    }
+
+    /// The same for a call batch the kill left unanswered: the recovery's own results (text `Cancelled`, whatever the kind) are
+    /// derived again, and a real result of another call in the batch is kept.
+    #[test]
+    fn a_batch_cut_in_the_tool_phase_recovers_to_the_same_rows_from_every_cut() {
+        let calls = serde_json::json!([{ "id": "c1", "name": "read", "arguments": {} }, { "id": "c2", "name": "read", "arguments": {} }]);
+        let stored = vec![
+            serde_json::json!({ "role": "user", "content": "go" }),
+            serde_json::json!({ "role": "assistant", "content": "", "toolCalls": calls }),
+            serde_json::json!({ "role": "tool", "content": "Cancelled", "toolCallId": "c1" }),
+        ];
+        let first = recover_after_restart(&stored).unwrap();
+        let done = bodies(&first);
+        let added: Vec<serde_json::Value> = first.iter().filter_map(|row| if let RecoveredRow::New { body, .. } = row { Some(body.clone()) } else { None }).collect();
+        assert!(added.len() >= 2, "{first:?}");
+        for cut in 0..=added.len() {
+            let state = [stored.clone(), added[..cut].to_vec()].concat();
+            assert_eq!(bodies(&recover_after_restart(&state).unwrap()), done, "cut after {cut} rows");
+        }
     }
 
     #[test]

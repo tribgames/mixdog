@@ -52,6 +52,9 @@ pub(crate) enum Ctl {
     RetryStorage,
     /// A tool-policy input outside the thread changed (a setting, a connector policy).
     RefreshSurface,
+    /// A client resumed the thread: what its queue holds from before a restart drains, as the desktop's resume drains the
+    /// rows it restored (`restoreLeadSteeringFromDisk`, then the release hook, `session-api/lifecycle/resume.mjs:72`).
+    Resumed,
     /// A workspace change applied the session's cwd (`applyResolvedCwd`), `changed` when the
     /// folder moved: the code-graph warm follows.
     CwdApplied { changed: bool },
@@ -131,6 +134,9 @@ pub(crate) struct RoutineStart {
     pub from_agent: Option<String>,
     /// The trusted text the turn's skills are selected from.
     pub skill_selection: Option<String>,
+    /// The sender's own `transcriptMeta` (`sendTranscriptMeta`: `sender`, `fromAgent`), ahead of
+    /// the hop and the bot chain on the queue entry and the input row.
+    pub meta: serde_json::Map<String, serde_json::Value>,
     /// `onCommitted`: runs the moment the turn starts, before any tool can.
     pub on_start: Box<dyn FnOnce() + Send>,
     /// Answered with the run's outcome when it ends.
@@ -183,6 +189,8 @@ pub(crate) struct ControlCell {
     pub approvals: ArcSwap<HashSet<u64>>,
     /// The approval the session shows now (`state.toolApproval`), if any.
     pub shown_approval: ArcSwapOption<mixdog_core_api::domain::approval::ApprovalRequest>,
+    /// Counts the changes of `shown_approval`; its receivers wake on each.
+    pub shown_changed: tokio::sync::watch::Sender<u64>,
     /// What the session's open takeover holds (the secret fill's two locks read it).
     pub takeover: ArcSwap<super::secret_input::TakeoverHold>,
     /// The acked view (thread/read, resume results).
@@ -231,9 +239,15 @@ pub(crate) struct ControlCell {
     /// the actor last stepped: what the desktop host counts as the session working.
     pub ui_busy: std::sync::atomic::AtomicBool,
     pub compacting: std::sync::atomic::AtomicBool,
+    /// The running manual compaction's signal (Node's session abort controller, which a compaction reads through
+    /// `getSessionAbortSignal`): a close, a delete or a shutdown aborts it with their own text.
+    pub compaction_cancel: Mutex<Option<mixdog_agent::cancel::Cancel>>,
     /// A compaction the model scheduled (`session action=compact`: Node's `pendingCompactSessionIds`): the actor
     /// runs it, once, when the next turn of this thread settles.
     pub pending_compact: std::sync::atomic::AtomicBool,
+    /// The scheduled compaction holds the thread's turns back (`afterCompaction`), as the actor last stepped: a prompt
+    /// submitted meanwhile is Node's ask waiting on the gate, which a stop still hands back to the composer.
+    pub gated: std::sync::atomic::AtomicBool,
     /// Woken after every step of the thread's actor, so a test waits on the thread's state by its
     /// change (`eventually_on!`, and `SessionHandle::stepped` for the tests of other crates).
     #[cfg(any(test, feature = "test-support"))]
@@ -241,6 +255,9 @@ pub(crate) struct ControlCell {
     /// The records the actor accepted that the store has not acknowledged, after its last step.
     #[cfg(any(test, feature = "test-support"))]
     pub unacked: std::sync::atomic::AtomicUsize,
+    /// The records handed to the store and not yet acknowledged or failed, after the actor's last step.
+    #[cfg(any(test, feature = "test-support"))]
+    pub handed: std::sync::atomic::AtomicUsize,
     /// The actor's `turn_busy()` after its last step: a turn runs, starts or is still settling.
     /// The next turn is refused or queued until it is false, which `run` being empty does not say.
     #[cfg(any(test, feature = "test-support"))]
@@ -257,6 +274,17 @@ pub(crate) struct ControlCell {
     /// it: a test that moves a paused clock waits on this first, so the timer is armed before the clock moves.
     #[cfg(any(test, feature = "test-support"))]
     pub prompt_timers: std::sync::atomic::AtomicU64,
+    /// No open-time recovery is pending and every accepted record is released (durable or failed), after the last step.
+    #[cfg(any(test, feature = "test-support"))]
+    pub recovered: std::sync::atomic::AtomicBool,
+    /// No draft file write is queued or running and none owed (a removal or sweep to try again), after the last step.
+    #[cfg(any(test, feature = "test-support"))]
+    pub drafts_settled: std::sync::atomic::AtomicBool,
+    /// How many times the scheduled compaction held work back (a request it parked, or a queue it
+    /// kept from draining), counted in the step that held it: a test that shows nothing started
+    /// waits on this, so the gate was consulted before it asserts.
+    #[cfg(any(test, feature = "test-support"))]
+    pub gate_holds: std::sync::atomic::AtomicU64,
     /// The numbers of the thread's prompt-history appends ([`super::prompt_history::AppendQueue::numbered_on`]): the
     /// replay barrier takes their accepted count as it arrives.
     #[cfg(any(test, feature = "test-support"))]
@@ -331,6 +359,15 @@ impl ControlCell {
         self.closed.store(true, SeqCst);
     }
 
+    /// A close that failed is undone (`SessionActor::close_undone`): attaches are admitted again and the thread is live.
+    pub fn reopen(&self) {
+        use std::sync::atomic::Ordering::SeqCst;
+        let mut ended = self.liveness.ending();
+        *ended = false;
+        self.subscribers.fetch_and(!CLOSING, SeqCst);
+        self.closed.store(false, SeqCst);
+    }
+
     /// The attach that [`Self::subscribing`] started ended (`ok`: the subscriber is attached).
     pub fn subscribed(&self, ok: bool) {
         if !ok {
@@ -349,6 +386,13 @@ impl ControlCell {
 }
 
 impl ControlCell {
+    /// Stops the manual compaction in flight, if any, with `abort`'s text.
+    pub fn abort_compaction(&self, abort: &mixdog_agent::cancel::Abort) {
+        if let Some(cancel) = lock(&self.compaction_cancel).as_ref() {
+            cancel.abort_with(abort);
+        }
+    }
+
     /// The observers at this moment; called outside the lock.
     pub fn turn_listeners(&self) -> Vec<Arc<dyn TurnListener>> {
         lock(&self.turn_listeners).iter().map(|(_, listener)| listener.clone()).collect()

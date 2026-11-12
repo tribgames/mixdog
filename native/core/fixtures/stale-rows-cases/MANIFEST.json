@@ -1,0 +1,48 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-stale-rows-cases.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "compared": "the sessions whose rows stay, the tombstones left (tag:session), and each scan decision",
+  "excluded": {
+    "an empty index, live rows and settled rows under a day never load config": "GONE (gaps-rest.md): the reap window is an injected trait (agent_registry/mod.rs `ReapWindow`), not a config load to count",
+    "scan admission of running and recently settled sessions never loads config": "GONE (gaps-rest.md): the reap window is an injected trait, not a config load to count"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 10248,
+      "path": "golden.json",
+      "sha256": "87b0e0198fd730e6f518b679f67d5bc052b2e71f33a4dd788a65180af659fc36"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-stale-rows-cases.mjs",
+  "recorderSha256": "c3840df8ea2750b06fd984ea4672c8429a028e89d8c52db70de77b8e05a57e50",
+  "set": "stale-rows-cases",
+  "totalBytes": 10248
+}

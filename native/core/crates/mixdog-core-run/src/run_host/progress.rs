@@ -156,6 +156,14 @@ impl RunProgress {
         self.entry.as_ref().map(|e| e.stage.clone())
     }
 
+    /// `_evictTerminalSessionRuntime`: askSession drops a settled (`done` / `error`) entry once its turn has unwound, so a
+    /// finished turn leaves no entry for status surfaces to read.
+    pub fn evict_terminal(&mut self) {
+        if self.entry.as_ref().is_some_and(|e| terminal(&e.stage)) {
+            self.entry = None;
+        }
+    }
+
     /// The turn's model loop entered (`true`) or returned (`false`).
     pub fn model_loop(&mut self, running: bool) {
         self.touch().in_call = running;

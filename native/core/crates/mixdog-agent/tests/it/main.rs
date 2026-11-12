@@ -1,6 +1,7 @@
 #[macro_use]
 mod compact_support;
 mod agent_tool;
+mod agent_worker_node_cases;
 mod bridge_calls;
 mod compact_commit;
 mod compact_context_status;
@@ -23,9 +24,13 @@ mod jobs;
 mod native_search;
 mod nested;
 mod policy_gate;
+mod preset_node_cases;
+mod reconcile_node_cases;
+mod views_node_cases;
 mod result_kind;
 mod run_loop;
 mod settings_service;
+mod spawn_flow_node_cases;
 mod tail_rules;
 mod text_only;
 mod turns;

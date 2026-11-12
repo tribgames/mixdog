@@ -38,7 +38,8 @@ mod undo;
 mod tests;
 #[cfg(test)]
 mod git_bound_tests;
-#[cfg(any(test, feature = "test-support"))]
+#[cfg(test)]
+mod store_tests;#[cfg(any(test, feature = "test-support"))]
 pub mod signal_replay;
 #[cfg(test)]
 mod signal_tests;

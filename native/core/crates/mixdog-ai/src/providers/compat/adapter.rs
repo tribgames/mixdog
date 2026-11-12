@@ -220,6 +220,16 @@ impl ProviderAdapter for CompatAdapter {
         (!wires.families.is_empty() || wires.inputs != WireInputs::OverrideOnly).then_some(self)
     }
 
+    /// `compatStreamRetryReporter(provider.name)` of the Chat Completions send (openai-compat-chat-send.mjs:222,
+    /// compat-request-policy.mjs:9).
+    fn retry_line(&self, _model: &str) -> Option<mixdog_core_api::domain::provider::RetryLine> {
+        Some(mixdog_core_api::domain::provider::RetryLine {
+            tag: format!("[{}]", self.id),
+            delay: true,
+            style: mixdog_core_api::domain::provider::RetryLineStyle::Attempt,
+        })
+    }
+
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
         self.attempt_with(&self.codec, request).await
     }
@@ -244,6 +254,13 @@ impl CompatAdapter {
         };
         let mut reloaded = false;
         loop {
+            // Chat Completions raises `requesting` for every attempt of its ladder (openai-compat-chat-send.mjs:276),
+            // Responses once before it (openai-compat-xai-send.mjs:103).
+            if wire.url.ends_with("/chat/completions") {
+                request.options.send_identity.raise_stage("requesting");
+            } else {
+                request.options.send_identity.raise_requesting_once();
+            }
             let response = self
                 .http
                 .send(Self::with_key(&wire, key.as_deref()), MODEL_STREAM)
@@ -258,11 +275,15 @@ impl CompatAdapter {
                 && let Some(source) = &self.key
             {
                 reloaded = true;
+                mixdog_rt::node_stderr!("[provider] Auth error, re-reading provider authentication...");
                 let next = source.reload().await?;
-                if key.as_deref() != Some(next.as_str()) {
+                // The send runs anew (`send`, openai-compat.mjs:171-182), on the reloaded key when it names one and
+                // the same key otherwise: its ladder raises `requesting` again.
+                request.options.send_identity.reissue();
+                if !next.is_empty() {
                     key = Some(next);
-                    continue;
                 }
+                continue;
             }
             return Err(err);
         }

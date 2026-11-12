@@ -1,31 +1,31 @@
 {
-  "dispatchedToolCalls": [
-    {
-      "arguments": {
-        "key": "answer"
-      },
-      "id": "call_fx1",
-      "name": "lookup"
-    }
-  ],
   "ok": {
     "content": "",
-    "reasoningContent": null,
-    "stopReason": "tool_calls",
     "toolCalls": [
       {
+        "id": "call_fx1",
+        "name": "lookup",
         "arguments": {
           "key": "answer"
-        },
-        "id": "call_fx1",
-        "name": "lookup"
+        }
       }
     ],
+    "stopReason": "tool_calls",
+    "reasoningContent": null,
     "usage": {
-      "cacheWriteTokens": 2,
-      "cachedTokens": 4,
       "inputTokens": 20,
-      "outputTokens": 8
+      "outputTokens": 8,
+      "cachedTokens": 4,
+      "cacheWriteTokens": 2
     }
-  }
+  },
+  "dispatchedToolCalls": [
+    {
+      "id": "call_fx1",
+      "name": "lookup",
+      "arguments": {
+        "key": "answer"
+      }
+    }
+  ]
 }
