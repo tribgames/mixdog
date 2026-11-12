@@ -199,7 +199,7 @@ export async function replayCase(exe, c) {
   }
 }
 
-const CASE_DEADLINE_MS = 600_000;
+const CASE_DEADLINE_MS = 300_000;
 
 /** Every case, `jobs` at once, each in its own process (this file run as a script), every process it starts ended with its job. */
 export async function replayAll({ exe, cases, jobs }) {

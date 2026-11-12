@@ -39,13 +39,13 @@ async function recordCase(c, run) {
   const out = join(root, `${run}.json`);
   const spec = join(root, 'case.json');
   writeFileSync(spec, JSON.stringify({ ...c, root, supervisor: SUPERVISOR, serviceModule: args.get('service') }));
-  const done = await withJob(c.name, (job) => job.run(c.name, process.execPath, ['--import', 'tsx', join(here, 'session-send-world', 'world.mjs'), tree, spec, out], { cwd: join(tree, 'apps', 'desktop'), ms: 600_000 }));
+  const done = await withJob(c.name, (job) => job.run(c.name, process.execPath, ['--import', 'tsx', join(here, 'session-send-world', 'world.mjs'), tree, spec, out], { cwd: join(tree, 'apps', 'desktop'), ms: 300_000 }));
   writeFileSync(join(root, `${run}.stderr.txt`), done.stderr);
   let result = null;
   try {
     result = JSON.parse(readFileSync(out, 'utf8'));
   } catch {}
-  if (done.timedOut) throw new Error(`${c.name} (${run}): not done within 600 s (ended with the ${done.left} process(es) of its job)\n${done.stderr.slice(-4000)}`);
+  if (done.timedOut) throw new Error(`${c.name} (${run}): not done within 300 s (ended with the ${done.left} process(es) of its job)\n${done.stderr.slice(-4000)}`);
   if (done.code !== 0 || !result || result.failure) throw new Error(`${c.name} (${run}): exit ${done.code}\n${result?.failure ?? ''}\n${done.stderr.slice(-4000)}`);
   if (done.left) throw new Error(`${c.name} (${run}): ${done.left} process(es) outlived the case (ended with its job)`);
   return normalized(result.recorded);

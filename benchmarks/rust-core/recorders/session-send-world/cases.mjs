@@ -320,7 +320,8 @@ async function runEach(c, app, model, steps, count, id, rows, submissionId) {
     else if (step.do === 'idle')
       await model.until(() => {
         const shown = rows(step.who);
-        return !app.busy(id(step.who)) && shown.length >= (step.rows ?? 0) && shown.at(-1)?.kind === 'turndone';
+        const since = step.after ? shown.map((row) => row.kind).lastIndexOf(step.after) : -1;
+        return !app.busy(id(step.who)) && shown.length >= (step.rows ?? 0) && shown.at(-1)?.kind === 'turndone' && (!step.after || (since >= 0 && since < shown.length - 1));
       }, `${step.who} idle`);
     else if (step.do === 'shows') await model.until(() => rows(step.who).some((row) => row.kind === step.kind && (!step.text || String(row.text).includes(step.text))), `${step.who} shows ${step.kind} ${step.text ?? ''}`);
     else if (step.do === 'restart') {
@@ -423,7 +424,9 @@ const notes = [
 /** A send whose turn calls `read`, which the user's rule makes ask for approval. */
 const asking = { bots: ann, call: send(), hooks: [{ tool: 'read', action: 'ask' }], answers: { work: { tool: 'read', args: { file_path: 'notes.txt' } } } };
 /** The report reached the sender: its wake turn ran. */
-const reported = [{ do: 'until', request: 'other', n: 2 }, { do: 'idle', who: 'H' }];
+// The wake turn's request reaches the endpoint over another connection than the window's feed, so the request alone does not say the
+// feed has shown the wake turn begin: H is idle once a turn ended after the report's notice row.
+const reported = [{ do: 'until', request: 'other', n: 2 }, { do: 'idle', who: 'H', after: 'notice' }];
 
 export const CASES = [
   // The plain send, the reference the others differ from.
@@ -479,7 +482,7 @@ export const CASES = [
     bots: ann,
     call: send(),
     answers: { work: { hold: true, text: FINAL } },
-    steps: [...start, ...kick, { do: 'idle', who: 'H' }, { do: 'held', request: 'work' }, { do: 'restart' }, { do: 'settle', ms: 6000 }],
+    steps: [...start, ...kick, { do: 'idle', who: 'H' }, { do: 'held', request: 'work' }, { do: 'restart' }, { do: 'shows', who: 'R', kind: 'user', text: 'WORK: check the build.' }, ...reported],
   },
   {
     name: 'restart-after-recipient-turn',
