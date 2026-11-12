@@ -76,7 +76,7 @@ test('BACKEND_INSTALLERS names every test file that installs a backend', async (
   const production = new Set(['native/core/crates/mixdog-app-server-daemon/src/lib.rs', 'native/core/crates/mixdog-cli/src/main.rs']);
   const found = await runTree('git', ['grep', '-l', '-E', 'mixdog_rt::install\\(|exec::boot\\(|boot_executors\\(\\)', '--', 'native/core/crates'], { label: 'git grep of the backend installers', cwd: join(fileURLToPath(new URL('.', import.meta.url)), '..', '..'), deadlineMs: 60_000 });
   assert.equal(found.status, 0, found.stderr);
-  const files = found.stdout.split(/\r?\n/).filter(Boolean).filter((file) => !production.has(file)).sort();
+  const files = found.stdout.split(/\r?\n/).filter(Boolean).filter((file) => !production.has(file) && !file.includes('/examples/')).sort(); // an example is no test binary: no lane filter selects it
   assert.deepEqual(files, [...BACKEND_INSTALLERS].sort());
 });
 
@@ -89,8 +89,8 @@ test('an installer is recognised by the binary its test is in, not by a name pre
   // The same test name in another binary is not the installer.
   assert.equal(installersIn([{ name: 'a_tick', srcPath: at('native/core/crates/mixdog-rt/tests/other.rs') }]).length, 0);
   // A binary gathering modules (tests/it/main.rs): only the installer's module counts; the victims next to it do not.
-  const it = at('native/core/crates/mixdog-core/tests/it/main.rs');
-  assert.equal(installersIn([{ name: 'bot_routes_never_ran::a_bot_route_read', srcPath: it }]).length, 1);
+  const it = at('native/core/crates/mixdog-app-server-daemon/tests/it/main.rs');
+  assert.equal(installersIn([{ name: 'real_executors::a_real_run', srcPath: it }]).length, 1);
   assert.equal(installersIn([{ name: 'mcp_seams::a_seam', srcPath: it }, { name: 'script_syntax::x', srcPath: it }]).length, 0);
   // A module of a library's unit tests (src/tidy/process.rs).
   const lib = at('native/core/crates/mixdog-services/src/lib.rs');
