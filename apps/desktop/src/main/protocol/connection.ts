@@ -202,8 +202,12 @@ export function createProtocolConnection({ open, defer }: ProtocolConnectionOpti
     // A failed handshake reaches every reader that awaits `whenSynced`; one nobody awaits must not be an unhandled rejection.
     synced.catch(() => undefined);
   };
+  // True once a handshake has completed: from then on a missing client is a link that went down (calls fail at once,
+  // the status says reconnecting), not a connection that has not been opened yet.
+  let everOpened = false;
   const settleSynced = (error?: unknown): void => {
     syncedSettled = true;
+    if (error === undefined) everOpened = true;
     if (error === undefined) resolveSynced();
     else rejectSynced(error);
   };
@@ -215,6 +219,12 @@ export function createProtocolConnection({ open, defer }: ProtocolConnectionOpti
   const connected = (): ConnectionClient => {
     if (!client) throw new Error('The core connection is not open.');
     return client;
+  };
+  /** The client for a request that may arrive before the first connection is open (a window's first calls come while
+   *  the core is still starting): it waits for that first handshake, and fails with its error if that fails. */
+  const connectedAfterFirstOpen = async (): Promise<ConnectionClient> => {
+    if (!client && !everOpened && !closedByOwner) await synced;
+    return connected();
   };
   const unwatchQuietly = (watchId: string): void => {
     fsWatches.delete(watchId);
@@ -258,7 +268,7 @@ export function createProtocolConnection({ open, defer }: ProtocolConnectionOpti
     if (changes.length) for (const window of [...route.windows]) window.push({ kind: 'sections', changes });
   };
   const watchFeed = async (window: ProtocolWindow, feedId: string): Promise<{ absent: boolean }> => {
-    const live = connected();
+    const live = client ?? (await connectedAfterFirstOpen());
     const known = feedWatches.get(feedId);
     if (known) {
       known.windows.add(window);
@@ -487,7 +497,7 @@ export function createProtocolConnection({ open, defer }: ProtocolConnectionOpti
       };
     },
     async watchFiles(window, params) {
-      const live = connected();
+      const live = client ?? (await connectedAfterFirstOpen());
       fsWatches.set(params.watchId, { window, params });
       try {
         return await live.call('fs/watch', params);
@@ -507,7 +517,7 @@ export function createProtocolConnection({ open, defer }: ProtocolConnectionOpti
       return connected().call('fs/unwatch', { watchId });
     },
     async call(method, params) {
-      const live = connected();
+      const live = client ?? (await connectedAfterFirstOpen());
       const reply = await live.call(method, params);
       const flowId = (LOGIN_START_METHODS.has(method) ? reply : params) as { flowId?: unknown } | null;
       if (typeof flowId?.flowId === 'string' && flowId.flowId) {
