@@ -11,7 +11,8 @@ import { REPLAY_TARGETS } from './lib/replay-targets.mjs';
 import { approvalGrantScenarios } from './lib/approval-grant-scenarios.mjs';
 
 REPLAY_TARGETS['approval-grant-change-cases'] = {
-  missing: ['the permissions-change announcement after an approval that remembers a grant: the core answers `thread/approval/answer` (mixdog-core-session approval_notification.rs `answer_approval`) and publishes no settings change for it; the desktop announces it (apps/desktop/src/main/approval-grant-change.ts)'],
+  protocolMethods: ['thread/approval/answer (mixdog-app-protocol/src/methods.rs:359): the core announces `ui/settings/changed` {scope: permissions} to every client once an answer that remembers a grant (agent/always) was taken and its reply queued (mixdog-core-session approval_notification.rs `answer_approval`, replayed by approval_notification_tests.rs); the desktop modules replay the same recording in apps/desktop/src/main/approval-grant-change-replay.test.mjs'],
+  missing: [],
 };
 const set = openSet('approval-grant-change-cases', import.meta.url);
 const modules = {
