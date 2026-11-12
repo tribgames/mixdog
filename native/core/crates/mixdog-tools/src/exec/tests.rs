@@ -48,6 +48,19 @@ struct FakeProcesses {
     exit_at_once: std::sync::atomic::AtomicBool,
     /// The folder of every spawn request, in order.
     cwds: Mutex<Vec<AbsPath>>,
+    /// The contents, as they were when the command reached the process manager, of every hoisted script file it names
+    /// (the tool removes the file once the process settles).
+    hoisted: Mutex<std::collections::HashMap<String, String>>,
+}
+
+impl FakeProcesses {
+    fn read_hoisted(&self, script: &str) {
+        for part in script.split('"').filter(|part| part.contains("mixdog-inline-")) {
+            if let Ok(contents) = std::fs::read_to_string(part) {
+                self.hoisted.lock().unwrap().insert(part.to_owned(), contents);
+            }
+        }
+    }
 }
 
 struct ChanSource(mpsc::UnboundedReceiver<ProcessEvent>);
@@ -74,6 +87,7 @@ impl ProcessManager for FakeProcesses {
         let mut seq = 0;
         self.seen.lock().unwrap().push((request.command.clone(), request.env.clone()));
         self.cwds.lock().unwrap().push(request.cwd.clone());
+        self.read_hoisted(script);
         // A script fed on stdin acts when it arrives.
         if !request.stdin_piped {
             self.act(script, &request.handle, &tx, &mut seq);
@@ -98,6 +112,7 @@ impl ProcessManager for FakeProcesses {
         }
         let script = String::from_utf8(bytes).unwrap();
         self.fed.lock().unwrap().push(script.clone());
+        self.read_hoisted(&script);
         let mut senders = self.senders.lock().unwrap();
         let (tx, seq) = senders.get_mut(handle).ok_or(ProcessError::UnknownHandle)?;
         let tx = tx.clone();
@@ -2359,7 +2374,8 @@ fn cover_ctx(rig: &Rig, root: &std::path::Path, offers: &JsonValue, call: &str) 
 /// recording's folder. Two representations differ for a reason that is not behaviour, normalised before comparing:
 /// (1) PowerShell receives its script framed on stdin (`<utf-16 length>\n<command>`): the length line is checked and
 /// removed; (2) an inline `node -e` command is moved by the tool into a file and started as
-/// `node "<file>"`: that form, for a recorded `node -e` command only, stands for the recorded command.
+/// `node "<file>"`: that form stands for the recorded command only when the file the tool wrote held exactly the recorded script
+/// (read when the command reached the process manager).
 #[cfg(windows)]
 #[tokio::test]
 async fn the_shell_tool_answers_the_whole_cover_table_as_node_does() {
@@ -2396,11 +2412,12 @@ async fn the_shell_tool_answers_the_whole_cover_table_as_node_does() {
             (Ok(_), None) => {
                 let started = rig.processes.cwds.lock().unwrap().iter().skip(spawned).map(|c| c.as_path().to_string_lossy().into_owned()).collect::<Vec<_>>();
                 let command = want["args"]["command"].as_str().unwrap().replace("<WS>", &forward);
-                // An inline `node -e` script is the one command the tool itself moves into a file before it starts.
-                let hoisted = command.starts_with("node -e");
-                // The command the process manager was handed, as a recorded command (rules in the test's header).
-                let unhoist = |script: &str| match script.strip_prefix("node \"").and_then(|p| p.strip_suffix('"')) {
-                    Some(file) if hoisted && !file.contains('"') => command.clone(),
+                // An inline `node -e "<body>"` script is the one command the tool itself moves into a file before it starts.
+                let inline_body = command.strip_prefix("node -e \"").and_then(|b| b.strip_suffix('"'));
+                // The command the process manager was handed, as a recorded command (rules in the test's header): a
+                // `node "<file>"` whose file held exactly the recorded script stands for the recorded command.
+                let unhoist = |script: &str| match (inline_body, script.strip_prefix("node \"").and_then(|p| p.strip_suffix('"'))) {
+                    (Some(want_body), Some(file)) if rig.processes.hoisted.lock().unwrap().get(file).is_some_and(|contents| contents == want_body) => command.clone(),
                     _ => script.to_owned(),
                 };
                 let handed = if case["shellType"] == "posix" {
