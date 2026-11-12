@@ -608,14 +608,102 @@ mod tests {
         }
     }
 
-    async fn readiness() -> (Arc<ProviderReadiness>, Arc<Counting>) {
+    async fn readiness_over(builder: Arc<dyn ProviderBuilder>) -> Arc<ProviderReadiness> {
         let tokens = mixdog_rt::testing::tokens();
         let dir = tempfile::tempdir().unwrap();
         let io = crate::oauth::CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
         let metadata = ModelsDevSource::new(Arc::new(Offline), dir.path().to_path_buf(), io);
         let catalog = Arc::new(CatalogService::cold_start(CatalogSnapshot::default(), Vec::new(), metadata).await);
+        ProviderReadiness::new(Arc::new(ProviderRegistry::new(builder)), catalog)
+    }
+
+    async fn readiness() -> (Arc<ProviderReadiness>, Arc<Counting>) {
         let builder = Arc::new(Counting::default());
-        (ProviderReadiness::new(Arc::new(ProviderRegistry::new(builder.clone())), catalog), builder)
+        (readiness_over(builder.clone()).await, builder)
+    }
+
+    /// A provider whose model listing fails with `message`.
+    struct FailingListing(MockProvider, String);
+    #[async_trait]
+    impl mixdog_core_api::domain::provider::ModelListing for FailingListing {
+        async fn list_models(&self) -> Result<Vec<mixdog_core_api::domain::provider::ModelRecord>, ProviderError> {
+            let mut error = ProviderError::new(ErrorKind::Transient, DeliveryState::NotSent);
+            error.message = self.1.clone();
+            Err(error)
+        }
+    }
+    #[async_trait]
+    impl ProviderAdapter for FailingListing {
+        fn id(&self) -> &mixdog_protocol::ProviderId {
+            self.0.id()
+        }
+        fn codec(&self) -> &dyn mixdog_core_api::domain::provider::WireCodec {
+            self.0.codec()
+        }
+        fn retry_policy(&self) -> &mixdog_core_api::domain::retry::RetryPolicy {
+            self.0.retry_policy()
+        }
+        fn keepalive(&self) -> &mixdog_core_api::domain::keepalive::KeepaliveSchedule {
+            self.0.keepalive()
+        }
+        async fn attempt(
+            &self,
+            request: Arc<mixdog_core_api::domain::provider::ModelRequest>,
+        ) -> Result<Box<dyn mixdog_core_api::domain::provider::ModelStream>, ProviderError> {
+            self.0.attempt(request).await
+        }
+        fn models(&self) -> Option<&dyn mixdog_core_api::domain::provider::ModelListing> {
+            Some(self)
+        }
+    }
+    struct FailingBuilder(String);
+    #[async_trait]
+    impl ProviderBuilder for FailingBuilder {
+        async fn build(&self, _: &str, _: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
+            Ok(Arc::new(FailingListing(MockProvider::new([]), self.0.clone())))
+        }
+        async fn custom_key_ids(&self, _: &str) -> Result<Vec<String>, String> {
+            Ok(Vec::new())
+        }
+        fn available(&self, _: &str) -> bool {
+            true
+        }
+        async fn oauth_credentials_usable(&self, _: &str) -> Result<bool, String> {
+            Ok(true)
+        }
+    }
+
+    /// The Node stderr lines written while `body` runs over a provider whose listing fails echoing `secret`, a credential
+    /// the process carries.
+    async fn refresh_lines(secret: &str, full: bool) -> Vec<String> {
+        crate::oauth::carried::keep("config the-refresh-line-test", &[secret]);
+        let ready = readiness_over(Arc::new(FailingBuilder(format!("listing refused: key {secret} rejected")))).await;
+        let (lines, _capture) = mixdog_rt::node_log::capture();
+        ready.ensure_providers_ready(Some(config(json!({"xai": {"enabled": true}})))).await.unwrap();
+        if full {
+            ready.refresh_catalogs().await;
+        } else {
+            ready.join_startup_refresh().await;
+        }
+        ready.settle_refreshes().await;
+        let lines = lines.lock().unwrap().iter().map(|(_, _, line)| line.clone()).collect();
+        lines
+    }
+
+    #[tokio::test]
+    async fn the_startup_refresh_line_redacts_a_credential_the_listing_error_echoes() {
+        let secret = "startup-line-key-5b1e90d4";
+        let lines = refresh_lines(secret, false).await;
+        let line = lines.iter().find(|l| l.starts_with("[provider:xai] startup catalog refresh failed: ")).unwrap_or_else(|| panic!("{lines:?}"));
+        assert!(line.contains("[REDACTED]") && !line.contains(secret), "{line}");
+    }
+
+    #[tokio::test]
+    async fn the_full_refresh_line_redacts_a_credential_the_listing_error_echoes() {
+        let secret = "full-line-key-7c2d41a8";
+        let lines = refresh_lines(secret, true).await;
+        let line = lines.iter().find(|l| l.starts_with("[provider:xai] catalog refresh failed: ")).unwrap_or_else(|| panic!("{lines:?}"));
+        assert!(line.contains("[REDACTED]") && !line.contains(secret), "{line}");
     }
 
     fn config(value: Value) -> Map<String, Value> {
