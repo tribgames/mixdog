@@ -167,6 +167,66 @@ async fn cancel_ends_the_retry_wait() {
     assert!(matches!(err, SendError::Cancelled));
 }
 
+/// A provider whose first attempt fails with `message`, its retry line worded as the OpenAI-compatible ladder's.
+struct Refusing {
+    inner: MockProvider,
+    message: String,
+}
+
+#[async_trait]
+impl ProviderAdapter for Refusing {
+    fn id(&self) -> &ProviderId {
+        self.inner.id()
+    }
+
+    fn codec(&self) -> &dyn WireCodec {
+        self.inner.codec()
+    }
+
+    fn retry_policy(&self) -> &RetryPolicy {
+        self.inner.retry_policy()
+    }
+
+    fn keepalive(&self) -> &KeepaliveSchedule {
+        self.inner.keepalive()
+    }
+
+    fn retry_line(&self, _model: &str) -> Option<mixdog_core_api::domain::provider::RetryLine> {
+        Some(mixdog_core_api::domain::provider::RetryLine {
+            tag: "[custom]".into(),
+            delay: true,
+            style: mixdog_core_api::domain::provider::RetryLineStyle::Attempt,
+        })
+    }
+
+    async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+        if self.inner.attempts.load(Ordering::Relaxed) == 0 {
+            self.inner.attempts.fetch_add(1, Ordering::Relaxed);
+            let mut error = ProviderError::new(mixdog_core_api::domain::provider::ErrorKind::Overloaded, DeliveryState::Accepted);
+            error.status = Some(503);
+            error.message = self.message.clone();
+            return Err(error);
+        }
+        self.inner.attempt(request).await
+    }
+}
+
+/// The line written before a retry carries the server's text: a credential the process holds is redacted from it.
+#[tokio::test(start_paused = true)]
+async fn the_retry_line_redacts_a_credential_the_refusal_echoes() {
+    let (broker, send) = setup();
+    mixdog_ai::oauth::carried::keep("config the-retry-line-test", &["retry-line-key-3f9a71c2"]);
+    let provider = Refusing {
+        inner: MockProvider::new([MockAttempt::Body(b"t:hi\ndone\n".to_vec())]),
+        message: "upstream 503: key retry-line-key-3f9a71c2 is overloaded".into(),
+    };
+    let (lines, _capture) = mixdog_rt::node_log::capture();
+    broker.send(&provider, send, &mut Sink::default(), &CancellationToken::new()).await.unwrap();
+    let lines: Vec<String> = lines.lock().unwrap().iter().map(|(_, _, line)| line.clone()).collect();
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(lines[0].starts_with("[custom] retry attempt 2 after upstream 503: key [REDACTED] is overloaded"), "{}", lines[0]);
+}
+
 struct Echo;
 
 #[async_trait]

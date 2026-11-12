@@ -22,6 +22,25 @@ impl ModelTraits for Traits {
     }
 }
 
+/// A credential file holding two tokens (Muse's `apiKey` and `accessToken`) keeps both redacted: values other sources retire
+/// afterwards evict neither.
+#[tokio::test]
+#[allow(clippy::disallowed_methods, reason = "the fixture file is written directly")]
+async fn a_file_key_registers_every_token_its_file_holds() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("muse.json");
+    std::fs::write(&path, r#"{"apiKey":"two-token-api-key-71c9e0","accessToken":"two-token-access-4d82fa"}"#).unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let file = CredentialFile::new(path, CredentialIo { read: tokens.interactive_io, write: tokens.durability_io });
+    let key = FileKey { file, provider: "muse-code-oauth" };
+    assert_eq!(key.read().await.unwrap(), "two-token-api-key-71c9e0");
+    for i in 0..=crate::oauth::carried::RETIRED_CAP {
+        crate::oauth::carried::keep("file the-unrelated-account-of-the-file-key-test.json", &[&format!("file-key-test-unrelated-{i:05}")]);
+    }
+    let registry = crate::oauth::carried::registry();
+    assert!(registry.holds("two-token-api-key-71c9e0") && registry.holds("two-token-access-4d82fa"));
+}
+
 fn builder(dir: &tempfile::TempDir) -> DefaultProviderBuilder {
     builder_with(dir, Arc::new(ProcessEnv))
 }

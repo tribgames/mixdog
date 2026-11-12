@@ -186,11 +186,16 @@ impl ModelBroker {
                     }
                     if let Some(line) = line {
                         // `lastErr?.message || lastErr?.code || 'transient error'`, then `retryDelayLabel(delayMs, delayReason)`.
-                        let cause = [Some(failure.message.as_str()), failure.code.as_deref()]
-                            .into_iter()
-                            .flatten()
-                            .find(|text| !text.is_empty())
-                            .unwrap_or("transient error");
+                        // The failure's text repeats what the endpoint answered: any credential the process holds is redacted
+                        // before the line is written.
+                        let scrub = crate::oauth::carried::remembered();
+                        let cause = scrub.redact_str(
+                            [Some(failure.message.as_str()), failure.code.as_deref()]
+                                .into_iter()
+                                .flatten()
+                                .find(|text| !text.is_empty())
+                                .unwrap_or("transient error"),
+                        );
                         let advised = if failure.retry_after.is_some() { " (retry-after)" } else { "" };
                         match line.style {
                             RetryLineStyle::Attempt => {
@@ -208,7 +213,7 @@ impl ModelBroker {
                                     .map(|status| status.to_string())
                                     .or_else(|| failure.code.clone().filter(|code| !code.is_empty()))
                                     .or_else(|| Some(failure.message.clone()).filter(|message| !message.is_empty()))
-                                    .unwrap_or_else(|| "network error".to_owned());
+                                    .map_or_else(|| "network error".to_owned(), |reason| scrub.redact_str(&reason));
                                 mixdog_rt::node_stderr!("{} retry attempt {attempt}/{max} after {reason}, backoff {}ms{advised}", line.tag, delay.as_millis());
                             }
                             RetryLineStyle::Plain => mixdog_rt::node_stderr!("{} retry {attempt} after {cause}", line.tag),

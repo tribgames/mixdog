@@ -2,7 +2,8 @@
 //! (`benchmarks/rust-core/recorders/record-credential-transitions.mjs`): the custom-provider connection test (a real send
 //! over the production link, the transport guard included) and the Devin sign-in's code exchange, against an endpoint that
 //! answers each request as the recorded one was answered. Every step's answer or thrown text and every request (origin,
-//! method, path, authorization), in order, equal the recording.
+//! method, path, authorization), in order, equal the recording; the Devin record is the stored file, compared whole. The
+//! link's connection warm-up (`HEAD`) is answered and not compared: the manifest declares it.
 
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -72,7 +73,18 @@ impl Endpoint {
 
     /// Until a request equal to `seen` has come in.
     async fn until_arrived(&mut self, seen: &Seen) {
-        self.arrived.wait_for(|all| all.contains(seen)).await.expect("the endpoint runs while the test does");
+        within(&format!("the request {seen:?} to arrive"), self.arrived.wait_for(|all| all.contains(seen))).await.expect("the endpoint runs while the test does");
+    }
+}
+
+/// How long a wait for the other side of the exchange may take before the replay fails.
+const DEADLINE: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// `wait`, which ends when what it waits for happens, or the replay fails naming `what`.
+async fn within<T>(what: &str, wait: impl std::future::Future<Output = T>) -> T {
+    match tokio::time::timeout(DEADLINE, wait).await {
+        Ok(done) => done,
+        Err(_) => panic!("the replay waited {DEADLINE:?} for {what}, which never happened"),
     }
 }
 
@@ -141,7 +153,7 @@ async fn serve(mut socket: TcpStream, script: Arc<Script>) {
                 socket.write_all(first.as_bytes()).await.unwrap();
                 socket.flush().await.unwrap();
                 let held = served["heldUntil"].as_u64().unwrap() as usize;
-                script.answered.subscribe().wait_for(|done| done.contains(&held)).await.expect("the endpoint runs while the test does");
+                within(&format!("the recorded exchange {held} to be answered whole (the held stream of exchange {index})"), script.answered.subscribe().wait_for(|done| done.contains(&held))).await.expect("the endpoint runs while the test does");
                 socket.write_all(format!("{}0\r\n\r\n", chunk(chunks[1].as_str().unwrap())).as_bytes()).await.unwrap();
             }
         }
@@ -203,12 +215,12 @@ async fn replay(name: &str) {
                 fault_origin: Arc::default(),
                 failed: Arc::new(|| {}),
             };
-            let login = DevinLogin::new(file, Arc::new(link));
+            // The recording ran the sign-in on a fixed clock: the record expires a year after it.
+            let now = golden["devinSignInNow"].as_u64().unwrap();
+            let login = DevinLogin::new(file, Arc::new(link)).with_clock(Arc::new(move || now));
             login.exchange_checked(value, SIGN_IN_VERIFIER, "http://127.0.0.1:59653/callback").await.expect("the code exchange succeeds");
             let stored: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-            let grant = exchanges.iter().find(|e| e[0] == "https://api.devin.ai").unwrap();
-            let body: Value = serde_json::from_str(golden["served"][grant[4].as_u64().unwrap() as usize]["body"].as_str().unwrap()).unwrap();
-            assert_eq!(json!({ "granted": stored["access_token"] == body["token"] }), step[2], "{name}: the sign-in stored the granted token");
+            assert_eq!(stored, step[2], "{name}: the record the sign-in stored");
             at += 1;
             continue;
         }
