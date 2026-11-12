@@ -661,14 +661,13 @@ async fn inheritance_carry(line: &str) {
 async fn a_header_node_wrote_without_a_reference_set_keeps_none_through_a_save() {
     use mixdog_core_session::session::testing::Rig;
     use mixdog_store::schema::record::Record;
-    let recording = recording();
-    let mut node_header = obj(case(&recording, 372.0).get("result").get("failing").get("target"));
+    // The header the unpatched Node saved (`fixtures/session-route-state-legacy`, recorded with no patch applied: the other recording's
+    // Node carries the prune-after-save fix), as recorded.
+    let legacy = Exact::load(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/session-route-state-legacy/recording.json"));
+    let mut node_header = obj(legacy.get("cases").as_array()[0].get("result").get("header"));
+    assert!(!node_header.contains_key("offloadSources") && !node_header.contains_key("offloadSourcesRules"), "the recorded header is the unpatched Node's");
     node_header.remove("id");
     node_header.remove("messages");
-    // The recording's Node carries the prune-after-save fix, whose new sessions have a reference set; the header Node wrote before it is
-    // the recorded one without those two fields.
-    node_header.remove("offloadSources");
-    node_header.remove("offloadSourcesRules");
     let rig = Rig::new();
     let id = ThreadId::from("node-written");
     let session: Record = serde_json::from_value(json!({

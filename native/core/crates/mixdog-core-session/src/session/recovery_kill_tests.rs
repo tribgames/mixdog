@@ -166,8 +166,13 @@ fn run_child(dir: &Path, stage: &str, point: Option<usize>, thread: Option<&str>
     panic!("the {stage} child ended without finishing: {:?}", child.wait());
 }
 
-/// Each write the recovery makes (before the store takes it, and after it did) is a point; the process is killed at every one,
-/// and the next open finishes the recovery with no row missing or doubled.
+/// The kill points are every boundary a kill can leave the store at, three kinds (`CommitPoint`): before a commit's batch reaches the
+/// store, after the store acknowledged it, and between two records of one batch. The last kind is needed: the store's format
+/// (`mixdog-store/FORMAT.md` §7, "a crash is recovered automatically") keeps every complete frame of a batch the crash cut, so a
+/// kill inside one commit leaves a prefix of its records, a state neither commit boundary shows. The hooked log writes a batch a
+/// record at a time to hold the process after each prefix; a cut inside one record's frame (a torn frame) is dropped by the open
+/// and leaves the prefix before it. So every state a kill can leave is a prefix of the records the recovery writes, at every
+/// position, and each is killed at here: the next open finishes the recovery with no row missing or doubled.
 #[test]
 fn a_kill_at_any_write_of_a_recovery_leaves_it_to_finish_at_the_next_open() {
     let mut killed_at = 0;

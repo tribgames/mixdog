@@ -975,10 +975,15 @@ impl ThreadStore for CallCounted {
     }
 }
 
-/// Where a hooked log is when its hook runs: before a batch is handed to the store, or after the store acknowledged it.
+/// Where a hooked log is when its hook runs: before a batch is handed to the store, between two of its records, or after the store
+/// acknowledged it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CommitPoint {
     Before,
+    /// The first `written` records of the batch are on disk. The store's format (FORMAT.md §7: a crash during a batch leaves a
+    /// prefix of its frames, each complete one committed) makes every such prefix a state a kill can leave, so the hooked log
+    /// writes a batch one record at a time and calls the hook between them.
+    Within { written: usize },
     After,
 }
 
@@ -994,9 +999,15 @@ struct HookedLog {
 impl SessionLog for HookedLog {
     fn commit(&mut self, lane: &InLane<DurabilityIo>, batch: &[CommitRecord]) -> Result<Vec<u64>, BarrierError> {
         (self.hook)(CommitPoint::Before);
-        let ordinals = self.inner.commit(lane, batch);
+        let mut ordinals = Vec::with_capacity(batch.len());
+        for (written, record) in batch.chunks(1).enumerate() {
+            if written > 0 {
+                (self.hook)(CommitPoint::Within { written });
+            }
+            ordinals.extend(self.inner.commit(lane, record)?);
+        }
         (self.hook)(CommitPoint::After);
-        ordinals
+        Ok(ordinals)
     }
 
     fn retry(&mut self, lane: &InLane<DurabilityIo>) -> Result<(), BarrierError> {

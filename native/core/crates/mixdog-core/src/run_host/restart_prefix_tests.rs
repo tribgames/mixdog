@@ -146,6 +146,8 @@ struct NodeTool {
     read: Option<Arc<mixdog_tools::fs::ReadTool>>,
     reads: Arc<AtomicUsize>,
     hang_at: Option<usize>,
+    /// The recorded `killrequestcancelled` scenario: the read of `call_2.txt` really returns the text `Cancelled`.
+    cancelled: bool,
     kill: tokio::sync::mpsc::UnboundedSender<&'static str>,
 }
 
@@ -166,6 +168,9 @@ impl Tool for NodeTool {
             let _ = self.kill.send("a tool run");
             std::future::pending::<()>().await;
         }
+        if self.cancelled && args["path"] == "call_2.txt" {
+            return Ok(mixdog_core_api::domain::tool::ToolOutput { parts: vec![mixdog_core_api::domain::tool::ToolPart::Text("Cancelled".to_owned())], ..Default::default() });
+        }
         read.call(ctx, args).await
     }
 }
@@ -176,6 +181,7 @@ struct Session {
     tools: Value,
     reads: Arc<AtomicUsize>,
     hang_at: Option<usize>,
+    cancelled: bool,
     kill: tokio::sync::mpsc::UnboundedSender<&'static str>,
 }
 
@@ -186,7 +192,7 @@ impl RunParts for Session {
     }
 
     async fn assemble(&self, input: AssembleInput<'_>) -> Result<Assembled, TurnError> {
-        let tools = node_tools(&self.tools, &self.reads, self.hang_at, &self.kill);
+        let tools = node_tools(&self.tools, &self.reads, self.hang_at, self.cancelled, &self.kill);
         let tokens = mixdog_rt::testing::tokens();
         let context = crate::run_host::tail::tail_context(input.header, || None);
         Ok(Assembled {
@@ -239,7 +245,7 @@ impl RunParts for Session {
 }
 
 /// Node's tool definitions as tools, `read` calling the core's read tool.
-fn node_tools(tools: &Value, reads: &Arc<AtomicUsize>, hang_at: Option<usize>, kill: &tokio::sync::mpsc::UnboundedSender<&'static str>) -> Vec<Arc<dyn Tool>> {
+fn node_tools(tools: &Value, reads: &Arc<AtomicUsize>, hang_at: Option<usize>, cancelled: bool, kill: &tokio::sync::mpsc::UnboundedSender<&'static str>) -> Vec<Arc<dyn Tool>> {
     let read = Arc::new(mixdog_tools::fs::ReadTool::new(None, None));
     tools
         .as_array()
@@ -259,7 +265,7 @@ fn node_tools(tools: &Value, reads: &Arc<AtomicUsize>, hang_at: Option<usize>, k
                 parallel_safe: name == "read",
                 exclusive_with: Vec::new(),
             };
-            Arc::new(NodeTool { spec, read: (name == "read").then(|| read.clone()), reads: reads.clone(), hang_at, kill: kill.clone() }) as Arc<dyn Tool>
+            Arc::new(NodeTool { spec, read: (name == "read").then(|| read.clone()), reads: reads.clone(), hang_at, cancelled, kill: kill.clone() }) as Arc<dyn Tool>
         })
         .collect()
 }
@@ -274,6 +280,7 @@ struct Boot {
     workspace: std::path::PathBuf,
     tools: Value,
     hang_at: Option<usize>,
+    cancelled: bool,
     kill: tokio::sync::mpsc::UnboundedSender<&'static str>,
 }
 
@@ -325,7 +332,7 @@ async fn process_over(boot: Boot, hook: Option<mixdog_core_session::session::tes
     let mut deps = rig.deps_parts(threads);
     // The production display of stored rows: what a client reads is compared with Node's read below.
     deps.transcript = Arc::new(mixdog_core_session::session::transcript::RecordTranscript::new());
-    let session = Session { provider, workspace: boot.workspace.clone(), tools: boot.tools.clone(), reads: Arc::default(), hang_at: boot.hang_at, kill: boot.kill.clone() };
+    let session = Session { provider, workspace: boot.workspace.clone(), tools: boot.tools.clone(), reads: Arc::default(), hang_at: boot.hang_at, cancelled: boot.cancelled, kill: boot.kill.clone() };
     deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(session)));
     let directory = SessionDirectory::new(Arc::new(deps));
     Process { rig, directory }
@@ -376,7 +383,7 @@ async fn warm_after_restart(boot: &Boot, id: &ThreadId) -> bool {
     let (threads, provider) = opened(boot).await;
     // The turn path's `Skill` tool, which the session's list leaves out when no skill is visible (`NoSkills`), as Node's
     // recorded tool list does.
-    let mut pool = node_tools(&boot.tools, &Arc::default(), None, &boot.kill);
+    let mut pool = node_tools(&boot.tools, &Arc::default(), None, boot.cancelled, &boot.kill);
     pool.push(super::named("Skill"));
     let world = super::turn_world_over(provider, Some(Arc::new(threads)), Some(pool)).await;
     world.directory.open_handle(id, &CallContext::internal("test")).await.expect("the stored session opens");
@@ -612,6 +619,7 @@ async fn boot(dir: &std::path::Path, url: String, case: &Case, hang_at: Option<u
         workspace: dir.join("workspace"),
         tools: case.tools.clone(),
         hang_at,
+        cancelled: case.phase == "killrequestcancelled",
         kill,
     }
 }
@@ -879,21 +887,41 @@ async fn replay_after(name: &str, recovery_kill: Option<usize>) -> bool {
     second_kill
 }
 
-/// The core is killed in a tool run, and killed again at each write of the recovery in turn: the request the provider then
-/// receives for the next task is Node's after one kill (`restart-killtool`), whole.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_second_kill_during_the_recovery_keeps_nodes_requests() {
+/// The core is killed in the case's first phase, and killed again at each point of the recovery in turn: the request the provider
+/// then receives for the next task is the case's recorded one, whole. The points are the commit boundaries and the prefixes of
+/// each commit's records (`CommitPoint`; `recovery_kill_tests.rs` says why those are every state a kill can leave): a recovery is
+/// cut after any number of its records, and the next open derives it again from what was stored.
+async fn killed_at_every_point_of_the_recovery(name: &str) {
     let mut killed = 0;
     for point in 0..64 {
         // Shown only when the test fails.
-        eprintln!("the second kill at write {point} of the recovery");
-        if !replay_after("restart-killtool", Some(point)).await {
+        eprintln!("the second kill at point {point} of the recovery");
+        if !replay_after(name, Some(point)).await {
             assert!(killed >= 2, "the recovery wrote nothing to cut: {killed}");
             return;
         }
         killed += 1;
     }
     panic!("the recovery never ended within 64 points");
+}
+
+/// After one kill in a tool run (`restart-killtool`): Node's request after one kill.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_second_kill_during_the_recovery_keeps_nodes_requests() {
+    killed_at_every_point_of_the_recovery("restart-killtool").await;
+}
+
+/// A tool that really returned `Cancelled`, then the kill with the next request on the wire (Node recovers from its checkpoint,
+/// so the real result keeps its `sentRequestTail`): the next task's request is Node's, whole.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_real_cancelled_result_before_a_kill_keeps_nodes_requests() {
+    replay("restart-killrequest-cancelled").await;
+}
+
+/// The same, killed again at every point of the recovery: Node's recording of the second kill (`recoverkill`).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_second_kill_after_a_real_cancelled_result_keeps_nodes_requests() {
+    killed_at_every_point_of_the_recovery("restart-killrequest-cancelled-recoverkill").await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

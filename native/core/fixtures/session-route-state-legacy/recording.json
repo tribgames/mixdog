@@ -1,0 +1,51 @@
+{
+  "domain": "session-route-state-legacy",
+  "recorder": "benchmarks/rust-core/recorders/record-session-route-state-legacy.mjs",
+  "testFile": "src/session-runtime/session-lifecycle.test.mjs",
+  "cases": [
+    {
+      "name": "header-saved-before-the-reference-set",
+      "input": {
+        "route": {
+          "provider": "anthropic-oauth",
+          "model": "claude-opus-5",
+          "selectedContextWindow": 500000
+        },
+        "heir": {
+          "id": "heir",
+          "messages": [],
+          "provider": "anthropic-oauth",
+          "model": "claude-opus-5",
+          "contextWindow": 500000,
+          "rawContextWindow": 500000,
+          "effectiveContextWindowPercent": 100,
+          "autoCompactTokenLimit": null,
+          "compactBoundaryTokens": 500000,
+          "compaction": {
+            "auto": true
+          },
+          "tools": []
+        }
+      },
+      "result": {
+        "header": {
+          "id": "heir",
+          "messages": [],
+          "provider": "anthropic-oauth",
+          "model": "claude-opus-5",
+          "contextWindow": 500000,
+          "rawContextWindow": 500000,
+          "effectiveContextWindowPercent": 100,
+          "autoCompactTokenLimit": null,
+          "compactBoundaryTokens": 500000,
+          "compaction": {
+            "auto": true
+          },
+          "tools": [],
+          "generation": 0,
+          "closed": false
+        }
+      }
+    }
+  ]
+}
