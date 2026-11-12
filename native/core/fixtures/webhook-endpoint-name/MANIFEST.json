@@ -1,5 +1,11 @@
 {
   "command": "node benchmarks/rust-core/recorders/record-webhook-endpoint-name.mjs --tree <b6f10295a>",
+  "exclusions": [
+    {
+      "reason": "the recorder drops the Date header (a clock reading of the recording run); the replay drops it from what the peer sees",
+      "what": "wire[].responses[].headers.date"
+    }
+  ],
   "fileCount": 1,
   "files": [
     {
@@ -37,7 +43,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-webhook-endpoint-name.mjs",
-  "recorderSha256": "56c52aec60acee61f698cf82d80a233d5725777f43ca72255aa9cfd51dc59afa",
+  "recorderSha256": "485cc4baf2e221adbe3d8bba388fd70fb461a64fa3ded0b5a3ae5ed0aa8d1e6f",
   "set": "webhook-endpoint-name",
   "totalBytes": 17715
 }

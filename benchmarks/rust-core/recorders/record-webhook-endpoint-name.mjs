@@ -334,7 +334,11 @@ if (out) {
     recorder,
     command: `node ${recorder} --tree <b6f10295a>`,
     identity,
-    extra: { ...recorderProvenance(import.meta.url) },
+    extra: {
+      ...recorderProvenance(import.meta.url),
+      // Every other recorded wire header is compared by equality, `Connection` included.
+      exclusions: [{ what: 'wire[].responses[].headers.date', reason: 'the recorder drops the Date header (a clock reading of the recording run); the replay drops it from what the peer sees' }],
+    },
   });
   commitStage(stage, finalDir);
 }
