@@ -42,30 +42,22 @@ pub trait PostToolDispatch: Send + Sync {
 pub struct SessionToolHooks {
     session_id: String,
     cwd: String,
-    /// The session's folder as it stands now (`call.cwd = prepared.cwd`).
-    live_cwd: Option<mixdog_agent::tools::LiveCwd>,
     dispatch: Arc<dyn PostToolDispatch>,
 }
 
 impl SessionToolHooks {
     pub fn new(session_id: &str, cwd: &Path, dispatch: Arc<dyn PostToolDispatch>) -> Self {
-        Self { session_id: session_id.to_owned(), cwd: cwd.to_string_lossy().into_owned(), live_cwd: None, dispatch }
+        Self { session_id: session_id.to_owned(), cwd: cwd.to_string_lossy().into_owned(), dispatch }
     }
 
-    pub fn with_live_cwd(mut self, live: Option<mixdog_agent::tools::LiveCwd>) -> Self {
-        self.live_cwd = live;
-        self
-    }
-
-    fn cwd_now(&self) -> String {
-        self.live_cwd.as_ref().and_then(|live| live()).map_or_else(|| self.cwd.clone(), |live| live.as_path().to_string_lossy().into_owned())
-    }
-
+    /// The event reports the folder the call was prepared in (`call.cwd = prepared.cwd`), not the session's folder at the time
+    /// it finished.
     fn event(&self, call: &GateCall, result: &str) -> PostToolEvent {
+        let cwd = call.cwd.as_ref().map_or_else(|| self.cwd.clone(), |cwd| cwd.to_string_lossy().into_owned());
         PostToolEvent {
             name: call.name.clone(),
             args: call.args.clone(),
-            cwd: effective_tool_cwd(&call.name, &call.args, &self.cwd_now()),
+            cwd: effective_tool_cwd(&call.name, &call.args, &cwd),
             session_id: self.session_id.clone(),
             result: result.to_owned(),
         }
@@ -205,6 +197,19 @@ mod tests {
         assert_eq!(h.after_tool(&call, "out").await.as_deref(), Some("a\n{\"text\":\"b\"}"));
         *fake.answer.lock().unwrap() = Some(JsonValue::Null);
         assert_eq!(h.after_tool(&call, "out").await.as_deref(), Some(""));
+    }
+
+    /// A call prepared in one folder and finished after the session moved to another reports the folder it ran in.
+    #[tokio::test]
+    async fn the_event_names_the_folder_the_call_was_prepared_in() {
+        let fake = Arc::new(Fake::default());
+        let h = hooks(&fake);
+        let prepared_in = Path::new("/started");
+        h.after_tool(&GateCall::new("edit", json!({"file_path": "x"})).at(prepared_in), "out").await;
+        h.after_failure(&GateCall::new("shell", json!({"command": "ls", "cwd": "sub"})).at(prepared_in), "bad").await;
+        let seen = fake.seen.lock().unwrap().clone();
+        assert!(seen[0].cwd.contains("started") && !seen[0].cwd.contains("work"), "{}", seen[0].cwd);
+        assert!(seen[1].cwd.contains("started") && seen[1].cwd.ends_with("sub"), "{}", seen[1].cwd);
     }
 
     #[tokio::test]

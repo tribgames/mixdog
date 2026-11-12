@@ -56,11 +56,16 @@ const call = (id, name, args) => ({ id, name, arguments: args });
 const switchTo = call('c1', 'session', { action: 'set-project', path: `${ROOT}/b` });
 const list = call('c2', 'list', { path: '.' });
 const create = call('c3', 'edit', { file_path: 'out.txt', old_string: '', new_string: 'written after the switch\n' });
-// One batch holding all three calls is not recorded: Node starts every call of a batch before the first one settles, so the
-// list and the file land in whichever folder the session holds then, and what a listing shows beside a write in progress
-// (the temporary file of the atomic write) depends on scheduling.
+// A batch starts its calls in order through the eager dispatcher (`eager-dispatch.mjs` `startEagerRun`): each call is
+// prepared (`prepareToolCall` reads the session's folder, `call-prep.mjs:69`) when its turn comes, before the `session`
+// call's own approval and dispatch steps have let the switch land. So every call of a batch that holds the switch reads
+// the folder the session had when the batch began, whichever side of the switch it stands on. A listing beside a write
+// is not recorded: what it shows of an atomic write in progress (its temporary file) depends on scheduling.
 const CASES = [
   { name: 'the switch, the list and the file are three model steps', script: [{ toolCalls: [switchTo] }, { toolCalls: [list] }, { toolCalls: [create] }, { reply: 'done' }] },
+  { name: 'the switch and the file are one batch', script: [{ toolCalls: [switchTo, create] }, { reply: 'done' }] },
+  { name: 'the file and the switch are one batch', script: [{ toolCalls: [create, switchTo] }, { reply: 'done' }] },
+  { name: 'the switch and the list are one batch', script: [{ toolCalls: [switchTo, list] }, { reply: 'done' }] },
 ];
 
 const fill = (value, dir) => JSON.parse(JSON.stringify(value).replaceAll(ROOT, dir.replaceAll('\\', '/')));
@@ -115,7 +120,7 @@ for (const [index, c] of CASES.entries()) {
       toolResults: (answered?.messages ?? []).filter((m) => m.role === 'tool').map((m) => ({ toolCallId: m.toolCallId, content: answer(m, dir, { id: leadId }) })),
       sessionCwd: sessionCwd === null ? null : hide(sessionCwd, dir),
       files: { a: names('a'), b: names('b') },
-      created: existsSync(join(dir, 'b', 'out.txt')) ? readFileSync(join(dir, 'b', 'out.txt'), 'utf8') : null,
+      created: Object.fromEntries(['a', 'b'].map((sub) => [sub, existsSync(join(dir, sub, 'out.txt')) ? readFileSync(join(dir, sub, 'out.txt'), 'utf8') : null])),
     },
   });
 }
@@ -130,7 +135,7 @@ writeSetManifest(stage, {
   identity,
   extra: {
     ...recorderProvenance(import.meta.url),
-    compared: "per case: every tool result the turn answered, the final reply, the session's folder after the turn, the names in each Project folder afterwards and the created file's text",
+    compared: "per case: every tool result the turn answered, the final reply, the session's folder after the turn, the names in each Project folder afterwards and the created file's text in each",
     paths: "the case's temporary folder is written <root> in the script and in every answer",
   },
 });

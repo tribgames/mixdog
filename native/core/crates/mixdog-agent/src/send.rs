@@ -552,7 +552,8 @@ impl Run {
                 if !call.id.is_empty() {
                     self.streamed_ids.insert(call.id.clone());
                 }
-                self.try_eager(&call).await;
+                let started_in = self.live_cwd();
+                self.try_eager(&call, &started_in).await;
             }
         }
         if !builder.completed() {

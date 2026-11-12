@@ -633,7 +633,6 @@ impl RunParts for HostRunParts {
             let grants = directory.grants(thread);
             let session = Arc::new(SessionGate::new(thread.clone(), directory.live_header(thread), input.surface_rx.clone(), s.gate_env.clone()));
             let (thread, cwd) = (thread.clone(), cwd.clone());
-            let live_cwd = config.live_cwd.clone();
             let observer = observer.clone();
             let approvals = s.approvals.clone();
             Box::new(move |context: GateContext| {
@@ -651,11 +650,10 @@ impl RunParts for HostRunParts {
                     thread_id: thread,
                     cwd,
                     cancel: context.cancel,
-                }).with_live_cwd(live_cwd.clone()))
+                }))
             })
         };
         let session_id = thread.as_str();
-        let live_cwd_for_hooks = config.live_cwd.clone();
         let read_body = config.read_body_required;
         // The reaction facts are read off the stored bodies the run holds, as Node reads `meta`.
         let rows = Arc::new(mixdog_core_session::session::StoredRows::new());
@@ -687,7 +685,7 @@ impl RunParts for HostRunParts {
                     Arc::new(super::mcp_seams::ExplicitSkillSelector::new(parts.names, parts.tool, run.gate, run.env, run.cancel).with_selection(selection)) as Arc<dyn SkillSelector>
                 }) as SkillsBuilder
             }),
-            hooks: Some(Arc::new(SessionToolHooks::new(session_id, &cwd, seams.post_tool_dispatch()).with_live_cwd(live_cwd_for_hooks))),
+            hooks: Some(Arc::new(SessionToolHooks::new(session_id, &cwd, seams.post_tool_dispatch()))),
             reuse: Some({
                 let reuse = Arc::new(ToolResultReuse::new(s.io, session_id, &cwd, read_body, s.clock.clone()));
                 s.reuses.track(&reuse);

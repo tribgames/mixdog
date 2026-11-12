@@ -1,12 +1,12 @@
 {
   "command": "node benchmarks/rust-core/recorders/record-switch-project-turn-cases.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
-  "compared": "per case: every tool result the turn answered, the final reply, the session's folder after the turn, the names in each Project folder afterwards and the created file's text",
+  "compared": "per case: every tool result the turn answered, the final reply, the session's folder after the turn, the names in each Project folder afterwards and the created file's text in each",
   "fileCount": 1,
   "files": [
     {
-      "bytes": 1817,
+      "bytes": 5594,
       "path": "golden.json",
-      "sha256": "d2c7f6bfebcd6334d575c563b12a1e441e417fd50f9f4883dc9eb6b897cfddfc"
+      "sha256": "49fdb3c2b3d030b10893b16c842c9ad203d5bcd3f7fc98c3651c4721939e6d8d"
     }
   ],
   "inputs": [
@@ -39,7 +39,7 @@
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-switch-project-turn-cases.mjs",
-  "recorderSha256": "8fafb4fba35970c365d944b32af108005caee447bc6e66d445189204cc484e78",
+  "recorderSha256": "0b049c16a67cd76fc578d9d21d641c03b2909150d8844d387e30c1fcbc2fa65f",
   "set": "switch-project-turn-cases",
-  "totalBytes": 1817
+  "totalBytes": 5594
 }

@@ -645,11 +645,21 @@ pub struct GateCall {
     /// `local_fetch` or `image_fetch` keeps `web_fetch`): the surface (allowlist, denied tools,
     /// connectors, read-only) judges the call under this name, not the transport's.
     pub schema_name: Option<String>,
+    /// The folder the call runs in (`prepared.cwd`), read once when the call is prepared: the policy judges the call, the tool
+    /// runs it and PostToolUse reports it all against this one folder, never the session's folder read again. `None` for a
+    /// call made outside a run (the turn's folder is used then).
+    pub cwd: Option<std::path::PathBuf>,
 }
 
 impl GateCall {
     pub fn new(name: impl Into<String>, args: JsonValue) -> Self {
-        Self { name: name.into(), args, schema_name: None }
+        Self { name: name.into(), args, schema_name: None, cwd: None }
+    }
+
+    /// The call with the folder it was prepared in.
+    pub fn at(mut self, cwd: &std::path::Path) -> Self {
+        self.cwd = Some(cwd.to_path_buf());
+        self
     }
 }
 
@@ -930,9 +940,8 @@ pub struct PolicyGate {
     grants: Arc<mixdog_tools::policy::SessionGrants>,
     approvals: WaitingApprovals,
     thread_id: ThreadId,
+    /// The turn's folder, for a call that carries none of its own.
     cwd: std::path::PathBuf,
-    /// The session's folder as it stands now; a call is judged where it will run (`call.cwd = prepared.cwd`).
-    live_cwd: Option<crate::tools::LiveCwd>,
     cancel: CancellationToken,
 }
 
@@ -969,19 +978,8 @@ impl PolicyGate {
             },
             thread_id: parts.thread_id,
             cwd: parts.cwd,
-            live_cwd: None,
             cancel: parts.cancel,
         }
-    }
-
-    /// Judges each call against the session's folder now, not the turn's (`prepareToolCall`).
-    pub fn with_live_cwd(mut self, live: Option<crate::tools::LiveCwd>) -> Self {
-        self.live_cwd = live;
-        self
-    }
-
-    fn cwd_now(&self) -> std::path::PathBuf {
-        self.live_cwd.as_ref().and_then(|live| live()).map_or_else(|| self.cwd.clone(), |live| live.as_path().to_path_buf())
     }
 
     /// The session surface with the flags that depend on the called tool.
@@ -1017,7 +1015,7 @@ impl ToolGate for PolicyGate {
                 thread_id: &self.thread_id,
                 name: &call.name,
                 args,
-                cwd: &self.cwd_now(),
+                cwd: call.cwd.as_deref().unwrap_or(&self.cwd),
                 facts: &facts,
                 surface: &surface,
                 schema_name: call.schema_name.as_deref(),
