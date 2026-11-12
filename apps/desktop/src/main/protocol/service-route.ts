@@ -3,7 +3,7 @@
 // arguments become the named params of the Rust op, in the declared order of `client_methods.json`; a thread-addressed
 // op gets `threadId` from the session argument. The client library adds `opId` to every mutation (`call`), so none is
 // set here. A method with no request op is refused before anything is sent (`unknownMethod`): there is no fallback.
-import { roomIdOfSession } from '../../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
+import { roomIdOfSession } from '../../shared/core-src/runtime/agent/orchestrator/session/agent-room.mjs';
 import { blankSnapshot, remoteSessionIdOf, START_CALLS, startFolder } from '../../shared/blank-snapshot';
 import type { StartCall } from '../../shared/blank-snapshot';
 import type { SessionSnapshot } from '../../shared/contract';
