@@ -1422,6 +1422,24 @@ async fn repeated_cuts_after_the_headers_spend_one_provider_ladder_and_are_not_r
     let (stages, replays) = replay_connect_case("cutRole", true).await;
     assert_eq!((stages.len(), replays), (0, 0));
 }
+/// A spent WebSocket budget surfaces the outage's first failure, not the last (`openai-ws-send-attempts`
+/// `exhausted()`, recorded in its tests as "exhausted budget surfaces the first error").
+#[tokio::test]
+async fn a_spent_websocket_budget_surfaces_the_first_failure() {
+    let closes: Vec<Attempt> = (0..24)
+        .map(|n| {
+            let mut error = ProviderError::transport(TransportFault::WsClose { code: Some(1006) }, DeliveryState::Ambiguous);
+            error.message = format!("close {n}");
+            Attempt::Reject(error)
+        })
+        .collect();
+    let h = Harness::new(closes);
+    let failure = h.run(config(), vec![], vec![AgentMessage::user("go")]).run().await.expect_err("the budget is spent");
+    let AgentError::Provider(error) = failure.error else { panic!("a provider error") };
+    assert_eq!(error.message, "close 0");
+    assert!(h.provider.requests().len() > 1, "the failures were retried first");
+}
+
 #[tokio::test]
 async fn a_deterministic_refusal_surfaces_without_a_wait() {
     let h = Harness::new(vec![Attempt::Reject(ProviderError::new(
