@@ -106,3 +106,47 @@ test('the desktop waits for a core that takes 20 s to serve, as a large profile 
   await endpoint().catch(() => {});
   assert.equal(asked.readyTimeoutMs, DESKTOP_CORE_READY_TIMEOUT_MS);
 });
+
+test('a core that ends abnormally before serving fails the start at once with its exit, not after the whole wait', async () => {
+  const absent = () => Object.assign(new Error('absent'), { name: 'CoreDiscoveryError', code: 'absent' });
+  // The launched core (pid 77) is seen ended at `exitAt` on the test's clock; `discovery` is what the file says then.
+  const run = async ({ exit, exitAt = 150, discovery }) => {
+    let clock = 0;
+    const capture = {
+      snapshot: () => (clock >= exitAt ? { pid: 77, exitedAt: 'then', ...exit } : { pid: 77, exitedAt: null }),
+      summary: () => ({ exitReason: null, stderrErrorLine: 'Error: the store is locked', stderrLastLine: null, stderrPath: 'capture.err.log' }),
+    };
+    const outcome = await ensureCore({
+      readDiscovery: async () => {
+        const said = discovery(clock);
+        if (!said) throw absent();
+        return said;
+      },
+      launch: async () => capture,
+      sleep: async (ms) => void (clock += ms),
+      now: () => clock,
+      readyTimeoutMs: DESKTOP_CORE_READY_TIMEOUT_MS,
+    }).then(
+      (value) => ({ value }),
+      (error) => ({ error })
+    );
+    return { ...outcome, clock };
+  };
+  const booting = (pid) => ({ state: 'booting', rpcPort: null, blocked: null, pid });
+  const serving = (pid) => ({ state: 'serving', rpcPort: 4242, blocked: null, pid });
+
+  // Nothing published: the failure comes when the exit is seen, with the exit and the core's own words.
+  const crashed = await run({ exit: { exitCode: 101, exitSignal: null }, discovery: () => null });
+  assert.equal(crashed.error?.message, 'core is not ready: the core ended before serving (exited with code 101): Error: the store is locked');
+  assert.deepEqual(crashed.error.coreExit, { code: 101, signal: null, stderrPath: 'capture.err.log' });
+  assert.equal(crashed.clock, 150);
+  // The file it left behind still names it: the same.
+  const stale = await run({ exit: { exitCode: null, exitSignal: 'SIGKILL' }, discovery: (at) => (at >= 50 ? booting(77) : null) });
+  assert.equal(stale.error?.message, 'core is not ready: the core ended before serving (killed by SIGKILL): Error: the store is locked');
+  assert.equal(stale.clock, 150);
+  // Another core holds the folder: a contender that ended cleanly, or one that ended while the file names the other core, is waited out.
+  const lostClaim = await run({ exit: { exitCode: 0, exitSignal: null }, discovery: (at) => (at >= 20_000 ? serving(88) : null) });
+  assert.deepEqual(lostClaim.value, serving(88));
+  const otherCore = await run({ exit: { exitCode: 1, exitSignal: null }, discovery: (at) => (at >= 20_000 ? serving(88) : at >= 50 ? booting(88) : null) });
+  assert.deepEqual(otherCore.value, serving(88));
+});
