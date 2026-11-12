@@ -73,9 +73,9 @@ impl DocumentText for ExtDocumentText {
         // Node's intake deadline (`PDF_INTAKE_TIMEOUT_MS`, `attachments/store.mjs:809` -> `inspectPdfBuffer`): the worker
         // applies it too, and this bound holds when the worker itself never answers. Dropping the call cancels it.
         let asked = self.ask(thread, "media.pdfCounts", json!({ "data": data_base64 }));
-        let answer = match tokio::time::timeout(std::time::Duration::from_millis(PDF_INTAKE_TIMEOUT_MS), asked).await {
-            Ok(answer) => answer?,
-            Err(_) => {
+        let answer = match mixdog_rt::scoped::Scope::new().within(std::time::Duration::from_millis(PDF_INTAKE_TIMEOUT_MS)).run(asked).await {
+            mixdog_rt::scoped::Scoped::Done(answer) => answer?,
+            _ => {
                 return Err(ExtError::Failed {
                     code: "PDF_INSPECTION_TIMEOUT".to_owned(),
                     message: format!("PDF inspection timed out after {PDF_INTAKE_TIMEOUT_MS} ms"),
