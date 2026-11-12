@@ -9,7 +9,6 @@ use serde_json::Value;
 
 use super::RoomError;
 use super::calls::{CallRunner, Request, RoomCalls};
-use super::member_turn::typed_rows;
 use super::rows::room_user_waiting;
 use super::service::RoomRunner;
 
@@ -44,7 +43,7 @@ impl<R: CallRunner + 'static> RoomRunner for CallsRunner<R> {
     /// from the log (`waiting` unset). The request addresses the whole room when it names nobody.
     async fn start(&self, room_id: &str, to: Vec<String>) -> Result<(), RoomError> {
         let rows = self.rows.rows(room_id).await.map_err(RoomError::Port)?;
-        let waiting = room_user_waiting(&typed_rows(&rows));
+        let waiting = room_user_waiting(&rows);
         let everyone = to.is_empty();
         self.calls.route(room_id, Request { to, waiting, everyone, only: false, calls: Vec::new() });
         Ok(())

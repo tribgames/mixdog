@@ -9,6 +9,8 @@
 //! binary alone and the library is empty.
 #![cfg(feature = "core")]
 
+#[cfg(windows)]
+mod console_hosts;
 mod contain;
 pub mod detached;
 mod feed;
@@ -24,28 +26,15 @@ pub mod tasks;
 pub mod terminal;
 #[cfg(any(unix, test))]
 mod tree;
+#[cfg(windows)]
+mod winspawn;
 
-#[cfg(feature = "core-test")]
+#[cfg(any(feature = "core-test", feature = "scripted-shell"))]
 pub mod scripted;
 
 /// Seams for the library's integration tests.
 #[cfg(feature = "core-test")]
 pub mod testing {
-    use std::sync::atomic::AtomicBool;
-    use std::sync::atomic::Ordering;
-
-    static FAIL_NEXT_ADOPTION: AtomicBool = AtomicBool::new(false);
-
-    /// The next process placed into a job fails, as if the OS had refused the assignment.
-    pub fn fail_next_adoption() {
-        FAIL_NEXT_ADOPTION.store(true, Ordering::SeqCst);
-    }
-
-    #[cfg(windows)]
-    pub(crate) fn take_adoption_failure() -> bool {
-        FAIL_NEXT_ADOPTION.swap(false, Ordering::SeqCst)
-    }
-
     /// A point in the library where the next process to reach it parks until released.
     struct Seam {
         state: std::sync::Mutex<Window>,
@@ -108,10 +97,53 @@ pub mod testing {
         }
     }
 
+    /// The next settle of a root that ended on its own, having found only console hosts left in its job, parks before it
+    /// waits on them until [`release_settle_window`].
+    pub fn arm_settle_window() {
+        SETTLE_WINDOW.arm();
+    }
+
+    /// Blocks until a settle is parked in the window.
+    pub fn wait_settle_window_entered() {
+        SETTLE_WINDOW.wait_entered();
+    }
+
+    pub fn release_settle_window() {
+        SETTLE_WINDOW.release();
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn settle_window() {
+        SETTLE_WINDOW.pass();
+    }
+
+    static SETTLE_WINDOW: Seam = Seam::new();
     static EXIT_WINDOW: Seam = Seam::new();
     static KILL_WINDOW: Seam = Seam::new();
     static LAUNCH_WINDOW: Seam = Seam::new();
     static ANSWER_WINDOW: Seam = Seam::new();
+    static CREATED_WINDOW: Seam = Seam::new();
+
+    /// The next Windows spawn parks on its launch thread right after the OS created its child,
+    /// until [`release_created_window`]: the moment the helper dying used to leave a suspended
+    /// child outside the job.
+    pub fn arm_created_window() {
+        CREATED_WINDOW.arm();
+    }
+
+    /// Blocks until a spawn is parked in the window.
+    pub fn wait_created_window_entered() {
+        CREATED_WINDOW.wait_entered();
+    }
+
+    pub fn release_created_window() {
+        CREATED_WINDOW.release();
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn created_window() {
+        CREATED_WINDOW.pass();
+    }
 
     /// The next spawn parks on its launch thread before it creates its child, until
     /// [`release_launch_window`]: a spawn in flight whose child is not yet committed.

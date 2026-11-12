@@ -4,10 +4,10 @@
 //! wait for running background work, shut down in order, and leave the answer on stdout, errors on
 //! stderr, the usage document rewritten after every model response, and, with `--json`, the
 //! lifecycle events. The core it runs on is its own, on a pristine root.
-#![allow(dead_code, reason = "the composition root's launcher and credential lookups attach to this flow when they land")]
 
 pub mod boundary;
 pub mod feed;
+pub mod launcher;
 pub mod lifecycle;
 pub mod route;
 pub mod run;

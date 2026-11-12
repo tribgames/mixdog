@@ -9,8 +9,6 @@ pub mod context;
 pub mod denials;
 pub mod instructions;
 mod surface;
-#[cfg(test)]
-mod testing;
 
 pub use self::denials::FeatureFacts;
 pub use self::denials::FeatureProbes;

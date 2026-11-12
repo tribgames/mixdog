@@ -31,7 +31,7 @@ impl RowSink for Collect {
 }
 
 fn golden() -> Value {
-    serde_json::from_str(include_str!("../../../../fixtures/thread-edges/golden.json")).expect("golden json")
+    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/thread-edges/golden.json")).expect("golden json")
 }
 
 /// The host's task workspace lookup, answering what Node's lookup answered at the step (`lookup` of the recording): the resolved

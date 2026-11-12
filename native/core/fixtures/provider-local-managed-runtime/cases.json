@@ -1,0 +1,1235 @@
+{
+  "set": "provider-local-managed-runtime",
+  "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "shared": [],
+  "cases": [
+    {
+      "id": "manifest-pins-https-assets-matching-sizes",
+      "source": "src/runtime/local-provider/managed-runtime.test.mjs:16",
+      "input": {},
+      "result": {
+        "manifest": {
+          "schema": 1,
+          "runtime": {
+            "version": "b10621",
+            "source": "https://github.com/ggml-org/llama.cpp",
+            "license": "MIT",
+            "platforms": {
+              "win32-x64-nvidia": {
+                "executable": "llama-server.exe",
+                "backend": "CUDA 12.4",
+                "downloadBytes": 641907910,
+                "assets": [
+                  {
+                    "name": "llama-b10621-bin-win-cuda-12.4-x64.zip",
+                    "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10621/llama-b10621-bin-win-cuda-12.4-x64.zip",
+                    "size": 250464283,
+                    "sha256": "81c2ff62e14b549cd5c766ccdd5c61f09e821a171655c3047bdccfddc2d1a1e2"
+                  },
+                  {
+                    "name": "cudart-llama-bin-win-cuda-12.4-x64.zip",
+                    "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10621/cudart-llama-bin-win-cuda-12.4-x64.zip",
+                    "size": 391443627,
+                    "sha256": "8c79a9b226de4b3cacfd1f83d24f962d0773be79f1e7b75c6af4ded7e32ae1d6"
+                  }
+                ]
+              },
+              "darwin-arm64-metal": {
+                "executable": "llama-b10621/llama-server",
+                "backend": "Metal",
+                "downloadBytes": 10954823,
+                "assets": [
+                  {
+                    "name": "llama-b10621-bin-macos-arm64.tar.gz",
+                    "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10621/llama-b10621-bin-macos-arm64.tar.gz",
+                    "size": 10954823,
+                    "sha256": "429c8270608600188035e5e92f7d78dffb7900904fe7dd7e6a84f48068cd13cf"
+                  }
+                ]
+              }
+            }
+          },
+          "models": [
+            {
+              "id": "qwen3.8-27b-q4-k-m",
+              "name": "Qwen3.8 27B Q4_K_M",
+              "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
+              "filename": "Qwen3.8-27B-Q4_K_M.gguf",
+              "url": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF/resolve/0669b98607d47046c7c2b3f801011d54a08cfccf/Qwen3.8-27B-Q4_K_M.gguf?download=true",
+              "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+              "source": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF",
+              "license": "Apache-2.0",
+              "size": 18973870432,
+              "sha256": "31629f53165ab6a7dad8c9847dcfd1fdf55829dac1e6e748f4a68581b0033d34",
+              "minimumVramBytes": 24696061952,
+              "estimatedVramBytes": 23622320128,
+              "contextWindow": 32768,
+              "maxContextWindow": 262144,
+              "supportsFunctionCalling": true,
+              "supportsReasoning": true,
+              "recommended": true
+            }
+          ]
+        },
+        "platformKeys": [
+          "win32-x64-nvidia",
+          "darwin-arm64-metal"
+        ],
+        "aggregates": [
+          {
+            "downloadBytes": 641907910,
+            "sumOfAssets": 641907910
+          },
+          {
+            "downloadBytes": 10954823,
+            "sumOfAssets": 10954823
+          }
+        ],
+        "assetChecks": [
+          {
+            "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10621/llama-b10621-bin-win-cuda-12.4-x64.zip",
+            "protocol": "https:",
+            "shaOk": true,
+            "sizeOk": true
+          },
+          {
+            "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10621/cudart-llama-bin-win-cuda-12.4-x64.zip",
+            "protocol": "https:",
+            "shaOk": true,
+            "sizeOk": true
+          },
+          {
+            "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10621/llama-b10621-bin-macos-arm64.tar.gz",
+            "protocol": "https:",
+            "shaOk": true,
+            "sizeOk": true
+          },
+          {
+            "url": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF/resolve/0669b98607d47046c7c2b3f801011d54a08cfccf/Qwen3.8-27B-Q4_K_M.gguf?download=true",
+            "protocol": "https:",
+            "shaOk": true,
+            "sizeOk": true
+          }
+        ],
+        "modelRevisions": [
+          {
+            "id": "qwen3.8-27b-q4-k-m",
+            "revisionOk": true,
+            "urlPinsRevision": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "rtx-recommendation-before-install",
+      "source": "src/runtime/local-provider/managed-runtime.test.mjs:36",
+      "input": {
+        "hardware": {
+          "platform": "win32",
+          "arch": "x64",
+          "supported": true,
+          "gpu": {
+            "vendor": "NVIDIA",
+            "name": "NVIDIA GeForce RTX 3090",
+            "memoryBytes": 25769803776
+          }
+        }
+      },
+      "result": {
+        "status": {
+          "platformSupported": true,
+          "available": true,
+          "runtime": {
+            "installed": false,
+            "version": "b10621",
+            "downloadBytes": 641907910,
+            "source": "https://github.com/ggml-org/llama.cpp",
+            "license": "MIT",
+            "backend": "CUDA 12.4"
+          },
+          "hardware": {
+            "platform": "win32",
+            "arch": "x64",
+            "supported": true,
+            "gpu": {
+              "vendor": "NVIDIA",
+              "name": "NVIDIA GeForce RTX 3090",
+              "memoryBytes": 25769803776
+            }
+          },
+          "disk": {
+            "availableBytes": "<host free disk bytes>"
+          },
+          "models": [
+            {
+              "id": "qwen3.8-27b-q4-k-m",
+              "name": "Qwen3.8 27B Q4_K_M",
+              "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
+              "sizeBytes": 18973870432,
+              "remainingDownloadBytes": 18973870432,
+              "estimatedVramBytes": 23622320128,
+              "minimumVramBytes": 24696061952,
+              "configuredContextWindow": null,
+              "defaultContextWindow": 32768,
+              "minContextWindow": 16384,
+              "maxContextWindow": 262144,
+              "contextWindow": 32768,
+              "runtimeContextWindow": 32768,
+              "supportsFunctionCalling": true,
+              "supportsReasoning": true,
+              "supportsImages": false,
+              "supportsReasoningSettings": false,
+              "architecture": null,
+              "compatibility": "Bundled model",
+              "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+              "license": "Apache-2.0",
+              "source": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF",
+              "recommended": true,
+              "compatible": true,
+              "installed": false,
+              "present": false
+            }
+          ],
+          "recommendation": {
+            "id": "qwen3.8-27b-q4-k-m",
+            "name": "Qwen3.8 27B Q4_K_M",
+            "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
+            "sizeBytes": 18973870432,
+            "remainingDownloadBytes": 18973870432,
+            "estimatedVramBytes": 23622320128,
+            "minimumVramBytes": 24696061952,
+            "configuredContextWindow": null,
+            "defaultContextWindow": 32768,
+            "minContextWindow": 16384,
+            "maxContextWindow": 262144,
+            "contextWindow": 32768,
+            "runtimeContextWindow": 32768,
+            "supportsFunctionCalling": true,
+            "supportsReasoning": true,
+            "supportsImages": false,
+            "supportsReasoningSettings": false,
+            "architecture": null,
+            "compatibility": "Bundled model",
+            "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+            "license": "Apache-2.0",
+            "source": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF",
+            "recommended": true,
+            "compatible": true,
+            "installed": false,
+            "present": false
+          }
+        }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/local-provider/catalog.mjs.localProviderCatalogStatus",
+          "args": [
+            {
+              "dataDir": "D:\\mixdog-build\\tmp\\w22\\provider-local-managed-runtime\\catalog-rtx",
+              "platform": "win32",
+              "arch": "x64",
+              "hardware": {
+                "platform": "win32",
+                "arch": "x64",
+                "supported": true,
+                "gpu": {
+                  "vendor": "NVIDIA",
+                  "name": "NVIDIA GeForce RTX 3090",
+                  "memoryBytes": 25769803776
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "apple-silicon-metal-and-unsupported-hosts",
+      "source": "src/runtime/local-provider/managed-runtime.test.mjs:65",
+      "input": {
+        "apple": {
+          "supported": true,
+          "gpu": {
+            "vendor": "Apple",
+            "name": "Apple M4",
+            "memoryBytes": 34359738368
+          }
+        },
+        "intel": {
+          "supported": false,
+          "gpu": null
+        }
+      },
+      "result": {
+        "metal": {
+          "platformSupported": true,
+          "available": true,
+          "runtime": {
+            "installed": false,
+            "version": "b10621",
+            "downloadBytes": 10954823,
+            "source": "https://github.com/ggml-org/llama.cpp",
+            "license": "MIT",
+            "backend": "Metal"
+          },
+          "hardware": {
+            "supported": true,
+            "gpu": {
+              "vendor": "Apple",
+              "name": "Apple M4",
+              "memoryBytes": 34359738368
+            }
+          },
+          "disk": {
+            "availableBytes": "<host free disk bytes>"
+          },
+          "models": [
+            {
+              "id": "qwen3.8-27b-q4-k-m",
+              "name": "Qwen3.8 27B Q4_K_M",
+              "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
+              "sizeBytes": 18973870432,
+              "remainingDownloadBytes": 18973870432,
+              "estimatedVramBytes": 23622320128,
+              "minimumVramBytes": 24696061952,
+              "configuredContextWindow": null,
+              "defaultContextWindow": 32768,
+              "minContextWindow": 16384,
+              "maxContextWindow": 262144,
+              "contextWindow": 32768,
+              "runtimeContextWindow": 32768,
+              "supportsFunctionCalling": true,
+              "supportsReasoning": true,
+              "supportsImages": false,
+              "supportsReasoningSettings": false,
+              "architecture": null,
+              "compatibility": "Bundled model",
+              "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+              "license": "Apache-2.0",
+              "source": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF",
+              "recommended": true,
+              "compatible": true,
+              "installed": false,
+              "present": false
+            }
+          ],
+          "recommendation": {
+            "id": "qwen3.8-27b-q4-k-m",
+            "name": "Qwen3.8 27B Q4_K_M",
+            "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
+            "sizeBytes": 18973870432,
+            "remainingDownloadBytes": 18973870432,
+            "estimatedVramBytes": 23622320128,
+            "minimumVramBytes": 24696061952,
+            "configuredContextWindow": null,
+            "defaultContextWindow": 32768,
+            "minContextWindow": 16384,
+            "maxContextWindow": 262144,
+            "contextWindow": 32768,
+            "runtimeContextWindow": 32768,
+            "supportsFunctionCalling": true,
+            "supportsReasoning": true,
+            "supportsImages": false,
+            "supportsReasoningSettings": false,
+            "architecture": null,
+            "compatibility": "Bundled model",
+            "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+            "license": "Apache-2.0",
+            "source": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF",
+            "recommended": true,
+            "compatible": true,
+            "installed": false,
+            "present": false
+          }
+        },
+        "intel": {
+          "platformSupported": false,
+          "available": false,
+          "runtime": {
+            "installed": false,
+            "version": "b10621",
+            "downloadBytes": 0,
+            "source": "https://github.com/ggml-org/llama.cpp",
+            "license": "MIT",
+            "backend": ""
+          },
+          "hardware": {
+            "supported": false,
+            "gpu": null
+          },
+          "disk": {
+            "availableBytes": "<host free disk bytes>"
+          },
+          "models": [
+            {
+              "id": "qwen3.8-27b-q4-k-m",
+              "name": "Qwen3.8 27B Q4_K_M",
+              "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
+              "sizeBytes": 18973870432,
+              "remainingDownloadBytes": 18973870432,
+              "estimatedVramBytes": 23622320128,
+              "minimumVramBytes": 24696061952,
+              "configuredContextWindow": null,
+              "defaultContextWindow": 32768,
+              "minContextWindow": 16384,
+              "maxContextWindow": 262144,
+              "contextWindow": 32768,
+              "runtimeContextWindow": 32768,
+              "supportsFunctionCalling": true,
+              "supportsReasoning": true,
+              "supportsImages": false,
+              "supportsReasoningSettings": false,
+              "architecture": null,
+              "compatibility": "Bundled model",
+              "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+              "license": "Apache-2.0",
+              "source": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF",
+              "recommended": false,
+              "compatible": false,
+              "installed": false,
+              "present": false
+            }
+          ],
+          "recommendation": null
+        }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/local-provider/catalog.mjs.localProviderCatalogStatus",
+          "args": [
+            {
+              "platform": "darwin",
+              "arch": "arm64",
+              "hardware": {
+                "supported": true,
+                "gpu": {
+                  "vendor": "Apple",
+                  "name": "Apple M4",
+                  "memoryBytes": 34359738368
+                }
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/local-provider/catalog.mjs.localProviderCatalogStatus",
+          "args": [
+            {
+              "platform": "darwin",
+              "arch": "x64",
+              "hardware": {
+                "supported": false,
+                "gpu": null
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "no-recommendation-beyond-vram",
+      "source": "src/runtime/local-provider/managed-runtime.test.mjs:87",
+      "input": {
+        "hardware": {
+          "platform": "win32",
+          "arch": "x64",
+          "supported": true,
+          "gpu": {
+            "vendor": "NVIDIA",
+            "name": "NVIDIA GeForce RTX 3070",
+            "memoryBytes": 8589934592
+          }
+        }
+      },
+      "result": {
+        "status": {
+          "platformSupported": true,
+          "available": false,
+          "runtime": {
+            "installed": false,
+            "version": "b10621",
+            "downloadBytes": 641907910,
+            "source": "https://github.com/ggml-org/llama.cpp",
+            "license": "MIT",
+            "backend": "CUDA 12.4"
+          },
+          "hardware": {
+            "platform": "win32",
+            "arch": "x64",
+            "supported": true,
+            "gpu": {
+              "vendor": "NVIDIA",
+              "name": "NVIDIA GeForce RTX 3070",
+              "memoryBytes": 8589934592
+            }
+          },
+          "disk": {
+            "availableBytes": "<host free disk bytes>"
+          },
+          "models": [
+            {
+              "id": "qwen3.8-27b-q4-k-m",
+              "name": "Qwen3.8 27B Q4_K_M",
+              "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
+              "sizeBytes": 18973870432,
+              "remainingDownloadBytes": 18973870432,
+              "estimatedVramBytes": 23622320128,
+              "minimumVramBytes": 24696061952,
+              "configuredContextWindow": null,
+              "defaultContextWindow": 32768,
+              "minContextWindow": 16384,
+              "maxContextWindow": 262144,
+              "contextWindow": 32768,
+              "runtimeContextWindow": 32768,
+              "supportsFunctionCalling": true,
+              "supportsReasoning": true,
+              "supportsImages": false,
+              "supportsReasoningSettings": false,
+              "architecture": null,
+              "compatibility": "Bundled model",
+              "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+              "license": "Apache-2.0",
+              "source": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF",
+              "recommended": false,
+              "compatible": false,
+              "installed": false,
+              "present": false
+            }
+          ],
+          "recommendation": null
+        }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/local-provider/catalog.mjs.localProviderCatalogStatus",
+          "args": [
+            {
+              "platform": "win32",
+              "arch": "x64",
+              "hardware": {
+                "platform": "win32",
+                "arch": "x64",
+                "supported": true,
+                "gpu": {
+                  "vendor": "NVIDIA",
+                  "name": "NVIDIA GeForce RTX 3070",
+                  "memoryBytes": 8589934592
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "resume-partial-publish-after-sha256",
+      "source": "src/runtime/local-provider/managed-runtime.test.mjs:106",
+      "input": {
+        "payload": "verified local provider asset",
+        "prefixBytes": 9
+      },
+      "result": {
+        "result": "D:\\mixdog-build\\tmp\\w22\\provider-local-managed-runtime\\dl-resume\\asset.bin",
+        "progress": [
+          {
+            "stage": "downloading",
+            "receivedBytes": 29,
+            "totalBytes": 29,
+            "percent": 99
+          },
+          {
+            "stage": "verifying",
+            "receivedBytes": 29,
+            "totalBytes": 29,
+            "percent": 99
+          },
+          {
+            "stage": "complete",
+            "receivedBytes": 29,
+            "totalBytes": 29,
+            "percent": 100
+          }
+        ],
+        "files": {
+          "asset.bin": {
+            "$bytesHex": "7665726966696564206c6f63616c2070726f7669646572206173736574"
+          }
+        }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/local-provider/asset-installer.mjs.downloadVerifiedLocalAsset",
+          "args": [
+            {
+              "name": "asset.bin",
+              "url": "https://assets.example/asset.bin",
+              "size": 29,
+              "sha256": "59cf0d7b01d0e7f3d81e3c623aca26722fa15a7f7cd0bacf72f52c7153030df3"
+            },
+            "D:\\mixdog-build\\tmp\\w22\\provider-local-managed-runtime\\dl-resume\\asset.bin",
+            {
+              "onProgress": {
+                "callback": "onProgress"
+              }
+            }
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "origin": "https://assets.example",
+          "path": "/asset.bin",
+          "headers": [
+            [
+              "host",
+              "assets.example"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Range",
+              "bytes=9-"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "identity"
+            ]
+          ],
+          "body": "",
+          "reply": {
+            "status": 206,
+            "contentType": "application/octet-stream",
+            "body": {
+              "$exact": "bytes",
+              "type": "Buffer",
+              "base64": "bG9jYWwgcHJvdmlkZXIgYXNzZXQ="
+            },
+            "headers": {
+              "content-range": "bytes 9-28/29"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "digest-mismatch-not-published",
+      "source": "src/runtime/local-provider/managed-runtime.test.mjs:140",
+      "input": {
+        "payload": "tampered"
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "[local-provider] SHA-256 mismatch for asset.bin",
+          "props": {}
+        },
+        "destinationExists": false,
+        "partExists": false,
+        "files": {}
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/local-provider/asset-installer.mjs.downloadVerifiedLocalAsset",
+          "args": [
+            {
+              "name": "asset.bin",
+              "url": "https://assets.example/asset.bin",
+              "size": 8,
+              "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+            },
+            "D:\\mixdog-build\\tmp\\w22\\provider-local-managed-runtime\\dl-digest\\asset.bin",
+            {}
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "origin": "https://assets.example",
+          "path": "/asset.bin",
+          "headers": [
+            [
+              "host",
+              "assets.example"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "gzip, deflate"
+            ]
+          ],
+          "body": "",
+          "reply": {
+            "status": 200,
+            "contentType": "application/octet-stream",
+            "body": {
+              "$exact": "bytes",
+              "type": "Buffer",
+              "base64": "dGFtcGVyZWQ="
+            },
+            "headers": {}
+          }
+        }
+      ]
+    },
+    {
+      "id": "runtime-capacity-bounds-picker-and-restored-selection",
+      "source": "src/runtime/local-provider/managed-runtime.test.mjs:171",
+      "input": {
+        "selectedContextWindows": [
+          262144,
+          8192
+        ],
+        "hardware": {
+          "gpu": {
+            "vendor": "NVIDIA",
+            "memoryBytes": 25769803776
+          }
+        }
+      },
+      "result": {
+        "model": {
+          "id": "qwen3.8-27b-q4-k-m",
+          "name": "Qwen3.8 27B Q4_K_M",
+          "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
+          "sizeBytes": 18973870432,
+          "remainingDownloadBytes": 18973870432,
+          "estimatedVramBytes": 23622320128,
+          "minimumVramBytes": 24696061952,
+          "configuredContextWindow": null,
+          "defaultContextWindow": 32768,
+          "minContextWindow": 16384,
+          "maxContextWindow": 262144,
+          "contextWindow": 32768,
+          "runtimeContextWindow": 32768,
+          "supportsFunctionCalling": true,
+          "supportsReasoning": true,
+          "supportsImages": false,
+          "supportsReasoningSettings": false,
+          "architecture": null,
+          "compatibility": "Bundled model",
+          "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+          "license": "Apache-2.0",
+          "source": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF",
+          "recommended": true,
+          "compatible": true,
+          "installed": false,
+          "present": false
+        },
+        "manifestMax": 262144,
+        "restored": {
+          "contextWindow": 32768,
+          "rawContextWindow": 32768,
+          "effectiveContextWindowPercent": 100,
+          "autoCompactTokenLimit": null,
+          "compactBoundaryTokens": 32768
+        },
+        "smaller": {
+          "contextWindow": 8192,
+          "rawContextWindow": 8192,
+          "effectiveContextWindowPercent": 100,
+          "autoCompactTokenLimit": null,
+          "compactBoundaryTokens": 8192
+        }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/local-provider/catalog.mjs.localProviderCatalogStatus",
+          "args": [
+            {
+              "dataDir": "D:\\mixdog-build\\tmp\\w22\\provider-local-managed-runtime\\catalog-capacity",
+              "hardware": {
+                "gpu": {
+                  "vendor": "NVIDIA",
+                  "memoryBytes": 25769803776
+                }
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/session/manager/context-meta.mjs.resolveSessionContextMeta",
+          "args": [
+            {
+              "name": "mixdog-local",
+              "getCachedModelInfo": {
+                "callback": "getCachedModelInfo"
+              }
+            },
+            "qwen3.8-27b-q4-k-m",
+            {
+              "selectedContextWindow": 262144
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/agent/orchestrator/session/manager/context-meta.mjs.resolveSessionContextMeta",
+          "args": [
+            {
+              "name": "mixdog-local",
+              "getCachedModelInfo": {
+                "callback": "getCachedModelInfo"
+              }
+            },
+            "qwen3.8-27b-q4-k-m",
+            {
+              "selectedContextWindow": 8192
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "partial-download-allowed-when-remaining-bytes-fit",
+      "source": "src/runtime/local-provider/managed-runtime.test.mjs:188",
+      "input": {
+        "payload": "a model which is mostly downloaded",
+        "prefixBytes": 25
+      },
+      "result": {
+        "first": {
+          "result": "D:\\mixdog-build\\tmp\\w22\\provider-local-managed-runtime\\dl-space\\asset.bin"
+        },
+        "spaceChecks": [
+          9
+        ],
+        "second": {
+          "result": "D:\\mixdog-build\\tmp\\w22\\provider-local-managed-runtime\\dl-space\\asset.bin"
+        },
+        "requestsAfterFirst": 1,
+        "requestsAfterSecond": 1,
+        "secondSpaceChecks": 0,
+        "files": {
+          "asset.bin": {
+            "$bytesHex": "61206d6f64656c207768696368206973206d6f73746c7920646f776e6c6f61646564"
+          }
+        }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/local-provider/asset-installer.mjs.downloadVerifiedLocalAsset",
+          "args": [
+            {
+              "name": "asset.bin",
+              "url": "https://assets.example/model",
+              "size": 34,
+              "sha256": "d3362bc463a4aa286af21489a6f66538cc6012ed04d4fcdcbcee1c2d35a12ebc"
+            },
+            "D:\\mixdog-build\\tmp\\w22\\provider-local-managed-runtime\\dl-space\\asset.bin",
+            {
+              "checkDiskSpace": {
+                "callback": "checkDiskSpace"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/local-provider/asset-installer.mjs.downloadVerifiedLocalAsset",
+          "args": [
+            {
+              "name": "asset.bin",
+              "url": "https://assets.example/model",
+              "size": 34,
+              "sha256": "d3362bc463a4aa286af21489a6f66538cc6012ed04d4fcdcbcee1c2d35a12ebc"
+            },
+            "D:\\mixdog-build\\tmp\\w22\\provider-local-managed-runtime\\dl-space\\asset.bin",
+            {
+              "checkDiskSpace": {
+                "callback": "checkDiskSpace"
+              }
+            }
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "origin": "https://assets.example",
+          "path": "/model",
+          "headers": [
+            [
+              "host",
+              "assets.example"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Range",
+              "bytes=25-"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "identity"
+            ]
+          ],
+          "body": "",
+          "reply": {
+            "status": 206,
+            "contentType": "application/octet-stream",
+            "body": {
+              "$exact": "bytes",
+              "type": "Buffer",
+              "base64": "b3dubG9hZGVk"
+            },
+            "headers": {
+              "content-range": "bytes 25-33/34"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "server-declining-range-cannot-bypass-disk-check",
+      "source": "src/runtime/local-provider/managed-runtime.test.mjs:226",
+      "input": {
+        "payload": "model payload",
+        "prefixBytes": 5
+      },
+      "result": {
+        "error": {
+          "$exact": "error",
+          "name": "Error",
+          "message": "disk space changed",
+          "props": {}
+        },
+        "spaceChecks": [
+          8,
+          13
+        ],
+        "clientClosedTheConnection": true,
+        "destinationExists": false,
+        "files": {}
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/local-provider/asset-installer.mjs.downloadVerifiedLocalAsset",
+          "args": [
+            {
+              "name": "asset.bin",
+              "url": "https://assets.example/model",
+              "size": 13,
+              "sha256": "1aa8eca8a2ab2681f3ef808ad1a02bf29ddf5c2e4952506e84d3aa518413210e"
+            },
+            "D:\\mixdog-build\\tmp\\w22\\provider-local-managed-runtime\\dl-range\\asset.bin",
+            {
+              "checkDiskSpace": {
+                "callback": "checkDiskSpace"
+              }
+            }
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "origin": "https://assets.example",
+          "path": "/model",
+          "headers": [
+            [
+              "host",
+              "assets.example"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Range",
+              "bytes=5-"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "identity"
+            ]
+          ],
+          "body": "",
+          "reply": {
+            "status": 200,
+            "contentType": "application/octet-stream",
+            "chunks": [],
+            "hold": true
+          },
+          "clientClosedConnection": true
+        }
+      ]
+    },
+    {
+      "id": "cancellation-closes-stream-preserves-partial-for-resume",
+      "source": "src/runtime/local-provider/managed-runtime.test.mjs:263",
+      "input": {
+        "payload": "cancel and resume this model",
+        "prefixBytes": 8,
+        "enqueued": [
+          8,
+          12
+        ]
+      },
+      "result": {
+        "cancelledRun": {
+          "error": {
+            "$exact": "error",
+            "name": "AbortError",
+            "message": "The operation was aborted",
+            "code": "ABORT_ERR",
+            "cause": {
+              "$exact": "error",
+              "name": "Error",
+              "message": "user cancelled download",
+              "props": {}
+            },
+            "props": {
+              "name": "AbortError"
+            }
+          }
+        },
+        "progress": [
+          {
+            "stage": "downloading",
+            "receivedBytes": 12,
+            "totalBytes": 28,
+            "percent": 43
+          }
+        ],
+        "afterCancel": {
+          "clientClosedTheConnection": true,
+          "destinationExists": false,
+          "partialBytes": 8,
+          "files": {
+            "asset.bin.part": {
+              "$bytesHex": "63616e63656c2061"
+            }
+          }
+        },
+        "resumed": {
+          "result": "D:\\mixdog-build\\tmp\\w22\\provider-local-managed-runtime\\dl-cancel\\asset.bin"
+        },
+        "files": {
+          "asset.bin": {
+            "$bytesHex": "63616e63656c20616e6420726573756d652074686973206d6f64656c"
+          }
+        }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/local-provider/asset-installer.mjs.downloadVerifiedLocalAsset",
+          "args": [
+            {
+              "name": "asset.bin",
+              "url": "https://assets.example/model",
+              "size": 28,
+              "sha256": "5f8a70e6d415e97e1eff28796ecfadc55fc0d6dd4341a7a4994a5ec88e46f8d5"
+            },
+            "D:\\mixdog-build\\tmp\\w22\\provider-local-managed-runtime\\dl-cancel\\asset.bin",
+            {
+              "signal": {
+                "aborted": false,
+                "reason": {
+                  "$exact": "undefined"
+                }
+              },
+              "onProgress": {
+                "callback": "onProgress"
+              }
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/local-provider/asset-installer.mjs.downloadVerifiedLocalAsset",
+          "args": [
+            {
+              "name": "asset.bin",
+              "url": "https://assets.example/model",
+              "size": 28,
+              "sha256": "5f8a70e6d415e97e1eff28796ecfadc55fc0d6dd4341a7a4994a5ec88e46f8d5"
+            },
+            "D:\\mixdog-build\\tmp\\w22\\provider-local-managed-runtime\\dl-cancel\\asset.bin",
+            {}
+          ]
+        }
+      ],
+      "requests": [
+        {
+          "method": "GET",
+          "origin": "https://assets.example",
+          "path": "/model",
+          "headers": [
+            [
+              "host",
+              "assets.example"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Range",
+              "bytes=8-"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "identity"
+            ]
+          ],
+          "body": "",
+          "reply": {
+            "status": 206,
+            "contentType": "application/octet-stream",
+            "headers": {
+              "content-range": "bytes 8-27/28"
+            },
+            "chunks": [
+              {
+                "$exact": "bytes",
+                "type": "Buffer",
+                "base64": "bmQgcg=="
+              }
+            ],
+            "hold": true
+          },
+          "clientClosedConnection": true
+        },
+        {
+          "method": "GET",
+          "origin": "https://assets.example",
+          "path": "/model",
+          "headers": [
+            [
+              "host",
+              "assets.example"
+            ],
+            [
+              "connection",
+              "keep-alive"
+            ],
+            [
+              "Range",
+              "bytes=8-"
+            ],
+            [
+              "accept",
+              "*/*"
+            ],
+            [
+              "accept-language",
+              "*"
+            ],
+            [
+              "sec-fetch-mode",
+              "cors"
+            ],
+            [
+              "user-agent",
+              "node"
+            ],
+            [
+              "accept-encoding",
+              "identity"
+            ]
+          ],
+          "body": "",
+          "reply": {
+            "status": 206,
+            "contentType": "application/octet-stream",
+            "body": {
+              "$exact": "bytes",
+              "type": "Buffer",
+              "base64": "bmQgcmVzdW1lIHRoaXMgbW9kZWw="
+            },
+            "headers": {
+              "content-range": "bytes 8-27/28"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

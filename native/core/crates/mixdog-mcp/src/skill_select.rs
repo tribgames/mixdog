@@ -336,7 +336,7 @@ mod tests {
 
     #[test]
     fn selection_is_what_node_computes() {
-        let golden: Value = serde_json::from_str(include_str!("../tests/golden/skillselect.json")).unwrap();
+        let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("tests/golden/skillselect.json")).unwrap();
         let available: HashSet<String> = golden["available"].as_array().unwrap().iter().map(|n| n.as_str().unwrap().to_owned()).collect();
         let cases = golden["cases"].as_array().unwrap();
         assert!(cases.len() > 1500);

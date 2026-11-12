@@ -20,8 +20,10 @@ const { buildCycle1ChunkPrompt, chunkSourceText, cycle1SourceBudget, generateCyc
 const { estimateTokens } = await importFrom(ctx.tree, 'src/runtime/agent/orchestrator/session/token-estimate.mjs');
 const { runInNewContext } = await import('node:vm');
 
+// A row as Node's database path hands it to Cycle1 and recall: node-pg gives BIGINT `ts` as text (cycle1-rows.mjs:183-197
+// and cycle1-window.mjs:31 select it unconverted), so `ts` is the string of the test file's number.
 const row = (id, content = 'The request and its details are repeated. '.repeat(5), session = 's') => ({
-  id, ts: id * 1000, source_turn: id, session_id: session, role: id % 2 ? 'user' : 'assistant', content,
+  id, ts: String(id * 1000), source_turn: id, session_id: session, role: id % 2 ? 'user' : 'assistant', content,
 });
 
 async function handoff(label, roots, renderOptions) {

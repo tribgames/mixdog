@@ -22,7 +22,7 @@ use super::migration::QuarantineReason;
 use super::record::Record;
 use super::sql::*;
 
-const FRAMES: &str = include_str!("vectors/frames.json");
+const FRAMES: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("src/schema/vectors/frames.json");
 const RECORDS: &str = include_str!("vectors/records.json");
 
 #[derive(Deserialize)]
@@ -82,7 +82,7 @@ struct Named {
 }
 
 fn frames_doc() -> FramesDoc {
-    serde_json::from_str(FRAMES).expect("frames.json")
+    serde_json::from_str(&FRAMES).expect("frames.json")
 }
 
 fn records_doc() -> RecordsDoc {
@@ -633,6 +633,9 @@ fn index_ddl_creates_the_catalog_and_serves_bounded_queries() {
             "message_views",
             "meta",
             "model_switches",
+            "offload_known",
+            "offload_marks",
+            "offload_refs",
             "prompt_history",
             "prompt_occurrences",
             "session_search",

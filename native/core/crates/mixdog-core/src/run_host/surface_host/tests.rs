@@ -76,7 +76,7 @@ fn stub(doc: &Value) -> Arc<dyn Tool> {
 }
 
 fn golden() -> Value {
-    mixdog_js::fixture_tools::parse_golden(include_str!("../../../../../fixtures/surface-host/golden.json")).expect("golden")
+    mixdog_js::fixture_tools::parse_golden(mixdog_testkit::fixture!("../../fixtures/surface-host/golden.json")).expect("golden")
 }
 
 /// The golden's pool in the order the golden lists it (Node's session preview, not its registration
@@ -177,7 +177,7 @@ struct Gates(Vec<String>);
 
 #[async_trait]
 impl FeatureDenied for Gates {
-    async fn denied(&self) -> Result<Vec<String>, String> {
+    async fn denied(&self, _: Option<&Header>) -> Result<Vec<String>, String> {
         Ok(self.0.clone())
     }
 }
@@ -187,7 +187,7 @@ struct Moving(Mutex<Vec<String>>);
 
 #[async_trait]
 impl FeatureDenied for Moving {
-    async fn denied(&self) -> Result<Vec<String>, String> {
+    async fn denied(&self, _: Option<&Header>) -> Result<Vec<String>, String> {
         Ok(self.0.lock().unwrap().clone())
     }
 }
@@ -222,11 +222,11 @@ impl SkillsListed for NoSkills {
 /// The bridge exposure's own definitions, Node's `TOOL_BRIDGE_TOOLS` (`load_tool`, `call_tool`) as the session holds
 /// them, with their title. The recorded pool holds `load_tool` as `_getMcpTools` projects it (no title), which is not
 /// what the bridge appends to a session.
-fn node_bridge() -> Vec<Value> {
+pub(crate) fn node_bridge() -> Vec<Value> {
     ["load_tool", "call_tool"].iter().map(|name| mixdog_js::fixture_tools::definition(name).expect("a recorded bridge tool")).collect()
 }
 
-struct Bridge(Vec<Value>);
+pub(crate) struct Bridge(pub(crate) Vec<Value>);
 impl ToolSurfaceHost for Bridge {
     fn bridge_tools(&self) -> Vec<Value> {
         self.0.clone()
@@ -364,6 +364,8 @@ struct Setup {
     mcp: Vec<Arc<dyn Tool>>,
     /// The MCP tool of every opened scope (see `OpenedMcp`), else no MCP tool.
     mcp_tool: Option<Arc<dyn Tool>>,
+    /// The session's MCP source itself, instead of `mcp` and `mcp_tool`.
+    session_mcp: Option<Arc<dyn SessionMcp>>,
 }
 
 fn setup(mode: &str) -> Setup {
@@ -383,6 +385,7 @@ fn setup(mode: &str) -> Setup {
         pool: None,
         mcp: Vec::new(),
         mcp_tool: None,
+        session_mcp: None,
     }
 }
 
@@ -391,11 +394,12 @@ fn rig(g: &Value, setup: Setup) -> Rig {
 }
 
 fn try_rig(g: &Value, setup: Setup) -> Result<Rig, VariantError> {
-    let Setup { mode, route, feature_denied, header, messages, running, denied, standalone, summary, orchestration, live, without_agent_spec, pool, mcp, mcp_tool } = setup;
+    let Setup { mode, route, feature_denied, header, messages, running, denied, standalone, summary, orchestration, live, without_agent_spec, pool, mcp, mcp_tool, session_mcp } = setup;
     let scopes = Arc::new(Scopes::default());
-    let mcp: Arc<dyn SessionMcp> = match mcp_tool {
-        Some(tool) => Arc::new(OpenedMcp(scopes.clone(), tool)),
-        None => Arc::new(Mcp(mcp)),
+    let mcp: Arc<dyn SessionMcp> = match (session_mcp, mcp_tool) {
+        (Some(source), _) => source,
+        (None, Some(tool)) => Arc::new(OpenedMcp(scopes.clone(), tool)),
+        (None, None) => Arc::new(Mcp(mcp)),
     };
     let mut pool = pool.unwrap_or_else(|| pool_of(g));
     if let Some(name) = without_agent_spec {
@@ -848,11 +852,11 @@ async fn a_moved_gate_reaches_a_thread_with_a_conversation() {
 /// Node's `foldMcpSurface` and the request boundary's reconcile (`fixtures/mcp-fold`, the `turn` cases), over the header
 /// a thread stores: the prompt's deferred-tool block comes out of, and goes back into, the header's blocks.
 fn fold_golden() -> Value {
-    mixdog_js::fixture_tools::parse_golden(include_str!("../../../../../fixtures/mcp-fold/golden.json")).expect("mcp fold golden")
+    mixdog_js::fixture_tools::parse_golden(mixdog_testkit::fixture!("../../fixtures/mcp-fold/golden.json")).expect("mcp fold golden")
 }
 
 /// A recorded session as a thread's header: its leading system messages are the header's prompt blocks.
-fn header_of(session: &Value) -> Header {
+pub(crate) fn header_of(session: &Value) -> Header {
     let mut header = session.as_object().expect("session").clone();
     let messages = header.shift_remove("messages").and_then(|messages| messages.as_array().cloned()).unwrap_or_default();
     header.insert("bp3EnvSplit".into(), Value::Bool(true));
@@ -1130,7 +1134,7 @@ async fn a_thread_without_a_prompt_identity_is_not_recomposed() {
 /// ports' answers (here Node's own), so this holds the host's pipeline to Node's.
 #[tokio::test]
 async fn the_reconcile_follows_node() {
-    let g: Value = mixdog_js::fixture_tools::parse_golden(include_str!("../../../../../fixtures/surface-reconcile/golden.json")).expect("golden");
+    let g: Value = mixdog_js::fixture_tools::parse_golden(mixdog_testkit::fixture!("../../fixtures/surface-reconcile/golden.json")).expect("golden");
     let pool = golden();
     for case in g["cases"].as_array().expect("cases") {
         let label = case["name"].as_str().expect("name");
@@ -1199,7 +1203,7 @@ use crate::run_host::rules::RulesPolicy;
 use crate::run_host::session_tools::SessionToolBuilder;
 
 fn recording() -> Value {
-    mixdog_js::fixture_tools::parse_golden(include_str!("../../../../../fixtures/tool-resolution/golden.json")).expect("tool-resolution golden")
+    mixdog_js::fixture_tools::parse_golden(mixdog_testkit::fixture!("../../fixtures/tool-resolution/golden.json")).expect("tool-resolution golden")
 }
 
 /// The order the daemon builds its pool in (`compose_flip`): `orch::register::tools`, then `code_graph`, the
@@ -1509,4 +1513,35 @@ async fn a_headless_exec_session_offers_and_refuses_what_node_did_in_each_mode()
             }
         }
     }
+}
+
+/// A Lead surface host over a real thread store, for a turn test that runs the host's turn settings (the MCP fold and
+/// the refresh every call starts with) against live threads: the golden pool, no gates, no skills, a fixed clock.
+pub(crate) fn lead_host_over(threads: Arc<dyn ThreadState>, messages: Arc<dyn ThreadMessages>, mcp: Arc<dyn SessionMcp>) -> LeadSurfaceHost {
+    let pool = pool_of(&golden());
+    let standalone = internal_tools(&pool).iter().map(tool_doc).collect();
+    LeadSurfaceHost::new(SurfaceSources {
+        mode: "full".into(),
+        tool_host: Arc::new(Bridge(node_bridge())),
+        pool,
+        agent_tools: HashSet::from(["agent"]),
+        mcp,
+        scopes: Arc::new(Scopes::default()),
+        cwd: "/work".into(),
+        routes: Arc::new(Routes(json!({ "provider": "anthropic", "model": "claude-opus-4-6" }).as_object().expect("route").clone())),
+        feature_denied: Arc::new(Gates(Vec::new())),
+        orchestration_mode: Arc::new(|| "balanced".to_owned()),
+        skills: Arc::new(NoSkills),
+        connectors: Arc::new(Connectors(Mutex::default())),
+        hidden_agent: Arc::new(|_| false),
+        prompt: Arc::new(FakePrompt(Mutex::default())),
+        clock: Arc::new(Fixed),
+        threads,
+        messages,
+        live: Arc::new(Live(false)),
+        workflow: Arc::new(Workflow { denied: Vec::new(), standalone, summary: json!({ "id": "default" }), orchestration: "balanced".into() }),
+        config_revision: Arc::new(|| 0),
+        surface_generation: SurfaceGeneration::default(),
+    })
+    .expect("a pool whose git and task have their agent definitions")
 }

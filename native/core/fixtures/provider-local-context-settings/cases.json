@@ -1,0 +1,1104 @@
+{
+  "set": "provider-local-context-settings",
+  "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "shared": [],
+  "cases": [
+    {
+      "id": "persist-validate-reset",
+      "source": "src/runtime/local-provider/context-settings.test.mjs:10",
+      "input": {
+        "entry": {
+          "id": "qwen3.8-27b-q4-k-m",
+          "contextWindow": 32768,
+          "maxContextWindow": 262144
+        }
+      },
+      "result": {
+        "initial": {
+          "configuredContextWindow": null,
+          "defaultContextWindow": 32768,
+          "minContextWindow": 16384,
+          "maxContextWindow": 262144,
+          "contextWindow": 32768,
+          "runtimeContextWindow": 32768
+        },
+        "saved": [
+          {
+            "tokens": 16384,
+            "model": {
+              "id": "qwen3.8-27b-q4-k-m",
+              "name": "Qwen3.8 27B Q4_K_M",
+              "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
+              "sizeBytes": 18973870432,
+              "remainingDownloadBytes": 18973870432,
+              "estimatedVramBytes": 23622320128,
+              "minimumVramBytes": 24696061952,
+              "configuredContextWindow": 16384,
+              "defaultContextWindow": 32768,
+              "minContextWindow": 16384,
+              "maxContextWindow": 262144,
+              "contextWindow": 16384,
+              "runtimeContextWindow": 16384,
+              "supportsFunctionCalling": true,
+              "supportsReasoning": true,
+              "supportsImages": false,
+              "supportsReasoningSettings": false,
+              "architecture": null,
+              "compatibility": "Bundled model",
+              "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+              "license": "Apache-2.0",
+              "source": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF",
+              "recommended": false,
+              "compatible": false,
+              "installed": false,
+              "present": false
+            }
+          },
+          {
+            "tokens": 32768,
+            "model": {
+              "id": "qwen3.8-27b-q4-k-m",
+              "name": "Qwen3.8 27B Q4_K_M",
+              "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
+              "sizeBytes": 18973870432,
+              "remainingDownloadBytes": 18973870432,
+              "estimatedVramBytes": 23622320128,
+              "minimumVramBytes": 24696061952,
+              "configuredContextWindow": 32768,
+              "defaultContextWindow": 32768,
+              "minContextWindow": 16384,
+              "maxContextWindow": 262144,
+              "contextWindow": 32768,
+              "runtimeContextWindow": 32768,
+              "supportsFunctionCalling": true,
+              "supportsReasoning": true,
+              "supportsImages": false,
+              "supportsReasoningSettings": false,
+              "architecture": null,
+              "compatibility": "Bundled model",
+              "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+              "license": "Apache-2.0",
+              "source": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF",
+              "recommended": false,
+              "compatible": false,
+              "installed": false,
+              "present": false
+            }
+          },
+          {
+            "tokens": 262144,
+            "model": {
+              "id": "qwen3.8-27b-q4-k-m",
+              "name": "Qwen3.8 27B Q4_K_M",
+              "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
+              "sizeBytes": 18973870432,
+              "remainingDownloadBytes": 18973870432,
+              "estimatedVramBytes": 23622320128,
+              "minimumVramBytes": 24696061952,
+              "configuredContextWindow": 262144,
+              "defaultContextWindow": 32768,
+              "minContextWindow": 16384,
+              "maxContextWindow": 262144,
+              "contextWindow": 262144,
+              "runtimeContextWindow": 262144,
+              "supportsFunctionCalling": true,
+              "supportsReasoning": true,
+              "supportsImages": false,
+              "supportsReasoningSettings": false,
+              "architecture": null,
+              "compatibility": "Bundled model",
+              "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+              "license": "Apache-2.0",
+              "source": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF",
+              "recommended": false,
+              "compatible": false,
+              "installed": false,
+              "present": false
+            }
+          }
+        ],
+        "invalid": [
+          {
+            "value": 0,
+            "error": {
+              "$exact": "error",
+              "name": "TypeError",
+              "message": "Context size must be an integer from 16384 to 262144 tokens.",
+              "props": {}
+            }
+          },
+          {
+            "value": 511,
+            "error": {
+              "$exact": "error",
+              "name": "TypeError",
+              "message": "Context size must be an integer from 16384 to 262144 tokens.",
+              "props": {}
+            }
+          },
+          {
+            "value": 8192,
+            "error": {
+              "$exact": "error",
+              "name": "TypeError",
+              "message": "Context size must be an integer from 16384 to 262144 tokens.",
+              "props": {}
+            }
+          },
+          {
+            "value": 16383,
+            "error": {
+              "$exact": "error",
+              "name": "TypeError",
+              "message": "Context size must be an integer from 16384 to 262144 tokens.",
+              "props": {}
+            }
+          },
+          {
+            "value": 1.5,
+            "error": {
+              "$exact": "error",
+              "name": "TypeError",
+              "message": "Context size must be an integer from 16384 to 262144 tokens.",
+              "props": {}
+            }
+          },
+          {
+            "value": "16384",
+            "error": {
+              "$exact": "error",
+              "name": "TypeError",
+              "message": "Context size must be an integer from 16384 to 262144 tokens.",
+              "props": {}
+            }
+          },
+          {
+            "value": {
+              "$exact": "undefined"
+            },
+            "error": {
+              "$exact": "error",
+              "name": "TypeError",
+              "message": "Context size must be an integer from 16384 to 262144 tokens.",
+              "props": {}
+            }
+          },
+          {
+            "value": {
+              "$exact": "NaN"
+            },
+            "error": {
+              "$exact": "error",
+              "name": "TypeError",
+              "message": "Context size must be an integer from 16384 to 262144 tokens.",
+              "props": {}
+            }
+          },
+          {
+            "value": {
+              "$exact": "Infinity"
+            },
+            "error": {
+              "$exact": "error",
+              "name": "TypeError",
+              "message": "Context size must be an integer from 16384 to 262144 tokens.",
+              "props": {}
+            }
+          },
+          {
+            "value": 262145,
+            "error": {
+              "$exact": "error",
+              "name": "TypeError",
+              "message": "Context size must be an integer from 16384 to 262144 tokens.",
+              "props": {}
+            }
+          }
+        ],
+        "otherModel": {
+          "configuredContextWindow": null,
+          "defaultContextWindow": 32768,
+          "minContextWindow": 16384,
+          "maxContextWindow": 262144,
+          "contextWindow": 32768,
+          "runtimeContextWindow": 32768
+        },
+        "filesAfterSaves": {
+          "local-provider/context/3ea838146526fbfe3dfc81d32dd5c74d40390b37d7342a68784a2b3e0d8b4781.json": "{\n  \"tokens\": 262144\n}\n"
+        },
+        "afterReset": {
+          "configuredContextWindow": null,
+          "defaultContextWindow": 32768,
+          "minContextWindow": 16384,
+          "maxContextWindow": 262144,
+          "contextWindow": 32768,
+          "runtimeContextWindow": 32768
+        },
+        "filesAfterReset": {
+          "local-provider/context/3ea838146526fbfe3dfc81d32dd5c74d40390b37d7342a68784a2b3e0d8b4781.json": "{\n  \"tokens\": null\n}\n"
+        }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/local-provider/context-settings.mjs.localContextSettings",
+          "args": [
+            {
+              "id": "qwen3.8-27b-q4-k-m",
+              "name": "Qwen3.8 27B Q4_K_M",
+              "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
+              "filename": "Qwen3.8-27B-Q4_K_M.gguf",
+              "url": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF/resolve/0669b98607d47046c7c2b3f801011d54a08cfccf/Qwen3.8-27B-Q4_K_M.gguf?download=true",
+              "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+              "source": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF",
+              "license": "Apache-2.0",
+              "size": 18973870432,
+              "sha256": "31629f53165ab6a7dad8c9847dcfd1fdf55829dac1e6e748f4a68581b0033d34",
+              "minimumVramBytes": 24696061952,
+              "estimatedVramBytes": 23622320128,
+              "contextWindow": 32768,
+              "maxContextWindow": 262144,
+              "supportsFunctionCalling": true,
+              "supportsReasoning": true,
+              "recommended": true
+            },
+            "D:\\mixdog-build\\tmp\\w22\\provider-local-context-settings\\ctx-persist"
+          ]
+        },
+        {
+          "entry": "src/runtime/local-provider/context-settings.mjs.saveLocalContext",
+          "args": [
+            {
+              "id": "qwen3.8-27b-q4-k-m",
+              "name": "Qwen3.8 27B Q4_K_M",
+              "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
+              "filename": "Qwen3.8-27B-Q4_K_M.gguf",
+              "url": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF/resolve/0669b98607d47046c7c2b3f801011d54a08cfccf/Qwen3.8-27B-Q4_K_M.gguf?download=true",
+              "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+              "source": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF",
+              "license": "Apache-2.0",
+              "size": 18973870432,
+              "sha256": "31629f53165ab6a7dad8c9847dcfd1fdf55829dac1e6e748f4a68581b0033d34",
+              "minimumVramBytes": 24696061952,
+              "estimatedVramBytes": 23622320128,
+              "contextWindow": 32768,
+              "maxContextWindow": 262144,
+              "supportsFunctionCalling": true,
+              "supportsReasoning": true,
+              "recommended": true
+            },
+            16384,
+            "D:\\mixdog-build\\tmp\\w22\\provider-local-context-settings\\ctx-persist"
+          ]
+        },
+        {
+          "entry": "src/runtime/local-provider/catalog.mjs.localProviderCatalogStatus",
+          "args": [
+            {
+              "dataDir": "D:\\mixdog-build\\tmp\\w22\\provider-local-context-settings\\ctx-persist"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/local-provider/context-settings.mjs.saveLocalContext",
+          "args": [
+            {
+              "id": "qwen3.8-27b-q4-k-m",
+              "name": "Qwen3.8 27B Q4_K_M",
+              "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
+              "filename": "Qwen3.8-27B-Q4_K_M.gguf",
+              "url": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF/resolve/0669b98607d47046c7c2b3f801011d54a08cfccf/Qwen3.8-27B-Q4_K_M.gguf?download=true",
+              "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+              "source": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF",
+              "license": "Apache-2.0",
+              "size": 18973870432,
+              "sha256": "31629f53165ab6a7dad8c9847dcfd1fdf55829dac1e6e748f4a68581b0033d34",
+              "minimumVramBytes": 24696061952,
+              "estimatedVramBytes": 23622320128,
+              "contextWindow": 32768,
+              "maxContextWindow": 262144,
+              "supportsFunctionCalling": true,
+              "supportsReasoning": true,
+              "recommended": true
+            },
+            32768,
+            "D:\\mixdog-build\\tmp\\w22\\provider-local-context-settings\\ctx-persist"
+          ]
+        },
+        {
+          "entry": "src/runtime/local-provider/catalog.mjs.localProviderCatalogStatus",
+          "args": [
+            {
+              "dataDir": "D:\\mixdog-build\\tmp\\w22\\provider-local-context-settings\\ctx-persist"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/local-provider/context-settings.mjs.saveLocalContext",
+          "args": [
+            {
+              "id": "qwen3.8-27b-q4-k-m",
+              "name": "Qwen3.8 27B Q4_K_M",
+              "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
+              "filename": "Qwen3.8-27B-Q4_K_M.gguf",
+              "url": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF/resolve/0669b98607d47046c7c2b3f801011d54a08cfccf/Qwen3.8-27B-Q4_K_M.gguf?download=true",
+              "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+              "source": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF",
+              "license": "Apache-2.0",
+              "size": 18973870432,
+              "sha256": "31629f53165ab6a7dad8c9847dcfd1fdf55829dac1e6e748f4a68581b0033d34",
+              "minimumVramBytes": 24696061952,
+              "estimatedVramBytes": 23622320128,
+              "contextWindow": 32768,
+              "maxContextWindow": 262144,
+              "supportsFunctionCalling": true,
+              "supportsReasoning": true,
+              "recommended": true
+            },
+            262144,
+            "D:\\mixdog-build\\tmp\\w22\\provider-local-context-settings\\ctx-persist"
+          ]
+        },
+        {
+          "entry": "src/runtime/local-provider/catalog.mjs.localProviderCatalogStatus",
+          "args": [
+            {
+              "dataDir": "D:\\mixdog-build\\tmp\\w22\\provider-local-context-settings\\ctx-persist"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/local-provider/context-settings.mjs.saveLocalContext",
+          "args": [
+            {
+              "id": "qwen3.8-27b-q4-k-m",
+              "name": "Qwen3.8 27B Q4_K_M",
+              "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
+              "filename": "Qwen3.8-27B-Q4_K_M.gguf",
+              "url": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF/resolve/0669b98607d47046c7c2b3f801011d54a08cfccf/Qwen3.8-27B-Q4_K_M.gguf?download=true",
+              "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+              "source": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF",
+              "license": "Apache-2.0",
+              "size": 18973870432,
+              "sha256": "31629f53165ab6a7dad8c9847dcfd1fdf55829dac1e6e748f4a68581b0033d34",
+              "minimumVramBytes": 24696061952,
+              "estimatedVramBytes": 23622320128,
+              "contextWindow": 32768,
+              "maxContextWindow": 262144,
+              "supportsFunctionCalling": true,
+              "supportsReasoning": true,
+              "recommended": true
+            },
+            0,
+            "D:\\mixdog-build\\tmp\\w22\\provider-local-context-settings\\ctx-persist"
+          ]
+        },
+        {
+          "entry": "src/runtime/local-provider/context-settings.mjs.saveLocalContext",
+          "args": [
+            {
+              "id": "qwen3.8-27b-q4-k-m",
+              "name": "Qwen3.8 27B Q4_K_M",
+              "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
+              "filename": "Qwen3.8-27B-Q4_K_M.gguf",
+              "url": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF/resolve/0669b98607d47046c7c2b3f801011d54a08cfccf/Qwen3.8-27B-Q4_K_M.gguf?download=true",
+              "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+              "source": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF",
+              "license": "Apache-2.0",
+              "size": 18973870432,
+              "sha256": "31629f53165ab6a7dad8c9847dcfd1fdf55829dac1e6e748f4a68581b0033d34",
+              "minimumVramBytes": 24696061952,
+              "estimatedVramBytes": 23622320128,
+              "contextWindow": 32768,
+              "maxContextWindow": 262144,
+              "supportsFunctionCalling": true,
+              "supportsReasoning": true,
+              "recommended": true
+            },
+            511,
+            "D:\\mixdog-build\\tmp\\w22\\provider-local-context-settings\\ctx-persist"
+          ]
+        },
+        {
+          "entry": "src/runtime/local-provider/context-settings.mjs.saveLocalContext",
+          "args": [
+            {
+              "id": "qwen3.8-27b-q4-k-m",
+              "name": "Qwen3.8 27B Q4_K_M",
+              "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
+              "filename": "Qwen3.8-27B-Q4_K_M.gguf",
+              "url": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF/resolve/0669b98607d47046c7c2b3f801011d54a08cfccf/Qwen3.8-27B-Q4_K_M.gguf?download=true",
+              "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+              "source": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF",
+              "license": "Apache-2.0",
+              "size": 18973870432,
+              "sha256": "31629f53165ab6a7dad8c9847dcfd1fdf55829dac1e6e748f4a68581b0033d34",
+              "minimumVramBytes": 24696061952,
+              "estimatedVramBytes": 23622320128,
+              "contextWindow": 32768,
+              "maxContextWindow": 262144,
+              "supportsFunctionCalling": true,
+              "supportsReasoning": true,
+              "recommended": true
+            },
+            8192,
+            "D:\\mixdog-build\\tmp\\w22\\provider-local-context-settings\\ctx-persist"
+          ]
+        },
+        {
+          "entry": "src/runtime/local-provider/context-settings.mjs.saveLocalContext",
+          "args": [
+            {
+              "id": "qwen3.8-27b-q4-k-m",
+              "name": "Qwen3.8 27B Q4_K_M",
+              "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
+              "filename": "Qwen3.8-27B-Q4_K_M.gguf",
+              "url": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF/resolve/0669b98607d47046c7c2b3f801011d54a08cfccf/Qwen3.8-27B-Q4_K_M.gguf?download=true",
+              "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+              "source": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF",
+              "license": "Apache-2.0",
+              "size": 18973870432,
+              "sha256": "31629f53165ab6a7dad8c9847dcfd1fdf55829dac1e6e748f4a68581b0033d34",
+              "minimumVramBytes": 24696061952,
+              "estimatedVramBytes": 23622320128,
+              "contextWindow": 32768,
+              "maxContextWindow": 262144,
+              "supportsFunctionCalling": true,
+              "supportsReasoning": true,
+              "recommended": true
+            },
+            16383,
+            "D:\\mixdog-build\\tmp\\w22\\provider-local-context-settings\\ctx-persist"
+          ]
+        },
+        {
+          "entry": "src/runtime/local-provider/context-settings.mjs.saveLocalContext",
+          "args": [
+            {
+              "id": "qwen3.8-27b-q4-k-m",
+              "name": "Qwen3.8 27B Q4_K_M",
+              "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
+              "filename": "Qwen3.8-27B-Q4_K_M.gguf",
+              "url": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF/resolve/0669b98607d47046c7c2b3f801011d54a08cfccf/Qwen3.8-27B-Q4_K_M.gguf?download=true",
+              "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+              "source": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF",
+              "license": "Apache-2.0",
+              "size": 18973870432,
+              "sha256": "31629f53165ab6a7dad8c9847dcfd1fdf55829dac1e6e748f4a68581b0033d34",
+              "minimumVramBytes": 24696061952,
+              "estimatedVramBytes": 23622320128,
+              "contextWindow": 32768,
+              "maxContextWindow": 262144,
+              "supportsFunctionCalling": true,
+              "supportsReasoning": true,
+              "recommended": true
+            },
+            1.5,
+            "D:\\mixdog-build\\tmp\\w22\\provider-local-context-settings\\ctx-persist"
+          ]
+        },
+        {
+          "entry": "src/runtime/local-provider/context-settings.mjs.saveLocalContext",
+          "args": [
+            {
+              "id": "qwen3.8-27b-q4-k-m",
+              "name": "Qwen3.8 27B Q4_K_M",
+              "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
+              "filename": "Qwen3.8-27B-Q4_K_M.gguf",
+              "url": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF/resolve/0669b98607d47046c7c2b3f801011d54a08cfccf/Qwen3.8-27B-Q4_K_M.gguf?download=true",
+              "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+              "source": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF",
+              "license": "Apache-2.0",
+              "size": 18973870432,
+              "sha256": "31629f53165ab6a7dad8c9847dcfd1fdf55829dac1e6e748f4a68581b0033d34",
+              "minimumVramBytes": 24696061952,
+              "estimatedVramBytes": 23622320128,
+              "contextWindow": 32768,
+              "maxContextWindow": 262144,
+              "supportsFunctionCalling": true,
+              "supportsReasoning": true,
+              "recommended": true
+            },
+            "16384",
+            "D:\\mixdog-build\\tmp\\w22\\provider-local-context-settings\\ctx-persist"
+          ]
+        },
+        {
+          "entry": "src/runtime/local-provider/context-settings.mjs.saveLocalContext",
+          "args": [
+            {
+              "id": "qwen3.8-27b-q4-k-m",
+              "name": "Qwen3.8 27B Q4_K_M",
+              "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
+              "filename": "Qwen3.8-27B-Q4_K_M.gguf",
+              "url": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF/resolve/0669b98607d47046c7c2b3f801011d54a08cfccf/Qwen3.8-27B-Q4_K_M.gguf?download=true",
+              "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+              "source": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF",
+              "license": "Apache-2.0",
+              "size": 18973870432,
+              "sha256": "31629f53165ab6a7dad8c9847dcfd1fdf55829dac1e6e748f4a68581b0033d34",
+              "minimumVramBytes": 24696061952,
+              "estimatedVramBytes": 23622320128,
+              "contextWindow": 32768,
+              "maxContextWindow": 262144,
+              "supportsFunctionCalling": true,
+              "supportsReasoning": true,
+              "recommended": true
+            },
+            {
+              "$exact": "undefined"
+            },
+            "D:\\mixdog-build\\tmp\\w22\\provider-local-context-settings\\ctx-persist"
+          ]
+        },
+        {
+          "entry": "src/runtime/local-provider/context-settings.mjs.saveLocalContext",
+          "args": [
+            {
+              "id": "qwen3.8-27b-q4-k-m",
+              "name": "Qwen3.8 27B Q4_K_M",
+              "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
+              "filename": "Qwen3.8-27B-Q4_K_M.gguf",
+              "url": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF/resolve/0669b98607d47046c7c2b3f801011d54a08cfccf/Qwen3.8-27B-Q4_K_M.gguf?download=true",
+              "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+              "source": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF",
+              "license": "Apache-2.0",
+              "size": 18973870432,
+              "sha256": "31629f53165ab6a7dad8c9847dcfd1fdf55829dac1e6e748f4a68581b0033d34",
+              "minimumVramBytes": 24696061952,
+              "estimatedVramBytes": 23622320128,
+              "contextWindow": 32768,
+              "maxContextWindow": 262144,
+              "supportsFunctionCalling": true,
+              "supportsReasoning": true,
+              "recommended": true
+            },
+            {
+              "$exact": "NaN"
+            },
+            "D:\\mixdog-build\\tmp\\w22\\provider-local-context-settings\\ctx-persist"
+          ]
+        },
+        {
+          "entry": "src/runtime/local-provider/context-settings.mjs.saveLocalContext",
+          "args": [
+            {
+              "id": "qwen3.8-27b-q4-k-m",
+              "name": "Qwen3.8 27B Q4_K_M",
+              "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
+              "filename": "Qwen3.8-27B-Q4_K_M.gguf",
+              "url": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF/resolve/0669b98607d47046c7c2b3f801011d54a08cfccf/Qwen3.8-27B-Q4_K_M.gguf?download=true",
+              "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+              "source": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF",
+              "license": "Apache-2.0",
+              "size": 18973870432,
+              "sha256": "31629f53165ab6a7dad8c9847dcfd1fdf55829dac1e6e748f4a68581b0033d34",
+              "minimumVramBytes": 24696061952,
+              "estimatedVramBytes": 23622320128,
+              "contextWindow": 32768,
+              "maxContextWindow": 262144,
+              "supportsFunctionCalling": true,
+              "supportsReasoning": true,
+              "recommended": true
+            },
+            {
+              "$exact": "Infinity"
+            },
+            "D:\\mixdog-build\\tmp\\w22\\provider-local-context-settings\\ctx-persist"
+          ]
+        },
+        {
+          "entry": "src/runtime/local-provider/context-settings.mjs.saveLocalContext",
+          "args": [
+            {
+              "id": "qwen3.8-27b-q4-k-m",
+              "name": "Qwen3.8 27B Q4_K_M",
+              "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
+              "filename": "Qwen3.8-27B-Q4_K_M.gguf",
+              "url": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF/resolve/0669b98607d47046c7c2b3f801011d54a08cfccf/Qwen3.8-27B-Q4_K_M.gguf?download=true",
+              "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+              "source": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF",
+              "license": "Apache-2.0",
+              "size": 18973870432,
+              "sha256": "31629f53165ab6a7dad8c9847dcfd1fdf55829dac1e6e748f4a68581b0033d34",
+              "minimumVramBytes": 24696061952,
+              "estimatedVramBytes": 23622320128,
+              "contextWindow": 32768,
+              "maxContextWindow": 262144,
+              "supportsFunctionCalling": true,
+              "supportsReasoning": true,
+              "recommended": true
+            },
+            262145,
+            "D:\\mixdog-build\\tmp\\w22\\provider-local-context-settings\\ctx-persist"
+          ]
+        },
+        {
+          "entry": "src/runtime/local-provider/context-settings.mjs.localContextSettings",
+          "args": [
+            {
+              "id": "another-model",
+              "name": "Qwen3.8 27B Q4_K_M",
+              "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
+              "filename": "Qwen3.8-27B-Q4_K_M.gguf",
+              "url": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF/resolve/0669b98607d47046c7c2b3f801011d54a08cfccf/Qwen3.8-27B-Q4_K_M.gguf?download=true",
+              "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+              "source": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF",
+              "license": "Apache-2.0",
+              "size": 18973870432,
+              "sha256": "31629f53165ab6a7dad8c9847dcfd1fdf55829dac1e6e748f4a68581b0033d34",
+              "minimumVramBytes": 24696061952,
+              "estimatedVramBytes": 23622320128,
+              "contextWindow": 32768,
+              "maxContextWindow": 262144,
+              "supportsFunctionCalling": true,
+              "supportsReasoning": true,
+              "recommended": true
+            },
+            "D:\\mixdog-build\\tmp\\w22\\provider-local-context-settings\\ctx-persist"
+          ]
+        },
+        {
+          "entry": "src/runtime/local-provider/context-settings.mjs.saveLocalContext",
+          "args": [
+            {
+              "id": "qwen3.8-27b-q4-k-m",
+              "name": "Qwen3.8 27B Q4_K_M",
+              "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
+              "filename": "Qwen3.8-27B-Q4_K_M.gguf",
+              "url": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF/resolve/0669b98607d47046c7c2b3f801011d54a08cfccf/Qwen3.8-27B-Q4_K_M.gguf?download=true",
+              "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+              "source": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF",
+              "license": "Apache-2.0",
+              "size": 18973870432,
+              "sha256": "31629f53165ab6a7dad8c9847dcfd1fdf55829dac1e6e748f4a68581b0033d34",
+              "minimumVramBytes": 24696061952,
+              "estimatedVramBytes": 23622320128,
+              "contextWindow": 32768,
+              "maxContextWindow": 262144,
+              "supportsFunctionCalling": true,
+              "supportsReasoning": true,
+              "recommended": true
+            },
+            null,
+            "D:\\mixdog-build\\tmp\\w22\\provider-local-context-settings\\ctx-persist"
+          ]
+        },
+        {
+          "entry": "src/runtime/local-provider/context-settings.mjs.localContextSettings",
+          "args": [
+            {
+              "id": "qwen3.8-27b-q4-k-m",
+              "name": "Qwen3.8 27B Q4_K_M",
+              "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
+              "filename": "Qwen3.8-27B-Q4_K_M.gguf",
+              "url": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF/resolve/0669b98607d47046c7c2b3f801011d54a08cfccf/Qwen3.8-27B-Q4_K_M.gguf?download=true",
+              "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+              "source": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF",
+              "license": "Apache-2.0",
+              "size": 18973870432,
+              "sha256": "31629f53165ab6a7dad8c9847dcfd1fdf55829dac1e6e748f4a68581b0033d34",
+              "minimumVramBytes": 24696061952,
+              "estimatedVramBytes": 23622320128,
+              "contextWindow": 32768,
+              "maxContextWindow": 262144,
+              "supportsFunctionCalling": true,
+              "supportsReasoning": true,
+              "recommended": true
+            },
+            "D:\\mixdog-build\\tmp\\w22\\provider-local-context-settings\\ctx-persist"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "corrupt-or-out-of-range-file-falls-back",
+      "source": "src/runtime/local-provider/context-settings.test.mjs:33",
+      "input": {},
+      "result": {
+        "rows": [
+          {
+            "contents": "{not json",
+            "settings": {
+              "configuredContextWindow": null,
+              "defaultContextWindow": 32768,
+              "minContextWindow": 16384,
+              "maxContextWindow": 262144,
+              "contextWindow": 32768,
+              "runtimeContextWindow": 32768
+            },
+            "defaultContextWindow": 32768
+          },
+          {
+            "contents": "null",
+            "settings": {
+              "configuredContextWindow": null,
+              "defaultContextWindow": 32768,
+              "minContextWindow": 16384,
+              "maxContextWindow": 262144,
+              "contextWindow": 32768,
+              "runtimeContextWindow": 32768
+            },
+            "defaultContextWindow": 32768
+          },
+          {
+            "contents": "{\"tokens\":262145}",
+            "settings": {
+              "configuredContextWindow": null,
+              "defaultContextWindow": 32768,
+              "minContextWindow": 16384,
+              "maxContextWindow": 262144,
+              "contextWindow": 32768,
+              "runtimeContextWindow": 32768
+            },
+            "defaultContextWindow": 32768
+          },
+          {
+            "contents": "{\"tokens\":8192}",
+            "settings": {
+              "configuredContextWindow": null,
+              "defaultContextWindow": 32768,
+              "minContextWindow": 16384,
+              "maxContextWindow": 262144,
+              "contextWindow": 32768,
+              "runtimeContextWindow": 32768
+            },
+            "defaultContextWindow": 32768
+          }
+        ]
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/local-provider/context-settings.mjs.saveLocalContext",
+          "args": [
+            {
+              "id": "qwen3.8-27b-q4-k-m",
+              "name": "Qwen3.8 27B Q4_K_M",
+              "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
+              "filename": "Qwen3.8-27B-Q4_K_M.gguf",
+              "url": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF/resolve/0669b98607d47046c7c2b3f801011d54a08cfccf/Qwen3.8-27B-Q4_K_M.gguf?download=true",
+              "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+              "source": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF",
+              "license": "Apache-2.0",
+              "size": 18973870432,
+              "sha256": "31629f53165ab6a7dad8c9847dcfd1fdf55829dac1e6e748f4a68581b0033d34",
+              "minimumVramBytes": 24696061952,
+              "estimatedVramBytes": 23622320128,
+              "contextWindow": 32768,
+              "maxContextWindow": 262144,
+              "supportsFunctionCalling": true,
+              "supportsReasoning": true,
+              "recommended": true
+            },
+            16384,
+            "D:\\mixdog-build\\tmp\\w22\\provider-local-context-settings\\ctx-corrupt"
+          ]
+        },
+        {
+          "entry": "src/runtime/local-provider/context-settings.mjs.localContextSettings",
+          "args": [
+            {
+              "id": "qwen3.8-27b-q4-k-m",
+              "name": "Qwen3.8 27B Q4_K_M",
+              "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
+              "filename": "Qwen3.8-27B-Q4_K_M.gguf",
+              "url": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF/resolve/0669b98607d47046c7c2b3f801011d54a08cfccf/Qwen3.8-27B-Q4_K_M.gguf?download=true",
+              "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+              "source": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF",
+              "license": "Apache-2.0",
+              "size": 18973870432,
+              "sha256": "31629f53165ab6a7dad8c9847dcfd1fdf55829dac1e6e748f4a68581b0033d34",
+              "minimumVramBytes": 24696061952,
+              "estimatedVramBytes": 23622320128,
+              "contextWindow": 32768,
+              "maxContextWindow": 262144,
+              "supportsFunctionCalling": true,
+              "supportsReasoning": true,
+              "recommended": true
+            },
+            "D:\\mixdog-build\\tmp\\w22\\provider-local-context-settings\\ctx-corrupt"
+          ]
+        },
+        {
+          "entry": "src/runtime/local-provider/context-settings.mjs.localContextSettings",
+          "args": [
+            {
+              "id": "qwen3.8-27b-q4-k-m",
+              "name": "Qwen3.8 27B Q4_K_M",
+              "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
+              "filename": "Qwen3.8-27B-Q4_K_M.gguf",
+              "url": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF/resolve/0669b98607d47046c7c2b3f801011d54a08cfccf/Qwen3.8-27B-Q4_K_M.gguf?download=true",
+              "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+              "source": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF",
+              "license": "Apache-2.0",
+              "size": 18973870432,
+              "sha256": "31629f53165ab6a7dad8c9847dcfd1fdf55829dac1e6e748f4a68581b0033d34",
+              "minimumVramBytes": 24696061952,
+              "estimatedVramBytes": 23622320128,
+              "contextWindow": 32768,
+              "maxContextWindow": 262144,
+              "supportsFunctionCalling": true,
+              "supportsReasoning": true,
+              "recommended": true
+            },
+            "D:\\mixdog-build\\tmp\\w22\\provider-local-context-settings\\ctx-corrupt"
+          ]
+        },
+        {
+          "entry": "src/runtime/local-provider/context-settings.mjs.localContextSettings",
+          "args": [
+            {
+              "id": "qwen3.8-27b-q4-k-m",
+              "name": "Qwen3.8 27B Q4_K_M",
+              "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
+              "filename": "Qwen3.8-27B-Q4_K_M.gguf",
+              "url": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF/resolve/0669b98607d47046c7c2b3f801011d54a08cfccf/Qwen3.8-27B-Q4_K_M.gguf?download=true",
+              "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+              "source": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF",
+              "license": "Apache-2.0",
+              "size": 18973870432,
+              "sha256": "31629f53165ab6a7dad8c9847dcfd1fdf55829dac1e6e748f4a68581b0033d34",
+              "minimumVramBytes": 24696061952,
+              "estimatedVramBytes": 23622320128,
+              "contextWindow": 32768,
+              "maxContextWindow": 262144,
+              "supportsFunctionCalling": true,
+              "supportsReasoning": true,
+              "recommended": true
+            },
+            "D:\\mixdog-build\\tmp\\w22\\provider-local-context-settings\\ctx-corrupt"
+          ]
+        },
+        {
+          "entry": "src/runtime/local-provider/context-settings.mjs.localContextSettings",
+          "args": [
+            {
+              "id": "qwen3.8-27b-q4-k-m",
+              "name": "Qwen3.8 27B Q4_K_M",
+              "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
+              "filename": "Qwen3.8-27B-Q4_K_M.gguf",
+              "url": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF/resolve/0669b98607d47046c7c2b3f801011d54a08cfccf/Qwen3.8-27B-Q4_K_M.gguf?download=true",
+              "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+              "source": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF",
+              "license": "Apache-2.0",
+              "size": 18973870432,
+              "sha256": "31629f53165ab6a7dad8c9847dcfd1fdf55829dac1e6e748f4a68581b0033d34",
+              "minimumVramBytes": 24696061952,
+              "estimatedVramBytes": 23622320128,
+              "contextWindow": 32768,
+              "maxContextWindow": 262144,
+              "supportsFunctionCalling": true,
+              "supportsReasoning": true,
+              "recommended": true
+            },
+            "D:\\mixdog-build\\tmp\\w22\\provider-local-context-settings\\ctx-corrupt"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "apply-waits-for-inference-then-exposes-capacity",
+      "source": "src/runtime/local-provider/context-settings.test.mjs:55",
+      "input": {
+        "steps": [
+          "start an inference request that holds the request slot behind a gate",
+          "call setLocalProviderContext(entry.id, 16384)",
+          "advance the virtual clock 1 ms",
+          "read the configured context window (the change must not have applied)",
+          "release the gate",
+          "await the inference and the change",
+          "read the runtime context window",
+          "call setLocalProviderContext(\"missing\", 16384)"
+        ]
+      },
+      "result": {
+        "steps": [
+          {
+            "event": "inference-started"
+          },
+          {
+            "event": "change-requested",
+            "tokens": 16384
+          },
+          {
+            "event": "read-configured",
+            "settings": {
+              "configuredContextWindow": null,
+              "defaultContextWindow": 32768,
+              "minContextWindow": 16384,
+              "maxContextWindow": 262144,
+              "contextWindow": 32768,
+              "runtimeContextWindow": 32768
+            }
+          },
+          {
+            "event": "gate-released"
+          },
+          {
+            "event": "inference-ran",
+            "inferenceSignalAborted": false
+          },
+          {
+            "event": "read-runtime",
+            "settings": {
+              "configuredContextWindow": 16384,
+              "defaultContextWindow": 32768,
+              "minContextWindow": 16384,
+              "maxContextWindow": 262144,
+              "contextWindow": 16384,
+              "runtimeContextWindow": 16384
+            }
+          },
+          {
+            "event": "change-requested",
+            "model": "missing",
+            "tokens": 16384
+          }
+        ],
+        "unknownModel": {
+          "$exact": "error",
+          "name": "TypeError",
+          "message": "Unknown local model.",
+          "props": {}
+        },
+        "files": {
+          "local-provider/context/3ea838146526fbfe3dfc81d32dd5c74d40390b37d7342a68784a2b3e0d8b4781.json": "{\n  \"tokens\": 16384\n}\n"
+        }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/local-provider/server.mjs.runLocalProviderRequest",
+          "args": [
+            {
+              "callback": ""
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/local-provider/server.mjs.setLocalProviderContext",
+          "args": [
+            "qwen3.8-27b-q4-k-m",
+            16384,
+            {
+              "dataDir": "D:\\mixdog-build\\tmp\\w22\\provider-local-context-settings\\ctx-queue"
+            }
+          ]
+        },
+        {
+          "entry": "src/runtime/local-provider/context-settings.mjs.localContextSettings",
+          "args": [
+            {
+              "id": "qwen3.8-27b-q4-k-m",
+              "name": "Qwen3.8 27B Q4_K_M",
+              "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
+              "filename": "Qwen3.8-27B-Q4_K_M.gguf",
+              "url": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF/resolve/0669b98607d47046c7c2b3f801011d54a08cfccf/Qwen3.8-27B-Q4_K_M.gguf?download=true",
+              "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+              "source": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF",
+              "license": "Apache-2.0",
+              "size": 18973870432,
+              "sha256": "31629f53165ab6a7dad8c9847dcfd1fdf55829dac1e6e748f4a68581b0033d34",
+              "minimumVramBytes": 24696061952,
+              "estimatedVramBytes": 23622320128,
+              "contextWindow": 32768,
+              "maxContextWindow": 262144,
+              "supportsFunctionCalling": true,
+              "supportsReasoning": true,
+              "recommended": true
+            },
+            "D:\\mixdog-build\\tmp\\w22\\provider-local-context-settings\\ctx-queue"
+          ]
+        },
+        {
+          "entry": "src/runtime/local-provider/context-settings.mjs.localContextSettings",
+          "args": [
+            {
+              "id": "qwen3.8-27b-q4-k-m",
+              "name": "Qwen3.8 27B Q4_K_M",
+              "description": "Recommended coding and tool-use model for GPUs with 24 GB of memory.",
+              "filename": "Qwen3.8-27B-Q4_K_M.gguf",
+              "url": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF/resolve/0669b98607d47046c7c2b3f801011d54a08cfccf/Qwen3.8-27B-Q4_K_M.gguf?download=true",
+              "revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+              "source": "https://huggingface.co/ggml-org/Qwen3.8-27B-GGUF",
+              "license": "Apache-2.0",
+              "size": 18973870432,
+              "sha256": "31629f53165ab6a7dad8c9847dcfd1fdf55829dac1e6e748f4a68581b0033d34",
+              "minimumVramBytes": 24696061952,
+              "estimatedVramBytes": 23622320128,
+              "contextWindow": 32768,
+              "maxContextWindow": 262144,
+              "supportsFunctionCalling": true,
+              "supportsReasoning": true,
+              "recommended": true
+            },
+            "D:\\mixdog-build\\tmp\\w22\\provider-local-context-settings\\ctx-queue"
+          ]
+        },
+        {
+          "entry": "src/runtime/local-provider/server.mjs.setLocalProviderContext",
+          "args": [
+            "missing",
+            16384,
+            {
+              "dataDir": "D:\\mixdog-build\\tmp\\w22\\provider-local-context-settings\\ctx-queue"
+            }
+          ]
+        }
+      ],
+      "clock": [
+        {
+          "advanceMs": 1,
+          "fromMs": 0,
+          "fired": [],
+          "toMs": 1
+        }
+      ]
+    },
+    {
+      "id": "below-agent-minimum-runs-at-gguf-minimum",
+      "source": "src/runtime/local-provider/context-settings.test.mjs:80",
+      "input": {},
+      "result": {
+        "legacy": {
+          "configuredContextWindow": null,
+          "defaultContextWindow": 16384,
+          "minContextWindow": 16384,
+          "maxContextWindow": 131072,
+          "contextWindow": 16384,
+          "runtimeContextWindow": 16384
+        },
+        "small": {
+          "configuredContextWindow": null,
+          "defaultContextWindow": 4096,
+          "minContextWindow": 16384,
+          "maxContextWindow": 4096,
+          "contextWindow": 4096,
+          "runtimeContextWindow": 4096
+        }
+      },
+      "calls": [
+        {
+          "entry": "src/runtime/local-provider/context-settings.mjs.localContextSettings",
+          "args": [
+            {
+              "id": "legacy-model",
+              "contextWindow": 8192,
+              "maxContextWindow": 131072
+            },
+            "D:\\mixdog-build\\tmp\\w22\\provider-local-context-settings\\ctx-legacy"
+          ]
+        },
+        {
+          "entry": "src/runtime/local-provider/context-settings.mjs.localContextSettings",
+          "args": [
+            {
+              "id": "small-model",
+              "contextWindow": 4096,
+              "maxContextWindow": 4096
+            },
+            "D:\\mixdog-build\\tmp\\w22\\provider-local-context-settings\\ctx-legacy"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -225,11 +225,6 @@ pub fn prepare_turn_effort_configuration(
     Some(EffortSnapshot { provider: route.provider.to_owned(), model: model_key(route.model), mode, initial_effort, effort })
 }
 
-/// The snapshot as the user turn's `meta.effortConfiguration` stores it.
-pub fn snapshot_value(snapshot: &EffortSnapshot) -> Value {
-    effort_value(snapshot)
-}
-
 /// The managed local model's catalog entry (`localProviderModelEntry(model)`).
 #[derive(Clone, Debug)]
 pub struct LocalEntry {
@@ -356,27 +351,16 @@ impl HopWiring for RouteWirer {
     }
 }
 
-fn mode_name(mode: EffortMode) -> &'static str {
-    match mode {
-        EffortMode::Responses => "responses",
-        EffortMode::Anthropic => "anthropic",
-        EffortMode::Custom => "custom",
-    }
-}
-
-pub fn effort_value(e: &EffortSnapshot) -> Value {
-    json!({ "version": 1, "provider": e.provider, "model": e.model, "mode": mode_name(e.mode), "initialEffort": e.initial_effort, "effort": e.effort })
-}
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    const GOLDEN: &str = include_str!("golden/route_wiring.json");
+    const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("src/run_host/golden/route_wiring.json");
 
     #[test]
     fn an_uncatalogued_id_gets_nodes_generation_floor() {
-        let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+        let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
         let gates = golden["gates"].as_array().unwrap();
         assert_eq!(gates.len(), 27);
         for row in gates {
@@ -396,7 +380,7 @@ mod tests {
 
     #[test]
     fn every_configuration_equals_nodes() {
-        let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+        let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
         let cases = golden["cases"].as_array().unwrap();
         assert_eq!(cases.len(), 936);
         let unsupported = UnsupportedEfforts::default();
@@ -431,7 +415,7 @@ mod tests {
                 messages: &messages,
             };
             let got = prepare_turn_effort_configuration(&route, &facts, case["turnEffort"].as_str(), &unsupported, &|_| None);
-            let got = got.as_ref().map(snapshot_value).unwrap_or(Value::Null);
+            let got = got.as_ref().map(EffortSnapshot::to_value).unwrap_or(Value::Null);
             assert_eq!(got, case["snapshot"], "{case}");
         }
     }

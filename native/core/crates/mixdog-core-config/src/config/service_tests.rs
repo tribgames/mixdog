@@ -101,10 +101,7 @@ fn a_setter_type_error_answers_its_message() {
 /// announcement with its trimmed origin. A refused origin announces nothing.
 #[tokio::test]
 async fn a_phones_setting_write_and_provider_models_call_announce_what_node_broadcast() {
-    let golden: Value = serde_json::from_str(include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../../../apps/mobile/fixtures/phone-settings/golden.json"
-    )))
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../../../apps/mobile/fixtures/phone-settings/golden.json"))
     .unwrap();
     let dir = tempfile::tempdir().unwrap();
     let file = dir.path().join("mixdog-config.json");

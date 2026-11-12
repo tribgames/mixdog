@@ -145,29 +145,6 @@ pub enum Saved {
     Dropped,
 }
 
-/// A header write issued for `expected_generation` (`saveSessionAsync(session, { expectedGeneration })`): refused
-/// when the record is past that generation ([`drops_against`]), judged against the header the write then lands on.
-pub async fn patch_header_fenced(
-    threads: &dyn ThreadState,
-    thread: &ThreadId,
-    expected_generation: Option<f64>,
-    set: Map<String, Value>,
-    unset: Vec<String>,
-) -> Result<Saved, PortError> {
-    loop {
-        let recorded = threads.header(thread).await?;
-        if drops_against(&recorded, expected_generation) {
-            return Ok(Saved::Dropped);
-        }
-        let expect = ["generation", "closed"].into_iter().map(|key| (key.to_owned(), recorded.get(key).cloned().unwrap_or(Value::Null))).collect();
-        match threads.patch_header_if(thread, expect, set.clone(), unset.clone()).await? {
-            None => return Ok(Saved::Written),
-            // The lifecycle moved meanwhile: judged again against it.
-            Some(_) => continue,
-        }
-    }
-}
-
 /// The reason the idle sweep closes with (`markSessionClosed(id, 'idle-sweep', ..)`,
 /// `sweep-row.mjs:136`).
 pub const IDLE_SWEEP_REASON: &str = "idle-sweep";
@@ -317,30 +294,39 @@ impl SessionClose {
         self.providers.release_session(thread.as_str());
         self.directory.deps().deletion.release_mcp_scope(thread.as_str());
         if let Some(handle) = self.directory.handle(thread) {
-            let _ = handle.cell.ctl_tx.send(Ctl::Closed).await;
+            let (taken, took) = tokio::sync::oneshot::channel();
+            if handle.cell.ctl_tx.send(Ctl::Closed(taken)).await.is_ok() {
+                // An actor that ends first drops the answer: it is gone either way.
+                let _ = took.await;
+            }
         }
     }
 
-    /// The tombstone, written against the header it was computed from; `Ok(false)`: absent.
     async fn mark_closed(&self, thread: &ThreadId, reason: &str) -> Result<bool, PortError> {
-        loop {
-            let recorded = match self.threads.header(thread).await {
-                Ok(header) => header,
-                Err(PortError::NotFound { .. }) => return Ok(false),
-                Err(error) => return Err(error),
-            };
-            let set = tombstone(&recorded, reason, self.directory.deps().clock.now_ms());
-            let expect = ["closed", "status", "generation", "updatedAt", "cancelStatus", "cancelledAt"]
-                .into_iter()
-                .map(|key| (key.to_owned(), recorded.get(key).cloned().unwrap_or(Value::Null)))
-                .collect();
-            match self.threads.patch_header_if(thread, expect, set, Vec::new()).await {
-                Ok(None) => return Ok(true),
-                // Another write moved the header meanwhile: computed again from what it holds now.
-                Ok(Some(_)) => continue,
-                Err(PortError::NotFound { .. }) => return Ok(false),
-                Err(error) => return Err(error),
-            }
+        write_close(&self.threads, thread, reason, self.directory.deps().clock.now_ms()).await
+    }
+}
+
+/// `markSessionClosed(id, reason)`: the tombstone, written against the header it was computed from. `Ok(false)`: no such
+/// session.
+pub(crate) async fn write_close(threads: &dyn ThreadState, thread: &ThreadId, reason: &str, now: i64) -> Result<bool, PortError> {
+    loop {
+        let recorded = match threads.header(thread).await {
+            Ok(header) => header,
+            Err(PortError::NotFound { .. }) => return Ok(false),
+            Err(error) => return Err(error),
+        };
+        let set = tombstone(&recorded, reason, now);
+        let expect = ["closed", "status", "generation", "updatedAt", "cancelStatus", "cancelledAt"]
+            .into_iter()
+            .map(|key| (key.to_owned(), recorded.get(key).cloned().unwrap_or(Value::Null)))
+            .collect();
+        match threads.patch_header_if(thread, expect, set, Vec::new()).await {
+            Ok(None) => return Ok(true),
+            // Another write moved the header meanwhile: computed again from what it holds now.
+            Ok(Some(_)) => continue,
+            Err(PortError::NotFound { .. }) => return Ok(false),
+            Err(error) => return Err(error),
         }
     }
 }
@@ -478,8 +464,7 @@ mod tests {
         }
     }
 
-    /// A detach lands against the header it was computed from (computed again when another write moved it), and a
-    /// save issued for the generation before it is refused while one issued for the new generation lands.
+    /// A detach lands against the header it was computed from (computed again when another write moved it).
     #[tokio::test]
     async fn a_detach_fences_the_save_issued_before_it() {
         let thread = ThreadId::from("sess_a");
@@ -491,12 +476,6 @@ mod tests {
             json!({ "generation": 1, "updatedAt": 7, "detachedReason": "no live session clients" }),
             "the fields Node's first detach records"
         );
-
-        let late = obj(json!({ "title": "late" }));
-        assert_eq!(patch_header_fenced(&cell, &thread, Some(0.0), late.clone(), Vec::new()).await.unwrap(), Saved::Dropped);
-        assert!(cell.header.lock().unwrap().get("title").is_none(), "the refused save wrote nothing");
-        assert_eq!(patch_header_fenced(&cell, &thread, Some(1.0), late, Vec::new()).await.unwrap(), Saved::Written);
-        assert_eq!(cell.header.lock().unwrap()["title"], json!("late"));
 
         cell.conflict_once.store(true, std::sync::atomic::Ordering::SeqCst);
         assert!(write_detach(&cell, &thread, "SIGTERM", true, 9).await.unwrap());

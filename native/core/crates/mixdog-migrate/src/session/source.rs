@@ -822,8 +822,9 @@ struct Spool<'a> {
 
 #[derive(Deserialize)]
 struct Workers<'a> {
+    /// A list or an id-keyed map (`workerRows`, `store-agent-worker-rows.mjs:269`).
     #[serde(borrow, default)]
-    workers: HashMap<String, &'a RawValue>,
+    workers: Option<&'a RawValue>,
     #[serde(borrow, default)]
     tombstones: Option<&'a RawValue>,
 }
@@ -849,12 +850,39 @@ fn index_rows(raw: Option<&RawValue>) -> serde_json::Result<Vec<&RawValue>> {
     }
 }
 
+/// An index's `workers`: a list in its order, or a map's rows by sorted key (of two rows naming one session the
+/// first stays); anything else has none.
+fn worker_rows(raw: Option<&RawValue>) -> serde_json::Result<Vec<&RawValue>> {
+    match raw.map(|r| r.get().trim_start()) {
+        Some(text) if text.starts_with('[') => serde_json::from_str(text),
+        Some(text) if text.starts_with('{') => {
+            let rows: std::collections::BTreeMap<String, &RawValue> = serde_json::from_str(text)?;
+            Ok(rows.into_values().collect())
+        }
+        _ => Ok(Vec::new()),
+    }
+}
+
 /// Session id → release marker; anything but an object has none (`parseReleased`).
 fn released_entries(raw: Option<&RawValue>) -> serde_json::Result<HashMap<String, &RawValue>> {
     match raw.map(|r| r.get().trim_start()) {
         Some(text) if text.starts_with('{') => serde_json::from_str(text),
         _ => Ok(HashMap::new()),
     }
+}
+
+/// The session ids of a worker index's rows (`agent-workers.json`, `lead-workers.json`); none when it does not parse. Node lists
+/// a row whose session has no record with a null header (`store-agent-worker-rows.mjs:615`), so each is a session of its own.
+pub fn worker_row_session_ids(bytes: &[u8]) -> Vec<String> {
+    let Some(workers) = std::str::from_utf8(bytes).ok().and_then(|text| serde_json::from_str::<Workers<'_>>(text).ok()) else {
+        return Vec::new();
+    };
+    worker_rows(workers.workers)
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|raw| json::parse_source(raw.get().as_bytes()).ok())
+        .filter_map(|row| row.value.get("sessionId").and_then(Value::as_str).filter(|id| is_session_id(id)).map(str::to_owned))
+        .collect()
 }
 
 /// What a shared file names: the session ids (`sessions` keys of a spool; `sessionId` of
@@ -868,7 +896,7 @@ pub fn shared_session_ids(name: &str, bytes: &[u8]) -> Option<(Vec<String>, Vec<
     } else if name.ends_with(AGENT_WORKERS) || name.ends_with(LEAD_WORKERS) {
         let workers: Workers<'_> = serde_json::from_str(text).ok()?;
         let mut ids = Vec::new();
-        for raw in workers.workers.values() {
+        for raw in worker_rows(workers.workers).ok()? {
             let row = json::parse_source(raw.get().as_bytes()).ok()?.value;
             if let Some(id) = row.get("sessionId").and_then(Value::as_str) {
                 ids.push(id.to_string());
@@ -1057,11 +1085,9 @@ fn worker(cx: &ItemContext<'_>, id: &str, header: &Header, shared: &[&SourceFile
         let Some(text) = read(name)? else { continue };
         let workers: Workers<'_> = serde_json::from_str(&text).map_err(|e| bad(name, &e))?;
         if row.is_none() {
-            let mut keys: Vec<&String> = workers.workers.keys().collect();
-            keys.sort();
-            for key in keys {
+            for raw in worker_rows(workers.workers).map_err(|e| bad(name, &e))? {
                 let mut count = 0;
-                let found = parse(workers.workers[key].get().as_bytes(), QuarantineCode::ParseError, name, &mut count)?;
+                let found = parse(raw.get().as_bytes(), QuarantineCode::ParseError, name, &mut count)?;
                 if found.get("sessionId").and_then(Value::as_str) == Some(id) {
                     *replaced += count;
                     row = Some(found);
@@ -1285,8 +1311,16 @@ pub fn read(cx: &ItemContext<'_>, item: &ManifestItem, id: &str, office: &Office
     let ckpt_header = read(format!("turn-checkpoints/{id}.json"))?;
     let ckpt_journal = read(format!("turn-checkpoints/{id}.jsonl"))?;
 
-    let (mut header, mut messages) =
-        header_and_messages(id, json_bytes.as_deref(), log, &mut replaced)?;
+    // A session only a worker index row names (`worker_row_session_ids`) has no record: Node reads its header as null.
+    let (mut header, mut messages) = if item.sources.is_empty() {
+        let mut header = Header::new();
+        header.insert(mixdog_store::archived_agent::WORKER_ROW_ONLY_KEY.into(), Value::Bool(true));
+        // The catalog row takes `Date.now()` for a header without `updatedAt`: a fixed one keeps the migrated index the same run to run.
+        header.insert("updatedAt".into(), Value::from(1));
+        (header, Vec::new())
+    } else {
+        header_and_messages(id, json_bytes.as_deref(), log, &mut replaced)?
+    };
     let shared = cx.shared_for(&format!("session/{id}"));
     let archived = archived_results(cx, id, &header, &messages, &shared)?;
 
@@ -1306,6 +1340,9 @@ pub fn read(cx: &ItemContext<'_>, item: &ManifestItem, id: &str, office: &Office
         None => (Vec::new(), Vec::new()),
     };
     let all: Vec<Value> = messages.iter().chain(turn_messages.iter()).cloned().collect();
+    // The sessions whose sidecars this one may name: a copy 1.4.5 made (a clear's fork) names no source, so its set is
+    // what its transcript names, stored once here for the prune's index.
+    mixdog_store::offload_sources::stamp(&mut header, id, &all);
     // The ids are stamped over 1.4.5's array, system messages included, so every row keeps its 1.4.5 id.
     let mut iids = message_iids(id, &all);
     let turn_iids = iids.split_off(messages.len());
@@ -1342,4 +1379,38 @@ pub fn read(cx: &ItemContext<'_>, item: &ManifestItem, id: &str, office: &Office
         superseded_jobs: superseded,
         replaced_surrogates: replaced,
     })
+}
+
+#[cfg(test)]
+mod worker_index_tests {
+    use super::*;
+
+    /// Worker indexes Node's own code wrote (the stores of `fixtures/store-agent-worker-pool-cases`, recorded by
+    /// `record-store-agent-worker-pool-cases.mjs` from Node's tests): case 0's is an id-keyed map, case 2's a list. The
+    /// rows each names are read off the parsed file: a list's in its order, a map's by sorted key.
+    #[test]
+    fn a_worker_index_names_its_rows_sessions_as_a_list_or_as_a_map() {
+        let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/store-agent-worker-pool-cases/golden.json")).unwrap();
+        for (case, shape) in [(0, "map"), (2, "list")] {
+            let text = golden["cases"][case]["observed"]["store"][AGENT_WORKERS].as_str().unwrap();
+            let parsed: Value = serde_json::from_str(text).unwrap();
+            let want: Vec<String> = match &parsed["workers"] {
+                Value::Array(rows) => {
+                    assert_eq!(shape, "list");
+                    rows.iter().map(|row| row["sessionId"].as_str().unwrap().to_owned()).collect()
+                }
+                Value::Object(rows) => {
+                    assert_eq!(shape, "map");
+                    let mut keyed: Vec<(&String, &Value)> = rows.iter().collect();
+                    keyed.sort_by(|a, b| a.0.cmp(b.0));
+                    keyed.into_iter().map(|(_, row)| row["sessionId"].as_str().unwrap().to_owned()).collect()
+                }
+                other => panic!("case {case}: workers is {other}"),
+            };
+            assert!(!want.is_empty(), "case {case}");
+            assert_eq!(worker_row_session_ids(text.as_bytes()), want, "case {case} ({shape}): the rows' sessions");
+            let (named, _) = shared_session_ids(AGENT_WORKERS, text.as_bytes()).expect("the index parses");
+            assert_eq!(named[..want.len()], want[..], "case {case} ({shape}): the sessions the shared file names");
+        }
+    }
 }

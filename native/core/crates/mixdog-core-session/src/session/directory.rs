@@ -196,7 +196,7 @@ pub(crate) struct DirInner {
     pub(super) left: tokio::sync::Notify,
     /// A test's gate between the adoption's listing of the control threads and its writes: it tells `.0` it arrived, then
     /// waits for `.1`.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(super) adoption_gate: Mutex<Option<(Arc<tokio::sync::Notify>, std::sync::mpsc::Receiver<()>)>>,
 }
 
@@ -218,8 +218,49 @@ pub(crate) struct CreateSpec {
     pub starting: Option<Starting>,
 }
 
+/// [`SessionDirectory::durability_settled`]: each thread loaded at the call with its stores' [`mixdog_rt::WriteMarks`] and
+/// the accepted count of each taken then — the thread's records, then its prompt-history appends.
+#[cfg(any(test, feature = "test-support"))]
+#[derive(Clone)]
+pub struct DurabilitySettling {
+    threads: Vec<(ThreadId, [(Arc<mixdog_rt::WriteMarks>, u64); 2])>,
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl DurabilitySettling {
+    /// How many threads were loaded at the call, once every store of each committed what it accepted before; an error naming
+    /// the thread and the store when one of those writes failed (a thread that ended first fails what it had not written).
+    pub fn wait(&self) -> impl std::future::Future<Output = Result<usize, String>> + Send + 'static {
+        let threads = self.threads.clone();
+        async move {
+            let waits = threads.iter().flat_map(|(id, marks)| {
+                marks.iter().map(move |(marks, mark)| async move { marks.reached(*mark).await.map_err(|error| format!("thread {}: {error}", id.as_str())) })
+            });
+            futures::future::try_join_all(waits).await?;
+            Ok(threads.len())
+        }
+    }
+
+    /// The thread and store of each write from before the call still neither committed nor failed.
+    pub fn pending(&self) -> Vec<String> {
+        self.threads
+            .iter()
+            .flat_map(|(id, marks)| {
+                marks.iter().filter(|(marks, mark)| marks.check(*mark).is_none()).map(move |(marks, _)| format!("thread {}: {}", id.as_str(), marks.store()))
+            })
+            .collect()
+    }
+}
+
 pub struct SessionDirectory {
     inner: Arc<DirInner>,
+}
+
+impl DirInner {
+    /// The directory over this shared state, while it lives (the thread requests of a step that runs here).
+    pub(super) fn outer(&self) -> Option<SessionDirectory> {
+        self.me.upgrade().map(SessionDirectory::over)
+    }
 }
 
 impl SessionDirectory {
@@ -302,7 +343,7 @@ impl SessionDirectory {
             _prune: prune.drop_guard(),
             #[cfg(any(test, feature = "test-support"))]
             left: Default::default(),
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             adoption_gate: Default::default(),
         });
         let me = Arc::downgrade(&inner);
@@ -313,7 +354,31 @@ impl SessionDirectory {
             }
         }));
         *lock(&inner.goal_events) = Some(subscription);
+        let me = Arc::downgrade(&inner);
+        inner.deps.sensitive.on_carried(Box::new(move |thread| {
+            let Some(directory) = me.upgrade() else { return };
+            let thread = thread.clone();
+            drop(mixdog_rt::spawn("sensitive-carried", mixdog_rt::TaskClass::Work, async move {
+                SessionDirectory::over(directory).carried(&thread).await;
+            }));
+        }));
         Self { inner }
+    }
+
+    /// A value marked in a session whose text `thread` holds reached it (`SensitiveMarks::carry`): the thread rewrites what
+    /// it stored as for a mark of its own; one not loaded is opened for it (its files hold the text).
+    async fn carried(&self, thread: &ThreadId) {
+        let handle = match self.inner.loaded(thread) {
+            Some(handle) => handle,
+            None => match self.inner.open(thread, &CallContext::internal("sensitive-carried")).await {
+                Ok(handle) => handle,
+                Err(error) => {
+                    tracing::warn!(%thread, "a carried sensitive value could not open the thread that holds it: {error:?}");
+                    return;
+                }
+            },
+        };
+        let _ = handle.inbox.send(Inbox::SensitiveCarried).await;
     }
 
     /// Woken whenever a thread leaves the directory.
@@ -334,6 +399,11 @@ impl SessionDirectory {
         self.handle(id).map(|handle| handle.cell.turn_chain.bots()).unwrap_or_default()
     }
 
+    /// `turnHopOf(session)`: the bot-to-bot depth of the turn the loaded thread is in; 0 for a thread not loaded.
+    pub fn turn_hop(&self, id: &ThreadId) -> u32 {
+        self.handle(id).map_or(0, |handle| handle.cell.turn_chain.hop())
+    }
+
     /// The concrete handle of a loaded thread.
     pub fn handle(&self, id: &ThreadId) -> Option<Arc<SessionHandle>> {
         self.inner.loaded(id)
@@ -351,7 +421,8 @@ impl SessionDirectory {
     }
 
     /// The turn gate, for the tests that hold a start's admission or a delete's fence.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
+    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
     pub(crate) fn turn_gate(&self) -> &Arc<super::turn_gate::TurnGate> {
         self.inner.gate()
     }
@@ -388,6 +459,21 @@ impl SessionDirectory {
         true
     }
 
+    /// The stored transcript of a thread, loaded or not, oldest first: what `session action=read` quotes.
+    pub async fn transcript_items(&self, id: &ThreadId) -> Result<Vec<mixdog_protocol::ThreadItem>, CoreError> {
+        super::reads::history_items(&self.inner.deps, id).await
+    }
+
+    /// `rt.pendingCompactSessionIds.add(id)` of the `session` tool's compact: the loaded thread compacts
+    /// when its turn settles (once, whatever the turn's outcome). A thread that is not loaded has no turn to wait for.
+    pub fn schedule_compact_after_turn(&self, id: &ThreadId) -> Result<(), CoreError> {
+        let Some(handle) = self.inner.loaded(id).filter(|handle| !handle.cell.closed.load(std::sync::atomic::Ordering::SeqCst)) else {
+            return Err(mixdog_core_base::support::failed("session", format!("session: {} is not loaded", id.as_str())));
+        };
+        handle.cell.pending_compact.store(true, std::sync::atomic::Ordering::SeqCst);
+        Ok(())
+    }
+
     /// `abortSession({sessionId})` for the `session` tool's cancel: the user's interrupt of the
     /// turn running in the session. `true` when a turn was running and is now cancelled; a
     /// session that is not loaded or runs no turn is `false`.
@@ -407,6 +493,7 @@ impl SessionDirectory {
     pub fn model_context(&self, id: &ThreadId) -> super::run::ModelContext {
         super::run::ModelContext {
             store: self.inner.deps.store.clone(),
+            sensitive: self.inner.deps.sensitive.clone(),
             lanes: self.inner.deps.lanes,
             thread: id.clone(),
             input: mixdog_core_api::ids::ItemId::from(String::new()),
@@ -426,6 +513,7 @@ impl SessionDirectory {
         iid: &str,
     ) -> Result<Option<(u64, mixdog_store::schema::record::ItemRecord)>, CoreError> {
         let deps = &self.inner.deps;
+        deps.store.unheld().await;
         let (store, thread, iid) = (deps.store.clone(), id.clone(), iid.to_owned());
         deps.lanes
             .io
@@ -465,6 +553,7 @@ impl SessionDirectory {
         iid: &str,
     ) -> Result<Option<mixdog_store::sqlite::CompactionEntry>, CoreError> {
         let deps = &self.inner.deps;
+        deps.store.unheld().await;
         let (store, thread, iid) = (deps.store.clone(), id.clone(), iid.to_owned());
         deps.lanes
             .io
@@ -514,6 +603,20 @@ impl SessionDirectory {
         self.inner.try_stored_header(id).await
     }
 
+    /// What is known of a stored session (`storedSessionPresence`): `Some(true)` present, `Some(false)` known to be gone
+    /// (`threadNotFound`), `None` when its record could not be read or the read never ran — never proof it is gone.
+    pub async fn stored_presence(&self, id: &ThreadId) -> Option<bool> {
+        if self.inner.loaded(id).is_some() {
+            return Some(true);
+        }
+        let (store, thread) = (self.inner.deps.store.clone(), id.clone());
+        match mixdog_core_base::support::on_lane(self.inner.deps.lanes.io, &CancellationToken::new(), move |lane| store.read_header(lane, &thread)).await {
+            Ok(Ok(_)) => Some(true),
+            Ok(Err(CoreError::ThreadNotFound { .. })) => Some(false),
+            _ => None,
+        }
+    }
+
     /// `deleteSession(id, { isSessionLive: treeChanged })` for a session not open in this
     /// process: `true` once it is gone. The thread's own admission rechecks, before it closes
     /// anything, that nobody opened or used the session since the pass read `activity`, that
@@ -549,7 +652,8 @@ impl SessionDirectory {
     }
 
     /// Holds the next adoption between its listing and its writes ([`DirInner::adoption_gate`]).
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
+    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
     pub(super) fn gate_adoption(&self, arrived: Arc<tokio::sync::Notify>, go: std::sync::mpsc::Receiver<()>) {
         *lock(&self.inner.adoption_gate) = Some((arrived, go));
     }
@@ -613,6 +717,27 @@ impl SessionDirectory {
     /// Whether the thread is loaded and not closing: a thread closed, deleted or shut down is refused work.
     pub fn is_open(&self, id: &ThreadId) -> bool {
         self.inner.loaded(id).is_some_and(|handle| !handle.cell.closed.load(std::sync::atomic::Ordering::SeqCst))
+    }
+
+    /// Replay-only (the core's `replay/storesSettled` control): the positions of every thread loaded now, taken here, without
+    /// the actors — each one's durable records accepted ([`super::control::ControlCell::record_marks`]) and prompt-history
+    /// appends pushed ([`super::control::ControlCell::prompt_marks`]). [`DurabilitySettling::wait`] then waits for each to be
+    /// committed: what is accepted later neither holds nor hastens it, and a thread loaded later is not asked.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn durability_settled(&self) -> DurabilitySettling {
+        let threads = self
+            .loaded_handles()
+            .into_iter()
+            .map(|handle| {
+                let cell = &handle.cell;
+                let marks = [cell.record_marks.clone(), cell.prompt_marks.clone()].map(|marks| {
+                    let mark = marks.accepted();
+                    (marks, mark)
+                });
+                (handle.id.clone(), marks)
+            })
+            .collect();
+        DurabilitySettling { threads }
     }
 
     /// Whether a thread is being created now (`getSessionCreatePromise()`).
@@ -733,7 +858,7 @@ impl SessionDirectory {
             && let Some(hook) = self.inner.owner_teardown.get()
         {
             for owner in self.loaded_ids() {
-                if tokio::time::timeout(CLOSE_ALL_DEADLINE, hook.teardown(&owner, reason)).await.is_err() {
+                if mixdog_rt::time::timeout(CLOSE_ALL_DEADLINE, hook.teardown(&owner, reason)).await.is_err() {
                     tracing::warn!(owner = owner.as_str(), "agent teardown overran its deadline");
                 }
             }
@@ -742,7 +867,7 @@ impl SessionDirectory {
         // own session is closed with the stop's reason before the runtime stops.
         if let Some(hook) = self.inner.exit_close.get() {
             for owner in self.loaded_ids() {
-                if tokio::time::timeout(CLOSE_ALL_DEADLINE, hook.close_on_exit(&owner, reason)).await.is_err() {
+                if mixdog_rt::time::timeout(CLOSE_ALL_DEADLINE, hook.close_on_exit(&owner, reason)).await.is_err() {
                     tracing::warn!(owner = owner.as_str(), "the session close at exit overran its deadline");
                 }
             }
@@ -778,7 +903,7 @@ impl SessionDirectory {
                 ingest.await;
             }
         }));
-        let _ = tokio::time::timeout(SHUTDOWN_INGEST_DEADLINE, all).await;
+        let _ = mixdog_rt::time::timeout(SHUTDOWN_INGEST_DEADLINE, all).await;
         // Each runtime's teardown ends with `dispose()` of its side checkouts: no snapshot
         // cleanup runs on, and what is left is the prune's and the startup reconcile's.
         self.inner.deps.snapshots.dispose();
@@ -819,7 +944,22 @@ impl SessionDirectory {
     /// `enqueueCompletion`: the completion joins the owner's queue; a thread not loaded is
     /// opened for it (and, not live, is never woken by it).
     pub(crate) async fn queue_completion(&self, owner: &ThreadId, surface: &str, task_id: &str, status: &str, text: String) {
-        self.queue_notice(owner, surface, task_id, status, text, None).await;
+        self.queue_notice(owner, surface, task_id, status, text, None, None).await;
+    }
+
+    /// [`Self::queue_completion`], answered once the queued entry is durable (`enqueuePendingMessage` then
+    /// `settlePendingMessageWrites`): an error when the owner could not take it or its record was not stored. The same
+    /// execution queued again is one entry, so a retry under the same id is told once.
+    pub(crate) async fn queue_completion_durably(&self, owner: &ThreadId, surface: &str, task_id: &str, status: &str, text: String) -> Result<(), String> {
+        let (durable, stored) = tokio::sync::oneshot::channel();
+        if !self.queue_notice(owner, surface, task_id, status, text, None, Some(durable)).await {
+            return Err(format!("the notification was refused by {}", owner.as_str()));
+        }
+        match stored.await {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(error)) => Err(format!("the notification for {} was not stored: {error:?}", owner.as_str())),
+            Err(_) => Err(format!("the notification for {} was not stored: its thread stopped", owner.as_str())),
+        }
     }
 
     /// `submitSession(.. mode: 'task-notification', origin: 'channel')` of the channel session
@@ -827,24 +967,35 @@ impl SessionDirectory {
     /// same path as a completion. A submit starts its turn on a thread it had to open too.
     /// False when the thread could not be opened or is gone.
     pub async fn queue_channel_notification(&self, owner: &ThreadId, text: String) -> bool {
-        self.queue_notice(owner, "", "", "", text, Some(super::completions::ORIGIN_CHANNEL)).await
+        self.queue_notice(owner, "", "", "", text, Some(super::completions::ORIGIN_CHANNEL), None).await
     }
 
-    async fn queue_notice(&self, owner: &ThreadId, surface: &str, task_id: &str, status: &str, text: String, origin: Option<&'static str>) -> bool {
-        let msg = |live| Inbox::TaskNotification {
+    #[allow(clippy::too_many_arguments)]
+    async fn queue_notice(
+        &self,
+        owner: &ThreadId,
+        surface: &str,
+        task_id: &str,
+        status: &str,
+        text: String,
+        origin: Option<&'static str>,
+        durable: Option<tokio::sync::oneshot::Sender<Result<(), super::run::RunError>>>,
+    ) -> bool {
+        let msg = |live, durable| Inbox::TaskNotification {
             surface: surface.to_owned(),
             task_id: task_id.to_owned(),
             status: status.to_owned(),
             text: text.clone(),
             origin,
             live,
+            durable,
         };
         if let Some(handle) = self.inner.loaded(owner) {
-            return handle.inbox.send(msg(true)).await.is_ok();
+            return handle.inbox.send(msg(true, durable)).await.is_ok();
         }
         let ctx = CallContext::internal("task-notification");
         match self.inner.open(owner, &ctx).await {
-            Ok(handle) => handle.inbox.send(msg(origin.is_some())).await.is_ok(),
+            Ok(handle) => handle.inbox.send(msg(origin.is_some(), durable)).await.is_ok(),
             Err(_) => false,
         }
     }
@@ -970,6 +1121,7 @@ impl DirInner {
         if let Some(handle) = self.loaded(id) {
             return Ok(Some(handle.cell.header.load_full().as_ref().clone()));
         }
+        self.deps.store.unheld().await;
         let (store, thread) = (self.deps.store.clone(), id.clone());
         let read = mixdog_core_base::support::on_lane(self.deps.lanes.io, &CancellationToken::new(), move |lane| store.read_header(lane, &thread)).await?;
         Ok(read.ok())
@@ -1134,50 +1286,35 @@ impl DirInner {
 
     /// J1 and J2 on io-interactive, then one decode on cpu-interactive.
     async fn load(&self, id: &ThreadId, prewarm: bool) -> Loaded {
+        use mixdog_core_base::support::on_lane_wait;
         let deps = self.deps.clone();
         let token = CancellationToken::new();
-        let dropped = || CoreError::Internal {
-            incident_id: "session-open-job-dropped".into(),
-        };
+        // An open (for a turn, a carried mark, a worker's report) waits out full lanes rather than failing on them.
+        deps.store.unheld().await;
         let (store, thread) = (deps.store.clone(), id.clone());
-        let head = deps
-            .lanes
-            .io
-            .submit(&token, move |lane| store.read_head(lane, &thread))?
-            .await
-            .map_err(|_| dropped())??;
+        let head = on_lane_wait(deps.lanes.io, &token, move |lane| store.read_head(lane, &thread)).await??;
+        deps.store.unheld().await;
         let (store, thread) = (deps.store.clone(), id.clone());
-        let (head, window) = deps
-            .lanes
-            .io
-            .submit(&token, move |lane| {
-                let window = store.read_window(lane, &thread, &head);
-                (head, window)
-            })?
-            .await
-            .map_err(|_| dropped())?;
+        let (head, window) = on_lane_wait(deps.lanes.io, &token, move |lane| {
+            let window = store.read_window(lane, &thread, &head);
+            (head, window)
+        })
+        .await?;
         let window = window?;
         let (decode_deps, thread) = (deps.clone(), id.clone());
-        let opened = deps
-            .lanes
-            .cpu
-            .submit(&token, move |lane| {
-                let log = decode_deps.store.decode(lane, &thread, head, window)?;
-                Ok::<_, CoreError>(fold_opened(lane, &decode_deps, log))
-            })?
-            .await
-            .map_err(|_| dropped())??;
+        let opened = on_lane_wait(deps.lanes.cpu, &token, move |lane| {
+            let log = decode_deps.store.decode(lane, &thread, head, window)?;
+            Ok::<_, CoreError>(fold_opened(lane, &decode_deps, log))
+        })
+        .await??;
+        deps.store.unheld().await;
         let (store, thread) = (deps.store.clone(), id.clone());
-        let fenced = deps
-            .lanes
-            .io
-            .submit(&token, move |lane| store.fenced_ops(lane, &thread))?
-            .await
-            .map_err(|_| dropped())??;
+        let fenced = on_lane_wait(deps.lanes.io, &token, move |lane| store.fenced_ops(lane, &thread)).await??;
         let lineage = self.lineage_of(id, &opened.state.header);
         if prewarm {
             deps.effort.prewarm(id, &opened.state.header);
         }
+        let (ready, recovered) = tokio::sync::oneshot::channel();
         let (handle, launch) = self.spawn(
             id.clone(),
             opened.state,
@@ -1187,9 +1324,12 @@ impl DirInner {
             opened.log_id,
             opened.next_ordinal,
             opened.log,
-            Init::Open { fenced },
+            Init::Open { fenced, ready },
         );
         launch();
+        // Node recovers an interrupted turn before the session is returned (`turn-checkpoint-recovery.mjs:131`):
+        // the first read sees the recovered conversation. A dropped actor ends the wait too.
+        let _ = recovered.await;
         Ok(handle)
     }
 
@@ -1245,6 +1385,12 @@ impl DirInner {
     ) -> (Arc<SessionHandle>, impl FnOnce() + use<>) {
         let deps = &self.deps;
         let limits = deps.limits;
+        // The strip is part of the state the first view and the feed's first snapshot are built from: a session shown on its open
+        // carries its shell pane at once.
+        let mut state = state;
+        if let Some(strip) = deps.shell_strips.strip(&id) {
+            state.sections.shell_jobs = Some(strip);
+        }
         let (ctl_tx, ctl_rx) = mpsc::channel(limits.control_lane);
         let (inbox_tx, inbox_rx) = mpsc::channel(limits.inbox);
         let (prod_tx, prod_rx) = mpsc::channel(limits.producer_lane);
@@ -1254,13 +1400,21 @@ impl DirInner {
         let (dur_out, dur_rx) = mpsc::channel(8);
         let epoch = new_epoch();
         let feed_id = FeedId::from(id.as_str());
-        let view = Arc::new(SessionView::build(
+        let mut view = SessionView::build(
             feed_id.clone(),
             deps.transcript.summary(&id, &state.header),
             &state,
             mixdog_app_protocol::v2::thread::StorageState::Ok,
             None,
-        ));
+        );
+        // Node's store holds the agent scope from its first state (`initial-state.mjs:57`), and the scope needs only the header: a
+        // `thread/read` answered before the actor's first publish shows it too (the actor publishes it as its load's first change).
+        let agents = view.state.agents.take().unwrap_or_default();
+        view.state.agents = Some(mixdog_app_protocol::v2::thread::ThreadAgents {
+            agent_scope: Some(super::agent_registry::status_rows::agent_scope(&id, &state.header)),
+            ..agents
+        });
+        let view = Arc::new(view);
         let feed = deps.feeds.thread_feed(feed_id, epoch.clone(), view.clone());
         let surface = watch::Sender::new(Arc::new(deps.surfaces.surface(&id, &state.header)));
         let cell = Arc::new(ControlCell {
@@ -1281,7 +1435,7 @@ impl DirInner {
             turn_listeners: Default::default(),
             agent_start: Default::default(),
             routine_starts: Default::default(),
-            grants: Default::default(),
+            grants: Arc::new(mixdog_tools::policy::SessionGrants::of(deps.session_grants.clone(), id.as_str())),
             ctl_tx,
             steer_cap: limits.steer_queue,
             subscribers: Default::default(),
@@ -1291,12 +1445,23 @@ impl DirInner {
             ui_busy: Default::default(),
             compacting: Default::default(),
             compaction_cancel: Default::default(),
+            pending_compact: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             stepped: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
+            unacked: Default::default(),
+            #[cfg(any(test, feature = "test-support"))]
             busy: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
+            retry_blocked: Default::default(),
+            #[cfg(test)]
+            ask_marked: Default::default(),
+            #[cfg(any(test, feature = "test-support"))]
             prompt_timers: Default::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            prompt_marks: Arc::new(mixdog_rt::WriteMarks::new("the prompt history")),
+            #[cfg(any(test, feature = "test-support"))]
+            record_marks: Arc::new(mixdog_rt::WriteMarks::new("the thread's records")),
         });
         let handle = Arc::new(SessionHandle {
             id: id.clone(),
@@ -1365,6 +1530,13 @@ impl DirInner {
         };
         let mut header = spec.header;
         header.insert("id".into(), Value::String(id.as_str().to_owned()));
+        // A new thread names no other session's sidecars yet: its reference set is known from its first record (Node's
+        // `withOffloadSources` at its first save), not left unknown for every prune to scan. A fork reading a base's
+        // rows names what they name: it holds none, and its transcript is scanned.
+        if spec.base.is_none() && !mixdog_store::offload_sources::holds_set(&header) {
+            let held = mixdog_store::offload_sources::sources(&header);
+            mixdog_store::offload_sources::set_sources(&mut header, held);
+        }
         let log_id = uuid::Uuid::new_v4().simple().to_string()[..24].to_owned();
         let op = match &spec.op {
             Some(op) => Some(mixdog_store::schema::record::OpRef {
@@ -1565,7 +1737,7 @@ impl SessionDirectory {
         // composed for it, as Node composes the session from `rt.route`.
         let pick = params.draft.as_ref().and_then(|draft| draft.route.as_ref()).map(super::new_route::draft_pick);
         // Node's session exists before the draft's `setRoute` saves the route: the thread follows the settings counter from here.
-        let settings = self.inner.deps.compaction.settings_changes().map(super::actor::SettingsFollow::begin);
+        let settings = self.inner.deps.compaction.settings_changes(&id).map(super::actor::SettingsFollow::begin);
         // The control session is created before any model is chosen (`ensureControlSession`): its route is not refused for lacking one.
         let route = if control {
             self.inner.deps.new_route.adopt_control(&id).await
@@ -1782,7 +1954,7 @@ impl mixdog_core_domains::domains::ai_admin::route_service::LiveControls for Ses
     /// unloaded, its actor ended, its start abandoned) is skipped, and one that ends while it is synced ends after.
     fn sync_live(&self, sync: &mut dyn FnMut(&ThreadId)) {
         let listed = self.controls();
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         if let Some((arrived, go)) = lock(&self.inner.adoption_gate).take() {
             arrived.notify_one();
             go.recv().expect("the test lets the adoption go on");

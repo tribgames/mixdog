@@ -64,7 +64,7 @@ pub fn normalize_room_config(input: &RoomConfigInput) -> Result<RoomConfig, Room
         }
     }
     if !(ROOM_MIN_MEMBERS..=ROOM_MAX_MEMBERS).contains(&members.len()) {
-        return Err(RoomError::Invalid(format!("A room has {ROOM_MIN_MEMBERS} to {ROOM_MAX_MEMBERS} members.")));
+        return Err(RoomError::OutOfRange(format!("A room has {ROOM_MIN_MEMBERS} to {ROOM_MAX_MEMBERS} members.")));
     }
     Ok(RoomConfig {
         name,

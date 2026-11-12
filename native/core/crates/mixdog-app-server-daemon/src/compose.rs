@@ -13,8 +13,9 @@ use std::sync::Arc;
 use mixdog_core_base::feed::CoreScopedFeeds;
 use mixdog_services::effort_judge::judge::EffortJudgeModel;
 use mixdog_services::effort_judge::judge::JudgeOptions;
+use mixdog_services::effort_judge::JudgeTiming;
 use mixdog_services::effort_judge::model::{ModelConfig, OrtRuntime};
-use mixdog_services::memory::embed::config::DEFAULT_MODEL_ID;
+use mixdog_services::memory::embed::config::EmbedEnv;
 use mixdog_services::memory::embed::engine::EmbedConfig;
 use mixdog_services::memory::embed::provider::EmbeddingProvider;
 use mixdog_services::tidy::process::Processes;
@@ -189,16 +190,59 @@ pub struct ComposedCore {
     local_processes: LocalProcessManager,
     /// The one shell registry and kill route of the process (exec.runtime).
     shell_control: Arc<mixdog_tools::exec::ShellControl>,
-    stop_steps: std::sync::Mutex<Vec<(&'static str, StopStep)>>,
+    stop_steps: StopSteps,
     final_barriers: std::sync::Mutex<Vec<(&'static str, crate::lifecycle::Hook)>>,
     /// The daemon log and the run token it holds: the stop procedure flushes the one, then cancels the other.
     log: crate::daemon_log::DaemonLog,
     stop: tokio_util::sync::CancellationToken,
     /// Node's text of why the core is stopping (`daemon.mjs:272` `shutdown(reason)`), set once by the release before its first step; the stop steps read it.
     stop_reason: Arc<StopReasonCell>,
+    /// Replay-only: the service of `replay/storesSettled`.
+    #[cfg(feature = "replay-controls")]
+    stores_settled: crate::replay_stores_settled::StoresSettled,
 }
 
 type StopStep = std::pin::Pin<Box<dyn Future<Output = ()> + Send>>;
+
+/// The ordered stop steps and the one run of them in progress. A stop that overlaps one in progress awaits that same run (Node's
+/// `SessionHost.dispose` hands every caller the one `disposePromise`, `apps/desktop/src/main/session-host.ts:1209-1210`): it never
+/// returns before the cleanup has ended, and nothing runs twice. Pinned by `tests::overlapping_stops_wait_for_the_same_cleanup_as_node_recorded`
+/// (below, with the real core) and the desktop's `session-host-lifecycle-replay.test.mjs`. A call after a run has ended runs only the steps registered since.
+#[derive(Default)]
+pub(crate) struct StopSteps {
+    steps: std::sync::Mutex<Vec<(&'static str, StopStep)>>,
+    running: std::sync::Mutex<Option<futures::future::Shared<futures::future::BoxFuture<'static, ()>>>>,
+}
+
+impl StopSteps {
+    pub(crate) fn push(&self, name: &'static str, step: StopStep) {
+        self.steps.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((name, step));
+    }
+
+    pub(crate) async fn run(&self) {
+        use futures::FutureExt;
+        let run = {
+            let mut running = self.running.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            match running.as_ref() {
+                Some(run) if run.peek().is_none() => run.clone(),
+                _ => {
+                    let steps = std::mem::take(&mut *self.steps.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+                    let run = async move {
+                        for (name, step) in steps {
+                            tracing::debug!(step = name, "stopping");
+                            step.await;
+                        }
+                    }
+                    .boxed()
+                    .shared();
+                    *running = Some(run.clone());
+                    run
+                }
+            }
+        };
+        run.await;
+    }
+}
 
 #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
 pub(crate) async fn create_dir(tokens: &LaneTokens, path: PathBuf) -> std::io::Result<()> {
@@ -233,26 +277,29 @@ pub struct Models {
 /// Graph sessions the embedder keeps so concurrent embeds do not queue on one another.
 const EMBED_SESSIONS: usize = 2;
 
-pub(crate) fn build_models(tokens: &LaneTokens, data_dir: &Path, ort_library: OrtRuntime) -> Result<Models, ComposeError> {
+pub(crate) fn build_models(tokens: &LaneTokens, data_dir: &Path, ort_library: OrtRuntime, processes: &Processes) -> Result<Models, ComposeError> {
     let tick = StateTick::default();
+    let embed_env = EmbedEnv::from_process();
     let embeddings = match &ort_library {
         OrtRuntime::Library(library) => Some(Arc::new(EmbeddingProvider::with_tick(
         EmbedConfig {
-            model_id: DEFAULT_MODEL_ID.into(),
+            model_id: embed_env.model_id(),
             cache_dir: data_dir.join("models"),
             ort_library: library.clone(),
-            dtype: None,
+            dtype: embed_env.dtype.clone(),
             sessions: EMBED_SESSIONS,
             lane: tokens.cpu_bulk,
         },
         tick.clone(),
-        ))),
+        )
+        .with_compaction(mixdog_services::memory::embed::compress::compact_with(processes.clone())))),
         OrtRuntime::NoBinding => None,
     };
     let effort_judge = EffortJudgeModel::with_options(
         ModelConfig::in_data_dir(data_dir, ort_library),
-        tokens.cpu_bulk,
-        JudgeOptions { tick: tick.clone(), manifest: None, progress: None },
+        mixdog_services::effort_judge::JudgeLanes::of(tokens),
+        // A step's judgment waits as a turn's: Node's step path calls `judgeTurn` too.
+        JudgeOptions { tick: tick.clone(), manifest: None, progress: None, timing: JudgeTiming::from_env(&|name| std::env::var(name).ok()) },
     )
     .map_err(ComposeError::EffortJudge)?;
     Ok(Models { tick, embeddings, effort_judge })
@@ -317,7 +364,7 @@ impl ComposedCore {
     /// directory shutdown, `GraphCache::drain`, ...). Steps run in registration order, after the
     /// extension host has closed.
     pub fn on_stop(&self, name: &'static str, step: impl Future<Output = ()> + Send + 'static) {
-        self.stop_steps.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((name, Box::pin(step)));
+        self.stop_steps.push(name, Box::pin(step));
     }
 
     /// Registers a barrier the release procedure runs before it closes connections: a session
@@ -379,11 +426,7 @@ impl ComposedCore {
     /// The registered stop steps alone, for the release procedure that closes the extension host
     /// at its own point (RuntimeCore::close_ext_host).
     pub async fn run_stop_steps(&self) {
-        let steps = std::mem::take(&mut *self.stop_steps.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
-        for (name, step) in steps {
-            tracing::debug!(step = name, "stopping");
-            step.await;
-        }
+        self.stop_steps.run().await;
         // Flushed after every other stop step, as Node does (daemon.mjs:411 awaits flushDaemonLogs after the discovery withdrawal and the
         // singleton release, just before the exit): Node flushes, it never closes a stream. Then the run token ends (the log's lane jobs hang
         // on it; Rust-only). A second call finds nothing to run and both are idempotent.
@@ -408,6 +451,16 @@ impl ComposedCore {
 
     pub fn open_memory_in_background(&self) {
         self.real.open_memory_in_background();
+    }
+
+    pub fn restore_remote_intent(&self) {
+        self.real.restore_remote_intent();
+    }
+
+    /// After the stop: closes the core's SQLite files, for a process that removes the data directory and lives on (`mixdogd exec`).
+    /// The daemon never calls it; its process exit closes them.
+    pub fn close_data_files(&self) {
+        self.real.close_data_files();
     }
 
     /// The memory database handle, for the readiness test that makes a first use.
@@ -500,6 +553,10 @@ impl CoreHandle for ComposedCore {
     }
 
     fn domain_for(&self, method: &str) -> Option<&dyn DomainService> {
+        #[cfg(feature = "replay-controls")]
+        if method == mixdog_app_server::REPLAY_STORES_SETTLED {
+            return Some(&self.stores_settled);
+        }
         self.real.domains.get(method)
     }
 
@@ -513,6 +570,7 @@ impl CoreHandle for ComposedCore {
 
     fn connection_closed(&self, connection: mixdog_core_api::ids::ConnectionId) {
         self.real.connection_owners.connection_closed(connection, &self.log);
+        self.real.late_lifecycle.client_closed(connection);
     }
 
     fn connection_opened(
@@ -523,6 +581,9 @@ impl CoreHandle for ComposedCore {
         kind: mixdog_protocol::ConnectionKind,
     ) {
         crate::domain_seams::remote::register_local(&self.real.remote.registry, connection, origin, device, kind);
+        if let Err(said) = self.real.late_lifecycle.client_opened(connection, kind) {
+            self.log.log(said);
+        }
     }
 
     fn request_started(&self, method: &str, params: &serde_json::Value) -> mixdog_core_api::handle::RequestGuard {
@@ -562,6 +623,8 @@ pub struct ComposeConfig {
     pub data_dir: PathBuf,
     /// The desktop profile folder (editor backups, `User/settings.json`).
     pub user_data_dir: PathBuf,
+    /// The runtime root (`discovery::runtime_root`): the channel remote intent lives there, as in Node.
+    pub runtime_root: PathBuf,
     pub js_runtime: JsRuntime,
     /// The ONNX Runtime shared library (install layout), or that the platform has no binding.
     pub ort_library: OrtRuntime,
@@ -606,7 +669,7 @@ pub async fn compose(tokens: &LaneTokens, config: ComposeConfig) -> Result<Compo
 /// [`compose`], whose slow waits (the PostgreSQL install and start) end when `interrupt` is cancelled: `serve` cancels it when a stop arrives meanwhile. A composition that
 /// fails, interrupted or not, gives back what it had acquired before it returns the error (`Acquired`), so no PostgreSQL is left running.
 pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, interrupt: tokio_util::sync::CancellationToken) -> Result<ComposedCore, ComposeError> {
-    let ComposeConfig { data_dir, user_data_dir, js_runtime, ort_library, outgoing, ownership, log, stop, catalog_http, #[cfg(test)] pg_install } = config;
+    let ComposeConfig { data_dir, user_data_dir, runtime_root, js_runtime, ort_library, outgoing, ownership, log, stop, catalog_http, #[cfg(test)] pg_install } = config;
     let data_dir = data_dir.as_path();
     let state_dir = data_dir.join("state");
     create_dir(tokens, state_dir.clone()).await.map_err(ComposeError::StateDir)?;
@@ -635,7 +698,7 @@ pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, i
     let process_manager: Arc<dyn ProcessManager> = Arc::new(local_processes.clone());
     let tidy_processes = Processes::new(process_manager.clone(), tokens.durability_io);
     let file_service: Arc<dyn FileService> = Arc::new(LocalFileService::new());
-    let models = build_models(tokens, data_dir, ort_library)?;
+    let models = build_models(tokens, data_dir, ort_library, &tidy_processes)?;
     // The listing sources are built from the full provider config; the config domain supplies it
     // when it lands, until then only the models.dev metadata is refreshed.
     let catalog = build_catalog(tokens, data_dir, Vec::new(), catalog_http).await.map_err(ComposeError::Catalog)?;
@@ -683,6 +746,7 @@ pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, i
         tokens: tokens.clone(),
         data_dir: data_dir.to_path_buf(),
         user_data_dir,
+        runtime_root,
         package_root: js_runtime.package_root.clone(),
         js_runtime,
         #[cfg(test)]
@@ -749,7 +813,6 @@ pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, i
         stop.clone(),
     );
     let core = ComposedCore {
-        real,
         state: watch::Sender::new(LifecycleState::Serving),
         host_media,
         sections,
@@ -763,8 +826,11 @@ pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, i
         tidy_processes,
         local_processes,
         shell_control,
-        stop_steps: std::sync::Mutex::new(Vec::new()),
+        stop_steps: StopSteps::default(),
         final_barriers: std::sync::Mutex::new(Vec::new()),
+        #[cfg(feature = "replay-controls")]
+        stores_settled: crate::replay_stores_settled::StoresSettled::new(real.directory.clone(), real.replay_writers.clone(), real.gateway_usage.clone(), real.ledgers.clone()),
+        real,
         log,
         stop,
         stop_reason,
@@ -809,6 +875,7 @@ mod tests {
         ComposeConfig {
             data_dir: data.to_path_buf(),
             user_data_dir: dir.join("userdata"),
+            runtime_root: dir.join("runtime"),
             js_runtime: crate::js_runtime::fixture(dir),
             ort_library: OrtRuntime::NoBinding,
             outgoing: mixdog_app_server::Outgoing::new(),
@@ -863,6 +930,69 @@ mod tests {
             core.run_final_barriers();
             core.run_stop_steps().await;
             assert_eq!(*order.lock().unwrap(), ["first", "second", "step"]);
+        });
+    }
+
+    /// The recorded case "every overlapping host disposal waits for the same attachment cleanup" (`session-host-lifecycle-cases`, Node's
+    /// memoised `SessionHost.dispose`, `apps/desktop/src/main/session-host.ts:1209`) through the real core's stop steps
+    /// (`ComposedCore::run_stop_steps`: the steps the real composition registered, then the attachment cleanup held until released). The
+    /// first stop runs as the release runs it (`supervise_async("stopSteps", ..)`, server.rs:248); a second stop made while the cleanup is
+    /// held (one poll joins the run in progress) waits for that same cleanup, which runs once. The whole run has one bound, `BUDGET`.
+    #[test]
+    #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
+    fn overlapping_stops_wait_for_the_same_cleanup_as_node_recorded() {
+        crate::compose_test_support::in_child(module_path!(), "overlapping_stops_wait_for_the_same_cleanup_as_node_recorded", { let mut runtime = tokio::runtime::Builder::new_multi_thread(); runtime.worker_threads(2); runtime }, |dir| async move {
+            use std::sync::atomic::{AtomicU64, Ordering};
+            const BUDGET: std::time::Duration = std::time::Duration::from_secs(60);
+            let text = mixdog_testkit::fixture!("../../fixtures/session-host-lifecycle-cases/golden.json");
+            let golden = mixdog_testkit::exact::Exact::decode(&serde_json::from_str::<serde_json::Value>(text).expect("golden.json")).expect("exact");
+            let observed = golden
+                .get("cases")
+                .as_array()
+                .iter()
+                .find(|case| case.get("case").as_str() == "every overlapping host disposal waits for the same attachment cleanup")
+                .expect("the recorded case")
+                .get("observed")
+                .clone();
+            let log = crate::daemon_log::DaemonLog::new(dir.join("daemon.log"), mixdog_rt::testing::tokens().maintenance_io, mixdog_rt::CancellationToken::new());
+            let core = Arc::new(compose(&mixdog_rt::testing::tokens(), config(&dir, log, mixdog_rt::CancellationToken::new())).await.unwrap());
+            let events = Arc::new(std::sync::Mutex::new(Vec::<&'static str>::new()));
+            let closes = Arc::new(AtomicU64::new(0));
+            let (entered_tx, entered) = tokio::sync::oneshot::channel::<()>();
+            let (release, released) = tokio::sync::oneshot::channel::<()>();
+            let (log_events, count) = (events.clone(), closes.clone());
+            core.on_stop("attachment cleanup", async move {
+                count.fetch_add(1, Ordering::SeqCst);
+                log_events.lock().unwrap().push("cleanup entered");
+                let _ = entered_tx.send(());
+                let _ = released.await;
+                log_events.lock().unwrap().push("cleanup returned");
+            });
+            core.set_stop_reason("test");
+            let (first_core, log_events) = (core.clone(), events.clone());
+            let first = tokio::spawn(async move {
+                let end = crate::lifecycle::supervise_async("stopSteps", BUDGET, async move { first_core.run_stop_steps().await }).await;
+                log_events.lock().unwrap().push("first dispose finished");
+                end
+            });
+            tokio::time::timeout(BUDGET, entered).await.expect("the stop to start the attachment cleanup").expect("entered");
+            let log_events = events.clone();
+            let mut second = std::pin::pin!(async {
+                core.run_stop_steps().await;
+                log_events.lock().unwrap().push("second dispose finished");
+            });
+            // The one poll that joins the run in progress: the second stop is then held by the cleanup until it is released.
+            assert!(futures::poll!(&mut second).is_pending(), "the second stop waits for the cleanup in progress");
+            events.lock().unwrap().push("cleanup released");
+            release.send(()).expect("the cleanup waits");
+            tokio::time::timeout(BUDGET, async {
+                assert_eq!(first.await.expect("the first stop"), crate::lifecycle::StepEnd::Finished, "the first stop ended within its budget");
+                second.await;
+            })
+            .await
+            .expect("both overlapping stops to finish");
+            let rust = serde_json::json!({ "events": *events.lock().unwrap(), "closes": closes.load(Ordering::SeqCst) });
+            assert_eq!(mixdog_testkit::exact::Exact::plain(&rust), observed);
         });
     }
 
@@ -946,6 +1076,29 @@ mod tests {
         });
     }
 
+    /// A core composed for `mixdog exec` binds its in-process lifecycle before its first request: the request is counted and the daemon log
+    /// has no "admitted before the lifecycle was bound" line (Node's exec writes nothing of the kind). Unbound, the line is written.
+    #[test]
+    #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
+    #[allow(clippy::disallowed_methods, reason = "reads the log file the test just had written")]
+    fn an_exec_core_counts_its_requests_and_logs_no_unbound_lifecycle() {
+        crate::compose_test_support::in_child(module_path!(), "an_exec_core_counts_its_requests_and_logs_no_unbound_lifecycle", tokio::runtime::Builder::new_current_thread(), |dir| async move {
+            let stop = tokio_util::sync::CancellationToken::new();
+            let log = crate::daemon_log::DaemonLog::new(dir.join("daemon.log"), mixdog_rt::testing::tokens().maintenance_io, stop.clone());
+            log.enable_file_logging();
+            let core = compose(&mixdog_rt::testing::tokens(), config(&dir, log, stop)).await.unwrap();
+            core.late_lifecycle().bind_in_process().unwrap();
+            let before = core.late_lifecycle().get().unwrap().status().seq_of_snapshot;
+            let guard = core.request_started("thread/list", &serde_json::json!({}));
+            assert!(core.late_lifecycle().get().unwrap().status().seq_of_snapshot > before, "the request is counted by the lifecycle");
+            drop(guard);
+            core.flush_log().await;
+            // A log with no line in it was never created.
+            let text = std::fs::read_to_string(dir.join("daemon.log")).unwrap_or_default();
+            assert!(!text.contains("admitted before the lifecycle was bound"), "{text}");
+        });
+    }
+
     /// The stop procedure writes the log out before the run token ends: a line a step logs is on disk when it returns.
     #[test]
     #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
@@ -964,6 +1117,32 @@ mod tests {
             assert!(stop.is_cancelled());
             let text = std::fs::read_to_string(dir.join("daemon.log")).unwrap();
             assert!(text.contains("[daemon] closing"), "{text}");
+        });
+    }
+
+    /// Case 9 of Node's K1 recording `fixtures/github-cases`: `isBuiltinTool('github')`, read from the recording. The `github` tool a session
+    /// gets from the composed registry (the core's pool, resolved for a session of the default tool spec as `session_tools::resolve` resolves
+    /// it, held as `session_doc` holds it) is a built-in exactly when it is held as Node's built-in definition whole: an internal tool would be
+    /// held projected, without its title. The rest of the case is replayed in mixdog-tools (`github::k1_replay`).
+    #[test]
+    #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
+    #[allow(clippy::disallowed_methods, reason = "reads the recorded fixture")]
+    fn the_github_tool_a_session_gets_is_nodes_builtin_one() {
+        crate::compose_test_support::in_child(module_path!(), "the_github_tool_a_session_gets_is_nodes_builtin_one", tokio::runtime::Builder::new_current_thread(), |dir| async move {
+            use mixdog_core::run_host::session_tools;
+            let golden: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/github-cases/golden.json")).unwrap()).unwrap();
+            let case = &golden["cases"][9];
+            assert_eq!(case["case"], "the agent tool is registered and returns the ordinary builtin text/error contract");
+            let recorded = case["observed"]["isBuiltinTool"].as_bool().expect("isBuiltinTool is recorded as a boolean");
+            let log = crate::daemon_log::DaemonLog::new(dir.join("daemon.log"), mixdog_rt::testing::tokens().maintenance_io, mixdog_rt::CancellationToken::new());
+            let core = compose(&mixdog_rt::testing::tokens(), config(&dir, log, mixdog_rt::CancellationToken::new())).await.unwrap();
+            let pool = core.real.tool_pool.clone();
+            let request = session_tools::Resolve { tool_spec: None, model: "", skills_listed: false, agent_owned: false, schema_allowed: None, disallowed: &[] };
+            let held = session_tools::resolve(&pool, Vec::new(), &request).iter().find(|tool| tool.spec().name == "github").map(|tool| session_tools::session_doc(&pool, tool));
+            let node = mixdog_js::fixture_tools::definition("github").expect("Node's built-in github definition");
+            assert_eq!(held.as_ref() == Some(&node), recorded, "isBuiltinTool('github'): the session holds {held:#?}");
+            core.set_stop_reason("test");
+            core.run_stop_steps().await;
         });
     }
 }
@@ -988,7 +1167,7 @@ mod op_scope_tests {
     #[test]
     fn every_scope_the_composition_asks_for_has_a_gate() {
         let sources = [
-            include_str!("compose_flip.rs"),
+            mixdog_testkit::fixture!("src/compose_flip.rs"),
             include_str!("compose_domains.rs"),
             include_str!("compose_domains/rows.rs"),
             include_str!("compose_domains/local.rs"),

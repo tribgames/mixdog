@@ -1,6 +1,9 @@
 //! On-disk store for generated media under `<data>/media`: assets as real files in
-//! `assets/`, `index.json` (newest first), `boards.json` and `defaults.json`. The daemon owns
-//! the data directory, so one in-process lock serializes every read-modify-write; each write is
+//! `assets/`, `index.json` (newest first), `boards.json` and `defaults.json`. A catalog
+//! read-modify-write holds `<file>.lock` in Node's file-lock protocol, as `updateJsonAtomicSync`
+//! does, because the core is not the only writer of the folder: the CLI's headless run and REPL
+//! load Node's session runtime in their own process (`src/headless-exec.mjs:412`,
+//! `src/repl.mjs:46`), whose media store writes the same `index.json`. Each write is
 //! atomic (temp file + rename) and keeps the previous catalog as `<file>.bak`. A damaged file is
 //! set aside as `<file>.corrupt-<ts>` and the last good copy restored; any other read failure
 //! propagates, so a mutation never writes an empty catalog over an unreadable one.
@@ -10,6 +13,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
+use mixdog_core_base::support::{FsFailure, FsStep};
 use mixdog_rt::DurabilityIo;
 use serde_json::{Map, Value, json};
 
@@ -34,6 +38,9 @@ pub enum MediaError {
     Rendition(String),
     #[error("media store: {0}")]
     Io(#[from] std::io::Error),
+    /// A catalog write that failed at a named `fs` call: answered as Node throws it.
+    #[error("media store: {}", .0.error)]
+    Fs(FsFailure),
     #[error("media store: {0}")]
     Json(#[from] serde_json::Error),
 }
@@ -45,7 +52,7 @@ impl MediaError {
             Self::BoardNotFound => "boardNotFound",
             Self::TooLarge => "MEDIA_ASSET_TOO_LARGE",
             Self::Rendition(_) => "renditionFailed",
-            Self::Io(_) | Self::Json(_) => "storeFailed",
+            Self::Io(_) | Self::Fs(_) | Self::Json(_) => "storeFailed",
         }
     }
 }
@@ -81,6 +88,35 @@ pub struct MediaStore {
     /// Every store call of an async path runs on this lane (see [`MediaStore::run`]).
     lane: DurabilityIo,
     marks: Marks,
+    /// `layoutMigrationChecked`: the flat v1 assets were moved by this store's first save.
+    layout_checked: std::sync::atomic::AtomicBool,
+    /// The catalog as last read or written, kept while `index.json` is unchanged on disk (`store.mjs`
+    /// `readIndex`): a screen of thumbnails reads it once. Held across a disk read, so a burst of
+    /// readers finds one read.
+    index: Mutex<IndexCache>,
+    /// Runs in a catalog mutation while it holds `index.json.lock`, after its read of the
+    /// catalog and before its write: a test does another process's save there.
+    #[cfg(test)]
+    holding_index: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
+}
+
+/// `indexSignature` (`store.mjs:61-65`): `mtimeMs:ctimeMs:size` of `index.json`. The ctime is the
+/// inode change time on Unix and `FILE_BASIC_INFO.ChangeTime` on Windows, as libuv reports it.
+/// The times are Node's float milliseconds (`mtimeMs`, `ctimeMs`), so two changes whose times are
+/// one double keep the cached catalog here as they do there.
+#[derive(Clone, PartialEq)]
+enum IndexSignature {
+    Missing,
+    File { mtime_ms: f64, ctime_ms: f64, size: u64 },
+}
+
+/// `indexCacheSignature` / `indexCacheAssets` and the counters of `mediaStoreCacheStats`.
+#[derive(Default)]
+struct IndexCache {
+    signature: Option<IndexSignature>,
+    assets: Arc<Vec<Value>>,
+    disk_reads: u64,
+    hits: u64,
 }
 
 fn extension_for(mime: &str) -> &'static str {
@@ -119,14 +155,14 @@ fn str_field<'a>(entry: &'a Value, key: &str) -> &'a str {
     entry.get(key).and_then(Value::as_str).unwrap_or("")
 }
 
-fn organized_asset_file(entry: &Value) -> String {
-    use chrono::TimeZone;
+/// `organizedAssetFile`: the date folder is the local date of `new Date(Number(createdAt) || now)` in
+/// the zone Node's `Date` reads (`TZ`, else the OS zone).
+fn organized_asset_file(entry: &Value, now: i64) -> String {
     let kind = if str_field(entry, "kind") == "video" { "videos" } else { "images" };
-    let created = entry.get("createdAt").and_then(Value::as_i64).filter(|v| *v != 0).unwrap_or_else(now_ms);
-    let date = chrono::Local
-        .timestamp_millis_opt(created)
-        .single()
-        .map_or_else(|| "1970-01-01".to_owned(), |d| d.format("%Y-%m-%d").to_string());
+    let created = mixdog_js::to_number_of(entry.get("createdAt"));
+    let created = if created.is_nan() || created == 0.0 { now as f64 } else { created };
+    let date = mixdog_js::time::local_fields(created)
+        .map_or_else(|| "NaN-NaN-NaN".to_owned(), |d| format!("{}-{:02}-{:02}", d.year, d.month, d.day));
     format!(
         "{kind}/{}/{}/{date}/{}.{}",
         folder_segment(str_field(entry, "lane"), "unknown-provider"),
@@ -140,21 +176,37 @@ pub fn now_ms() -> i64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
 }
 
-#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "runs as a durability-lane job")]
 pub(crate) fn write_atomic(path: &Path, bytes: &[u8], backup: bool) -> std::io::Result<()> {
+    write_atomic_stepped(path, bytes, backup).map_err(|failure| failure.error)
+}
+
+/// `writeFileAtomicSync` / `updateJsonAtomicSync`'s publication: a sibling temp file
+/// `<name>.mixdog-tmp-<16 hex>`, synced, then renamed over the file (the replaced copy kept as
+/// `<file>.bak` when asked). A failure names the call that failed, as Node's error text does; the
+/// temp file of a failed publication is removed.
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "runs as a durability-lane job")]
+pub(crate) fn write_atomic_stepped(path: &Path, bytes: &[u8], backup: bool) -> Result<(), FsFailure> {
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
+        fs::create_dir_all(parent).map_err(|error| FsFailure { error, step: FsStep::Mkdir(parent.to_owned()) })?;
     }
-    let tmp = path.with_extension(format!("tmp-{}", uuid::Uuid::new_v4()));
-    {
-        let mut file = fs::File::create(&tmp)?;
-        file.write_all(bytes)?;
-        file.sync_all()?;
+    let mut name = path.file_name().map(|n| n.to_os_string()).unwrap_or_default();
+    name.push(format!(".mixdog-tmp-{:016x}", uuid::Uuid::new_v4().as_u64_pair().0));
+    let tmp = path.with_file_name(name);
+    let written = (|| {
+        let mut file = fs::File::create(&tmp).map_err(|error| FsFailure { error, step: FsStep::Open(tmp.clone()) })?;
+        file.write_all(bytes).map_err(|error| FsFailure { error, step: FsStep::Write })?;
+        file.sync_all().map_err(|error| FsFailure { error, step: FsStep::Fsync })
+    })();
+    let published = written.and_then(|()| {
+        if backup && path.exists() {
+            let _ = fs::copy(path, backup_path(path));
+        }
+        fs::rename(&tmp, path).map_err(|error| FsFailure { error, step: FsStep::Rename(tmp.clone(), path.to_owned()) })
+    });
+    if published.is_err() {
+        let _ = fs::remove_file(&tmp);
     }
-    if backup && path.exists() {
-        let _ = fs::copy(path, backup_path(path));
-    }
-    fs::rename(&tmp, path)
+    published
 }
 
 fn backup_path(path: &Path) -> PathBuf {
@@ -165,11 +217,17 @@ fn backup_path(path: &Path) -> PathBuf {
 
 /// Reads a JSON state file. Absent → `None`. Damaged (unparsable or failing `valid`) → set
 /// aside, the backup restored when it is good, else `None`. Other failures propagate.
-#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
 pub(crate) fn read_state(path: &Path, valid: impl Fn(&Value) -> bool) -> Result<Option<Value>, MediaError> {
+    read_state_at(path, valid, now_ms())
+}
+
+/// [`read_state`] whose set-aside copy is stamped `now` (`.corrupt-<Date.now()>`).
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
+fn read_state_at(path: &Path, valid: impl Fn(&Value) -> bool, now: i64) -> Result<Option<Value>, MediaError> {
     let parse = |p: &Path| -> std::io::Result<Option<Value>> {
         match fs::read(p) {
-            Ok(bytes) => Ok(serde_json::from_slice::<Value>(&bytes).ok().filter(|v| valid(v))),
+            // Node cuts a prompt (4000 units) and a board name (120) inside an emoji: half of one is U+FFFD here.
+            Ok(bytes) => Ok(serde_json::from_slice::<Value>(&mixdog_js::json_well_formed(&bytes)).ok().filter(|v| valid(v))),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(e) => Err(e),
         }
@@ -181,13 +239,30 @@ pub(crate) fn read_state(path: &Path, valid: impl Fn(&Value) -> bool) -> Result<
         return Ok(Some(value));
     }
     let mut aside = path.file_name().map(|n| n.to_os_string()).unwrap_or_default();
-    aside.push(format!(".corrupt-{}", now_ms()));
+    aside.push(format!(".corrupt-{now}"));
     let _ = fs::rename(path, path.with_file_name(aside));
     let restored = parse(&backup_path(path))?;
     if let Some(value) = &restored {
         write_atomic(path, &serde_json::to_vec(value)?, false)?;
     }
     Ok(restored)
+}
+
+/// `withFileLockSync(`${file}.lock`)` of `updateJsonAtomicSync`, in Node's protocol and with its
+/// wait (`MIXDOG_LOCK_TIMEOUT_MS`, else 2 s, one deadline over the line and the file), held until
+/// the returned value is dropped. Callers run on the durability lane (`MediaStore::run`), never on
+/// an async worker.
+fn file_lock(file: &Path) -> Result<mixdog_statefile::LockHold, MediaError> {
+    let (sent, taken) = std::sync::mpsc::channel();
+    let hold = mixdog_statefile::hold_lock_one_deadline(&mixdog_statefile::lock_path(file), &mixdog_statefile::LockOpts::default(), move |outcome| {
+        let _ = sent.send(outcome);
+    });
+    match taken.recv() {
+        Ok(Ok(())) => Ok(hold),
+        Ok(Err(mixdog_statefile::LockError::Io(error))) => Err(error.into()),
+        Ok(Err(busy)) => Err(MediaError::Io(std::io::Error::new(std::io::ErrorKind::TimedOut, busy.to_string()))),
+        Err(_) => Err(MediaError::Io(std::io::Error::other("the lock thread ended without an answer"))),
+    }
 }
 
 fn has_array(key: &'static str) -> impl Fn(&Value) -> bool {
@@ -200,7 +275,71 @@ impl MediaStore {
     }
 
     pub fn with_marks(data_dir: &Path, lane: DurabilityIo, marks: Marks) -> Self {
-        Self { dir: data_dir.join("media"), lock: Mutex::new(()), lane, marks }
+        Self {
+            dir: data_dir.join("media"),
+            lock: Mutex::new(()),
+            lane,
+            marks,
+            layout_checked: std::sync::atomic::AtomicBool::new(false),
+            index: Mutex::new(IndexCache::default()),
+            #[cfg(test)]
+            holding_index: Mutex::new(None),
+        }
+    }
+
+    fn now(&self) -> i64 {
+        (self.marks.now)()
+    }
+
+    /// `ensureDirs()`: the assets folder exists once the catalog is touched.
+    #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
+    fn ensure_dirs(&self) -> Result<(), MediaError> {
+        fs::create_dir_all(self.assets_dir())?;
+        Ok(())
+    }
+
+    /// `migrateAssetLayout`: flat v1 assets move into their kind/provider/model/date folders, once
+    /// per store, on the first save (a write-side task: a read never waits on it). An asset whose
+    /// file is already in place is renamed in the index only; one that cannot move stays as it is.
+    #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
+    fn migrate_asset_layout(&self) -> Result<(), MediaError> {
+        use std::sync::atomic::Ordering;
+        if self.layout_checked.load(Ordering::Acquire) {
+            return Ok(());
+        }
+        let now = self.now();
+        self.mutate_assets(|current| {
+            let mut changed = false;
+            let assets: Vec<Value> = current
+                .into_iter()
+                .map(|entry| {
+                    let target_file = organized_asset_file(&entry, now);
+                    let source = self.stored_asset_path(str_field(&entry, "file"));
+                    let Some(target) = self.stored_asset_path(&target_file) else { return entry };
+                    if str_field(&entry, "file").replace('\\', "/") == target_file {
+                        return entry;
+                    }
+                    let moved = |mut entry: Value| {
+                        entry["file"] = json!(target_file);
+                        entry
+                    };
+                    if target.exists() {
+                        changed = true;
+                        return moved(entry);
+                    }
+                    let Some(source) = source.filter(|source| source.exists()) else { return entry };
+                    let renamed = target.parent().map_or(Ok(()), fs::create_dir_all).and_then(|()| fs::rename(&source, &target));
+                    if renamed.is_err() {
+                        return entry;
+                    }
+                    changed = true;
+                    moved(entry)
+                })
+                .collect();
+            (changed.then_some(assets), ())
+        })?;
+        self.layout_checked.store(true, Ordering::Release);
+        Ok(())
     }
 
     /// The clock and ids the jobs over this store stamp with.
@@ -254,57 +393,116 @@ impl MediaStore {
         path.starts_with(&root).then_some(path)
     }
 
+    /// The catalog from disk, a damaged file set aside.
     fn read_assets(&self) -> Result<Vec<Value>, MediaError> {
-        Ok(read_state(&self.index_path(), has_array("assets"))?
+        Ok(read_state_at(&self.index_path(), has_array("assets"), self.now())?
             .and_then(|v| v.get("assets").and_then(Value::as_array).cloned())
             .unwrap_or_default())
     }
 
-    fn write_assets(&self, assets: &[Value]) -> Result<(), MediaError> {
-        write_atomic(&self.index_path(), &serde_json::to_vec(&json!({"version": 2, "assets": assets}))?, true)?;
-        Ok(())
+    /// `indexSignature`: only an absent file is missing; any other failure to look propagates.
+    fn index_signature(&self) -> Result<IndexSignature, MediaError> {
+        match mixdog_workspace::ident::stat_version(&self.index_path()) {
+            Ok(version) => Ok(IndexSignature::File {
+                mtime_ms: mixdog_workspace::ident::ms_from_ns(version.mtime_ns),
+                ctime_ms: mixdog_workspace::ident::ms_from_ns(version.ctime_ns),
+                size: version.size,
+            }),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(IndexSignature::Missing),
+            Err(error) => Err(error.into()),
+        }
     }
 
-    /// The one catalog read-modify-write; `mutate` returning `None` writes nothing.
+    /// `readIndex`: the cached catalog while `index.json` is unchanged, else a read of it.
+    fn read_index(&self) -> Result<Arc<Vec<Value>>, MediaError> {
+        let mut cache = self.index.lock().unwrap();
+        let signature = self.index_signature()?;
+        if cache.signature.as_ref() == Some(&signature) {
+            cache.hits += 1;
+            return Ok(cache.assets.clone());
+        }
+        let assets = Arc::new(self.read_assets()?);
+        if signature != IndexSignature::Missing {
+            cache.disk_reads += 1;
+        }
+        cache.signature = Some(signature);
+        cache.assets = assets.clone();
+        Ok(assets)
+    }
+
+    /// `mediaStoreCacheStats`.
+    #[cfg(test)]
+    pub(crate) fn cache_stats(&self) -> Value {
+        let cache = self.index.lock().unwrap();
+        json!({"indexDiskReads": cache.disk_reads, "indexCacheHits": cache.hits, "indexEntries": cache.assets.len()})
+    }
+
+    fn write_assets(&self, assets: &[Value]) -> Result<(), MediaError> {
+        write_atomic_stepped(&self.index_path(), &serde_json::to_vec(&json!({"version": 2, "assets": assets}))?, true).map_err(MediaError::Fs)
+    }
+
+    /// The one catalog read-modify-write (`mutateIndex`); `mutate` returning `None` writes nothing.
+    /// The catalog is read through the cache first (which sets a damaged one aside), then afresh
+    /// under `index.json.lock` for the change, as `updateJsonAtomicSync` reads it
+    /// (`atomic-file.mjs:668-679`): a save that read the catalog before another's write, in this
+    /// process or another, still changes the catalog that write left. What was written becomes
+    /// the cached catalog, and a failed write leaves the cache as it was.
     fn mutate_assets<T>(&self, mutate: impl FnOnce(Vec<Value>) -> (Option<Vec<Value>>, T)) -> Result<T, MediaError> {
-        let _guard = self.lock.lock().unwrap();
-        let (next, out) = mutate(self.read_assets()?);
+        self.read_index()?;
+        let _held = file_lock(&self.index_path())?;
+        let current = self.read_assets()?;
+        #[cfg(test)]
+        {
+            let hook = self.holding_index.lock().unwrap().clone();
+            if let Some(hook) = hook {
+                hook();
+            }
+        }
+        let (next, out) = mutate(current);
         if let Some(next) = next {
             self.write_assets(&next)?;
+            let mut cache = self.index.lock().unwrap();
+            cache.signature = Some(self.index_signature()?);
+            cache.assets = Arc::new(next);
         }
         Ok(out)
     }
 
     fn read_boards(&self) -> Result<Vec<Value>, MediaError> {
-        Ok(read_state(&self.boards_path(), has_array("boards"))?
+        Ok(read_state_at(&self.boards_path(), has_array("boards"), self.now())?
             .and_then(|v| v.get("boards").and_then(Value::as_array).cloned())
             .unwrap_or_default())
     }
 
+    /// `mutateBoards`: the boards' read-modify-write under `boards.json.lock`.
     fn mutate_boards<T>(&self, mutate: impl FnOnce(Vec<Value>) -> (Option<Vec<Value>>, T)) -> Result<T, MediaError> {
-        let _guard = self.lock.lock().unwrap();
+        let _held = file_lock(&self.boards_path())?;
         let (next, out) = mutate(self.read_boards()?);
         if let Some(next) = next {
-            write_atomic(&self.boards_path(), &serde_json::to_vec(&json!({"version": 1, "boards": next}))?, true)?;
+            write_atomic_stepped(&self.boards_path(), &serde_json::to_vec(&json!({"version": 1, "boards": next}))?, true).map_err(MediaError::Fs)?;
         }
         Ok(out)
     }
 
     /// Persists one generated artifact and returns its index entry.
     pub fn save_asset(&self, kind: &str, lane: &str, model: &str, prompt: &str, options: Value, mime: &str, bytes: &[u8], meta: Map<String, Value>) -> Result<Value, MediaError> {
+        self.ensure_dirs()?;
+        self.migrate_asset_layout()?;
+        let now = self.now();
         let mut entry = json!({
             "id": (self.marks.id)(),
             "kind": kind, "lane": lane, "model": model,
             "prompt": mixdog_js::slice_utf16(prompt, 4000),
-            "options": options, "mime": mime, "bytes": bytes.len(), "createdAt": (self.marks.now)(),
+            "options": options, "mime": mime, "bytes": bytes.len(), "createdAt": now,
         });
         for (k, v) in meta {
             entry[k] = v;
         }
-        let file = organized_asset_file(&entry);
+        let file = organized_asset_file(&entry, now);
         let path = self.stored_asset_path(&file).ok_or_else(|| invalid("invalid media asset path"))?;
         // Durable before the index names it.
         write_atomic(&path, bytes, false)?;
+        mixdog_workspace::killpoint::hit("media-save:before-index");
         entry["file"] = json!(file);
         let saved = entry.clone();
         self.mutate_assets(|mut assets| {
@@ -315,19 +513,19 @@ impl MediaStore {
     }
 
     pub fn list_assets(&self, limit: Option<f64>, offset: Option<f64>, kind: Option<&str>, board_id: &str) -> Result<Value, MediaError> {
-        let all: Vec<Value> = self
-            .read_assets()?
-            .into_iter()
-            .filter(|e| kind.is_none_or(|k| str_field(e, "kind") == k) && (board_id.is_empty() || str_field(e, "boardId") == board_id))
-            .collect();
+        self.ensure_dirs()?;
+        let assets = self.read_index()?;
+        let all: Vec<&Value> =
+            assets.iter().filter(|e| kind.is_none_or(|k| str_field(e, "kind") == k) && (board_id.is_empty() || str_field(e, "boardId") == board_id)).collect();
         let start = offset.filter(|v| v.is_finite()).map_or(0, |v| v.trunc().max(0.0) as usize);
         let count = limit.filter(|v| v.is_finite() && *v != 0.0).map_or(60, |v| v.trunc().clamp(1.0, 200.0) as usize);
-        let page: Vec<Value> = all.iter().skip(start).take(count).cloned().collect();
+        let page: Vec<Value> = all.iter().skip(start).take(count).map(|e| (*e).clone()).collect();
         Ok(json!({"total": all.len(), "assets": page}))
     }
 
     pub(crate) fn get_asset(&self, id: &str) -> Result<Option<Value>, MediaError> {
-        Ok(self.read_assets()?.into_iter().find(|e| str_field(e, "id") == id))
+        self.ensure_dirs()?;
+        Ok(self.read_index()?.iter().find(|e| str_field(e, "id") == id).cloned())
     }
 
     /// Derived tile/detail renditions: a rebuildable cache beside the assets, never inside them.
@@ -412,6 +610,7 @@ impl MediaStore {
     }
 
     pub fn delete_asset(&self, id: &str) -> Result<Value, MediaError> {
+        self.ensure_dirs()?;
         let removed = self.mutate_assets(|assets| match assets.iter().find(|e| str_field(e, "id") == id) {
             None => (None, false),
             Some(entry) => {
@@ -441,6 +640,7 @@ impl MediaStore {
         if ids.is_none() && before.is_none() && !missing && !all {
             return Err(invalid("deleteMediaAssets needs ids, before, missing, or all"));
         }
+        self.ensure_dirs()?;
         let kind = p.get("kind").and_then(Value::as_str).filter(|k| !k.is_empty());
         let board = p.get("boardId").and_then(Value::as_str).unwrap_or("");
         let matches = |e: &Value| {
@@ -451,7 +651,7 @@ impl MediaStore {
                 && (!missing || self.stored_asset_path(str_field(e, "file")).is_none_or(|p| !p.exists()))
         };
         if dry_run {
-            let ids: Vec<String> = self.read_assets()?.iter().filter(|e| matches(e)).map(|e| str_field(e, "id").to_owned()).collect();
+            let ids: Vec<String> = self.read_index()?.iter().filter(|e| matches(e)).map(|e| str_field(e, "id").to_owned()).collect();
             return Ok(json!({"ids": ids}));
         }
         let removed = self.mutate_assets(|assets| {
@@ -470,7 +670,8 @@ impl MediaStore {
     // ---- Boards: membership is the asset entry's `boardId`.
 
     pub fn list_boards(&self) -> Result<Value, MediaError> {
-        let assets = self.read_assets()?;
+        self.ensure_dirs()?;
+        let assets = self.read_index()?;
         let mut boards = self.read_boards()?;
         boards.sort_by(|a, b| b.get("createdAt").and_then(Value::as_f64).partial_cmp(&a.get("createdAt").and_then(Value::as_f64)).unwrap_or(std::cmp::Ordering::Equal));
         let rows: Vec<Value> = boards
@@ -496,7 +697,8 @@ impl MediaStore {
     }
 
     pub fn create_board(&self, name: Option<&Value>) -> Result<Value, MediaError> {
-        let board = json!({"id": uuid::Uuid::new_v4().to_string(), "name": Self::board_name(name)?, "createdAt": now_ms()});
+        // `{ id: randomUUID(), name: boardName(name), createdAt: Date.now() }`: the id is drawn before the name is judged.
+        let board = json!({"id": (self.marks.id)(), "name": Self::board_name(name)?, "createdAt": self.now()});
         let saved = board.clone();
         self.mutate_boards(|mut boards| {
             boards.insert(0, board);
@@ -558,6 +760,7 @@ impl MediaStore {
         if !target.is_empty() && !self.read_boards()?.iter().any(|b| str_field(b, "id") == target) {
             return Err(MediaError::BoardNotFound);
         }
+        self.ensure_dirs()?;
         let moved = self.mutate_assets(|assets| {
             let mut moved = Vec::new();
             let next: Vec<Value> = assets
@@ -672,6 +875,33 @@ mod tests {
         store.save_asset(kind, "gemini", "m/1", "p", json!({}), if kind == "video" { "video/mp4" } else { "image/png" }, b"bytes", Map::new()).unwrap()
     }
 
+    /// Node's catalog with a prompt cut at 4000 units and a board name cut at 120, each inside an emoji
+    /// (`native/core/fixtures/lone-surrogate-files`, record-lone-surrogate-files.mjs): read whole, and the next writes keep
+    /// every entry and field Node's own next writes keep.
+    #[test]
+    fn a_catalog_node_cut_inside_an_emoji_is_read_whole_and_written_back_whole() {
+        let set = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/lone-surrogate-files");
+        let cases: Value = serde_json::from_slice(&fs::read(set.join("cases.json")).unwrap()).unwrap();
+        let case = cases.as_array().unwrap().iter().find(|c| c["name"] == "media-store").unwrap();
+        let (dir, s) = store();
+        let media = dir.path().join("media");
+        fs::create_dir_all(&media).unwrap();
+        for file in ["index.json", "boards.json"] {
+            fs::copy(set.join("media-store/before").join(file), media.join(file)).unwrap();
+        }
+        let asset_id = case["assetId"].as_str().unwrap();
+        assert_eq!(s.get_asset(asset_id).unwrap().unwrap(), case["before"]["index.json"]["assets"][0]);
+        assert_eq!(s.list_boards().unwrap(), case["nodeRead"]["boards"]);
+        let op = &case["op"];
+        s.set_asset_board(&op["setAssetBoard"][0], &op["setAssetBoard"][1]).unwrap();
+        s.rename_board(Some(&op["renameBoard"][0]), Some(&op["renameBoard"][1])).unwrap();
+        for file in ["index.json", "boards.json"] {
+            let written: Value = serde_json::from_slice(&fs::read(media.join(file)).unwrap()).unwrap();
+            // As text: entry and key order count too.
+            assert_eq!(written.to_string(), case["after"][file].to_string(), "{file}");
+        }
+    }
+
     #[test]
     fn assets_are_organized_listed_newest_first_and_deleted_with_their_file() {
         let (_d, s) = store();
@@ -776,6 +1006,188 @@ mod tests {
         fs::write(s.index_path(), b"\0\0\0").unwrap();
         assert_eq!(s.list_assets(None, None, None, "").unwrap()["total"], 1);
         assert!(fs::read_dir(&s.dir).unwrap().any(|e| e.unwrap().file_name().to_string_lossy().contains(".corrupt-")));
+    }
+
+    fn files_under(dir: &Path) -> Vec<PathBuf> {
+        let Ok(entries) = fs::read_dir(dir) else { return Vec::new() };
+        entries
+            .flat_map(|entry| {
+                let path = entry.unwrap().path();
+                if path.is_dir() { files_under(&path) } else { vec![path] }
+            })
+            .collect()
+    }
+
+    /// An edit from outside that keeps the size and the mtime still changes the change time, which
+    /// `indexSignature` includes: the next read sees it.
+    #[test]
+    fn an_outside_rewrite_of_the_same_size_with_the_mtime_restored_is_seen() {
+        let (_d, s) = store();
+        let a = save(&s, "image");
+        assert_eq!(s.list_assets(None, None, None, "").unwrap()["assets"][0]["prompt"], "p");
+        let path = s.index_path();
+        let before = mixdog_workspace::ident::stat_version(&path).unwrap();
+        let mtime = fs::metadata(&path).unwrap().modified().unwrap();
+        let edited = String::from_utf8(fs::read(&path).unwrap()).unwrap().replace("\"prompt\":\"p\"", "\"prompt\":\"q\"");
+        // File times tick: the edit is repeated until it lands in a later tick than the cached
+        // read, as an outside editor's would; a change time that never moves fails the test.
+        const REWRITES: usize = 100;
+        let moved = (0..REWRITES).any(|_| {
+            fs::write(&path, &edited).unwrap();
+            fs::OpenOptions::new().write(true).open(&path).unwrap().set_modified(mtime).unwrap();
+            let after = mixdog_workspace::ident::stat_version(&path).unwrap();
+            assert_eq!((after.size, after.mtime_ns), (before.size, before.mtime_ns), "same size, mtime restored");
+            after.ctime_ns != before.ctime_ns
+        });
+        assert!(moved, "the change time of index.json did not move in {REWRITES} rewrites");
+        let listed = s.list_assets(None, None, None, "").unwrap();
+        assert_eq!((listed["assets"][0]["id"].clone(), listed["assets"][0]["prompt"].clone()), (a["id"].clone(), json!("q")));
+    }
+
+    /// How long a child test process may run.
+    const CHILD_DEADLINE: std::time::Duration = std::time::Duration::from_secs(60);
+
+    /// Runs this binary's test `name` alone in a child process with `env` and returns its output;
+    /// a child still running at [`CHILD_DEADLINE`] is killed and the test fails.
+    fn child(name: &str, env: &[(&str, &std::ffi::OsStr)]) -> std::process::Output {
+        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+        command
+            .args(["--exact", name, "--nocapture", "--test-threads=1"])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+        for (key, value) in env {
+            command.env(key, value);
+        }
+        let running = command.spawn().unwrap();
+        let pid = running.id();
+        let (done, waited) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = done.send(running.wait_with_output());
+        });
+        match waited.recv_timeout(CHILD_DEADLINE) {
+            Ok(output) => output.unwrap(),
+            Err(_) => {
+                #[cfg(windows)]
+                let killed = std::process::Command::new("taskkill").args(["/PID", &pid.to_string(), "/T", "/F"]).output();
+                #[cfg(unix)]
+                let killed = std::process::Command::new("kill").args(["-9", &pid.to_string()]).output();
+                panic!("timed out after {CHILD_DEADLINE:?} awaiting the child test {name} (pid {pid}, killed: {:?})", killed.map(|o| o.status));
+            }
+        }
+    }
+
+    /// The child of the kill test: a save over the parent's folder, aborted at the kill point
+    /// between the asset and the index (`MIXDOG_KILL_AT`).
+    #[test]
+    fn kill_child() {
+        let Ok(dir) = std::env::var("MIXDOG_MEDIA_KILL_DIR") else { return };
+        let s = MediaStore::new(Path::new(&dir), mixdog_rt::testing::tokens().durability_io);
+        save(&s, "video");
+        unreachable!("the save is killed before its index");
+    }
+
+    /// The child of the two-process test: one save over the parent's folder, its outcome printed
+    /// as `save-result <json>`.
+    #[test]
+    fn save_child() {
+        let Ok(dir) = std::env::var("MIXDOG_MEDIA_SAVE_DIR") else { return };
+        let s = MediaStore::new(Path::new(&dir), mixdog_rt::testing::tokens().durability_io);
+        let saved = s.save_asset("image", "gemini", "m/1", "p", json!({}), "image/png", b"bytes", Map::new());
+        let outcome = match saved {
+            Ok(entry) => json!({"id": entry["id"]}),
+            Err(error) => json!({"error": error.to_string()}),
+        };
+        println!("save-result {outcome}");
+    }
+
+    /// One save in another process over `dir` (with `MIXDOG_LOCK_TIMEOUT_MS` when given): its
+    /// `save-result`.
+    fn save_in_another_process(dir: &Path, lock_timeout_ms: Option<&str>) -> Value {
+        let mut env: Vec<(&str, &std::ffi::OsStr)> = vec![("MIXDOG_MEDIA_SAVE_DIR", dir.as_os_str())];
+        if let Some(ms) = lock_timeout_ms {
+            env.push(("MIXDOG_LOCK_TIMEOUT_MS", std::ffi::OsStr::new(ms)));
+        }
+        let output = child("media::store::tests::save_child", &env);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        // libtest prints the test's name and then, on the same line, what the test printed.
+        let line = stdout.lines().find_map(|line| line.split_once("save-result ").map(|(_, result)| result)).unwrap_or_else(|| {
+            panic!("the child printed no save-result (status {:?}):\n{stdout}\n{}", output.status, String::from_utf8_lossy(&output.stderr))
+        });
+        serde_json::from_str(line).unwrap()
+    }
+
+    /// A process killed after the asset is written and before the index names it leaves what Node's
+    /// `saveMediaAsset` leaves: the asset's file, listed nowhere, and the index as it was, readable.
+    #[test]
+    fn a_save_killed_before_the_index_leaves_an_orphan_file_and_the_index_intact() {
+        let (dir, s) = store();
+        let kept = save(&s, "image");
+        let index = fs::read(s.index_path()).unwrap();
+        let output = child(
+            "media::store::tests::kill_child",
+            &[("MIXDOG_MEDIA_KILL_DIR", dir.path().as_os_str()), ("MIXDOG_KILL_AT", std::ffi::OsStr::new("media-save:before-index"))],
+        );
+        assert!(!output.status.success(), "the child dies at the kill point");
+        assert_eq!(fs::read(s.index_path()).unwrap(), index, "the index is untouched");
+        let orphans = files_under(&s.assets_dir().join("videos"));
+        assert_eq!(orphans.len(), 1, "the asset's bytes are on disk: {orphans:?}");
+        assert_eq!(fs::read(&orphans[0]).unwrap(), b"bytes");
+        // The next process reads the index whole; the orphan is not in it.
+        let next = MediaStore::new(dir.path(), mixdog_rt::testing::tokens().durability_io);
+        assert_eq!(next.list_assets(None, None, None, "").unwrap(), json!({"total": 1, "assets": [kept]}));
+        assert!(!fs::read_dir(&next.dir).unwrap().any(|e| e.unwrap().file_name().to_string_lossy().contains(".corrupt-")), "nothing was set aside");
+    }
+
+    /// A save in another process while this one holds `index.json.lock` between its read of the
+    /// catalog and its write: told to try the lock once (`MIXDOG_LOCK_TIMEOUT_MS=0`), it is
+    /// refused, so it never writes a catalog this one then overwrites (a save answered done and
+    /// lost). With the lock free, the same save waits its turn, and all three are in the catalog.
+    #[test]
+    fn a_save_in_another_process_cannot_write_the_index_this_one_is_changing() {
+        let (dir, s) = store();
+        let first = save(&s, "image");
+        let during = Arc::new(Mutex::new(None));
+        *s.holding_index.lock().unwrap() = Some(Arc::new({
+            let (during, dir) = (during.clone(), dir.path().to_owned());
+            move || {
+                *during.lock().unwrap() = Some(save_in_another_process(&dir, Some("0")));
+            }
+        }));
+        let second = save(&s, "video");
+        *s.holding_index.lock().unwrap() = None;
+        let during = during.lock().unwrap().take().expect("the other process saved while the lock was held");
+        assert!(during["error"].as_str().is_some_and(|error| error.contains("atomic lock contended")), "the other process's save: {during}");
+        let after = save_in_another_process(dir.path(), None);
+        let id = |entry: &Value| str_field(entry, "id").to_owned();
+        let listed: Vec<String> = s.list_assets(None, None, None, "").unwrap()["assets"].as_array().unwrap().iter().map(id).collect();
+        assert_eq!(listed, [id(&after), id(&second), id(&first)]);
+    }
+
+    /// Two stores over one folder (the daemon has two, `compose_domains/local.rs:209` and
+    /// `compose_flip.rs:2434`) saving on two threads at once: both entries are in the catalog.
+    /// It does not force an interleaving; the exclusion itself is shown across processes above.
+    #[test]
+    fn two_stores_over_one_folder_saving_at_once_keep_both() {
+        let (dir, s) = store();
+        save(&s, "image");
+        let first = s.list_assets(None, None, None, "").unwrap()["assets"][0].clone();
+        let other = MediaStore::new(dir.path(), mixdog_rt::testing::tokens().durability_io);
+        let (a, b) = std::thread::scope(|scope| {
+            let a = scope.spawn(|| save(&s, "image"));
+            let b = scope.spawn(|| save(&other, "video"));
+            (a.join().unwrap(), b.join().unwrap())
+        });
+        let ids = |listed: Value| {
+            let mut ids: Vec<String> = listed["assets"].as_array().unwrap().iter().map(|e| str_field(e, "id").to_owned()).collect();
+            ids.sort();
+            ids
+        };
+        let mut want = vec![str_field(&first, "id").to_owned(), str_field(&a, "id").to_owned(), str_field(&b, "id").to_owned()];
+        want.sort();
+        assert_eq!(ids(s.list_assets(None, None, None, "").unwrap()), want);
+        let next = MediaStore::new(dir.path(), mixdog_rt::testing::tokens().durability_io);
+        assert_eq!(ids(next.list_assets(None, None, None, "").unwrap()), want, "both are on disk");
     }
 
     #[test]

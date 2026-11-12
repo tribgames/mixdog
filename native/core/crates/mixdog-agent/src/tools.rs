@@ -590,6 +590,8 @@ pub(crate) struct CallEnv {
     pub(crate) clock: Arc<dyn crate::env::Clock>,
     /// The session's MCP catalog, refreshed around the call (`prepareToolCall`, `executeTool`).
     pub(crate) mcp: Option<Arc<dyn crate::env::McpCatalog>>,
+    /// The call's preparation refresh already ran when the call was started (a streamed call with nothing to wait for).
+    pub(crate) prepared: bool,
 }
 
 fn render_output(parts: Vec<ToolPart>) -> Content {
@@ -831,7 +833,7 @@ pub async fn run_nested(
     crate::coerce::coerce_args_to_schema(&mut args, &spec.input_schema);
     let hook_call = GateCall { name: target.name.clone(), args: args.clone(), schema_name: target.schema_name.clone() };
     let timeout = ctx.deadline.map(|d| d.saturating_duration_since(Instant::now()));
-    let mut running = Box::pin(tool.call(&nested, args));
+    let mut running = Box::pin(mixdog_rt::in_tool_call(mixdog_rt::tool_label(&spec.name), tool.call(&nested, args)));
     let waited = Scope::new()
         .cancel(&ctx.cancel)
         .deadline(nested.deadline)
@@ -975,7 +977,8 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>, edit_occurrence: Opt
     // The preparation is under the run's cancellation like the tool task: a call nobody waits for any more (an
     // eager run the batch left to finish) must not hold the run's environment through a gate or a catalog that never
     // answers once the turn is cancelled.
-    if let Some(mcp) = &env.mcp
+    if !env.prepared
+        && let Some(mcp) = &env.mcp
         && hooked(&env.cancel, mcp.refresh()).await.is_none()
     {
         return cancelled();
@@ -1059,8 +1062,10 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>, edit_occurrence: Opt
         return cancelled();
     }
     let execution_started_at = env.clock.now_ms();
+    // The call's lane jobs name the tool when one waits past the lanes' slow-wait threshold.
+    let label = mixdog_rt::tool_label(&spec.name);
     let mut handle = mixdog_rt::spawn("agent.tool", TaskClass::Work, async move {
-        tool.call(&ctx, args).await
+        mixdog_rt::in_tool_call(label, tool.call(&ctx, args)).await
     });
     let _abort = AbortOnDrop(handle.abort_handle());
     // Node (`runReadOnlyIoWithDeadline`): a read-only I/O tool's wait ends the moment the run is aborted (its own signal fires with
@@ -1255,6 +1260,7 @@ impl Run {
             log.batch(&batch);
         }
         self.emit(RunEvent::ToolBatch(batch));
+        self.emit(RunEvent::ExecutionCalls(execution));
         self.emit(RunEvent::ToolCalls {
             iteration: self.iterations,
             calls: calls.clone(),
@@ -1265,6 +1271,8 @@ impl Run {
         // The tools start only once the assistant item that carries their
         // calls is on disk.
         self.until_durable(ticket).await?;
+        self.emit(RunEvent::ToolPhase(crate::env::ToolPhase::Started));
+        let tools_started_ms = self.env.clock.now_ms();
         let results_from = self.messages.len();
         self.process_tool_batch(&calls, allowed).await?;
         // A turn recovered from a stream cut that dropped an in-flight tool
@@ -1273,12 +1281,14 @@ impl Run {
             self.push(notice).await?;
         }
         self.settle_turn_limits(overrun).await?;
+        let elapsed_ms = u64::try_from(self.env.clock.now_ms() - tools_started_ms).unwrap_or(0);
         self.last_batch_later = calls
             .iter()
             .any(|call| is_sleep_like(&call.name));
         self.tool_batch_just_completed = true;
         self.note_tool_batch_completed(&calls, results_from).await?;
         self.mark_step_effort(&calls, results_from);
+        self.emit(RunEvent::ToolPhase(crate::env::ToolPhase::Completed { iteration: self.iterations, calls: calls.len(), elapsed_ms }));
         Ok(())
     }
 
@@ -1290,6 +1300,10 @@ pub(crate) fn is_sleep_like(name: &str) -> bool {
     let name = name.to_lowercase();
     name == "sleep" || name.ends_with("/sleep") || name.ends_with(".sleep")
 }
+#[cfg(test)]
+#[path = "tools_coerce_session_tests.rs"]
+mod coerce_session_tests;
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -1451,6 +1465,7 @@ mod tests {
             observer: Arc::new(crate::env::NullObserver),
             guards: Arc::new(crate::env::NoGuards),
             mcp: None,
+            prepared: false,
             clock: Arc::new(NoClock),
             tool_env: ToolEnv {
                 thread_id: ThreadId::from("t"),

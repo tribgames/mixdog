@@ -18,7 +18,7 @@
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/case-set.mjs",
-      "sha256": "6cc2f96fa23772cd40e84ad1a0b2f17f823100c5c347790505fea30e391396da"
+      "sha256": "b4c0feda547d48e7012fdd6a2298a71f412a5422e28d873410bc86172af99002"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
@@ -71,13 +71,18 @@
   "recorderSha256": "18aef43a5ff69ee479424f56ff0d739deb3732ab6900863b7bbcaf66530df948",
   "replay": {
     "compare": "mixdog-app-server feeds (idle session state frames): replay the 30 pulses against the Rust encoder and compare which pulses deliver a frame and each delivered wire whole; goal snapshot cases mixdog-core-domains goal state",
-    "entry": "Drive these public items on o1: mixdog-core-goal/src/goal/state.rs:315 active_elapsed_ms; mixdog-core-goal/src/goal/state.rs:330 public_goal; mixdog-core-goal/src/goal/state.rs:361 goal_state_snapshot.",
+    "entry": "Case 2 (goal state snapshots): public_goal (mixdog-core-goal/src/goal/state.rs:330) and the session Goal lane's goalStateSnapshot, visible_goal with nothing suppressed (mixdog-core-session/src/session/goal_lane.rs:214; production: the session actor's goal lane, actor.rs:1606 and :1671); goal_state_snapshot takes no null, visible_goal does. Replay: mixdog-core-session src/session/goal_snapshot_replay_tests.rs. Case 1: the phone's connection to the core (a thread subscription, the relay's feed): a thread whose Goal runs and whose agent job streams, the replay clock advanced over each recorded pulse; compared: for each recorded read, whether the phone received a frame (Node: a delivered wire, or none). Replay: mixdog-core-session src/session/idle_state_replay_tests.rs.",
+    "cases": {
+      "an idle session with a running Goal and agent job sends no state frames until content changes": "replayed through the phone's thread subscription on the replay clock; the delivered wires themselves are Node's snapshot delta encoding (state-delta.ts), which the K1 phone does not receive (it folds the thread feed), so the compared value per read is whether a frame reached the phone",
+      "goal state snapshots are idempotent and leave clock-less Goals untouched": "replayed (pure: the Node test calls goal-state.mjs functions; the Rust lane functions take the same Goal and clock)"
+    },
     "existsButNotPublicOnO1": [],
     "missingOnO1": [
-      "the snapshot delta encoder / decoder (compact and plain wire, isNoDelta, markCompactWire) and the pulse delivery: no counterpart found"
+      "the snapshot delta encoder / decoder (compact and plain wire, isNoDelta, markCompactWire) and the pulse delivery: not in the K1 path (the phone reads the thread feed; packages/protocol-client folds it)"
     ],
     "normalised": {
-      "clock": "Date.now is T0 (2026-03-01T10:00:00Z) outside withClock, not the shared fixed clock"
+      "clock": "Date.now is T0 (2026-03-01T10:00:00Z) outside withClock, not the shared fixed clock",
+      "undefined": "case 2: an object key Node set to undefined is absent in the compared value (the Goal lane crosses as JSON, where JSON.stringify drops it); plainSameObject / idempotent (object identity in Node) compare as value equality"
     },
     "protocolMethods": [],
     "rustTargets": [
@@ -95,6 +100,11 @@
         "line": 361,
         "name": "goal_state_snapshot",
         "path": "native/core/crates/mixdog-core-goal/src/goal/state.rs"
+      },
+      {
+        "line": 214,
+        "name": "visible_goal",
+        "path": "native/core/crates/mixdog-core-session/src/session/goal_lane.rs"
       }
     ],
     "targetsCheckedAgainst": "o1 6bf0a5bbf: each rust target exists at path:line, is declared `pub` and is reachable through `pub mod` or `pub use` from its crate root"

@@ -261,7 +261,8 @@ fn every_reaped_agent_child_reads_back_as_node_answered() {
         let got = mixdog_store::archived_agent::view(child, &entries).unwrap_or(Value::Null);
         assert_eq!(got, recorded["answers"][child]["transcript"]["value"], "{child}");
     }
-    let mut left: Vec<&String> = folded.keys().collect();
+    // A session kept only to host a worker row whose record is gone (the pool lists it) is no session of Node's.
+    let mut left: Vec<&String> = folded.iter().filter(|(_, s)| !s.header.contains_key(mixdog_store::archived_agent::WORKER_ROW_ONLY_KEY)).map(|(id, _)| id).collect();
     left.sort();
     let want: Vec<String> = recorded["sessionsLeft"].as_array().expect("left").iter().map(|n| n.as_str().expect("name").trim_end_matches(".json").to_owned()).collect();
     assert_eq!(left, want.iter().collect::<Vec<_>>(), "no session is made for a child");
@@ -311,6 +312,8 @@ fn on_step(step: Step, path: &Path, _bytes: &[u8]) {
 #[test]
 fn crash_child() {
     let Some(base) = std::env::var_os("MIG145_BASE") else { return };
+    // A killed process leaves its writes with the OS, flushed or not: the kill is what is tested.
+    mixdog_store::fsio::elide_syncs();
     if let Ok(stop) = std::env::var("MIG145_STOP_AT") {
         STOP_AT.set(stop.parse().expect("a step index")).expect("once");
     }
@@ -415,6 +418,8 @@ fn every_crash_point_resumes_to_the_same_tree_with_archived_agent_results() {
 }
 
 fn crash_points(chunk: usize, chunks: usize, prepare: Prepare) {
+    // The trees compared are read back from the running OS; a flush to the device changes none of them.
+    mixdog_store::fsio::elide_syncs();
     let scratch = tempfile::tempdir().expect("scratch dir");
     let steps = steps_of(scratch.path(), prepare);
     let mine: Vec<(usize, &String)> = steps.iter().enumerate().skip(chunk).step_by(chunks).collect();

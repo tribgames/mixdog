@@ -58,8 +58,9 @@ pub(crate) enum Ctl {
     /// The last subscriber left: an idle thread unloads.
     Unsubscribed,
     /// The thread's tombstone landed (`closeSession`): no Goal continues it, and once its turn
-    /// has ended it unloads (`_clearSessionRuntime`) even if it was never subscribed.
-    Closed,
+    /// has ended it unloads (`_clearSessionRuntime`) even if it was never subscribed. Answered once the actor took it,
+    /// so a write after the close finds either the live actor or none (it opens the thread again), never one ending.
+    Closed(tokio::sync::oneshot::Sender<()>),
     /// Core shutdown: the actor stops and hands back its memory ingest.
     Shutdown(tokio::sync::oneshot::Sender<futures::future::BoxFuture<'static, ()>>),
     /// `thread/delete`'s close (`closeSession(id, reason)`): the thread takes no more work, its
@@ -124,6 +125,10 @@ pub(crate) struct RoutineStart {
     pub bot_chain: Vec<String>,
     /// 	ranscriptMeta.roomRow: the room's newest user row the prompt shows (a member's turn).
     pub room_row: Option<String>,
+    /// `transcriptMeta.sender`: who sent the message (`lead` for the `session` tool's send).
+    pub sender: Option<&'static str>,
+    /// `transcriptMeta.fromAgent`: the bot that wrote into another bot's chat.
+    pub from_agent: Option<String>,
     /// The trusted text the turn's skills are selected from.
     pub skill_selection: Option<String>,
     /// `onCommitted`: runs the moment the turn starts, before any tool can.
@@ -229,18 +234,41 @@ pub(crate) struct ControlCell {
     /// The running manual compaction's signal (Node's session abort controller, which a compaction reads through
     /// `getSessionAbortSignal`): a close, a delete or a shutdown aborts it with their own text.
     pub compaction_cancel: Mutex<Option<mixdog_agent::cancel::Cancel>>,
+    /// A compaction the model scheduled (`session action=compact`: Node's `pendingCompactSessionIds`): the actor
+    /// runs it, once, when the next turn of this thread settles.
+    pub pending_compact: std::sync::atomic::AtomicBool,
     /// Woken after every step of the thread's actor, so a test waits on the thread's state by its
     /// change (`eventually_on!`, and `SessionHandle::stepped` for the tests of other crates).
     #[cfg(any(test, feature = "test-support"))]
     pub stepped: tokio::sync::Notify,
+    /// The records the actor accepted that the store has not acknowledged, after its last step.
+    #[cfg(any(test, feature = "test-support"))]
+    pub unacked: std::sync::atomic::AtomicUsize,
     /// The actor's `turn_busy()` after its last step: a turn runs, starts or is still settling.
     /// The next turn is refused or queued until it is false, which `run` being empty does not say.
     #[cfg(any(test, feature = "test-support"))]
     pub busy: std::sync::atomic::AtomicBool,
+    /// The actor's `retry_blocked()` after its last step: what a quota resume's fire answers `Busy` for (the turn state, the
+    /// quota settlement, a compaction, a completion wake or queued input).
+    #[cfg(any(test, feature = "test-support"))]
+    pub retry_blocked: std::sync::atomic::AtomicBool,
+    /// A test's mark of a turn in flight with no run (Node's `markSessionAskStart`, until `markSessionDone`): the
+    /// session is not idle (`ui_busy`); `Inbox::AskEnded` clears it and runs what the turn's end runs for a prune.
+    #[cfg(test)]
+    pub ask_marked: std::sync::atomic::AtomicBool,
     /// How many times the actor has armed the prompt-history write timer (the window, or a backoff), counted in the step that arms
     /// it: a test that moves a paused clock waits on this first, so the timer is armed before the clock moves.
     #[cfg(any(test, feature = "test-support"))]
     pub prompt_timers: std::sync::atomic::AtomicU64,
+    /// The numbers of the thread's prompt-history appends ([`super::prompt_history::AppendQueue::numbered_on`]): the
+    /// replay barrier takes their accepted count as it arrives.
+    #[cfg(any(test, feature = "test-support"))]
+    pub prompt_marks: Arc<mixdog_rt::WriteMarks>,
+    /// The numbers of the thread's durable records ([`super::outbox::Outbox::numbered_on`]): accepted as the actor takes a
+    /// record into its outbox, written once the store synced and acked it, failed when it leaves uncommitted (its encode or
+    /// its barrier failed, or the actor ended first). The replay barrier takes their accepted count as it arrives.
+    #[cfg(any(test, feature = "test-support"))]
+    pub record_marks: Arc<mixdog_rt::WriteMarks>,
 }
 
 impl ControlCell {

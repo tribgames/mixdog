@@ -280,6 +280,29 @@ impl BlobStore {
         }
         Ok(deleted)
     }
+
+    /// The file of `digest` deleted now, whatever its age, unless it is pinned or `referenced` (asked under the
+    /// shard's pin lock, as the GC asks) says a record names it: a blob a sensitive log rewrite took out of every
+    /// record. True when it was deleted; a file already gone is false.
+    pub fn remove_unreferenced(
+        &self,
+        digest: &Digest,
+        referenced: &mut dyn FnMut(&Digest) -> Result<bool, crate::sqlite::DbError>,
+    ) -> Result<bool, GcError> {
+        let pins = self.inner.shard(digest).pins.lock().unwrap_or_else(|e| e.into_inner());
+        if pins.contains_key(hex(digest)) || referenced(digest)? {
+            return Ok(false);
+        }
+        let path = self.path(digest);
+        match std::fs::remove_file(&path) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(e) => return Err(GcError::Io(err(IoOp::Remove, &path)(e))),
+        }
+        drop(pins);
+        crate::fsio::sync_dir(path.parent().expect("a blob in its shard")).map_err(GcError::Io)?;
+        Ok(true)
+    }
 }
 
 fn is_lower_hex(bytes: &[u8]) -> bool {

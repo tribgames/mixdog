@@ -1,0 +1,66 @@
+{
+  "name": "search-admission-holder-cancelled",
+  "standin": true,
+  "env": {
+    "MIXDOG_SEARCH_CANCEL_GRACE_MS": "1000"
+  },
+  "files": {
+    "t/a.ts": "needle one\n",
+    "u/d.ts": "needle four\n"
+  },
+  "warmup": [
+    {
+      "tool": "grep",
+      "input": {
+        "pattern": "warmup-none"
+      }
+    }
+  ],
+  "admission": [
+    {
+      "start": "holder",
+      "call": {
+        "tool": "glob",
+        "input": {
+          "pattern": "*.ts",
+          "path": "t"
+        }
+      },
+      "until": "server",
+      "cancellable": true,
+      "requests": 1
+    },
+    {
+      "start": "waiter",
+      "call": {
+        "tool": "find",
+        "input": {
+          "query": "a",
+          "path": "t"
+        }
+      },
+      "until": "queued",
+      "requests": 1
+    },
+    {
+      "script": "observe"
+    },
+    {
+      "abort": "holder"
+    },
+    {
+      "settle": "holder",
+      "answer": {
+        "thrown": "operation aborted"
+      }
+    },
+    {
+      "settle": "waiter",
+      "requests": 2,
+      "answer": {
+        "text": "a.ts",
+        "isError": false
+      }
+    }
+  ]
+}

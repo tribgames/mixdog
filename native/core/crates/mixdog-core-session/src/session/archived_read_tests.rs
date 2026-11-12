@@ -88,7 +88,7 @@ fn assert_read(id: &str, got: Result<Value, CoreError>, node: &Value) {
     assert_eq!(got["hasOlder"], false, "{id}");
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn every_reaped_agent_child_answers_read_resume_fork_and_delete_as_node() {
     let recorded = recording();
     let dir = tempfile::tempdir().expect("scratch dir");

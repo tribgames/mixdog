@@ -574,7 +574,7 @@ impl Steps for ManagedVoiceInstaller {
                 Attempt::Retry(next) => waits = next,
                 Attempt::Wait(next) => {
                     waits = next;
-                    tokio::time::sleep(LOCK_POLL).await;
+                    mixdog_rt::time::sleep(LOCK_POLL).await;
                 }
             }
         }
@@ -592,7 +592,7 @@ impl Steps for ManagedVoiceInstaller {
         });
         let limit = if expected == 0 { u64::MAX } else { expected };
         let spec = Spec { url, dest, max_bytes: limit, expected_bytes: expected, label: "voice runtime download", lane: self.parts.bulk };
-        let outcome = tokio::time::timeout(timeout, download_once(&spec, sink.as_ref(), &CancellationToken::new())).await;
+        let outcome = mixdog_rt::time::timeout(timeout, download_once(&spec, sink.as_ref(), &CancellationToken::new())).await;
         match outcome {
             Ok(Ok(_)) => Ok(()),
             Ok(Err(error)) => Err(download_text(error, url)),

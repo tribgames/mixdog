@@ -284,7 +284,8 @@ pub(crate) async fn retry_in_group(call: ToolCall, env: Arc<CallEnv>, group: Opt
 }
 
 /// `getToolKind(name)` (`session/loop/tool-helpers.mjs`): the skill tools, then `apply_patch` / `code_graph`
-/// (builtin), the `mcp__` prefix, a tool of the surface that is not a builtin (an internal tool), else builtin.
+/// (builtin), the `mcp__` prefix, a tool the session runs that is not a builtin (an internal tool: Node's scope
+/// provider registers the deferred tools too, so one reached through the registry, as `browser`, is internal), else builtin.
 fn trace_tool_kind(tools: &ToolSet, name: &str) -> &'static str {
     if matches!(name, "Skill" | "skills_list" | "skill_view") {
         "skill"
@@ -292,7 +293,7 @@ fn trace_tool_kind(tools: &ToolSet, name: &str) -> &'static str {
         "builtin"
     } else if name.starts_with("mcp__") {
         "mcp"
-    } else if tools.get(name).is_some() && !tools.builtin_names().contains(&name) {
+    } else if tools.resolve(name).is_some() && !tools.builtin_names().contains(&name) {
         "internal"
     } else {
         "builtin"
@@ -337,6 +338,7 @@ impl Run {
             signal: self.config.signal.clone().unwrap_or_else(|| crate::cancel::Cancel::from_token(&self.cancel)),
             clock: Arc::clone(&self.env.clock),
             mcp: self.env.mcp.clone(),
+            prepared: false,
         })
     }
 
@@ -404,7 +406,7 @@ impl Run {
                 return;
             }
         }
-        let env = self.call_env();
+        let mut env = self.call_env();
         let id = call.id.clone();
         let (observer, early_id) = (Arc::clone(&self.env.observer), id.clone());
         // Every executable call starts as it streams, a write, an MCP call or one that asks for approval included
@@ -412,6 +414,15 @@ impl Run {
         // waits for the calls it depends on (`eager-dispatch/barriers.mjs`).
         let cwd = self.tool_env.cwd.as_path().to_path_buf();
         let preceding = self.barriers.preceding_for(&name, &exec.arguments, &cwd);
+        // A call with nothing to wait for reaches `prepareToolCall`'s refresh before the stream goes on (Node runs it in
+        // the eager start's own microtasks, `call-prep.mjs:70`), so the tool phase projects the batch against the
+        // snapshot that refresh left.
+        if preceding.none()
+            && let Some(mcp) = &self.env.mcp
+            && crate::env::or_cancelled(&self.cancel, mcp.refresh()).await.is_some()
+        {
+            Arc::get_mut(&mut env).expect("a call's own environment").prepared = true;
+        }
         let (finished, done) = tokio::sync::watch::channel(false);
         let key = crate::barriers::is_edit(&name).then(|| crate::barriers::edit_path_key(&exec.arguments, &cwd)).flatten();
         let locks = self.barriers.locks.clone();

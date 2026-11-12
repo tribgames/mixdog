@@ -78,6 +78,15 @@ pub struct WriteRequest {
     pub precondition: WritePrecondition,
 }
 
+/// A walk's reach below its root. An entry at depth `max_depth` is listed, never entered; a folder named in `bare`, or a
+/// dotted folder when `bare_dotted`, is listed but not entered.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct Descent {
+    pub max_depth: Option<usize>,
+    pub bare: Vec<String>,
+    pub bare_dotted: bool,
+}
+
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct WalkRequest {
     pub root: AbsPath,
@@ -86,6 +95,27 @@ pub struct WalkRequest {
     /// Honour `.gitignore` and friends.
     pub respect_ignore: bool,
     pub include_dirs: bool,
+    /// Directories the walk neither lists nor enters.
+    pub prune: Vec<AbsPath>,
+    /// How far down the walk goes (`rg --max-depth`) and which folders it lists without entering.
+    pub descent: Descent,
+    /// The search-server request the walk stands for (a glob's `--files` listing, a find's inventory), queued as Node's
+    /// server queues it; `None`: a walk Node does not send to its search server, never refused as
+    /// [`FsErrorKind::Saturated`].
+    pub server: Option<SearchClass>,
+}
+
+/// The class of Node's search-server request (serve_search/scheduler.rs:42-49 `search_class`): its queue takes a `Bulk`
+/// request while fewer than its capacity less a priority reserve wait, the others while fewer than its capacity wait
+/// (serve_search/config.rs:183-192); past that the request is refused ([`FsErrorKind::Saturated`]).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SearchClass {
+    /// A content search (no `bulkHint`).
+    Interactive,
+    /// A `--files` listing, or a content search sent with `bulkHint`.
+    Bulk,
+    /// A find's fuzzy query.
+    Fuzzy,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -98,6 +128,17 @@ pub struct SearchRequest {
     pub exclude_globs: Vec<String>,
     pub include_hidden: bool,
     pub respect_ignore: bool,
+    /// The scan stops after this many matches (Node's search server, `collect_until`); `None` reads every match.
+    pub limit: Option<usize>,
+    /// Each file's search stops at its first match, as the search server's file list stops a file
+    /// (`--files-with-matches`: grep-printer's summary printer, `PathWithMatch`, quits a file at its first match), so
+    /// the rest of the file is not read.
+    pub first_per_file: bool,
+    /// The search server's soft deadline (Node's request `deadlineMs`): once it passes the stream ends with a
+    /// [`FsErrorKind::TimedOut`] item after what was found; `None` has no deadline.
+    pub deadline: Option<std::time::Instant>,
+    /// The search-server request class the search stands for, for its queue's admission ([`SearchClass`]).
+    pub class: SearchClass,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -107,6 +148,7 @@ pub struct SearchMatch {
     pub line: u64,
     /// 1-based byte column.
     pub column: u64,
+    /// The line as Node's search server prints it: without its terminator, a long line clipped and marked.
     pub text: String,
 }
 
@@ -134,6 +176,23 @@ pub enum FsErrorKind {
     /// (`regex parse error: …`), passed through verbatim.
     InvalidPattern {
         message: String,
+    },
+    /// The last item of a `search_text` stream whose [`SearchRequest::deadline`] passed: the matches before it are what
+    /// the search found (Node's server answers them as `partial`, `timeout`). The error's path, when set, is the file
+    /// whose search the deadline cut: matches of it already given are not whole and are dropped, as Node's server
+    /// drops a file its deadline interrupted (`serve_search/search.rs`, the swallowed mid-file expiry).
+    TimedOut,
+    /// The only item of a `walk` or `search_text` stream refused because as many searches already wait as Node's search
+    /// server queues for its [`SearchClass`] ("native search queue saturated", serve_search/server.rs:370-383).
+    Saturated,
+    /// The only item of a `walk` or `search_text` stream refused because the volume it would read on holds as many reads
+    /// that ignored their cancel as the service keeps: Node's answer to a request whose server its client ended for a
+    /// search that did not stop within `grace_ms` of its cancel (NATIVE_SEARCH_CANCEL_STALLED,
+    /// native-search-client.mjs:501-520). `search` is Node's name for that search's request (`requestKind`: `content`,
+    /// `file inventory`, `fuzzy`).
+    CancelStalled {
+        search: String,
+        grace_ms: u64,
     },
 }
 
@@ -228,6 +287,8 @@ pub trait FileService: Send + Sync {
         lane: MaintenanceIo,
         request: WalkRequest,
     ) -> Box<dyn EventSource<Result<DirEntry, FsError>>>;
+    /// The matches of `request`, in the search's file order. An error that names a file (its search failed, or the
+    /// deadline cut it) withdraws the matches of that file already streamed: the file is not answered in part.
     fn search_text(
         &self,
         lane: MaintenanceIo,

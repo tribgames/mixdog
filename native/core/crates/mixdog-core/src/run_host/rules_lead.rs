@@ -74,7 +74,8 @@ fn unified_config(paths: &LeadPaths) -> Value {
     if let Some(config) = paths.config.filter(|c| c.is_object() || c.is_array()) {
         return config.clone();
     }
-    let parsed = fs::read_to_string(paths.data_dir.join("mixdog-config.json")).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok());
+    // A profile title a phone sent cut inside an emoji is stored by Node with half of it: U+FFFD here.
+    let parsed = fs::read_to_string(paths.data_dir.join("mixdog-config.json")).ok().and_then(|t| serde_json::from_str::<Value>(&mixdog_js::json_well_formed_str(&t)).ok());
     parsed.filter(|v| v.is_object()).unwrap_or_else(|| serde_json::json!({}))
 }
 
@@ -383,11 +384,25 @@ mod tests {
         }
     }
 
+    /// A config Node wrote with a profile title a phone sent cut inside an emoji
+    /// (`native/core/fixtures/lone-surrogate-files`, record-lone-surrogate-files.mjs): the Lead reads the document Node's
+    /// `JSON.parse` reads (the half emoji as U+FFFD), not an empty config.
+    #[test]
+    fn a_config_node_wrote_with_half_an_emoji_is_read_whole() {
+        let set = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/lone-surrogate-files");
+        let cases: Value = serde_json::from_slice(&fs::read(set.join("cases.json")).unwrap()).unwrap();
+        let case = cases.as_array().unwrap().iter().find(|c| c["name"] == "config-profile").unwrap();
+        let data = tempfile::tempdir().unwrap();
+        fs::copy(set.join("config-profile/before/mixdog-config.json"), data.path().join("mixdog-config.json")).unwrap();
+        let paths = LeadPaths { plugin_root: data.path(), data_dir: data.path(), config: None };
+        assert_eq!(unified_config(&paths).to_string(), case["before"]["mixdog-config.json"].to_string());
+    }
+
     /// Node's lead meta, language and language-id builders over 234 cases: configs by object and
     /// by file, a user override of the shared format, unusable and partial style files.
     #[test]
     fn the_lead_parts_follow_node() {
-        let golden: Value = serde_json::from_str(include_str!("golden/rules_lead.json")).expect("fixture");
+        let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("src/run_host/golden/rules_lead.json")).expect("fixture");
         let root = PathBuf::from(std::env::var("TEMP").unwrap_or_else(|_| ".".into())).join(format!("lead-golden-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         write_tree(&root.join("plugin"), &golden["plugin"]);

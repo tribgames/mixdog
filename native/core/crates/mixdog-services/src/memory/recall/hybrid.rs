@@ -157,19 +157,19 @@ struct Filters {
 
 fn dense_cte(has_vector: bool, f: &Filters) -> String {
     if !has_vector {
-        return "\ndense AS (SELECT NULL::bigint AS id, NULL::float8 AS sim, NULL::bigint AS dense_rank WHERE $1::text IS NOT NULL AND false),".into();
+        return "\ndense AS (SELECT NULL::bigint AS id, NULL::float8 AS sim, NULL::bigint AS dense_rank WHERE $1::halfvec IS NOT NULL AND false),".into();
     }
     format!(
         "
 dense AS (
   SELECT id,
-         1 - (embedding <=> $1::text::halfvec) AS sim,
-         ROW_NUMBER() OVER (ORDER BY embedding <=> $1::text::halfvec) AS dense_rank
+         1 - (embedding <=> $1::halfvec) AS sim,
+         ROW_NUMBER() OVER (ORDER BY embedding <=> $1::halfvec) AS dense_rank
   FROM entries
   WHERE embedding IS NOT NULL
     {}
     {}
-  ORDER BY embedding <=> $1::text::halfvec
+  ORDER BY embedding <=> $1::halfvec
   LIMIT $4
 ),",
         f.clause, f.root
@@ -350,7 +350,7 @@ LEFT JOIN exact  x ON x.id = c.id",
         exact_cte(exact_param, &filters),
     );
     let mut params = vec![
-        vector_sql.map_or(P::T(String::new()), P::T),
+        vector_sql.map_or(P::Null, P::Lit),
         fts.map_or(P::T(String::new()), P::T),
         P::T(plan.clean.clone()),
         P::I(plan.candidate_window),
@@ -414,7 +414,7 @@ async fn resolve_roots(
         params.extend(scope_params);
         let rows = read_query(
             db,
-            &format!("SELECT {ENTRY_ROW_COLUMNS} FROM entries WHERE id = ANY($1::bigint[]) AND is_root = 1 {scope_clause}"),
+            &format!("SELECT {ENTRY_ROW_COLUMNS}\n       FROM entries WHERE id = ANY($1::bigint[]) AND is_root = 1 {scope_clause}"),
             &params,
         )
         .await?;
@@ -468,7 +468,7 @@ async fn fetch_final_rows(db: &Db, resolution: &RootResolution, plan: &Plan) -> 
         }
         let mut all = vec![P::IA(ids)];
         all.extend(params);
-        read_query(db, &format!("SELECT {FINAL_ROW_COLUMNS} FROM entries WHERE id = ANY($1::bigint[]) {clause}"), &all).await
+        read_query(db, &format!("SELECT {FINAL_ROW_COLUMNS}\n       FROM entries WHERE id = ANY($1::bigint[]) {clause}"), &all).await
     }
     let (window_clause, window_params) = plan.filter(2, false, "");
     if resolution.member_hit_roots.is_empty() {
@@ -612,7 +612,8 @@ async fn expand_latest_by_concept(db: &Db, raw: Vec<Row>, plan: &Plan) -> Result
     Ok((merged, expanded))
 }
 
-fn prefer_latest_concept_rows(rows: &[Row], latest: &[Row]) -> Vec<Row> {
+/// `preferLatestConceptRows`: each row replaced by the newest latest-row of one of its concepts.
+pub fn prefer_latest_concept_rows(rows: &[Row], latest: &[Row]) -> Vec<Row> {
     let mut by_concept: HashMap<i64, &Row> = HashMap::new();
     for row in latest {
         by_concept.entry(row.matched_concept_id.or(row.concept_id).unwrap_or(row.id)).or_insert(row);

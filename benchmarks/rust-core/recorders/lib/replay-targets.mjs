@@ -85,6 +85,9 @@ export const REPLAY_TARGETS = {
     rust: [r('mixdog-ai/src/accounts/policy.rs', 337, 'choose_account'), r('mixdog-ai/src/accounts/policy.rs', 270, 'account_limit'), r('mixdog-ai/src/accounts/policy.rs', 308, 'account_exhausted_for_model_only'), r('mixdog-ai/src/accounts/mod.rs', 299, 'AccountStore::pool'), r('mixdog-ai/src/accounts/mod.rs', 368, 'AccountStore::register'), r('mixdog-ai/src/accounts/mod.rs', 405, 'AccountStore::change'), r('mixdog-ai/src/accounts/mod.rs', 503, 'AccountStore::record_usage')],
     missing: [],
   },
+  'room-user-send-cases': {
+    protocolMethods: ['room/send (mixdog-app-protocol/src/methods.rs RoomSend; served by mixdog-core-rooms/src/rooms/service.rs RoomService, whose send step is rooms/user_send.rs UserSend over live.rs LiveRooms::send)'],
+  },
   'quiet-progress-cases': {
     rust: [r('mixdog-core-agents/src/agents/pool_list.rs', 139, 'AgentPool', 'list (pool_list.rs:624) returns the pool rows decorated with progressAt, progressStage (model_thinking while a sent request awaits its headers), progressTool and stallWarnMs from the private with_progress (:785); re-exported by agents/mod.rs:50'), r('mixdog-agent/src/agent_tool/watchdog.rs', 123, 'stall_warn_ms')],
     missing: ['the quiet cue and its labels (quietProgress / quietProgressParts / quietWaitKind, "quiet for 3m · running shell", the cue window and the freeze until the warn point): no Rust code; agent_tool/progress.rs:300 builds a different text ("tool possibly hung", task progress)'],
@@ -148,6 +151,25 @@ export const REPLAY_TARGETS = {
   },
   'store-summary-workspace-cases': {
     rust: [r('mixdog-store/src/summary.rs', 107, 'workspace_summary')],
+  },
+  'computer-error-recovery': {
+    rust: [r('mixdog-tools/src/desktop/computer_recovery.rs', 139, 'tool_error_recovery'), r('mixdog-tools/src/desktop/computer_recovery.rs', 144, 'format_tool_error'), r('mixdog-tools/src/desktop/computer.rs', 59, 'ComputerTool', 'the call: a failure of the host is worded by format_tool_error')],
+    missing: ['computerResultRecovery (a reply body with a structured code): the Rust backend answers its replies as text parts'],
+  },
+  'google-mcp': {
+    rust: [r('mixdog-mcp/src/google_mcp.rs', 639, 'answer'), r('mixdog-mcp/src/google_mcp.rs', 83, 'service'), r('mixdog-mcp/src/http.rs', 93, 'HttpTransport::with_google_fetch')],
+    notPublic: ['the sign-in flow (PKCE, loopback redirect) is replayed by the mcp-oauth sets; here the connector end is'],
+  },
+  'session-tool-output': {
+    rust: [r('mixdog-core/src/run_host/tool_pool/session_output.rs', 101, 'session_list_output'), r('mixdog-core/src/run_host/tool_pool/session_output.rs', 254, 'session_read_output'), r('mixdog-core/src/run_host/tool_pool/session_port.rs', 217, 'DirectorySessionPort::read', 'action read of control')],
+    missing: ['session action=list, send, create and bots are not served by the session port (control answers "not available in this runtime" for them): the list shape is replayed through session_list_output only'],
+  },
+  'session-control-cases': {
+    rust: [r('mixdog-core/src/run_host/tool_pool/session_port.rs', 1, 'DirectorySessionPort::control')],
+  },
+  'session-compact-cases': {
+    rust: [r('mixdog-tools/src/orch/session.rs', 204, 'SessionTool', 'the session tool: actions compact and fork'), r('mixdog-core/src/run_host/tool_pool/session_port.rs', 377, 'DirectorySessionPort::schedule_compact'), r('mixdog-core/src/run_host/tool_pool/session_port.rs', 381, 'DirectorySessionPort::fork'), r('mixdog-core-session/src/session/directory.rs', 459, 'SessionDirectory::schedule_compact_after_turn', 'the actor runs the scheduled compaction when the thread\'s turn settles')],
+    notPublic: ['the settle itself (mixdog-core-session/src/session/actor.rs run_ended) is private: a replay reaches it by running a turn on a SessionDirectory'],
   },
   'system-proxy-cases': {
     rust: [r('mixdog-app-server-daemon/src/system_proxy_claim.rs', 28, 'new'), r('mixdog-ai/src/netproxy/system.rs', 601, 'attach_resolver'), r('mixdog-ai/src/netproxy/system.rs', 354, 'route_from_chromium')],

@@ -15,6 +15,6 @@ async fn a_panicking_background_task_still_settles_and_closes() {
     let runtime = runtime();
     runtime.inner.spawn_task(async { panic!("background task failure") });
     runtime.inner.spawn_task(async {});
-    tokio::time::timeout(Duration::from_secs(60), runtime.settled()).await.expect("settled returned");
-    tokio::time::timeout(Duration::from_secs(60), runtime.close()).await.expect("close returned");
+    mixdog_rt::time::timeout(Duration::from_secs(60), runtime.settled()).await.expect("settled returned");
+    mixdog_rt::time::timeout(Duration::from_secs(60), runtime.close()).await.expect("close returned");
 }

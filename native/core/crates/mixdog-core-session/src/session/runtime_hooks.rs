@@ -37,17 +37,18 @@ pub struct HandoffQuestionsHub {
     threads: OnceLock<Arc<dyn ThreadState>>,
     held: Mutex<Vec<(ThreadId, Arc<HandoffQuestions>, QueueHandle)>>,
     /// The publishers' drain tasks, for the tests to await.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     publishers: Mutex<Vec<tokio::task::JoinHandle<()>>>,
 }
 
 impl HandoffQuestionsHub {
     pub fn new(host: Arc<DelegatedApprovalHost>) -> Arc<Self> {
-        Arc::new(Self { host, threads: OnceLock::new(), held: Mutex::default(), #[cfg(test)] publishers: Mutex::default() })
+        Arc::new(Self { host, threads: OnceLock::new(), held: Mutex::default(), #[cfg(any(test, feature = "test-support"))] publishers: Mutex::default() })
     }
 
     /// Takes the drain tasks of every publisher started so far.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
+    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
     fn take_publishers(&self) -> Vec<tokio::task::JoinHandle<()>> {
         std::mem::take(&mut *self.publishers.lock().unwrap_or_else(|poisoned| poisoned.into_inner()))
     }
@@ -74,9 +75,9 @@ impl RuntimeHooks for HandoffQuestionsHub {
         self.stopped(thread);
         let id = thread.as_str().to_owned();
         let (publisher, task) = SectionPublisher::start(threads.clone(), thread.clone());
-        #[cfg(test)]
+        #[cfg(any(test, feature = "test-support"))]
         self.publishers.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).push(task);
-        #[cfg(not(test))]
+        #[cfg(not(any(test, feature = "test-support")))]
         drop(task);
         let queue = HandoffQuestions::new(Arc::new(move || id.clone()), Arc::new(publisher));
         let handle = self.host.register_queue(queue.clone());

@@ -91,7 +91,78 @@
         "effectiveEffort": "high",
         "fastCapable": true,
         "metadataResolved": false
-      }
+      },
+      "routeSets": [
+        {
+          "input": {
+            "config": {},
+            "meta": {
+              "id": "kimi-k3",
+              "provider": "cursor-oauth"
+            },
+            "route": {
+              "provider": "cursor-oauth",
+              "model": "kimi-k3",
+              "effort": "high",
+              "fast": true
+            },
+            "windows": {},
+            "defaultProvider": "cursor-oauth",
+            "session": {
+              "id": "sess_route_set_1",
+              "generation": 0,
+              "closed": false,
+              "provider": "openai-oauth",
+              "model": "gpt-6-astra",
+              "messages": [],
+              "tools": [],
+              "offloadSources": [],
+              "offloadSourcesRules": 2
+            }
+          },
+          "outcome": {
+            "reply": {
+              "provider": "cursor-oauth",
+              "model": "kimi-k3",
+              "preset": null,
+              "effort": "high",
+              "fast": true,
+              "autoEffort": true,
+              "modelParameters": {},
+              "fastCapable": true,
+              "effectiveEffort": "high",
+              "effortOptions": []
+            },
+            "session": {
+              "id": "sess_route_set_1",
+              "generation": 0,
+              "closed": false,
+              "provider": "openai-oauth",
+              "model": "gpt-6-astra",
+              "messages": [],
+              "pendingRoute": {
+                "provider": "cursor-oauth",
+                "model": "kimi-k3",
+                "effort": "high",
+                "fast": true,
+                "modelParameters": {}
+              },
+              "tools": [],
+              "offloadSources": [],
+              "offloadSourcesRules": 2
+            },
+            "file": {
+              "modelSettings": {
+                "cursor-oauth/kimi-k3": {
+                  "effort": "high",
+                  "fast": true,
+                  "modelParameters": {}
+                }
+              }
+            }
+          }
+        }
+      ]
     },
     {
       "name": "resolved-metadata-is-authoritative",
@@ -120,7 +191,89 @@
         "effectiveEffort": "high",
         "fastCapable": false,
         "metadataResolved": true
-      }
+      },
+      "routeSets": [
+        {
+          "input": {
+            "config": {},
+            "meta": {
+              "id": "kimi-k3",
+              "provider": "cursor-oauth",
+              "reasoningLevels": [
+                "high"
+              ],
+              "fastCapable": false,
+              "fastEfforts": []
+            },
+            "route": {
+              "provider": "cursor-oauth",
+              "model": "kimi-k3",
+              "effort": "max",
+              "fast": true
+            },
+            "windows": {},
+            "defaultProvider": "cursor-oauth",
+            "session": {
+              "id": "sess_route_set_2",
+              "generation": 0,
+              "closed": false,
+              "provider": "openai-oauth",
+              "model": "gpt-6-astra",
+              "messages": [],
+              "tools": [],
+              "offloadSources": [],
+              "offloadSourcesRules": 2
+            }
+          },
+          "outcome": {
+            "reply": {
+              "provider": "cursor-oauth",
+              "model": "kimi-k3",
+              "preset": null,
+              "effort": "max",
+              "fast": false,
+              "autoEffort": true,
+              "modelParameters": {},
+              "fastCapable": false,
+              "effectiveEffort": "high",
+              "effortOptions": [
+                {
+                  "value": "high",
+                  "label": "High",
+                  "description": "current"
+                }
+              ]
+            },
+            "session": {
+              "id": "sess_route_set_2",
+              "generation": 0,
+              "closed": false,
+              "provider": "openai-oauth",
+              "model": "gpt-6-astra",
+              "messages": [],
+              "pendingRoute": {
+                "provider": "cursor-oauth",
+                "model": "kimi-k3",
+                "effort": "max",
+                "fast": false,
+                "modelParameters": {}
+              },
+              "tools": [],
+              "offloadSources": [],
+              "offloadSourcesRules": 2
+            },
+            "file": {
+              "modelSettings": {
+                "cursor-oauth/kimi-k3": {
+                  "effort": "max",
+                  "fast": false,
+                  "modelParameters": {}
+                }
+              }
+            }
+          }
+        }
+      ]
     },
     {
       "name": "cursor-parameter-variants-validate-fast",
@@ -167,7 +320,118 @@
         "effectiveEffort": "high",
         "fastCapable": true,
         "metadataResolved": true
-      }
+      },
+      "routeSets": [
+        {
+          "input": {
+            "config": {},
+            "meta": {
+              "id": "gpt-5.6-sol",
+              "provider": "cursor-oauth",
+              "reasoningLevels": [
+                "high",
+                "max"
+              ],
+              "fastCapable": true,
+              "fastEfforts": [
+                "high"
+              ],
+              "parameterVariants": [
+                {
+                  "effort": "high",
+                  "fast": "true",
+                  "context": "272k"
+                },
+                {
+                  "effort": "max",
+                  "fast": "false",
+                  "context": "272k"
+                }
+              ]
+            },
+            "route": {
+              "provider": "cursor-oauth",
+              "model": "gpt-5.6-sol",
+              "effort": "high",
+              "fast": true,
+              "modelParameters": {
+                "context": "272k"
+              }
+            },
+            "windows": {},
+            "defaultProvider": "cursor-oauth",
+            "session": {
+              "id": "sess_route_set_3",
+              "generation": 0,
+              "closed": false,
+              "provider": "openai-oauth",
+              "model": "gpt-6-astra",
+              "messages": [],
+              "tools": [],
+              "offloadSources": [],
+              "offloadSourcesRules": 2
+            }
+          },
+          "outcome": {
+            "reply": {
+              "provider": "cursor-oauth",
+              "model": "gpt-5.6-sol",
+              "preset": null,
+              "effort": "high",
+              "fast": true,
+              "autoEffort": true,
+              "modelParameters": {
+                "context": "272k"
+              },
+              "fastCapable": true,
+              "effectiveEffort": "high",
+              "effortOptions": [
+                {
+                  "value": "high",
+                  "label": "High",
+                  "description": "current"
+                },
+                {
+                  "value": "max",
+                  "label": "Max",
+                  "description": ""
+                }
+              ]
+            },
+            "session": {
+              "id": "sess_route_set_3",
+              "generation": 0,
+              "closed": false,
+              "provider": "openai-oauth",
+              "model": "gpt-6-astra",
+              "messages": [],
+              "pendingRoute": {
+                "provider": "cursor-oauth",
+                "model": "gpt-5.6-sol",
+                "effort": "high",
+                "fast": true,
+                "modelParameters": {
+                  "context": "272k"
+                }
+              },
+              "tools": [],
+              "offloadSources": [],
+              "offloadSourcesRules": 2
+            },
+            "file": {
+              "modelSettings": {
+                "cursor-oauth/gpt-5.6-sol": {
+                  "effort": "high",
+                  "fast": true,
+                  "modelParameters": {
+                    "context": "272k"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
     },
     {
       "name": "context-percent-model-default-and-ten-point-steps",
@@ -326,31 +590,13 @@
           },
           "state": {
             "contextPercent": {
-              "$exact": "object",
-              "entries": [
-                [
-                  "$exact",
-                  "undefined"
-                ]
-              ]
+              "$exact": "undefined"
             },
             "contextDefaultPercent": {
-              "$exact": "object",
-              "entries": [
-                [
-                  "$exact",
-                  "undefined"
-                ]
-              ]
+              "$exact": "undefined"
             },
             "selectedContextWindow": {
-              "$exact": "object",
-              "entries": [
-                [
-                  "$exact",
-                  "undefined"
-                ]
-              ]
+              "$exact": "undefined"
             }
           },
           "lookups": [
@@ -359,6 +605,411 @@
               "unknown-model"
             ]
           ]
+        }
+      ],
+      "routeSets": [
+        {
+          "input": {
+            "config": {},
+            "meta": {
+              "id": "claude-opus-5",
+              "provider": "anthropic-oauth"
+            },
+            "route": {
+              "provider": "anthropic-oauth",
+              "model": "claude-opus-5",
+              "contextPercent": 50
+            },
+            "windows": {
+              "anthropic-oauth/claude-opus-5": {
+                "contextWindow": 1000000,
+                "maxContextWindow": 0
+              },
+              "openai-oauth/gpt-5.6-sol": {
+                "contextWindow": 272000,
+                "maxContextWindow": 1000000
+              }
+            },
+            "defaultProvider": "cursor-oauth",
+            "session": {
+              "id": "sess_route_set_4",
+              "generation": 0,
+              "closed": false,
+              "provider": "openai-oauth",
+              "model": "gpt-6-astra",
+              "messages": [],
+              "tools": [],
+              "offloadSources": [],
+              "offloadSourcesRules": 2
+            }
+          },
+          "outcome": {
+            "reply": {
+              "provider": "anthropic-oauth",
+              "model": "claude-opus-5",
+              "preset": null,
+              "effort": null,
+              "fast": false,
+              "autoEffort": true,
+              "modelParameters": {},
+              "contextPercent": 50,
+              "fastCapable": false,
+              "effectiveEffort": null,
+              "effortOptions": [],
+              "contextDefaultPercent": 50,
+              "selectedContextWindow": 500000
+            },
+            "session": {
+              "id": "sess_route_set_4",
+              "generation": 0,
+              "closed": false,
+              "provider": "openai-oauth",
+              "model": "gpt-6-astra",
+              "messages": [],
+              "pendingRoute": {
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-5",
+                "effort": null,
+                "fast": false,
+                "modelParameters": {},
+                "contextPercent": 50,
+                "selectedContextWindow": 500000
+              },
+              "tools": [],
+              "offloadSources": [],
+              "offloadSourcesRules": 2
+            },
+            "file": {
+              "modelSettings": {
+                "anthropic-oauth/claude-opus-5": {
+                  "fast": false,
+                  "modelParameters": {}
+                }
+              }
+            }
+          }
+        },
+        {
+          "input": {
+            "config": {},
+            "meta": {
+              "id": "claude-opus-5",
+              "provider": "anthropic-oauth"
+            },
+            "route": {
+              "provider": "anthropic-oauth",
+              "model": "claude-opus-5"
+            },
+            "windows": {
+              "anthropic-oauth/claude-opus-5": {
+                "contextWindow": 1000000,
+                "maxContextWindow": 0
+              },
+              "openai-oauth/gpt-5.6-sol": {
+                "contextWindow": 272000,
+                "maxContextWindow": 1000000
+              }
+            },
+            "defaultProvider": "cursor-oauth",
+            "session": {
+              "id": "sess_route_set_5",
+              "generation": 0,
+              "closed": false,
+              "provider": "openai-oauth",
+              "model": "gpt-6-astra",
+              "messages": [],
+              "tools": [],
+              "offloadSources": [],
+              "offloadSourcesRules": 2
+            }
+          },
+          "outcome": {
+            "reply": {
+              "provider": "anthropic-oauth",
+              "model": "claude-opus-5",
+              "preset": null,
+              "effort": null,
+              "fast": false,
+              "autoEffort": true,
+              "modelParameters": {},
+              "contextPercent": 50,
+              "fastCapable": false,
+              "effectiveEffort": null,
+              "effortOptions": [],
+              "contextDefaultPercent": 50,
+              "selectedContextWindow": 500000
+            },
+            "session": {
+              "id": "sess_route_set_5",
+              "generation": 0,
+              "closed": false,
+              "provider": "openai-oauth",
+              "model": "gpt-6-astra",
+              "messages": [],
+              "pendingRoute": {
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-5",
+                "effort": null,
+                "fast": false,
+                "modelParameters": {},
+                "contextPercent": 50,
+                "selectedContextWindow": 500000
+              },
+              "tools": [],
+              "offloadSources": [],
+              "offloadSourcesRules": 2
+            },
+            "file": {
+              "modelSettings": {
+                "anthropic-oauth/claude-opus-5": {
+                  "fast": false,
+                  "modelParameters": {}
+                }
+              }
+            }
+          }
+        },
+        {
+          "input": {
+            "config": {},
+            "meta": {
+              "id": "claude-opus-5",
+              "provider": "anthropic-oauth"
+            },
+            "route": {
+              "provider": "anthropic-oauth",
+              "model": "claude-opus-5",
+              "contextPercent": 100
+            },
+            "windows": {
+              "anthropic-oauth/claude-opus-5": {
+                "contextWindow": 1000000,
+                "maxContextWindow": 0
+              },
+              "openai-oauth/gpt-5.6-sol": {
+                "contextWindow": 272000,
+                "maxContextWindow": 1000000
+              }
+            },
+            "defaultProvider": "cursor-oauth",
+            "session": {
+              "id": "sess_route_set_6",
+              "generation": 0,
+              "closed": false,
+              "provider": "openai-oauth",
+              "model": "gpt-6-astra",
+              "messages": [],
+              "tools": [],
+              "offloadSources": [],
+              "offloadSourcesRules": 2
+            }
+          },
+          "outcome": {
+            "reply": {
+              "provider": "anthropic-oauth",
+              "model": "claude-opus-5",
+              "preset": null,
+              "effort": null,
+              "fast": false,
+              "autoEffort": true,
+              "modelParameters": {},
+              "contextPercent": 100,
+              "fastCapable": false,
+              "effectiveEffort": null,
+              "effortOptions": [],
+              "contextDefaultPercent": 50,
+              "selectedContextWindow": 1000000
+            },
+            "session": {
+              "id": "sess_route_set_6",
+              "generation": 0,
+              "closed": false,
+              "provider": "openai-oauth",
+              "model": "gpt-6-astra",
+              "messages": [],
+              "pendingRoute": {
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-5",
+                "effort": null,
+                "fast": false,
+                "modelParameters": {},
+                "contextPercent": 100,
+                "selectedContextWindow": 1000000
+              },
+              "tools": [],
+              "offloadSources": [],
+              "offloadSourcesRules": 2
+            },
+            "file": {
+              "modelSettings": {
+                "anthropic-oauth/claude-opus-5": {
+                  "fast": false,
+                  "modelParameters": {},
+                  "contextPercent": 100
+                }
+              }
+            }
+          }
+        },
+        {
+          "input": {
+            "config": {},
+            "meta": {
+              "id": "gpt-5.6-sol",
+              "provider": "openai-oauth"
+            },
+            "route": {
+              "provider": "openai-oauth",
+              "model": "gpt-5.6-sol",
+              "contextPercent": 30
+            },
+            "windows": {
+              "anthropic-oauth/claude-opus-5": {
+                "contextWindow": 1000000,
+                "maxContextWindow": 0
+              },
+              "openai-oauth/gpt-5.6-sol": {
+                "contextWindow": 272000,
+                "maxContextWindow": 1000000
+              }
+            },
+            "defaultProvider": "cursor-oauth",
+            "session": {
+              "id": "sess_route_set_7",
+              "generation": 0,
+              "closed": false,
+              "provider": "openai-oauth",
+              "model": "gpt-6-astra",
+              "messages": [],
+              "tools": [],
+              "offloadSources": [],
+              "offloadSourcesRules": 2
+            }
+          },
+          "outcome": {
+            "reply": {
+              "provider": "openai-oauth",
+              "model": "gpt-5.6-sol",
+              "preset": null,
+              "effort": null,
+              "fast": false,
+              "autoEffort": true,
+              "modelParameters": {},
+              "contextPercent": 30,
+              "fastCapable": false,
+              "effectiveEffort": null,
+              "effortOptions": [],
+              "contextDefaultPercent": 30,
+              "selectedContextWindow": 272000
+            },
+            "session": {
+              "id": "sess_route_set_7",
+              "generation": 0,
+              "closed": false,
+              "provider": "openai-oauth",
+              "model": "gpt-6-astra",
+              "messages": [],
+              "pendingRoute": {
+                "provider": "openai-oauth",
+                "model": "gpt-5.6-sol",
+                "effort": null,
+                "fast": false,
+                "modelParameters": {},
+                "contextPercent": 30,
+                "selectedContextWindow": 272000
+              },
+              "tools": [],
+              "offloadSources": [],
+              "offloadSourcesRules": 2
+            },
+            "file": {
+              "modelSettings": {
+                "openai-oauth/gpt-5.6-sol": {
+                  "fast": false,
+                  "modelParameters": {}
+                }
+              }
+            }
+          }
+        },
+        {
+          "input": {
+            "config": {},
+            "meta": {
+              "id": "unknown-model",
+              "provider": "anthropic-oauth"
+            },
+            "route": {
+              "provider": "anthropic-oauth",
+              "model": "unknown-model",
+              "contextPercent": 50
+            },
+            "windows": {
+              "anthropic-oauth/claude-opus-5": {
+                "contextWindow": 1000000,
+                "maxContextWindow": 0
+              },
+              "openai-oauth/gpt-5.6-sol": {
+                "contextWindow": 272000,
+                "maxContextWindow": 1000000
+              }
+            },
+            "defaultProvider": "cursor-oauth",
+            "session": {
+              "id": "sess_route_set_8",
+              "generation": 0,
+              "closed": false,
+              "provider": "openai-oauth",
+              "model": "gpt-6-astra",
+              "messages": [],
+              "tools": [],
+              "offloadSources": [],
+              "offloadSourcesRules": 2
+            }
+          },
+          "outcome": {
+            "reply": {
+              "provider": "anthropic-oauth",
+              "model": "unknown-model",
+              "preset": null,
+              "effort": null,
+              "fast": false,
+              "autoEffort": true,
+              "modelParameters": {},
+              "contextPercent": 50,
+              "fastCapable": false,
+              "effectiveEffort": null,
+              "effortOptions": []
+            },
+            "session": {
+              "id": "sess_route_set_8",
+              "generation": 0,
+              "closed": false,
+              "provider": "openai-oauth",
+              "model": "gpt-6-astra",
+              "messages": [],
+              "pendingRoute": {
+                "provider": "anthropic-oauth",
+                "model": "unknown-model",
+                "effort": null,
+                "fast": false,
+                "modelParameters": {},
+                "contextPercent": 50
+              },
+              "tools": [],
+              "offloadSources": [],
+              "offloadSourcesRules": 2
+            },
+            "file": {
+              "modelSettings": {
+                "anthropic-oauth/unknown-model": {
+                  "fast": false,
+                  "modelParameters": {},
+                  "contextPercent": 50
+                }
+              }
+            }
+          }
         }
       ]
     },
@@ -384,7 +1035,78 @@
       },
       "result": {
         "$exact": "undefined"
-      }
+      },
+      "routeSets": [
+        {
+          "input": {
+            "config": {
+              "modelSettings": {
+                "cursor-oauth/gpt-5.4": {
+                  "contextPercent": null
+                }
+              }
+            },
+            "meta": {},
+            "route": {
+              "provider": "cursor-oauth",
+              "model": "gpt-5.4"
+            },
+            "windows": {},
+            "defaultProvider": "cursor-oauth",
+            "session": {
+              "id": "sess_route_set_9",
+              "generation": 0,
+              "closed": false,
+              "provider": "openai-oauth",
+              "model": "gpt-6-astra",
+              "messages": [],
+              "tools": [],
+              "offloadSources": [],
+              "offloadSourcesRules": 2
+            }
+          },
+          "outcome": {
+            "reply": {
+              "provider": "cursor-oauth",
+              "model": "gpt-5.4",
+              "preset": null,
+              "effort": null,
+              "fast": false,
+              "autoEffort": true,
+              "modelParameters": {},
+              "fastCapable": false,
+              "effectiveEffort": null,
+              "effortOptions": []
+            },
+            "session": {
+              "id": "sess_route_set_9",
+              "generation": 0,
+              "closed": false,
+              "provider": "openai-oauth",
+              "model": "gpt-6-astra",
+              "messages": [],
+              "pendingRoute": {
+                "provider": "cursor-oauth",
+                "model": "gpt-5.4",
+                "effort": null,
+                "fast": false,
+                "modelParameters": {}
+              },
+              "tools": [],
+              "offloadSources": [],
+              "offloadSourcesRules": 2
+            },
+            "file": {
+              "modelSettings": {
+                "cursor-oauth/gpt-5.4": {
+                  "fast": false,
+                  "modelParameters": {}
+                }
+              }
+            }
+          }
+        }
+      ]
     },
     {
       "name": "inheritance-fit-is-judged-on-the-heir-route",
@@ -538,6 +1260,19 @@
           20000,
           500000
         ],
+        "compactorAnswers": {
+          "compacting": {
+            "messages": [
+              {
+                "role": "user",
+                "content": "Compacted for the heir."
+              }
+            ]
+          },
+          "emptyCompaction": {
+            "messages": []
+          }
+        },
         "clock": {
           "Date.now()": 1700000000000
         }
@@ -621,6 +1356,10 @@
               "auto": true
             },
             "tools": [],
+            "offloadSources": [
+              "source"
+            ],
+            "offloadSourcesRules": 2,
             "inheritedFromSessionId": "source",
             "updatedAt": 1700000000000
           },
@@ -656,6 +1395,10 @@
                   "auto": true
                 },
                 "tools": [],
+                "offloadSources": [
+                  "source"
+                ],
+                "offloadSourcesRules": 2,
                 "inheritedFromSessionId": "source",
                 "updatedAt": 1700000000000
               },
@@ -681,48 +1424,18 @@
           },
           "first": {
             "error": {
-              "$exact": "object",
-              "entries": [
-                [
-                  "$exact",
-                  "error"
-                ],
-                [
-                  "name",
-                  "Error"
-                ],
-                [
-                  "message",
-                  "inheritFrom: the full conversation needs 51181 tokens but anthropic-oauth/claude-opus-5 allows 20000 before compaction"
-                ],
-                [
-                  "props",
-                  {}
-                ]
-              ]
+              "$exact": "error",
+              "name": "Error",
+              "message": "inheritFrom: the full conversation needs 51181 tokens but anthropic-oauth/claude-opus-5 allows 20000 before compaction",
+              "props": {}
             }
           },
           "second": {
             "error": {
-              "$exact": "object",
-              "entries": [
-                [
-                  "$exact",
-                  "error"
-                ],
-                [
-                  "name",
-                  "Error"
-                ],
-                [
-                  "message",
-                  "inheritFrom: the full conversation needs 51181 tokens but anthropic-oauth/claude-opus-5 allows 20000 before compaction"
-                ],
-                [
-                  "props",
-                  {}
-                ]
-              ]
+              "$exact": "error",
+              "name": "Error",
+              "message": "inheritFrom: the full conversation needs 51181 tokens but anthropic-oauth/claude-opus-5 allows 20000 before compaction",
+              "props": {}
             }
           },
           "calls": [
@@ -820,7 +1533,11 @@
             "compaction": {
               "auto": true
             },
-            "tools": []
+            "tools": [],
+            "offloadSources": [
+              "source"
+            ],
+            "offloadSourcesRules": 2
           },
           "saves": []
         },
@@ -881,6 +1598,10 @@
               "auto": true
             },
             "tools": [],
+            "offloadSources": [
+              "source"
+            ],
+            "offloadSourcesRules": 2,
             "inheritedFromSessionId": "source",
             "updatedAt": 1700000000000
           },
@@ -920,6 +1641,10 @@
                   "auto": true
                 },
                 "tools": [],
+                "offloadSources": [
+                  "source"
+                ],
+                "offloadSourcesRules": 2,
                 "inheritedFromSessionId": "source",
                 "updatedAt": 1700000000000
               },
@@ -954,6 +1679,19 @@
           "compact": "returns one user message",
           "failing": "throws Error(compactor down)",
           "empty": "returns no messages"
+        },
+        "compactorAnswers": {
+          "compact": {
+            "messages": [
+              {
+                "role": "user",
+                "content": "Summarized on request."
+              }
+            ]
+          },
+          "empty": {
+            "messages": []
+          }
         },
         "clock": {
           "Date.now()": 1700000000000
@@ -1011,13 +1749,7 @@
             }
           ],
           "sourceCompaction": {
-            "$exact": "object",
-            "entries": [
-              [
-                "$exact",
-                "undefined"
-              ]
-            ]
+            "$exact": "undefined"
           },
           "target": {
             "id": "heir",
@@ -1049,6 +1781,10 @@
               "auto": true
             },
             "tools": [],
+            "offloadSources": [
+              "source"
+            ],
+            "offloadSourcesRules": 2,
             "inheritedFromSessionId": "source",
             "updatedAt": 1700000000000
           }
@@ -1101,6 +1837,10 @@
                 "auto": true
               },
               "tools": [],
+              "offloadSources": [
+                "source"
+              ],
+              "offloadSourcesRules": 2,
               "inheritedFromSessionId": "source",
               "updatedAt": 1700000000000
             }
@@ -1156,6 +1896,10 @@
                 "auto": true
               },
               "tools": [],
+              "offloadSources": [
+                "source"
+              ],
+              "offloadSourcesRules": 2,
               "inheritedFromSessionId": "source",
               "updatedAt": 1700000000000
             }
@@ -1164,49 +1908,16 @@
         "failing": {
           "inherit": {
             "error": {
-              "$exact": "object",
-              "entries": [
-                [
-                  "$exact",
-                  "error"
-                ],
-                [
-                  "name",
-                  "Error"
-                ],
-                [
-                  "message",
-                  "inheritFrom: the conversation could not be compacted for the new session"
-                ],
-                [
-                  "cause",
-                  {
-                    "$exact": "object",
-                    "entries": [
-                      [
-                        "$exact",
-                        "error"
-                      ],
-                      [
-                        "name",
-                        "Error"
-                      ],
-                      [
-                        "message",
-                        "compactor down"
-                      ],
-                      [
-                        "props",
-                        {}
-                      ]
-                    ]
-                  }
-                ],
-                [
-                  "props",
-                  {}
-                ]
-              ]
+              "$exact": "error",
+              "name": "Error",
+              "message": "inheritFrom: the conversation could not be compacted for the new session",
+              "cause": {
+                "$exact": "error",
+                "name": "Error",
+                "message": "compactor down",
+                "props": {}
+              },
+              "props": {}
             }
           },
           "target": {
@@ -1222,31 +1933,20 @@
             "compaction": {
               "auto": true
             },
-            "tools": []
+            "tools": [],
+            "offloadSources": [
+              "source"
+            ],
+            "offloadSourcesRules": 2
           }
         },
         "empty": {
           "inherit": {
             "error": {
-              "$exact": "object",
-              "entries": [
-                [
-                  "$exact",
-                  "error"
-                ],
-                [
-                  "name",
-                  "Error"
-                ],
-                [
-                  "message",
-                  "inheritFrom: the conversation could not be compacted for the new session"
-                ],
-                [
-                  "props",
-                  {}
-                ]
-              ]
+              "$exact": "error",
+              "name": "Error",
+              "message": "inheritFrom: the conversation could not be compacted for the new session",
+              "props": {}
             }
           },
           "target": {
@@ -1262,7 +1962,11 @@
             "compaction": {
               "auto": true
             },
-            "tools": []
+            "tools": [],
+            "offloadSources": [
+              "source"
+            ],
+            "offloadSourcesRules": 2
           }
         }
       }

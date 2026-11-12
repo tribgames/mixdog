@@ -137,22 +137,17 @@ pub async fn run_fitted_attempt(
     }
     let mut again = false;
     let mut refreshed = false;
-    // The read refusal before an immediate resend: Node returns its socket to the pool only after the code that read it
-    // has run on, so the resend does not get it; it is let go once the resend went out.
-    let mut held = None;
     loop {
         let mut sent = wire.clone();
         if let Some(header) = header.clone() {
             credential.place(&mut sent.headers, header);
         }
-        let head = http.send(sent, MODEL_STREAM).await;
-        drop(held.take());
-        let head = head?;
+        let head = http.send(sent, MODEL_STREAM).await?;
         if head.is_success() {
             return Ok(Box::new(DecodedStream::new(head.body, codec.decoder(request))));
         }
         let status = head.status;
-        let (rejected, body) = head.read_all_held().await?;
+        let rejected = head.read_all().await?;
         if again {
             let mut error = codec.classify(&rejected);
             if refreshed {
@@ -161,8 +156,6 @@ pub async fn run_fitted_attempt(
             return Err(error);
         }
         if credential.refreshes_on(status, &rejected.body) {
-            // The refresh waits on the network, so the refusal's socket is free again before the resend.
-            drop(body);
             again = true;
             refreshed = true;
             let next = credential.header(true).await?;
@@ -176,7 +169,6 @@ pub async fn run_fitted_attempt(
         let error = codec.classify(&rejected);
         if resend.is_some_and(|resend| resend(&error)) {
             again = true;
-            held = Some(body);
             wire = codec.encode(request)?;
             if let Some(fitter) = images {
                 wire = fitter.fit_wire(request, wire).await?;

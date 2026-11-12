@@ -165,7 +165,7 @@ pub fn valid_endpoint_name(name: &str) -> bool {
 /// alone is rejected. A probe never dispatches.
 fn test_probe(headers: &Headers, raw_body: &[u8]) -> Option<bool> {
     let header = headers.get(WEBHOOK_TEST_HEADER).is_some_and(|v| v == "1");
-    let marked = serde_json::from_slice::<Value>(raw_body)
+    let marked = serde_json::from_str::<Value>(&String::from_utf8_lossy(raw_body))
         .ok()
         .is_some_and(|v| v.get(WEBHOOK_TEST_FIELD) == Some(&Value::Bool(true)));
     (header || marked).then_some(header && marked)
@@ -377,7 +377,8 @@ impl WebhookService {
         let parsed: Value = if raw_body.is_empty() {
             json!({})
         } else {
-            serde_json::from_slice(raw_body).map_err(|e| Failure::Invalid(e.to_string()))?
+            // Node parses `rawBody.toString('utf8')`: invalid bytes become U+FFFD, not a 400.
+            serde_json::from_str(&body_text).map_err(|e| Failure::Invalid(e.to_string()))?
         };
         // Our own issue comments carry this marker; forwarding one would self-trigger.
         let own_comment = event == Some("issue_comment")

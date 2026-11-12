@@ -9,6 +9,10 @@ use serde_json::json;
 /// The parent header key.
 pub const HEADER_KEY: &str = "archivedAgentResults";
 
+/// The header key of a session the migration keeps only to host a worker index row whose session record is gone (Node lists
+/// such a row with a null header): the row is listed, but no thread opens over it.
+pub const WORKER_ROW_ONLY_KEY: &str = "workerRowOnly";
+
 /// The entry `child` has in a parent header, if any.
 pub fn entry<'a>(header: &'a Map<String, Value>, child: &str) -> Option<&'a Value> {
     header.get(HEADER_KEY)?.get(child)

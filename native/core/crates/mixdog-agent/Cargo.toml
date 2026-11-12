@@ -36,24 +36,33 @@ test-support = []
 
 [dev-dependencies]
 mixdog-testkit = { workspace = true }
-# The step judge and its ladder, for the turn-effort replay that feeds the recorded model answer to the judge.
+mixdog-js = { workspace = true, features = ["fixture-tools", "prefilter-probe"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 mixdog-services = { workspace = true, features = ["test-support"] }
-mixdog-js = { workspace = true, features = ["fixture-tools"] }
 mixdog-core-api = { workspace = true, features = ["mock"] }
-mixdog-rt = { workspace = true, features = ["test-support"] }
+mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros", "sync", "test-util"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 mixdog-ai = { workspace = true, features = ["count-work", "test-support"] }
 mixdog-app-protocol = { workspace = true }
 mixdog-secrets = { workspace = true, features = ["count-work", "test-support"] }
-mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core", "core-test", "lease-clock"] }
+mixdog-spawn = { workspace = true, features = ["core", "core-test", "lease-clock", "scripted-shell"] }
 mixdog-store = { workspace = true, features = ["crash-hook", "test-support"] }
-mixdog-workspace = { workspace = true, features = ["count-jobs", "kill-points", "replay-controls"] }
+mixdog-trace = { workspace = true }
+mixdog-workspace ={ workspace = true, features = ["count-jobs", "kill-points", "replay-controls"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 mixdog-protocol = { workspace = true }
 mixdog-agent = { path = ".", features = ["test-support"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-scm = { workspace = true, features = ["write-queue-hook"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-tools = { workspace = true, features = ["policy-observer"] }
+mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 mixdog-core-base = { workspace = true, features = ["test-support"] }

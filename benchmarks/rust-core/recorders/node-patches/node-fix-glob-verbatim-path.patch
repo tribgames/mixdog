@@ -1,0 +1,46 @@
+diff --git a/src/runtime/agent/orchestrator/tools/builtin/search-glob-tool.mjs b/src/runtime/agent/orchestrator/tools/builtin/search-glob-tool.mjs
+index fe15fd7..c7c0e57 100644
+--- a/src/runtime/agent/orchestrator/tools/builtin/search-glob-tool.mjs
++++ b/src/runtime/agent/orchestrator/tools/builtin/search-glob-tool.mjs
+@@ -174,6 +174,9 @@ function createStatCache() {
+ // fold the magic suffix into each pattern under that root.
+ function globBaseEntry(basePath, workDir) {
+   if (typeof basePath !== 'string' || !hasGlobMagic(basePath)) return { root: basePath, prefix: '' };
++  // A UNC or device-namespace path (`\\?\C:\x`, `\\?\UNC\server\share`) is never split at the `?` of its prefix: split, a
++  // missing one walked the whole drive root for a pattern no file can match, and the UNC form slipped past globUncRefusal.
++  if (isUncOrSmbPath(basePath)) return { root: basePath, prefix: '' };
+   // Literal-first (same contract as grep's path handling): a directory
+   // literally named e.g. "cache{v2}" is the root, not a pattern.
+   try {
+diff --git a/src/runtime/agent/orchestrator/tools/builtin/search-glob-verbatim-path.test.mjs b/src/runtime/agent/orchestrator/tools/builtin/search-glob-verbatim-path.test.mjs
+new file mode 100644
+index 0000000..c28f381
+--- /dev/null
++++ b/src/runtime/agent/orchestrator/tools/builtin/search-glob-verbatim-path.test.mjs
+@@ -0,0 +1,26 @@
++import { test } from 'node:test';
++import assert from 'node:assert/strict';
++import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
++import { tmpdir } from 'node:os';
++import { join } from 'node:path';
++import { executeGlobTool } from './search-glob-tool.mjs';
++
++const REFUSED = /^Error: glob refuses UNC\/SMB path "\/\/\?\//;
++
++test('a verbatim or device-namespace base path is refused whether or not it exists, never split at its `?`', async () => {
++  const cwd = mkdtempSync(join(tmpdir(), 'glob-verbatim-'));
++  try {
++    mkdirSync(join(cwd, 'a'));
++    const paths = [
++      `\\\\?\\${join(cwd, 'a')}`,
++      `\\\\?\\${join(cwd, 'missing')}`,
++      '\\\\?\\UNC\\server\\share',
++      '//?/UNC/server/share',
++    ];
++    for (const path of paths) {
++      assert.match(String(await executeGlobTool({ pattern: '*.ts', path }, cwd)), REFUSED, path);
++    }
++  } finally {
++    rmSync(cwd, { recursive: true, force: true });
++  }
++});

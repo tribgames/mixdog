@@ -90,7 +90,7 @@ impl SetupWorld for Recorded {
 
 #[test]
 fn the_rows_equal_nodes_for_every_recorded_scenario() {
-    let golden: Value = serde_json::from_str(include_str!("../../../../../fixtures/provider-setup/golden.json")).unwrap();
+    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/provider-setup/golden.json")).unwrap();
     let scenarios = golden["scenarios"].as_array().unwrap();
     assert!(scenarios.len() >= 30);
     for scenario in scenarios {

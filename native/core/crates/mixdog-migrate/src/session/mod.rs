@@ -213,6 +213,49 @@ impl ItemDriver for SessionDriver {
                 None => add(sink, plan::retire_key(data, &rel), ItemKind::OrphanCheckpoint, Contract::Retire, vec![s])?,
             }
         }
+        // A reaped agent child (no session of its own) is read through the parents its links name: each parent
+        // that migrates consumes the link files; a child none of whose parents migrates is dropped, counted.
+        let links: Vec<Option<Vec<u8>>> = archived::LINK_FILES
+            .iter()
+            .map(|name| durable::read_optional(&roots.data.join(name)))
+            .collect::<Result<_>>()?;
+        let reaped = archived::parents(links[0].as_deref(), links[1].as_deref(), links[2].as_deref());
+        // A worker row whose session record is gone is listed with no header, but a reaped child's row is not a session: its
+        // result lives in the parents that migrate, and a child none of whose parents is anywhere is dropped (the loop below).
+        let mut row_ids: BTreeSet<String> = BTreeSet::new();
+        for name in [source::AGENT_WORKERS, source::LEAD_WORKERS] {
+            let Some(bytes) = durable::read_optional(&roots.data.join(name))? else { continue };
+            row_ids.extend(source::worker_row_session_ids(&bytes));
+        }
+        // A child is reaped when a parent that migrates carries its result in its transcript (the notification names the child's
+        // id), or when none of its parents is anywhere (the orphan, dropped below).
+        let reaped_child = |id: &String, sessions: &BTreeMap<String, Vec<SourceFile>>| -> Result<bool> {
+            if sessions.contains_key(id) {
+                return Ok(false);
+            }
+            for (child, parents) in reaped.iter().filter(|(child, parents)| child == id && !parents.is_empty()) {
+                if !parents.iter().any(|p| sessions.contains_key(p) || row_ids.contains(p)) {
+                    return Ok(true);
+                }
+                for parent in parents.iter().filter_map(|p| sessions.get(p)) {
+                    for file in parent {
+                        if durable::read(&roots.resolve(file.root, &file.path)?)?.windows(child.len()).any(|w| w == child.as_bytes()) {
+                            return Ok(true);
+                        }
+                    }
+                }
+            }
+            Ok(false)
+        };
+        let mut hosts = Vec::new();
+        for id in &row_ids {
+            if !reaped_child(id, &sessions)? {
+                hosts.push(id.clone());
+            }
+        }
+        for id in hosts {
+            sessions.entry(id).or_default();
+        }
         for (id, sources) in &sessions {
             sink.add_item(plan::item(
                 &format!("session/{id}"),
@@ -236,14 +279,8 @@ impl ItemDriver for SessionDriver {
                 .filter(|n| durable::is_file(&roots.data.join(n)))
                 .map(|n| n.to_string()),
         );
-        // A reaped agent child (no session of its own) is read through the parents its links name: each parent
-        // that migrates consumes the link files; a child none of whose parents migrates is dropped, counted.
-        let links: Vec<Option<Vec<u8>>> = archived::LINK_FILES
-            .iter()
-            .map(|name| durable::read_optional(&roots.data.join(name)))
-            .collect::<Result<_>>()?;
         let mut link_parents: BTreeSet<String> = BTreeSet::new();
-        for (child, parents) in archived::parents(links[0].as_deref(), links[1].as_deref(), links[2].as_deref()) {
+        for (child, parents) in reaped {
             if sessions.contains_key(&child) || parents.is_empty() {
                 continue;
             }
