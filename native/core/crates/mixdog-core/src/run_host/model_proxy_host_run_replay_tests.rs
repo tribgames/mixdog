@@ -125,6 +125,7 @@ impl Drop for Hanging {
 
 #[async_trait]
 impl p::ProviderAdapter for Scripted {
+    fn release_send(&self, _group: &str) {}
     fn id(&self) -> &mixdog_protocol::ProviderId {
         self.inner.id()
     }

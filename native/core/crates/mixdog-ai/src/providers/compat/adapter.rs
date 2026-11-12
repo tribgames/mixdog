@@ -169,6 +169,7 @@ impl CompatAdapter {
 
 #[async_trait]
 impl ProviderAdapter for CompatAdapter {
+    fn release_send(&self, _group: &str) {}
     fn id(&self) -> &ProviderId {
         &self.id
     }
