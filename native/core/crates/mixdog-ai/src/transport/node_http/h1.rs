@@ -618,7 +618,10 @@ mod tests {
             far.write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 0\r\n\r\n").await.unwrap();
             head
         };
-        let (outcome, head) = tokio::join!(exchange, server);
+        // Without the handoff the exchange waits for hyper and the server for the request: neither ends.
+        let (outcome, head) = mixdog_rt::time::timeout(Duration::from_secs(20), async { tokio::join!(exchange, server) })
+            .await
+            .expect("hyper took the request, it went out and its answer came back within 20 s");
         assert_eq!(head, b"GET / HTTP/1.1\r\n\r\n");
         match outcome {
             Exchange::Answered { response, written } => assert_eq!((response.status().as_u16(), written), (200, true)),
