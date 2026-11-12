@@ -547,6 +547,7 @@ async fn a_pasted_text_reaches_the_summary_request_as_nodes() {
             io: ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io },
             data_dir: dir_seams.path().to_path_buf(),
             blobs: Arc::new(super::super::attachment_store::StoreBlobs::new(blobs.clone(), &tokens)),
+            reuses: Arc::default(),
         }));
         let rig =mixdog_core_session::session::testing::Rig::new();
         let mut deps = rig.deps_parts(rig.store.clone());
