@@ -298,7 +298,7 @@ async function compactionPastedText() {
   // The entry a client's compact request reaches (`compactSessionMessages`, session-crud.mjs:384), over the session as
   // the store holds it and the provider the registry hands it (`getProvider(session.provider)`).
   const { compactSessionMessages } = await load('src/runtime/agent/orchestrator/session/manager/session-crud.mjs');
-  const { saveSessionAsync } = await load('src/runtime/agent/orchestrator/session/store.mjs');
+  const { saveSessionAsync, loadSession } = await load('src/runtime/agent/orchestrator/session/store.mjs');
   const { _withRegisteredProviderForTestAsync } = await load('src/runtime/agent/orchestrator/providers/registry.mjs');
   const { linkParentSignalToSession } = await load('src/runtime/agent/orchestrator/session/manager/runtime-liveness.mjs');
   const { closeSession } = await load('src/runtime/agent/orchestrator/session/manager/session-close.mjs');
@@ -344,14 +344,18 @@ async function compactionPastedText() {
     const sends = [];
     let sendStarted;
     const started = new Promise((resolve) => (sendStarted = resolve));
+    // The signal each send was handed, to record whether it was aborted once the session ended.
+    const signals = [];
     const provider = {
       name: 'openai',
       send: async (...sendArgs) => {
         // Every argument as sent (the options carry the abort signal: recorded as its state).
         sends.push(exactArgs(sendArgs, { classes: { AbortSignal: (s) => ({ aborted: s.aborted }) } }));
+        signals.push(sendArgs[3]?.signal ?? null);
         sendStarted();
-        // A summary send in flight when its session closes: it ends with the signal's reason, as a real provider's does.
-        if (endedInFlight.includes(name)) {
+        // The first summary send in flight when its session ends: it ends with the signal's reason, as a real provider's
+        // does. A start after the end is answered.
+        if (endedInFlight.includes(name) && sends.length === 1) {
           const { signal } = sendArgs[3];
           return new Promise((_, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
         }
@@ -372,7 +376,15 @@ async function compactionPastedText() {
     }
     let result;
     let deleted;
+    let after;
+    let firstSends;
     // The compaction as the client reaches it, and for `shutdown` through the session ops that register it with the runtime.
+    // What the session published around the compaction: the hooks the session ops dispatch (`preCompactHook`,
+    // `postCompactHook`).
+    const events = [];
+    live.preCompactHook = async ({ trigger }) => events.push(['pre', trigger]);
+    live.postCompactHook = async ({ trigger }) => events.push(['post', trigger]);
+    const initial = structuredClone(JSON.parse(JSON.stringify(live, (k, v) => (typeof v === 'function' ? undefined : v))));
     const rt = { activeTurnAbortControllers: new Set(), closeRequested: false, session: live };
     const controls = activeTurnControls(rt);
     const ops = createSessionOps({
@@ -394,10 +406,30 @@ async function compactionPastedText() {
     try {
       result = { value: exact(await _withRegisteredProviderForTestAsync('openai', provider, async () => {
         if (!ended) return compactSessionMessages(live.id);
-        const compacting = name === 'shutdown' ? ops.compact() : compactSessionMessages(live.id);
+        // The compaction a client's compact request starts: the session ops' (they dispatch the hooks).
+        const compacting = ended ? ops.compact() : compactSessionMessages(live.id);
         await started;
         await ended();
-        return compacting;
+        const answer = await compacting;
+        if (!ended) return answer;
+        // After the end: the summary send's signal, what the store holds, and a start after it.
+        firstSends = sends.length;
+        const stored = loadSession(live.id);
+        const storedHeader = stored ? JSON.parse(JSON.stringify(stored, (k, v) => (k === 'messages' || typeof v === 'function' ? undefined : v))) : null;
+        const changedKeys = storedHeader ? [...new Set([...Object.keys(initial), ...Object.keys(storedHeader)])].filter((k) => k !== 'messages' && JSON.stringify(initial[k]) !== JSON.stringify(storedHeader[k])).sort() : null;
+        after = {
+          signalsAborted: signals.map((s) => s?.aborted ?? null),
+          stored: stored ? { messages: exact(stored.messages), headerChangedKeys: changedKeys } : null,
+          events: structuredClone(events),
+        };
+        let nextStart;
+        try {
+          nextStart = { value: exact(await ops.compact()) };
+        } catch (error) {
+          nextStart = { error: exact(error) };
+        }
+        after.next = { ...nextStart, sendsAfter: sends.length - firstSends };
+        return answer;
       })) };
     } catch (error) {
       result = { error: exact(error) };
@@ -407,7 +439,7 @@ async function compactionPastedText() {
         await new Promise((resolve) => holder.once('exit', resolve));
       }
     }
-    cases.push(scrubData({ name, blob: name === 'gone' ? null : bytes.toString('base64'), part: exact(part), messages: exact(messages), sends, result, ...(deleted === undefined ? {} : { deleted }) }));
+    cases.push(scrubData({ name, blob: name === 'gone' ? null : bytes.toString('base64'), part: exact(part), messages: exact(messages), sends: firstSends === undefined ? sends : sends.slice(0, firstSends), result, ...(after === undefined ? {} : { after }), ...(deleted === undefined ? {} : { deleted }) }));
   }
   return { cases };
 }
@@ -431,14 +463,14 @@ if (only && !recorded.length) throw new Error(`no scenario ${only}`);
 writeSetManifest(outDir, {
   set: 'session-gaps',
   recorder: RECORDER,
-  command: `node ${RECORDER} --tree <exact export of b6f10295a>`,
+  command: `node ${RECORDER} --tree <export of b6f10295a with the patch applied> --patch benchmarks/rust-core/recorders/node-patches/node-fix-manual-compaction-ends-with-session.patch`,
   extra: {
     scenarios: Object.keys(scenarios),
     values: 'exact (benchmarks/rust-core/recorders/lib/exact.mjs)',
     exclusions: [
-      'attachment-preflight: each send records the Responses request body Node builds from the messages it hands the provider (`wire`: openai-responses-payload.mjs buildRequestBody, public OpenAI route); the replay compares the core\'s body for the same request whole (the core\'s openai body builder). Named absence: Node reads a stored PDF\'s bytes as it builds the body (readAttachmentBase64) and sends an input_file; the core\'s builder lowers a stored file reference to the text "[attachment: <ref>]" (mixdog-ai providers/openai/input.rs) and no stage of the provider path reads the blob first, so the replay resolves the references with the model proxy\'s inlining (mixdog-ai service/model_proxy_inline.rs inline_attachments) before building. The recorded `messages` (which carry the file parts\' measured facts) are not compared for these cases: the body is what is sent',
-      'attachment-preflight, text-only-scan: the route reads a PDF as text through the extension host\'s extraction, so no `wire` is recorded for it (a chat body); the replay compares the core\'s request messages for it, with Node\'s file part without the measured facts (sizeBytes, pageCount, textPages, textChars), which the core prices from the part\'s stored row, and those facts compared whole with that row',
-      'compaction-pasted-text: the whole set is recorded from the tree with benchmarks/rust-core/recorders/node-patches/node-fix-manual-compaction-ends-with-session.patch applied (Node 1.4.5 gave a manual compaction no signal of its own, so closing the session or the runtime could not stop one in flight and its result came back after the close; the patch registers the compaction with the session\'s controller and with the runtime\'s active turns). The patch changes only that path: the cases that run no close record the same results, and their summary send now carries the signal (recorded as its state, { aborted: false }); closed, deleted and shutdown exist only because of it',
+      'attachment-preflight: each send records the Responses request body Node builds from the messages it hands the provider (`wire`: openai-responses-payload.mjs buildRequestBody, public OpenAI route); the replay compares the body the core\'s openai body builder makes from the request the run hands its provider, whole; the run reads each stored file itself before that (the host\'s attachment resolver, as Node\'s builder reads it with readAttachmentBase64). The recorded `messages` (which carry the file parts\' measured facts) are not compared for these cases: the body is what is sent',
+      'attachment-preflight, text-only-scan: no `wire` is recorded for it. Its provider (deepseek, nativePdf = false) sends a chat body after preparePdfTextForProvider has read the PDF as text through pdf.js, and the core wires that step only for the managed local route (run_host/media.rs MediaLowering::prepare_pdf_text), so no product path of the core builds this body for a stored PDF; the stored reference stays unread for a provider that takes a PDF as text. The replay compares the request messages the core hands the provider, with Node\'s file part without the measured facts (sizeBytes, pageCount, textPages, textChars), which the core prices from the part\'s stored row, and those facts compared whole with that row',
+      'compaction-pasted-text: the whole set is recorded from the tree with benchmarks/rust-core/recorders/node-patches/node-fix-manual-compaction-ends-with-session.patch applied (Node 1.4.5 gave a manual compaction no signal of its own, so closing the session or the runtime could not stop one in flight and its result came back after the close; the patch registers the compaction with the session\'s controller and with the runtime\'s active turns). The patch changes only that path: the cases that run no close record the same results, and their summary send now carries the signal (recorded as its state, { aborted: false }); closed, deleted and shutdown exist only because of it. Those three also record `after`: whether each summary send\'s signal was aborted, the stored session (transcript whole, and the header keys that differ from the header before the compaction), the events published (the session ops\' pre/post compact hooks, through which these cases start the compaction) and a second start (its answer, and how many summary sends it made); the first start\'s summary send never answers, a start after it does. The replay compares: the hooks whole; that the core dropped the summary stream in flight (Node: the send\'s signal aborted); the transcript whole; the header as a set (no key changed that Node\'s did not: closed\'s keys are Node\'s own tombstone bookkeeping); a deleted session as nothing stored in Node, and in the core as gone or carrying its delete mark with no summary applied (the core\'s log keeps the mark); a start after the end of closed and deleted as one that begins no compaction and asks no summary. The start after shutdown is not compared: Node\'s runtime stays up after abortActiveTurns and compacts again, the core\'s shutdown ends the directory',
       'image-strip, error-after-partial-output: the error carries what the provider\'s stream tracker put on it (partialContent, partialToolCalls, toolCallsDispatched, liveTextEmitted) and the stamps stampStreamOutcome adds; the replay builds each from the text and completed calls the core\'s stream delivered before it failed',
       'legacy-json-keys: the document is recorded as 1.4.5 read it (a lone surrogate kept: exact\'s utf16 tag; two-distinct-lone-surrogates holds two such keys); the migration replay compares it with each lone surrogate read as U+FFFD and the keys that are equal after that as one (the last value at the first\'s place), because the core\'s store holds UTF-8 text and no UTF-8 text holds a lone surrogate (mixdog-migrate json::replace_lone_surrogates, long_session_log.rs)',
       'attachment-preflight, compaction-pasted-text: the data directory inside a recorded value is written <data>',

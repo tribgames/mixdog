@@ -1,9 +1,9 @@
 {
-  "command": "node benchmarks/rust-core/recorders/record-session-gaps.mjs --tree <exact export of b6f10295a>",
+  "command": "node benchmarks/rust-core/recorders/record-session-gaps.mjs --tree <export of b6f10295a with the patch applied> --patch benchmarks/rust-core/recorders/node-patches/node-fix-manual-compaction-ends-with-session.patch",
   "exclusions": [
-    "attachment-preflight: each send records the Responses request body Node builds from the messages it hands the provider (`wire`: openai-responses-payload.mjs buildRequestBody, public OpenAI route); the replay compares the core's body for the same request whole (the core's openai body builder). Named absence: Node reads a stored PDF's bytes as it builds the body (readAttachmentBase64) and sends an input_file; the core's builder lowers a stored file reference to the text \"[attachment: <ref>]\" (mixdog-ai providers/openai/input.rs) and no stage of the provider path reads the blob first, so the replay resolves the references with the model proxy's inlining (mixdog-ai service/model_proxy_inline.rs inline_attachments) before building. The recorded `messages` (which carry the file parts' measured facts) are not compared for these cases: the body is what is sent",
-    "attachment-preflight, text-only-scan: the route reads a PDF as text through the extension host's extraction, so no `wire` is recorded for it (a chat body); the replay compares the core's request messages for it, with Node's file part without the measured facts (sizeBytes, pageCount, textPages, textChars), which the core prices from the part's stored row, and those facts compared whole with that row",
-    "compaction-pasted-text: the whole set is recorded from the tree with benchmarks/rust-core/recorders/node-patches/node-fix-manual-compaction-ends-with-session.patch applied (Node 1.4.5 gave a manual compaction no signal of its own, so closing the session or the runtime could not stop one in flight and its result came back after the close; the patch registers the compaction with the session's controller and with the runtime's active turns). The patch changes only that path: the cases that run no close record the same results, and their summary send now carries the signal (recorded as its state, { aborted: false }); closed, deleted and shutdown exist only because of it",
+    "attachment-preflight: each send records the Responses request body Node builds from the messages it hands the provider (`wire`: openai-responses-payload.mjs buildRequestBody, public OpenAI route); the replay compares the body the core's openai body builder makes from the request the run hands its provider, whole; the run reads each stored file itself before that (the host's attachment resolver, as Node's builder reads it with readAttachmentBase64). The recorded `messages` (which carry the file parts' measured facts) are not compared for these cases: the body is what is sent",
+    "attachment-preflight, text-only-scan: no `wire` is recorded for it. Its provider (deepseek, nativePdf = false) sends a chat body after preparePdfTextForProvider has read the PDF as text through pdf.js, and the core wires that step only for the managed local route (run_host/media.rs MediaLowering::prepare_pdf_text), so no product path of the core builds this body for a stored PDF; the stored reference stays unread for a provider that takes a PDF as text. The replay compares the request messages the core hands the provider, with Node's file part without the measured facts (sizeBytes, pageCount, textPages, textChars), which the core prices from the part's stored row, and those facts compared whole with that row",
+    "compaction-pasted-text: the whole set is recorded from the tree with benchmarks/rust-core/recorders/node-patches/node-fix-manual-compaction-ends-with-session.patch applied (Node 1.4.5 gave a manual compaction no signal of its own, so closing the session or the runtime could not stop one in flight and its result came back after the close; the patch registers the compaction with the session's controller and with the runtime's active turns). The patch changes only that path: the cases that run no close record the same results, and their summary send now carries the signal (recorded as its state, { aborted: false }); closed, deleted and shutdown exist only because of it. Those three also record `after`: whether each summary send's signal was aborted, the stored session (transcript whole, and the header keys that differ from the header before the compaction), the events published (the session ops' pre/post compact hooks, through which these cases start the compaction) and a second start (its answer, and how many summary sends it made); the first start's summary send never answers, a start after it does. The replay compares: the hooks whole; that the core dropped the summary stream in flight (Node: the send's signal aborted); the transcript whole; the header as a set (no key changed that Node's did not: closed's keys are Node's own tombstone bookkeeping); a deleted session as nothing stored in Node, and in the core as gone or carrying its delete mark with no summary applied (the core's log keeps the mark); a start after the end of closed and deleted as one that begins no compaction and asks no summary. The start after shutdown is not compared: Node's runtime stays up after abortActiveTurns and compacts again, the core's shutdown ends the directory",
     "image-strip, error-after-partial-output: the error carries what the provider's stream tracker put on it (partialContent, partialToolCalls, toolCallsDispatched, liveTextEmitted) and the stamps stampStreamOutcome adds; the replay builds each from the text and completed calls the core's stream delivered before it failed",
     "legacy-json-keys: the document is recorded as 1.4.5 read it (a lone surrogate kept: exact's utf16 tag; two-distinct-lone-surrogates holds two such keys); the migration replay compares it with each lone surrogate read as U+FFFD and the keys that are equal after that as one (the last value at the first's place), because the core's store holds UTF-8 text and no UTF-8 text holds a lone surrogate (mixdog-migrate json::replace_lone_surrogates, long_session_log.rs)",
     "attachment-preflight, compaction-pasted-text: the data directory inside a recorded value is written <data>",
@@ -17,9 +17,9 @@
       "sha256": "7e8e72f07731d57bc7271e16a5bf163b6bc10a99ece3f25fcc0361c16acf6e4d"
     },
     {
-      "bytes": 734479,
+      "bytes": 801204,
       "path": "compaction-pasted-text.json",
-      "sha256": "7d1d59959b97823abcfcaa5dd3cacf22ac80922648b176543fd4e36e57e36331"
+      "sha256": "4c1bd65403404af9882d47060305cdd84091ca4638943d07b36405b8747fd0ac"
     },
     {
       "bytes": 32476,
@@ -63,7 +63,7 @@
         "src/runtime/agent/orchestrator/session/manager/session-crud.mjs",
         "src/session-runtime/turn/session-ops.mjs"
       ],
-      "sha256": "2dfc494e456b0ce06d2d722488d68aa87219638be59a6d2a57e0961d4fcde23c"
+      "sha256": "096e16b4ba11a27bc41b69950104d459618e851d955348371350e93edbc6b61d"
     },
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
@@ -71,13 +71,13 @@
       "exact": false,
       "filesDifferingFromCommit": 5
     },
-    "srcSha256": "b9c7d4863c16a8ded66e8d545ccbd0f26eebb28120f8181acd91d95fd91e26e6",
+    "srcSha256": "0de8825704a21443c71d110b014b255f70f167085cf100102c72d370c997fa65",
     "tree": "product tree loaded by the recorder",
     "treeKind": "archive",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-session-gaps.mjs",
-  "recorderSha256": "3bb3424d7a7ce92d6543bcf58e0a80b3df0d26fc545d82258adbc08f6cf79a08",
+  "recorderSha256": "2569bf4b42cfbf696fdfcec80f4cad3dbae585bb3ea618a35225f8de022cbf2a",
   "scenarios": [
     "legacy-json-keys",
     "image-strip",
@@ -85,6 +85,6 @@
     "compaction-pasted-text"
   ],
   "set": "session-gaps",
-  "totalBytes": 1195057,
+  "totalBytes": 1261782,
   "values": "exact (benchmarks/rust-core/recorders/lib/exact.mjs)"
 }
