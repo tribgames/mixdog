@@ -1,0 +1,214 @@
+{
+  "slugMax": 40,
+  "slugs": [
+    {
+      "hint": "Fix the login page!",
+      "slug": "fix-the-login-page",
+      "valid": true
+    },
+    {
+      "hint": "  Café crème: déjà vu  ",
+      "slug": "cafe-creme-deja-vu",
+      "valid": true
+    },
+    {
+      "hint": "../../etc/passwd",
+      "slug": "etc-passwd",
+      "valid": true
+    },
+    {
+      "hint": "로그인 버그 고치기",
+      "slug": "task",
+      "valid": true
+    },
+    {
+      "hint": "",
+      "slug": "task",
+      "valid": true
+    },
+    {
+      "hint": "NUL",
+      "slug": "nul-task",
+      "valid": true
+    },
+    {
+      "hint": "com1",
+      "slug": "com1-task",
+      "valid": true
+    },
+    {
+      "hint": "branch.lock",
+      "slug": "branch-lock",
+      "valid": true
+    },
+    {
+      "hint": "implement the new billing export pipeline with retries and audit logging",
+      "slug": "implement-the-new-billing-export",
+      "valid": true
+    },
+    {
+      "hint": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "slug": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "valid": true
+    },
+    {
+      "hint": "a",
+      "slug": "a",
+      "valid": true
+    },
+    {
+      "hint": "___",
+      "slug": "task",
+      "valid": true
+    },
+    {
+      "hint": "CON",
+      "slug": "con-task",
+      "valid": true
+    },
+    {
+      "hint": "prn",
+      "slug": "prn-task",
+      "valid": true
+    },
+    {
+      "hint": "LPT9 printer",
+      "slug": "lpt9-printer",
+      "valid": true
+    },
+    {
+      "hint": "ÀÉÎÕÜ ñ naïve Ångström",
+      "slug": "aeiou-n-naive-angstrom",
+      "valid": true
+    },
+    {
+      "hint": "ｆｕｌｌｗｉｄｔｈ ＡＢＣ ①②",
+      "slug": "fullwidth-abc-12",
+      "valid": true
+    },
+    {
+      "hint": "Ⅻ ﬁnal ﬂow",
+      "slug": "xii-final-flow",
+      "valid": true
+    },
+    {
+      "hint": "İstanbul Ünïcode ǅ",
+      "slug": "istanbul-unicode-dz",
+      "valid": true
+    },
+    {
+      "hint": "école à la carte",
+      "slug": "ecole-a-la-carte",
+      "valid": true
+    },
+    {
+      "hint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa bb",
+      "slug": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "valid": true
+    },
+    {
+      "hint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa b",
+      "slug": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-b",
+      "valid": true
+    },
+    {
+      "hint": "ab-ab-ab-ab-ab-ab-ab-ab-ab-ab-ab-ab-ab-ab-ab-ab-ab-ab-ab-ab-",
+      "slug": "ab-ab-ab-ab-ab-ab-ab-ab-ab-ab-ab-ab-ab",
+      "valid": true
+    },
+    {
+      "hint": "tab\tand\nnewline  words",
+      "slug": "tab-and-newline-words",
+      "valid": true
+    },
+    {
+      "hint": "😀 emoji only 😀",
+      "slug": "emoji-only",
+      "valid": true
+    }
+  ],
+  "unique": [
+    {
+      "base": "fix",
+      "taken": [
+        "fix",
+        "fix-2"
+      ],
+      "slug": "fix-3",
+      "valid": true
+    },
+    {
+      "base": "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy",
+      "taken": [
+        "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy"
+      ],
+      "slug": "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy-2",
+      "valid": true
+    },
+    {
+      "base": "fix",
+      "taken": [],
+      "slug": "fix",
+      "valid": true
+    },
+    {
+      "base": "bad..name",
+      "taken": [],
+      "slug": "task",
+      "valid": true
+    },
+    {
+      "base": "bad..name",
+      "taken": [
+        "task",
+        "task-2",
+        "task-3"
+      ],
+      "slug": "task-4",
+      "valid": true
+    },
+    {
+      "base": "-lead",
+      "taken": [],
+      "slug": "task",
+      "valid": true
+    },
+    {
+      "base": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "taken": [],
+      "slug": "task",
+      "valid": true
+    },
+    {
+      "base": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+      "taken": [
+        "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+        "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-2"
+      ],
+      "slug": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz-3",
+      "valid": true
+    },
+    {
+      "base": "a-",
+      "taken": [
+        "a-"
+      ],
+      "slug": "a",
+      "valid": true
+    }
+  ],
+  "random": [
+    {
+      "base": "busy",
+      "takes": "only <base>-<8 lowercase hex digits>",
+      "length": 13,
+      "valid": true
+    },
+    {
+      "base": "qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq",
+      "takes": "only <31 q>-<8 lowercase hex digits>",
+      "length": 40,
+      "valid": true
+    }
+  ]
+}
