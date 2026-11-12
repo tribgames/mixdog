@@ -566,6 +566,9 @@ export function createProtocolConnection({ open, defer }: ProtocolConnectionOpti
       closedByOwner = true;
       epoch += 1;
       newest = null;
+      // The handshake in flight can no longer settle `synced` (it is no longer the owner): what waits on it, a call
+      // made before the first open included, ends here.
+      if (!syncedSettled) settleSynced(new Error('The core connection is closed.'));
       const closing = client;
       client = null;
       relay = null;
