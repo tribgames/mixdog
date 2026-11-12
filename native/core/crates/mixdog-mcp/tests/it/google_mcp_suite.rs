@@ -118,7 +118,10 @@ async fn a_server_at_a_reserved_address_answers_through_the_transport() {
     let transport = transport.with_google_fetch(google.clone());
     let message: Value = serde_json::from_str(case["input"]["requests"][0]["body"].as_str().expect("body")).expect("json");
     transport.send(message, mixdog_mcp::deadlines::CALL).await.expect("sent");
-    let Some(Incoming::Message(got)) = incoming.recv().await else { panic!("the answer arrives as a message") };
+    let arrived = mixdog_rt::time::timeout(std::time::Duration::from_secs(30), incoming.recv())
+        .await
+        .expect("the transport's answer to initialize did not arrive within 30s");
+    let Some(Incoming::Message(got)) = arrived else { panic!("the answer arrives as a message") };
     let want: Value = serde_json::from_str(case["observed"]["responses"][0]["body"].as_str().expect("body")).expect("json");
     assert_eq!(got, want);
     assert_eq!(google.calls.lock().expect("calls")[0]["authorization"], Value::Null, "the token is checked at Google's tokeninfo, which takes it in the URL");
