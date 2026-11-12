@@ -18,10 +18,12 @@ const sandbox = mkdtempSync(join(tmpdir(), 'tool-resolution-'));
 for (const key of ['MIXDOG_DATA_DIR', 'MIXDOG_HOME', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA']) process.env[key] = sandbox;
 process.env.MIXDOG_SKIP_USER_DATA_BACKUP = '1';
 process.env.TZ = 'UTC';
-const { FIXTURES_ROOT, importFrom, parseArgs, recordingProvenance, resolveTree, exactProductIdentity, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
+const { FIXTURES_ROOT, importFrom, parseArgs, recordingProvenance, resolveTree, nodeTreeIdentity, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
 
 const { writeJsonCompact } = await import('./lib/tool-definitions.mjs');
-const tree = resolveTree(parseArgs());
+// `--patch <file>`: the tree is the reference commit with that Node fix applied (a clear Node bug fixed on both sides).
+const args = parseArgs();
+const tree = resolveTree(args);
 const finalDir = join(FIXTURES_ROOT, 'tool-resolution');
 // `harness-request.json` beside it is `record-harness-request-tools.mjs`'s and is kept.
 const stage = stageSet(finalDir, ['golden.json', 'MANIFEST.json']);
@@ -267,8 +269,8 @@ await writeJsonCompact(tree, join(stage, 'golden.json'), {
 writeSetManifest(stage, {
   set: 'tool-resolution',
   recorder,
-  command: `node ${recorder} --tree <tree>`,
-  identity: exactProductIdentity(tree, 'b6f10295a2f698afc85332467192de28500bd146'),
+  command: `node ${recorder} --tree <tree>${args.get('patch') ? ` --patch ${args.get('patch')}` : ''}`,
+  identity: nodeTreeIdentity(args, tree, 'b6f10295a2f698afc85332467192de28500bd146'),
   extra: recordingProvenance(recorder, ['benchmarks/rust-core/recorders/lib/common.mjs', 'benchmarks/rust-core/recorders/lib/tool-definitions.mjs']),
 });
 // Only this recorder's two files are swapped in: `commitStage` replaces every file of the folder with the staged copy,

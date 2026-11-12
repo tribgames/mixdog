@@ -15,11 +15,13 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { FIXTURES_ROOT, parseArgs, resolveTree, stageSet, commitStage, writeJson, writeSetManifest } from '../lib/common.mjs';
+import { FIXTURES_ROOT, nodeTreeIdentity, parseArgs, resolveTree, stageSet, commitStage, writeJson, writeSetManifest } from '../lib/common.mjs';
+import { recorderProvenance } from '../lib/provenance.mjs';
 
 const NODE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
 const HERE = dirname(fileURLToPath(import.meta.url));
-const tree = resolveTree(parseArgs());
+const args = parseArgs();
+const tree = resolveTree(args);
 const head = execFileSync('git', ['--git-dir', join(tree, '.git'), 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
 if (head !== NODE_COMMIT) throw new Error(`the tree is at ${head}, the recording is of ${NODE_COMMIT}`);
 
@@ -130,6 +132,7 @@ for (const [raw, token] of tokens.slice(0, 2)) sequenceText = sequenceText.repla
 const inFlight = JSON.parse(sequenceText);
 
 const rel = 'benchmarks/rust-core/recorders/context-status-route/record.mjs';
+const patch = args.get('patch') ? nodeTreeIdentity(args, tree, NODE_COMMIT).patch.file : null;
 const finalOut = join(FIXTURES_ROOT, 'context-status-route');
 const out = stageSet(finalOut);
 writeJson(join(out, 'golden.json'), {
@@ -147,9 +150,10 @@ writeJson(join(out, 'golden.json'), {
 writeSetManifest(out, {
   set: 'context-status-route',
   recorder: rel,
-  command: `node ${rel} --tree <git clone of the Node product at ${NODE_COMMIT}>`,
-  identityTree: tree,
-  identityRef: NODE_COMMIT,
+  command: `node ${rel} --tree <git clone of the Node product at ${NODE_COMMIT}${patch ? ` with ${patch} applied` : ''}>${patch ? ` --patch ${patch}` : ''}`,
+  // `--patch <file>`: the clone's working tree carries that Node fix (a clear Node bug fixed on both sides).
+  ...(patch ? { identity: nodeTreeIdentity(args, tree, NODE_COMMIT) } : { identityTree: tree, identityRef: NODE_COMMIT }),
+  extra: recorderProvenance(import.meta.url),
 });
 commitStage(out, finalOut);
 rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });

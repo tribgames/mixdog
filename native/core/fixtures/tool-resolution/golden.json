@@ -138,7 +138,7 @@
         "definition": {
           "$tool": "agent",
           "variant": "internal",
-          "hash": "edf17a67c3d7d675"
+          "hash": "ac4b8ff47222b0b9"
         }
       },
       {
@@ -430,7 +430,7 @@
     "agent": {
       "$tool": "agent",
       "variant": "internal",
-      "hash": "edf17a67c3d7d675"
+      "hash": "ac4b8ff47222b0b9"
     },
     "web_search": {
       "$tool": "web_search",
@@ -514,7 +514,7 @@
     },
     "agent#2": {
       "$tool": "agent",
-      "hash": "b33e2ad9124ca444"
+      "hash": "1fb5d1d77c543631"
     },
     "ask_user#2": {
       "$tool": "ask_user",
