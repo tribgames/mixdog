@@ -888,8 +888,10 @@ async fn a_spawn_equals_nodes() {
 
 /// A spawn that pins a model, through the agent tool's own entry (`AgentRuntime::handle`): the model is
 /// resolved against the recorded catalog, the real spawn flow resolves the route, and the session spec
-/// handed to session creation carries Node's agent, preset name and preset. The answer of a request that
-/// failed is compared whole; the answer of a spawn that started names the board's own job id.
+/// handed to session creation carries Node's agent, preset name and preset. Every case is compared whole:
+/// the answer (status, type, notification or the error), the session as created and the job's error. The
+/// one thing normalised is the generated job id: the recorder's stand-in task is `job-1`, the board's own
+/// is generated, so the board's id in the answer is read as `job-1`.
 #[tokio::test(start_paused = true)]
 async fn a_pinned_model_spawn_equals_nodes() {
     backend();
@@ -909,10 +911,17 @@ async fn a_pinned_model_spawn_equals_nodes() {
         let caller = Caller { scope: Scope { caller_session_id: Some("lead".into()), host_pid: Some(4242) }, cwd: "/work".into() };
         let reply = rig.runtime.handle(&recorded_scenario["args"], &caller).await;
         settle().await;
-        let answer = render(&reply, "");
-        let want = s(&case["result"], "answer");
-        if want.starts_with("Error: ") {
-            assert_eq!(answer, want, "{name}: answer");
+        let jobs = rig.shared.board.list_jobs(&Scope::default());
+        let mut answer = render(&reply, "");
+        for job in &jobs {
+            answer = answer.replace(&job.task_id, "job-1");
+        }
+        assert_eq!(answer, s(&case["result"], "answer"), "{name}: answer");
+        let started = !answer.starts_with("Error: ");
+        assert_eq!(jobs.len(), usize::from(started), "{name}: jobs");
+        let want_error = case["result"]["error"].as_str().map(str::to_owned);
+        for job in &jobs {
+            assert_eq!(job.error, want_error, "{name}: the job's error");
         }
         let created: Vec<Value> = lock(&rig.shared.log)
             .iter()
