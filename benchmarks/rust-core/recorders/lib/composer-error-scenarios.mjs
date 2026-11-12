@@ -96,5 +96,18 @@ export function composerErrorScenarios({ i18n, composerSubmitErrorText, codedErr
       }
       return { answered };
     },
+    // Node's relay keeps no outcome: a call that failed is not stored, a phone that asks again (after a reconnect, with the same
+    // arguments) has it fail afresh through the same redaction, and no relay method reads an outcome back.
+    "the relay keeps no outcome: a failed secret-bearing call asked again fails afresh, redacted, and no method reads a stored outcome": async () => {
+      const secret = 'my-secret-value';
+      const thrown = Object.assign(new Error(`401 for key ${secret}`), { code: 'ROOM_MEMBER_SWITCHED_OFF', details: { name: `Rel-${secret}-x` } });
+      const call = { method: 'invokeCapability', params: [{ capability: 'saveProviderApiKey', args: { providerId: 'anthropic', secret } }] };
+      const methods = { invokeCapability: async () => { throw thrown; } };
+      const ask = (id, method, params) => executeRemoteFrame(methods, JSON.stringify({ id, method, params }));
+      const first = await ask(1, call.method, call.params);
+      const again = await ask(1, call.method, call.params);
+      const status = await ask(1, 'opStatus', [{ scope: 'account', opIds: ['op-1'] }]);
+      return { secret, call, thrown: { message: thrown.message, code: thrown.code, details: thrown.details }, first, again, status, secretInFrames: [first, again, status].map((frame) => JSON.stringify(frame).includes(secret)) };
+    },
   };
 }

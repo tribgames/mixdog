@@ -617,6 +617,59 @@
           }
         ]
       }
+    },
+    {
+      "case": "the relay keeps no outcome: a failed secret-bearing call asked again fails afresh, redacted, and no method reads a stored outcome",
+      "observed": {
+        "secret": "my-secret-value",
+        "call": {
+          "method": "invokeCapability",
+          "params": [
+            {
+              "capability": "saveProviderApiKey",
+              "args": {
+                "providerId": "anthropic",
+                "secret": "my-secret-value"
+              }
+            }
+          ]
+        },
+        "thrown": {
+          "message": "401 for key my-secret-value",
+          "code": "ROOM_MEMBER_SWITCHED_OFF",
+          "details": {
+            "name": "Rel-my-secret-value-x"
+          }
+        },
+        "first": {
+          "id": 1,
+          "ok": false,
+          "error": "401 for key [redacted]",
+          "errorCode": "ROOM_MEMBER_SWITCHED_OFF",
+          "errorParams": {
+            "name": "Rel-[redacted]-x"
+          }
+        },
+        "again": {
+          "id": 1,
+          "ok": false,
+          "error": "401 for key [redacted]",
+          "errorCode": "ROOM_MEMBER_SWITCHED_OFF",
+          "errorParams": {
+            "name": "Rel-[redacted]-x"
+          }
+        },
+        "status": {
+          "id": 1,
+          "ok": false,
+          "error": "unknown method: opStatus"
+        },
+        "secretInFrames": [
+          false,
+          false,
+          false
+        ]
+      }
     }
   ]
 }

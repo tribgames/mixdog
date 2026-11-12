@@ -605,6 +605,7 @@ impl Shared {
             host: capabilities.host,
             model_proxy: capabilities.model_proxy.unwrap_or(false),
             client,
+            origin,
         };
         if conn.initialize(session).is_err() {
             self.reject(conn, id, &ErrorData::AlreadyInitialized);
@@ -709,6 +710,8 @@ impl Shared {
             ClientRequest::OpStatus { params, .. } => {
                 let core = Arc::clone(&self.core);
                 let ctx = CallContext::connection(conn.id, origin, conn.cancel.clone());
+                // A rejection read back carries the text of a call whose secrets are no longer at hand: a relay is not told it.
+                let relay = crate::relay_answer::RelayAnswer::stored(Some(origin));
                 Dispatch::Later(
                     TaskClass::Work,
                     Box::pin(async move {
@@ -720,7 +723,7 @@ impl Shared {
                             .ops()
                             .status(&scope, &params.op_ids, params.fence, &ctx)
                             .await?;
-                        op_status_reply(params.op_ids, statuses)
+                        op_status_reply(params.op_ids, statuses, relay.as_ref())
                     }),
                 )
             }
@@ -1004,6 +1007,11 @@ impl Shared {
             result,
         };
         if let Err(error) = handle.decide(decision) {
+            // A relay connection is not told what a refused decision's error carries beyond its kind.
+            let error = match crate::relay_answer::RelayAnswer::stored(Some(origin)) {
+                Some(answer) => answer.error(error),
+                None => error,
+            };
             let _ = conn
                 .sink
                 .send_control(error_notification_frame(&error_data(&error)));
@@ -1110,7 +1118,8 @@ fn reply_value(value: &impl serde::Serialize) -> Result<Reply, CoreError> {
     ))
 }
 
-fn op_status_reply(op_ids: Vec<OpId>, statuses: Vec<OpStatus>) -> Result<Reply, CoreError> {
+/// `relay`: the cleaner of a relay connection's read, which tells a stored rejection without what a phone must not see.
+fn op_status_reply(op_ids: Vec<OpId>, statuses: Vec<OpStatus>, relay: Option<&crate::relay_answer::RelayAnswer>) -> Result<Reply, CoreError> {
     if statuses.len() != op_ids.len() {
         return Err(internal("op index answered another number of ids"));
     }
@@ -1122,7 +1131,10 @@ fn op_status_reply(op_ids: Vec<OpId>, statuses: Vec<OpStatus>) -> Result<Reply, 
             state: match status {
                 OpStatus::Applied { seq, result } => OpState::Applied { seq, result },
                 OpStatus::Rejected { error } => OpState::Rejected {
-                    error: error_body(&error),
+                    error: error_body(&match relay {
+                        Some(relay) => relay.error(error),
+                        None => error,
+                    }),
                 },
                 OpStatus::InProgress => OpState::InProgress,
                 OpStatus::ExternalUnknown { effect, target } => OpState::ExternalUnknown {

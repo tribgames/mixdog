@@ -424,6 +424,11 @@ impl ServerRequestSink for Outgoing {
 
     fn response_rejected(&self, to: ConnectionId, error: CoreError) {
         if let Some(conn) = self.connection(to) {
+            // A relay connection is not told what a rejected answer's error carries beyond its kind.
+            let error = match crate::relay_answer::RelayAnswer::stored(conn.session().map(|session| session.origin)) {
+                Some(answer) => answer.error(error),
+                None => error,
+            };
             let _ = conn
                 .sink
                 .send_control(error_notification_frame(&error_data(&error)));
