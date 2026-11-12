@@ -3240,7 +3240,7 @@ mod tests {
             // hands the session its tools; what reached a server is read from its log.
             let tokens = mixdog_rt::testing::tokens();
             let hub = mixdog_mcp::McpHub::new(
-                mixdog_mcp::McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io },
+                mixdog_mcp::McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io, cpu: tokens.cpu_bulk },
                 sandbox.path().join("artifacts"),
                 mixdog_mcp::result::OutputPolicy::default(),
             );
