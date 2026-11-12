@@ -37,8 +37,7 @@ use mixdog_core_config::config::Config;
 pub struct HopBindings {
     pub wiring: Arc<dyn HopWiring>,
     pub errors: ErrorText,
-    /// The facts source and the Codex-declared lookup `wiring` is built over: the session's effort prewarm (`JudgePrewarm`) reads the same ones, so a
-    /// prewarm and a turn agree on what Auto effort can judge.
+    /// The facts source and the Codex-declared lookup `wiring` is built over.
     pub source: Arc<dyn WiringSource>,
     pub codex_declared: Arc<CodexDeclared>,
 }

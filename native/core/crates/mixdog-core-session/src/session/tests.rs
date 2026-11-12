@@ -2591,8 +2591,6 @@ async fn a_cold_open_is_single_flight_and_reopens_the_same_state() {
         handles.push(open.await.expect("join"));
     }
     assert_eq!(rig.store.head_reads.load(std::sync::atomic::Ordering::SeqCst), reads + 1);
-    // The effort judge was prewarmed at the create and at the one open.
-    assert_eq!(*lock(&rig.prewarms.0), [id.clone(), id.clone()]);
     assert!(handles.iter().all(|h| Arc::ptr_eq(h, &handles[0])));
     let reopened = &handles[0];
     assert_eq!(rows(reopened), before);

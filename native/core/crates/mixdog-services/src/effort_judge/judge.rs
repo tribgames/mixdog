@@ -11,7 +11,7 @@
 //! read lane; only installs and their hash checks use the CPU bulk lane, which Node
 //! also runs off its worker. The model lives in a host process of its own ([`host`](crate::effort_judge::host)):
 //! a native fault in inference ends that process, not the core, and the next request starts a fresh one.
-//! It loads at a prewarm or the first judgment and is unloaded after [`KEEP_WARM`] without a judgment
+//! It loads at the first judgment of a turn (nothing loads it at a daemon start or a session open) and is unloaded after [`KEEP_WARM`] without a judgment
 //! (never under a request, a load or a turn's lease: [`EffortJudgeModel::hold_warm`]); the first turn after
 //! such an unload waits for the reload ([`RELOAD_WAIT`]). A failed load is remembered until the model
 //! is installed or repaired, so a broken model cannot add a load to every step.
@@ -19,8 +19,7 @@
 //! Install triggers, as Node has them: the first judged step of the instance
 //! refreshes a model that is not the current release (in the background, the
 //! step does not wait); a load failure verifies the files against the manifest
-//! once and fetches only the damaged ones; `prewarm` loads the model ahead of
-//! the first judged step.
+//! once and fetches only the damaged ones.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
@@ -843,44 +842,6 @@ impl EffortJudgeModel {
                 Err(error) => tracing::warn!(%error, "effort judge: model repair failed"),
             }
         });
-    }
-
-    /// Starts loading the model ahead of the first judged step. True when it is
-    /// loaded or loading; false when it cannot be: unsupported platform, an
-    /// install in progress, not installed, or a remembered load failure.
-    pub async fn prewarm(self: &Arc<Self>) -> bool {
-        if !self.config.runtime_supported() || self.is_installing() {
-            return false;
-        }
-        if !available_on(self.lanes.read, &self.config).await.unwrap_or(false) {
-            // A lane that could not read it answers "not now"; the next prewarm asks again.
-            return false;
-        }
-        self.touch_idle();
-        // A judgment or a load holds the gate: it is loaded or loading.
-        if self.turn.is_busy() {
-            return true;
-        }
-        let resident = self.loaded().as_ref().map(Result::is_ok);
-        match resident {
-            Some(ok) => ok,
-            None => {
-                let this = self.clone();
-                mixdog_rt::spawn("services.effort-judge.prewarm", TaskClass::Work, async move {
-                    // A cancelled gate means the instance's background work was ended: no model is
-                    // wanted, and nothing awaits this task's result.
-                    let _ = this
-                        .turn
-                        .run(&this.cancel, async {
-                            if !this.is_installing() {
-                                let _ = this.ensure_loaded().await;
-                            }
-                        })
-                        .await;
-                });
-                true
-            }
-        }
     }
 
     /// `shutdownEffortJudge()`: unloads the model; the next judgment loads it again.
