@@ -43,6 +43,11 @@ export const REPLAY_TARGETS = {
     rust: [r('mixdog-ai/src/providers/local/mod.rs', 150, 'RegisteredAdapter::new'), r('mixdog-services/src/local_provider/installed_models.rs', 40, 'ManagedRuntime')],
     missing: [],
   },
+  'corrupt-state-file-cases': {
+    rust: [r('mixdog-store/src/state.rs', 399, 'CoreState::open_or_set_aside'), r('mixdog-services/src/memory/cycles/ledger.rs', 73, 'Ledger::write')],
+    notPublic: [],
+    missing: ['a reader of memory-cycle-state.json (the statusline segment): Node-only, the core only writes the file'],
+  },
   'git-launch-cases': {
     rust: [r('mixdog-scm/src/git_launch.rs', 119, 'resolve_layout'), r('mixdog-scm/src/git_launch.rs', 207, 'launch_environment'), r('mixdog-scm/src/git_launch.rs', 267, 'launch_for'), r('mixdog-scm/src/git_launch.rs', 287, 'git_command'), r('mixdog-scm/src/git_launch.rs', 295, 'forget_missing'), r('mixdog-scm/src/git.rs', 90, 'start_git')],
     missing: ['startGitSync (the synchronous start with the same retry): no function'],
