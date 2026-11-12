@@ -22,7 +22,7 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::Mutex;
 
 use mixdog_rt::InLane;
-use mixdog_statefile::{Opts, StateError, holds_no_data, read_json, update_json, write_file};
+use mixdog_statefile::{Opts, Peek, StateError, holds_no_data, peek, read_json, update_json, write_file};
 use serde::Serialize;
 use serde_json::{Number, Value};
 
@@ -245,6 +245,19 @@ impl Registry {
     /// `listProjectsStrict`: an I/O failure is an error, not an empty registry.
     pub fn list_strict<L: WriteLane>(&self, lane: &InLane<L>) -> io::Result<Vec<ProjectEntry>> {
         self.list_body(lane, true)
+    }
+
+    /// The registry as the file holds it, read without touching the file: no recovery, so a damaged file is neither moved
+    /// aside nor read as empty. For a reader that must leave the file as it found it and must not take a damaged registry
+    /// for one that lists nothing. A missing file is an empty registry; a damaged one, or a newer build's, is an error.
+    pub fn list_untouched<L: WriteLane>(&self, lane: &InLane<L>) -> io::Result<Vec<ProjectEntry>> {
+        let _held = self.lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        match peek(lane, &self.path, None)? {
+            Peek::Absent => Ok(Vec::new()),
+            Peek::Value(doc) => normalize(&doc, true).map(Self::sorted),
+            Peek::Unsupported => Err(io::Error::other(format!("{} was written by a newer build", self.path.display()))),
+            Peek::Damaged(reason) => Err(io::Error::other(format!("{} is damaged: {reason}", self.path.display()))),
+        }
     }
 
     /// `mutateStore`: read (recovering a damaged file), mutate, and write only when changed. The

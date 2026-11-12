@@ -99,8 +99,10 @@ fn recency(entry: &ProjectEntry) -> Option<i64> {
 
 /// The rows after the registry `entries` joined the rows `rows`, as the rows to write and the paths to delete. The registry decides what is
 /// listed (as in the desktop): a registered path is a visible row of the registry's spelling and name, keeping its alias and a later
-/// recency; a row that only holds a preference of a path the registry does not have (no recency: the migration made it from
-/// `desktop-projects.json`) becomes a tombstone, which keeps the alias and lists nothing.
+/// recency; a row that only holds a preference of a path the registry does not have (no name: the migration made it from
+/// `desktop-projects.json`, where `add` and `rename` name the rows the core registers) becomes a tombstone, which keeps the alias
+/// and lists nothing. A selection of such a row in an earlier build (`touch`) does not register it: Node never listed the path, and
+/// a listed row is one the code graph trusts.
 fn joined(rows: Vec<ProjectRow>, entries: &[ProjectEntry]) -> (Vec<ProjectRow>, Vec<String>) {
     let (mut puts, mut deletes, mut matched) = (Vec::new(), Vec::new(), std::collections::HashSet::new());
     for entry in entries {
@@ -126,7 +128,7 @@ fn joined(rows: Vec<ProjectRow>, entries: &[ProjectEntry]) -> (Vec<ProjectRow>, 
         puts.push(row);
     }
     let mut rank = rows.iter().filter_map(|r| r.hidden_rank).max().unwrap_or(-1);
-    for old in rows.iter().filter(|r| !r.hidden && r.last_used_at.is_none() && !matched.contains(&project_key(&r.path))) {
+    for old in rows.iter().filter(|r| !r.hidden && r.name.is_none() && !matched.contains(&project_key(&r.path))) {
         rank += 1;
         puts.push(ProjectRow { hidden: true, hidden_rank: Some(rank), ..old.clone() });
     }
@@ -153,9 +155,9 @@ impl Catalog {
         if self.state.meta(REGISTRY_IMPORTED).await.map_err(store)?.is_some() {
             return Ok(false);
         }
-        let file = home.join("projects.json");
-        let registry = Registry::new(file.clone());
-        let read = run_in(self.lanes.durability, &CancellationToken::new(), move |lane| if file.exists() { registry.list_strict(lane) } else { Ok(Vec::new()) }).await?;
+        let registry = Registry::new(home.join("projects.json"));
+        // Read without recovery: the file stays byte for byte (it is the way back to Node), and a damaged one fails here.
+        let read = run_in(self.lanes.durability, &CancellationToken::new(), move |lane| registry.list_untouched(lane)).await?;
         let entries = read.map_err(|error| WsError::new(Reason::Io, error.to_string()))?;
         let (puts, deletes) = joined(self.state.projects().await.map_err(store)?, &entries);
         self.state
