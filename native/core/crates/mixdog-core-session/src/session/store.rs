@@ -1445,29 +1445,46 @@ impl ThreadStore for StoreThreads {
         lane: &InLane<InteractiveIo>,
         id: &ThreadId,
     ) -> Result<(u64, Vec<ItemRecord>), CoreError> {
+        let (rev, rows, _) = self.history_tail(lane, id, usize::MAX)?;
+        Ok((rev, rows))
+    }
+
+    fn history_tail(
+        &self,
+        lane: &InLane<InteractiveIo>,
+        id: &ThreadId,
+        want: usize,
+    ) -> Result<(u64, Vec<ItemRecord>, bool), CoreError> {
         self.wait(lane, self.projector.caught_up())?;
         let _gate = self.read_gate();
         'read: loop {
             let opened = self.open(lane, id)?;
             let lineage = self.lineage(lane, &opened.fold)?;
             let (mut rows, mut cursor) = (Vec::new(), None);
-            loop {
+            let complete = loop {
                 let (page, next) = match self.index.history_page_on_lane(lane, &lineage, opened.fold.base_cut, cursor, WINDOW_ROWS) {
                     Ok(page) => page,
                     Err(DbError::CursorStale) => continue 'read,
                     Err(e) => return Err(internal("history", &e)),
                 };
-                for row in &page {
+                // Only the rows still wanted are read from the log.
+                let room = want - rows.len();
+                for row in page.iter().take(room) {
                     rows.push(self.history_item(lane, id, row)?);
                 }
+                if page.len() > room {
+                    break false;
+                }
+                // The index keeps a continuation cursor at its exact page limit, so with the wanted rows all read the
+                // next page says whether any row is left (it is read, empty, and ends the history).
                 match next {
                     Some(next) => cursor = Some(next),
-                    None => break,
+                    None => break true,
                 }
-            }
+            };
             // Pages run newest first; the seam returns rows oldest first.
             rows.reverse();
-            return Ok((opened.fold.history_rev, rows));
+            return Ok((opened.fold.history_rev, rows, complete));
         }
     }
 
