@@ -28,8 +28,17 @@ impl RoomStore for StateRoomStore {
     async fn load(&self) -> Result<RoomDoc, RoomError> {
         let mut doc = RoomDoc::new();
         for (id, text) in self.state.rooms().await.map_err(port)? {
-            let record: RoomRecord = serde_json::from_str(&text).map_err(|e| port(format!("{id}: {e}")))?;
-            doc.insert(id, record);
+            // A record that does not read is kept aside (`corrupt:rooms:<id>` in the state's `meta`) and the other rooms load: one
+            // bad room does not take the room list down, as it did not take down Node's whole file there.
+            match serde_json::from_str::<RoomRecord>(&text) {
+                Ok(record) => {
+                    doc.insert(id, record);
+                }
+                Err(e) => {
+                    mixdog_rt::node_stderr!("[state] room {id} is damaged ({e}); kept as meta corrupt:rooms:{id}");
+                    self.state.set_aside_room(&id, &text).await.map_err(port)?;
+                }
+            }
         }
         Ok(doc)
     }
@@ -88,5 +97,22 @@ mod tests {
         let again = Rooms::new(StateRoomStore::new(state));
         let ids: Vec<String> = again.list().await.unwrap().into_iter().map(|r| r.id).collect();
         assert_eq!(ids, ["room02"]);
+    }
+
+    #[tokio::test]
+    async fn a_room_record_that_does_not_read_is_set_aside_and_the_other_rooms_load() {
+        let dir = tempfile::tempdir().unwrap();
+        let t = mixdog_rt::testing::tokens();
+        let (state, _) = CoreState::open(t.sqlite_writer_thread, t.interactive_io, &dir.path().join("core.sqlite")).unwrap();
+        let rooms = Rooms::new(StateRoomStore::new(state.clone()));
+        let input = RoomConfigInput { name: "Plan".into(), members: vec!["lead".into(), "bench".into()], ..Default::default() };
+        rooms.create(&input, "room02", 6).await.unwrap();
+        state.write(|tx| tx.put_room("room01", "{broken")).await.unwrap();
+
+        let again = Rooms::new(StateRoomStore::new(state.clone()));
+        let ids: Vec<String> = again.list().await.unwrap().into_iter().map(|r| r.id).collect();
+        assert_eq!(ids, ["room02"], "the unreadable record does not take the list down");
+        assert_eq!(state.meta("corrupt:rooms:room01").await.unwrap().as_deref(), Some("{broken"), "it is kept, as it was");
+        assert_eq!(state.room("room01").await.unwrap(), None, "and no longer in the table, so a save does not delete the kept copy");
     }
 }
