@@ -1064,7 +1064,14 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>, edit_occurrence: Opt
         approvals: Arc::clone(&env.tool_env.approvals),
         files: Arc::clone(&env.tool_env.files),
         processes: Arc::clone(&env.tool_env.processes),
-        options: CallOptions { notify: env.tool_env.notify.clone(), edit_occurrence },
+        options: CallOptions {
+            notify: env.tool_env.notify.clone(),
+            edit_occurrence,
+            // Only `shell` asks which tools replace what it would run.
+            offered_tools: (spec.name == "shell").then(|| {
+                Arc::new(mixdog_tools::exec::COVERING_TOOLS.iter().filter(|name| env.tools.resolve(name).is_some()).map(|name| (*name).to_owned()).collect())
+            }),
+        },
         review: env.tool_env.review.clone(),
     };
     // Node: arguments are coerced to the declared schema before the tool sees
@@ -1305,6 +1312,12 @@ impl Run {
         self.tool_batch_just_completed = true;
         self.note_tool_batch_completed(&calls, results_from).await?;
         self.mark_step_effort(&calls, results_from);
+        // The batch completes after its results are shown: a result reaches the thread through the sink's own queue and this
+        // event through the observer's, so only a result already on disk (and with it accepted, in order) is ahead of the
+        // event. The next request waits for the same ticket before it is sent.
+        if let Some(ticket) = self.unsaved.take() {
+            self.until_durable(ticket).await?;
+        }
         self.emit(RunEvent::ToolPhase(crate::env::ToolPhase::Completed { iteration: self.iterations, calls: calls.len(), elapsed_ms }));
         Ok(())
     }

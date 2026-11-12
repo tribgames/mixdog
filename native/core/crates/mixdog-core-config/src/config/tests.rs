@@ -268,7 +268,7 @@ fn invalid_stored_retention_pauses_retention_with_one_warning() {
 #[test]
 fn external_edit_publishes_each_changed_subtree_once() {
     let dir = tempfile::tempdir().unwrap();
-    let (config, publisher) = open(&dir, Some(json!({ "desktop": {}, "notifications": {} })));
+    let (config, publisher) = open(&dir, Some(json!({ "desktop": {}, "agent": {}, "notifications": {} })));
     let before = publisher.published().len();
 
     // Our own write reloads to an identical document.
@@ -439,7 +439,8 @@ fn writes_keep_the_users_key_order() {
     config.write("desktop.browserHidDevices", json!(true), replace()).unwrap();
     let saved: Value = serde_json::from_slice(&fs::read(dir.path().join("mixdog-config.json")).unwrap()).unwrap();
     let keys = |v: &Value| v.as_object().unwrap().keys().cloned().collect::<Vec<_>>();
-    assert_eq!(keys(&saved), ["zeta", "desktop", "alpha"]);
+    // `DesktopSettingsStore.update` ends with `next.agent = agent`: a config without the section gets an empty one, last.
+    assert_eq!(keys(&saved), ["zeta", "desktop", "alpha", "agent"]);
     assert_eq!(keys(&saved["desktop"]), ["saveChatLogins", "usagePinned", "browserHidDevices"]);
     assert_eq!(keys(&saved["alpha"]), ["b", "a"]);
 }

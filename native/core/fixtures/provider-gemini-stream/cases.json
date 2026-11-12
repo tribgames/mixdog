@@ -1435,6 +1435,12 @@
           "chunks": [
             "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"<invoke name=\\\"read\\\"><parameter name=\\\"path\\\">a.txt</parameter></invoke>\"}]}}]}\n\n"
           ]
+        },
+        "leakGuard": {
+          "knownToolNames": [
+            "read"
+          ],
+          "deferToolCalls": true
         }
       },
       "result": {
@@ -1471,10 +1477,10 @@
               "knownToolNames": [
                 "read"
               ],
+              "deferToolCalls": true,
               "onToolCall": {
                 "callback": "onToolCall"
-              },
-              "deferToolCalls": true
+              }
             }
           ]
         },
@@ -1609,6 +1615,12 @@
           "chunks": [
             "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"<invoke name=\\\"read\\\"><parameter name=\\\"path\\\">a.txt</parameter></invoke>\"}]}}]}\n\n"
           ]
+        },
+        "leakGuard": {
+          "knownToolNames": [
+            "read"
+          ],
+          "deferToolCalls": false
         }
       },
       "result": {
@@ -1655,10 +1667,10 @@
               "knownToolNames": [
                 "read"
               ],
+              "deferToolCalls": false,
               "onToolCall": {
                 "callback": "onToolCall"
-              },
-              "deferToolCalls": false
+              }
             }
           ]
         },
