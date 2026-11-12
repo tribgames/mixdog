@@ -1321,11 +1321,19 @@ impl RunFactory for ScriptRuns {
                     changed |= body != run.context[index].1;
                     replacement.push((run.context[index].0.clone(), body));
                 }
-                mixdog_agent::interrupt::RecoveredRow::New { role, body } => {
+                mixdog_agent::interrupt::RecoveredRow::New { role, mut body } => {
                     changed = true;
                     let iid = super::run::new_item_id();
+                    // Classified as a live commit's row is, as the run host's finalization does: the restart line is the turn's cancelled end.
+                    struct NoBlobs;
+                    impl mixdog_protocol::message_class::user_text::Blobs for NoBlobs {
+                        fn text_within(&self, _: &str, _: u64) -> Result<Option<String>, mixdog_protocol::message_class::user_text::ReadError> {
+                            Ok(None)
+                        }
+                    }
+                    let facts = super::user_facts::user_facts(&mut body, &NoBlobs);
                     replacement.push((iid.clone(), body.clone()));
-                    rows.push(super::run::ItemCommit { iid, role: Some(role.to_owned()), model: true, visible: true, body, prompt: None });
+                    rows.push(super::run::ItemCommit { iid, role: Some(role.to_owned()), model: true, visible: facts.visible, body, prompt: facts.prompt });
                 }
             }
         }

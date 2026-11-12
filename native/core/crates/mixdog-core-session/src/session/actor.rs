@@ -5456,6 +5456,9 @@ impl SessionActor {
         let kept = req.op.is_none()
             && !lifecycle
             && !matches!(req.ctx.caller, Caller::Connection(_))
+            // The removal of a refused carry's own mark hears its failure and is tried again: a held one would leave the heir marked
+            // (the mark is this core's, Node has none) until some later write.
+            && req.ctx.caller != Caller::Internal("inheritance-unmark")
             && (req.method.as_str() == "thread/header/patch" || (req.method.as_str() == "thread/roomRows/commit" && req.ctx.caller == Caller::Internal("inheritance")));
         match result {
             Ok(plan) => {
