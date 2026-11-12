@@ -8,10 +8,14 @@ const rec = await startRecording({
   recorderUrl: import.meta.url,
   set: 'provider-compat-chat-stream-tool-calls',
   net: false,
+  exclusions: [
+    "`normalized` (a turn cut by length with calls, or by content_filter): the replay compares the ProviderError the core's ChatDecoder fails with (`partial_tool_calls` whole against `props.partialToolCalls` and `result.toolCalls`, the message, the code, the partial content); not compared, unobservable to the caller: the error's name, providerIncomplete, finishReason, responseId, rawUsage (the core keeps the usage as `partial_usage`) and model (the request's own model, `partial_model: None`)",
+    "the first case's raw tool-call objects (`parseToolCalls` returning `choice.message.tool_calls`): Node's dispatcher skips them for want of a top-level `name`, so `dispatched` is [] there; the replay compares the core's dispatched and returned calls with those objects read in the product's `{id, name, arguments}` shape, and arguments the core cannot parse are compared as the text it keeps verbatim (`__rawArguments`)",
+  ],
   pure: { '*': 'mixdog-ai/src/providers/compat/chat/decode.rs:155 ChatDecoder (pub; feed :578, finish :601)' },
   entry: 'openai-compat-stream.mjs consumeCompatChatCompletionStream(chunks, { label, providerName, parseToolCalls, knownToolNames, onToolCall }) and openai-compat-response-normalization.mjs normalizeCompatChatResponse({ providerName, useModel, opts, assembled }). The test\'s own parseToolCalls (JSON.parse of the arguments) is the callback the collector receives.',
   compare: 'mixdog-ai providers::compat chat decode (decode.rs:295 fragment join, finish handling, leak guard): feed `input.chunks` and compare `result` (assembled response/toolCalls), `dispatched` (calls handed out, in order) and `normalized` (the typed incomplete error: providerIncomplete, finishReason, partialToolCalls).',
-  replay: "mixdog-ai/src/providers/compat/chat/decode.rs: `pub struct ChatDecoder` (:155, re-exported pub at providers/compat/chat/mod.rs:18) built by `ChatDecoder::new(profile, owner)` (:193) and `.with_known_tools(names)` (:224), fed each recorded chunk as one SSE `data: <json>\n\n` unit through `WireDecoder::feed(&[u8])` (:578) and ended by `finish()` (:601). `feed` returns the StreamEvents (text, tool dispatches, errors) the Node consumer returns/dispatches for the same chunks; the `normalized` field (normalizeCompatChatResponse over a cut stream) maps to the typed error `finish()` / `feed` returns for a cut finish_reason.",
+  replay: "mixdog-ai/src/providers/compat/chat/decode.rs: `pub struct ChatDecoder` (:155, re-exported pub at providers/compat/chat/mod.rs:18) built by `ChatDecoder::new(profile, owner)` (:193) and `.with_known_tools(names)` (:224), fed each recorded chunk as one SSE `data: <json>\n\n` unit through `WireDecoder::feed(&[u8])` (:578) and ended by `finish()` (:601). `feed` returns the StreamEvents (text, tool dispatches, errors) the Node consumer returns/dispatches for the same chunks; the `normalized` field (normalizeCompatChatResponse over a cut stream) maps to the `ProviderError` (`PROVIDER_INCOMPLETE`, holding the calls as `partial_tool_calls`) that `finish()` / `feed` returns for a cut finish_reason (`ChatDecoder::incomplete_failure`).",
 });
 const P = 'agent/orchestrator/providers/';
 const { consumeCompatChatCompletionStream } = await rec.P(`${P}openai-compat-stream.mjs`);
@@ -38,22 +42,28 @@ await rec.run('prefix-repeating-fragment-verbatim', `${SRC}:34`, { chunks: repea
 });
 const fragmented = [toolDelta('', { id: 'c1', function: { name: 'f' } }), toolDelta('{"x"'), toolDelta(':1}'), { choices: [{ delta: {}, finish_reason: 'tool_calls' }] }];
 await rec.run('fragmented-dispatches-once', `${SRC}:47`, { chunks: fragmented }, () => consume(fragmented));
+// The step the turn runs on the collector's result: a cut turn's calls leave as the thrown error's `partialToolCalls`.
+const normalize = (out) => {
+  try {
+    normalizeCompatChatResponse({ providerName: 'gateway', useModel: 'm', opts: {}, assembled: out.result });
+  } catch (error) {
+    return error;
+  }
+  return null;
+};
 for (const finish of ['length', 'content_filter']) {
   const events = [toolDelta('{"x":1}', { id: 'c1', function: { name: 'f' } }), { choices: [{ delta: {}, finish_reason: finish }] }];
   await rec.run(`finish-${finish}-never-dispatches`, `${SRC}:63`, { chunks: events }, async () => {
     const out = await consume(events);
-    let normalized = null;
-    try {
-      normalizeCompatChatResponse({ providerName: 'gateway', useModel: 'm', opts: {}, assembled: out.result });
-    } catch (error) {
-      normalized = error;
-    }
-    return { ...out, normalized };
+    return { ...out, normalized: normalize(out) };
   });
 }
 const leak = '<invoke name="f"><parameter name="x">1</parameter></invoke>';
 for (const finish of ['stop', 'length', 'content_filter', 'network_error']) {
   const events = [{ choices: [{ delta: { content: leak } }] }, { choices: [{ delta: {}, finish_reason: finish }] }];
-  await rec.run(`leaked-call-finish-${finish}`, `${SRC}:82`, { chunks: events, knownToolNames: ['f'] }, () => consume(events, { knownToolNames: new Set(['f']) }));
+  await rec.run(`leaked-call-finish-${finish}`, `${SRC}:82`, { chunks: events, knownToolNames: ['f'] }, async () => {
+    const out = await consume(events, { knownToolNames: new Set(['f']) });
+    return finish === 'length' || finish === 'content_filter' ? { ...out, normalized: normalize(out) } : out;
+  });
 }
 await rec.finish();
