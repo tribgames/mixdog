@@ -1,4 +1,9 @@
-import type { DesktopSessionStateUpdate, SessionSnapshot } from '../shared/contract';
+import type {
+  DesktopAgentPoolRow,
+  DesktopSessionStateUpdate,
+  DesktopSessionSummary,
+  SessionSnapshot,
+} from '../shared/contract';
 import { reportTranscriptRead } from '../shared/transcript-read-diagnostics';
 import type { SessionHost } from './session-host';
 import type { DesktopServiceInbound, DesktopServiceOutbound } from './desktop-service-protocol';
@@ -12,6 +17,8 @@ import {
   type SnapshotDeltaEncoder,
 } from './state-delta';
 import { synchronizeSessionViewSnapshot } from './view-synchronizer';
+import type { ListRowFeed, ListRowName, ServiceDelivery } from './list-row-adapter';
+import { createGlobalListPublisher } from './global-list-publisher';
 import { requiredSessionIds, requiredVisibleSessionVersion } from './desktop-state';
 
 /** Per-session transcript deltas: one encoder per session, the last snapshot it
@@ -109,6 +116,9 @@ export interface DesktopServiceStateSync {
   runDesktopRead<T>(sessionId: string, run: () => Promise<T>): Promise<T>;
   /** State ACK, full view resync and single-lane resync. */
   control(message: DesktopServiceInbound): Promise<void>;
+  /** A client's read of a global list from its row feed (wire.md "Global
+   *  lists"); `epoch` is the caller's client epoch when the registry passes it. */
+  readListRows(list: unknown, epoch?: unknown): Promise<unknown>;
   /** Stops every delivery; a replay still in flight emits nothing more. */
   dispose(): void;
 }
@@ -119,10 +129,17 @@ export interface DesktopServiceStateSync {
 export function createDesktopServiceStateSync({
   host,
   emit,
+  listRowFeed,
 }: {
   host: SessionHost;
-  emit(message: DesktopServiceOutbound): void;
+  emit(message: DesktopServiceOutbound, delivery?: ServiceDelivery): void;
+  /** The daemon's per-row feed of a global list; absent on an older daemon,
+   *  which keeps the whole-list `sessions` / `agent-pool` messages. */
+  listRowFeed?(list: ListRowName): ListRowFeed;
 }): DesktopServiceStateSync {
+  const lists = createGlobalListPublisher({ emit, listRowFeed });
+  const publishSessions = (sessions: DesktopSessionSummary[]): void => lists.publish('sessions', sessions);
+  const publishAgentPool = (agents: DesktopAgentPoolRow[]): void => lists.publish('agent-pool', agents);
   let viewsSyncing = false;
   let viewVersion = 0;
   const visibilitySources = new Map<number, { version: number; sessionIds: string[] }>();
@@ -149,14 +166,14 @@ export function createDesktopServiceStateSync({
     if (!viewsSyncing) stateMailbox.publish(snapshot);
   });
   const unsubscribeSessions = host.subscribeSessions((sessions) => {
-    if (!viewsSyncing) emit({ kind: 'sessions', sessions });
+    if (!viewsSyncing) publishSessions(sessions);
   });
   // The Agents pool is its own lane, outside the view baseline: every
   // publication goes out as it lands, during a view sync too.
   let agentPoolPublications = 0;
   const unsubscribeAgentPool = host.subscribeAgentPool((agents) => {
     agentPoolPublications += 1;
-    emit({ kind: 'agent-pool', agents });
+    publishAgentPool(agents);
   });
   /** A view sync re-reads the pool after its baseline instead of inside it:
    *  the first read after a daemon start opens every worker session record
@@ -175,7 +192,7 @@ export function createDesktopServiceStateSync({
       .then(
         (agents) => {
           if (serviceClosed || agentPoolPublications !== seen) return;
-          emit({ kind: 'agent-pool', agents });
+          publishAgentPool(agents);
         },
         () => undefined
       )
@@ -211,7 +228,7 @@ export function createDesktopServiceStateSync({
               stateMailbox.reset(snapshot.snapshot);
               sessionStates.resetEncoders();
               for (const update of snapshot.sessionStates) sessionStates.post(update);
-              emit({ kind: 'sessions', sessions: snapshot.sessions });
+              publishSessions(snapshot.sessions);
               viewsSyncing = false;
               if (version === viewVersion) emit({ kind: 'view-sync-complete' });
             });
@@ -238,10 +255,16 @@ export function createDesktopServiceStateSync({
       return updateVisibleSessions();
     },
     async releaseClient(epoch: number): Promise<void> {
+      lists.releaseClient(epoch);
       if (visibilitySources.delete(epoch)) await updateVisibleSessions();
     },
     runDesktopRead<T>(sessionId: string, run: () => Promise<T>): Promise<T> {
       return desktopReads.run(sessionId, run);
+    },
+    readListRows(list: unknown, epoch?: unknown): Promise<unknown> {
+      return lists.read(list, epoch, () =>
+        list === 'sessions' ? host.listSessions() : host.listAgentPool()
+      );
     },
     async control(message: DesktopServiceInbound): Promise<void> {
       if (message.kind === 'state-ack' && Number.isSafeInteger(message.sequence)) {

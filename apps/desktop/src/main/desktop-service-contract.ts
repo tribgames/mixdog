@@ -24,12 +24,21 @@ import type {
   ToolApprovalDecision,
 } from '../shared/contract';
 import type { DesktopNotice } from '../shared/desktop-notice';
+import type { RowChange, RowList } from '../shared/row-notifications';
 import type { SessionFinalAnswer } from './session-final-answer';
 
 export interface DesktopService {
   subscribe(listener: (snapshot: SessionSnapshot) => void): () => void;
   subscribeSessions(listener: (sessions: DesktopSessionSummary[]) => void): () => void;
   subscribeAgentPool(listener: (agents: DesktopAgentPoolRow[]) => void): () => void;
+  /** Per-row changes of the session list, when the service sends them
+   *  (list-row frames); `readSessionRowList` is the list they continue and
+   *  rejects when the service has none. */
+  subscribeSessionRowChanges?(listener: (changes: RowChange<DesktopSessionSummary>[]) => void): () => void;
+  readSessionRowList?(): Promise<RowList<DesktopSessionSummary>>;
+  /** Per-row changes of the agent pool, as for the session list. */
+  subscribeAgentPoolRowChanges?(listener: (changes: RowChange<DesktopAgentPoolRow>[]) => void): () => void;
+  readAgentPoolRowList?(): Promise<RowList<DesktopAgentPoolRow>>;
   getSnapshot(): SessionSnapshot;
   startProject(projectPath: string): Promise<SessionSnapshot>;
   startProjectTask(projectPath: string): Promise<SessionSnapshot>;
@@ -195,6 +204,7 @@ export const DESKTOP_SERVICE_METHODS = [
   'readSessionHistory',
   'markSessionRead',
   'listAgentPool',
+  'readListRows',
   'searchSessionContent',
   'renameSession',
   'continueSessionInModel',

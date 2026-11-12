@@ -2,7 +2,9 @@ import type { BrowserWindow, IpcMainEvent, PowerMonitor } from 'electron';
 import {
   CONVERSATION_IMPORT_PROGRESS_EVENT,
   DESKTOP_IPC,
+  type DesktopAgentPoolRow,
   type DesktopSessionStateUpdate,
+  type DesktopSessionSummary,
   type DesktopUpdaterState,
   type SessionSnapshot,
 } from '../shared/contract';
@@ -23,6 +25,8 @@ import {
   type SnapshotDeltaEncoder,
 } from './state-delta';
 import type { DesktopIpcMain, IpcHandle as Handle } from './ipc';
+import { RendererRowLane } from './row-notifier';
+import { agentPoolRowKey, sessionRowKey } from '../shared/row-notifications';
 
 export interface DesktopUpdater {
   getState(): DesktopUpdaterState;
@@ -65,10 +69,41 @@ export class DesktopStateBridge {
   private readonly unsubscribeUpdater: () => void;
   private readonly unsubscribeDesktopEvents: () => void;
   private readonly unregisterNotices: () => void;
+  // What the renderer holds of the session list and the agent pool. A change
+  // reaches it as the rows it changed; the whole list only through a read.
+  private readonly sessionRows: RendererRowLane<DesktopSessionSummary>;
+  private readonly agentPoolRows: RendererRowLane<DesktopAgentPoolRow>;
+  private readonly unsubscribeRowChanges: () => void;
   private disposed = false;
 
   constructor(private readonly options: DesktopStateBridgeOptions) {
     const { handle, host, updater } = options;
+    this.sessionRows = new RendererRowLane(
+      sessionRowKey,
+      {
+        list: () => host.listSessions(),
+        ...(typeof host.readSessionRowList === 'function' ? { rowList: () => host.readSessionRowList!() } : {}),
+      },
+      (message) => this.send(DESKTOP_IPC.sessionsChanged, message)
+    );
+    this.agentPoolRows = new RendererRowLane(
+      agentPoolRowKey,
+      {
+        list: () => host.listAgentPool(),
+        ...(typeof host.readAgentPoolRowList === 'function' ? { rowList: () => host.readAgentPoolRowList!() } : {}),
+      },
+      (message) => this.send(DESKTOP_IPC.agentPoolChanged, message)
+    );
+    const unsubscribeSessionRowChanges =
+      host.subscribeSessionRowChanges?.((changes) => this.sessionRows.fromChanges(changes)) ?? (() => {});
+    const unsubscribeAgentPoolRowChanges =
+      host.subscribeAgentPoolRowChanges?.((changes) => this.agentPoolRows.fromChanges(changes)) ?? (() => {});
+    this.unsubscribeRowChanges = () => {
+      unsubscribeSessionRowChanges();
+      unsubscribeAgentPoolRowChanges();
+    };
+    handle(DESKTOP_IPC.readSessionRows, () => this.sessionRows.snapshot());
+    handle(DESKTOP_IPC.readAgentPoolRows, () => this.agentPoolRows.snapshot());
     handle(DESKTOP_IPC.setVisibleSessions, (_event, sessionIds) => this.setVisibleSessions(sessionIds));
     // Reads live beside the visibility filter: the frame a read publishes
     // must pass it even when no pane shows the session yet.
@@ -98,11 +133,11 @@ export class DesktopStateBridge {
     this.unsubscribeState = host.subscribe(this.sendEngineState);
     this.unsubscribeSessions =
       typeof host.subscribeSessions === 'function'
-        ? host.subscribeSessions((sessions) => this.send(DESKTOP_IPC.sessionsChanged, sessions))
+        ? host.subscribeSessions((sessions) => this.sessionRows.fromList(sessions))
         : () => {};
     this.unsubscribeAgentPool =
       typeof host.subscribeAgentPool === 'function'
-        ? host.subscribeAgentPool((agents) => this.send(DESKTOP_IPC.agentPoolChanged, agents))
+        ? host.subscribeAgentPool((agents) => this.agentPoolRows.fromList(agents))
         : () => {};
     this.unsubscribeSessionStates = host.subscribeSessionStates(this.sendSessionState);
     this.unsubscribeUpdater = updater?.subscribe((state) => this.send(DESKTOP_IPC.updaterState, state)) ?? (() => {});
@@ -320,6 +355,7 @@ export class DesktopStateBridge {
     this.unsubscribeState();
     this.unsubscribeSessions();
     this.unsubscribeAgentPool();
+    this.unsubscribeRowChanges();
     this.unsubscribeSessionStates();
     this.unsubscribeUpdater();
     this.unsubscribeDesktopEvents();

@@ -203,6 +203,45 @@ test('a proxy resolver attach carries its client’s epoch, released with that c
   assert.equal(new Set(f.frames.map((frame) => frame.key)).size, 2);
 });
 
+test('a client reading a list’s rows is named by its epoch, and emit routes by epoch', async (t) => {
+  const invoked = [];
+  const delivered = [];
+  let emit;
+  const registry = new DesktopServiceRegistry({
+    runtime: {
+      makeAdapter: (params) => {
+        emit = params.emit;
+        return { invoke: async (method, args) => invoked.push([method, args]), control: async () => {} };
+      },
+    },
+    onFrame: (frame, subscribers) => delivered.push([frame.message.kind, [...subscribers].sort()]),
+  });
+  t.after(() => registry.dispose());
+  for (const clientToken of ['rows', 'whole']) {
+    await registry.init({ desktopId: 'desktop_lists', moduleUrl }, { clientToken });
+  }
+  await registry.invoke(
+    { desktopId: 'desktop_lists', method: 'readListRows', args: ['agent-pool'] },
+    { clientToken: 'rows' }
+  );
+  assert.deepEqual(invoked, [['readListRows', ['agent-pool', 1]]]);
+  await assert.rejects(
+    registry.invoke({ desktopId: 'desktop_lists', method: 'readListRows', args: ['sessions'] }, { clientToken: 'x' }),
+    /not initialized/
+  );
+
+  assert.equal(emit({ kind: 'agent-pool', rows: [] }, { except: [1] }), true);
+  assert.equal(emit({ kind: 'agent-pool', rows: [] }, { except: [1, 2] }), false);
+  emit({ kind: 'list-row', list: 'agent-pool', seq: 1 }, { to: [1] });
+  emit({ kind: 'agent-pool-published', list: 'agent-pool', seq: 1 });
+  assert.deepEqual(delivered, [
+    ['agent-pool', ['whole']],
+    ['agent-pool', []],
+    ['list-row', ['rows']],
+    ['agent-pool-published', ['rows', 'whole']],
+  ]);
+});
+
 test('the registered adapter keeps publishing its own events and client-count changes', async (t) => {
   let emit;
   let clientChanged;

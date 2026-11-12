@@ -43,8 +43,12 @@ export type DesktopServiceOutbound =
       contentRevision?: number;
       laneEnd?: 'gone' | 'unloaded' | 'disconnected';
     }
-  | { kind: 'sessions'; sessions: DesktopSessionSummary[] }
-  | { kind: 'agent-pool'; agents: DesktopAgentPoolRow[] }
+  /** `epoch`/`seq`: the list's row-feed position (global-list-publisher.ts). */
+  | { kind: 'sessions'; sessions: DesktopSessionSummary[]; epoch?: string; seq?: number }
+  | { kind: 'agent-pool'; agents: DesktopAgentPoolRow[]; epoch?: string; seq?: number }
+  /** One row change of a global list (list-row-adapter.ts). */
+  | { kind: 'list-row'; list: string; epoch: string; seq: number; id: string; after?: string | null; row?: unknown; removed?: true }
+  | { kind: 'sessions-published' | 'agent-pool-published'; list: string; epoch: string; seq: number }
   | { kind: 'desktop-event'; name: string; value: unknown };
 
 export interface LatestStateMailbox<T> {

@@ -504,6 +504,76 @@ test('a local stream paused past the stall deadline reports what is still buffer
   response.end();
 });
 
+function stallFixture(t) {
+  t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
+  const diagnostics = [];
+  const client = { remote: false, sse: null, paused: false, pending: new Map(), pendingBytes: 0 };
+  const stream = createSessionFrameStream({
+    clients: new Map([['client', client]]),
+    maxPendingBytes: 1_024,
+    nowMs: () => 1_000,
+    onAttached() {},
+    onClosed() {},
+    onDiagnostic: (entry) => diagnostics.push(entry),
+  });
+  return { stream, client, diagnostics };
+}
+
+test('a paused stream with nothing buffered resumes without drain and delivers its backlog', (t) => {
+  const { stream, client, diagnostics } = stallFixture(t);
+  const response = new Response();
+  response.writableLength = 0;
+  response.writableNeedDrain = true;
+  response.results = [true, false];
+  stream.attachSse('client', response);
+  const first = { type: 'session-state', sessionId: 'S', revision: 1 };
+  const queued = { type: 'session-state', sessionId: 'T', revision: 1 };
+  stream.broadcast(first);
+  stream.broadcast(queued);
+  assert.deepEqual(response.frames(), [first]);
+  t.mock.timers.tick(15_000);
+  assert.equal(client.paused, false);
+  assert.deepEqual(response.frames(), [first, queued]);
+  assert.equal(client.pendingBytes, 0);
+  assert.equal(diagnostics.filter((entry) => entry.stage === 'stream-stalled').length, 1);
+  response.end();
+});
+
+test('a stall that empties its buffer only after the first report still resumes', (t) => {
+  const { stream, client, diagnostics } = stallFixture(t);
+  const response = new Response();
+  response.writableLength = 4_096;
+  response.results = [true, false];
+  stream.attachSse('client', response);
+  const first = { type: 'session-state', sessionId: 'S', revision: 1 };
+  const queued = { type: 'session-state', sessionId: 'T', revision: 1 };
+  stream.broadcast(first);
+  stream.broadcast(queued);
+  t.mock.timers.tick(45_000);
+  assert.equal(client.paused, true, 'bytes still buffered: the consumer has not read them');
+  assert.deepEqual(response.frames(), [first]);
+  response.writableLength = 0;
+  t.mock.timers.tick(15_000);
+  assert.equal(client.paused, false);
+  assert.deepEqual(response.frames(), [first, queued]);
+  assert.equal(diagnostics.filter((entry) => entry.stage === 'stream-stalled').length, 1);
+  response.end();
+});
+
+test('a drain arriving before the deadline leaves no stall watch behind', (t) => {
+  const { stream, client, diagnostics } = stallFixture(t);
+  const response = new Response();
+  response.writableLength = 0;
+  response.results = [true, false];
+  stream.attachSse('client', response);
+  stream.broadcast({ type: 'update' });
+  response.emit('drain');
+  t.mock.timers.tick(60_000);
+  assert.equal(client.stallTimer, null);
+  assert.deepEqual(diagnostics.filter((entry) => entry.stage === 'stream-stalled'), []);
+  response.end();
+});
+
 test('stream diagnostics are rate bounded and throwing sinks cannot block writes', (t) => {
   t.mock.timers.enable({ apis: ['setInterval'] });
   const diagnostics = [];

@@ -5,6 +5,7 @@ import { startTransition, useCallback, useEffect, useRef, useState, type Dispatc
 
 import type { DesktopSessionSummary } from '../shared/contract';
 import { mergeSessionCatalogPushRows, mergeSessionCatalogRows } from '../shared/session-catalog';
+import { followRowList } from './row-list-feed';
 import { publishAgentRooms, seedAgentRooms } from './agent-room-store';
 import { publishAgentModeSessions, seedAgentModeSessions } from './agent-chat-mode';
 import { publishCatalogApprovalSessions } from './session-catalog-approvals';
@@ -190,7 +191,9 @@ export function useSessionCatalog(reconcileUnreadSessions: (rows: DesktopSession
       if (document.visibilityState !== 'visible') return;
       void refreshSessions(true).catch(() => undefined);
     };
-    const pushCapable = typeof window.mixdogDesktop?.subscribeSessions === 'function';
+    const pushCapable =
+      typeof window.mixdogDesktop?.subscribeSessions === 'function' ||
+      typeof window.mixdogDesktop?.subscribeSessionRows === 'function';
     const timer = pushCapable ? undefined : window.setInterval(refresh, FALLBACK_POLL_INTERVAL_MS);
     document.addEventListener('visibilitychange', refreshOnReturn);
     // Schedule surfaces (Run now / save) announce new background sessions
@@ -212,15 +215,24 @@ export function useSessionCatalog(reconcileUnreadSessions: (rows: DesktopSession
   // the user saw when entering a session mid-turn.
   useEffect(() => {
     const host = window.mixdogDesktop;
-    if (typeof host?.subscribeSessions !== 'function') return;
-    return host.subscribeSessions((next) => {
+    const onCatalog = (next: DesktopSessionSummary[]) => {
       refreshVersion.current += 1; // in-flight polls must not overwrite
       const rows = projectSessionRows(next);
       // The push is an exact store scan: a session it dropped was deleted
       // (here, in another window, from the phone, or by a sweep).
       purgeRemovedSessionPreviews(sessionsRef.current, rows, new Set(pendingCreates.current.keys()));
       commitProjectedRows(rows, true);
-    });
+    };
+    // The desktop window: the list after each per-row change, in order.
+    if (typeof host?.subscribeSessionRows === 'function' && typeof host.readSessionRows === 'function') {
+      return followRowList({
+        subscribe: host.subscribeSessionRows,
+        read: host.readSessionRows,
+        onList: onCatalog,
+      });
+    }
+    if (typeof host?.subscribeSessions !== 'function') return;
+    return host.subscribeSessions(onCatalog);
   }, [commitProjectedRows, projectSessionRows]);
 
   return {

@@ -7,6 +7,7 @@
 // Input: `getLocalSessionBridge` (the bridge outlives no single call, but it is
 // created after this surface is handed to the session service).
 // Output: the desktopRuntime object consumed by session-service.
+import { createListRowFeed } from './list-row-feed.mjs';
 
 /** The stored-session reader, with the Agents pool's running state taken from
  *  this daemon's in-memory turn activity (every session runs inline here, so
@@ -50,9 +51,25 @@ async function loadSessionStoreWithRuntimeActivity() {
   };
 }
 
+// Row identity of each global list (wire.md "Global lists").
+const LIST_ROW_IDS = {
+  'agent-pool': (row) => row?.sessionId,
+  sessions: (row) => row?.id,
+};
+
 export function createDesktopRuntime({ getLocalSessionBridge }) {
   let sessionStore = null;
+  const listFeeds = new Map();
   return {
+    /** The one diff point of a whole list the desktop service publishes:
+     *  `publish(rows)` returns its per-row frames, `read()` the start state. */
+    listRowFeed(list) {
+      const idOf = LIST_ROW_IDS[list];
+      if (!idOf) throw new Error(`no row feed for list ${list}`);
+      let feed = listFeeds.get(list);
+      if (!feed) listFeeds.set(list, (feed = createListRowFeed(list, idOf)));
+      return feed;
+    },
     async attachSessionClient(options = {}) {
       const bridge = getLocalSessionBridge();
       if (!bridge) throw new Error('daemon-local session client is unavailable');

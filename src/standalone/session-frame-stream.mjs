@@ -7,7 +7,8 @@ const TERMINAL_BACKLOG_MAX_CHARS = 256 * 1024;
 // silence deadline (session-client/frame-stream) is its only loss signal. A
 // loopback stream ends with the socket and stays silent at rest.
 const KEEPALIVE_MS = 15_000;
-// How long a paused stream waits for 'drain' before the stall is reported.
+// How long a paused stream waits for 'drain' before the stall is reported, and
+// how often it is rechecked after that.
 const STALL_REPORT_MS = 15_000;
 
 function terminalDataFrame(frame) {
@@ -145,24 +146,41 @@ export function createSessionFrameStream({ clients, maxPendingBytes, nowMs, onAt
     client.stallTimer = null;
   }
 
-  // One deadline per pause, cleared by the drain that ends it.
+  // One report per pause, cleared by the drain that ends it. A pause with nothing
+  // left buffered resumes here: every byte reached the socket and no 'drain' came,
+  // so waiting longer holds every frame back until the client process restarts.
+  // A consumer that stopped reading still has bytes buffered and stays paused.
+  function watchStall(client, res) {
+    clearStallWatch(client);
+    client.stallTimer = setTimeout(() => {
+      client.stallTimer = null;
+      if (client.sse !== res || !client.paused) return;
+      if (!client.stallReported) {
+        client.stallReported = true;
+        reportStall(client, res);
+      }
+      if (res.writableLength === 0) {
+        client.paused = false;
+        flushPending(client);
+        return;
+      }
+      watchStall(client, res);
+    }, STALL_REPORT_MS);
+    client.stallTimer.unref?.();
+  }
+
   function pause(client) {
     if (!client.paused) {
       client.pausedAt = nowMs();
-      const res = client.sse;
-      clearStallWatch(client);
-      client.stallTimer = setTimeout(() => {
-        client.stallTimer = null;
-        if (client.sse === res && client.paused) reportStall(client, res);
-      }, STALL_REPORT_MS);
-      client.stallTimer.unref?.();
+      client.stallReported = false;
+      watchStall(client, client.sse);
     }
     client.paused = true;
   }
 
-  // A stream paused past the stall deadline. Report-only: the socket facts
-  // (ownership, buffered bytes, need-drain on response and socket) tell a
-  // consumer that stopped reading from a response whose drain did not arrive.
+  // The socket facts (ownership, buffered bytes, need-drain on response and
+  // socket) tell a consumer that stopped reading from a response whose drain did
+  // not arrive.
   function reportStall(client, res) {
     if (typeof onDiagnostic !== 'function') return;
     const atMs = nowMs();
