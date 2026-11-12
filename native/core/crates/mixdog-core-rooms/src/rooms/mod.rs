@@ -15,6 +15,7 @@ pub mod memory;
 pub mod pool;
 pub mod preview;
 pub mod ready;
+pub mod rebuild;
 pub mod records;
 pub mod row_message;
 pub mod rows;

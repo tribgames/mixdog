@@ -24,6 +24,7 @@ use crate::schema::sql::STATE_DDL;
 use crate::schema::sql::STATE_USER_VERSION;
 use crate::sqlite::DbError;
 use crate::sqlite::ReadPool;
+use crate::sqlite::needs_rebuild;
 use crate::sqlite::open_schema;
 
 /// `ops.state`.
@@ -253,6 +254,83 @@ pub(crate) fn upgrade_v1(path: &Path) -> Result<(), DbError> {
     Ok(())
 }
 
+/// What [`CoreState::open_or_set_aside`] kept out of the way, for the caller to log.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct SetAside {
+    /// The unusable database: where it was kept and why it did not open. Its tables are all gone from the new file.
+    pub file: Option<(PathBuf, String)>,
+    /// `projects` rows moved into `meta` because no column read could parse them.
+    pub project_rows: usize,
+}
+
+/// Whether the file is a `state/core.sqlite` a newer build wrote (this build's application id, a later `user_version`): intact,
+/// so never set aside (Node's newer-version guard).
+fn written_by_newer_build(path: &Path) -> bool {
+    let Ok(bytes) = mixdog_fsio::read(&mixdog_fsio::Unlaned, path) else { return false };
+    let int = |at: usize| bytes.get(at..at + 4).map(|b| i32::from_be_bytes([b[0], b[1], b[2], b[3]]));
+    bytes.starts_with(b"SQLite format 3\0") && int(68) == Some(STATE_APPLICATION_ID) && int(60) > Some(STATE_USER_VERSION)
+}
+
+fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
+    let mut name = path.as_os_str().to_owned();
+    name.push(suffix);
+    PathBuf::from(name)
+}
+
+/// Moves the database and its journal files to `<file>.corrupt-<ms>` (+ the same suffix), the registry's set-aside name.
+fn set_aside_file(path: &Path) -> Result<PathBuf, DbError> {
+    let proof = mixdog_fsio::Unlaned;
+    let aside = mixdog_statefile::quarantine_path(&proof, path);
+    let moved = |from: &Path, to: &Path| {
+        mixdog_fsio::rename(&proof, from, to).map_err(|e| DbError::Write(format!("setting aside {}: {e}", from.display())))
+    };
+    moved(path, &aside)?;
+    for suffix in ["-wal", "-shm", "-journal"] {
+        let from = with_suffix(path, suffix);
+        if mixdog_fsio::exists(&proof, &from).unwrap_or(false) {
+            moved(&from, &with_suffix(&aside, suffix))?;
+        }
+    }
+    Ok(aside)
+}
+
+fn cell_json(cell: &rusqlite::types::Value) -> serde_json::Value {
+    use rusqlite::types::Value as Cell;
+    match cell {
+        Cell::Null => serde_json::Value::Null,
+        Cell::Integer(n) => (*n).into(),
+        Cell::Real(f) => serde_json::Number::from_f64(*f).map_or(serde_json::Value::Null, serde_json::Value::Number),
+        Cell::Text(s) => s.clone().into(),
+        Cell::Blob(b) => b.iter().map(|byte| format!("{byte:02x}")).collect::<String>().into(),
+    }
+}
+
+/// Moves every `projects` row that [`project_row`] cannot read into `meta` (`corrupt:projects:<path>`: its six cells as a JSON
+/// array); a row the page itself cannot deliver fails the scan, which sets the whole file aside.
+fn set_aside_project_rows(tx: &Transaction<'_>) -> Result<usize, DbError> {
+    use rusqlite::types::Value as Cell;
+    let mut unreadable: Vec<Vec<Cell>> = Vec::new();
+    {
+        let mut stmt = tx.prepare("SELECT path, alias, hidden, hidden_rank, last_used_at, name FROM projects")?;
+        let mut rows = stmt.query([])?;
+        while let Some(row) = rows.next()? {
+            if project_row(row).is_err() {
+                unreadable.push((0..6).map(|i| row.get::<_, Cell>(i)).collect::<Result<_, _>>()?);
+            }
+        }
+    }
+    for cells in &unreadable {
+        let key = match &cells[0] {
+            Cell::Text(path) => format!("corrupt:projects:{path}"),
+            other => format!("corrupt:projects:{other:?}"),
+        };
+        let text = serde_json::Value::Array(cells.iter().map(cell_json).collect()).to_string();
+        tx.execute("INSERT INTO meta (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value", params![key, text])?;
+        tx.execute("DELETE FROM projects WHERE path IS ?1", params![&cells[0]])?;
+    }
+    Ok(unreadable.len())
+}
+
 /// Test support: every table of the SQLite file at `path` (`sqlite_*` internals aside), by name, with every row's columns as
 /// text in storage order; read on a connection of its own, so the file's writer may stay open.
 #[cfg(any(test, feature = "test-support"))]
@@ -307,10 +385,45 @@ impl CoreState {
     /// any op can start: every `inProgress` op becomes `externalUnknown`; returns how many.
     /// Reads run as jobs on `read_lane`.
     pub fn open(thread: SqliteWriterThread, read_lane: InteractiveIo, path: &Path) -> Result<(CoreState, usize), DbError> {
+        let (state, recovered, _) = Self::open_with(thread, read_lane, path, false)?;
+        Ok((state, recovered))
+    }
+
+    /// [`CoreState::open`] for the daemon: one damaged file does not stop it, as Node carries on with a state file it finds
+    /// corrupt (`atomic-file.mjs`: moved aside to `<file>.corrupt-<ms>`, then empty). A file that is not a usable database (bytes
+    /// SQLite cannot read, a damaged page, another `application_id`, an older `user_version`) is moved aside whole, with its WAL, to
+    /// `<file>.corrupt-<ms>` (the registry's name, `mixdog_statefile::quarantine_path`) and a new database is started; the
+    /// answer says what was kept where, for the caller to log. A file a newer build wrote is intact, not damaged: it is
+    /// left alone and the open fails. A `projects` row no column read can parse is moved into `meta` (`corrupt:projects:<path>`),
+    /// which Node's whole-file set-aside of its registry would have cost every row.
+    pub fn open_or_set_aside(thread: SqliteWriterThread, read_lane: InteractiveIo, path: &Path) -> Result<(CoreState, usize, SetAside), DbError> {
+        match Self::open_with(thread, read_lane, path, true) {
+            Err(e) if needs_rebuild(&e) && !written_by_newer_build(path) => {
+                let kept = set_aside_file(path)?;
+                let (state, recovered, mut aside) = Self::open_with(thread, read_lane, path, true)?;
+                aside.file = Some((kept, e.to_string()));
+                Ok((state, recovered, aside))
+            }
+            other => other,
+        }
+    }
+
+    fn open_with(thread: SqliteWriterThread, read_lane: InteractiveIo, path: &Path, scan_rows: bool) -> Result<(CoreState, usize, SetAside), DbError> {
         upgrade_v1(path)?;
         let mut conn = open_schema(path, STATE_DDL, STATE_APPLICATION_ID, STATE_USER_VERSION)?;
+        if scan_rows {
+            // Every page is read once now: a file cut short or damaged below the header would open and then fail table by table.
+            let verdict: String = conn.query_row("PRAGMA quick_check(1)", [], |r| r.get(0))?;
+            if verdict != "ok" {
+                return Err(DbError::Sqlite(rusqlite::Error::SqliteFailure(
+                    rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CORRUPT),
+                    Some(verdict),
+                )));
+            }
+        }
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let recovered = tx.execute("UPDATE ops SET state = 'externalUnknown' WHERE state = 'inProgress'", [])?;
+        let project_rows = if scan_rows { set_aside_project_rows(&tx)? } else { 0 };
         tx.commit()?;
         let (sender, rx) = mpsc::channel::<Job>();
         thread
@@ -327,7 +440,19 @@ impl CoreState {
             }),
             sender,
         };
-        Ok((state, recovered))
+        Ok((state, recovered, SetAside { file: None, project_rows }))
+    }
+
+    /// Moves a `rooms` row whose document the owner cannot read into `meta` (`corrupt:rooms:<id>`, the text as it was) and
+    /// out of the table, so the other rooms keep loading and the next save does not delete what is kept.
+    pub async fn set_aside_room(&self, room_id: &str, doc: &str) -> Result<(), DbError> {
+        let (room_id, doc) = (room_id.to_owned(), doc.to_owned());
+        self.write(move |tx| {
+            tx.put_meta(&format!("corrupt:rooms:{room_id}"), &doc)?;
+            tx.delete_room(&room_id)?;
+            Ok(())
+        })
+        .await
     }
 
     /// The writer's connection to the file is replaced by an in-memory one (closing the file; a later write fails against an
