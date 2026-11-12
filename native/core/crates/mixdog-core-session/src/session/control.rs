@@ -227,6 +227,9 @@ pub(crate) struct ControlCell {
     /// the actor last stepped: what the desktop host counts as the session working.
     pub ui_busy: std::sync::atomic::AtomicBool,
     pub compacting: std::sync::atomic::AtomicBool,
+    /// A compaction the model scheduled (`session action=compact`: Node's `pendingCompactSessionIds`): the actor
+    /// runs it, once, when the next turn of this thread settles.
+    pub pending_compact: std::sync::atomic::AtomicBool,
     /// Woken after every step of the thread's actor, so a test waits on the thread's state by its
     /// change (`eventually_on!`, and `SessionHandle::stepped` for the tests of other crates).
     #[cfg(any(test, feature = "test-support"))]

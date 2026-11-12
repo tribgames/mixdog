@@ -1,0 +1,98 @@
+{
+  "clock": {
+    "dateNow": 1800000000000,
+    "note": "Date.now was held at this value for the whole recording"
+  },
+  "cases": [
+    {
+      "case": "compact schedules one compaction and asking again changes nothing",
+      "observed": {
+        "first": "{\n  \"action\": \"compact\",\n  \"sessionId\": \"sess-1\",\n  \"scheduled\": true,\n  \"note\": \"Compaction runs right after the current turn finishes.\"\n}",
+        "afterFirst": [
+          "sess-1"
+        ],
+        "second": "{\n  \"action\": \"compact\",\n  \"sessionId\": \"sess-1\",\n  \"scheduled\": true,\n  \"note\": \"Compaction runs right after the current turn finishes.\"\n}",
+        "afterSecond": [
+          "sess-1"
+        ]
+      }
+    },
+    {
+      "case": "compact belongs to the Lead session",
+      "observed": {
+        "error": "session: compact belongs to the Lead session",
+        "pending": []
+      }
+    },
+    {
+      "case": "the settle of the scheduled session runs the compaction once",
+      "observed": {
+        "ran": [
+          "A"
+        ],
+        "pending": []
+      }
+    },
+    {
+      "case": "the settle of another session leaves the compaction pending",
+      "observed": {
+        "ran": [],
+        "pending": [
+          "A"
+        ]
+      }
+    },
+    {
+      "case": "a settle with nothing scheduled runs nothing",
+      "observed": {
+        "ran": [],
+        "pending": []
+      }
+    },
+    {
+      "case": "fork asks the lifecycle with compact true",
+      "observed": {
+        "out": "{\n  \"action\": \"fork\",\n  \"sourceSessionId\": \"sess-1\",\n  \"sessionId\": \"new-1\",\n  \"compacted\": true\n}",
+        "calls": [
+          [
+            "sess-1",
+            {
+              "compact": true,
+              "titleSuffix": " (Fork)"
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "case": "fork asks the lifecycle with compact false",
+      "observed": {
+        "out": "{\n  \"action\": \"fork\",\n  \"sourceSessionId\": \"sess-1\",\n  \"sessionId\": \"new-1\",\n  \"compacted\": false\n}",
+        "calls": [
+          [
+            "sess-1",
+            {
+              "compact": false,
+              "titleSuffix": " (Fork)"
+            }
+          ]
+        ]
+      }
+    },
+    {
+      "case": "fork asks the lifecycle with compact undefined",
+      "observed": {
+        "out": "{\n  \"action\": \"fork\",\n  \"sourceSessionId\": \"sess-1\",\n  \"sessionId\": \"new-1\",\n  \"compacted\": false\n}",
+        "calls": [
+          [
+            "sess-1",
+            {
+              "compact": false,
+              "titleSuffix": " (Fork)"
+            }
+          ]
+        ]
+      }
+    }
+  ]
+}

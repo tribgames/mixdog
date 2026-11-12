@@ -447,6 +447,17 @@ impl mixdog_core::run_host::tool_pool::session_port::ThreadRequests for LateRequ
     fn interrupt(&self, thread: &ThreadId) -> Result<bool, mixdog_core_api::CoreError> {
         mixdog_core::run_host::tool_pool::session_port::ThreadRequests::interrupt(&*self.0.directory().expect("session directory bound (compose::verify_bound)"), thread)
     }
+
+    async fn transcript(&self, thread: &ThreadId) -> Result<Vec<mixdog_protocol::ThreadItem>, mixdog_core_api::CoreError> {
+        match self.0.directory() {
+            Some(directory) => mixdog_core::run_host::tool_pool::session_port::ThreadRequests::transcript(&*directory, thread).await,
+            None => Err(mixdog_core_base::support::failed("session", "the session directory is not bound")),
+        }
+    }
+
+    fn compact_after_turn(&self, thread: &ThreadId) -> Result<(), mixdog_core_api::CoreError> {
+        mixdog_core::run_host::tool_pool::session_port::ThreadRequests::compact_after_turn(&*self.0.directory().expect("session directory bound (compose::verify_bound)"), thread)
+    }
 }
 /// `context.cwd` of a recorded tool change: the live header's folder (`ThreadCwd`); a thread that is not loaded has none, and the review keeps the path as given.
 pub struct LiveThreadCwd(pub Arc<LateDirectory>);

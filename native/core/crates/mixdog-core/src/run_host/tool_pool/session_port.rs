@@ -28,6 +28,7 @@ use mixdog_core_config::workflow::ids::truthy;
 use mixdog_core_ports::ports::setup_actions::CallerScope;
 use mixdog_core_ports::ports::threads::ThreadState;
 use mixdog_core_ports::ports::threads::port_error;
+use mixdog_protocol::ThreadItem;
 use mixdog_core_session::session::SessionDirectory;
 use mixdog_core_session::session::session_title::AiTitle;
 use mixdog_core_session::session::session_title::StoredTitles;
@@ -50,6 +51,10 @@ use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
 use super::callers::ThreadCallers;
+use super::session_output::range_of;
+use super::session_output::row_of;
+use super::session_output::session_read_output;
+use mixdog_js::js_trim;
 
 /// Requests to a thread, open or not (`CallContext::internal`): the directory seen as the tools
 /// see it.
@@ -58,6 +63,10 @@ pub trait ThreadRequests: Send + Sync {
     async fn request(&self, thread: &ThreadId, method: &'static str, params: Value) -> Result<Value, CoreError>;
     /// The user's interrupt of the turn running in `thread` (`abortSession`): whether one was.
     fn interrupt(&self, thread: &ThreadId) -> Result<bool, CoreError>;
+    /// `rt.pendingCompactSessionIds.add(id)`: `thread` compacts once, when its running turn settles.
+    fn compact_after_turn(&self, thread: &ThreadId) -> Result<(), CoreError>;
+    /// The stored transcript of `thread`, oldest first (`service.readSession({ transcriptRange })`'s rows).
+    async fn transcript(&self, thread: &ThreadId) -> Result<Vec<ThreadItem>, CoreError>;
 }
 
 #[async_trait]
@@ -74,6 +83,14 @@ impl ThreadRequests for SessionDirectory {
 
     fn interrupt(&self, thread: &ThreadId) -> Result<bool, CoreError> {
         self.interrupt_running_turn(thread)
+    }
+
+    fn compact_after_turn(&self, thread: &ThreadId) -> Result<(), CoreError> {
+        self.schedule_compact_after_turn(thread)
+    }
+
+    async fn transcript(&self, thread: &ThreadId) -> Result<Vec<ThreadItem>, CoreError> {
+        self.transcript_items(thread).await
     }
 }
 
@@ -194,6 +211,39 @@ impl DirectorySessionPort {
     async fn header(&self, thread: &ThreadId) -> Result<Header, PortError> {
         self.parts.threads.header(thread).await
     }
+
+    /// `session action=read` (`targetRequest` and `sessionReadOutput`): a window of another session's transcript, counted
+    /// from its newest row, each row quoted with its own text window.
+    async fn read(&self, call: &ControlCall) -> Result<Value, PortError> {
+        let invalid = |field: &str, reason: &str| PortError::Invalid { field: field.to_owned(), reason: reason.to_owned() };
+        let id = call.args.get("session_id").and_then(Value::as_str).map(js_trim).unwrap_or_default();
+        if id.is_empty() || !id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-') {
+            return Err(invalid("session_id", "session: session_id is required for action=read"));
+        }
+        let given = |key: &str| call.args.get(key).filter(|v| !v.is_null());
+        let whole = |value: &Value| value.as_f64().filter(|n| n.fract() == 0.0 && n.abs() <= 9_007_199_254_740_991.0);
+        let limit = match given("limit") {
+            None => 25.0,
+            Some(value) => whole(value).filter(|n| (1.0..=100.0).contains(n)).ok_or_else(|| invalid("limit", "session: limit must be an integer from 1 to 100"))?,
+        };
+        let offset = match given("offset") {
+            None => 0.0,
+            Some(value) => whole(value).filter(|n| *n >= 0.0 && n + limit <= 9_007_199_254_740_991.0).ok_or_else(|| invalid("offset", "session: offset must be a nonnegative safe integer"))?,
+        };
+        let text_offset = match given("text_offset") {
+            None => 0.0,
+            Some(value) => whole(value).filter(|n| *n >= 0.0).ok_or_else(|| invalid("text_offset", "session: invalid text_offset"))?,
+        };
+        let item_id = given("item_id").map(mixdog_js::value_to_string).filter(|id| !id.is_empty());
+        if given("text_offset").is_some() && (given("offset").is_none() || limit != 1.0 || item_id.is_none()) {
+            return Err(invalid("text_offset", "session: text_offset requires offset, limit:1 and item_id from read"));
+        }
+        let target = ThreadId::from(id);
+        self.header(&target).await?;
+        let items = self.parts.requests.transcript(&target).await.map_err(core)?;
+        let range = range_of(items.iter().filter_map(row_of).collect(), offset as u64, limit as u64);
+        session_read_output(id, &range, text_offset as usize, item_id.as_deref()).map_err(failed)
+    }
 }
 
 #[async_trait]
@@ -258,6 +308,7 @@ impl SessionPort for DirectorySessionPort {
                 let deleted = self.parts.requests.request(&target, "thread/delete", params).await.map_err(core)?;
                 Ok(json!({ "sessionId": target.as_str(), "deleted": deleted == Value::Bool(true) }))
             }
+            "read" => self.read(&call).await,
             other => Err(PortError::Unavailable {
                 capability: "session-control".to_owned(),
                 message: format!("session: action={other} is not available in this runtime"),
@@ -323,24 +374,11 @@ impl SessionPort for DirectorySessionPort {
         Ok(set)
     }
 
-    async fn schedule_compact(&self, _: &ThreadId) -> Result<(), PortError> {
-        // Node leaves a flag the turn settle consumes (`takePendingCompact`); the session actor's
-        // settle has no such flag, and a compaction started while the turn runs is refused busy.
-        Err(PortError::Unavailable {
-            capability: "compact".to_owned(),
-            message: "session: compact is not available in this runtime".to_owned(),
-        })
+    async fn schedule_compact(&self, thread: &ThreadId) -> Result<(), PortError> {
+        self.parts.requests.compact_after_turn(thread).map_err(core)
     }
 
     async fn fork(&self, thread: &ThreadId, compact: bool) -> Result<(String, bool), PortError> {
-        // `thread/fork` copies the history as it stands; the compacting inheritance of
-        // `inheritToNewSession({compact: true})` has no handler behind it yet.
-        if compact {
-            return Err(PortError::Unavailable {
-                capability: "fork-compact".to_owned(),
-                message: "session: fork with compact is not available in this runtime".to_owned(),
-            });
-        }
         let params = json!({ "threadId": thread.as_str(), "opId": uuid::Uuid::now_v7().to_string() });
         let reply = self.parts.requests.request(thread, "thread/fork", params).await.map_err(core)?;
         let id = reply
@@ -360,7 +398,27 @@ impl SessionPort for DirectorySessionPort {
             ]);
             self.parts.threads.patch_header(&copy, set, Vec::new()).await?;
         }
-        Ok((id, false))
+        if !compact {
+            return Ok((id, false));
+        }
+        // `inheritToNewSession({ compact: true })` summarises the heir's conversation even when it fits and refuses
+        // (the heir is never left behind) when it cannot: the copy is compacted, and removed when that did not happen.
+        let compacted = self
+            .parts
+            .requests
+            .request(&copy, "thread/compact/start", json!({ "threadId": id, "opId": uuid::Uuid::now_v7().to_string() }))
+            .await;
+        let done = matches!(&compacted, Ok(result) if !truthy(result.get("skipped")) && result.get("changed") != Some(&Value::Bool(false)));
+        if !done {
+            let reason = match compacted {
+                Ok(result) => result.get("reason").map(mixdog_js::value_to_string).unwrap_or_else(|| "nothing was compacted".to_owned()),
+                Err(error) => format!("{error:?}"),
+            };
+            let removal = json!({ "threadId": id, "opId": uuid::Uuid::now_v7().to_string() });
+            self.parts.requests.request(&copy, "thread/delete", removal).await.map_err(core)?;
+            return Err(failed(format!("session: fork with compact failed ({reason})")));
+        }
+        Ok((id, true))
     }
 
     async fn sidebar(&self, thread: &ThreadId, flag: SidebarFlag, value: bool) -> Result<(), PortError> {

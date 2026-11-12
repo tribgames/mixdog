@@ -360,16 +360,25 @@ struct Requests {
     calls: Mutex<Vec<(String, String, Value)>>,
     reply: Mutex<Value>,
     interrupted: bool,
+    /// The stored transcript `thread/…` reads answer: `ThreadItem`s as the protocol writes them.
+    transcript: Vec<Value>,
 }
 
 #[async_trait]
 impl ThreadRequests for Requests {
+    async fn transcript(&self, _: &ThreadId) -> Result<Vec<mixdog_protocol::ThreadItem>, CoreError> {
+        Ok(self.transcript.iter().map(|item| serde_json::from_value(item.clone()).expect("a protocol item")).collect())
+    }
     async fn request(&self, thread: &ThreadId, method: &'static str, params: Value) -> Result<Value, CoreError> {
         self.calls.lock().expect("calls").push((thread.as_str().to_owned(), method.to_owned(), params));
         Ok(self.reply.lock().expect("reply").clone())
     }
     fn interrupt(&self, _: &ThreadId) -> Result<bool, CoreError> {
         Ok(self.interrupted)
+    }
+    fn compact_after_turn(&self, thread: &ThreadId) -> Result<(), CoreError> {
+        self.calls.lock().expect("calls").push((thread.as_str().to_owned(), "compact-after-turn".to_owned(), Value::Null));
+        Ok(())
     }
 }
 
@@ -428,7 +437,8 @@ impl mixdog_agent::env::Clock for Now {
 }
 
 struct Port {
-    port: DirectorySessionPort,
+    port: Arc<DirectorySessionPort>,
+    callers: Arc<ThreadCallers>,
     threads: Arc<Threads>,
     requests: Arc<Requests>,
     suggested: Arc<Suggested>,
@@ -443,8 +453,9 @@ fn port(headers: &[(&str, Value)], requests: Requests) -> Port {
     let runs = UnattendedRunRegistry::new(Arc::new(NoStamps));
     let requests = Arc::new(requests);
     let suggested = Arc::new(Suggested::default());
-    let port = DirectorySessionPort::new(SessionPortParts {
-        callers: Arc::new(ThreadCallers::new(threads.clone(), marks, runs)),
+    let callers = Arc::new(ThreadCallers::new(threads.clone(), marks, runs));
+    let port = Arc::new(DirectorySessionPort::new(SessionPortParts {
+        callers: callers.clone(),
         threads: threads.clone(),
         requests: requests.clone(),
         titles: Arc::new(mixdog_core_session::session::session_title::StoredTitles::new(threads.clone(), Arc::new(Messages), Arc::new(Now))),
@@ -453,8 +464,8 @@ fn port(headers: &[(&str, Value)], requests: Requests) -> Port {
         bots: Arc::new(Bots(vec!["ann"])),
         suggestions: suggested.clone(),
         io: mixdog_rt::testing::tokens().interactive_io,
-    });
-    Port { port, threads, requests, suggested }
+    }));
+    Port { port, callers, threads, requests, suggested }
 }
 
 fn thread(id: &str) -> ThreadId {
@@ -556,15 +567,115 @@ async fn a_model_title_never_overwrites_the_users() {
 }
 
 #[tokio::test]
-async fn a_fork_is_a_new_thread_titled_as_a_copy_and_compact_is_not_offered() {
+async fn a_fork_is_a_new_thread_titled_as_a_copy() {
     let requests = Requests { reply: Mutex::new(json!({ "thread": { "id": "sess_copy" } })), ..Requests::default() };
     let p = port(&[("sess_a", json!({})), ("sess_copy", json!({ "title": "Fix it" }))], requests);
     assert_eq!(p.port.fork(&thread("sess_a"), false).await, Ok(("sess_copy".to_owned(), false)));
     let calls = p.requests.calls.lock().expect("calls").clone();
     assert_eq!((calls[0].0.as_str(), calls[0].1.as_str(), &calls[0].2["threadId"]), ("sess_a", "thread/fork", &json!("sess_a")));
+    assert_eq!(calls.len(), 1, "a plain fork compacts nothing");
     let header = p.threads.header_of("sess_copy");
     assert_eq!((header["title"].as_str(), header["titleLocked"].as_bool(), header["titleSource"].as_str()), (Some("Fix it (Fork)"), Some(true), Some("ai")));
-    assert!(matches!(p.port.fork(&thread("sess_a"), true).await, Err(PortError::Unavailable { .. })));
+}
+
+fn session_tool(p: &Port) -> mixdog_tools::orch::session::SessionTool {
+    mixdog_tools::orch::session::SessionTool::new(p.port.clone(), p.callers.clone())
+}
+
+async fn answer(tool: &mixdog_tools::orch::session::SessionTool, context: &ToolContext, args: Value) -> Result<String, String> {
+    match tool.call(context, args).await {
+        Ok(out) => match &out.parts[0] {
+            ToolPart::Text(text) => Ok(text.clone()),
+            other => panic!("a text answer, got {other:?}"),
+        },
+        Err(error) => Err(error.message_for_model),
+    }
+}
+
+/// `session action=compact|fork` (`fixtures/session-compact-cases`, recorded by `record-session-compact-cases.mjs`): the
+/// tool's answers, the one compaction a compact leaves behind (asking again changes nothing), the Lead-only refusal, and
+/// the lifecycle request of a fork with and without `compact` (the copy is compacted, never left uncompacted).
+#[tokio::test]
+async fn compact_and_fork_answer_as_the_node_session_tool_does() {
+    let g = golden(mixdog_testkit::fixture!("../../fixtures/session-compact-cases/golden.json"));
+    let case = |name: &str| g["cases"].as_array().expect("cases").iter().find(|c| c["case"] == name).unwrap_or_else(|| panic!("{name}"))["observed"].clone();
+    let want_text = |recorded: &Value, from: &str, to: &str| recorded.as_str().expect("text").replace(from, to);
+    let heirs = || Requests { reply: Mutex::new(json!({ "thread": { "id": "new-1" } })), ..Requests::default() };
+    let compacts = |p: &Port| -> Vec<String> { p.requests.calls.lock().expect("calls").iter().filter(|c| c.1 == "compact-after-turn").map(|c| c.0.clone()).collect() };
+
+    // compact: Node's one-shot set holds the caller once however often it asks.
+    let recorded = case("compact schedules one compaction and asking again changes nothing");
+    let p = port(&[("sess_main", json!({}))], heirs());
+    let tool = session_tool(&p);
+    let first = answer(&tool, &ctx(), json!({ "action": "compact" })).await.expect("scheduled");
+    assert_eq!(first, want_text(&recorded["first"], "sess-1", "sess_main"));
+    assert_eq!(compacts(&p), ["sess_main"]);
+    let second = answer(&tool, &ctx(), json!({ "action": "compact" })).await.expect("scheduled");
+    assert_eq!(second, want_text(&recorded["second"], "sess-1", "sess_main"));
+    assert!(compacts(&p).iter().all(|id| id == "sess_main"), "only the caller's own thread is ever scheduled");
+
+    // A delegated worker is refused before anything is scheduled.
+    let refused = case("compact belongs to the Lead session");
+    let p = port(&[("sess_main", json!({}))], heirs());
+    let worker = ToolContext { surface: SurfaceKind::Agent, ..ctx() };
+    let got = answer(&session_tool(&p), &worker, json!({ "action": "compact" })).await.expect_err("refused");
+    assert_eq!(got, refused["error"].as_str().expect("message"));
+    assert!(compacts(&p).is_empty());
+
+    // fork: every recorded call shape.
+    for (name, args) in [
+        ("fork asks the lifecycle with compact true", json!({ "action": "fork", "compact": true })),
+        ("fork asks the lifecycle with compact false", json!({ "action": "fork", "compact": false })),
+        ("fork asks the lifecycle with compact undefined", json!({ "action": "fork" })),
+    ] {
+        let recorded = case(name);
+        let compact = recorded["calls"][0][1]["compact"] == json!(true);
+        let p = port(&[("sess_main", json!({})), ("new-1", json!({}))], heirs());
+        let got = answer(&session_tool(&p), &ctx(), args).await.expect(name);
+        assert_eq!(got, want_text(&recorded["out"], "sess-1", "sess_main"), "{name}");
+        let methods: Vec<String> = p.requests.calls.lock().expect("calls").iter().map(|c| c.1.clone()).collect();
+        let wanted: &[&str] = if compact { &["thread/fork", "thread/compact/start"] } else { &["thread/fork"] };
+        assert_eq!(methods, wanted, "{name}");
+    }
+}
+
+/// A fork asked to compact that cannot (nothing was reduced) leaves no copy behind, as Node's refusal leaves no heir.
+#[tokio::test]
+async fn a_fork_whose_compaction_is_skipped_is_removed_and_refused() {
+    struct Skipping(Requests);
+    #[async_trait]
+    impl ThreadRequests for Skipping {
+        async fn request(&self, thread: &ThreadId, method: &'static str, params: Value) -> Result<Value, CoreError> {
+            let reply = self.0.request(thread, method, params).await?;
+            Ok(if method == "thread/compact/start" { json!({ "skipped": true, "reason": "no reduction" }) } else { reply })
+        }
+        fn interrupt(&self, thread: &ThreadId) -> Result<bool, CoreError> {
+            self.0.interrupt(thread)
+        }
+        fn compact_after_turn(&self, thread: &ThreadId) -> Result<(), CoreError> {
+            self.0.compact_after_turn(thread)
+        }
+        async fn transcript(&self, thread: &ThreadId) -> Result<Vec<mixdog_protocol::ThreadItem>, CoreError> {
+            self.0.transcript(thread).await
+        }
+    }
+    let inner = Arc::new(Skipping(Requests { reply: Mutex::new(json!({ "thread": { "id": "sess_copy" } })), ..Requests::default() }));
+    let p = port(&[("sess_a", json!({})), ("sess_copy", json!({}))], Requests::default());
+    let port = DirectorySessionPort::new(SessionPortParts {
+        callers: p.callers.clone(),
+        threads: p.threads.clone(),
+        requests: inner.clone(),
+        titles: Arc::new(mixdog_core_session::session::session_title::StoredTitles::new(p.threads.clone(), Arc::new(Messages), Arc::new(Now))),
+        ai_titles: Arc::new(Titles(true)),
+        projects: Arc::new(NoProjects),
+        bots: Arc::new(Bots(vec![])),
+        suggestions: p.suggested.clone(),
+        io: mixdog_rt::testing::tokens().interactive_io,
+    });
+    let error = port.fork(&thread("sess_a"), true).await.expect_err("refused");
+    assert!(matches!(&error, PortError::Failed { message, .. } if message == "session: fork with compact failed (no reduction)"), "{error:?}");
+    let methods: Vec<String> = inner.0.calls.lock().expect("calls").iter().map(|c| c.1.clone()).collect();
+    assert_eq!(methods, ["thread/fork", "thread/compact/start", "thread/delete"]);
 }
 
 #[tokio::test]
@@ -587,8 +698,7 @@ async fn the_sidebar_flags_and_the_control_actions_become_thread_requests() {
     };
     assert_eq!(p.port.control(control("cancel")).await, Ok(json!({ "sessionId": "sess_x", "aborted": true })));
     assert_eq!(p.port.control(control("delete")).await, Ok(json!({ "sessionId": "sess_x", "deleted": true })));
-    assert!(matches!(p.port.control(control("list")).await, Err(PortError::Unavailable { .. })));
-    assert!(matches!(p.port.schedule_compact(&thread("sess_a")).await, Err(PortError::Unavailable { .. })));
+    assert!(matches!(p.port.control(control("zap")).await, Err(PortError::Unavailable { .. })));
 }
 
 #[tokio::test]
@@ -596,4 +706,197 @@ async fn a_proposal_is_recorded_with_its_key_and_the_dismissal() {
     let p = port(&[], Requests::default());
     assert_eq!(p.port.suggest("pause-routine:news", "Pause the news routine?", true).await, Ok(json!({ "recorded": true })));
     assert_eq!(*p.suggested.0.lock().expect("suggested"), [("pause-routine:news".to_owned(), "Pause the news routine?".to_owned(), true)]);
+}
+
+// --- `session action=list|read` quoting ------------------------------------------------------------
+
+mod session_output_replay {
+    use mixdog_core::run_host::tool_pool::session_output::ListPage;
+    use mixdog_core::run_host::tool_pool::session_output::ReadRange;
+    use mixdog_core::run_host::tool_pool::session_output::Rich;
+    use mixdog_core::run_host::tool_pool::session_output::catalog_cursor_of;
+    use mixdog_core::run_host::tool_pool::session_output::session_list_output;
+    use mixdog_core::run_host::tool_pool::session_output::session_read_output;
+    use serde_json::Value;
+    use serde_json::json;
+
+    fn cases() -> Vec<Value> {
+        let g: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/session-tool-output/golden.json")).expect("fixture");
+        g["cases"].as_array().expect("cases").clone()
+    }
+
+    /// The recorder writes a generated text as `{ "repeat": [unit, count] }`.
+    fn expand(value: &Value) -> Value {
+        match value {
+            Value::Object(map) if map.len() == 1 && map.contains_key("repeat") => {
+                let (unit, count) = (map["repeat"][0].as_str().expect("unit"), map["repeat"][1].as_u64().expect("count"));
+                json!(unit.repeat(count as usize))
+            }
+            Value::Object(map) => Value::Object(map.iter().map(|(k, v)| (k.clone(), expand(v))).collect()),
+            Value::Array(items) => Value::Array(items.iter().map(expand).collect()),
+            other => other.clone(),
+        }
+    }
+
+    fn page(input: &Value) -> ListPage {
+        let page = expand(&input["page"]);
+        ListPage {
+            sessions: page["sessions"].as_array().expect("sessions").clone(),
+            next_cursor: page.get("nextCursor").and_then(Value::as_str).map(str::to_owned),
+        }
+    }
+
+    fn list(input: &Value) -> Result<Value, String> {
+        let page = page(input);
+        let limit = input["limit"].as_u64().expect("limit") as usize;
+        let own = input["richOwn"].as_str().map(str::to_owned);
+        let own_row = |row: &Value| own.as_deref().is_some_and(|id| row["id"] == id);
+        let rich = if own.is_some() { Rich::Own(&own_row) } else { Rich::Every(input["rich"] != json!(false)) };
+        if input["cursorOf"].is_string() {
+            return session_list_output(&page, limit, &rich, &|row| format!("after:{}", row["id"].as_str().expect("id")));
+        }
+        session_list_output(&page, limit, &rich, &catalog_cursor_of)
+    }
+
+    fn range(spec: &Value) -> ReadRange {
+        ReadRange { offset: spec["offset"].as_u64().unwrap_or(0), items: expand(&spec["items"]).as_array().expect("items").clone(), has_older: spec["hasOlder"] == json!(true) }
+    }
+
+    fn read(id: &str, range: &ReadRange, text_offset: usize, item: Option<&str>) -> Value {
+        session_read_output(id, range, text_offset, item).expect("read")
+    }
+
+    fn the<'a>(cases: &'a [Value], name: &str) -> &'a Value {
+        cases.iter().find(|c| c["case"] == name).unwrap_or_else(|| panic!("case {name}"))
+    }
+
+    /// `sessionListOutput` of Node over every recorded page: selection fields, the caller's own rows, the working state,
+    /// the budget cut and the cursor that continues after it; compared whole, key order included.
+    #[test]
+    fn list_output_equals_the_recorded_node_output() {
+        let cases = cases();
+        for case in &cases {
+            let name = case["case"].as_str().expect("name");
+            if !name.starts_with("list") && !name.starts_with("an archived") && !name.starts_with("rich") && !name.starts_with("a task") && !name.starts_with("a background") && !name.starts_with("a bot") && !name.starts_with("a working") && !name.starts_with("a budget") && !name.starts_with("an empty") {
+                continue;
+            }
+            let observed = &case["observed"];
+            if name.starts_with("list cuts") {
+                // The rows are generated from the recorded spec.
+                let spec = &case["input"]["rows"];
+                let rows: Vec<Value> = (0..spec["count"].as_u64().expect("count"))
+                    .map(|i| {
+                        json!({
+                            "id": format!("fixture_{i}"),
+                            "title": spec["title"].as_str().expect("title").repeat(spec["titleRepeat"].as_u64().expect("n") as usize),
+                            "status": "idle",
+                            "cwd": format!("{}{}", spec["cwdRoot"].as_str().expect("root"), spec["cwdUnit"].as_str().expect("unit").repeat(spec["cwdRepeat"].as_u64().expect("n") as usize)),
+                            "updatedAt": spec["updatedAtFrom"].as_i64().expect("from") - i as i64,
+                            "providerReplay": { "secret": "not part of the tool result" },
+                            "storageSize": 123,
+                        })
+                    })
+                    .collect();
+                let out = session_list_output(&ListPage { sessions: rows.clone(), next_cursor: None }, 100, &Rich::Every(true), &catalog_cursor_of).expect("listed");
+                assert_eq!(out, observed["out"], "{name}");
+                let cut = out["sessions"].as_array().expect("sessions").len();
+                let cursor = mixdog_store::sqlite::lead::decode_catalog_cursor(out["nextCursor"].as_str()).expect("a cursor").expect("some");
+                assert_eq!((mixdog_js::json_number(cursor.activity), json!(cursor.id)), (observed["cursor"]["activity"].clone(), observed["cursor"]["id"].clone()), "{name}");
+                let remainder = session_list_output(&ListPage { sessions: rows[cut..].to_vec(), next_cursor: None }, 100, &Rich::Every(true), &catalog_cursor_of).expect("listed");
+                assert_eq!(remainder["sessions"][0]["id"], observed["remainderFirstId"], "{name}");
+                let keys: Vec<&String> = out["sessions"][0].as_object().expect("row").keys().collect();
+                assert_eq!(json!(keys), observed["keys"], "{name}");
+            } else if name.starts_with("an empty") {
+                assert_eq!(session_list_output(&ListPage { sessions: vec![], next_cursor: None }, 25, &Rich::Every(true), &catalog_cursor_of).expect("listed"), observed["empty"], "{name}");
+                let uncut = ListPage { sessions: vec![json!({ "id": "one" })], next_cursor: Some("service-cursor".into()) };
+                assert_eq!(session_list_output(&uncut, 1, &Rich::Every(true), &catalog_cursor_of).expect("listed"), observed["uncut"], "{name}");
+            } else {
+                assert_eq!(list(&case["input"]).expect("listed"), *observed, "{name}");
+            }
+        }
+    }
+
+    /// `sessionReadOutput` of Node: row offsets from the newest, the text windows and their continuation, the byte budgets
+    /// of the tail and of a later page, the attachment counts; compared whole.
+    #[test]
+    fn read_output_equals_the_recorded_node_output() {
+        let cases = cases();
+        let unit = "😀漢字\"\\\n";
+        let case = the(&cases, "read preserves range indices and removes rendering metadata");
+        let spec = &case["input"];
+        assert_eq!(read("s", &range(&spec["range"]), 0, None), case["observed"]);
+
+        let case = the(&cases, "read bounds UTF-8 and escaped text and keeps failure and cancellation signals");
+        let mut items: Vec<Value> = (0..100).map(|_| json!({ "kind": "assistant", "text": unit.repeat(2000) })).collect();
+        items.push(json!({ "kind": "tool", "name": "shell", "isError": true, "status": "cancelled", "result": "Error: cancelled by caller" }));
+        let full = read("s", &ReadRange { offset: 0, items, has_older: false }, 0, None);
+        assert_eq!(full, case["observed"]["full"]);
+        assert_eq!(read("s", &ReadRange { offset: 0, items: vec![], has_older: false }, 0, None), case["observed"]["empty"]);
+
+        let case = the(&cases, "attachment counts prefer canonical records");
+        assert_eq!(read("s", &range(&case["input"]["range"]), 0, None), case["observed"]);
+
+        for kind in ["assistant", "tool"] {
+            let case = the(&cases, &format!("text continuation reconstructs {kind} text without splitting emoji"));
+            let text = format!("  code\n{}", unit.repeat(2500));
+            let item = if kind == "tool" { json!({ "id": "stable", "kind": kind, "result": text }) } else { json!({ "id": "stable", "kind": kind, "text": text }) };
+            let one = ReadRange { offset: 9, items: vec![item], has_older: false };
+            let (mut pages, mut text_offset, mut restored) = (Vec::new(), 0usize, String::new());
+            loop {
+                let out = read("s", &one, text_offset, Some("stable"));
+                let shown = out["items"][0]["text"].as_str().expect("text").to_owned();
+                let next = out["items"][0].get("nextTextOffset").cloned().unwrap_or(Value::Null);
+                pages.push(json!({ "textOffset": text_offset, "text": shown.encode_utf16().count(), "nextTextOffset": next }));
+                restored.push_str(&shown);
+                match next.as_u64() {
+                    Some(at) => text_offset = at as usize,
+                    None => break,
+                }
+            }
+            let observed = &case["observed"];
+            assert_eq!(json!(pages), observed["pages"], "{kind}");
+            assert_eq!(restored == text, observed["restoredIsText"] == json!(true), "{kind}");
+            assert_eq!(session_read_output("s", &one, 2, Some("moved")).expect_err("stale"), observed["stale"].as_str().expect("message"), "{kind}");
+            let pair = ReadRange { offset: 0, items: vec![json!({ "kind": "assistant", "text": "a😀b" })], has_older: false };
+            assert_eq!(session_read_output("s", &pair, 2, None).expect_err("split"), observed["splits"].as_str().expect("message"), "{kind}");
+        }
+
+        let case = the(&cases, "tail and subsequent pages use the same budgets");
+        let items: Vec<Value> = (0..100).map(|i| json!({ "id": i.to_string(), "kind": "assistant", "text": "a".repeat(2000) })).collect();
+        assert_eq!(read("s", &ReadRange { offset: 0, items: items.clone(), has_older: true }, 0, None), case["observed"]["tail"]);
+        assert_eq!(read("s", &ReadRange { offset: 100, items, has_older: true }, 0, None), case["observed"]["page"]);
+    }
+}
+
+/// `session action=read` through the tool and the port: another session's stored transcript is quoted from its newest
+/// row (offset 0), each row by Node's row kinds, with Node's argument refusals and its unavailable-session sentence.
+#[tokio::test]
+async fn read_quotes_the_stored_transcript_from_its_newest_row() {
+    let transcript = vec![
+        json!({ "type": "userMessage", "id": "u1", "content": [], "displayText": "fix it", "countsForPromptHistory": true }),
+        json!({ "type": "agentMessage", "id": "a1", "text": "done" }),
+        json!({ "type": "turnEnd", "id": "t1", "status": "done", "elapsedMs": 5 }),
+    ];
+    let p = port(&[("sess_main", json!({})), ("sess_other", json!({}))], Requests { transcript, ..Requests::default() });
+    let tool = session_tool(&p);
+    let context = ctx();
+    let read = |args: Value| answer(&tool, &context, args);
+    let out: Value = serde_json::from_str(&read(json!({ "action": "read", "session_id": "sess_other", "limit": 2 })).await.expect("read")).expect("json");
+    assert_eq!(out["sessionId"], "sess_other");
+    assert_eq!(out["items"][0], json!({ "kind": "assistant", "offset": 1, "id": "a1", "text": "done" }));
+    assert_eq!((out["items"][1]["kind"].clone(), out["items"][1]["offset"].clone(), out["items"][1]["status"].clone()), (json!("turndone"), json!(0), json!("done")));
+    assert_eq!(out["nextOffset"], 2, "an older row is left");
+    let whole: Value = serde_json::from_str(&read(json!({ "action": "read", "session_id": "sess_other" })).await.expect("read")).expect("json");
+    assert_eq!((whole["items"].as_array().map(Vec::len), whole["nextOffset"].clone()), (Some(3), Value::Null));
+    let past: Value = serde_json::from_str(&read(json!({ "action": "read", "session_id": "sess_other", "offset": 2, "limit": 5 })).await.expect("read")).expect("json");
+    assert_eq!((past["items"][0]["text"].clone(), past["offset"].clone()), (json!("fix it"), json!(2)));
+    for (args, want) in [
+        (json!({ "action": "read", "session_id": "sess_other", "limit": 0 }), "session: limit must be an integer from 1 to 100"),
+        (json!({ "action": "read", "session_id": "sess_other", "offset": -1 }), "session: offset must be a nonnegative safe integer"),
+        (json!({ "action": "read", "session_id": "sess_other", "text_offset": 3 }), "session: text_offset requires offset, limit:1 and item_id from read"),
+        (json!({ "action": "read", "session_id": "sess_gone" }), "session: sess_gone is unavailable"),
+    ] {
+        let message = read(args).await.expect_err("refused");
+        assert!(message.contains(want), "{message}");
+    }
 }
