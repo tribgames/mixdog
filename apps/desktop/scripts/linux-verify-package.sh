@@ -6,7 +6,7 @@
 #    manylinux_2_28 build outputs in <nativeOutDir> (so the pinned-release
 #    download path was not used) and that both packages carry the same tools,
 # 3. records the glibc floor of every ELF in both payloads (fail closed, see
-#    linux-glibc-floor.mjs) including the Electron binary, the native tools and pty.node.
+#    linux-glibc-floor.mjs) including the Electron binary, the native tools, the core (mixdogd) and pty.node.
 # Exports DEB_ROOT / AI_ROOT to $GITHUB_ENV when set.
 set -euo pipefail
 dist=$1 native=$2 arch=$3 max=$4 work=${5:-extract}
@@ -46,7 +46,7 @@ for root in "$deb_root" "$ai_root"; do
 done
 diff -r "$deb_root/resources/native-tools" "$ai_root/resources/native-tools"
 sha256sum "$deb_root"/resources/native-tools/*
-required="mixdog-desktop,resources/native-tools/mixdog-computer,resources/native-tools/mixdog-graph,resources/native-tools/mixdog-patch,resources/native-tools/mixdog-spawn,resources/app.asar.unpacked/node_modules/@homebridge/node-pty-prebuilt-multiarch/build/Release/pty.node"
+required="mixdog-desktop,resources/native-tools/mixdog-computer,resources/native-tools/mixdog-graph,resources/native-tools/mixdog-patch,resources/native-tools/mixdog-spawn,resources/core/mixdogd,resources/app.asar.unpacked/node_modules/@homebridge/node-pty-prebuilt-multiarch/build/Release/pty.node"
 for root in "$deb_root" "$ai_root"; do
 	echo "== glibc floor: $root"
 	node "$here/linux-glibc-floor.mjs" "$root" "$max" --arch "$arch" --require "$required"
