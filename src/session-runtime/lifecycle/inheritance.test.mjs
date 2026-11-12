@@ -133,6 +133,27 @@ test('inheritToNewSession persists a cold resumable heir and leaves the live ses
   });
 });
 
+// The heir holds its source's text: a value the source marks sensitive after
+// the inheritance is the heir's to redact too.
+test('a value the source marks after an inheritance is the heirs too', async () => {
+  const { rememberSensitiveValues, redactSensitiveText } = await import(
+    '../../runtime/agent/orchestrator/session/sensitive-values.mjs'
+  );
+  await _withRegisteredProviderForTestAsync(providerName, provider, async () => {
+    const live = openLive(CONVERSATION);
+    let heirId = null;
+    try {
+      heirId = (await lifecycleFor(live).inheritToNewSession(live.id)).sessionId;
+      const fill = { name: 'browser', arguments: { action: 'fill', input: { text: '482913', sensitive: true } } };
+      assert.equal(rememberSensitiveValues(live.id, [fill]), true);
+      assert.equal(redactSensitiveText(heirId, 'code 482913'), 'code [redacted]');
+    } finally {
+      if (heirId) deleteSession(heirId);
+      deleteSession(live.id);
+    }
+  });
+});
+
 // Issue #238: thinking replay is bound to the prompt and tools that produced
 // it. A heir whose prompt was rebuilt (here: settings changed after the source
 // was created) would have the provider drop it while its estimate still

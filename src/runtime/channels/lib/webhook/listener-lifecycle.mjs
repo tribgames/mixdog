@@ -96,6 +96,12 @@ function createWebhookListener({ getConfig, setConfig, handleRequest }) {
   }
 
   async function reloadConfig(config, options = {}) {
+    // A listener whose port the reload keeps goes on listening: closing it to
+    // bind the same port again refuses every request arriving in between.
+    if (server && config.enabled && (config.port || 3333) === (getConfig().port || 3333)) {
+      setConfig(config);
+      return;
+    }
     // Await server.close() before re-listen: server.close() is async and
     // releases the bound port only after the close callback fires. Calling
     // start() before that drains races the port and surfaces EADDRINUSE

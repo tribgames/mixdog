@@ -60,6 +60,7 @@ import {
   routineSummary,
 } from '../runtime/agent/orchestrator/session/routine-result.mjs';
 import { readJsonState, updateJsonAtomic } from '../runtime/shared/atomic-file.mjs';
+import { redactSensitiveText } from '../runtime/agent/orchestrator/session/sensitive-values.mjs';
 import { endHandoff, noteHandoff } from '../runtime/shared/delegated-approval-host.mjs';
 import { ROUTINE_LIMITS } from '../runtime/shared/routine-limits.mjs';
 import { submissionIdsOf, submissionOutcome } from './agent-task-sessions.mjs';
@@ -714,7 +715,8 @@ function routineResultItem(row, result) {
     kind: result.kind === 'webhook' ? 'webhook' : 'schedule',
     name: row.name,
     ok: result.ok === true,
-    text: routineSummary(result.text),
+    // The run's reply leaves its session: its sensitive values read as the marker.
+    text: routineSummary(redactSensitiveText(result.runSessionId, result.text)),
     runSessionId: result.runSessionId || null,
     ...(result.reason ? { reason: String(result.reason) } : {}),
     ...(result.paused === true ? { paused: true } : {}),
@@ -770,6 +772,8 @@ function taskReportItem({
   watchIds = [],
   progressRunId = '',
 }) {
+  // The task's reply leaves its session: its sensitive values read as the marker.
+  text = redactSensitiveText(taskSessionId, text);
   // The model-facing reply keeps its lines up to REPLY_LIMIT; the row's
   // one-line summary is derived from it (agentTaskMessage).
   const reply = boundedReply(text);

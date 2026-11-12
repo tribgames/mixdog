@@ -42,7 +42,30 @@ CREATE TABLE IF NOT EXISTS session_search.backfill (
 );
 CREATE INDEX IF NOT EXISTS messages_session_idx ON session_search.messages (session_id, ordinal);
 CREATE INDEX IF NOT EXISTS messages_tsv_idx ON session_search.messages USING GIN (tsv);
+CREATE TABLE IF NOT EXISTS session_search.scrub (
+  id integer PRIMARY KEY CHECK (id = 1)
+);
 `;
+
+/** The replaced row versions of a sensitive replacement (replaceSessionSearchMessages)
+ *  leave the disk: the table, its TOAST and its indexes are written anew from the
+ *  live rows, then the WAL segments that logged the old versions are removed (a
+ *  segment switch and a checkpoint; with `wal_recycle = off` a segment past the
+ *  redo point is deleted, never renamed for reuse). Runs only while
+ *  session_search.scrub records it is owed and clears that last, so a kill at any
+ *  step is finished when the schema is next opened. */
+export async function scrubReplacedRows(db) {
+  const { rows } = await db.query('SELECT 1 FROM session_search.scrub');
+  if (rows.length === 0) return;
+  const { rows: setting } = await db.query("SELECT current_setting('wal_recycle') AS recycle");
+  if (setting[0]?.recycle !== 'off') {
+    throw new Error('[session-search] wal_recycle is on: a recycled WAL segment would keep the replaced rows');
+  }
+  await db.exec('VACUUM FULL session_search.messages');
+  await db.exec('SELECT pg_switch_wal()');
+  await db.exec('CHECKPOINT');
+  await db.exec('DELETE FROM session_search.scrub');
+}
 
 // to_tsvector rejects a document over 1 MB; a single message never needs more
 // searchable text than this.
@@ -56,6 +79,7 @@ const getDb = createPgSchemaDb({
   defaultDataDir: resolvePluginData,
   ensurePg: ensurePgInstance,
   withLock: withSchemaBootstrapLock,
+  afterDdl: scrubReplacedRows,
 });
 
 function messageTs(m) {
@@ -148,7 +172,11 @@ export async function replaceSessionSearchMessages(
   const rows = sessionSearchRows(sessionId, redactedMessages);
   const previous = new Set(sessionSearchRows(sessionId, plainMessages).map((row) => row.sourceRef));
   const db = await getDb(dataDir, { signal });
-  return db.transaction(async (tx) => {
+  const deleted = await db.transaction(async (tx) => {
+    // The cluster commits asynchronously (synchronous_commit = off): a kill could
+    // lose this commit, and with it the record of the owed scrub, while the plain
+    // rows stay.
+    await tx.query('SET LOCAL synchronous_commit = on');
     const { rows: stored } = await tx.query(
       `SELECT source_ref, ordinal, role, ts, content FROM session_search.messages
        WHERE session_id = $1 FOR UPDATE`,
@@ -173,8 +201,11 @@ export async function replaceSessionSearchMessages(
         content,
       }));
     await insertRows(tx, [...rows, ...kept]);
+    if (changed.length) await tx.query('INSERT INTO session_search.scrub (id) VALUES (1) ON CONFLICT DO NOTHING');
     return changed.length;
   });
+  await scrubReplacedRows(db);
+  return deleted;
 }
 
 export async function deleteSessionSearchMessages(sessionId, { dataDir, signal } = {}) {

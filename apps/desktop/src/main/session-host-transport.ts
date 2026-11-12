@@ -5,7 +5,7 @@ import type {
   DesktopTranscriptHistoryRequest,
   SessionSnapshot,
 } from '../shared/contract';
-import { DESKTOP_READ_CAPABILITIES } from '../shared/contract';
+import { SESSION_READ_ACTION_SET } from '../../../../src/standalone/session-protocol.mjs';
 import { reportTranscriptRead } from '../shared/transcript-read-diagnostics';
 import { TRANSCRIPT_READ_TIMEOUT_MS } from '../shared/transcript-read-policy';
 import { isSessionId } from './desktop-state';
@@ -56,9 +56,9 @@ export interface SessionHostTransportOwner {
   deleteProjection(sessionId: string): void;
 }
 
-// Session reads reached through dedicated IPC rather than the generic
-// capability list still ride the daemon's `read` lane.
-const READ_CAPABILITIES = new Set<string>([...DESKTOP_READ_CAPABILITIES, 'getQuotaAutoResume', 'getLeadHomeRoute']);
+// The daemon's own read set: an action it serves on `session.read` must not be sent as a `configure` (which it refuses),
+// so the lane choice comes from the same list (`session-protocol.mjs`) rather than a copy of it.
+const READ_CAPABILITIES: ReadonlySet<string> = SESSION_READ_ACTION_SET;
 
 export function sessionIdOf(value: unknown): string {
   const id = String(value || '');

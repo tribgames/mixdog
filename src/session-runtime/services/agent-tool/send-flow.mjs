@@ -33,6 +33,7 @@ import { rebindDelegation } from '../../../runtime/agent/orchestrator/session/hu
 import { whileTurnDispatched } from '../../../runtime/agent/orchestrator/session/manager/runtime-state.mjs';
 import { takeStoppedShellJobs } from '../../../runtime/agent/orchestrator/session/manager/turn-reap.mjs';
 import { turnReportText } from '../../../runtime/agent/orchestrator/session/loop/turn-report.mjs';
+import { carrySensitiveValues, redactSensitiveText } from '../../../runtime/agent/orchestrator/session/sensitive-values.mjs';
 
 function workerResultIdentity({ session, tag, sessionId }) {
   return { tag, sessionId, agent: session.agent || null, provider: session.provider, model: session.model };
@@ -84,7 +85,8 @@ export function createSendFlow({
       const abnormalError = abnormalEmptyFinishError(result, session.agent || sendAgent);
       return {
         ...workerResultIdentity({ session, tag, sessionId }),
-        content: turnReportText(result),
+        // The report leaves the worker: its sensitive values as the marker.
+        content: redactSensitiveText(sessionId, turnReportText(result)),
         ...(sessionSurface?.canonical === true ? { handoffOnly: true } : {}),
         ...(abnormalError ? { error: abnormalError } : {}),
       };
@@ -133,6 +135,14 @@ export function createSendFlow({
     const turn = spawnFlow.workerTurns.claim(session, job);
     const turnReview = createTurnReviewCollector(session, tag, sendAgent, notifyContext || {});
     const completionValue = completionValueFor({ session, tag, sessionId, sendAgent });
+    // The sessions the turn's report and handoffs reach and whose text its prompt carries: each one's sensitive
+    // values follow the text both ways, and the prompt leaves its owners with theirs as the marker.
+    for (const owner of [notifyContext?.callerSessionId, session.parentSessionId, notifyContext?.ownerSessionId, session.ownerSessionId]) {
+      if (!owner) continue;
+      carrySensitiveValues(sessionId, owner);
+      carrySensitiveValues(owner, sessionId);
+      prepared.prompt = redactSensitiveText(owner, prepared.prompt);
+    }
     let finalStatus = 'idle';
     let handoffMsgStart = 0;
     // A cancelled turn reports the output it produced before it stopped.
@@ -140,7 +150,7 @@ export function createSendFlow({
       finalStatus = 'cancelled';
       reconcileJobCancelled(job, {
         ...workerResultIdentity({ session, tag, sessionId }),
-        content: turnPartialHandoff(error, mgr.getSession(sessionId), handoffMsgStart) || result?.content || '',
+        content: redactSensitiveText(sessionId, turnPartialHandoff(error, mgr.getSession(sessionId), handoffMsgStart) || result?.content || ''),
       });
     };
     try {
@@ -161,6 +171,7 @@ export function createSendFlow({
       }
       return finalValue;
     } catch (error) {
+      if (typeof error?.message === 'string') error.message = redactSensitiveText(sessionId, error.message);
       if (job?.status === 'cancelled') {
         settleCancelled(error);
         throw error;
@@ -170,7 +181,7 @@ export function createSendFlow({
         finalStatus = 'idle';
         const value = {
           ...workerResultIdentity({ session, tag, sessionId }),
-          content: watchdogStoppedHandoff(error, partial, await takeStoppedShellJobs(sessionId)),
+          content: redactSensitiveText(sessionId, watchdogStoppedHandoff(error, partial, await takeStoppedShellJobs(sessionId))),
           stallAbort: true,
         };
         if (job) job._terminalResultValue = value;

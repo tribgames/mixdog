@@ -12,9 +12,11 @@ import {
   normalizeRoomRow,
   roomIdOfSession,
   roomMemberOfSession,
+  roomMemberSessionId,
   roomRowItem,
   roomRowMessage,
 } from '../runtime/agent/orchestrator/session/agent-room.mjs';
+import { redactSensitiveText } from '../runtime/agent/orchestrator/session/sensitive-values.mjs';
 import { reactInSession } from '../runtime/agent/orchestrator/session/message-reactions.mjs';
 import { artifactRecords } from '../runtime/shared/handoff-artifacts.mjs';
 import { collectTurnArtifacts, sessionRoots, turnSlice } from './handoff-attachments.mjs';
@@ -71,6 +73,14 @@ function speechWithArtifacts(row, roomId, loadSession, log) {
     log(`the files of ${from.sessionId} could not be taken in: ${error?.message || error}`);
     return rest;
   }
+}
+
+/** A member's speech leaves its own session: the values that session marked
+ *  sensitive read as the marker, in the log and in the rows handed back. */
+function spokenOwnText(row, roomId) {
+  if (row?.kind !== 'speech' || typeof row.text !== 'string') return row;
+  const text = redactSensitiveText(roomMemberSessionId(roomId, row.speaker), row.text);
+  return text === row.text ? row : { ...row, text };
 }
 
 /** A row's `{ parts, attachments }` for the stored files among `files`
@@ -147,7 +157,7 @@ export function createAgentRoomDelivery({ loadSession, saveSession, live = agent
         await Promise.all(
           (Array.isArray(rows) ? rows : []).map((row) => storedRow(speechWithArtifacts(row, roomId, loadSession, log)))
         )
-      ).map((row) => normalizeRoomRow(row));
+      ).map((row) => spokenOwnText(normalizeRoomRow(row), roomId));
       return commit(sessionId, () => prepared);
     });
   }

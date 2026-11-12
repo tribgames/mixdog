@@ -6,6 +6,8 @@
 // requested provider (concurrent misses share that refresh). One match runs;
 // several or none fail with candidates instead of substituting another model.
 import { clean } from './helpers.mjs';
+import { coerceEffortFor } from '../../../runtime/agent/orchestrator/runtime-core/effort.mjs';
+import { catalogDefaultEffort } from '../../../tui/app/model-picker/route-selection/effort.mjs';
 
 const CANDIDATE_LIMIT = 8;
 
@@ -80,6 +82,38 @@ function refreshedRows(listProviderModels, provider) {
   return inflight.get(scope);
 }
 
+// The route a pinned model runs on takes what the model picker would select
+// for it: `modelDefaults` (its effort and fast), which the spawn's preset uses
+// where the agent's own route is not on this model. An effort or fast the
+// caller asked for is held to what the model offers: an effort it does not
+// offer is dropped (the model's own default applies), `fast: true` on a model
+// without fast is refused so the caller is told. `modelDefaults.efforts` is
+// what the model offers, which the preset holds every effort of the final
+// route to. A row that carries no picker facts (a surface without them)
+// leaves the route as asked.
+function withModelSettings(args, row) {
+  const out = { ...args, provider: row.provider, model: row.id };
+  if (!Array.isArray(row.effortOptions)) return out;
+  const fastCapable = row.fastCapable === true;
+  if (args.fast === true && !fastCapable) {
+    throw new Error(
+      `agent spawn: model "${row.provider}/${row.id}" does not support fast; leave fast out or pick a model that offers it`
+    );
+  }
+  out.modelDefaults = {
+    effort: catalogDefaultEffort(row),
+    fast: fastCapable && row.fastPreferred === true,
+    efforts: row.effortOptions.map((option) => option.value).filter(Boolean),
+  };
+  if (clean(args.effort)) {
+    const asked = coerceEffortFor(row.provider, row, clean(args.effort).toLowerCase());
+    if (asked && row.effortOptions.some((option) => option.value === asked)) out.effort = asked;
+    else delete out.effort;
+  }
+  if (args.fast !== undefined) out.fast = args.fast === true;
+  return out;
+}
+
 /** Resolve args.provider/args.model to one exact catalog route. Without a
  *  catalog (headless/daemon surfaces) exact provider + model pass through. */
 export async function resolveRequestedModel(args, listProviderModels) {
@@ -111,7 +145,7 @@ export async function resolveRequestedModel(args, listProviderModels) {
     pool = providerRows(await refreshedRows(listProviderModels, provider), provider);
     hits = matchModels(pool, model);
   }
-  if (hits.length === 1) return { ...args, provider: hits[0].provider, model: hits[0].id };
+  if (hits.length === 1) return withModelSettings(args, hits[0]);
   const scope = provider ? ` for provider "${provider}"` : '';
   if (hits.length > 1) {
     throw new Error(`agent spawn: model "${model}"${scope} is ambiguous: ${candidates(hits)}; pass the exact one`);

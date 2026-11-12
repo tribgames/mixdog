@@ -1,4 +1,5 @@
 import { errorLine } from '../../../runtime/shared/err-text.mjs';
+import { redactSensitiveText } from '../../../runtime/agent/orchestrator/session/sensitive-values.mjs';
 import { createSendDispatch } from './execute-send.mjs';
 import { createSpawnDispatch } from './execute-spawn.mjs';
 import { createTagResume } from './execute-resume.mjs';
@@ -28,6 +29,8 @@ export function createAgentExecute({
       const handoff = await mgr.readSessionHandoff(job.meta?.sessionId);
       if (handoff) job.result = handoff;
     }
+    // A worker's own text read off its session leaves it: its sensitive values read as the marker, as in its report.
+    if (job?.taskId == null && typeof job?.result === 'string') job.result = redactSensitiveText(job.meta?.sessionId, job.result);
     return renderResult(views.renderJob(job, true));
   }
 
