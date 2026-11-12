@@ -28,6 +28,14 @@ use serde_json::Value;
 
 use super::accounting::{Completed, Facts, Outcome, SendAccounting, SendIdentity, UsagePricing, UsageSink, random_uuid};
 
+/// The wrapped provider's stages behind the one every provider of the registry raises first: Node's admission scheduler
+/// announces a send as `requesting` once it is admitted (`admission-scheduler.mjs:592`), ahead of the adapter's own
+/// stages, around every provider the registry hands out. A provider standing in the registry's place raises none.
+fn admitted(mut stages: mixdog_core_api::domain::provider::SendStages) -> mixdog_core_api::domain::provider::SendStages {
+    stages.preparing += 1;
+    stages
+}
+
 /// What the session knows about a send that the request does not say.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Scope {
@@ -245,7 +253,7 @@ impl ProviderAdapter for AccountedAdapter {
         self.inner.retry_policy_of(request)
     }
     fn send_stages_of(&self, request: &ModelRequest) -> mixdog_core_api::domain::provider::SendStages {
-        self.inner.send_stages_of(request)
+        admitted(self.inner.send_stages_of(request))
     }
     fn retry_line_of(&self, request: &ModelRequest) -> Option<mixdog_core_api::domain::provider::RetryLine> {
         self.inner.retry_line_of(request)
@@ -288,7 +296,7 @@ impl ProviderAdapter for AccountedAdapter {
     }
 
     fn send_stages(&self, model: &str) -> mixdog_core_api::domain::provider::SendStages {
-        self.inner.send_stages(model)
+        admitted(self.inner.send_stages(model))
     }
     fn retry_line(&self, model: &str) -> Option<mixdog_core_api::domain::provider::RetryLine> {
         self.inner.retry_line(model)
