@@ -2353,6 +2353,13 @@ fn cover_ctx(rig: &Rig, root: &std::path::Path, offers: &JsonValue, call: &str) 
 /// the tools the session offers, and either the refusal (an error with Node's text, nothing runs) or the run, which starts
 /// the command the guard handed on, in the folder it named, with its notes in the answer. Path rules differ per platform,
 /// so the table is replayed on the platform it was recorded on.
+///
+/// Outcomes are compared whole, by equality: the answer's note lines (the lines between its status line and the blank line
+/// after it) equal the recording's `notes` in order, and the command started equals the recording's `args.command`, in the
+/// recording's folder. Two representations differ for a reason that is not behaviour, normalised before comparing:
+/// (1) PowerShell receives its script framed on stdin (`<utf-16 length>\n<command>`): the length line is checked and
+/// removed; (2) an inline `node -e` command is moved by the tool into a file and started as
+/// `node "<file>"`: that form, for a recorded `node -e` command only, stands for the recorded command.
 #[cfg(windows)]
 #[tokio::test]
 async fn the_shell_tool_answers_the_whole_cover_table_as_node_does() {
@@ -2379,8 +2386,11 @@ async fn the_shell_tool_answers_the_whole_cover_table_as_node_does() {
             args["cwd"] = cwd.replace("<WS>", &forward).into();
         }
         let spawned = rig.processes.cwds.lock().unwrap().len();
+        let spawned_seen = rig.processes.seen.lock().unwrap().len();
+        let fed_before = rig.processes.fed.lock().unwrap().len();
         let outcome = rig.shell.call(&c, args).await;
         let want = &case["result"];
+        let mut got = String::new();
         let same = match (&outcome, want["failure"].as_str()) {
             (Err(e), Some(failure)) => fix(&e.message_for_model) == failure && rig.processes.cwds.lock().unwrap().len() == spawned,
             (Ok(_), None) => {
@@ -2388,19 +2398,35 @@ async fn the_shell_tool_answers_the_whole_cover_table_as_node_does() {
                 let command = want["args"]["command"].as_str().unwrap().replace("<WS>", &forward);
                 // An inline `node -e` script is the one command the tool itself moves into a file before it starts.
                 let hoisted = command.starts_with("node -e");
-                let ran = if case["shellType"] == "posix" {
-                    matches!(rig.processes.seen.lock().unwrap().last(), Some((CommandSpec::Shell { script, .. }, _)) if *script == command || (hoisted && script.starts_with("node \"")))
+                // The command the process manager was handed, as a recorded command (rules in the test's header).
+                let unhoist = |script: &str| match script.strip_prefix("node \"").and_then(|p| p.strip_suffix('"')) {
+                    Some(file) if hoisted && !file.contains('"') => command.clone(),
+                    _ => script.to_owned(),
+                };
+                let handed = if case["shellType"] == "posix" {
+                    let seen = rig.processes.seen.lock().unwrap();
+                    match (seen.len() - spawned_seen, seen.last()) {
+                        (1, Some((CommandSpec::Shell { script, .. }, _))) => Some(unhoist(script)),
+                        _ => None,
+                    }
                 } else {
-                    rig.processes.fed.lock().unwrap().last().is_some_and(|script| script.contains(&command) || (hoisted && script.contains("node \"")))
+                    let fed = rig.processes.fed.lock().unwrap();
+                    let framed = if fed.len() - fed_before == 1 { fed.last().unwrap().as_str() } else { "" };
+                    framed.split_once('\n').filter(|(len, script)| len.parse::<usize>().ok() == Some(script.encode_utf16().count())).map(|(_, script)| unhoist(script))
                 };
                 let folder = want["args"]["cwd"].as_str().map_or(root.clone(), |cwd| root.join(cwd.replace("<WS>", &forward))).to_string_lossy().into_owned();
+                // The answer is `<status>\n<notes, one per line>\n\n<output>`: its notes, in order, are the recording's.
                 let text = fix(&body(outcome));
-                ran && started.len() == 1 && spelled(&started[0]) == spelled(&folder) && want["notes"].as_array().unwrap().iter().all(|note| text.contains(note.as_str().unwrap()))
+                let header = text.split("\n\n").next().unwrap();
+                let notes: Vec<&str> = header.split('\n').skip(1).collect();
+                let want_notes: Vec<&str> = want["notes"].as_array().unwrap().iter().map(|n| n.as_str().unwrap()).collect();
+                got.push_str(&format!("{handed:?} {notes:?}"));
+                handed.as_deref() == Some(command.as_str()) && started.len() == 1 && spelled(&started[0]) == spelled(&folder) && notes == want_notes
             }
             _ => false,
         };
         if !same {
-            failures.push(format!("{} {} offers {}\n  want {want}", case["shellType"], case["args"], case["offers"]));
+            failures.push(format!("{} {} offers {}\n  want {want}\n  got {got}", case["shellType"], case["args"], case["offers"]));
         }
     }
     assert!(failures.is_empty(), "{} of {} differ:\n{}", failures.len(), cases.len(), failures.iter().take(20).cloned().collect::<Vec<_>>().join("\n"));
