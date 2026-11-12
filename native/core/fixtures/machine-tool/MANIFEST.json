@@ -1,0 +1,92 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-machine-tool.mjs --tree <tree> --patch benchmarks/rust-core/recorders/node-patches/node-change-shell-cover-tools.patch",
+  "exclusions": {
+    "cpu": "`cpu: N% busy of M cores (250 ms sample)` → `cpu: <n>% busy of <n> cores (250 ms sample)`",
+    "driveRows": "`  ROOT  F GB of T GB` rows (any number) → one `  <drive> <gb> GB of <gb> GB`",
+    "matchRows": "the process rows under `processes matching \"X\" (N):` (any number up to 25, then `  … K more`) → one `  <process rows>`; N → `<n>` unless 0",
+    "memory": "`memory: A GB available of T GB (P% used)` → `memory: <gb> GB available of <gb> GB (<n>% used)`",
+    "processRow": "`  NAME (pid P)  cpu C%  mem M MB` → `  <process> (pid <n>)  cpu <n>%  mem <n> MB`",
+    "unavailable": "a section Node reports as `unavailable (no answer within the deadline)` is a failed sample, not a shape: the recorder refuses to record one"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 16698,
+      "path": "cases.json",
+      "sha256": "7ac2b67a5953e79e94391cd3664e27bea2193204693be99174ab9b605f73eb16"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9144,
+    "patch": {
+      "file": "benchmarks/rust-core/recorders/node-patches/node-change-shell-cover-tools.patch",
+      "paths": [
+        "src/runtime/agent/orchestrator/session/loop/tool-exec.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/arg-guard.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/bash-tool/misuse-guard.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/bash-tool/misuse-guard.test.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/bash-tool/tool-cover.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/bash-tool/tool-cover.test.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/machine-tool.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/machine-tool.test.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/read-args.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/read-tail.test.mjs",
+        "src/runtime/agent/orchestrator/tools/builtin/read-tool.mjs"
+      ],
+      "sha256": "ca6b18ef1d71590b7e55ff03af464ed2956ffa94e67533b412d1b01df2a99088"
+    },
+    "patches": [
+      {
+        "file": "node-change-shell-cover-tools.patch",
+        "paths": [
+          "src/runtime/agent/orchestrator/session/loop/tool-exec.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/arg-guard.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/bash-tool/misuse-guard.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/bash-tool/misuse-guard.test.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/bash-tool/tool-cover.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/bash-tool/tool-cover.test.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/machine-tool.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/machine-tool.test.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/read-args.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/read-tail.test.mjs",
+          "src/runtime/agent/orchestrator/tools/builtin/read-tool.mjs"
+        ],
+        "sha256": "ca6b18ef1d71590b7e55ff03af464ed2956ffa94e67533b412d1b01df2a99088"
+      }
+    ],
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": false,
+      "filesDifferingFromCommit": 13
+    },
+    "srcSha256": "a53f593e1ae8950fae848b9b732c8bef4699f6c3a4bb046558a74bce62c88758",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-machine-tool.mjs",
+  "recorderSha256": "68ec285f5d88cb0bb850f12b93178d1ae5984189f3fd116e14be8d5a365e76bf",
+  "set": "machine-tool",
+  "totalBytes": 16698
+}

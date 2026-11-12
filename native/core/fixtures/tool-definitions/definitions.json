@@ -1,6 +1,6 @@
 {
   "tree": {
-    "srcSha256": "3722607211674f49a1f8be9bc8d33e11bc8029c7269481e970bae1847fd11e71"
+    "srcSha256": "88edfae3d00e08a9f1ef8fbbf84788351f0ea9d6d6ca8ab1b4043a3c229b4351"
   },
   "definitions": {
     "Skill": {
@@ -4570,6 +4570,38 @@
         }
       }
     },
+    "machine": {
+      "hash": "bcff9e8a3d10e007",
+      "definition": {
+        "name": "machine",
+        "title": "Machine Status",
+        "annotations": {
+          "title": "Machine Status",
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": false,
+          "openWorldHint": false,
+          "compressible": true
+        },
+        "description": "One-sample machine status: CPU load, memory, free disk per drive, top processes by CPU and memory; process filters by name.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "process": {
+              "type": "string",
+              "description": "Also list processes whose name contains this text."
+            },
+            "top": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20,
+              "description": "Rows per top list; default 5."
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
     "media": {
       "hash": "93c6efcc0f96895e",
       "definition": {
@@ -5753,7 +5785,7 @@
       }
     },
     "read": {
-      "hash": "6cac43e0095bf55a",
+      "hash": "85e1ee9a9396eb04",
       "definition": {
         "name": "read",
         "title": "Read",
@@ -5765,7 +5797,7 @@
           "openWorldHint": false,
           "compressible": false
         },
-        "description": "Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.",
+        "description": "Read file windows or images; tail:N for a file's end. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -5797,6 +5829,12 @@
                             "type": "integer",
                             "minimum": 1,
                             "maximum": 100000
+                          },
+                          "tail": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 100000,
+                            "description": "Last N lines, not with offset."
                           }
                         },
                         "required": [
@@ -5820,6 +5858,12 @@
               "minimum": 1,
               "maximum": 100000,
               "description": "Maximum line count; default 500 per exact file, 25 per glob-expanded file; batch default. Lines only: PDFs use pages."
+            },
+            "tail": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100000,
+              "description": "Last N lines of the file, not with offset."
             },
             "pages": {
               "type": "string",

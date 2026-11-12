@@ -6,11 +6,11 @@
       "start": {
         "id": "sess_a",
         "agent": "worker",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
         "tools": [
           {
             "$tool": "read",
-            "hash": "6cac43e0095bf55a"
+            "hash": "85e1ee9a9396eb04"
           },
           {
             "name": "mcp__alpha__list",
@@ -43,7 +43,7 @@
         "deferredToolCatalog": [
           {
             "$tool": "read",
-            "hash": "6cac43e0095bf55a"
+            "hash": "85e1ee9a9396eb04"
           },
           {
             "name": "mcp__alpha__list",
@@ -92,11 +92,11 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -129,7 +129,7 @@
             "deferredToolCatalog": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -173,11 +173,11 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -210,7 +210,7 @@
             "deferredToolCatalog": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -265,11 +265,11 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -302,7 +302,7 @@
             "deferredToolCatalog": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -352,11 +352,11 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -389,7 +389,7 @@
             "deferredToolCatalog": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -443,11 +443,11 @@
       "start": {
         "id": "sess_a",
         "agent": "worker",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
         "tools": [
           {
             "$tool": "read",
-            "hash": "6cac43e0095bf55a"
+            "hash": "85e1ee9a9396eb04"
           },
           {
             "name": "mcp__alpha__list",
@@ -480,7 +480,7 @@
         "deferredToolCatalog": [
           {
             "$tool": "read",
-            "hash": "6cac43e0095bf55a"
+            "hash": "85e1ee9a9396eb04"
           },
           {
             "name": "mcp__alpha__list",
@@ -529,11 +529,11 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -566,7 +566,7 @@
             "deferredToolCatalog": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -610,11 +610,11 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -647,7 +647,7 @@
             "deferredToolCatalog": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -705,11 +705,11 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -742,7 +742,7 @@
             "deferredToolCatalog": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -798,11 +798,11 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -835,7 +835,7 @@
             "deferredToolCatalog": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -903,11 +903,11 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -940,7 +940,7 @@
             "deferredToolCatalog": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -1000,11 +1000,11 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -1037,7 +1037,7 @@
             "deferredToolCatalog": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -1102,11 +1102,11 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -1139,7 +1139,7 @@
             "deferredToolCatalog": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -1205,11 +1205,11 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -1242,7 +1242,7 @@
             "deferredToolCatalog": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -1298,11 +1298,11 @@
       "start": {
         "id": "sess_a",
         "agent": "worker",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
         "tools": [
           {
             "$tool": "read",
-            "hash": "6cac43e0095bf55a"
+            "hash": "85e1ee9a9396eb04"
           },
           {
             "name": "mcp__alpha__list",
@@ -1335,7 +1335,7 @@
         "deferredToolCatalog": [
           {
             "$tool": "read",
-            "hash": "6cac43e0095bf55a"
+            "hash": "85e1ee9a9396eb04"
           },
           {
             "name": "mcp__alpha__list",
@@ -1384,11 +1384,11 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -1421,7 +1421,7 @@
             "deferredToolCatalog": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -1465,11 +1465,11 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -1502,7 +1502,7 @@
             "deferredToolCatalog": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -1559,11 +1559,11 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -1596,7 +1596,7 @@
             "deferredToolCatalog": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -1651,11 +1651,11 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -1688,7 +1688,7 @@
             "deferredToolCatalog": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -1753,11 +1753,11 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -1790,7 +1790,7 @@
             "deferredToolCatalog": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -1855,11 +1855,11 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -1892,7 +1892,7 @@
             "deferredToolCatalog": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -1948,11 +1948,11 @@
       "start": {
         "id": "sess_a",
         "agent": "worker",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
         "tools": [
           {
             "$tool": "read",
-            "hash": "6cac43e0095bf55a"
+            "hash": "85e1ee9a9396eb04"
           },
           {
             "name": "mcp__alpha__list",
@@ -1985,7 +1985,7 @@
         "deferredToolCatalog": [
           {
             "$tool": "read",
-            "hash": "6cac43e0095bf55a"
+            "hash": "85e1ee9a9396eb04"
           },
           {
             "name": "mcp__alpha__list",
@@ -2034,11 +2034,11 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -2071,7 +2071,7 @@
             "deferredToolCatalog": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -2115,11 +2115,11 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -2152,7 +2152,7 @@
             "deferredToolCatalog": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -2209,11 +2209,11 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -2246,7 +2246,7 @@
             "deferredToolCatalog": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -2301,11 +2301,11 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -2338,7 +2338,7 @@
             "deferredToolCatalog": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -2403,11 +2403,11 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -2440,7 +2440,7 @@
             "deferredToolCatalog": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -2505,11 +2505,11 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -2542,7 +2542,7 @@
             "deferredToolCatalog": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -2598,11 +2598,11 @@
       "start": {
         "id": "sess_a",
         "agent": "worker",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
         "tools": [
           {
             "$tool": "read",
-            "hash": "6cac43e0095bf55a"
+            "hash": "85e1ee9a9396eb04"
           },
           {
             "name": "mcp__alpha__list",
@@ -2635,7 +2635,7 @@
         "deferredToolCatalog": [
           {
             "$tool": "read",
-            "hash": "6cac43e0095bf55a"
+            "hash": "85e1ee9a9396eb04"
           },
           {
             "name": "mcp__alpha__list",
@@ -2684,11 +2684,11 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -2721,7 +2721,7 @@
             "deferredToolCatalog": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -2765,11 +2765,11 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -2802,7 +2802,7 @@
             "deferredToolCatalog": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -2862,11 +2862,11 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -2899,7 +2899,7 @@
             "deferredToolCatalog": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -2956,11 +2956,11 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -2993,7 +2993,7 @@
             "deferredToolCatalog": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -3058,11 +3058,11 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -3095,7 +3095,7 @@
             "deferredToolCatalog": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -3162,11 +3162,11 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -3199,7 +3199,7 @@
             "deferredToolCatalog": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -3255,11 +3255,11 @@
       "start": {
         "id": "sess_a",
         "agent": "worker",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
         "tools": [
           {
             "$tool": "read",
-            "hash": "6cac43e0095bf55a"
+            "hash": "85e1ee9a9396eb04"
           },
           {
             "name": "mcp__alpha__list",
@@ -3292,7 +3292,7 @@
         "deferredToolCatalog": [
           {
             "$tool": "read",
-            "hash": "6cac43e0095bf55a"
+            "hash": "85e1ee9a9396eb04"
           },
           {
             "name": "mcp__alpha__list",
@@ -3341,11 +3341,11 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -3378,7 +3378,7 @@
             "deferredToolCatalog": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -3422,11 +3422,11 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -3459,7 +3459,7 @@
             "deferredToolCatalog": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -3524,11 +3524,11 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -3561,7 +3561,7 @@
             "deferredToolCatalog": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -3625,11 +3625,11 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -3662,7 +3662,7 @@
             "deferredToolCatalog": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -3740,7 +3740,7 @@
       "start": {
         "id": "sess_none",
         "agent": "worker",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app"
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app"
       },
       "steps": [
         {
@@ -3751,13 +3751,13 @@
           "before": {
             "id": "sess_none",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app"
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app"
           },
           "result": null,
           "after": {
             "id": "sess_none",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app"
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app"
           }
         },
         {
@@ -3768,13 +3768,13 @@
           "before": {
             "id": "sess_none",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app"
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app"
           },
           "result": null,
           "after": {
             "id": "sess_none",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app"
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app"
           }
         }
       ]
@@ -3784,17 +3784,17 @@
       "start": {
         "id": "sess_a",
         "agent": "worker",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
         "tools": [
           {
             "$tool": "read",
-            "hash": "6cac43e0095bf55a"
+            "hash": "85e1ee9a9396eb04"
           }
         ],
         "deferredToolCatalog": [
           {
             "$tool": "read",
-            "hash": "6cac43e0095bf55a"
+            "hash": "85e1ee9a9396eb04"
           }
         ]
       },
@@ -3807,17 +3807,17 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               }
             ],
             "deferredToolCatalog": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               }
             ]
           },
@@ -3825,17 +3825,17 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               }
             ],
             "deferredToolCatalog": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               }
             ],
             "agentConnectorTools": []
@@ -3849,17 +3849,17 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               }
             ],
             "deferredToolCatalog": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               }
             ],
             "agentConnectorTools": []
@@ -3868,17 +3868,17 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               }
             ],
             "deferredToolCatalog": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               }
             ],
             "agentConnectorTools": []
@@ -3891,11 +3891,11 @@
       "start": {
         "id": "sess_a",
         "agent": "lead",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
         "tools": [
           {
             "$tool": "read",
-            "hash": "6cac43e0095bf55a"
+            "hash": "85e1ee9a9396eb04"
           },
           {
             "name": "mcp__alpha__list",
@@ -3928,7 +3928,7 @@
         "deferredToolCatalog": [
           {
             "$tool": "read",
-            "hash": "6cac43e0095bf55a"
+            "hash": "85e1ee9a9396eb04"
           },
           {
             "name": "mcp__alpha__list",
@@ -3977,11 +3977,11 @@
           "before": {
             "id": "sess_a",
             "agent": "lead",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -4014,7 +4014,7 @@
             "deferredToolCatalog": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -4058,11 +4058,11 @@
           "after": {
             "id": "sess_a",
             "agent": "lead",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -4095,7 +4095,7 @@
             "deferredToolCatalog": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -4150,11 +4150,11 @@
           "before": {
             "id": "sess_a",
             "agent": "lead",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -4187,7 +4187,7 @@
             "deferredToolCatalog": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -4237,11 +4237,11 @@
           "after": {
             "id": "sess_a",
             "agent": "lead",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -4274,7 +4274,7 @@
             "deferredToolCatalog": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -4328,11 +4328,11 @@
       "start": {
         "id": "sess_a",
         "agent": "worker",
-        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
         "tools": [
           {
             "$tool": "read",
-            "hash": "6cac43e0095bf55a"
+            "hash": "85e1ee9a9396eb04"
           },
           {
             "name": "mcp__alpha__list",
@@ -4365,7 +4365,7 @@
         "deferredToolCatalog": [
           {
             "$tool": "read",
-            "hash": "6cac43e0095bf55a"
+            "hash": "85e1ee9a9396eb04"
           },
           {
             "name": "mcp__alpha__list",
@@ -4415,11 +4415,11 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -4452,7 +4452,7 @@
             "deferredToolCatalog": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -4497,11 +4497,11 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -4534,7 +4534,7 @@
             "deferredToolCatalog": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -4592,11 +4592,11 @@
           "before": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -4629,7 +4629,7 @@
             "deferredToolCatalog": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -4685,11 +4685,11 @@
           "after": {
             "id": "sess_a",
             "agent": "worker",
-            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.0e02ffe94784dd3b\\connector-availability-oY3gkW\\work\\app",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.5af0162d2b92bf52\\connector-availability-8oN878\\work\\app",
             "tools": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",
@@ -4722,7 +4722,7 @@
             "deferredToolCatalog": [
               {
                 "$tool": "read",
-                "hash": "6cac43e0095bf55a"
+                "hash": "85e1ee9a9396eb04"
               },
               {
                 "name": "mcp__alpha__list",

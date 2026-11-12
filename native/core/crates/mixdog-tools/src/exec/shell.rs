@@ -66,7 +66,7 @@ use super::psfix::rewrite_wmic_process;
 use super::bashism::rewrite_powershell_bashisms;
 use super::direct::plan_direct_exe;
 use super::guard::Guarded;
-use super::guard::guard_shell_call;
+use super::guard::guard_call;
 use super::hoist::plan_hoist;
 use super::hygiene::preflight_powershell_hygiene;
 use super::invocation::EVAL_SCRIPT;
@@ -610,12 +610,7 @@ impl ShellTool {
         };
         // The misuse guards run first: a leading sleep, a leading `cd` (moved into `cwd`), a
         // shell file read (a note) and `git … worktree add`.
-        let (guarded, guarded_cwd, guard_notes) = match guard_shell_call(
-            &args.command,
-            args.cwd.as_deref(),
-            args.background == Some(true),
-            runtime.config.powershell,
-        ) {
+        let (guarded, guarded_cwd, guard_notes) = match guard_call(ctx, &args.command, args.cwd.as_deref(), args.background == Some(true), runtime.config.powershell).await {
             Guarded::Refused(text) => return Err(failed(ToolErrorCode::PermissionDenied, text)),
             Guarded::Run { command, cwd, notes } => (command, cwd, notes),
         };
