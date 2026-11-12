@@ -81,7 +81,7 @@
     "commit": "b6f10295a2f698afc85332467192de28500bd146",
     "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
     "exact": true,
-    "files": 9143,
+    "files": 9144,
     "patches": [
       {
         "file": "node-fix-scrub-carried-credential.patch",
@@ -148,20 +148,25 @@
           "src/session-runtime/services/provider-admin.mjs",
           "src/standalone/daemon.mjs",
           "src/runtime/agent/orchestrator/providers/compat-request-policy.mjs",
-          "src/runtime/agent/orchestrator/providers/compat-request-policy-redaction.test.mjs"
+          "src/runtime/agent/orchestrator/providers/compat-request-policy-redaction.test.mjs",
+          "src/runtime/agent/orchestrator/providers/openai-compat-chat-send.mjs",
+          "src/runtime/agent/orchestrator/providers/openai-compat-chat-send-redaction.test.mjs",
+          "src/runtime/agent/orchestrator/providers/openai-compat-responses.mjs",
+          "src/runtime/agent/orchestrator/providers/openai-compat-models.mjs",
+          "src/runtime/agent/orchestrator/providers/lib/transport-fallback-trace.mjs"
         ],
-        "sha256": "d2a4a2eb4f8bf94349d8590613bd1ca66fc2e017cb84f577d97c50bc17eaaffa"
+        "sha256": "9de2b88f2284e2b72ca13737391b3d1885ac766bfde67be1c49ad2f22ba4aa1a"
       }
     ],
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
       "commitFilesMissingFromTree": 0,
       "exact": false,
-      "filesDifferingFromCommit": 38
+      "filesDifferingFromCommit": 43
     },
-    "srcSha256": "af81a74ed846d7566f621fdb6a8d2232012729c134eb78b81a5b12b3aa0c9578",
+    "srcSha256": "c64dfd4d8b45b12532894489ad48a4d5cb822763cb1a90f5a9a0798e3bf063f6",
     "tree": "product tree loaded by the recorder",
-    "treeKind": "archive",
+    "treeKind": "git-checkout",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-openai-ws-handshake.mjs",
