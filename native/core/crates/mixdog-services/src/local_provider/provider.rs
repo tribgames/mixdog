@@ -103,17 +103,43 @@ pub struct LocalProvider {
     signal: ChangeSignal,
     tool_settings: std::sync::OnceLock<std::sync::Weak<dyn ToolSettings>>,
     /// The installed models as last read, for `getCachedModelInfo`, which Node answers synchronously from disk: every change
-    /// the signal announces reads them again ([`keep_installed`]).
-    installed: tokio::sync::watch::Sender<Option<Vec<Value>>>,
+    /// the signal announces reads them again ([`keep_installed`]), and an operation that changes them reads them again before
+    /// it completes ([`LocalProvider::refresh_installed`]).
+    installed: Arc<InstalledRows>,
+}
+
+/// The installed models as last published. Reads run concurrently (the change signal's, an operation's own); each takes a
+/// ticket when it starts and only a read newer than the last published one is published, so a slow older read never
+/// overwrites a newer one.
+struct InstalledRows {
+    rows: tokio::sync::watch::Sender<Option<Vec<Value>>>,
+    started: std::sync::atomic::AtomicU64,
+    published: Mutex<u64>,
+}
+
+impl InstalledRows {
+    fn new() -> Arc<Self> {
+        Arc::new(Self { rows: tokio::sync::watch::channel(None).0, started: std::sync::atomic::AtomicU64::new(0), published: Mutex::new(0) })
+    }
+
+    /// Reads the installed models from the catalog now and publishes them unless a newer read already has.
+    async fn read(&self, catalog: &Arc<Catalog>) -> Result<Vec<Value>, String> {
+        let ticket = self.started.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+        let rows = catalog.installed_models().await.map_err(|e| e.to_string())?;
+        let mut published = self.published.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if ticket > *published {
+            *published = ticket;
+            self.rows.send_replace(Some(rows.clone()));
+        }
+        Ok(rows)
+    }
 }
 
 /// Re-reads the installed models at start and after every tick of the change signal (installations, deletions, registrations,
 /// context settings), for as long as the provider lives.
-async fn keep_installed(catalog: Arc<Catalog>, mut ticks: tokio::sync::watch::Receiver<u64>, out: tokio::sync::watch::Sender<Option<Vec<Value>>>) {
+async fn keep_installed(catalog: Arc<Catalog>, mut ticks: tokio::sync::watch::Receiver<u64>, installed: Arc<InstalledRows>) {
     loop {
-        if let Ok(rows) = catalog.installed_models().await {
-            out.send_replace(Some(rows));
-        }
+        let _ = installed.read(&catalog).await;
         if ticks.changed().await.is_err() {
             return;
         }
@@ -156,7 +182,7 @@ impl LocalProvider {
         let server = Arc::new(ServerProcess::new(parts.launcher, parts.health, parts.timing, on_exit).with_signal(signal.clone()));
         let queue = RequestQueue::with_signal(Arc::new(ServerUnloader(server.clone())), parts.idle_ttl_seconds.unwrap_or(DEFAULT_LOCAL_IDLE_TTL_SECONDS), None, signal.clone());
         let hf = HuggingFaceCatalog::new(parts.hf_http, catalog.registry.clone());
-        let (installed, _) = tokio::sync::watch::channel(None);
+        let installed = InstalledRows::new();
         if let Ok(runtime) = tokio::runtime::Handle::try_current() {
             runtime.spawn(keep_installed(catalog.clone(), signal.subscribe(), installed.clone()));
         }
@@ -179,12 +205,13 @@ impl LocalProvider {
 
     /// The installed models as of the last read (`None` before the first), and a handle to watch them change.
     pub fn installed_rows(&self) -> tokio::sync::watch::Receiver<Option<Vec<Value>>> {
-        self.installed.subscribe()
+        self.installed.rows.subscribe()
     }
 
-    /// Records a listing the caller just read as the installed models.
-    pub(super) fn note_installed(&self, rows: &[Value]) {
-        self.installed.send_replace(Some(rows.to_vec()));
+    /// Reads the installed models now and publishes them for `getCachedModelInfo`: an operation that changed them calls this
+    /// before it completes, so a read after it sees the change.
+    pub(super) async fn refresh_installed(&self) -> Result<Vec<Value>, String> {
+        self.installed.read(&self.catalog).await
     }
 
     /// Attaches the owner of the tool-module settings (the first one stays).
@@ -209,6 +236,7 @@ impl LocalProvider {
     /// catalog change.
     pub async fn register_model(&self, preview_id: &str, license_accepted: bool) -> Result<Value, super::hugging_face::HfError> {
         let out = self.hf.register(preview_id, license_accepted).await?;
+        let _ = self.refresh_installed().await;
         self.signal.notify();
         Ok(out)
     }
@@ -339,12 +367,14 @@ impl LocalProvider {
                 let status = this.server.status();
                 let reload = status["activeModel"] == id.as_str() && (status["running"] == true || status["starting"] == true);
                 this.save_context(&entry, tokens).await?;
+                let _ = this.refresh_installed().await;
                 this.signal.notify();
                 if reload {
                     if let Err(e) = this.ensure_server(&id, Some(cancel)).await {
                         // `server.mjs:52-56`: the restoring save is bare in the `catch`, so its failure is thrown in
                         // place of the reload's error.
                         this.save_context(&entry, previous).await?;
+                        let _ = this.refresh_installed().await;
                         this.signal.notify();
                         return Err(e);
                     }
@@ -372,7 +402,10 @@ impl LocalProvider {
                     .ok_or_else(|| ProviderError::Invalid("modelId must identify a model in the Local Provider catalog.".into()))?;
                 let id = entry["id"].as_str().unwrap_or("").to_owned();
                 Ok(self.installs.track("model", Some(&id), move |progress: Progress, cancel| async move {
-                    install_model(&this.catalog, this.fetcher.as_ref(), this.durability, &entry, progress, cancel).await.map_err(|e| e.to_string())
+                    let installed = install_model(&this.catalog, this.fetcher.as_ref(), this.durability, &entry, progress, cancel).await.map_err(|e| e.to_string());
+                    // The job completes after the installed models are published, so a read after it sees the model.
+                    let _ = this.refresh_installed().await;
+                    installed
                 }))
             }
             _ => Err(ProviderError::Invalid("phase must be runtime or model.".into())),
@@ -489,6 +522,7 @@ impl LocalProvider {
             self.model_files(entry).await?;
             download_verified_asset(self.fetcher.as_ref(), entry, &path, DownloadOptions { on_progress: Some(publish), cancel, force: true, ..DownloadOptions::new(self.durability) }).await?;
             self.catalog.state.record_verification(id, json!({"valid": true, "sizeBytes": size, "sha256": entry["sha256"]}));
+            let _ = self.refresh_installed().await;
             return Ok(json!({"modelId": id, "valid": true}));
         }
         publish(serde_json::Map::from_iter([("stage".to_owned(), json!("verifying")), ("percent".into(), Value::Null)]));
@@ -545,6 +579,8 @@ impl LocalProvider {
                 this.hf.registry().forget(id).await.map_err(|e| ProviderError::Failed(e.to_string()))?;
                 this.installs.forget_model(id).map_err(|e| ProviderError::Failed(e.to_string()))?;
                 this.catalog.state.forget(id);
+                // The removal is complete when the models a read sees no longer include this one.
+                let _ = this.refresh_installed().await;
                 Ok(json!({"modelId": id, "deletedFiles": deleted, "recoverability": "Redownload required; no Recycle Bin copy."}))
             })
             .await?

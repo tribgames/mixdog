@@ -40,9 +40,7 @@ pub struct ManagedRuntime(pub Arc<LocalProvider>);
 #[async_trait]
 impl InstalledModels for ManagedRuntime {
     async fn installed(&self) -> Result<Vec<Value>, ProviderError> {
-        let rows = CatalogInstalledModels(self.0.catalog.clone()).installed().await?;
-        self.0.note_installed(&rows);
-        Ok(rows)
+        self.0.refresh_installed().await.map_err(unsent)
     }
 }
 
