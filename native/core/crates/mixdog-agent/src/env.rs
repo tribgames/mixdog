@@ -363,6 +363,9 @@ pub enum RunEvent {
     /// A cut stream that ended after complete tool calls goes on as a tool-call turn (`recoverPartialToolCalls`,
     /// `session/send-with-recovery.mjs:767`): Node's `partial_tool_recovery` trace row.
     PartialToolRecovery(PartialToolRecovery),
+    /// The effort the turn in flight runs at (`currentTurnEffort`, `turn-effort.mjs`): the turn's
+    /// own snapshot as the run starts (`None` without one), then each step the Auto judge marks.
+    TurnEffort(Option<String>),
     /// `onProviderSendStarted` (`send-phase.mjs:183`): the loop sends the transcript, once per send whatever its retries.
     ProviderSendStarted,
     /// `onAssistantToolCallObserved` (`send-phase.mjs:140`): the provider streamed a complete tool call.
@@ -480,13 +483,14 @@ pub trait TranscriptSink: Send + Sync {
     /// A fresh stable id for a message that arrives without one.
     fn message_id(&self) -> String;
 
-    /// Cancel-safe.
-    async fn durable(&self, ticket: Ticket);
-
     /// `recordAppliedSkills`: the skills a durable user message's turn loaded are stamped on its stored row
     /// (`meta.transcript.appliedSkills`), where the live row, the persisted transcript and restore read them. A sink
     /// with no stored rows has nothing to stamp.
     async fn skills_applied(&self, _message: &AgentMessage, _names: &[String]) {}
+
+    /// Resolves once the save of the message of `ticket` (and every one before it) has ended. A save that failed does not fail
+    /// the running turn: Node gates only the next turn's open on durability (`turn-durability.mjs`). Cancel-safe.
+    async fn durable(&self, ticket: Ticket);
 }
 
 // ---------------------------------------------------------------------------
@@ -578,6 +582,14 @@ pub trait Compactor: Send + Sync {
         false
     }
 
+    /// `preflightAttachments`: the transcript with the attachments that would crowd the model
+    /// window carried by reference from this send on; `None` when nothing must be. Asked before
+    /// every send, whether or not automatic compaction is on.
+    async fn preflight_attachments(&self, messages: &[AgentMessage]) -> Option<crate::compact::fresh::Preflight> {
+        let _ = messages;
+        None
+    }
+
     /// Whether tool-result media alone would make the next request too large.
     fn request_media(&self, messages: &[AgentMessage]) -> bool {
         let _ = messages;
@@ -665,11 +677,21 @@ pub struct GateCall {
     /// `local_fetch` or `image_fetch` keeps `web_fetch`): the surface (allowlist, denied tools,
     /// connectors, read-only) judges the call under this name, not the transport's.
     pub schema_name: Option<String>,
+    /// The folder the call runs in (`prepared.cwd`), read once when the call is prepared: the policy judges the call, the tool
+    /// runs it and PostToolUse reports it all against this one folder, never the session's folder read again. `None` for a
+    /// call made outside a run (the turn's folder is used then).
+    pub cwd: Option<std::path::PathBuf>,
 }
 
 impl GateCall {
     pub fn new(name: impl Into<String>, args: JsonValue) -> Self {
-        Self { name: name.into(), args, schema_name: None }
+        Self { name: name.into(), args, schema_name: None, cwd: None }
+    }
+
+    /// The call with the folder it was prepared in.
+    pub fn at(mut self, cwd: &std::path::Path) -> Self {
+        self.cwd = Some(cwd.to_path_buf());
+        self
     }
 }
 
@@ -953,6 +975,7 @@ pub struct PolicyGate {
     grants: Arc<mixdog_tools::policy::SessionGrants>,
     approvals: WaitingApprovals,
     thread_id: ThreadId,
+    /// The turn's folder, for a call that carries none of its own.
     cwd: std::path::PathBuf,
     cancel: CancellationToken,
 }
@@ -1027,7 +1050,7 @@ impl ToolGate for PolicyGate {
                 thread_id: &self.thread_id,
                 name: &call.name,
                 args,
-                cwd: &self.cwd,
+                cwd: call.cwd.as_deref().unwrap_or(&self.cwd),
                 facts: &facts,
                 surface: &surface,
                 schema_name: call.schema_name.as_deref(),

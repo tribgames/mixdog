@@ -110,6 +110,9 @@ fn read_json(id: &str, bytes: &[u8], replaced: &mut u64) -> R<(Header, Vec<Value
     let Value::Object(mut map) = value else {
         return q(QuarantineCode::SchemaViolation, "session json is not an object");
     };
+    if json::repeats_a_top_level_key(bytes) {
+        return q(QuarantineCode::ParseError, "session json repeats a top-level key");
+    }
     let messages = match map.shift_remove("messages") {
         Some(Value::Array(m)) => m,
         _ => return q(QuarantineCode::SchemaViolation, "messages is not an array"),
@@ -1163,7 +1166,7 @@ fn worker_map(row: Option<Value>, tombstone: Option<Value>, released: Option<Val
 }
 
 /// `cleanValue`: `String(value || '').trim()`.
-fn clean(value: Option<&Value>) -> String {
+pub(super) fn clean(value: Option<&Value>) -> String {
     js_trim(&or_str(value, "")).to_string()
 }
 
@@ -1219,6 +1222,28 @@ fn parent_link(
     let mut set = Map::new();
     set.insert("parentSessionId".into(), Value::String(parent));
     set.insert("ownerSessionId".into(), Value::String(owner));
+    Ok(Some(set))
+}
+
+/// The `archivedAgentResults` header set of a session that carries the result of a reaped agent child
+/// (`super::archived`), read from the link files it consumes; `None` when it carries none.
+fn archived_results(cx: &ItemContext<'_>, id: &str, header: &Header, messages: &[Value], shared: &[&SourceFile]) -> R<Option<Header>> {
+    let mut texts: [Option<Vec<u8>>; 3] = [None, None, None];
+    for (slot, name) in texts.iter_mut().zip(super::archived::LINK_FILES) {
+        if let Some(file) = shared.iter().find(|f| f.path == name) {
+            *slot = Some(cx.read_source(file)?);
+        }
+    }
+    if texts.iter().all(Option::is_none) {
+        return Ok(None);
+    }
+    let parents = super::archived::parents(texts[0].as_deref(), texts[1].as_deref(), texts[2].as_deref());
+    let results = super::archived::results(id, header, messages, &parents, |child| cx.has_item(&format!("session/{child}")));
+    if results.is_empty() {
+        return Ok(None);
+    }
+    let mut set = Map::new();
+    set.insert(super::archived::HEADER_KEY.into(), Value::Object(results));
     Ok(Some(set))
 }
 
@@ -1288,10 +1313,16 @@ pub fn read(cx: &ItemContext<'_>, item: &ManifestItem, id: &str, office: &Office
 
     // A session only a worker index row names (`worker_row_session_ids`) has no record: Node reads its header as null.
     let (mut header, mut messages) = if item.sources.is_empty() {
-        (Header::new(), Vec::new())
+        let mut header = Header::new();
+        header.insert(mixdog_store::archived_agent::WORKER_ROW_ONLY_KEY.into(), Value::Bool(true));
+        // The catalog row takes `Date.now()` for a header without `updatedAt`: a fixed one keeps the migrated index the same run to run.
+        header.insert("updatedAt".into(), Value::from(1));
+        (header, Vec::new())
     } else {
         header_and_messages(id, json_bytes.as_deref(), log, &mut replaced)?
     };
+    let shared = cx.shared_for(&format!("session/{id}"));
+    let archived = archived_results(cx, id, &header, &messages, &shared)?;
 
     let (archive_rows, superseded) =
         archive_rows(id, &header, archive.as_deref(), pending.as_deref(), &mut replaced)?;
@@ -1326,10 +1357,10 @@ pub fn read(cx: &ItemContext<'_>, item: &ManifestItem, id: &str, office: &Office
     iids.drain(..system.rows_from);
     let rid = runs.first().filter(|_| !turn_messages.is_empty()).map(|r| r.rid.clone());
 
-    let shared = cx.shared_for(&format!("session/{id}"));
     let queue = queue(cx, id, &shared, &mut replaced)?;
     let mut metas: Vec<Header> = worker(cx, id, &header, &shared, &mut replaced)?.into_iter().collect();
     metas.extend(parent_link(cx, id, &header, &shared, &mut replaced)?);
+    metas.extend(archived);
     let mut messages = message_rows(iids, messages, None);
     let mut checkpoint_rows = message_rows(turn_iids, turn_messages, rid.as_deref());
     super::restore::convert(

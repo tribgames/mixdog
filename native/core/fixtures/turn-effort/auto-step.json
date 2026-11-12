@@ -1,0 +1,92 @@
+{
+  "scenario": "auto-step",
+  "prompt": "fix the failing test in a.txt",
+  "script": [
+    {
+      "text": "reading",
+      "calls": [
+        [
+          "read",
+          {
+            "path": "a.txt"
+          }
+        ]
+      ]
+    },
+    {
+      "text": "all done"
+    }
+  ],
+  "judge": {
+    "turn": [
+      0,
+      1,
+      0,
+      0
+    ],
+    "step": [
+      0,
+      0,
+      1,
+      0
+    ]
+  },
+  "name": "auto-step",
+  "code": 0,
+  "route": {
+    "provider": "anthropic",
+    "model": "claude-opus-5",
+    "effort": "medium"
+  },
+  "autoEffort": "on",
+  "sends": [
+    {
+      "turnEffort": "medium",
+      "requestEffort": "medium",
+      "judged": [
+        "turn"
+      ]
+    },
+    {
+      "turnEffort": "high",
+      "requestEffort": "medium",
+      "judged": [
+        "turn",
+        "step"
+      ]
+    }
+  ],
+  "judged": [
+    "turn",
+    "step"
+  ],
+  "settled": {
+    "turnEffort": "high"
+  },
+  "client": {
+    "initial": null,
+    "atStart": [],
+    "status": "done",
+    "published": [
+      {
+        "sessionId": "<session>",
+        "sessionProvider": "anthropic",
+        "sessionModel": "claude-opus-5",
+        "turnEffort": "medium",
+        "contextWindow": 500000,
+        "rawContextWindow": 500000,
+        "effectiveContextWindowPercent": 100,
+        "displayContextWindow": 0,
+        "compactBoundaryTokens": 0,
+        "autoCompactTokenLimit": 0,
+        "agentScope": {
+          "sessionId": "<session>"
+        }
+      },
+      {
+        "turnEffort": "high"
+      }
+    ],
+    "requests": 2
+  }
+}

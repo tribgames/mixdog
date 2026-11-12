@@ -1940,6 +1940,23 @@ async fn compaction_keeps_history_marks_dropped_rows_and_places_the_divider() {
     assert!(page(&env).await.iter().all(|r| !r.archived));
 }
 
+/// A compaction names a message by its message id (`meta.transcript.messageId`), which is not the id of the row a core wrote
+/// it as: that row is archived too, and a row naming no message id is matched by its own.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_compaction_archives_a_row_by_the_message_id_it_names() {
+    let env = Env::new();
+    let w = env.create("s1", None).await;
+    let core_written = message("itm1", json!({"role":"user","content":"five","meta":{"transcript":{"messageId":"msg_1"}}}));
+    let (w, _) = env.commit(w, vec![user("a", "one"), user("b", "two"), user("c", "three"), core_written]).await;
+    let compacted = rec(json!({"k":"compacted","cid":"k1","at":1792567960000_i64,
+        "dropped":{"messageIds":["a","msg_1"],"callIds":[]},
+        "replacement":{"inline":[{"iid":"sum","body":{"role":"user","content":"summary"}},{"iid":"b","body":{"role":"user","content":"two"}},{"iid":"c","body":{"role":"user","content":"three"}}]}}));
+    let (_w, _) = env.commit(w, vec![compacted, user("d", "four")]).await;
+    let rows = env.store.history_page(lineage(&[("s1", None)]), None, None, 10).await.unwrap().0;
+    let marks: Vec<(String, bool)> = rows.iter().map(|r| (r.iid.clone(), r.archived)).collect();
+    assert_eq!(marks, [("d".into(), false), ("itm1".into(), true), ("c".into(), false), ("b".into(), false), ("a".into(), true)]);
+}
+
 fn message(iid: &str, body: serde_json::Value) -> Encoded {
     rec(json!({"k":"item","iid":iid,"form":"message","model":true,"visible":true,"refs":[],
         "body":{"inline":body}}))

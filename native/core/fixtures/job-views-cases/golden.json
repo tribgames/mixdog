@@ -1,0 +1,292 @@
+{
+  "note": "Node's job views at b6f10295a2f698afc85332467192de28500bd146, per case of benchmarks/rust-core/recorders/record-job-views-cases.mjs",
+  "test": "src/session-runtime/services/agent-tool/job-views.test.mjs",
+  "now": 1772359200000,
+  "cases": [
+    {
+      "case": "list projects agent sessions and keeps only rows that can still do work unless terminal rows are asked for",
+      "kind": "list",
+      "sessions": [
+        {
+          "id": "s-streaming",
+          "agent": "worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "createdAt": "2026-01-01T00:00:00.000Z",
+          "messages": [
+            {
+              "role": "user",
+              "content": "go"
+            }
+          ],
+          "tools": [],
+          "status": "streaming",
+          "runtime": {
+            "stage": "streaming",
+            "lastStreamDeltaAt": 1772359198000
+          }
+        },
+        {
+          "id": "s-idle",
+          "agent": "worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "createdAt": "2026-01-01T00:00:00.000Z",
+          "messages": [
+            {
+              "role": "user",
+              "content": "go"
+            }
+          ],
+          "tools": [],
+          "status": "idle"
+        },
+        {
+          "id": "s-closed",
+          "agent": "worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "createdAt": "2026-01-01T00:00:00.000Z",
+          "messages": [
+            {
+              "role": "user",
+              "content": "go"
+            }
+          ],
+          "tools": [],
+          "closed": true,
+          "status": "streaming"
+        }
+      ],
+      "entries": [
+        {
+          "tag": "a",
+          "session": "s-streaming"
+        },
+        {
+          "tag": "b",
+          "session": "s-idle"
+        },
+        {
+          "tag": "c",
+          "session": "s-closed"
+        }
+      ],
+      "recorded": {
+        "refreshScans": [
+          true,
+          false
+        ],
+        "active": "agents: 1 · tasks: 0\n- a  streaming  streaming"
+      }
+    },
+    {
+      "case": "job rows read live progress for running tasks and freeze terminal ones; lookup accepts task id, tag or session",
+      "kind": "jobs",
+      "sessions": [
+        {
+          "id": "jv-s-run",
+          "agent": "worker",
+          "provider": "openai",
+          "model": "gpt-5",
+          "createdAt": "2026-01-01T00:00:00.000Z",
+          "messages": [
+            {
+              "role": "user",
+              "content": "go"
+            }
+          ],
+          "tools": [],
+          "status": "streaming",
+          "runtime": {
+            "stage": "streaming"
+          },
+          "clientHostPid": 777
+        }
+      ],
+      "tasks": [
+        {
+          "taskId": "task_jv_run",
+          "surface": "agent",
+          "operation": "spawn",
+          "meta": {
+            "tag": "jv-run",
+            "sessionId": "jv-s-run",
+            "agent": "worker",
+            "provider": "openai",
+            "model": "gpt-5"
+          },
+          "input": {
+            "tag": "jv-run"
+          }
+        },
+        {
+          "taskId": "task_jv_done",
+          "surface": "agent",
+          "operation": "spawn",
+          "startedAtMs": 1772359140000,
+          "meta": {
+            "tag": "jv-done",
+            "sessionId": "jv-s-run",
+            "agent": "worker"
+          }
+        },
+        {
+          "taskId": "task_jv_spawning",
+          "surface": "agent",
+          "operation": "spawn",
+          "meta": {
+            "tag": "x"
+          }
+        },
+        {
+          "taskId": "task_jv_respawned",
+          "surface": "agent",
+          "operation": "spawn",
+          "meta": {
+            "respawned": true
+          }
+        },
+        {
+          "taskId": "task_jv_resumed",
+          "surface": "agent",
+          "operation": "send",
+          "meta": {
+            "resumed": true
+          }
+        }
+      ],
+      "completions": {
+        "task_jv_done": {
+          "status": "completed",
+          "result": "finished",
+          "notify": false
+        },
+        "task_jv_respawned": {
+          "status": "completed",
+          "notify": false
+        },
+        "task_jv_resumed": {
+          "status": "completed",
+          "notify": false
+        }
+      },
+      "recorded": {
+        "jobs": "agents: 0 · tasks: 5\n- task_jv_run  spawn  running  jv-run\n- task_jv_spawning  spawn  running  x\n- finished tasks: 3 (latest 3; pass tag=<text> to find one)\n- task_jv_done  spawn  completed  jv-done\n- task_jv_respawned  spawn  completed  -\n- task_jv_resumed  send  completed  -",
+        "jobsHost777": "agents: 0 · tasks: 5\n- task_jv_run  spawn  running  jv-run\n- task_jv_spawning  spawn  running  x\n- finished tasks: 3 (latest 3; pass tag=<text> to find one)\n- task_jv_done  spawn  completed  jv-done\n- task_jv_respawned  spawn  completed  -\n- task_jv_resumed  send  completed  -",
+        "jobsHost778": "agents: 0 · tasks: 4\n- task_jv_spawning  spawn  running  x\n- finished tasks: 3 (latest 3; pass tag=<text> to find one)\n- task_jv_done  spawn  completed  jv-done\n- task_jv_respawned  spawn  completed  -\n- task_jv_resumed  send  completed  -",
+        "cards": [
+          {
+            "args": {
+              "tag": "jv-missing"
+            },
+            "card": {
+              "error": "agent read/status: no task found for tag/sessionId \"jv-missing\""
+            }
+          },
+          {
+            "args": {},
+            "card": {
+              "error": "agent read/status: task_id, tag, or sessionId is required"
+            }
+          },
+          {
+            "args": {
+              "task_id": "task_jv_done"
+            },
+            "card": "agent task: task_jv_done\nstatus: completed\ntype: spawn\ntarget: jv-done jv-s-run\nagent: worker\nworker: completed/completed\nworker_stage: completed\nlast_progress: completed\ndiagnostic: task completed; worker idle\nstarted: 2026-03-01 09:59:00Z\nfinished: 2026-03-01 10:00:00Z\nelapsed: 1m\n\nfinished"
+          },
+          {
+            "args": {
+              "task_id": "task_jv_spawning"
+            },
+            "card": "agent task: task_jv_spawning\nstatus: running\ntype: spawn\ntarget: x\nworker_stage: spawning\nlast_progress: spawning worker session\ndiagnostic: worker session not started yet\nstarted: 2026-03-01 10:00:00Z\nelapsed: 0s (running)\nnotification: completion will be delivered; end the turn."
+          },
+          {
+            "args": {
+              "task_id": "task_jv_respawned"
+            },
+            "card": "agent task: task_jv_respawned\nstatus: completed\ntype: spawn\nrespawned: true\nnote: previous session reaped — fresh session, no prior context; re-supply anchors if needed\nworker: completed/completed\nworker_stage: completed\nlast_progress: completed\ndiagnostic: task completed; worker idle\nstarted: 2026-03-01 10:00:00Z\nfinished: 2026-03-01 10:00:00Z\nelapsed: 0s"
+          },
+          {
+            "args": {
+              "task_id": "task_jv_resumed"
+            },
+            "card": "agent task: task_jv_resumed\nstatus: completed\ntype: send\nresumed: true\nnote: previous session reaped — resumed from its saved transcript, prior context kept\nworker: completed/completed\nworker_stage: completed\nlast_progress: completed\ndiagnostic: task completed; worker idle\nstarted: 2026-03-01 10:00:00Z\nfinished: 2026-03-01 10:00:00Z\nelapsed: 0s"
+          }
+        ]
+      }
+    },
+    {
+      "case": "spawn meta builders, meta merge and the busy check",
+      "kind": "meta",
+      "recorded": {
+        "pending": [
+          {
+            "args": {
+              "agent": "worker",
+              "provider": "openai",
+              "model": "gpt-5",
+              "tag": " t1 ",
+              "fast": true
+            },
+            "extra": {
+              "note": "x"
+            },
+            "meta": {
+              "note": "x",
+              "tag": "t1",
+              "sessionId": null,
+              "agent": "worker",
+              "preset": null,
+              "provider": "openai",
+              "model": "gpt-5",
+              "effort": null,
+              "fast": true
+            }
+          },
+          {
+            "args": {},
+            "extra": {},
+            "meta": {
+              "tag": null,
+              "sessionId": null,
+              "agent": null,
+              "preset": null,
+              "provider": null,
+              "model": null,
+              "effort": null,
+              "fast": null
+            }
+          }
+        ],
+        "prepared": {
+          "args": {
+            "tag": "t2",
+            "session": {
+              "id": "s2"
+            },
+            "agent": "worker",
+            "presetName": "named",
+            "preset": {
+              "provider": "anthropic",
+              "model": "claude",
+              "effort": "high",
+              "fast": true
+            }
+          },
+          "meta": {
+            "tag": "t2",
+            "sessionId": "s2",
+            "agent": "worker",
+            "preset": "named",
+            "provider": "anthropic",
+            "model": "claude",
+            "effort": "high",
+            "fast": true
+          }
+        }
+      }
+    }
+  ]
+}

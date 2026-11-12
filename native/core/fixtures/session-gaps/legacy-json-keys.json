@@ -1,0 +1,112 @@
+{
+  "scenario": "legacy-json-keys",
+  "sessionId": "sess_dup",
+  "cases": [
+    {
+      "name": "unique",
+      "text": "{\"id\":\"sess_dup\",\"title\":\"a\",\"messages\":[]}",
+      "document": {
+        "id": "sess_dup",
+        "title": "a",
+        "messages": []
+      }
+    },
+    {
+      "name": "repeated-title",
+      "text": "{\"id\":\"sess_dup\",\"title\":\"a\",\"messages\":[],\"title\":\"b\"}",
+      "document": null
+    },
+    {
+      "name": "repeated-id-same-value",
+      "text": "{\"id\":\"sess_dup\",\"title\":\"a\",\"messages\":[],\"id\":\"sess_dup\"}",
+      "document": null
+    },
+    {
+      "name": "escaped-equivalent",
+      "text": "{\"id\":\"sess_dup\",\"title\":\"a\",\"messages\":[],\"\\u0074itle\":\"b\"}",
+      "document": null
+    },
+    {
+      "name": "escaped-upper-hex",
+      "text": "{\"id\":\"sess_dup\",\"title\":\"a\",\"messages\":[],\"\\u0074\\u0049tle\":\"b\",\"t\\u0069tle\":\"c\"}",
+      "document": null
+    },
+    {
+      "name": "nested-repeat",
+      "text": "{\"id\":\"sess_dup\",\"title\":\"a\",\"messages\":[{\"role\":\"user\",\"content\":\"x\",\"content\":\"y\"}]}",
+      "document": {
+        "id": "sess_dup",
+        "title": "a",
+        "messages": [
+          {
+            "role": "user",
+            "content": "y"
+          }
+        ]
+      }
+    },
+    {
+      "name": "repeat-inside-string",
+      "text": "{\"id\":\"sess_dup\",\"title\":\"\\\"title\\\":\",\"messages\":[]}",
+      "document": {
+        "id": "sess_dup",
+        "title": "\"title\":",
+        "messages": []
+      }
+    },
+    {
+      "name": "two-distinct-lone-surrogates",
+      "text": "{\"id\":\"sess_dup\",\"title\":\"a\",\"messages\":[],\"\\ud800\":1,\"\\ud801\":2}",
+      "document": {
+        "$exact": "object",
+        "entries": [
+          [
+            "id",
+            "sess_dup"
+          ],
+          [
+            "title",
+            "a"
+          ],
+          [
+            "messages",
+            []
+          ],
+          [
+            {
+              "$exact": "utf16",
+              "units": [
+                55296
+              ]
+            },
+            1
+          ],
+          [
+            {
+              "$exact": "utf16",
+              "units": [
+                55297
+              ]
+            },
+            2
+          ]
+        ]
+      }
+    },
+    {
+      "name": "one-lone-surrogate-twice",
+      "text": "{\"id\":\"sess_dup\",\"title\":\"a\",\"messages\":[],\"\\ud800\":1,\"\\uD800\":2}",
+      "document": null
+    },
+    {
+      "name": "proto-key-twice",
+      "text": "{\"id\":\"sess_dup\",\"title\":\"a\",\"messages\":[],\"__proto__\":1,\"__proto__\":2}",
+      "document": null
+    },
+    {
+      "name": "whitespace-around-colon",
+      "text": "{ \"id\" : \"sess_dup\" , \"title\" : \"a\" , \"messages\" : [] , \"title\" : \"b\" }",
+      "document": null
+    }
+  ]
+}

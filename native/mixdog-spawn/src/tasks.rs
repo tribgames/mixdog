@@ -99,6 +99,15 @@ pub struct TaskSpec {
     pub started_at_ms: u64,
 }
 
+impl TaskRow {
+    /// Whether the row keeps its folder reserved against a worktree operation: a running background shell, or any shell held with
+    /// its termination unconfirmed (a foreground command whose kill was not confirmed keeps its workspace admission until the
+    /// command has exited or the hold is released, `shell-run-settle.mjs:46-104`).
+    pub fn reserves_folder(&self) -> bool {
+        self.surface == "shell" && ((self.status == TaskStatus::Running && !self.foreground) || self.termination_unconfirmed)
+    }
+}
+
 /// One registered task as `list` shows it.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct TaskRow {

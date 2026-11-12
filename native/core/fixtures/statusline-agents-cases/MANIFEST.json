@@ -1,0 +1,51 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-statusline-agents-cases.mjs --tree <exact export of b6f10295a2f698afc85332467192de28500bd146>",
+  "compared": "nothing in the core: every case is named",
+  "excluded": {
+    "a live worker stays authoritative over its own spawn job": "not core logic: the product runs the unchanged renderer src/ui/statusline-agents.mjs (identical to b6f10295a), which the TUI loads through src/tui/components/statusline-module-loader.mjs -> src/ui/statusline.mjs; the core only publishes the worker and job rows it merges (status_rows.rs)",
+    "a queued job replaces an idle worker until the new worker starts": "not core logic: the product runs the unchanged renderer src/ui/statusline-agents.mjs (identical to b6f10295a), which the TUI loads through src/tui/components/statusline-module-loader.mjs -> src/ui/statusline.mjs; the core only publishes the worker and job rows it merges (status_rows.rs)",
+    "a worker whose status is running stays running while its runtime phase reads idle/done/error": "not core logic: the product runs the unchanged renderer src/ui/statusline-agents.mjs (identical to b6f10295a), which the TUI loads through src/tui/components/statusline-module-loader.mjs -> src/ui/statusline.mjs; the core only publishes the worker and job rows it merges (status_rows.rs)",
+    "maintenance agents are labelled once and idle workers drop out": "GONE (gaps-rest.md): renderer label; not core logic: the product runs the unchanged renderer src/ui/statusline-agents.mjs (identical to b6f10295a), which the TUI loads through src/tui/components/statusline-module-loader.mjs -> src/ui/statusline.mjs; the core only publishes the worker and job rows it merges (status_rows.rs)",
+    "terminal jobs leave the worker list and stay ordered newest first": "not core logic: the product runs the unchanged renderer src/ui/statusline-agents.mjs (identical to b6f10295a), which the TUI loads through src/tui/components/statusline-module-loader.mjs -> src/ui/statusline.mjs; the core only publishes the worker and job rows it merges (status_rows.rs)"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 11492,
+      "path": "golden.json",
+      "sha256": "414897ddaab24ba9fb8ca7f4e793ba0fe0f66508a37992a6cd2c6d4aafc15b92"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "37442b56f294f129ef1e6f2c303f89951aa5b7a90f1f67fae4bcf5b0c77bb096"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-statusline-agents-cases.mjs",
+  "recorderSha256": "d51e8523bc3c97e88ea142c7765c05df186958010944cee11c478e665f983593",
+  "set": "statusline-agents-cases",
+  "totalBytes": 11492
+}

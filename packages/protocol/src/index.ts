@@ -516,8 +516,6 @@ export type ChannelSetWebhookEnabledParams = { opId: OpId, threadId?: ThreadId, 
  */
 export type ChannelTestWebhookParams = { opId: OpId, threadId?: ThreadId, name: string, };
 
-export type ClassLimits = { c0: number, c1: number, c2: number, c3: number, };
-
 /**
  * `client/activity`: sent on user input, at most once per 60 s (client-side rate).
  */
@@ -1874,11 +1872,7 @@ terminalRingChars: number, maxBlobPageBytes: number,
 /**
  * Raw `blob/put` chunk bound, so the frame stays under `maxInboundFrameBytes` after base64.
  */
-maxBlobPutChunkBytes: number,
-/**
- * Per-connection in-flight cap per request class.
- */
-inflight: ClassLimits, maxConnections: number, heartbeatTickMs: number, maxProcesses: number,
+maxBlobPutChunkBytes: number, maxConnections: number, heartbeatTickMs: number, maxProcesses: number,
 /**
  * Per-terminal input buffer before socket reads pause (P §7.3).
  */

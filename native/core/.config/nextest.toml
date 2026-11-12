@@ -19,7 +19,7 @@ default-filter = '''not (
 # in the `pg-cluster` group below, so they run one at a time, with the time the composed tests get (below).
 [profile.pg]
 default-filter = '''package(mixdog-app-server-daemon) & (
-    test(/^compose::(tests|review_restart_tests)::/)
+    test(/^compose::(tests|review_restart_tests|session_project_tests)::/)
   | test(/^server::tests::/)
   | test(/^serving::tests::start_serves_both/)
   | test(=compose_domains::tests::every_method_of_the_domains_built_here_has_a_real_service)
@@ -130,7 +130,7 @@ slow-timeout = { period = "60s", terminate-after = 6 }
 # one cluster at a time is the load a single test was verified under. Matching the module paths
 # keeps tests added to those modules in the group. The daemon's real-core tests (#[ignore], MIXDOG_PG_RUNTIME) each start a cluster the same way.
 [[profile.default.overrides]]
-filter = 'package(mixdog-services) & (test(/^memory::tests::/) | test(/^memory::thread_search::tests::/) | test(/^memory::replays::\w+::pg::/)) | (package(mixdog-app-server-daemon) & (test(/^compose::(tests|review_restart_tests)::/) | test(/^server::tests::/) | test(/^serving::tests::start_serves_both/) | test(=compose_domains::tests::every_method_of_the_domains_built_here_has_a_real_service) | test(=compose_test_support::runner_tests::a_cluster_left_running_by_a_killed_child_is_ended_before_its_directory_is_removed)))'
+filter = 'package(mixdog-services) & (test(/^memory::tests::/) | test(/^memory::thread_search::tests::/) | test(/^memory::replays::\w+::pg::/)) | (package(mixdog-app-server-daemon) & (test(/^compose::(tests|review_restart_tests|session_project_tests)::/) | test(/^server::tests::/) | test(/^serving::tests::start_serves_both/) | test(=compose_domains::tests::every_method_of_the_domains_built_here_has_a_real_service) | test(=compose_test_support::runner_tests::a_cluster_left_running_by_a_killed_child_is_ended_before_its_directory_is_removed)))'
 test-group = 'pg-cluster'
 
 # The daemon's real-core tests run their core in a child process under the runner's one budget (`compose_test_support::BUDGET`, 690 s, checked
@@ -140,6 +140,7 @@ test-group = 'pg-cluster'
 [[profile.default.overrides]]
 filter = '''package(mixdog-app-server-daemon) & (
     test(=compose::review_restart_tests::a_core_composed_again_tells_and_answers_as_node_does)
+  | test(=compose::session_project_tests::the_session_tool_switches_its_callers_project_and_flags_it_through_the_product_route)
   | test(=compose::tests::release_runs_the_barriers_then_the_stop_steps_once)
   | test(=compose::tests::overlapping_stops_wait_for_the_same_cleanup_as_node_recorded)
   | test(=compose::tests::the_release_has_requested_closing_before_its_first_budgeted_step)

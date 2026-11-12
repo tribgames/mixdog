@@ -180,6 +180,12 @@ impl ThreadStore for DefaultTail {
     fn create_log(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, session: &CommitRecord) -> Result<(Box<dyn SessionLog>, u64), BarrierError> {
         self.0.create_log(lane, id, session)
     }
+    fn archived_agent_parents(&self, child: &ThreadId) -> futures::future::BoxFuture<'static, Result<Vec<ThreadId>, CoreError>> {
+        self.0.archived_agent_parents(child)
+    }
+    fn draft_write(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, write: &super::turn_draft::DraftWrite) -> Result<(), CoreError> {
+        self.0.draft_write(lane, id, write)
+    }
 }
 
 fn lanes(tokens: LaneTokens) -> SessionLanes {

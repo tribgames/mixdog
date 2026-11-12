@@ -62,7 +62,7 @@ crash-gates = []
 # A replay's clock (mixdog-rt virtual_clock.rs): the session's wall clock and timers stand still until the replay advances them.
 # Never in an ordinary build.
 virtual-clock = ["mixdog-rt/virtual-clock"]
-test-support = ["dep:tempfile", "dep:mixdog-testkit", "dep:mixdog-migrate", "dep:mixdog-core-review", "mixdog-core-review/test-support", "mixdog-core-api/mock", "mixdog-rt/test-support", "mixdog-store/test-support"]
+test-support = ["dep:tempfile", "dep:mixdog-testkit", "dep:mixdog-migrate", "dep:mixdog-core-review", "mixdog-core-review/test-support", "mixdog-core-api/mock", "mixdog-rt/test-support", "mixdog-store/test-support", "mixdog-core-base/test-support"]
 
 [dev-dependencies]
 mixdog-testkit = { workspace = true }
@@ -108,3 +108,9 @@ mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
 fancy-regex = { workspace = true, features = ["perf", "probe", "std", "unicode", "variable-lookbehinds"] }
 mixdog-core-rooms = { workspace = true, features = ["test-support"] }
 mixdog-services = { workspace = true, features = ["test-support"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-exthost = { workspace = true, features = ["test-support"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-trace = { workspace = true, features = ["flush-probe"] }

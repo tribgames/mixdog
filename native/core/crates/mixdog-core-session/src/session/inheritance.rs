@@ -21,10 +21,19 @@ use serde_json::json;
 use super::SessionDirectory;
 use super::SessionHandle;
 
+/// How many times the removal of a refused carry's "being copied" mark is tried before it is given up.
+const UNMARK_TRIES: usize = 3;
+
 /// A carry that failed, and whether its append was attempted (rows of it may be in the heir's log).
 struct Carry {
     error: CoreError,
     appended: bool,
+}
+
+/// A carry decided and checked, not yet written: the rows the heir takes and whether the compactor made them.
+struct Plan {
+    rows: Vec<Value>,
+    compacted: bool,
 }
 
 /// The heir's route (`inheritanceRouteTarget`): only a route naming a provider and a model has one.
@@ -136,7 +145,7 @@ impl SessionDirectory {
         if super::route_session::has_user_conversation(&self.rows_of(heir.as_str()).await?) || super::route_session::has_user_conversation(&live) {
             return Err(refused("inheritFrom: this session already holds a conversation"));
         }
-        // The heir holds the source's text: the source's sensitive values, now and later, are the heir's to redact.
+                // The heir holds the source's text: the source's sensitive values, now and later, are the heir's to redact.
         self.deps().sensitive.carry(source, heir);
         // The heir's rows will name the source's sidecars (and those the source's set names): its reference set is
         // stored before anything is copied, with the mark of a copy this boot is making, so no prune of a session the
@@ -173,16 +182,22 @@ impl SessionDirectory {
             marking.insert(offload_sources::SOURCES.into(), json!(sources));
             unset.push(offload_sources::SOURCES_RULES);
         }
-        let patch = |set: Map<String, Value>, unset: Vec<&str>| {
-            let ctx = CallContext::internal("inheritance");
+        let patch = |set: Map<String, Value>, unset: Vec<&str>, caller: &'static str| {
+            let ctx = CallContext::internal(caller);
             handle.request(CoreRequest { method: Method("thread/header/patch"), params: json!({ "threadId": heir, "set": set, "unset": unset }), op: None, ctx })
         };
-        patch(marking, unset).await?;
-        let count = match self.carry_rows(source, heir, &handle, &source_header, compact).await {
-            Ok(count) => count,
+        patch(marking, unset, "inheritance").await?;
+        let (count, compacted) = match self.carry_rows(source, heir, &handle, &source_header, compact).await {
+            Ok(done) => done,
             Err(Carry { error, appended: false }) => {
-                // A failed unmarking leaves the mark to this boot (point 3's rule): safe.
-                let _ = patch(Map::new(), vec![offload_sources::INHERITING, offload_sources::INHERITING_BOOT]).await;
+                // The "being copied" mark is the core's own carry mark (Node's inheritance has no unmark operation). One left
+                // standing stops every reference query of the heir until the process restarts, so a failed removal is heard
+                // and tried again (a failed write is not kept: the next one is a write of its own).
+                for _ in 0..UNMARK_TRIES {
+                    if patch(Map::new(), vec![offload_sources::INHERITING, offload_sources::INHERITING_BOOT], "inheritance-unmark").await.is_ok() {
+                        break;
+                    }
+                }
                 return Err(error);
             }
             Err(Carry { error, appended: true }) => return Err(error),
@@ -191,6 +206,7 @@ impl SessionDirectory {
         Ok(Reply::Value(json!({
             "thread": handle.cell.view.load_full().summary.clone(),
             "messages": count,
+            "compacted": compacted,
             "provider": held.get("provider").cloned().unwrap_or(Value::Null),
             "model": held.get("model").cloned().unwrap_or(Value::Null),
         })))
@@ -200,8 +216,8 @@ impl SessionDirectory {
     /// (compacted when asked or when they cannot fit) and appended to it with its inheritance boundary, the heir's
     /// header naming its source and no longer inheriting. The number of rows carried; a failure says whether the append
     /// was attempted.
-    async fn carry_rows(&self, source: &ThreadId, heir: &ThreadId, handle: &SessionHandle, source_header: &Value, compact: bool) -> Result<usize, Carry> {
-        let (carried, set) = self.fit_rows(source, heir, handle, source_header, compact).await.map_err(|error| Carry { error, appended: false })?;
+    async fn carry_rows(&self, source: &ThreadId, heir: &ThreadId, handle: &SessionHandle, source_header: &Value, compact: bool) -> Result<(usize, bool), Carry> {
+        let (carried, set, compacted) = self.fit_rows(source, heir, handle, source_header, compact).await.map_err(|error| Carry { error, appended: false })?;
         let ctx = CallContext::internal("inheritance");
         let count = carried.len();
         // The rows, the header keys and the end of the copy are one save (`saveSession(target, { immediate: true })`), which
@@ -209,21 +225,14 @@ impl SessionDirectory {
         // still answers. Until that write the heir's header still names its source as being copied.
         let params = json!({ "messages": carried, "set": set, "unset": [offload_sources::INHERITING, offload_sources::INHERITING_BOOT] });
         match handle.request(CoreRequest { method: Method("thread/inheritedRows/append"), params, op: None, ctx }).await {
-            Ok(_) | Err(CoreError::BarrierFailed { .. }) => Ok(count),
+            Ok(_) | Err(CoreError::BarrierFailed { .. }) => Ok((count, compacted)),
             Err(error) => Err(Carry { error, appended: true }),
         }
     }
 
     /// The source's rows fitted to the heir, the last one holding the inheritance boundary, and the heir's header
     /// fields naming its source; nothing is written.
-    async fn fit_rows(&self, source: &ThreadId, heir: &ThreadId, handle: &SessionHandle, source_header: &Value, compact: bool) -> Result<(Vec<Value>, Map<String, Value>), CoreError> {
-        let refused = |message: &str| mixdog_core_base::support::failed("inheritance", message);
-        let mut carried = inheritable(self.rows_of(source.as_str()).await?);
-        if !super::route_session::has_user_conversation(&carried) {
-            return Err(refused("inheritFrom: the source session has no conversation to carry"));
-        }
-        // Decided before anything moves, on the heir's own scale (`inheritanceFit` over the heir): an explicit `compact`
-        // summarizes whatever the size, otherwise only a conversation that cannot fit is compacted.
+    async fn fit_rows(&self, source: &ThreadId, heir: &ThreadId, handle: &SessionHandle, source_header: &Value, compact: bool) -> Result<(Vec<Value>, Map<String, Value>, bool), CoreError> {
         let held = handle.cell.header.load_full();
         let target = InheritTarget {
             provider: clean(held.get("provider")),
@@ -233,32 +242,7 @@ impl SessionDirectory {
             tools_of: Some(heir.clone()),
             source: Some(source.clone()),
         };
-        let fit_of = |basis: Option<FitBasis>| basis.filter(|basis| basis.limit > 0);
-        let fit = fit_of(self.deps().inherit.basis(&target, &carried).await);
-        if compact || fit.as_ref().is_some_and(|fit| fit.used >= fit.limit) {
-            // `fitConversationForHeir`: a compaction that cannot run is a refusal, not a half-carry.
-            let budget = self.deps().inherit.compaction_budget(&target).await;
-            let compacted = match budget {
-                Some(budget) => match self.deps().compaction.compact_for_heir(source, budget, compact).await {
-                    Ok(rows) => Some(inheritable(rows.unwrap_or_default())).filter(|rows| super::route_session::has_user_conversation(rows)),
-                    Err(_) => None,
-                },
-                None => None,
-            };
-            if compact && compacted.is_none() {
-                return Err(refused("inheritFrom: the conversation could not be compacted for the new session"));
-            }
-            let next_fit = match &compacted {
-                Some(rows) => fit_of(self.deps().inherit.basis(&target, rows).await),
-                None => fit,
-            };
-            if let Some(rows) = compacted {
-                carried = rows;
-            }
-            if let Some(fit) = next_fit.filter(|fit| fit.used >= fit.limit) {
-                return Err(refused(&fit_message(&target.provider, &target.model, fit.used, fit.limit)));
-            }
-        }
+        let Plan { rows: mut carried, compacted } = self.plan_carry(source, &target, compact).await?;
         let source_title = clean(source_header.pointer("/header/title"));
         let mut set = Map::new();
         set.insert("inheritedFromSessionId".into(), json!(source.as_str()));
@@ -281,7 +265,49 @@ impl SessionDirectory {
             let earlier = meta.get("sessionInheritances").and_then(Value::as_array).cloned().unwrap_or_default();
             meta["sessionInheritances"] = Value::Array(earlier.into_iter().chain([boundary]).collect());
         }
-        Ok((carried, set))
+        Ok((carried, set, compacted))
+    }
+
+    /// `carryConversation` up to the point anything is written: the source's conversation (or the compactor's, when
+    /// `compact` asks for it or the conversation cannot fit `target`), checked as Node checks it.
+    async fn plan_carry(&self, source: &ThreadId, target: &InheritTarget, compact: bool) -> Result<Plan, CoreError> {
+        let refused = |message: &str| mixdog_core_base::support::failed("inheritance", message);
+        let mut carried = inheritable(self.rows_of(source.as_str()).await?);
+        if !super::route_session::has_user_conversation(&carried) {
+            return Err(refused("inheritFrom: the source session has no conversation to carry"));
+        }
+        // Decided before anything moves, on the heir's own scale (`inheritanceFit` over the heir): an explicit `compact`
+        // summarizes whatever the size, otherwise only a conversation that cannot fit is compacted.
+        let fit_of = |basis: Option<FitBasis>| basis.filter(|basis| basis.limit > 0);
+        let fit = fit_of(self.deps().inherit.basis(&target, &carried).await);
+        // `carryConversation`'s `compacted`: the heir takes the compactor's conversation instead of the source's.
+        let mut was_compacted = false;
+        if compact || fit.as_ref().is_some_and(|fit| fit.used >= fit.limit) {
+            // `fitConversationForHeir`: a compaction that cannot run is a refusal, not a half-carry.
+            let budget = self.deps().inherit.compaction_budget(&target).await;
+            let compacted = match budget {
+                Some(budget) => match self.deps().compaction.compact_for_heir(source, budget, compact).await {
+                    Ok(rows) => Some(inheritable(rows.unwrap_or_default())).filter(|rows| super::route_session::has_user_conversation(rows)),
+                    Err(_) => None,
+                },
+                None => None,
+            };
+            if compact && compacted.is_none() {
+                return Err(refused("inheritFrom: the conversation could not be compacted for the new session"));
+            }
+            let next_fit = match &compacted {
+                Some(rows) => fit_of(self.deps().inherit.basis(&target, rows).await),
+                None => fit,
+            };
+            if let Some(rows) = compacted {
+                carried = rows;
+                was_compacted = true;
+            }
+            if let Some(fit) = next_fit.filter(|fit| fit.used >= fit.limit) {
+                return Err(refused(&fit_message(&target.provider, &target.model, fit.used, fit.limit)));
+            }
+        }
+        Ok(Plan { rows: carried, compacted: was_compacted })
     }
 
     pub(super) async fn inheritance_preflight(&self, params: &Value) -> Result<Value, CoreError> {

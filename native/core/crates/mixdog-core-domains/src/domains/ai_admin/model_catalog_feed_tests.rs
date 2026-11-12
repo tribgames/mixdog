@@ -222,3 +222,30 @@ async fn the_composed_task_publishes_each_config_change_and_invalidation_once() 
     stop.cancel();
     sync.task.await.unwrap();
 }
+
+/// A change that arrives after the sync subscribed and before its first load is taken in by that load alone: neither the
+/// config's tick nor a credential touch is left for the loop, which would rebuild, publish and count the same change again.
+#[tokio::test]
+async fn a_change_the_first_load_took_in_is_not_applied_again() {
+    let recording = recording();
+    let scenario = &recording["scenarios"][0];
+    let rig = rig(scenario, &recording["seeds"], false).await;
+    let mut changes = rig.config.changes();
+    let touched = tokio::sync::Notify::new();
+    touched.notify_one();
+    let agent: Value = serde_json::from_str(&scenario["calls"][1]["agentAfter"].to_string().replace("__BASE_URL__", "http://127.0.0.1:9")).unwrap();
+    let stored = agent.as_object().cloned().unwrap();
+    rig.config
+        .update_agent(move |doc| {
+            doc.clear();
+            doc.extend(stored);
+            Ok(())
+        })
+        .await
+        .unwrap();
+    assert!(changes.has_changed().unwrap(), "the write ticked the subscription");
+    let handed_on = super::provider_sync::first_pass(&rig.config, &rig.effective, &rig.readiness, &rig.loaded, &mut changes, &touched).await;
+    assert!(handed_on, "the load took the write in");
+    assert!(!changes.has_changed().unwrap(), "the write is not left unread for the loop");
+    assert!(futures::FutureExt::now_or_never(touched.notified()).is_none(), "the touch is not left for the loop");
+}

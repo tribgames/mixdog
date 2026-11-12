@@ -46,9 +46,12 @@ pub trait MediaMeter: Send + Sync {
     fn part(&self, part: &ContentPart) -> PartMeter;
 
     /// Reads from the store what pricing `messages` needs (the facts of the stored attachments
-    /// they carry). A meter with nothing to read has nothing to do.
-    async fn prepare(&self, messages: &[AgentMessage]) {
+    /// they carry, the text of the stored text attachments). A meter with nothing to read has
+    /// nothing to do. `Err` is a read that failed for now (Node's synchronous read throws it out of
+    /// the pricing); a blob that is gone for good is priced as gone.
+    async fn prepare(&self, messages: &[AgentMessage]) -> Result<(), String> {
         let _ = messages;
+        Ok(())
     }
 }
 

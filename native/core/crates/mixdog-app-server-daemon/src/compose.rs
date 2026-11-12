@@ -880,6 +880,10 @@ mod review_restart_tests;
 mod office_startup_tests;
 #[cfg(test)]
 mod state_set_aside_tests;
+#[cfg(test)]
+mod session_send_tests;
+#[cfg(test)]
+mod session_project_tests;
 
 #[cfg(test)]
 mod tests {
@@ -1080,10 +1084,12 @@ mod tests {
             let recorder = Arc::new(Recorder::default());
             let ample = Duration::from_secs(3600);
             let budgets = ReleaseBudgets { final_barriers: ample, close_connections: ample, close_ext_host: ample, record_exit: ample, withdraw_discovery: ample, close_data_handles: ample };
-            let lifecycle = Lifecycle::with_budgets(
+            let lifecycle = Lifecycle::with_grace(
                 LifecycleConfig { instance_id: "instance-1".into(), version: "1.4.6".into(), runtime_root: dir.clone() },
                 Ports { core: Arc::new(Entry { core: core.clone(), inner: recorder.clone(), requested_at_first_step: requested_at_first_step.clone() }), discovery: recorder.clone(), exiter: recorder.clone() },
                 budgets,
+                crate::lifecycle::ClientGrace::immediate(),
+                crate::lifecycle::testing::ManualTimer::new(),
             );
             lifecycle.set_serving().unwrap();
             drop(lifecycle.connection(crate::lifecycle::ClientKind::Session));

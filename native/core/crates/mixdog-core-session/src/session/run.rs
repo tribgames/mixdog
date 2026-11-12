@@ -307,10 +307,22 @@ pub(crate) enum ProducerMsg {
         item: ItemCommit,
         ack: oneshot::Sender<Result<(), RunError>>,
     },
+    /// One step of the run's draft (the `draft` record's body).
+    Draft {
+        turn: TurnId,
+        body: Value,
+        ack: oneshot::Sender<Result<(), RunError>>,
+    },
     TakeSteers {
         turn: TurnId,
         request: DrainRequest,
         reply: oneshot::Sender<Vec<SteerInput>>,
+    },
+    /// The skills the turn's own prompt loaded (`recordAppliedSkills`): stamped on its input row.
+    AppliedSkills {
+        turn: TurnId,
+        names: Vec<String>,
+        ack: oneshot::Sender<Result<(), RunError>>,
     },
     ProviderState {
         turn: TurnId,
@@ -737,6 +749,21 @@ impl RunPort {
         })
         .await?;
         rx.await.map_err(|_| RunError::Closed)?
+    }
+
+    /// Records what the run produced that no row holds yet (a `draft` record, see `RunDraft`), in order with its rows;
+    /// resolves once it is durable (or failed). Recovery at open commits it if the process dies before the run ends.
+    pub async fn draft(&self, body: Value) -> Result<(), RunError> {
+        let (ack, rx) = oneshot::channel();
+        self.send(ProducerMsg::Draft { turn: self.turn.clone(), body, ack }).await?;
+        rx.await.map_err(|_| RunError::Closed)?
+    }
+
+    /// `recordAppliedSkills` for the turn's input row: `meta.transcript.appliedSkills` set to `names` (an amend of
+    /// the row), called before the run commits any other row. Resolves once it is durable (or failed).
+    pub async fn applied_skills(&self, names: Vec<String>) -> Result<(), RunError> {
+        let (ack, rx) = oneshot::channel();
+        self.call(ProducerMsg::AppliedSkills { turn: self.turn.clone(), names, ack }, rx).await?
     }
 
     /// Input dequeued for injection at this boundary (`createAskSteeringDrain`). First the

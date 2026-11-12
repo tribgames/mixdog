@@ -100,6 +100,13 @@ impl MediaText for NoMedia {
     ) -> Result<Vec<mixdog_core_api::domain::provider::Message>, Box<ProviderError>> {
         Ok(messages)
     }
+    async fn prepare_for_route(
+        &self,
+        messages: Vec<mixdog_core_api::domain::provider::Message>,
+        _: mixdog_core_api::domain::provider::MediaSupport,
+    ) -> Result<Vec<mixdog_core_api::domain::provider::Message>, Box<ProviderError>> {
+        Ok(messages)
+    }
     fn text_form(&self, _: &mixdog_core_api::domain::provider::ContentPart) -> Result<Option<String>, Box<ProviderError>> {
         Ok(None)
     }
@@ -404,7 +411,7 @@ async fn after_a_reload_each_provider_kind_is_readied_from_the_agent_config() {
     );
     let names: Vec<String> = providers.keys().cloned().collect();
     let w = world(&[], Value::Object(providers), Vec::new()).await;
-    let (registry, _) = super::compose_parts::provider_registry(&w.services, builder_env(&w.services));
+    let (registry, _) = super::compose_parts::provider_registry(&w.services, builder_env(&w.services), Arc::new(mixdog_exthost::ExtImageCodec::new(Arc::new(mixdog_core_api::domain::mock::MockExtPool::new(1)))));
     for name in names {
         let enabled = mixdog_ai::service::admin_route::ensure_provider_enabled(&w.services.config.agent(), &name);
         registry.init_providers(&enabled).await.unwrap_or_else(|e| panic!("{name}: {e}"));

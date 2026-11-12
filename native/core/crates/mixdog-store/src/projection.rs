@@ -204,7 +204,7 @@ pub fn project(record: &Record, resolve: &mut ResolveBody<'_>) -> Result<(FrameK
             }
             (FrameKind::Other, o)
         }
-        Record::Checkpoint(_) => (FrameKind::Other, None),
+        Record::Checkpoint(_) | Record::Draft(_) => (FrameKind::Other, None),
     })
 }
 

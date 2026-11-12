@@ -168,6 +168,8 @@ pub enum ItemKind {
     // ── group `data`, retired or retained ──
     /// Turn checkpoints whose session has no session item.
     OrphanCheckpoint,
+    /// A reaped agent child's archived result none of whose parents migrates: no sources, retired (counted).
+    OrphanArchivedAgent,
     /// `usage-rollup.local.json` and the `.migrated.bak` files (the live `gateway-usage.local.json[l]` stay): retired when the ledger's
     /// `metadata.importedThrough` exists, else retained `ledger_import_incomplete`.
     LedgerLegacyInputs,

@@ -143,7 +143,8 @@ impl DeleteHold {
     }
 
     /// Appends the delete mark and waits for its ack; the thread then leaves the directory,
-    /// and a later open finds it gone. False when the mark was not applied.
+    /// and a later open finds it gone. False when the mark was not applied: the close failed, and the thread stays
+    /// open with what it holds (`SessionActor::close_undone`).
     pub(crate) async fn mark(self, directory: &DirInner) -> bool {
         let mut set = serde_json::Map::new();
         set.insert(mixdog_store::summary::DELETED.into(), Value::Bool(true));
@@ -157,7 +158,7 @@ impl DeleteHold {
         let applied = matches!(self.marked.await, Ok(Ok(())));
         let id = &self.handle.id;
         let mut shard = lock(directory.shard(id));
-        if matches!(shard.get(id), Some(Slot_::Loaded(h)) if Arc::ptr_eq(h, &self.handle)) {
+        if applied && matches!(shard.get(id), Some(Slot_::Loaded(h)) if Arc::ptr_eq(h, &self.handle)) {
             shard.remove(id);
             #[cfg(any(test, feature = "test-support"))]
             directory.left.notify_waiters();
@@ -399,7 +400,7 @@ impl SessionDirectory {
         self.handle(id).map(|handle| handle.cell.turn_chain.bots()).unwrap_or_default()
     }
 
-    /// `turnHopOf(session)`: the bot-to-bot depth of the turn the loaded thread is in; 0 for a thread not loaded.
+    /// `turnHopOf(session)`: the hop of the turn the loaded thread is in; 0 for a thread not loaded.
     pub fn turn_hop(&self, id: &ThreadId) -> u32 {
         self.handle(id).map_or(0, |handle| handle.cell.turn_chain.hop())
     }
@@ -714,6 +715,11 @@ impl SessionDirectory {
         handles
     }
 
+    /// Whether the thread is loaded and not closing: a thread closed, deleted or shut down is refused work.
+    pub fn is_open(&self, id: &ThreadId) -> bool {
+        self.inner.loaded(id).is_some_and(|handle| !handle.cell.closed.load(std::sync::atomic::Ordering::SeqCst))
+    }
+
     /// Replay-only (the core's `replay/storesSettled` control): the positions of every thread loaded now, taken here, without
     /// the actors — each one's durable records accepted ([`super::control::ControlCell::record_marks`]) and prompt-history
     /// appends pushed ([`super::control::ControlCell::prompt_marks`]). [`DurabilitySettling::wait`] then waits for each to be
@@ -794,6 +800,33 @@ impl SessionDirectory {
                 method: Method("thread/start"),
                 params,
                 seed: None,
+                settings: None,
+                starting: None,
+            })
+            .await
+            .map(|_| ())
+    }
+
+    /// [`create_with_id`](Self::create_with_id) over a `header` carrying a session's options (`session_options::write_header`):
+    /// a home or room session is a Node `createSession` too, so it begins with its tool surface seeded, as `thread/start`'s.
+    pub async fn create_seeded_with_id(&self, id: ThreadId, header: Header, params: Value) -> Result<(), CoreError> {
+        let seeded = super::seams::SeededThread::new(self.inner.deps.new_tools.clone(), id.clone());
+        let header = self
+            .inner
+            .deps
+            .new_tools
+            .seed(&id, &header)
+            .await
+            .map_err(|message| mixdog_core_base::support::failed("session", format!("session: tools: {message}")))?;
+        self.inner
+            .create(CreateSpec {
+                id: Some(id),
+                header,
+                base: None,
+                op: None,
+                method: Method("thread/start"),
+                params,
+                seed: Some(seeded),
                 settings: None,
                 starting: None,
             })
@@ -1030,6 +1063,18 @@ impl DirInner {
             #[cfg(any(test, feature = "test-support"))]
             self.left.notify_waiters();
         }
+    }
+
+    /// A close of the thread of `cell` failed on a write (`SessionActor::close_undone`): while its slot is still this
+    /// thread's, the thread is open again, under the shard lock, and the session stays loaded. False when the directory
+    /// let it go (shutdown, a failed create).
+    pub(crate) fn reopen(&self, id: &ThreadId, cell: &Arc<ControlCell>) -> bool {
+        let shard = lock(self.shard(id));
+        let ours = matches!(shard.get(id), Some(Slot_::Loaded(h)) if Arc::ptr_eq(&h.cell, cell));
+        if ours {
+            cell.reopen();
+        }
+        ours
     }
 
     /// Holds the minted `id` of a control start ([`Starting`]).
@@ -1418,6 +1463,7 @@ impl DirInner {
             queue: arc_swap::ArcSwap::from_pointee(state.queue.clone()),
             approvals: Default::default(),
             shown_approval: Default::default(),
+            shown_changed: tokio::sync::watch::Sender::new(0),
             takeover: Default::default(),
             view: arc_swap::ArcSwap::new(view),
             header: arc_swap::ArcSwap::from_pointee(state.header.clone()),
@@ -1436,11 +1482,15 @@ impl DirInner {
             turn_pending: Default::default(),
             ui_busy: Default::default(),
             compacting: Default::default(),
+            compaction_cancel: Default::default(),
             pending_compact: Default::default(),
+            gated: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             stepped: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             unacked: Default::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            handed: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             busy: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
@@ -1449,6 +1499,12 @@ impl DirInner {
             ask_marked: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             prompt_timers: Default::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            recovered: Default::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            drafts_settled: Default::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            gate_holds: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             prompt_marks: Arc::new(mixdog_rt::WriteMarks::new("the prompt history")),
             #[cfg(any(test, feature = "test-support"))]
@@ -1583,6 +1639,7 @@ impl DirInner {
                     value: json!({}),
                     seed: spec.seed,
                     settings: spec.settings,
+                    kept: spec.method.as_str() == "thread/fork",
                 },
             );
             shard.insert(id.clone(), Slot_::Loaded(handle.clone()));
@@ -1653,12 +1710,23 @@ fn fold_opened(lane: &InLane<CpuInteractive>, deps: &SessionDeps, log: OpenedLog
     for (index, (ordinal, item)) in log.window.into_iter().enumerate() {
         show_dividers(&mut state, index);
         apply(&mut state, ordinal, Record::Item(item));
+        if log.archived.contains(&ordinal) {
+            // The rows the record just showed: `archived` in their `ext` is what a client shows as 1.4.5's archived row.
+            for row in state.window.iter_mut().rev().take_while(|row| row.ordinal == Some(ordinal)) {
+                super::view::meta_mut(Arc::make_mut(&mut row.item)).ext.insert("archived".into(), serde_json::Value::Bool(true));
+            }
+        }
     }
     show_dividers(&mut state, usize::MAX);
     state.prompt_session = prompts;
     state.has_older = log.has_older || state.has_older;
     for (ordinal, record) in log.tail {
         apply(&mut state, ordinal, record);
+    }
+    for (rid, draft) in log.drafts {
+        if let Some(run) = state.runs.get_mut(&rid) {
+            run.restore(draft);
+        }
     }
     state.prompt_history =
         super::prompt_history::merge(&state.prompt_session, &state.prompt_persisted);
@@ -1932,6 +2000,10 @@ impl ThreadDirectory for SessionDirectory {
                 expected: "a session-directory method".into(),
             }),
         }
+    }
+
+    async fn read_vanished(&self, id: &ThreadId, _req: CoreRequest) -> Result<Reply, CoreError> {
+        self.inner.read_archived(id).await
     }
 }
 
