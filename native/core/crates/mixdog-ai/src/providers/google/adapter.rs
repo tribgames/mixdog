@@ -77,7 +77,7 @@ pub struct GoogleAdapter {
     /// The Gemini API's socket warm-up (`preconnect(GEMINI_API_ORIGIN)`).
     preconnect: Option<Preconnect>,
     /// The resizer of a Claude request's images ([`crate::providers::anthropic::images`]).
-    images: Option<Arc<dyn mixdog_core_api::domain::ext::ProfiledImageResizer>>,
+    images: Option<crate::providers::anthropic::images::ImageFitter>,
 }
 
 impl GoogleAdapter {
@@ -112,9 +112,9 @@ impl GoogleAdapter {
         }
     }
 
-    /// Fits the images of Claude requests with `resizer`.
-    pub fn with_images(mut self, resizer: Option<Arc<dyn mixdog_core_api::domain::ext::ProfiledImageResizer>>) -> Self {
-        self.images = resizer;
+    /// Fits the images of Claude requests with `fitter`.
+    pub fn with_images(mut self, fitter: Option<crate::providers::anthropic::images::ImageFitter>) -> Self {
+        self.images = fitter;
         self
     }
 
@@ -542,8 +542,8 @@ impl GoogleAdapter {
         let key = self.current_key().await?;
         // Claude on Vertex AI builds the API-key route's Messages request, which fits its images first.
         let mut request = match &self.images {
-            Some(resizer) if self.codec.claude_model(&request.model).is_some() => {
-                crate::providers::anthropic::images::prepare_request(request, resizer.as_ref()).await?
+            Some(fitter) if self.codec.claude_model(&request.model).is_some() => {
+                crate::providers::anthropic::images::prepare_request(request, fitter).await?
             }
             _ => request,
         };

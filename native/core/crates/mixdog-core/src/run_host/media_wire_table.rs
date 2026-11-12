@@ -123,7 +123,7 @@ struct Family {
     encode: Encode,
     bodies: Mutex<Vec<Value>>,
     /// The Messages wire's image preparation, which every Messages adapter runs before it builds its request.
-    images: Option<Arc<dyn ProfiledImageResizer>>,
+    images: Option<mixdog_ai::providers::anthropic::images::ImageFitter>,
     /// The messages of the requests the preparation refused (the run loop's recovery sends again without the image).
     refusals: Mutex<Vec<String>>,
 }
@@ -153,7 +153,7 @@ impl ProviderAdapter for Family {
     }
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
         let request = match &self.images {
-            Some(resizer) => match mixdog_ai::providers::anthropic::images::prepare_request(request, resizer.as_ref()).await {
+            Some(fitter) => match mixdog_ai::providers::anthropic::images::prepare_request(request, fitter).await {
                 Ok(prepared) => prepared,
                 Err(refusal) => {
                     self.refusals.lock().unwrap().push(refusal.message.clone());
@@ -320,7 +320,7 @@ async fn every_row_of_nodes_media_table_replays_equal() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/media-wire/table.json");
     let table: Value = serde_json::from_str(&mixdog_testkit::read_string(&path)).expect("the table is JSON");
     let rows = table["rows"].as_array().unwrap();
-    assert_eq!(rows.len(), 171, "12 provider rows × 10 attachment kinds, and 10 image kinds on 5 Messages providers, 1 on one");
+    assert_eq!(rows.len(), 172, "12 provider rows × 10 attachment kinds, and 10 image kinds on 5 Messages providers, 2 on one");
     // The Messages wire's images are fitted by the extension host's `sharp`: Node's own `resizeImageBuffer`, run by the real worker.
     let tokens = mixdog_rt::testing::tokens();
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(4).unwrap();
@@ -364,7 +364,7 @@ async fn every_row_of_nodes_media_table_replays_equal() {
             vision: capabilities["vision"] != json!(false),
             encode: encoder(family),
             bodies: Mutex::new(Vec::new()),
-            images: (family == "anthropic-messages").then(|| resizer.clone()),
+            images: (family == "anthropic-messages").then(|| mixdog_ai::providers::anthropic::images::ImageFitter::new(resizer.clone(), tokens.cpu_bulk)),
             refusals: Mutex::new(Vec::new()),
         });
         let lowering = Arc::new(MediaLowering::new(thread.clone(), extracted.clone(), store.clone(), Arc::new(NoFacts), false, provider.id.clone()));

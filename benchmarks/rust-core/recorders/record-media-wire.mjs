@@ -101,6 +101,8 @@ const imageKinds = [
   imageKind('image-webp-below-minimum', await flat(64, 64).webp().toBuffer(), 'image/webp'),
   imageKind('image-mislabelled', await flat(640, 480).png().toBuffer(), 'image/jpeg'),
   imageKind('image-undecodable', Buffer.from('this is not an image'), 'image/png'),
+  // A system message ahead of an image the decoder refuses: the lowering removes it, so the refusal names the wire's index.
+  imageKind('image-undecodable-after-system', Buffer.from('this is not an image either'), 'image/png', { providers: ['anthropic'], system: 'Be brief.' }),
   // 1090x1090 RGBA noise: inside the patch budget (39 x 39) yet 4.7 MB raw, so only the byte cap and the token budget act.
   imageKind('image-over-byte-cap', await noise(1090, 1090).png({ compressionLevel: 0 }).toBuffer(), 'image/png', { providers: ['anthropic'] }),
 ];
@@ -134,6 +136,7 @@ const partOf = (kind) => {
 const parts = Object.fromEntries(kinds.map((kind) => [kind.name, partOf(kind)]));
 // A turn with the attachment, its answer and the turn after it: the attachment is history for the request.
 const messagesOf = (name) => [
+  ...(kinds.find((k) => k.name === name).system ? [{ role: 'system', content: kinds.find((k) => k.name === name).system }] : []),
   { role: 'user', content: [{ type: 'text', text: 'look at this' }, structuredClone(parts[name])] },
   { role: 'assistant', content: 'seen' },
   { role: 'user', content: 'and now?' },
@@ -327,7 +330,7 @@ writeSetManifest(outDir, {
       'mixdog-local flags, side core: the registry never builds the managed local route (`builder.rs`: "built per turn from the managed runtime\'s endpoint"); the product builds its media layer per turn (`ManagedLocalModels::media`: `MediaLowering::new(.., LOCAL_PROVIDER_ID)`, the text-only route), which is what the replay runs (`TextOnlyInput`). That route lowers every PDF to text and every image to the omitted text whatever flags an adapter declares, so `nativePdf` / `vision` of the Node instance are not read from a core adapter',
       'cursor row, side node: the model catalog (`getCursorModels`, which asks the network) is the runtime\'s fallback list; every other part of Cursor\'s send runs, the HTTP/2 session being the captured transport. Side core: the replay builds the frame with `build_run` and the connect envelope `CursorCodec::encode` writes, on the model Node\'s send resolved the same name to (no catalog entry: the name itself, no parameters)',
       'anthropic-messages rows, side core: the images are fitted by the extension host\'s `sharp` (Node\'s own `resizeImageBuffer` run by the real worker, the same code that produced the recorded bytes), so no encoder differs and the bytes are compared as they are; the replay starts that worker (node and `sharp` from the repository\'s node_modules)',
-      'anthropic-messages rows, kinds image-below-minimum .. image-over-byte-cap: recorded for the five Messages providers (the over-byte-cap image for the built-in API only, its recording being 6 MB); the other families lower an image to the provider\'s own block and carry the stored bytes, which the table\'s one image row pins',
+      'anthropic-messages rows, kinds image-below-minimum .. image-over-byte-cap: recorded for the five Messages providers (the over-byte-cap image and the undecodable one behind a system message for the built-in API only, the first recording being 6 MB); the other families lower an image to the provider\'s own block and carry the stored bytes, which the table\'s one image row pins',
       'families not in the table, side node: anthropic-oauth, openai-oauth, vertex-ai and antigravity-oauth share the builder of the row that names their wire (anthropic, openai, gemini) and declare the same flags (provider-native-pdf.test.mjs); grok-oauth, cursor-oauth and the other compat classes share the xai / cursor-api / deepseek-chat rows\' lowering with nativePdf false; opencode-go\'s and command-code\'s Gemini and Responses engines take the rows of their families',
       'refused requests, side node: no row of the table is refused by Node (every request carries text beside its attachment), so the core\'s refusal of a media-only turn on the text-only route is compared by the text-only goldens (fixtures/agent/text_only) and not here',
       'anthropic-messages rows, side node: citations, context and cache_control a caller puts on a document block are not part of a stored file reference and are not recorded',

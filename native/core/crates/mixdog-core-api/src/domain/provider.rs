@@ -994,6 +994,9 @@ pub struct ProviderError {
     /// sent; empty ids are `None`. Boxed to keep `Result<_, ProviderError>`
     /// small.
     pub quota_limit: Option<Box<str>>,
+    /// The base64 of the one image a local preparation refused (Node `failingImageData` of
+    /// `AnthropicImagePreparationError`): the image-strip recovery removes exactly that image. Never part of the message.
+    pub failing_image: Option<Box<str>>,
 }
 
 impl ProviderError {
@@ -1020,6 +1023,7 @@ impl ProviderError {
             unsafe_to_retry: false,
             timed_out: false,
             quota_limit: None,
+            failing_image: None,
             notices: Vec::new(),
         }
     }
