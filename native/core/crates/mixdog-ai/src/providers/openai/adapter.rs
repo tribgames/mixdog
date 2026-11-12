@@ -62,6 +62,7 @@ use super::effort_retry::without_effort_updates;
 use super::models::OpenAiModels;
 use super::delta;
 use super::delta::Chain;
+use super::hedge;
 use super::pool::Checkout;
 use super::pool::Compat;
 use super::pool::WsPool;
@@ -491,8 +492,23 @@ impl OpenAiAdapter {
         };
         let mut checkout = self.pool.checkout(&key, &compat, shared, false).await;
         if checkout.socket.is_none() {
-            let handshake = ws_request(&wire)?;
-            let (socket, upgrade) = match self.dial.dial(handshake).await {
+            // One acquire is a hedged race of dial legs under the acquire deadline (`openHedged`).
+            ws_request(&wire)?;
+            let window = hedge::Window::from_settings(|name| self.context.var(name));
+            let dialed = match hedge::race(window, || async {
+                let handshake = ws_request(&wire).map_err(|_| ConnectError::Transport(TransportFault::Io { os_code: None }))?;
+                self.dial.dial(handshake).await
+            })
+            .await
+            {
+                hedge::Raced::Opened(connected) => Ok(connected),
+                hedge::Raced::Failed(error) => Err(error),
+                hedge::Raced::TimedOut => {
+                    let label = if self.codec.route() == Route::ApiKey { "OpenAI WS" } else { "OpenAI OAuth WS" };
+                    return Err(hedge::acquire_timeout(label, window));
+                }
+            };
+            let (socket, upgrade) = match dialed {
                 Ok(connected) => connected,
                 Err(ConnectError::Transport(fault)) => {
                     return Err(ProviderError::transport(fault, DeliveryState::NotSent));
