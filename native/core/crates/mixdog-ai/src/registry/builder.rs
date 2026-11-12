@@ -16,6 +16,7 @@ use async_trait::async_trait;
 use mixdog_core_api::domain::keepalive::TransportKind;
 use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::ErrorKind;
+use mixdog_core_api::domain::provider::ModelRequest;
 use mixdog_core_api::domain::provider::ProviderAdapter;
 use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_protocol::ids::ProviderId;
@@ -446,6 +447,20 @@ impl ApiKeySource for FixedKey {
     }
 }
 
+/// `openRouterCapabilityModel`: the Claude id a routing slug stands for. An alias (`~anthropic/claude-opus-latest`) reads
+/// its catalog `alias_target`; the `~`, the `anthropic/` vendor prefix and a `:variant` suffix drop.
+fn openrouter_capability_model(model: &str, alias_target: Option<&str>) -> String {
+    let named = alias_target.filter(|alias| !alias.is_empty()).unwrap_or(model);
+    let named = named.strip_prefix('~').unwrap_or(named);
+    let named = match named.get(..10) {
+        Some(prefix) if prefix.eq_ignore_ascii_case("anthropic/") => &named[10..],
+        _ => named,
+    };
+    // `/:[^/]*$/`: the first colon with no slash after it.
+    let variant = named.char_indices().find(|(at, c)| *c == ':' && !named[*at + 1..].contains('/'));
+    variant.map_or(named, |(at, _)| &named[..at]).to_owned()
+}
+
 fn custom_invalid(message: &str) -> String {
     format!("[custom-provider] {message}")
 }
@@ -690,8 +705,10 @@ impl DefaultProviderBuilder {
         credential: Arc<dyn Credential>,
         headers: Vec<(String, String)>,
         http: Arc<dyn crate::transport::HttpSend>,
+        tune: &dyn Fn(&mut AnthropicConfig),
     ) -> HttpAdapter {
         let mut config = AnthropicConfig::new(self.env.anthropic_caps.clone());
+        tune(&mut config);
         config.base_url = base;
         config.disable_beta_headers = true;
         // The Anthropic SDK's `accept`, which the gateway engines send ahead of their own headers.
@@ -786,7 +803,7 @@ impl DefaultProviderBuilder {
         identifying.extend(config.extra_headers.iter().cloned());
         let keyed = |header: &'static str, bearer: bool| -> Arc<dyn Credential> { Arc::new(KeyHeader { source: key.clone(), header, bearer }) };
         // The Messages engines post through the Anthropic client, the gateway's headers as its `defaultHeaders`.
-        let anthropic_http = || GatewayHttp::new(self.env.http.clone()).through_sdk(Sdk::Anthropic, &identifying);
+        let anthropic_http = || GatewayHttp::new(self.env.http.clone()).through_sdk(Sdk::Anthropic, &identifying).refusing_redirects();
         // The Anthropic SDK appends `/v1/messages` to the base (`messagesBaseFromOpenAIBase`).
         let messages_base = |base: &str| -> String {
             let base = base.trim_end_matches('/');
@@ -795,26 +812,42 @@ impl DefaultProviderBuilder {
                 _ => base.to_owned(),
             }
         };
+        let rows: Arc<dyn CachedModelInfo> = account.clone();
+        let untuned = |_: &mut AnthropicConfig| {};
         let (engines, pick, session_header): (Vec<(Wire, Arc<dyn ProviderAdapter>)>, WirePick, bool) = match name {
             "xai" => (vec![(Wire::Responses, responses())], WirePick::Fixed(self.xai_wire(cfg)), false),
             "muse-code-oauth" => (vec![(Wire::Responses, responses())], WirePick::Fixed(Wire::Responses), false),
             "deepseek" => {
                 let base = format!("{}/anthropic", messages_base(&chat_base));
-                let engine = self.gateway_messages_engine(name, base, keyed("x-api-key", false), identifying.clone(), Arc::new(anthropic_http()));
+                let engine = self.gateway_messages_engine(name, base, keyed("x-api-key", false), identifying.clone(), Arc::new(anthropic_http()), &untuned);
                 (vec![(Wire::Messages, Arc::new(engine))], WirePick::Routed, false)
             }
             "openrouter" => {
-                let engine = self.gateway_messages_engine(name, messages_base(&chat_base), keyed("authorization", true), identifying.clone(), Arc::new(anthropic_http()));
+                // The routing slug stays on the wire; capabilities come from the Claude id it stands for (its catalog
+                // alias target first), and OpenRouter's reasoning control replaces the turn's effort.
+                let aliases = rows.clone();
+                let tune = move |config: &mut AnthropicConfig| {
+                    let aliases = aliases.clone();
+                    config.capability_model = Some(Arc::new(move |model: &str| {
+                        let alias = aliases.cached_row(model).and_then(|row| row.get("aliasTarget").and_then(Value::as_str).map(str::to_owned));
+                        Some(openrouter_capability_model(model, alias.as_deref()))
+                    }));
+                    config.gateway_effort = Some(Arc::new(|request: &ModelRequest| {
+                        let reasoning = crate::providers::compat::chat::openrouter_reasoning(request)?;
+                        Some(if reasoning["enabled"] == false { "none".to_owned() } else { reasoning["effort"].as_str()?.to_owned() })
+                    }));
+                };
+                let engine = self.gateway_messages_engine(name, messages_base(&chat_base), keyed("authorization", true), identifying.clone(), Arc::new(anthropic_http()), &tune);
                 (vec![(Wire::Messages, Arc::new(engine)), (Wire::Responses, responses())], WirePick::Routed, false)
             }
             "command-code-oauth" => {
                 // The key as `x-api-key` and, right after it, as a bearer (`CommandCodeMessagesEngine`).
                 let mirrored: Arc<dyn crate::transport::HttpSend> = Arc::new(anthropic_http().mirroring_key_as_bearer());
-                let engine = self.gateway_messages_engine(name, messages_base(&chat_base), keyed("x-api-key", false), identifying.clone(), mirrored);
+                let engine = self.gateway_messages_engine(name, messages_base(&chat_base), keyed("x-api-key", false), identifying.clone(), mirrored, &untuned);
                 (vec![(Wire::Messages, Arc::new(engine)), (Wire::Responses, responses())], WirePick::Routed, false)
             }
             "opencode-go-oauth" => {
-                let messages = self.gateway_messages_engine(name, messages_base(&chat_base), keyed("x-api-key", false), identifying.clone(), Arc::new(anthropic_http()));
+                let messages = self.gateway_messages_engine(name, messages_base(&chat_base), keyed("x-api-key", false), identifying.clone(), Arc::new(anthropic_http()), &untuned);
                 // The generateContent routes live under `.../go/v1`, not the organization's chat base
                 // (`opencode-go.mjs` `_geminiEngine`); the Gemini codec writes `/v1beta`.
                 let origin = chat_base.strip_suffix("/openai/v1").unwrap_or(&chat_base).to_owned();
@@ -842,7 +875,6 @@ impl DefaultProviderBuilder {
         // The Messages ceiling: the roster row's `outputTokens`, and for DeepSeek and OpenRouter the shared
         // catalog's after it (`WireGatewayProvider._modelMaxOutputTokens`; OpenCode Go and Command Code read their
         // roster alone).
-        let rows: Arc<dyn CachedModelInfo> = account.clone();
         let catalog = matches!(name, "deepseek" | "openrouter").then(|| (self.env.listing.clone(), name.to_owned()));
         let ceiling = move |model: &str| -> Option<u32> {
             let listed = rows.cached_row(model).and_then(|row| row.get("outputTokens").and_then(Value::as_u64)).filter(|n| *n > 0);

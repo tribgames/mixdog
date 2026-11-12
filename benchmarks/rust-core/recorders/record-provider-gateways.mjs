@@ -100,7 +100,7 @@ const server = http.createServer(async (req, res) => {
   hub.events?.push({ on: 'request', n: hub.records.length });
   const reply = hub.reply?.(rec, hub.records.length) ?? { status: 404, contentType: 'application/json', body: '{"error":{"message":"not scripted"}}' };
   rec.reply = reply;
-  res.writeHead(reply.status ?? 200, { 'content-type': reply.contentType ?? 'text/event-stream' });
+  res.writeHead(reply.status ?? 200, { 'content-type': reply.contentType ?? 'text/event-stream', ...(reply.headers ?? {}) });
   res.end(reply.body);
 });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
@@ -156,6 +156,18 @@ const anthropicText = () => sse([
   { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 8 } },
   { type: 'message_stop' },
 ], true);
+// The final usage of an OpenRouter answer: the inclusive input's parts and the gateway's own cost.
+const anthropicCost = () => sse([
+  { type: 'message_start', message: { id: 'msg_x', type: 'message', role: 'assistant', model: 'fixture', content: [], usage: { input_tokens: 9, output_tokens: 1, cache_read_input_tokens: 14268, cache_creation_input_tokens: 0 } } },
+  { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+  { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'ok' } },
+  { type: 'content_block_stop', index: 0 },
+  { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { input_tokens: 9, output_tokens: 5, cache_read_input_tokens: 14268, cost: 0.0014608 } },
+  { type: 'message_stop' },
+], true);
+const responsesCost = () => sse([
+  { type: 'response.completed', response: { id: 'resp_x', model: 'fixture', status: 'completed', output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'ok' }] }], usage: { input_tokens: 10, output_tokens: 2, cost: 0.0001 } } },
+]);
 const geminiText = () => sse([
   { candidates: [{ content: { role: 'model', parts: [{ text: 'The result ' }] } }], modelVersion: 'fixture' },
   { candidates: [{ content: { role: 'model', parts: [{ text: 'is 42.' }] }, finishReason: 'STOP' }], usageMetadata: { promptTokenCount: 20, candidatesTokenCount: 8, totalTokenCount: 28 }, modelVersion: 'fixture' },
@@ -211,6 +223,46 @@ const scenarios = [
   { id: 'openrouter-messages', provider: 'openrouter', config: { ...base, apiKey: 'or-fixture' }, reply: () => ok(anthropicText()), sends: [send('anthropic/claude-sonnet-4.5')] },
   { id: 'openrouter-responses', provider: 'openrouter', config: { ...base, apiKey: 'or-fixture' }, reply: () => ok(responsesText()), sends: [send('openai/gpt-5')] },
   { id: 'openrouter-chat', provider: 'openrouter', config: { ...base, apiKey: 'or-fixture' }, reply: () => ok(chatText('The result is 42.')), sends: [send('meta-llama/llama-4-maverick')] },
+  // OpenRouter Messages: the routing slug stays on the wire, the capabilities come from the catalog's alias target;
+  // OpenRouter's reasoning control (`none`, the explicit effort, the turn effort) replaces the turn effort; the final
+  // usage carries the inclusive input, the cache read and the gateway's cost.
+  {
+    id: 'openrouter-alias-slug', provider: 'openrouter', config: { ...base, apiKey: 'or-fixture' }, prime: true,
+    reply: (rec) => (rec.method === 'GET'
+      ? { status: 200, contentType: 'application/json', body: j({ data: [
+        { id: '~anthropic/claude-sonnet-latest', alias_target: { name: 'Claude Sonnet', slug: 'anthropic/claude-sonnet-4-6' }, context_length: 1000000 },
+        { id: 'anthropic/claude-sonnet-4-6', context_length: 1000000 },
+      ] }) }
+      : ok(anthropicText())),
+    sends: [send('~anthropic/claude-sonnet-latest', { tools: TOOLS, opts: { effort: 'high' } })],
+  },
+  {
+    id: 'openrouter-messages-reasoning', provider: 'openrouter', config: { ...base, apiKey: 'or-fixture' },
+    reply: () => ok(anthropicText()),
+    sends: [
+      send('anthropic/claude-sonnet-4-6', { tools: TOOLS, opts: { effort: 'high', openRouterReasoningEffort: 'none' } }),
+      send('anthropic/claude-sonnet-4-6', { tools: TOOLS, opts: { effort: 'high', openRouterReasoningEffort: 'low' } }),
+      send('anthropic/claude-sonnet-4-6', { tools: TOOLS, opts: { effort: 'medium' } }),
+      send('anthropic/claude-sonnet-4-6', { tools: TOOLS, opts: {} }),
+    ],
+  },
+  {
+    id: 'openrouter-responses-reasoning', provider: 'openrouter', config: { ...base, apiKey: 'or-fixture' },
+    reply: (rec) => ok(rec.path.endsWith('/responses') ? responsesCost() : chatText('The result is 42.')),
+    sends: [
+      send('openai/gpt-5', { tools: TOOLS, opts: { effort: 'low', openRouterReasoningEffort: 'high' } }),
+      send('~openai/gpt-sol-latest', { tools: TOOLS, opts: { openRouterReasoningEffort: 'none' } }),
+      send('openai/gpt-5', { tools: TOOLS, opts: {} }),
+      send('openrouter/auto', { tools: TOOLS, opts: { effort: 'medium' } }),
+    ],
+  },
+  { id: 'openrouter-messages-usage', provider: 'openrouter', config: { ...base, apiKey: 'or-fixture' }, reply: () => ok(anthropicCost()), sends: [send('anthropic/claude-sonnet-4-6', { tools: TOOLS })] },
+  // The Messages engine never follows a redirect (`originBoundFetch`): the 3xx is the send's error.
+  {
+    id: 'openrouter-messages-redirect', provider: 'openrouter', config: { ...base, apiKey: 'or-fixture' },
+    reply: () => ({ status: 307, contentType: 'text/plain', headers: { location: 'https://evil.example/steal' }, body: '' }),
+    sends: [send('anthropic/claude-sonnet-4-6', { tools: TOOLS })],
+  },
   // A model switch inside one session: the pin is resolved again for the new model.
   {
     id: 'openrouter-model-switch', provider: 'openrouter', config: { ...base, apiKey: 'or-fixture' },
@@ -338,7 +390,15 @@ const resultOf = (r) => ({
   toolCalls: (r?.toolCalls ?? []).map((c) => ({ id: c.id, name: c.name, arguments: c.arguments })),
   reasoningContent: r?.reasoningContent ?? null,
   stopReason: r?.stopReason ?? null,
-  usage: r?.usage ? { inputTokens: r.usage.inputTokens ?? null, outputTokens: r.usage.outputTokens ?? null } : null,
+  // The cache read and the gateway's cost are kept only when the answer reported them.
+  usage: r?.usage
+    ? {
+        inputTokens: r.usage.inputTokens ?? null,
+        outputTokens: r.usage.outputTokens ?? null,
+        ...(r.usage.cachedTokens ? { cachedTokens: r.usage.cachedTokens } : {}),
+        ...(r.usage.costUsd !== undefined ? { costUsd: r.usage.costUsd } : {}),
+      }
+    : null,
   providerMetadata: r?.providerMetadata ?? null,
   wireReroute: r?.wireReroute ?? null,
 });
@@ -417,6 +477,7 @@ for (const s of scenarios) {
       model: one.model,
       tools: one.tools.map((t) => t.name),
       history,
+      opts: one.opts,
       sessionId: opts.sessionId ?? null,
       ...(one.session ? { pin: pin ?? null, pinAfter: session.wireRoute ?? null } : {}),
       requests: hub.records.map(({ reply, ...rec }) => ({ ...rec, answer: { status: reply.status ?? 200, body: reply.body } })),
@@ -449,6 +510,9 @@ writeSetManifest(outDir, {
       "request header accept-encoding": "the recorder dials a plain-http loopback, so undici writes its http value; the replay writes the Rust request's head for that same scheme (node_http::head)",
       "request header x-stainless-runtime-version": "names the Node runtime the SDK runs under: the recorder's (nodeVersion, checked) where the product names its own (grok::SDK_RUNTIME_VERSION); the replay expects the product's",
       "listing requests to raw.githubusercontent.com and models.dev": "the shared model catalogs, fetched by the catalog service (ListingLookup), not by the provider under test",
+      'result.usage fields other than inputTokens, outputTokens, cachedTokens and costUsd': 'promptTokens equals inputTokens on every wire of these gateways (inclusive input), cacheWriteTokens and raw are not recorded; cachedTokens and costUsd are recorded only when the answer reported them',
+      'send.opts': 'the arguments of the Node call the recording was made with (the turn effort, OpenRouter\'s own effort); the replay maps effort to the request\'s effort and openRouterReasoningEffort to its model parameter of the same name. The callbacks and the session objects the recorder adds are not recorded',
+      'the Messages engine\'s redirect error text': 'Node names the connection error the SDK raises ("Connection error.") and keeps the guard\'s sentence only as its cause; the core carries the connection error text, and its typed transport fault in place of the cause',
       "error.code as a number": "the SDK keeps a numeric body code as a number; the core keeps every code as text, so a number is compared as its decimal text",
       "result.reasoning": "no engine of these wires returns it (null in every recording) and the core has no such result field: the reasoning shown is compared as the streamDelta events, the reasoning kept as reasoningContent",
       "error.quotaExhausted provider and model": "the core's error carries the quota kind and reset; the provider and model are the send's own",

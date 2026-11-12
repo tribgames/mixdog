@@ -281,6 +281,13 @@ pub(super) async fn fetch_json(
     extra_headers: &[(String, String)],
     key: Option<&str>,
 ) -> Result<serde_json::Value, ProviderError> {
+    if profile.listing.plain_fetch {
+        // `fetchCompatModelItems`: the bearer, then the client's default headers; the fetch adds its own `accept`.
+        let mut headers: Vec<(String, String)> = key.map(|key| ("authorization".to_owned(), format!("Bearer {key}"))).into_iter().collect();
+        headers.extend(profile.headers.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())));
+        headers.extend(extra_headers.iter().cloned());
+        return fetch_listing(http, profile, url, headers, key).await;
+    }
     // `Accept` first, then the gateway's own headers (`fetchRoster`, `opencode-go-oauth-tokens.mjs` `request`).
     let accept = profile.headers.iter().find(|(k, _)| k.eq_ignore_ascii_case("accept")).map_or("application/json", |(_, v)| *v);
     let mut headers: Vec<(String, String)> = vec![("accept".into(), accept.into())];
@@ -289,6 +296,16 @@ pub(super) async fn fetch_json(
     if let Some(key) = key {
         headers.push(("authorization".into(), format!("Bearer {key}")));
     }
+    fetch_listing(http, profile, url, headers, key).await
+}
+
+async fn fetch_listing(
+    http: &dyn HttpSend,
+    profile: &CompatProfile,
+    url: String,
+    headers: Vec<(String, String)>,
+    key: Option<&str>,
+) -> Result<serde_json::Value, ProviderError> {
     let response = http
         .send(
             WireRequest {

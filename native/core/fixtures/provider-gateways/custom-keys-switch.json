@@ -25,7 +25,7 @@
   ],
   "keyIds": [
     "default",
-    "27679257-10cc-49cc-838e-3a2ea6270d90"
+    "3a56d545-6bae-457c-899c-54b6f3830f0e"
   ],
   "pool": {
     "accounts": [
@@ -37,11 +37,11 @@
         "label": "Account 1"
       },
       {
-        "id": "27679257-10cc-49cc-838e-3a2ea6270d90",
+        "id": "3a56d545-6bae-457c-899c-54b6f3830f0e",
         "label": "Account 2"
       }
     ],
-    "selectedId": "27679257-10cc-49cc-838e-3a2ea6270d90",
+    "selectedId": "3a56d545-6bae-457c-899c-54b6f3830f0e",
     "auto": true,
     "policy": "limit",
     "useCredits": true
@@ -51,6 +51,7 @@
       "model": "m1",
       "tools": [],
       "history": [],
+      "opts": {},
       "sessionId": null,
       "requests": [
         {
@@ -164,7 +165,7 @@
           "stage": "account-changed",
           "payload": {
             "provider": "custom-keys-switch",
-            "accountId": "27679257-10cc-49cc-838e-3a2ea6270d90",
+            "accountId": "3a56d545-6bae-457c-899c-54b6f3830f0e",
             "at": 1794225600000
           }
         }
@@ -182,8 +183,8 @@
         "providerMetadata": {
           "accountRouting": {
             "provider": "custom-keys-switch",
-            "accountId": "27679257-10cc-49cc-838e-3a2ea6270d90",
-            "sessionAccountId": "27679257-10cc-49cc-838e-3a2ea6270d90"
+            "accountId": "3a56d545-6bae-457c-899c-54b6f3830f0e",
+            "sessionAccountId": "3a56d545-6bae-457c-899c-54b6f3830f0e"
           }
         },
         "wireReroute": null
@@ -193,6 +194,7 @@
       "model": "m1",
       "tools": [],
       "history": [],
+      "opts": {},
       "sessionId": null,
       "requests": [
         {
@@ -264,8 +266,8 @@
         "providerMetadata": {
           "accountRouting": {
             "provider": "custom-keys-switch",
-            "accountId": "27679257-10cc-49cc-838e-3a2ea6270d90",
-            "sessionAccountId": "27679257-10cc-49cc-838e-3a2ea6270d90"
+            "accountId": "3a56d545-6bae-457c-899c-54b6f3830f0e",
+            "sessionAccountId": "3a56d545-6bae-457c-899c-54b6f3830f0e"
           }
         },
         "wireReroute": null

@@ -375,7 +375,17 @@ fn folded(events: &[StreamEvent]) -> Value {
             }
             StreamEvent::FinalContent(text) => content = text.clone(),
             StreamEvent::ToolCallDone(call) => calls.push(json!({"id": call.id, "name": call.name, "arguments": call.arguments})),
-            StreamEvent::Usage(u) => usage = json!({"inputTokens": u.input_tokens, "outputTokens": u.output_tokens}),
+            StreamEvent::Usage(u) => {
+                // The cache read and the gateway's cost are compared only when the answer reported them.
+                let mut shown = json!({"inputTokens": u.input_tokens, "outputTokens": u.output_tokens});
+                if u.cache_read_tokens > 0 {
+                    shown["cachedTokens"] = json!(u.cache_read_tokens);
+                }
+                if let Some(cost) = u.cost {
+                    shown["costUsd"] = json!(cost.0 as f64 / 1e10);
+                }
+                usage = shown;
+            }
             StreamEvent::Completed { stop: s, .. } => {
                 stop = match s {
                     None => Value::Null,
@@ -431,7 +441,15 @@ fn send_request(provider: &str, send: &Value) -> ModelRequest {
     let mut messages = vec![message(provider, &json!({"role": "system", "content": "You are a fixture assistant."}))];
     messages.extend(send["history"].as_array().unwrap().iter().map(|m| message(provider, m)));
     messages.push(message(provider, &json!({"role": "user", "content": "Look up the answer."})));
-    let mut options = RequestOptions { session_id: send["sessionId"].as_str().map(str::to_owned), ..RequestOptions::default() };
+    let mut options = RequestOptions {
+        session_id: send["sessionId"].as_str().map(str::to_owned),
+        effort: send["opts"]["effort"].as_str().map(str::to_owned),
+        ..RequestOptions::default()
+    };
+    // OpenRouter's own reasoning control rides the model parameters (`openRouterReasoningEffort`).
+    if let Some(effort) = send["opts"]["openRouterReasoningEffort"].as_str() {
+        options.model_parameters = Some(json!({"openRouterReasoningEffort": effort}));
+    }
     if let Some(pin) = send.get("pin") {
         options.wire_pin = WirePin::from_route(pin);
     }
@@ -573,6 +591,11 @@ scenarios! {
     an_unsupported_wire_refusal_moves_the_send_and_the_pin_to_the_next_wire => "openrouter-reroute-unsupported",
     a_refusal_that_names_no_unsupported_wire_ends_the_send => "openrouter-refusal-stays",
     the_wire_switches_once => "openrouter-reroute-once",
+    openrouter_capabilities_come_from_the_alias_target_and_the_slug_stays_on_the_wire => "openrouter-alias-slug",
+    openrouter_reasoning_control_replaces_the_turn_effort_on_messages => "openrouter-messages-reasoning",
+    openrouter_reasoning_control_applies_on_responses_as_on_chat => "openrouter-responses-reasoning",
+    openrouter_messages_usage_keeps_the_cache_read_and_the_gateways_cost => "openrouter-messages-usage",
+    the_messages_engine_never_follows_a_redirect => "openrouter-messages-redirect",
 }
 
 /// The same answers with the whole body in one chunk: the events decoded before an in-band refusal still reach

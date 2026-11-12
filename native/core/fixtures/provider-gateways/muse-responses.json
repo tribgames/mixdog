@@ -10,6 +10,7 @@
       "model": "muse-spark-1.3",
       "tools": [],
       "history": [],
+      "opts": {},
       "sessionId": null,
       "requests": [
         {

@@ -15,6 +15,7 @@ use mixdog_core_api::domain::provider::StopReason;
 use mixdog_core_api::domain::provider::StreamEvent;
 use mixdog_core_api::domain::provider::ToolCall;
 use mixdog_core_api::domain::provider::TransportFault;
+use mixdog_core_api::domain::provider::UsdTicks;
 use mixdog_core_api::domain::provider::Usage;
 use mixdog_core_api::domain::provider::WireDecoder;
 use mixdog_protocol::ProviderId;
@@ -103,7 +104,19 @@ struct UsageAcc {
     cache_read: u64,
     cache_write: u64,
     cache_write_1h: u64,
+    /// A gateway's reported cost (OpenRouter puts `cost` on the final usage), USD.
+    cost: Option<f64>,
     raw: Map<String, Value>,
+}
+
+/// `reportedCostUsd`: a finite, non-negative number or numeric text; null, blank, negative is "not reported", never $0.
+fn reported_cost_usd(value: &Value) -> Option<f64> {
+    let n = match value {
+        Value::Number(n) => n.as_f64()?,
+        Value::String(text) if !text.trim().is_empty() => mixdog_js::string_to_number(text),
+        _ => return None,
+    };
+    (n.is_finite() && n >= 0.0).then_some(n)
 }
 
 impl UsageAcc {
@@ -131,6 +144,9 @@ impl UsageAcc {
         {
             self.cache_write_1h = v;
         }
+        if let Some(cost) = map.get("cost").and_then(reported_cost_usd) {
+            self.cost = Some(cost);
+        }
         for (key, value) in map {
             self.raw.insert(key.clone(), value.clone());
         }
@@ -147,7 +163,7 @@ impl UsageAcc {
             reasoning_tokens: None,
             reasoning_incomplete: false,
             raw: Some(Value::Object(self.raw.clone())),
-            cost: None,
+            cost: self.cost.map(|usd| UsdTicks((usd * 1e10).round() as u64)),
         }
     }
 }
