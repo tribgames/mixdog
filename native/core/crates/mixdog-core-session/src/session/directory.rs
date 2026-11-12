@@ -1185,7 +1185,7 @@ impl DirInner {
         }
     }
 
-    /// The thread a delete acts on: loaded, else opened for it (no effort prewarm); `None`
+    /// The thread a delete acts on: loaded, else opened for it; `None`
     /// when there is no such thread.
     pub(crate) async fn delete_target(&self, id: &ThreadId) -> Result<Option<Arc<SessionHandle>>, CoreError> {
         if let Some(handle) = self.loaded(id) {
@@ -1198,7 +1198,7 @@ impl DirInner {
         }
     }
 
-    /// The thread an op record is written through: loaded, else opened for it (no prewarm);
+    /// The thread an op record is written through: loaded, else opened for it;
     /// `threadNotFound` when there is none.
     pub(crate) async fn op_target(&self, id: &ThreadId) -> Result<Arc<SessionHandle>, CoreError> {
         if let Some(handle) = self.loaded(id) {
@@ -1218,8 +1218,8 @@ impl DirInner {
         self.open_with(id, ctx, true).await
     }
 
-    /// `prewarm`: the effort judge is prewarmed for the opened thread (not for a delete).
-    async fn open_with(&self, id: &ThreadId, ctx: &CallContext, prewarm: bool) -> Result<Arc<SessionHandle>, CoreError> {
+    /// `for_use`: the thread is opened for use, not for a delete or an op record.
+    async fn open_with(&self, id: &ThreadId, ctx: &CallContext, for_use: bool) -> Result<Arc<SessionHandle>, CoreError> {
         let mut rx = {
             let mut shard = lock(self.shard(id));
             match shard.get(id) {
@@ -1236,11 +1236,11 @@ impl DirInner {
                     let thread = id.clone();
                     mixdog_rt::spawn("session-open", TaskClass::Work, async move {
                         me.settle_teardowns(&thread).await;
-                        let result = me.load(&thread, prewarm).await;
+                        let result = me.load(&thread).await;
                         // `resumeSession`'s `_refreshResumedTools`: a thread opened for use (not
                         // for a delete or an op record) takes its tool surface as it resolves now,
                         // before any caller gets it.
-                        if prewarm && let Ok(handle) = &result {
+                        if for_use && let Ok(handle) = &result {
                             me.refresh_resumed_tools(handle).await;
                         }
                         let result = me.publish_opened(&thread, &opening, result);
@@ -1280,7 +1280,7 @@ impl DirInner {
     }
 
     /// J1 and J2 on io-interactive, then one decode on cpu-interactive.
-    async fn load(&self, id: &ThreadId, prewarm: bool) -> Loaded {
+    async fn load(&self, id: &ThreadId) -> Loaded {
         use mixdog_core_base::support::on_lane_wait;
         let deps = self.deps.clone();
         let token = CancellationToken::new();
@@ -1306,9 +1306,6 @@ impl DirInner {
         let (store, thread) = (deps.store.clone(), id.clone());
         let fenced = on_lane_wait(deps.lanes.io, &token, move |lane| store.fenced_ops(lane, &thread)).await??;
         let lineage = self.lineage_of(id, &opened.state.header);
-        if prewarm {
-            deps.effort.prewarm(id, &opened.state.header);
-        }
         let (ready, recovered) = tokio::sync::oneshot::channel();
         let (handle, launch) = self.spawn(
             id.clone(),
@@ -1592,7 +1589,6 @@ impl DirInner {
             (handle, launch)
         };
         launch();
-        self.deps.effort.prewarm(&id, &header);
         // The slot is the actor's from here: a failed first record, an unwind or any other end of the actor releases it
         // (`release`), whether or not this caller is still waiting, so no way out of this wait removes anything.
         rx.await.map_err(|_| CoreError::ThreadClosing { thread_id: id.clone() })??;

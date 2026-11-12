@@ -1601,7 +1601,6 @@ pub struct Rig {
     /// Every turn's workspace admission and its release, in order.
     pub admissions: Arc<TestAdmission>,
     pub wakes: Arc<mixdog_tools::exec::WakeHub>,
-    pub prewarms: Arc<Prewarms>,
     /// The warmer's turn notes: each turn's `cacheWarmTurnKind` input, and how many ended.
     pub warms: Arc<RecWarmth>,
     /// The built-in skill names the turns read (None: the status cannot be read).
@@ -1933,17 +1932,6 @@ impl super::turn_warm::TurnWarmth for RecWarmth {
     }
 }
 
-/// The threads the effort judge was prewarmed for, in order.
-#[derive(Default)]
-pub struct Prewarms(pub Mutex<Vec<ThreadId>>, pub tokio::sync::Notify);
-
-impl super::EffortPrewarm for Prewarms {
-    fn prewarm(&self, thread: &ThreadId, _header: &Header) {
-        lock(&self.0).push(thread.clone());
-        self.1.notify_waiters();
-    }
-}
-
 /// The turn snapshot calls, in order: `settled:<thread>`, `stopped:<thread>`, `dispose`.
 #[derive(Default)]
 pub struct TestSnapshots(pub Mutex<Vec<String>>, pub tokio::sync::Notify);
@@ -2051,7 +2039,6 @@ impl Rig {
             turn_starts: Arc::default(),
             admissions: Arc::default(),
             wakes: mixdog_tools::exec::WakeHub::new(),
-            prewarms: Arc::default(),
             warms: Arc::default(),
             builtin_skills: Arc::default(),
             ingests: Arc::default(),
@@ -2098,7 +2085,6 @@ impl Rig {
             resumed_tools: self.resumed.clone(),
             room_members: self.room_members.clone(),
             wakes: self.wakes.clone(),
-            effort: self.prewarms.clone(),
             search: self.ingests.clone(),
             memory: self.closes.clone(),
             sensitive: Arc::new(super::store::SensitiveMarksOf::new(self.sensitive.clone())),

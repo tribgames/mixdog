@@ -116,7 +116,7 @@ fn auto_effort_mode_follows_the_env_then_the_config() {
     let no_env = |_: &str| None;
     let on = json!({ "modules": { "autoEffort": { "enabled": true } } }).as_object().cloned().unwrap();
     let off = json!({ "modules": { "autoEffort": { "enabled": false } } }).as_object().cloned().unwrap();
-    let mode = super::effort_prewarm::auto_effort_mode;
+    let mode = super::auto_effort_mode::auto_effort_mode;
     assert_eq!(mode(Some(" ON "), &off, &no_env), "on");
     assert_eq!(mode(Some("observe"), &off, &no_env), "observe");
     assert_eq!(mode(Some("sometimes"), &on, &no_env), "off");
