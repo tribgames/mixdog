@@ -67,6 +67,7 @@ pub fn dependency_roots(output: &ToolOutput) -> Option<Vec<String>> {
 }
 
 pub use cache::GraphCache;
+pub use cache::is_tmp_name;
 pub use federation::TrustedRoots;
 pub use workspace::WorkspaceCodeGraph;
 

@@ -2176,6 +2176,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 agent_signals: activity.clone(),
                 warm: Arc::new(mixdog_core::run_host::warm_ports::WarmedTurns::new(warmer.clone())), // flip-channel-router-2: the turn-start warmer note (`ask-session.mjs:198-201,313`); the one `Arc<Warmer>`
                 notices: Arc::new(mixdog_core::run_host::desktop_notices::SessionDesktopNotices(desktop_notices.clone())), // flip-gaps-ai-3
+                settings_changed: { let config = config.clone(); Arc::new(move |scope: &str| config.announce(mixdog_core_config::config::SETTINGS_CHANGED, serde_json::json!({ "scope": scope }))) },
                 surface: session_surface.clone(),
         builtin_skills: Arc::new(CatalogBuiltinSkills(mcp_catalog.clone())), // turn-failure-4: the built-in skill names of the catalog the pool's Skill tool reads
                 shell_strips,

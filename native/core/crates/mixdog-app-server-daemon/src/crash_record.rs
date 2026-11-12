@@ -269,7 +269,16 @@ pub fn install(data_dir: &Path, alive: &dyn Fn(u32) -> bool) {
 /// even a start whose runtime cannot be resolved leaves its record. No data folder, no record.
 pub fn install_for_process() {
     let Some(paths) = mixdog_store::paths::Paths::from_process(Path::new("")) else { return };
-    install(&paths.data_dir, &|pid| crate::verdict::ProcessTable::query(&crate::verdict::OsProcessTable, u64::from(pid)).is_ok_and(|info| info.is_some()));
+    let alive = |pid: u32| pid_alive(&crate::verdict::OsProcessTable, pid);
+    install(&paths.data_dir, &alive);
+    crate::stale_temps::reclaim_dead_capture_temps(&capture_dir(&paths.data_dir), &alive);
+}
+
+/// Whether `pid` may still be running (`isPidAlive`): only a table that answers "no such process" proves it gone. A table that
+/// cannot answer proves nothing, so the process counts as alive and its files are kept. A recycled pid is told apart from its
+/// old holder by nothing: it reads as alive, which keeps a dead writer's temp, never removes a live one's.
+pub fn pid_alive(table: &dyn crate::verdict::ProcessTable, pid: u32) -> bool {
+    table.query(u64::from(pid)).map_or(true, |info| info.is_some())
 }
 
 /// `uncaughtExceptionMonitor(error, 'uncaughtException')`: the panic is the pending reason and is written at once.
