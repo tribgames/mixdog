@@ -1,11 +1,29 @@
 import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test, { mock } from 'node:test';
 
 import { VertexAccessTokenManager, VERTEX_SCOPE, VERTEX_TOKEN_URI } from './vertex-ai-auth.mjs';
 import { VertexAIProvider } from './vertex-ai.mjs';
+import { flushModelCacheWrites } from './model-cache.mjs';
 import { providerModelCacheRow } from '../../../../session-runtime/model-recency.mjs';
 import { hydrateProviderModelRow } from '../../../../session-runtime/provider-models/row-hydration.mjs';
+
+async function withIsolatedModelCache(run) {
+  const dataDir = mkdtempSync(join(tmpdir(), 'vertex-ai-model-cache-'));
+  const previousDataDir = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = dataDir;
+  try {
+    return await run();
+  } finally {
+    await flushModelCacheWrites();
+    if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previousDataDir;
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+}
 
 function serviceAccount(overrides = {}) {
   const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
@@ -350,7 +368,7 @@ test('Vertex Gemini 4 Argon routes as a Google publisher model with a documented
 
 test('Vertex Gemini 4 Argon and 3.8 Flash offer Low, Medium and High and send the chosen level (#292)', async () => {
   const { provider, requests } = recordingProvider({ location: 'global' }, () => geminiSse());
-  const models = await provider.listModels();
+  const models = await withIsolatedModelCache(() => provider.listModels());
   for (const id of ['gemini-4-argon', 'gemini-3.8-flash']) {
     const row = hydrateProviderModelRow(
       {},
@@ -407,7 +425,7 @@ test('Vertex Claude on a regional location is priced as the regional SKU', async
 
 test('Vertex lists the current Gemini, Claude and open-model roster with its service tiers', async () => {
   const { provider } = recordingProvider({}, () => geminiSse());
-  const models = await provider.listModels();
+  const models = await withIsolatedModelCache(() => provider.listModels());
   const ids = models.map((model) => model.id);
   for (const id of [
     'gemini-4-argon',
@@ -1230,7 +1248,7 @@ test('Vertex classifies realistic error bodies of every wire the same way', asyn
 
 test('Vertex lists open models only with documented locations and enforces them', async () => {
   const { provider } = recordingProvider({}, () => geminiSse());
-  const open = (await provider.listModels()).filter((model) => model.id.includes('/'));
+  const open = (await withIsolatedModelCache(() => provider.listModels())).filter((model) => model.id.includes('/'));
   assert.ok(open.length > 0);
   for (const model of open) assert.ok(Array.isArray(model.locations) && model.locations.length > 0, model.id);
   const hi = [{ role: 'user', content: 'hi' }];
@@ -1577,3 +1595,80 @@ test('Vertex authentication failures surface a clear provider error', async () =
       error?.code === 'EVERTEXAUTH' && /Vertex AI authentication failed: service account rejected/.test(error.message)
   );
 });
+
+test('Vertex dynamically discovers and caches publisher models from live endpoint', async () =>
+  withIsolatedModelCache(async () => {
+    const account = serviceAccount();
+    const requests = [];
+    const googleList = {
+      publisherModels: [
+        {
+          name: 'publishers/google/models/gemini-4-carbon',
+          displayName: 'Gemini 4 Carbon',
+          inputTokenLimit: 1048576,
+        },
+        {
+          name: 'publishers/google/models/gemini-5-preview',
+          displayName: 'Gemini 5 Preview',
+          inputTokenLimit: 2000000,
+        },
+      ],
+    };
+    const anthropicList = {
+      publisherModels: [
+        {
+          name: 'publishers/anthropic/models/claude-sonnet-6',
+          displayName: 'Claude Sonnet 6',
+          inputTokenLimit: 1000000,
+        },
+      ],
+    };
+
+    const provider = new VertexAIProvider({
+      apiKey: JSON.stringify(account),
+      fetchFn: async (url, init) => {
+        requests.push({ url, init });
+        if (url.includes(VERTEX_TOKEN_URI)) {
+          return Response.json({ access_token: 'test-token', expires_in: 3600 });
+        }
+        if (url.includes('/publishers/google/models')) {
+          return Response.json(googleList);
+        }
+        if (url.includes('/publishers/anthropic/models')) {
+          return Response.json(anthropicList);
+        }
+        return Response.json({ error: 'not found' }, { status: 404 });
+      },
+    });
+
+    const models = await provider._fetchLiveModels();
+    assert.ok(models.length > 0);
+    const ids = models.map((m) => m.id);
+    assert.ok(ids.includes('gemini-4-carbon'), 'includes discovered gemini-4-carbon');
+    assert.ok(ids.includes('gemini-5-preview'), 'includes newly discovered gemini-5-preview');
+    assert.ok(ids.includes('claude-sonnet-6'), 'includes newly discovered claude-sonnet-6');
+    // Check that static curated models are also preserved
+    assert.ok(ids.includes('gemini-4-argon-cyber-permissive'), 'preserves static gemini-4-argon-cyber-permissive');
+    assert.ok(ids.includes('claude-opus-5-5'), 'preserves static claude-opus-5-5');
+  }));
+
+test('Vertex listModels falls back to static roster when live fetch fails', async () =>
+  withIsolatedModelCache(async () => {
+    const account = serviceAccount();
+    const provider = new VertexAIProvider({
+      apiKey: JSON.stringify(account),
+      fetchFn: async (url) => {
+        if (url.includes(VERTEX_TOKEN_URI)) {
+          return Response.json({ access_token: 'test-token', expires_in: 3600 });
+        }
+        return Response.json({ error: 'forbidden' }, { status: 403 });
+      },
+    });
+
+    const models = await provider.listModels();
+    assert.ok(models.length > 0);
+    const ids = models.map((m) => m.id);
+    assert.ok(ids.includes('gemini-4-argon'));
+    assert.ok(ids.includes('gemini-3.8-flash'));
+  }));
+

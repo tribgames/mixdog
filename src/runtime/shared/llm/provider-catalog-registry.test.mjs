@@ -207,6 +207,8 @@ test('the registry maps providers, endpoints and relays from one table', () => {
     assert.equal(entry.sameEndpoint, false, provider);
   }
   assert.equal(registry.providerCatalogEntry('gemini').modelsDev, 'google');
+  assert.equal(registry.providerCatalogEntry('vertex-ai').modelsDev, 'google-vertex');
+  assert.deepEqual(registry.providerRosterFiles('vertex-ai'), ['vertex-ai-models.json']);
   for (const relay of ['cursor-oauth', 'cursor-api', 'antigravity-oauth', 'opencode-go-oauth']) {
     assert.equal(registry.providerCatalogEntry(relay).relay, true, relay);
   }

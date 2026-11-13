@@ -31,6 +31,8 @@ const HOSTED_PROVIDERS = new Set([
   'anthropic-oauth',
   'gemini',
   'google',
+  'vertex-ai',
+  'google-vertex',
   'xai',
   'grok-oauth',
   'deepseek',
@@ -211,6 +213,11 @@ function _stalenessFamily(row, id) {
   // Claude ids name their family right after the brand (`claude-<family>-<version>`).
   const claude = modelId.match(/(?:^|\/)claude-([a-z]+)(?:-|$)/);
   if (claude) return `claude-${claude[1]}`;
+  // Gemini ids name their tier after the version (`gemini-<version>-<tier>`). The
+  // catalog files argon, carbon and hydrogen under one "gemini" family, which
+  // would let the newest tier supersede the others.
+  const gemini = modelId.match(/(?:^|\/)gemini-\d+(?:\.\d+)*-([a-z][a-z0-9-]*)$/);
+  if (gemini) return `gemini-${gemini[1].replace(/-(?:preview|exp|experimental)(?:-.*)?$|(?:-\d+)+$/, '')}`;
   const family = row && typeof row.family === 'string' ? row.family.trim().toLowerCase() : '';
   return family || null;
 }

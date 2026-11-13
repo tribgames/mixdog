@@ -275,6 +275,7 @@ function makeTurnHarness({
     notifyFnForSession: () => undefined,
     scheduleProviderWarmup: () => {},
     scheduleProviderModelWarmup: () => {},
+    refreshStatuslineUsageAfterTurn: () => {},
     bootProfile: () => {},
   });
   return {
