@@ -72,8 +72,8 @@ pub trait AccountEngines: Send + Sync {
     /// The roster walk the sends go through; `None` while the host has bound none (the send then goes out on the
     /// provider's own engine, as a provider without a pool sends).
     fn rotation(&self) -> Option<AccountRotation>;
-    /// The engine that sends as `account`.
-    async fn engine(&self, account: &str) -> Result<Arc<dyn ProviderAdapter>, ProviderError>;
+    /// The engine that sends as `account`; `home` is [`Self::home`] as the send began.
+    async fn engine(&self, account: &str, home: &str) -> Result<Arc<dyn ProviderAdapter>, ProviderError>;
     /// Every account engine that exists now (session and transport releases reach each).
     fn built(&self) -> Vec<Arc<dyn ProviderAdapter>>;
     /// The provider's `accountCooldownPolicy`.
@@ -111,7 +111,7 @@ impl AccountEngines for KeyEngines {
         Some(self.rotation.clone())
     }
 
-    async fn engine(&self, account: &str) -> Result<Arc<dyn ProviderAdapter>, ProviderError> {
+    async fn engine(&self, account: &str, _home: &str) -> Result<Arc<dyn ProviderAdapter>, ProviderError> {
         if account == "default" {
             return Ok(self.primary.clone());
         }
@@ -310,7 +310,7 @@ impl AccountSender<()> for KeySend {
     async fn send(&self, account: &str, _scoped: bool) -> Result<(), Failed> {
         // The pool's notice of the previous refusal reaches the caller before this key's request goes out.
         taken(&self.queue).await;
-        let engine = self.pool.engines.engine(account).await.map_err(Failed::new)?;
+        let engine = self.pool.engines.engine(account, &self.home).await.map_err(Failed::new)?;
         let request = self.pool.history_for(&self.request, account, &self.home);
         let mut stream = engine.attempt(request).await.map_err(|error| {
             let unsafe_to_retry = error.unsafe_to_retry;
@@ -446,6 +446,26 @@ impl ProviderAdapter for KeyPoolAdapter {
     }
     fn retry_policy(&self) -> &RetryPolicy {
         self.pool.primary.retry_policy()
+    }
+    // A send's retry ladder and its recovery are the provider's, whichever account serves it. The re-issue after a
+    // spent ladder or a cut stream goes out on the provider's current account.
+    fn retry_policy_for(&self, model: &str) -> &RetryPolicy {
+        self.pool.primary.retry_policy_for(model)
+    }
+    fn retry_policy_of(&self, request: &ModelRequest) -> &RetryPolicy {
+        self.pool.primary.retry_policy_of(request)
+    }
+    fn recovers_spent(&self, model: &str, failure: &ProviderError) -> bool {
+        self.pool.primary.recovers_spent(model, failure)
+    }
+    fn recovers_cut(&self, model: &str, failure: &ProviderError) -> bool {
+        self.pool.primary.recovers_cut(model, failure)
+    }
+    async fn recover_spent(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+        self.pool.primary.recover_spent(request).await
+    }
+    fn recovery_line(&self, model: &str, failure: &ProviderError) -> Option<String> {
+        self.pool.primary.recovery_line(model, failure)
     }
     fn keepalive(&self) -> &KeepaliveSchedule {
         self.pool.primary.keepalive()

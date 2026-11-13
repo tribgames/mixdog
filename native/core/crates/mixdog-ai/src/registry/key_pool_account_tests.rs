@@ -112,7 +112,7 @@ impl AccountEngines for Engines {
     fn rotation(&self) -> Option<AccountRotation> {
         self.rotation.clone()
     }
-    async fn engine(&self, account: &str) -> Result<Arc<dyn ProviderAdapter>, ProviderError> {
+    async fn engine(&self, account: &str, _home: &str) -> Result<Arc<dyn ProviderAdapter>, ProviderError> {
         self.handed.lock().unwrap().push(account.to_owned());
         Ok(self.by_account[account].clone())
     }
@@ -208,4 +208,21 @@ async fn without_a_bound_rotation_the_provider_sends_on_its_own_engine() {
     assert!(matches!(&events[0], StreamEvent::TextDelta(text) if text == "primary"));
     assert!(engines.handed.lock().unwrap().is_empty());
     assert_eq!(*primary.states.lock().unwrap(), [true], "the request goes out as it came");
+}
+
+/// A wrapper that leaves a provider method to the trait's default answers for the provider wrongly (a retry ladder of
+/// the default length, a recovery that never runs): every method of the trait is forwarded.
+#[test]
+fn the_pool_forwards_every_provider_method() {
+    let source = include_str!("key_pool.rs");
+    let forwarded = source.split("impl ProviderAdapter for KeyPoolAdapter").nth(1).expect("the adapter's impl");
+    let api = include_str!("../../../mixdog-core-api/src/domain/provider.rs");
+    let methods = api.split("pub trait ProviderAdapter").nth(1).expect("the trait").split("\n}\n").next().unwrap();
+    let missing: Vec<&str> = methods
+        .lines()
+        .filter_map(|line| line.trim_start().strip_prefix("async fn ").or_else(|| line.trim_start().strip_prefix("fn ")))
+        .filter_map(|rest| rest.split('(').next())
+        .filter(|name| !forwarded.contains(&format!("fn {name}(")))
+        .collect();
+    assert!(missing.is_empty(), "not forwarded: {missing:?}");
 }

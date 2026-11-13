@@ -130,9 +130,12 @@ fn sweep_ttl_ms(account: &str) -> i64 {
 }
 
 /// The accounts of `rows` whose reading a sweep takes again at `now`: never measured, or measured longer ago than
-/// their [`sweep_ttl_ms`].
-fn sweep_due(rows: &[Account], now: i64) -> Vec<String> {
+/// their [`sweep_ttl_ms`]. The account in use (`selected`) is left out: the usage dashboard measures it, and every
+/// request it serves is followed by one. A roster of one account has nothing else to measure, so the sweep adds no
+/// request to it.
+fn sweep_due(rows: &[Account], selected: Option<&str>, now: i64) -> Vec<String> {
     rows.iter()
+        .filter(|row| Some(row.id.as_str()) != selected)
         .filter(|row| now - row.usage.as_ref().map_or(0, |usage| usage.checked_at) > sweep_ttl_ms(&row.id))
         .map(|row| row.id.clone())
         .collect()
@@ -171,8 +174,8 @@ impl ProviderAdmin {
     /// answered as they are, and the accounts whose reading is due are measured behind the answer, four at a time,
     /// one sweep per provider at a time. What it measures lands in the roster for the next read. An account that
     /// is not in use is measured by nothing else until a send moves to it.
-    fn sweep_account_usage(&self, provider: &str, rows: &[Account]) {
-        let due = sweep_due(rows, chrono::Utc::now().timestamp_millis());
+    fn sweep_account_usage(&self, provider: &str, rows: &[Account], selected: Option<&str>) {
+        let due = sweep_due(rows, selected, chrono::Utc::now().timestamp_millis());
         if due.is_empty() || !self.usage_sweeps.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(provider.to_owned()) {
             return;
         }
@@ -448,7 +451,7 @@ impl ProviderAdmin {
         } else {
             pool.accounts.clone()
         };
-        self.sweep_account_usage(provider, &pool.accounts);
+        self.sweep_account_usage(provider, &pool.accounts, pool.selected_id.as_deref().filter(|id| !id.is_empty()).or_else(|| pool.accounts.first().map(|row| row.id.as_str())));
         let now = chrono::Utc::now().timestamp_millis();
         let use_credits = pool.uses_credits();
         let mut accounts: Vec<Value> = Vec::with_capacity(rows.len());
@@ -851,7 +854,10 @@ mod sweep_tests {
             measured("ten-minutes-ago", now - 10 * 60_000),
             measured("a-day-ago", now - 24 * 3_600_000),
         ];
-        assert_eq!(sweep_due(&rows, now), ["never-measured", "ten-minutes-ago", "a-day-ago"]);
+        assert_eq!(sweep_due(&rows, None, now), ["never-measured", "ten-minutes-ago", "a-day-ago"]);
+        // The account in use is the dashboard's to measure; a roster of that one account is asked nothing.
+        assert_eq!(sweep_due(&rows, Some("a-day-ago"), now), ["never-measured", "ten-minutes-ago"]);
+        assert!(sweep_due(&rows[3..], Some("a-day-ago"), now).is_empty());
     }
 
     #[test]
