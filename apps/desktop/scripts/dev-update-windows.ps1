@@ -1121,7 +1121,9 @@ $targetVersion = if ($ViaUpdater) {
     if ([string]::IsNullOrWhiteSpace($Version)) { Get-NextDevVersion } else { $Version }
 }
 elseif ($FastDirect) {
-    if ([string]::IsNullOrWhiteSpace($Version)) { Get-InstalledSemVer } else { $Version }
+    # The shell carries the source's version, the one the core is built with: the core refuses a client of another
+    # version (versionRefused), so a shell stamped with the installed version cannot talk to a core built after a bump.
+    if ([string]::IsNullOrWhiteSpace($Version)) { [string](Get-Content -Raw -LiteralPath (Join-Path $desktopDir 'package.json') | ConvertFrom-Json).version } else { $Version }
 }
 else { $Version }
 
