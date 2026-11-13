@@ -104,6 +104,14 @@ impl SessionView {
     }
 }
 
+/// Whether rows older than the snapshot's exist: the store has rows older than the view (`store_has_older`), or the
+/// window sent only the newest `sent` of the view's `held` rows. The desktop follows a thread with `lastItems: 32` of a
+/// view of up to 200, and pages older rows only while this says some exist: a thread whose whole history fitted the
+/// view answered "none older" and the rows above its newest 32 could not be scrolled to.
+fn snapshot_has_older(store_has_older: bool, window: &Window, sent: usize, held: usize) -> bool {
+    store_has_older || (matches!(window, Window::LastItems(_) | Window::LastTurns(_)) && sent < held)
+}
+
 impl FeedView for SessionView {
     fn encode_snapshot(
         &self,
@@ -111,11 +119,12 @@ impl FeedView for SessionView {
         at: FeedPosition,
         window: &Window,
     ) -> Bytes {
+        let items = self.select(window);
         let params = SnapshotParams {
             thread: &self.summary,
             state: &self.state,
-            items: self.select(window),
-            has_older: self.has_older,
+            has_older: snapshot_has_older(self.has_older, window, items.len(), self.items.len()),
+            items,
         };
         frame(
             &Note::new("thread/snapshot", &params),
@@ -153,5 +162,23 @@ pub(crate) fn meta_mut(item: &mut ThreadItem) -> &mut ItemMeta {
         | ThreadItem::TurnEnd { meta, .. }
         | ThreadItem::RoomRow { meta, .. }
         | ThreadItem::AgentJob { meta, .. } => meta,
+    }
+}
+
+#[cfg(test)]
+mod has_older_tests {
+    use super::*;
+
+    #[test]
+    fn a_window_that_sends_only_the_newest_rows_says_older_ones_exist() {
+        // 150 rows held, the newest 32 sent: the 118 above are reachable.
+        assert!(snapshot_has_older(false, &Window::LastItems(32), 32, 150));
+        assert!(snapshot_has_older(false, &Window::LastTurns(2), 10, 150));
+        // Everything held was sent, and the store has nothing older.
+        assert!(!snapshot_has_older(false, &Window::LastItems(32), 20, 20));
+        // The store's own older rows still count.
+        assert!(snapshot_has_older(true, &Window::LastItems(32), 20, 20));
+        // A header-only window sends no rows by design.
+        assert!(!snapshot_has_older(false, &Window::HeaderOnly, 0, 150));
     }
 }
