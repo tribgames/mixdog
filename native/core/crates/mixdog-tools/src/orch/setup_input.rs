@@ -23,6 +23,13 @@ fn tagged(message: String) -> ToolError {
 }
 
 /// Checks `args` against the `setup` contract; `schema` is the tool's input schema.
+/// The `setup` tool's input schema (`defs/setup.json` `inputSchema`): what an owner that validates its own calls
+/// is built with.
+pub fn input_schema() -> Value {
+    let def: Value = serde_json::from_str(include_str!("defs/setup.json")).expect("defs/setup.json is JSON");
+    def["inputSchema"].clone()
+}
+
 pub fn validate(args: &Value, schema: &Value) -> Result<(), ToolError> {
     let table: Map<String, Value> = serde_json::from_str(ACTION_FIELDS).expect("embedded action table");
     let given = args.get("action").and_then(Value::as_str).map(mixdog_js::js_trim).unwrap_or_default();
