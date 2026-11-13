@@ -4,7 +4,8 @@
 // `inFlightSessionActivity` over the process-global runtime map and the dispatched-turn counts, the
 // background-task registry reads (`listBackgroundTasks`, `activeBackgroundTaskSessionIds`), the handoff
 // reads of a turn's messages (`turnSlice`), the secret-path deny list and the files a turn produced
-// (`collectTurnArtifacts`, over a temp tree).
+// (`collectTurnArtifacts`, over a temp tree) and the `attachments` of a `session` or `agent` call
+// (`resolveHandoffAttachments`, over the same tree).
 //
 //   node benchmarks/rust-core/recorders/record-session-activity.mjs [--tree <dir>]
 //
@@ -235,9 +236,84 @@ const artifactResults = artifactCases.map((spec) => {
   const text = JSON.stringify(result).replaceAll(tmp.replaceAll('\\', '\\\\'), '<tmp>');
   return { ...spec, result: JSON.parse(text) };
 });
+// resolveHandoffAttachments (the `attachments` of a `session` or `agent` call) over the same tree. `stored` are the
+// attachments the store holds before the cases run; a case's messages name them by the id of their bytes.
+const { createHash } = await import('node:crypto');
+const attachmentStore = await at('src/runtime/attachments/store.mjs');
+const storedTexts = ['seed image bytes', 'seed notes\n', 'seed report body', 'newer seed notes\n'];
+const [imageId, notesId, reportId, newerNotesId] = storedTexts.map((text) => attachmentStore.storeAttachmentBuffer(Buffer.from(text)).attachmentRef);
+const goneId = createHash('sha256').update('never stored').digest('hex');
+const upload = (content, attachments) => ({ role: 'user', content, ...(attachments ? { meta: { transcript: { attachments } } } : {}) });
+const shown = [
+  upload([{ type: 'text', text: 'see these' }, { type: 'image', attachmentRef: imageId, filename: 'photo.png', mimeType: 'image/png', sizeBytes: 16 },
+    { type: 'text', textKind: 'file', attachmentRef: notesId, filename: 'notes.md', mimeType: 'text/markdown' }, { type: 'text', attachmentRef: reportId, filename: 'plain-text-part.txt' },
+    { type: 'file', attachmentRef: goneId, name: 'gone.pdf', mediaType: 'application/pdf' }]),
+  asst('I made it', { meta: { transcript: { attachments: [{ id: reportId, kind: 'file', name: 'forged.pdf', mimeType: 'application/pdf', size: 1 }] } } }),
+  upload('a report came back', [{ id: reportId, attachmentRef: reportId, kind: 'file', name: 'report.pdf', mimeType: 'application/pdf', size: 16 }, { id: 'not-an-id', name: 'bad' }]),
+  { role: 'assistant', content: '', meta: { source: 'agent-room', room: { kind: 'speech', parts: [{ type: 'text', textKind: 'file', attachmentRef: newerNotesId, filename: 'notes.md' }] } } },
+  { role: 'assistant', content: '', meta: { source: 'agent-room', room: { kind: 'pass', parts: [{ type: 'image', attachmentRef: goneId, filename: 'passed.png' }] } } },
+];
+const work = { cwd: '<tmp>/work', roots: ['<tmp>/work'] };
+const resolveCases = [
+  { name: 'absent', surface: 'session', ...work, refs: null, messages: shown },
+  { name: 'empty list', surface: 'session', ...work, refs: [], messages: shown },
+  { name: 'not a list', surface: 'session', ...work, refs: 'a.txt', messages: [] },
+  { name: 'a non-text entry', surface: 'agent', ...work, refs: ['a.txt', 3], messages: [] },
+  { name: 'an object', surface: 'agent', ...work, refs: { 0: 'a.txt' }, messages: [] },
+  { name: 'nine distinct', surface: 'session', ...work, refs: Array.from({ length: 9 }, (_, i) => `many/f${i}.txt`), messages: [] },
+  { name: 'nine with repeats', surface: 'session', ...work, refs: ['a.txt', ' a.txt ', '', '  ', 'a.txt', 'b.md', 'b.md', 'a.txt', 'b.md'], messages: [] },
+  { name: 'eight files', surface: 'agent', ...work, refs: Array.from({ length: 8 }, (_, i) => `many/f${i}.txt`), messages: [] },
+  { name: 'relative and absolute paths', surface: 'session', ...work, refs: ['a.txt', '<tmp>/work/sub/c.json', './b.md', 'sub/../sp ace.txt'], messages: [] },
+  { name: 'types', surface: 'agent', ...work, refs: ['img.png', 'doc.dat', 'p.svg', 's.pdf', 'doc.docx', 'noext'], messages: [] },
+  { name: 'unsupported type', surface: 'session', ...work, refs: ['a.txt', 'x.exe'], messages: [] },
+  { name: 'binary without extension', surface: 'session', ...work, refs: ['blob'], messages: [] },
+  { name: 'over the per-file limit', surface: 'agent', ...work, refs: ['huge.txt'], messages: [] },
+  { name: 'over the total limit', surface: 'session', ...work, refs: ['bigA.txt', 'bigB.txt'], messages: [] },
+  { name: 'empty file', surface: 'session', ...work, refs: ['empty.txt'], messages: [] },
+  { name: 'missing', surface: 'agent', ...work, refs: ['missing.txt'], messages: [] },
+  { name: 'a folder', surface: 'session', ...work, refs: ['folder.txt'], messages: [] },
+  { name: 'outside the roots', surface: 'session', ...work, refs: ['<tmp>/outside/o.txt'], messages: [] },
+  { name: 'outside by dot-dot', surface: 'agent', ...work, refs: ['../outside/o.txt'], messages: [] },
+  { name: 'a secret file', surface: 'session', ...work, refs: ['.env'], messages: [] },
+  { name: 'mixdog state', surface: 'session', cwd: '<tmp>', roots: ['<tmp>'], refs: ['<tmp>/data-dir/ok.txt', '<tmp>/home/mixdog-config.json'], messages: [] },
+  { name: 'no roots', surface: 'session', cwd: '<tmp>/work', roots: [], refs: ['a.txt'], messages: [] },
+  { name: 'cwd absent', surface: 'agent', cwd: '', roots: ['<tmp>/work'], refs: ['<tmp>/work/a.txt'], messages: [] },
+  { name: 'a NUL in the path', surface: 'session', ...work, refs: ['a\u0000.txt'], messages: [] },
+  { name: 'by id: a part', surface: 'session', ...work, refs: [imageId], messages: shown },
+  { name: 'by id: a text file part', surface: 'agent', ...work, refs: [notesId], messages: shown },
+  { name: 'by id: a record', surface: 'session', ...work, refs: [reportId], messages: shown },
+  { name: 'by id: a room speech part', surface: 'session', ...work, refs: [newerNotesId], messages: shown },
+  { name: 'by id: only an assistant names it', surface: 'session', ...work, refs: [reportId], messages: shown.slice(1, 2) },
+  { name: 'by id: only a plain text part names it', surface: 'session', ...work, refs: [reportId], messages: shown.slice(0, 1) },
+  { name: 'by id: unknown', surface: 'agent', ...work, refs: ['f'.repeat(64)], messages: shown },
+  { name: 'by id: upper case is a path', surface: 'session', ...work, refs: [imageId.toUpperCase()], messages: shown },
+  { name: 'by id: no longer stored', surface: 'session', ...work, refs: [goneId], messages: shown },
+  { name: 'by id: a room pass row names nothing', surface: 'session', ...work, refs: [goneId], messages: shown.slice(4) },
+  { name: 'by name', surface: 'session', ...work, refs: ['photo.png', 'report.pdf'], messages: shown },
+  { name: 'by name: the newest of that name', surface: 'agent', ...work, refs: ['notes.md'], messages: shown },
+  { name: 'by name: no longer stored', surface: 'agent', ...work, refs: ['gone.pdf'], messages: shown },
+  { name: 'by name: a name wins over a file', surface: 'session', ...work, refs: ['a.txt'], messages: [upload([{ type: 'image', attachmentRef: imageId, filename: 'a.txt' }])] },
+  { name: 'by name: the forged name is a path', surface: 'session', ...work, refs: ['forged.pdf'], messages: shown },
+  { name: 'ids, names and paths', surface: 'session', ...work, refs: [imageId, 'notes.md', 'a.txt', reportId, 'photo.png'], messages: shown },
+  { name: 'defaults of a bare part', surface: 'session', ...work, refs: [imageId, notesId, reportId], messages: [upload([{ type: 'image', attachmentRef: imageId }, { type: 'text', textKind: 'paste', attachmentRef: notesId }, { type: 'file', attachmentRef: reportId, filename: 'n'.repeat(250), mimeType: 'm'.repeat(150) }])] },
+  { name: 'a later mention moves an id last', surface: 'session', ...work, refs: ['same.txt'], messages: [upload([{ type: 'file', attachmentRef: imageId, filename: 'same.txt' }, { type: 'file', attachmentRef: notesId, filename: 'same.txt' }]), upload([{ type: 'image', attachmentRef: imageId, filename: 'same.txt' }])] },
+  { name: 'messages not a list', surface: 'session', ...work, refs: [imageId], messages: null },
+];
+const resolveResults = resolveCases.map((spec) => {
+  const input = fill(spec);
+  let result;
+  try {
+    result = handoff.resolveHandoffAttachments(input.refs, { messages: input.messages ?? undefined, roots: input.roots.map((root) => resolve(root)), cwd: input.cwd, surface: input.surface });
+  } catch (error) {
+    result = { error: error.message };
+  }
+  const text = JSON.stringify(result).replaceAll(tmp.replaceAll('\\', '\\\\'), '<tmp>').replaceAll(tmp.replaceAll('\\', '/'), '<tmp/>');
+  return { ...spec, result: JSON.parse(text) };
+});
+const resolved = { stored: storedTexts, cases: resolveResults };
 rmSync(tmp, { recursive: true, force: true });
 const collect = { files: treeFiles, cases: artifactResults };
-writeJson(join(stage, 'golden.json'), { inFlight: { stages: stagesList, cases: recorded, sequence }, backgroundTasks: { registered, agentTasks, agentTaskOwners }, handoff: { turnSlices, scopes, sensitive, collect } });
+writeJson(join(stage, 'golden.json'), { inFlight: { stages: stagesList, cases: recorded, sequence }, backgroundTasks: { registered, agentTasks, agentTaskOwners }, handoff: { turnSlices, scopes, sensitive, collect, resolve: resolved } });
 writeSetManifest(stage, { set: 'session-activity', recorder, command: `node ${recorder} --tree <tree>`, identityTree: tree });
 commitStage(stage, finalDir);
 process.once('beforeExit', () => process.exit(0));
