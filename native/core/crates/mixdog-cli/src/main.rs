@@ -390,8 +390,24 @@ fn adopt_desktop_app_identity() {
 #[cfg(not(windows))]
 fn adopt_desktop_app_identity() {}
 
+/// A core started as an ordinary child (the desktop app's start, `detached: false`) is given a hidden console of its
+/// own, and that console's window belongs to the core. Task Manager lists a process that owns a top-level window on a
+/// row of its own, so the core showed inside the app's group for a moment and then left it; the helpers that stay in
+/// a group (no window of their own) do not. The core needs no console: its stderr is the capture file it was handed,
+/// and until this start it ran detached, with none. A failing call leaves the console where it is.
+#[cfg(windows)]
+fn leave_console() {
+    // SAFETY: detaches this process from its console; no handle or pointer is passed.
+    #[allow(unsafe_code, reason = "one Win32 call that detaches this process from its console")]
+    let _ = unsafe { windows_sys::Win32::System::Console::FreeConsole() };
+}
+
+#[cfg(not(windows))]
+fn leave_console() {}
+
 fn serve() -> ExitCode {
     adopt_desktop_app_identity();
+    leave_console();
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .with_writer(std::io::stderr)

@@ -145,8 +145,8 @@ mixdog-exthost = { workspace = true, features = ["test-support"] }
 mixdog-trace = { workspace = true, features = ["flush-probe"] }
 
 [target.'cfg(windows)'.dependencies]
-# `serve` claims the desktop app's AppUserModelID, so Task Manager lists the core inside the app's group.
-windows-sys = { workspace = true, features = ["Win32_UI_Shell"] }
+# `serve` leaves the console it was given and claims the desktop app's AppUserModelID (Task Manager's grouping).
+windows-sys = { workspace = true, features = ["Win32_System_Console", "Win32_UI_Shell"] }
 
 [target.'cfg(windows)'.dev-dependencies]
 # The CLI replay's Ctrl+C (a console control event to the binary's own console) and the processes a killed run leaves.
