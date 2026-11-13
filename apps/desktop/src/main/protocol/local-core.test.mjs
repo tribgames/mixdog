@@ -8,7 +8,7 @@ import test from 'node:test';
 import { beginDaemonSpawnCapture } from '../../../../../packages/protocol-client/src/launch/crash-capture/spawn-capture.mjs';
 import { launchCore } from '../../../../../packages/protocol-client/src/launch/ensure-core.mjs';
 import { ensureCore } from '../../../../../packages/protocol-client/src/launch/ensure-core.mjs';
-import { coreBinaryPath, coreEnvironment, coreExit, coreLaunchPath, DESKTOP_CORE_READY_TIMEOUT_MS, packagedMixdogRoot, resolveLocalCore } from './local-core.ts';
+import { coreBinaryPath, coreEnvironment, coreExit, coreLaunchPath, requestCoreStop, DESKTOP_CORE_READY_TIMEOUT_MS, packagedMixdogRoot, resolveLocalCore } from './local-core.ts';
 
 test('a packaged app tells the core where its unpacked resources and its profile are; a development run leaves the environment alone', () => {
   const base = { PATH: 'p' };
@@ -82,6 +82,32 @@ test('a quit waits for the core this app started, and no longer than it is given
   // One that does not end is given up on at the limit.
   const stuck = Object.assign(new EventEmitter(), { exitCode: null, signalCode: null });
   assert.equal(await coreExit(stuck, 20), false);
+});
+
+test('a quit asks only the core this app started to stop, and does not wait past its limit', async () => {
+  const ours = { pid: 7, exitCode: null, signalCode: null, once() {} };
+  const runs = [];
+  const ctl = (code) => (bin, args, options) => {
+    runs.push({ bin, args, env: options.env });
+    const child = new EventEmitter();
+    if (code !== undefined) setImmediate(() => child.emit('exit', code));
+    return child;
+  };
+  const named = (pid) => async () => ({ pid });
+  const ask = (overrides) =>
+    requestCoreStop({ child: ours, bin: 'mixdogd', runtimeRoot: 'rt', env: { A: '1' }, timeoutMs: 50, spawnImpl: ctl(0), readDiscovery: named(7), ...overrides });
+  assert.equal(await ask(), true);
+  assert.deepEqual(runs.pop(), { bin: 'mixdogd', args: ['ctl', 'stop', '--when-idle', '--reason', 'userStop', '--json'], env: { A: '1' } });
+  // The discovery file names another core: it is not ours to stop.
+  assert.equal(await ask({ readDiscovery: named(8) }), false);
+  assert.equal(await ask({ readDiscovery: async () => { throw new Error('absent'); } }), false);
+  // No core started, or one that has ended.
+  assert.equal(await ask({ child: null }), false);
+  assert.equal(await ask({ child: { ...ours, exitCode: 0 } }), false);
+  assert.equal(runs.length, 0);
+  // A refused request, and one that does not answer within the limit.
+  assert.equal(await ask({ spawnImpl: ctl(1) }), false);
+  assert.equal(await ask({ spawnImpl: ctl(undefined) }), true);
 });
 
 test('the app is told the core process it starts', async () => {
