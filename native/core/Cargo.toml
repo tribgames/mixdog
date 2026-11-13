@@ -105,23 +105,6 @@ incremental = false
 debug = false
 opt-level = 3
 
-# The core as a check on a real profile needs it (`cargo build --profile fast -p mixdog-cli --bin mixdogd`): optimised
-# enough to serve a profile of gigabytes, compiled for the next edit rather than for speed. The workspace's own crates take
-# the cheapest optimisation, split into as many units as the machine has cores for and kept incrementally; dependencies
-# are compiled once, fully optimised. Never the binary that ships: that is `release`.
-[profile.fast]
-inherits = "release"
-opt-level = 1
-codegen-units = 256
-incremental = true
-debug = false
-lto = "off"
-
-[profile.fast.package."*"]
-opt-level = 3
-codegen-units = 16
-incremental = false
-
 [workspace.dependencies]
 # Internal crates (layering: SPEC §3.2; protocol/api crates at the bottom).
 mixdog-protocol = { path = "crates/mixdog-protocol" }
