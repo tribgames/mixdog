@@ -1,5 +1,6 @@
 // Attach-or-start of this PC's core (lifecycle spec §5.4): the one place the desktop launches `mixdogd serve`, then waits
 // until the discovery file says `serving`. The endpoint itself is read by `readLocalDiscovery` on every dial.
+import { spawn } from 'node:child_process';
 import { linkSync, rmSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -101,12 +102,37 @@ async function readCoreState(runtimeRoot: string): Promise<{ state: string; rpcP
  *  leaves the app without a core. MIXDOG_DAEMON_READY_TIMEOUT_MS still overrides it. */
 export const DESKTOP_CORE_READY_TIMEOUT_MS = 120_000;
 
+/** What `coreExit` reads of a child process. */
+export interface CoreProcess {
+  readonly exitCode: number | null;
+  readonly signalCode: NodeJS.Signals | null;
+  once(event: 'exit', listener: () => void): unknown;
+}
+
+/** Resolves when the core this app started has ended, or after `timeoutMs`: `true` when it ended (or there is none to
+ *  wait for), `false` when the time ran out. A quitting app waits here after it has left the core: the core stops by
+ *  itself once its last client is gone, and that stop is what ends its PostgreSQL in order and closes a running turn's
+ *  record. The app's own exit ends the core at once (it is the app's child), so an app that did not wait would cut the
+ *  stop short every time. */
+export function coreExit(child: CoreProcess | null, timeoutMs: number): Promise<boolean> {
+  if (!child || child.exitCode !== null || child.signalCode !== null) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(false), timeoutMs);
+    child.once('exit', () => {
+      clearTimeout(timer);
+      resolve(true);
+    });
+  });
+}
+
 export function resolveLocalCore({
   runtimeRoot,
   bin,
   env,
   environmentReady,
   ensure = ensureCore,
+  onLaunched,
+  spawnImpl = spawn,
 }: {
   runtimeRoot: string;
   bin: string;
@@ -116,13 +142,27 @@ export function resolveLocalCore({
   environmentReady(): Promise<unknown>;
   /** The attach-or-start routine; tests pass their own. */
   ensure?: typeof ensureCore;
+  /** Told the core process this app started, each time it starts one (`coreExit` waits on it at quit). */
+  onLaunched?: (child: CoreProcess) => void;
+  /** The spawn of a launch; tests pass their own. */
+  spawnImpl?: typeof spawn;
 }): () => Promise<WsEndpoint> {
   return async () => {
     await environmentReady();
     await ensure({
       readDiscovery: () => readCoreState(runtimeRoot),
       // The app owns its core: an ordinary child, so the core ends when the app does and Windows lists it under the app.
-      launch: () => launchCore({ bin, detached: false, ...(env ? { env: env() } : {}) }),
+      launch: () =>
+        launchCore({
+          bin,
+          detached: false,
+          ...(env ? { env: env() } : {}),
+          spawnImpl: ((...args: Parameters<typeof spawn>) => {
+            const child = spawnImpl(...args);
+            onLaunched?.(child);
+            return child;
+          }) as typeof spawn,
+        }),
       readyTimeoutMs: Number(process.env.MIXDOG_DAEMON_READY_TIMEOUT_MS) || DESKTOP_CORE_READY_TIMEOUT_MS,
     });
     return readLocalDiscovery(runtimeRoot);

@@ -69,7 +69,7 @@ import { readDesktopModelBootstrapSnapshot } from './model-bootstrap';
 import { AgentAwakeService } from './agent-awake';
 import { createBackgroundWindow } from './background-window';
 import { createDesktopTray, type DesktopTray } from './desktop-tray';
-import { createDesktopQuitSequence } from './quit-sequence';
+import { createDesktopQuitSequence, DESKTOP_DAEMON_STOP_TIMEOUT_MS } from './quit-sequence';
 import { loginShellOverrides, readLoginShellEnvironment, withHomebrewPath } from './login-shell-environment';
 import { createTurnAttention, type TurnAttention } from './turn-attention';
 import { createDesktopTurnNotifier } from './desktop-turn-notifier';
@@ -115,7 +115,7 @@ import { loginUpdateOf } from './protocol/login-feed';
 import { readOrCreateHostId, createLocalHostRole } from './protocol/desktop-host-wiring';
 import { resolveTunnelEndpoint } from './protocol/discovery';
 import { openCore } from './protocol/open-core';
-import { coreEnvironment, coreLaunchPath, resolveLocalCore } from './protocol/local-core';
+import { type CoreProcess, coreEnvironment, coreExit, coreLaunchPath, resolveLocalCore } from './protocol/local-core';
 import { createOpenRequestedHandler } from './protocol/open-requested';
 import { createVisualizePublisher } from './protocol/visualize-publish';
 import type { VisualizeHostEvent } from '../shared/visualize';
@@ -524,6 +524,9 @@ const connectionDependencies: DesktopConnectionDependencies = {
             bin: coreLaunchPath(app.isPackaged, process.resourcesPath),
             env: () => coreEnvironment(app.isPackaged, process.resourcesPath, app.getPath('userData')),
             environmentReady: () => loginShellEnvironmentReady,
+            onLaunched: (child) => {
+              localCoreProcess = child;
+            },
           })
         : null;
     return resolve
@@ -1607,6 +1610,9 @@ function disposeDesktopResources(): Promise<void> {
   return disposalPromise;
 }
 
+/** The core process this app started (none while it runs on one it found). */
+let localCoreProcess: CoreProcess | null = null;
+
 // Windows vanish the moment a quit begins; detach, daemon stop and the
 // PostgreSQL behind it finish in this still-running main process afterwards.
 const quitSequence = createDesktopQuitSequence({
@@ -1615,6 +1621,9 @@ const quitSequence = createDesktopQuitSequence({
     for (const removeWindowIpc of windowIpcDisposers.values()) removeWindowIpc();
     windowIpcDisposers.clear();
     await disposeDesktopResources();
+    // The core this app started stops by itself now that its last client has left; the app's exit would end it at once.
+    const stopped = await coreExit(localCoreProcess, DESKTOP_DAEMON_STOP_TIMEOUT_MS);
+    if (!stopped) console.error(`The Mixdog core did not stop within ${DESKTOP_DAEMON_STOP_TIMEOUT_MS}ms of the quit; it ends with the app.`);
   },
   exit: () => {
     quitAfterDispose = true;

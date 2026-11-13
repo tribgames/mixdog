@@ -8,7 +8,7 @@ import test from 'node:test';
 import { beginDaemonSpawnCapture } from '../../../../../packages/protocol-client/src/launch/crash-capture/spawn-capture.mjs';
 import { launchCore } from '../../../../../packages/protocol-client/src/launch/ensure-core.mjs';
 import { ensureCore } from '../../../../../packages/protocol-client/src/launch/ensure-core.mjs';
-import { coreBinaryPath, coreEnvironment, coreLaunchPath, DESKTOP_CORE_READY_TIMEOUT_MS, packagedMixdogRoot, resolveLocalCore } from './local-core.ts';
+import { coreBinaryPath, coreEnvironment, coreExit, coreLaunchPath, DESKTOP_CORE_READY_TIMEOUT_MS, packagedMixdogRoot, resolveLocalCore } from './local-core.ts';
 
 test('a packaged app tells the core where its unpacked resources and its profile are; a development run leaves the environment alone', () => {
   const base = { PATH: 'p' };
@@ -68,6 +68,43 @@ test('on Windows the core is started under the name of the app through a hard li
   // Elsewhere there is no second name.
   assert.equal(coreLaunchPath(true, 'res', 'linux', world({}).fs), join('res', 'core', 'mixdogd'));
   assert.equal(coreLaunchPath(false, 'res', 'win32', world({}).fs), process.env.MIXDOGD_BIN || 'mixdogd');
+});
+
+test('a quit waits for the core this app started, and no longer than it is given', async () => {
+  // None started, or one that has ended: nothing to wait for.
+  assert.equal(await coreExit(null, 10), true);
+  assert.equal(await coreExit({ exitCode: 0, signalCode: null, once() {} }, 10), true);
+  // A running core is waited for until it ends.
+  const running = Object.assign(new EventEmitter(), { exitCode: null, signalCode: null });
+  const ended = coreExit(running, 5_000);
+  running.emit('exit');
+  assert.equal(await ended, true);
+  // One that does not end is given up on at the limit.
+  const stuck = Object.assign(new EventEmitter(), { exitCode: null, signalCode: null });
+  assert.equal(await coreExit(stuck, 20), false);
+});
+
+test('the app is told the core process it starts', async () => {
+  const child = Object.assign(new EventEmitter(), { pid: 1, unref() {} });
+  const told = [];
+  const resolve = resolveLocalCore({
+    runtimeRoot: 'unused',
+    bin: 'mixdogd',
+    environmentReady: async () => {},
+    onLaunched: (started) => told.push(started),
+    spawnImpl: (bin, args, options) => {
+      assert.equal(options.detached, false);
+      return child;
+    },
+    // The routine starts a core and is done: discovery is not what this test reads.
+    ensure: async ({ launch }) => {
+      queueMicrotask(() => child.emit('spawn'));
+      await launch({ log() {} });
+      throw new Error('stop here');
+    },
+  });
+  await assert.rejects(resolve(), /stop here/);
+  assert.deepEqual(told, [child]);
 });
 
 test('launching the core spawns it detached with the given environment', async (context) => {
