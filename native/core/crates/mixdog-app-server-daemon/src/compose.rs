@@ -284,7 +284,10 @@ pub(crate) fn build_models(tokens: &LaneTokens, data_dir: &Path, ort_library: Or
         OrtRuntime::Library(library) => Some(Arc::new(EmbeddingProvider::with_tick(
         EmbedConfig {
             model_id: embed_env.model_id(),
-            cache_dir: data_dir.join("models"),
+            // Node's model cache (`MODEL_CACHE_DIR = join(resolvePluginData(), 'memory-models')`, embedding-worker.mjs:80), where 1.4.5
+            // left the installed model. `models` is the effort judge's folder: looked for there, the embedding model read as not
+            // installed and no memory was embedded since the core took over.
+            cache_dir: data_dir.join("memory-models"),
             ort_library: library.clone(),
             dtype: embed_env.dtype.clone(),
             sessions: EMBED_SESSIONS,
