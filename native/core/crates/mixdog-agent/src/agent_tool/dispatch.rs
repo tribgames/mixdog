@@ -225,6 +225,8 @@ pub async fn close_resolved(
         let mut released = vec![session_id.to_owned()];
         released.extend(descendants.iter().cloned());
         registry.mark_released(&released);
+        // A closed agent's session is hidden from the lists; a send that uses it again lists it again.
+        sessions.hide_sessions(&released).await;
     }
     Ok(ClosedView { closed: ok, tag, session_id: Some(session_id.to_owned()), task_id: task_id_out, forgotten: false })
 }
@@ -390,6 +392,7 @@ impl AgentRuntime {
     // ---- send ------------------------------------------------------------------------------
 
     async fn dispatch_prepared(&self, prepared: &super::host::Prepared, caller: &Caller, options: DispatchOptions) -> Result<AgentReply, String> {
+        self.deps.sessions.reveal_session(&prepared.session_id).await;
         self.deps.send_flow.adopt_caller(prepared, caller).await?;
         self.deps.send_flow.dispatch_to_existing_session(prepared, caller, options).await
     }

@@ -167,6 +167,13 @@ pub trait Sessions: Send + Sync {
     }
     /// The agent's statusline route, dropped when its session closes.
     fn clear_statusline_route(&self, session_id: &str);
+    /// `hideSessions(ids)` (`close-flow/hide-sessions.mjs`): the sessions an owner closed leave every session list.
+    /// The record stays. Node keeps a hidden set that its listings read as archived, and a desktop follows it with
+    /// the archive flag; here the archive flag is the header's `archivedAt`, which every listing reads. A session
+    /// whose flag cannot be written stays listed.
+    async fn hide_sessions(&self, _session_ids: &[String]) {}
+    /// `revealSession(id)`: a session that is used again is listed again.
+    async fn reveal_session(&self, _session_id: &str) {}
 }
 
 /// The process-wide background-task table, `surface: 'agent'` only.

@@ -2603,8 +2603,16 @@ impl ThreadState for Detaches {
         }
         Ok(self.headers.lock().unwrap().get(thread.as_str()).cloned().unwrap_or_default())
     }
-    async fn patch_header(&self, _: &ThreadId, _: serde_json::Map<String, Value>, _: Vec<String>) -> Result<(), mixdog_tools::orch::util::PortError> {
-        unreachable!("a close stamps through patch_header_if")
+    /// A close stamps through `patch_header_if`; this is the archive flag of a hidden or revealed session.
+    async fn patch_header(&self, thread: &ThreadId, set: serde_json::Map<String, Value>, unset: Vec<String>) -> Result<(), mixdog_tools::orch::util::PortError> {
+        assert!(set.keys().chain(unset.iter()).all(|key| key == "archivedAt"), "only the archive flag is patched");
+        let mut headers = self.headers.lock().unwrap();
+        let header = headers.entry(thread.as_str().to_owned()).or_default();
+        header.extend(set);
+        for key in unset {
+            header.remove(&key);
+        }
+        Ok(())
     }
     async fn patch_header_if(
         &self,
@@ -2620,6 +2628,47 @@ impl ThreadState for Detaches {
     async fn publish(&self, _: &ThreadId, _: mixdog_core_ports::ports::threads::Section) -> Result<(), mixdog_tools::orch::util::PortError> {
         Ok(())
     }
+}
+
+/// `hideSessions` / `revealSession` (`close-flow/hide-sessions.mjs`): an owner's close takes the agent's session and those
+/// below it out of the lists (the archive flag every listing reads); a session used again is listed again, alone.
+#[tokio::test]
+async fn an_owner_close_hides_the_agents_sessions_and_a_reuse_lists_one_again() {
+    use mixdog_agent::agent_tool::dispatch::CloseParts;
+    use mixdog_agent::agent_tool::host::Sessions;
+
+    use crate::session::SessionDirectory;
+
+    struct Frozen;
+    impl mixdog_agent::env::Clock for Frozen {
+        fn now_ms(&self) -> i64 {
+            NOW
+        }
+    }
+    let rig = Rig::new();
+    for (id, parent) in [("sess_w1", "lead"), ("sess_w2", "sess_w1")] {
+        let tag = id.trim_start_matches("sess_");
+        rig.store.sessions.lock().unwrap().push(session(id, tag, &at(NOW - HOUR), json!({ "parentSessionId": parent, "ownerSessionId": "lead" })));
+        rig.store.write_row(id, Some(worker_row(id, tag, json!({ "parentSessionId": parent, "ownerSessionId": "lead" }))));
+    }
+    rig.store.touch_sessions();
+    let srig = crate::session::testing::Rig::new();
+    let directory = Arc::new(SessionDirectory::new(srig.deps()));
+    let registry = Arc::new(AgentRegistry::new(rig.store.clone(), directory.clone(), Arc::new(Hour), rig.clock.clone()));
+    let threads = Arc::new(Detaches::default());
+    let sessions = AgentSessions::new(directory, threads.clone(), registry.clone(), Arc::new(Statusline::default()), rig.clock.clone(), Arc::new(ClosedShells::default()), Arc::new(mixdog_tools::fs::ReadState::default()));
+    let board = mixdog_agent::agent_tool::board::JobBoard::new(Arc::new(Frozen), None, None);
+    let scope = lead("lead");
+    registry.refresh_tags_from_sessions(false, &scope).await;
+    let archived = |id: &str| threads.headers.lock().unwrap().get(id).and_then(|header| header.get("archivedAt").cloned());
+
+    let parts = CloseParts { registry: &*registry, sessions: &sessions, tasks: &board };
+    let closed = mixdog_agent::agent_tool::dispatch::close_resolved(parts, "sess_w1", "w1", &scope, None, false).await.unwrap();
+    assert!(closed.closed);
+    assert_eq!((archived("sess_w1"), archived("sess_w2")), (Some(json!(NOW)), Some(json!(NOW))));
+
+    sessions.reveal_session("sess_w1").await;
+    assert_eq!((archived("sess_w1"), archived("sess_w2")), (None, Some(json!(NOW))));
 }
 
 /// A member of the agent tree whose durable close fails (the Node recording `flows/close_failures.json`, each member failing
