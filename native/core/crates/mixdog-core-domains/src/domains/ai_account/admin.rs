@@ -110,6 +110,32 @@ pub struct ProviderAdmin {
     pub(crate) oauth_usage: Arc<OAuthUsage>,
     /// The lanes the account store's credential files are worked on.
     credential_io: CredentialIo,
+    /// `accountUsageSweeps`: the providers whose roster a background usage sweep is measuring now.
+    usage_sweeps: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
+}
+
+/// How old an account's reading is before a roster read measures it again. Node's sweep re-measures whatever its
+/// 60-second cache no longer holds, on every read of the roster; the desktop reads the roster each time its usage
+/// dashboard updates, so every account of every roster would be asked about once a minute. Five minutes is the age
+/// other clients keep a per-account reading for (oh-my-pi `USAGE_REPORT_TTL_MS`).
+const SWEEP_READING_TTL_MS: i64 = 5 * 60_000;
+
+/// The age at which `account`'s reading is due: [`SWEEP_READING_TTL_MS`] moved by up to a quarter either way, fixed
+/// per account, so the accounts of a roster are not all asked in the same second (a provider answers a burst from
+/// one address with 429s).
+fn sweep_ttl_ms(account: &str) -> i64 {
+    let hash = account.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3));
+    let quarter = SWEEP_READING_TTL_MS / 4;
+    SWEEP_READING_TTL_MS - quarter + (hash % (2 * quarter as u64 + 1)) as i64
+}
+
+/// The accounts of `rows` whose reading a sweep takes again at `now`: never measured, or measured longer ago than
+/// their [`sweep_ttl_ms`].
+fn sweep_due(rows: &[Account], now: i64) -> Vec<String> {
+    rows.iter()
+        .filter(|row| now - row.usage.as_ref().map_or(0, |usage| usage.checked_at) > sweep_ttl_ms(&row.id))
+        .map(|row| row.id.clone())
+        .collect()
 }
 
 impl ProviderAdmin {
@@ -137,7 +163,32 @@ impl ProviderAdmin {
             registry,
             oauth_usage,
             credential_io,
+            usage_sweeps: Arc::default(),
         })
+    }
+
+    /// `getProviderAccounts`' background sweep (`sweepAccountUsage`, accounts.mjs:64-76): the stored readings are
+    /// answered as they are, and the accounts whose reading is due are measured behind the answer, four at a time,
+    /// one sweep per provider at a time. What it measures lands in the roster for the next read. An account that
+    /// is not in use is measured by nothing else until a send moves to it.
+    fn sweep_account_usage(&self, provider: &str, rows: &[Account]) {
+        let due = sweep_due(rows, chrono::Utc::now().timestamp_millis());
+        if due.is_empty() || !self.usage_sweeps.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(provider.to_owned()) {
+            return;
+        }
+        let (usage, sweeps, provider) = (self.oauth_usage.clone(), self.usage_sweeps.clone(), provider.to_owned());
+        drop(mixdog_rt::spawn("account-usage-sweep", mixdog_rt::TaskClass::Work, async move {
+            for chunk in due.chunks(4) {
+                futures::future::join_all(chunk.iter().map(|id| {
+                    let route = RouteInfo { provider: provider.clone(), model: String::new(), account_id: id.clone() };
+                    let usage = usage.clone();
+                    // Not forced: a measurement that just failed is not repeated before its backoff ends.
+                    async move { usage.fetch_snapshot(&route, false).await }
+                }))
+                .await;
+            }
+            sweeps.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(&provider);
+        }));
     }
 
     /// `availableOAuthProvider`.
@@ -397,6 +448,7 @@ impl ProviderAdmin {
         } else {
             pool.accounts.clone()
         };
+        self.sweep_account_usage(provider, &pool.accounts);
         let now = chrono::Utc::now().timestamp_millis();
         let use_credits = pool.uses_credits();
         let mut accounts: Vec<Value> = Vec::with_capacity(rows.len());
@@ -776,4 +828,38 @@ pub(crate) fn parse_account_change(change: &Value) -> Result<AccountChange, Fail
         out.use_credits = Some(credits.as_bool().ok_or_else(|| type_error("Credit use must be boolean."))?);
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod sweep_tests {
+    use mixdog_ai::accounts::Usage;
+
+    use super::*;
+
+    fn measured(id: &str, checked_at: i64) -> Account {
+        let mut row = Account::new(id);
+        row.usage = Some(Usage { windows: Vec::new(), checked_at });
+        row
+    }
+
+    #[test]
+    fn a_roster_read_measures_the_accounts_whose_reading_is_due() {
+        let now = 1_800_000_000_000;
+        let rows = [
+            Account::new("never-measured"),
+            measured("a-minute-ago", now - 60_000),
+            measured("ten-minutes-ago", now - 10 * 60_000),
+            measured("a-day-ago", now - 24 * 3_600_000),
+        ];
+        assert_eq!(sweep_due(&rows, now), ["never-measured", "ten-minutes-ago", "a-day-ago"]);
+    }
+
+    #[test]
+    fn each_account_is_due_at_its_own_age_within_a_quarter_of_five_minutes() {
+        let ids: Vec<String> = (0..200).map(|n| format!("account-{n}")).collect();
+        let ttls: Vec<i64> = ids.iter().map(|id| sweep_ttl_ms(id)).collect();
+        assert!(ttls.iter().all(|ttl| (225_000..=375_000).contains(ttl)), "{ttls:?}");
+        assert!(ttls.iter().max().unwrap() - ttls.iter().min().unwrap() > 60_000, "the accounts are spread");
+        assert_eq!(sweep_ttl_ms("account-7"), sweep_ttl_ms("account-7"), "an account keeps its age");
+    }
 }
