@@ -581,8 +581,10 @@ mod tests {
         let manifest: Value = serde_json::from_str(include_str!("../../../../fixtures/watchdog-stall-rows/MANIFEST.json")).unwrap();
         assert!(manifest.to_string().contains("\"runOwnValues\":{\"registration_id\""), "the manifest declares the registration id as the run's own");
         let (failures, trace) = replay_stall_rows(&golden, &[("MIXDOG_DIAGNOSTICS", "1")], &["stall_abort"]).await;
-        assert_eq!(mask_registrations(&failures.expect("tool-failures.jsonl")), golden["failures"].as_str().unwrap(), "history/tool-failures.jsonl");
-        assert_eq!(trace.as_deref(), golden["trace"].as_str(), "history/agent-trace.jsonl");
+        // The rows name the build that wrote them: Node's recording says 1.4.5, this build its own version.
+        let ours = |recorded: &str| recorded.replace("\"build_version\":\"1.4.5\"", &format!("\"build_version\":\"{}\"", env!("CARGO_PKG_VERSION")));
+        assert_eq!(mask_registrations(&failures.expect("tool-failures.jsonl")), ours(golden["failures"].as_str().unwrap()), "history/tool-failures.jsonl");
+        assert_eq!(trace, golden["trace"].as_str().map(ours), "history/agent-trace.jsonl");
     }
 
     /// With `MIXDOG_AGENT_TRACE_DISABLE=1` Node's stop records nothing (`agent-progress-watchdog.mjs:201`, and `appendAgentTrace`):

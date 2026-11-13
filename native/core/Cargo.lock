@@ -3781,7 +3781,7 @@ dependencies = [
 
 [[package]]
 name = "mixdog-agent"
-version = "1.4.5"
+version = "1.5.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -3816,7 +3816,7 @@ dependencies = [
 
 [[package]]
 name = "mixdog-ai"
-version = "1.4.5"
+version = "1.5.0"
 dependencies = [
  "aes-gcm",
  "arc-swap",
@@ -3869,7 +3869,7 @@ dependencies = [
 
 [[package]]
 name = "mixdog-app-protocol"
-version = "1.4.5"
+version = "1.5.0"
 dependencies = [
  "mixdog-app-protocol",
  "mixdog-js",
@@ -3885,7 +3885,7 @@ dependencies = [
 
 [[package]]
 name = "mixdog-app-server"
-version = "1.4.5"
+version = "1.5.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -3930,7 +3930,7 @@ dependencies = [
 
 [[package]]
 name = "mixdog-app-server-client"
-version = "1.4.5"
+version = "1.5.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -3954,7 +3954,7 @@ dependencies = [
 
 [[package]]
 name = "mixdog-app-server-daemon"
-version = "1.4.5"
+version = "1.5.0"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -4023,7 +4023,7 @@ dependencies = [
 
 [[package]]
 name = "mixdog-app-server-transport"
-version = "1.4.5"
+version = "1.5.0"
 dependencies = [
  "bytes",
  "futures",
@@ -4045,7 +4045,7 @@ dependencies = [
 
 [[package]]
 name = "mixdog-cli"
-version = "1.4.5"
+version = "1.5.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -4102,7 +4102,7 @@ dependencies = [
 
 [[package]]
 name = "mixdog-core"
-version = "1.4.5"
+version = "1.5.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -4166,7 +4166,7 @@ dependencies = [
 
 [[package]]
 name = "mixdog-core-agents"
-version = "1.4.5"
+version = "1.5.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -4209,7 +4209,7 @@ dependencies = [
 
 [[package]]
 name = "mixdog-core-api"
-version = "1.4.5"
+version = "1.5.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -4227,7 +4227,7 @@ dependencies = [
 
 [[package]]
 name = "mixdog-core-base"
-version = "1.4.5"
+version = "1.5.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -4259,7 +4259,7 @@ dependencies = [
 
 [[package]]
 name = "mixdog-core-config"
-version = "1.4.5"
+version = "1.5.0"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -4302,7 +4302,7 @@ dependencies = [
 
 [[package]]
 name = "mixdog-core-domains"
-version = "1.4.5"
+version = "1.5.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -4354,7 +4354,7 @@ dependencies = [
 
 [[package]]
 name = "mixdog-core-goal"
-version = "1.4.5"
+version = "1.5.0"
 dependencies = [
  "async-trait",
  "futures",
@@ -4388,7 +4388,7 @@ dependencies = [
 
 [[package]]
 name = "mixdog-core-ports"
-version = "1.4.5"
+version = "1.5.0"
 dependencies = [
  "async-trait",
  "fancy-regex",
@@ -4419,7 +4419,7 @@ dependencies = [
 
 [[package]]
 name = "mixdog-core-prompt"
-version = "1.4.5"
+version = "1.5.0"
 dependencies = [
  "base64 0.22.1",
  "fancy-regex",
@@ -4458,7 +4458,7 @@ dependencies = [
 
 [[package]]
 name = "mixdog-core-replays"
-version = "1.4.5"
+version = "1.5.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -4520,7 +4520,7 @@ dependencies = [
 
 [[package]]
 name = "mixdog-core-review"
-version = "1.4.5"
+version = "1.5.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -4557,7 +4557,7 @@ dependencies = [
 
 [[package]]
 name = "mixdog-core-rooms"
-version = "1.4.5"
+version = "1.5.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -4593,7 +4593,7 @@ dependencies = [
 
 [[package]]
 name = "mixdog-core-run"
-version = "1.4.5"
+version = "1.5.0"
 dependencies = [
  "async-trait",
  "fancy-regex",
@@ -4629,7 +4629,7 @@ dependencies = [
 
 [[package]]
 name = "mixdog-core-session"
-version = "1.4.5"
+version = "1.5.0"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -4687,7 +4687,7 @@ dependencies = [
 
 [[package]]
 name = "mixdog-core-session-replays"
-version = "1.4.5"
+version = "1.5.0"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -4744,7 +4744,7 @@ dependencies = [
 
 [[package]]
 name = "mixdog-exthost"
-version = "1.4.5"
+version = "1.5.0"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -4779,7 +4779,7 @@ dependencies = [
 
 [[package]]
 name = "mixdog-fsio"
-version = "1.4.5"
+version = "1.5.0"
 dependencies = [
  "mixdog-fsio",
  "mixdog-rt",
@@ -4813,7 +4813,7 @@ dependencies = [
 
 [[package]]
 name = "mixdog-js"
-version = "1.4.5"
+version = "1.5.0"
 dependencies = [
  "chrono",
  "chrono-tz",
@@ -4832,7 +4832,7 @@ dependencies = [
 
 [[package]]
 name = "mixdog-ledger"
-version = "1.4.5"
+version = "1.5.0"
 dependencies = [
  "chrono",
  "mixdog-app-protocol",
@@ -4854,7 +4854,7 @@ dependencies = [
 
 [[package]]
 name = "mixdog-mcp"
-version = "1.4.5"
+version = "1.5.0"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -4906,7 +4906,7 @@ dependencies = [
 
 [[package]]
 name = "mixdog-migrate"
-version = "1.4.5"
+version = "1.5.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -4964,7 +4964,7 @@ dependencies = [
 
 [[package]]
 name = "mixdog-protocol"
-version = "1.4.5"
+version = "1.5.0"
 dependencies = [
  "mixdog-js",
  "mixdog-protocol",
@@ -4979,7 +4979,7 @@ dependencies = [
 
 [[package]]
 name = "mixdog-remote"
-version = "1.4.5"
+version = "1.5.0"
 dependencies = [
  "aes-gcm",
  "async-trait",
@@ -5023,7 +5023,7 @@ dependencies = [
 
 [[package]]
 name = "mixdog-rt"
-version = "1.4.5"
+version = "1.5.0"
 dependencies = [
  "arc-swap",
  "chrono",
@@ -5038,7 +5038,7 @@ dependencies = [
 
 [[package]]
 name = "mixdog-rt-feature-off"
-version = "1.4.5"
+version = "1.5.0"
 dependencies = [
  "arc-swap",
  "chrono",
@@ -5053,7 +5053,7 @@ dependencies = [
 
 [[package]]
 name = "mixdog-sandboxing"
-version = "1.4.5"
+version = "1.5.0"
 dependencies = [
  "mixdog-js",
  "mixdog-protocol",
@@ -5062,7 +5062,7 @@ dependencies = [
 
 [[package]]
 name = "mixdog-scm"
-version = "1.4.5"
+version = "1.5.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -5097,7 +5097,7 @@ dependencies = [
 
 [[package]]
 name = "mixdog-secrets"
-version = "1.4.5"
+version = "1.5.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -5134,7 +5134,7 @@ dependencies = [
 
 [[package]]
 name = "mixdog-services"
-version = "1.4.5"
+version = "1.5.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -5222,7 +5222,7 @@ dependencies = [
 
 [[package]]
 name = "mixdog-statefile"
-version = "1.4.5"
+version = "1.5.0"
 dependencies = [
  "base64 0.22.1",
  "libc",
@@ -5242,7 +5242,7 @@ dependencies = [
 
 [[package]]
 name = "mixdog-store"
-version = "1.4.5"
+version = "1.5.0"
 dependencies = [
  "base64 0.22.1",
  "mixdog-app-protocol",
@@ -5270,7 +5270,7 @@ dependencies = [
 
 [[package]]
 name = "mixdog-testkit"
-version = "1.4.5"
+version = "1.5.0"
 dependencies = [
  "base64 0.22.1",
  "mixdog-workspace-hack",
@@ -5280,7 +5280,7 @@ dependencies = [
 
 [[package]]
 name = "mixdog-tools"
-version = "1.4.5"
+version = "1.5.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -5335,7 +5335,7 @@ dependencies = [
 
 [[package]]
 name = "mixdog-trace"
-version = "1.4.5"
+version = "1.5.0"
 dependencies = [
  "mixdog-js",
  "mixdog-testkit",
@@ -5348,7 +5348,7 @@ dependencies = [
 
 [[package]]
 name = "mixdog-workspace"
-version = "1.4.5"
+version = "1.5.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
