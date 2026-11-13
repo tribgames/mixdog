@@ -4138,7 +4138,7 @@ mod tests {
         let threads: Arc<dyn ThreadState> = Arc::new(mixdog_core_session::session::thread_state::SessionThreads::new(directory.clone()));
         let host = Arc::new(ManualHost {
             sender: Arc::new(ManualSummary { text: scenario["summaryText"].as_str().unwrap().into(), calls: Default::default() }),
-            route: super::super::summary_routes::SessionRoute { provider: scenario["provider"].as_str().unwrap().into(), model: scenario["model"].as_str().unwrap().into(), context_window: Some(window) },
+            route: super::super::summary_routes::SessionRoute { provider: scenario["provider"].as_str().unwrap().into(), model: scenario["model"].as_str().unwrap().into(), context_window: Some(window), summary_model: None },
             calibration,
         });
         let tokens = mixdog_rt::testing::tokens();

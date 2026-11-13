@@ -725,6 +725,9 @@ impl DefaultProviderBuilder {
         let mut extra_headers = string_pairs(cfg, "extraHeaders");
         extra_headers.extend(login_headers);
         CompatConfig {
+            // `xaiServerToolSearchEnabled` (`openai-compat-xai-send.mjs`): strictly opt-in from the xAI provider's own config;
+            // unset, deferred tools go out as plain function tools and the client `load_tool` stays a function.
+            server_tool_search: profile.responses == crate::providers::compat::profile::ResponsesShape::Xai && xai_server_tool_search(cfg),
             base_url: base_url.or_else(|| text(cfg, "baseURL").map(|u| u.trim_end_matches('/').to_owned())),
             client_version: self.env.client_version.clone(),
             extra_headers,
@@ -1382,6 +1385,8 @@ impl DefaultProviderBuilder {
                     retry,
                     self.env.listing.clone(),
                     self.env.client_versions.clone(),
+                    // The inner xAI provider takes this provider's config (`_ensureInner`: `...this.config`).
+                    xai_server_tool_search(cfg),
                 )))
             }
             "cursor-oauth" | "cursor-api" => self.build_cursor(name, cfg).await,
@@ -1472,6 +1477,11 @@ impl ProviderBuilder for DefaultProviderBuilder {
     fn credential_inputs(&self) -> Vec<std::path::PathBuf> {
         self.env.accounts.credential_inputs()
     }
+}
+
+/// `provider.config?.xaiServerToolSearch === true`: the server hosts tool search on the xAI Responses wire.
+fn xai_server_tool_search(cfg: &Value) -> bool {
+    cfg.get("xaiServerToolSearch") == Some(&Value::Bool(true))
 }
 
 #[cfg(test)]

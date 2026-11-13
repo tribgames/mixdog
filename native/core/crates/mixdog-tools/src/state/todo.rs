@@ -372,6 +372,47 @@ pub fn run(current: &TodoList, args: &Value, now_ms: i64) -> Result<TodoRun, Str
 /// A list edit: takes the current list for any borrow. (Written as an elided `&TodoList` in the
 /// method, `async_trait` lifts it into a lifetime parameter of the method, and an implementor
 /// could then hand the edit only a `'static` list.)
+/// `adoptLegacyGoalTasks(session, legacyTasks)` (`runtime-core/todo-list.mjs`): the tasks a Goal record written before the
+/// todo list still carries, folded into the stored list. An item already listed keeps its state; the adopted ones go
+/// under `Goal` beside an existing list, or are the list (`Tasks`) when there was none. The wording stays whole (old
+/// tasks allowed longer text). `None` when nothing was adopted. This is the stored list's own fold, not a `todo` call.
+pub fn adopt_legacy_goal_tasks(current: &TodoList, legacy: &[Value], now_ms: i64) -> Option<TodoList> {
+    let line = |value: Option<&Value>| match value {
+        None | Some(Value::Null) => String::new(),
+        Some(Value::String(text)) => one_line(text),
+        Some(other) => one_line(&mixdog_js::value_to_string(other)),
+    };
+    let mut existing: Vec<String> = current.tasks().map(|task| task.content.clone()).collect();
+    let mut adopted = Vec::new();
+    for raw in legacy {
+        // `raw?.text ?? raw?.content`.
+        let content = line(raw.get("text").filter(|text| !text.is_null()).or_else(|| raw.get("content")));
+        if content.is_empty() || existing.contains(&content) {
+            continue;
+        }
+        existing.push(content.clone());
+        // `LEGACY_GOAL_TASK_STATUS`; an unknown status (and `awaiting_approval`) is pending.
+        let status = match line(raw.get("status")).to_lowercase().as_str() {
+            "in_progress" => TodoStatus::InProgress,
+            "completed" => TodoStatus::Completed,
+            "dropped" => TodoStatus::Abandoned,
+            _ => TodoStatus::Pending,
+        };
+        adopted.push(TodoTask { content, status, note: None });
+    }
+    if adopted.is_empty() {
+        return None;
+    }
+    let mut list = TodoList { phases: current.phases.clone(), updated_at_ms: now_ms };
+    let name = if list.phases.is_empty() { DEFAULT_TODO_PHASE } else { "Goal" };
+    match list.phases.iter_mut().find(|phase| phase.name == name) {
+        Some(phase) => phase.tasks.extend(adopted),
+        None => list.phases.push(TodoPhase { name: name.to_owned(), tasks: adopted }),
+    }
+    list.normalize();
+    Some(list)
+}
+
 pub type TodoEdit<'f> = dyn for<'a> FnMut(&'a TodoList) -> Result<TodoList, String> + Send + 'f;
 
 /// The session actor's list store. `update` runs `f` against the current list under the
@@ -464,6 +505,24 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    /// Node's own `adoptLegacyGoalTasks` over these sessions and legacy tasks (run on `runtime-core/todo-list.mjs`; `phases` is
+    /// `session.todo.phases` afterwards, `null` when it answered false).
+    const NODE_ADOPTIONS: &str = r#"[{"name":"empty list","todo":null,"legacy":[{"text":"Write  the\nplan","status":"completed"},{"text":"Ship it","status":"in_progress"},{"text":"Tell the user","status":"awaiting_approval"},{"text":"Old idea","status":"dropped"}],"adopted":true,"phases":[{"name":"Tasks","tasks":[{"content":"Write the plan","status":"completed"},{"content":"Ship it","status":"in_progress"},{"content":"Tell the user","status":"pending"},{"content":"Old idea","status":"abandoned"}]}]},{"name":"existing list","todo":{"phases":[{"name":"Tasks","tasks":[{"content":"Ship it","status":"in_progress"},{"content":"Review","status":"pending"}]}],"updatedAt":5},"legacy":[{"text":"Ship it","status":"completed"},{"text":"Deploy","status":"IN_PROGRESS"},{"text":"Deploy","status":"pending"},{"content":"Measure","status":" Pending "},{"text":"","status":"pending"},null,{"text":"Odd","status":"blocked"}],"adopted":true,"phases":[{"name":"Tasks","tasks":[{"content":"Ship it","status":"in_progress"},{"content":"Review","status":"pending"}]},{"name":"Goal","tasks":[{"content":"Deploy","status":"pending"},{"content":"Measure","status":"pending"},{"content":"Odd","status":"pending"}]}]},{"name":"existing Goal phase","todo":{"phases":[{"name":"Goal","tasks":[{"content":"A","status":"completed"}]}],"updatedAt":5},"legacy":[{"text":"B","status":"pending"},{"text":"C","status":"pending"}],"adopted":true,"phases":[{"name":"Goal","tasks":[{"content":"A","status":"completed"},{"content":"B","status":"in_progress"},{"content":"C","status":"pending"}]}]},{"name":"all listed","todo":{"phases":[{"name":"Tasks","tasks":[{"content":"A","status":"completed"}]}],"updatedAt":5},"legacy":[{"text":"A","status":"pending"}],"adopted":false,"phases":null},{"name":"none","todo":null,"legacy":[],"adopted":false,"phases":null},{"name":"all closed","todo":null,"legacy":[{"text":"Done one","status":"completed"},{"text":"Dropped one","status":"dropped"}],"adopted":true,"phases":[{"name":"Tasks","tasks":[{"content":"Done one","status":"completed"},{"content":"Dropped one","status":"abandoned"}]}]}]"#;
+
+    #[test]
+    fn a_legacy_goals_tasks_fold_into_the_stored_list_as_node_folds_them() {
+        let cases: Vec<Value> = serde_json::from_str(NODE_ADOPTIONS).expect("cases");
+        assert_eq!(cases.len(), 6);
+        for case in &cases {
+            let phases: Vec<TodoPhase> = serde_json::from_value(case["todo"].get("phases").cloned().unwrap_or_else(|| json!([]))).expect("phases");
+            let current = TodoList { phases, updated_at_ms: 5 };
+            let got = adopt_legacy_goal_tasks(&current, case["legacy"].as_array().expect("legacy"), 9);
+            assert_eq!(json!(got.is_some()), case["adopted"], "{}", case["name"]);
+            assert_eq!(got.as_ref().map_or(Value::Null, |list| json!(list.phases)), case["phases"], "{}", case["name"]);
+            assert!(got.is_none_or(|list| list.updated_at_ms == 9), "{}", case["name"]);
+        }
+    }
 
     fn commit(list: &TodoList, args: Value) -> (TodoList, String) {
         match run(list, &args, 7).expect("ok") {

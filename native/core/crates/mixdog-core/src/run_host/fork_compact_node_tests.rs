@@ -42,7 +42,7 @@ struct Host(Arc<Provider>);
 #[async_trait]
 impl SummaryHost for Host {
     fn session(&self) -> SessionRoute {
-        SessionRoute { provider: "anthropic".into(), model: "fake-model".into(), context_window: Some(100_000) }
+        SessionRoute { provider: "anthropic".into(), model: "fake-model".into(), context_window: Some(100_000), summary_model: None }
     }
     fn maintainer_route(&self) -> Option<MaintainerRoute> {
         None

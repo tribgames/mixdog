@@ -142,6 +142,7 @@ pub mod session_reactions;
 pub mod summary_host;
 pub mod title_completion;
 pub mod thread_todos;
+pub mod legacy_goal_todos;
 pub mod directory_sessions;
 pub mod room_list;
 pub mod room_publication;

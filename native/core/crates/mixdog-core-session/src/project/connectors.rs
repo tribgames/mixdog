@@ -41,6 +41,8 @@ fn utf16_sorted(mut ids: Vec<String>) -> Vec<String> {
     ids
 }
 
+/// A clone reads and writes the same file under its lock.
+#[derive(Clone)]
 pub struct ProjectConnectors {
     projects: Arc<dyn Registry>,
     /// The installed connectors (`installedIds()`: `mcpStatus().servers` in listing order), the

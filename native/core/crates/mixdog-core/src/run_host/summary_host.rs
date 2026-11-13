@@ -97,7 +97,12 @@ impl SummaryServices {
             deps: self.deps.clone(),
             thread: thread.clone(),
             attributed: true,
-            session: SessionRoute { provider: text("provider"), model: text("model"), context_window: window },
+            session: SessionRoute {
+                provider: text("provider"),
+                model: text("model"),
+                context_window: window,
+                summary_model: handoff_summary_model(header, &|name| (self.deps.env)(name)),
+            },
         })
     }
 
@@ -109,7 +114,7 @@ impl SummaryServices {
             deps: self.deps.clone(),
             thread: ThreadId::from(label),
             attributed: false,
-            session: SessionRoute { provider: String::new(), model: String::new(), context_window: None },
+            session: SessionRoute { provider: String::new(), model: String::new(), context_window: None, summary_model: None },
         })
     }
 }
@@ -135,6 +140,16 @@ pub(crate) fn trimmed(value: Option<&Value>) -> String {
         Some(Value::Number(n)) if n.as_f64() == Some(0.0) => String::new(),
         Some(other) => mixdog_js::js_trim(&mixdog_js::value_to_string(other)).to_owned(),
     }
+}
+
+/// `resolveHandoffSummaryModel(sessionRef)` (`loop/compact-policy.mjs`): the session's own
+/// `compaction.summaryModel`, else `MIXDOG_AGENT_COMPACT_SUMMARY_MODEL`, each trimmed. There is no
+/// automatic downshift: without either the summary runs on the session's own model.
+pub(crate) fn handoff_summary_model(header: &Header, env: &dyn Fn(&str) -> Option<String>) -> Option<String> {
+    let configured = trimmed(header.get("compaction").filter(|compaction| compaction.is_object()).and_then(|compaction| compaction.get("summaryModel")));
+    Some(configured)
+        .filter(|model| !model.is_empty())
+        .or_else(|| env("MIXDOG_AGENT_COMPACT_SUMMARY_MODEL").map(|model| mixdog_js::js_trim(&model).to_owned()).filter(|model| !model.is_empty()))
 }
 
 /// The Maintainer's route of a config: a disabled Maintainer has none, its stored route is the
@@ -263,6 +278,22 @@ mod tests {
         assert_eq!(route(json!({ "agents": { "maintainer": { "provider": "a", "model": "  " } } })), None);
         assert_eq!(route(json!({ "agents": { "maintainer": "preset-name" } })), None);
         assert_eq!(route(json!({ "agents": { "maintainer": ["x"] } })), None);
+    }
+
+    /// `resolveHandoffSummaryModel` (`loop/compact-policy.mjs:951-957`):
+    /// `String(cfg.summaryModel || '').trim() || String(process.env.MIXDOG_AGENT_COMPACT_SUMMARY_MODEL || '').trim()`, else null.
+    #[test]
+    fn the_summary_model_is_the_sessions_configured_one_then_the_environments() {
+        let header = |compaction: Value| -> Header { json!({ "provider": "p", "model": "m", "compaction": compaction }).as_object().cloned().unwrap().into_iter().collect() };
+        let none = |_: &str| None;
+        let env = |name: &str| (name == "MIXDOG_AGENT_COMPACT_SUMMARY_MODEL").then(|| "  env-model ".to_owned());
+        assert_eq!(handoff_summary_model(&header(json!({ "summaryModel": " haiku " })), &none).as_deref(), Some("haiku"));
+        assert_eq!(handoff_summary_model(&header(json!({ "summaryModel": " haiku " })), &env).as_deref(), Some("haiku"), "the session's own wins");
+        for unset in [json!({}), json!({ "summaryModel": null }), json!({ "summaryModel": "   " }), json!({ "summaryModel": false }), json!("x"), json!(null)] {
+            assert_eq!(handoff_summary_model(&header(unset.clone()), &none), None, "{unset}");
+            assert_eq!(handoff_summary_model(&header(unset.clone()), &env).as_deref(), Some("env-model"), "{unset}");
+        }
+        assert_eq!(handoff_summary_model(&header(json!({})), &|_| Some("  ".to_owned())), None);
     }
 
     #[test]

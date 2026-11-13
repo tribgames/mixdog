@@ -61,7 +61,7 @@ struct StubHost;
 #[async_trait]
 impl SummaryHost for StubHost {
     fn session(&self) -> SessionRoute {
-        SessionRoute { provider: "stub".into(), model: "stub-model".into(), context_window: Some(40_000) }
+        SessionRoute { provider: "stub".into(), model: "stub-model".into(), context_window: Some(40_000), summary_model: None }
     }
     fn maintainer_route(&self) -> Option<MaintainerRoute> {
         None
