@@ -140,6 +140,15 @@ impl ThreadStore for DefaultTail {
     fn history_rows(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<(u64, Vec<ItemRecord>), CoreError> {
         self.0.history_rows(lane, id)
     }
+    /// The seam's own default with the store's marks: the whole history read, then cut to its newest rows.
+    fn history_tail_decor(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, rows: usize) -> Result<(u64, Vec<ItemRecord>, Vec<super::seams::RowDecor>, bool), CoreError> {
+        let (rev, mut all, mut decor, _) = self.0.history_tail_decor(lane, id, usize::MAX)?;
+        let complete = all.len() <= rows;
+        let cut = all.len().saturating_sub(rows);
+        all.drain(..cut);
+        decor.drain(..cut.min(decor.len()));
+        Ok((rev, all, decor, complete))
+    }
     fn thread_op(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, op: &str) -> Result<Option<super::seams::StoredOp>, CoreError> {
         self.0.thread_op(lane, id, op)
     }
@@ -198,11 +207,15 @@ fn lanes(tokens: LaneTokens) -> SessionLanes {
 async fn whole(store: &Arc<dyn ThreadStore>, tokens: LaneTokens, id: &ThreadId, params: &Value) -> Result<Reply, CoreError> {
     let token = CancellationToken::new();
     let (thread, reading) = (id.clone(), store.clone());
-    let (rev, records) = tokens.interactive_io.submit(&token, move |lane| reading.history_rows(lane, &thread)).expect("lane").await.expect("job ran")?;
+    // The whole history as `reads::history` reads it: every record, marked as a page marks it.
+    let (rev, records, decor, _) =
+        tokens.interactive_io.submit(&token, move |lane| reading.history_tail_decor(lane, &thread, usize::MAX)).expect("lane").await.expect("job ran")?;
     let transcript = RecordTranscript::new();
     let rows = tokens
         .cpu_interactive
-        .submit(&token, move |lane| records.iter().flat_map(|record| transcript.rows(lane, record)).collect::<Vec<(ThreadItem, usize)>>())
+        .submit(&token, move |lane| {
+            records.iter().enumerate().flat_map(|(at, record)| super::reads::decorated(transcript.rows(lane, record), decor.get(at))).collect::<Vec<(ThreadItem, usize)>>()
+        })
         .expect("lane")
         .await
         .expect("job ran");

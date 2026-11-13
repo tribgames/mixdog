@@ -26,7 +26,7 @@ import type {
 } from '../shared/contract';
 import { SECTION_NAMES, type DesktopSectionsSnapshot } from '../shared/contract-sections';
 import type { ProtocolClient, SessionFold } from '../../../../packages/protocol-client/src/index.ts';
-import { mergeToolRows, rowOf, sessionStateOf } from '../../../../packages/protocol-client/src/index.ts';
+import { mergeToolRows, rowsOf, sessionStateOf } from '../../../../packages/protocol-client/src/index.ts';
 import { createChatHostApi, READ_NOT_HELD, READ_NOT_VIEWED, type ChatHostShared } from './remote-chat-host';
 import { remoteSessionIdOf, withRemoteSession } from '../shared/blank-snapshot.ts';
 import { createCapabilityLane } from '../main/protocol/capability-route';
@@ -627,8 +627,8 @@ export const sharedFor = (scoped: ChatClient): ChatHostShared => {
       return asked ? String(asked.id) : cardId;
     },
     transcript: foldTranscript(client),
-    // The client's own fold of thread items into transcript rows (`rowOf`, then `mergeToolRows`).
-    foldRows: (items) => mergeToolRows(items.map((item) => rowOf(item as never)).filter((row) => row !== null)),
+    // The client's own fold of thread items into transcript rows (`rowsOf`: a row and the compaction dividers after it, then `mergeToolRows`).
+    foldRows: (items) => mergeToolRows(items.flatMap((item) => rowsOf(item as never))),
   };
 };
 
