@@ -1410,17 +1410,8 @@ fn apply_frame(
             }
         }
         FrameKind::Compacted { cid, at, rows, mode, dropped, silent } => {
-            // The divider precedes the oldest row the compaction kept.
-            let mut boundary = ordinal;
-            let mut kept = tx.prepare_cached(
-                "SELECT min(ordinal) FROM history WHERE session = ?1 AND iid = ?2 AND ordinal < ?3
-                 AND form = 0 AND model = 1 AND superseded_rev IS NULL",
-            )?;
-            for (iid, _) in rows {
-                if let Some(at) = kept.query_row(params![session, iid, ordinal], |r| r.get::<_, Option<i64>>(0))? {
-                    boundary = boundary.min(at);
-                }
-            }
+            // The divider sits at the compaction's own record (`archive_index::divider_place`).
+            let boundary = ordinal;
             tx.prepare_cached(
                 "INSERT OR REPLACE INTO compactions (session, ordinal, cid, file_no, frame_offset, frame_len,
                  boundary, at, drop_mode, silent, superseded_rev) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, NULL)",
@@ -2844,7 +2835,8 @@ fn dividers_on(
             })?
             .collect::<Result<Vec<_>, _>>()?;
         for (ordinal, (file_no, offset, len), cid, own_boundary, at) in found {
-            let place = crate::archive_index::divider_place(c, lineage, cut, i, ordinal as u64, own_boundary as u64)?;
+            let _ = own_boundary; // an index written before the divider moved to its own record holds the old place
+            let place = crate::archive_index::divider_place(i, ordinal as u64);
             if place.0 == level && place.1 >= from && place.1 < to {
                 // The records anchored here: the compaction's own log and each later
                 // level's up to its fork point, keyed (entry position, level, record).

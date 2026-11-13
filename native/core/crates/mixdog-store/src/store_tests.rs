@@ -1962,7 +1962,8 @@ async fn compaction_keeps_history_marks_dropped_rows_and_places_the_divider() {
         rows.iter().map(|r| r.kept.iter().map(|k| (k.compaction.ordinal, k.idx)).collect()).collect();
     assert_eq!(copies, [vec![], vec![(5, 2)], vec![(5, 1)], vec![], vec![]], "the rewritten copies of d and c");
     let dividers = env.store.dividers(lineage(&[("s1", None)]), None, 0, 0, u64::MAX).await.unwrap();
-    assert_eq!(dividers.iter().map(|d| (d.cid.as_str(), d.boundary, d.pos.ordinal)).collect::<Vec<_>>(), [("k1", 3, 5)]);
+    // The divider is where the compaction happened (its own record), not before the oldest row it kept.
+    assert_eq!(dividers.iter().map(|d| (d.cid.as_str(), d.boundary, d.pos.ordinal)).collect::<Vec<_>>(), [("k1", 5, 5)]);
     assert_eq!(dividers[0].at, Some(1792567960000));
     // Rewinding before the compaction removes both the divider and the marks.
     let (_w, _) = env.commit(w, vec![rec(json!({"k":"rewind","to_ordinal":5,"reason":"edit"}))]).await;
@@ -2084,18 +2085,18 @@ async fn a_silent_compaction_restarts_the_context_and_lists_no_divider() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_forks_divider_precedes_the_oldest_inherited_row_its_replacement_kept() {
+async fn a_forks_divider_is_at_its_own_compaction_and_the_inherited_rows_it_kept_stay_live() {
     let env = Env::new();
     let base = env.create("b0", None).await;
     let (_base, _) = env.commit(base, vec![user("b1", "one"), user("b2", "two"), user("b3", "three")]).await;
-    // The fork keeps b2 and b3 (inherited) behind a summary: 1.4.5 restores the fork's copies
-    // of them after the divider, so it sits before b2 in the base's rows.
+    // The fork keeps b2 and b3 (inherited) behind a summary: the divider is at the fork's own
+    // compaction, after the rows it inherited.
     let keeps = env.create("c0", Some(("b0", 4))).await;
     let kept = rec(json!({"k":"compacted","cid":"k1","dropped_count":1,"replacement":{"inline":[
         {"iid":"sum","body":{"role":"user","content":"summary"}},
         {"iid":"b2","body":{"role":"user","content":"two"}},
         {"iid":"b3","body":{"role":"user","content":"three"}}]}}));
-    let (_keeps, _) = env.commit(keeps, vec![kept, user("c1", "after")]).await;
+    let (_keeps, kept_at) = env.commit(keeps, vec![kept, user("c1", "after")]).await;
     let levels = lineage(&[("c0", None), ("b0", Some(4))]);
     let at = |level| {
         let (store, levels) = (env.store.clone(), levels.clone());
@@ -2103,10 +2104,10 @@ async fn a_forks_divider_precedes_the_oldest_inherited_row_its_replacement_kept(
             store.dividers(levels, None, level, 0, u64::MAX).await.unwrap().iter().map(|d| (d.cid.clone(), d.level, d.boundary)).collect::<Vec<_>>()
         }
     };
-    assert_eq!(at(1).await, [("k1".to_owned(), 1, 2)]);
-    assert!(at(0).await.is_empty());
-    // `droppedMessages: 1` without identities archives the rows before the divider and only
-    // those: b1 left, the kept b2 and b3 stay live.
+    assert_eq!(at(0).await, [("k1".to_owned(), 0, kept_at[0])]);
+    assert!(at(1).await.is_empty());
+    // `droppedMessages: 1` without identities archives the rows before the compaction that its
+    // replacement did not keep: b1 left, the kept b2 and b3 stay live.
     let (rows, _) = env.store.history_page(levels.clone(), None, None, 10).await.unwrap();
     assert_eq!(
         rows.iter().map(|r| (r.iid.as_str(), r.archived)).collect::<Vec<_>>(),
