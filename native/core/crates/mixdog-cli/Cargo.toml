@@ -144,6 +144,10 @@ mixdog-exthost = { workspace = true, features = ["test-support"] }
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 mixdog-trace = { workspace = true, features = ["flush-probe"] }
 
+[target.'cfg(windows)'.dependencies]
+# `serve` claims the desktop app's AppUserModelID, so Task Manager lists the core inside the app's group.
+windows-sys = { workspace = true, features = ["Win32_UI_Shell"] }
+
 [target.'cfg(windows)'.dev-dependencies]
 # The CLI replay's Ctrl+C (a console control event to the binary's own console) and the processes a killed run leaves.
 windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_Console", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Threading"] }
