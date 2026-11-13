@@ -374,7 +374,24 @@ async fn ctl_request(
     }
 }
 
+/// Task Manager groups its Processes rows by AppUserModelID, not by the parent/child chain: a core with no identity of
+/// its own is listed beside the app that started it instead of inside it. The core claims the desktop app's id (the
+/// `appId` of electron-builder.yml, which the app passes to `app.setAppUserModelId`), as the native helpers do
+/// (`mixdog-spawn`, `mixdog-graph`). It changes the grouping in the taskbar and Task Manager only; a call that fails
+/// leaves the core listed on its own.
+#[cfg(windows)]
+fn adopt_desktop_app_identity() {
+    let app_id: Vec<u16> = "io.mixdog.desktop ".encode_utf16().collect();
+    // SAFETY: `app_id` is a NUL-terminated UTF-16 string that outlives the call; the call only records it for this process.
+    #[allow(unsafe_code, reason = "one Win32 call that records this process's AppUserModelID")]
+    let _ = unsafe { windows_sys::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID(app_id.as_ptr()) };
+}
+
+#[cfg(not(windows))]
+fn adopt_desktop_app_identity() {}
+
 fn serve() -> ExitCode {
+    adopt_desktop_app_identity();
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .with_writer(std::io::stderr)
