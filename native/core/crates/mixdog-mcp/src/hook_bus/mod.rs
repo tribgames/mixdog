@@ -445,6 +445,57 @@ impl HookBus {
         self.dispatch("CwdChanged", Value::Object(payload), cwd).await;
     }
 
+    /// `SessionStart` (`session-start-hook.mjs` `dispatchSessionStart`, after a runtime built its
+    /// session): `source` is `startup`, `resume` or `clear` ([`crate::hooks::session_start_source`])
+    /// and the event's matcher field, `model` the route's model. Returns the context the handlers
+    /// add (`additionalContext`), which the caller puts before the first user turn. Best-effort:
+    /// nothing else the handlers decide changes the creation.
+    pub async fn session_start(&self, session_id: &str, source: &str, model: Option<&str>, cwd: &Path, common: &HookCommon) -> Vec<String> {
+        let mut payload = base_payload("SessionStart", session_id, cwd, common);
+        payload.insert("source".into(), json!(source));
+        // `model: rt.route.model`: a route with no model serializes no key.
+        if let Some(model) = model {
+            payload.insert("model".into(), json!(model));
+        }
+        self.dispatch("SessionStart", Value::Object(payload), cwd).await.additional_context
+    }
+
+    /// `UserPromptSubmit` (`turn-prepare.mjs` `dispatchPromptSubmit`, after the turn's user row and
+    /// before the model is asked): `prompt` is the turn's prompt as submitted (text or content
+    /// parts). No matcher field. The caller reads `blocked` / `reason` (the turn is refused) and
+    /// `additional_context` (it rides the turn as its context).
+    pub async fn user_prompt_submit(&self, session_id: &str, prompt: &Value, cwd: &Path, common: &HookCommon) -> Dispatched {
+        let mut payload = base_payload("UserPromptSubmit", session_id, cwd, common);
+        payload.insert("prompt".into(), prompt.clone());
+        self.dispatch("UserPromptSubmit", Value::Object(payload), cwd).await
+    }
+
+    /// `Stop` (`turn-settle.mjs` `completeTurn`, after the turn's final assistant text is
+    /// written). No matcher field. Node awaits the dispatch and reads nothing from it: what the
+    /// handlers decide changes nothing.
+    pub async fn stop(&self, session_id: &str, cwd: &Path, common: &HookCommon) {
+        let payload = base_payload("Stop", session_id, cwd, common);
+        self.dispatch("Stop", Value::Object(payload), cwd).await;
+    }
+
+    /// `StopFailure` (`turn-settle.mjs` `reportTurnError`): the turn ended with an error;
+    /// `error_type` is its class ([`crate::hooks::stop_failure_type`]) and the event's matcher
+    /// field. The caller does not wait for it (Node's `void hooks.dispatch(..)`).
+    pub async fn stop_failure(&self, session_id: &str, error_type: &str, cwd: &Path, common: &HookCommon) {
+        let mut payload = base_payload("StopFailure", session_id, cwd, common);
+        payload.insert("error_type".into(), json!(error_type));
+        self.dispatch("StopFailure", Value::Object(payload), cwd).await;
+    }
+
+    /// `SessionEnd` (`teardown/session-close.mjs` `dispatchSessionEnd`, when a runtime closes with
+    /// a session): `reason` is `clear`, `exit` or `other` ([`crate::hooks::session_end_reason`])
+    /// and the event's matcher field. What the handlers decide changes nothing.
+    pub async fn session_end(&self, session_id: &str, reason: &str, cwd: &Path, common: &HookCommon) {
+        let mut payload = base_payload("SessionEnd", session_id, cwd, common);
+        payload.insert("reason".into(), json!(reason));
+        self.dispatch("SessionEnd", Value::Object(payload), cwd).await;
+    }
+
     fn identity(input: &ToolCall<'_>) -> Map<String, Value> {
         let mut identity = Map::new();
         identity.insert("sessionId".into(), if input.session_id.is_empty() { Value::Null } else { json!(input.session_id) });

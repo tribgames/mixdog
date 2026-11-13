@@ -1621,6 +1621,10 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     store_threads.settle_marks(b.tokens.durability_io).await.map_err(|e| ComposeError::Config(format!("sensitive marks: {e:?}")))?;
     // The stored sessions, shared with the search backfill and `StoredConsumers`; the snapshot cleanups, built once.
     let session_lanes = || mixdog_core_session::session::SessionLanes { cpu: b.tokens.cpu_interactive, io: b.tokens.interactive_io, durability: b.tokens.durability_io };
+    // A hook payload's `transcript_path` (`hookTranscriptPath`): the bus asks the session's export just before a handler runs; a delete removes the file (the purge's `transcript_export`).
+    hook_bus
+        .bind_transcripts(Arc::new(mixdog_core_session::session::transcript_export::TranscriptFiles::new(&b.data_dir, store_threads.clone(), session_lanes(), b.tokens.maintenance_io)))
+        .map_err(|_| ComposeError::AlreadyBound("hook transcripts"))?;
     let stored_sessions = Arc::new(mixdog_core_session::session::search_backfill::StoredSearchSessions::new(
         store_threads.clone(),
         session_lanes(),
@@ -2154,6 +2158,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 handoff_hub.clone(), b.ext_host.clone(), b.data_dir.to_string_lossy().into_owned(),
             );
             let mcp_glue = mcp.glue.clone();
+            // The sessions' lifecycle hooks (`SessionStart`, `UserPromptSubmit`, `Stop`, `StopFailure`, `SessionEnd`, `CwdChanged`) over the one bus; a moved folder reconciles the session's MCP scope.
+            let lifecycle: Arc<dyn mixdog_core_session::session::lifecycle_hooks::LifecycleHooks> = Arc::new(mixdog_core::run_host::lifecycle_hooks::BusLifecycleHooks::new(hook_bus.clone(), startup_cwd.clone(), mcp_glue.clone()));
             let (early_todos, early_work) = (early.todos.clone(), early.work.clone());
             let (early_cycles, early_goals, mcp_catalog, memory_module, memory_search) = (early.cycles.clone(), early.goals.clone(), mcp.catalog.clone(), memory.module(), memory.search());
             // `SessionQuota::over_config(goals, config)` is exactly `{ goals, auto_resume: over_config }`; the closure is the one hoisted above.
@@ -2233,6 +2239,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 surface: session_surface.clone(),
         builtin_skills: Arc::new(CatalogBuiltinSkills(mcp_catalog.clone())), // turn-failure-4: the built-in skill names of the catalog the pool's Skill tool reads
                 shell_strips,
+                lifecycle,
                 code_graph_prewarm: session_prewarm.clone(), // batch i: the sessions' busy-state, first-visible and cwd events reach the one timer
                 agent_status: late_agent_status.clone(),
                 live_workspace: live_workspace.clone(),

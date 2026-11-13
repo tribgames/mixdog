@@ -85,6 +85,52 @@ pub fn match_field<'a>(event: &str, payload: &'a Value) -> Option<&'a str> {
     Some(field.and_then(Value::as_str).unwrap_or_default())
 }
 
+/// `sessionStartSource(reason)` (`session-start-hook.mjs`): the `SessionStart` payload's `source`
+/// for the reason a session was created.
+pub fn session_start_source(reason: &str) -> &'static str {
+    let reason = reason.to_ascii_lowercase();
+    if reason.contains("resume") {
+        "resume"
+    } else if reason.contains("clear") {
+        "clear"
+    } else {
+        "startup"
+    }
+}
+
+/// `sessionEndReason(reason)` (`teardown/session-close.mjs`): the `SessionEnd` payload's `reason`
+/// for the reason a runtime closed (`clear` / `exit` where they apply, else `other`).
+pub fn session_end_reason(reason: &str) -> &'static str {
+    let reason = reason.to_lowercase();
+    if reason.contains("clear") {
+        "clear"
+    } else if ["exit", "quit", "shutdown", "sigint", "sigterm"].iter().any(|word| reason.contains(word)) {
+        "exit"
+    } else {
+        "other"
+    }
+}
+
+/// `stopFailureType(message)` (`turn-settle.mjs`): the `StopFailure` payload's `error_type`, read
+/// from the failure's message (lower-cased here, as its caller does).
+pub fn stop_failure_type(message: &str) -> &'static str {
+    use std::sync::LazyLock;
+
+    use regex::Regex;
+    // JavaScript's `\b` and `\d` are ASCII.
+    static CLASSES: LazyLock<[(Regex, &str); 4]> = LazyLock::new(|| {
+        let class = |pattern: &str, name: &'static str| (Regex::new(pattern).expect("a StopFailure class pattern"), name);
+        [
+            class(r"rate.?limit|(?-u:\b)429(?-u:\b)|too many requests", "rate_limit"),
+            class(r"overloaded|(?-u:\b)529(?-u:\b)", "overloaded"),
+            class(r"authenticat|unauthorized|(?-u:\b)401(?-u:\b)|invalid.*api.?key", "authentication_failed"),
+            class(r"server.?error|(?-u:\b)5[0-9][0-9](?-u:\b)|internal error", "server_error"),
+        ]
+    });
+    let message = message.to_lowercase();
+    CLASSES.iter().find(|(pattern, _)| pattern.is_match(&message)).map_or("unknown", |(_, name)| name)
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SourceType {
     Env,
@@ -432,5 +478,34 @@ mod tests {
         assert!(groups[0].handlers[0].untrusted);
         assert_eq!(match_field("PreToolUse", &json!({"tool_name": "shell"})), Some("shell"));
         assert_eq!(match_field("Stop", &json!({})), None);
+    }
+
+    /// Node's `sessionStartSource`, `sessionEndReason` and `stopFailureType` over the reasons and
+    /// messages the runtime passes them.
+    #[test]
+    fn lifecycle_payload_fields_are_classified_as_node_classifies_them() {
+        for (reason, source) in [("turn", "startup"), ("reservation", "startup"), ("", "startup"), ("desktop-Resume", "resume"), ("cli-clear", "clear")] {
+            assert_eq!(session_start_source(reason), source, "{reason}");
+        }
+        for (reason, end) in [("cli-exit", "exit"), ("daemon shutdown: SIGTERM", "exit"), ("quit", "exit"), ("context-clear", "clear"), ("idle and unwatched", "other"), ("", "other")] {
+            assert_eq!(session_end_reason(reason), end, "{reason}");
+        }
+        for (message, class) in [
+            ("Rate limit exceeded", "rate_limit"),
+            ("HTTP 429", "rate_limit"),
+            ("Too Many Requests", "rate_limit"),
+            ("Overloaded", "overloaded"),
+            ("status 529 from upstream", "overloaded"),
+            ("authentication failed", "authentication_failed"),
+            ("401 Unauthorized", "authentication_failed"),
+            ("Invalid x-api-key", "authentication_failed"),
+            ("Internal Server Error", "server_error"),
+            ("upstream said 503", "server_error"),
+            ("code 1503 is no status", "unknown"),
+            ("prompt blocked by hook: no", "unknown"),
+            ("", "unknown"),
+        ] {
+            assert_eq!(stop_failure_type(message), class, "{message}");
+        }
     }
 }

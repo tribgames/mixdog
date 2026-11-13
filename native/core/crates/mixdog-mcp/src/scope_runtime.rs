@@ -72,7 +72,8 @@ struct Cell {
     scope: String,
     /// Who releases it: the session that opened it; the daemon for the runtime scope.
     owner: Mutex<String>,
-    cwd: String,
+    /// The folder the scope's session works in now ([`ScopeRuntime::cwd_changed`] moves it).
+    cwd: Mutex<String>,
     /// The scope's operations, one at a time in arrival order.
     turns: Arc<SerialChain>,
     /// True once the first connect settled, or the scope was released.
@@ -85,6 +86,12 @@ struct Cell {
     /// return. Node records a failed connect and keeps the runtime (connect.mjs:121-124); the status
     /// shows it, and the next operation that applies (a reset, reconnect or reconcile) clears it.
     failure: Mutex<Option<String>>,
+}
+
+impl Cell {
+    fn cwd(&self) -> String {
+        lock(&self.cwd).clone()
+    }
 }
 
 /// The first connect of a scope in progress. Dropped without having returned (a panic, or the task
@@ -243,7 +250,7 @@ impl ScopeRuntime {
         if *cell.ready.borrow() {
             return;
         }
-        let resolved = self.configs.resolve(&cell.scope, &cell.cwd, None).await;
+        let resolved = self.configs.resolve(&cell.scope, &cell.cwd(), None).await;
         let budgets: Vec<Option<Duration>> = resolved.configs.iter().filter(|c| c.enabled).map(|c| c.startup_timeout).collect();
         if budgets.contains(&None) {
             return;
@@ -280,7 +287,7 @@ impl ScopeRuntime {
                         scope: key.clone(),
                         // The runtime scope is the daemon's whoever asks for it (a control thread resuming in it).
                         owner: Mutex::new(if key == self.hub.runtime_scope() { RUNTIME_OWNER.to_owned() } else { owner.to_owned() }),
-                        cwd: cwd.to_owned(),
+                        cwd: Mutex::new(cwd.to_owned()),
                         turns: SerialChain::new(),
                         ready,
                         waiting,
@@ -388,6 +395,17 @@ impl ScopeRuntime {
         self.run_cell(&cell, &op, generation).await;
     }
 
+    /// `onCwdChanged` (`boot/infrastructure.mjs:299`): the session of `scope` now works in `cwd`.
+    /// Plugin servers without a declared cwd follow the session's folder, so the scope reconciles
+    /// in place (`connectConfiguredMcp({ reconcile: true })`): its configuration is resolved for
+    /// the new folder and only the servers it changes reconnect. A scope that is not open does
+    /// nothing; the next open reads the folder it is given.
+    pub async fn cwd_changed(self: &Arc<Self>, scope: &str, cwd: &str) {
+        let Some(cell) = self.cell(scope) else { return };
+        cwd.clone_into(&mut lock(&cell.cwd));
+        self.run(scope, Op::Reconcile).await;
+    }
+
     /// Requests `op` on every open scope now, and runs each in its own task behind its own queue
     /// (the caller's runtime and Node's fan-out to the process's other runtimes alike). The tasks,
     /// for whoever waits. No scope open: nothing connects.
@@ -426,7 +444,7 @@ impl ScopeRuntime {
         if let Some(watch) = &watch {
             watch.connecting(&cell.scope, op).await;
         }
-        let resolved = self.configs.resolve(&cell.scope, &cell.cwd, only).await;
+        let resolved = self.configs.resolve(&cell.scope, &cell.cwd(), only).await;
         self.connect(&cell.scope, generation, op, resolved).await;
         #[cfg(feature = "test-support")]
         if let Some(watch) = &watch {

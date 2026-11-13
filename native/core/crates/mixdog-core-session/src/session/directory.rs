@@ -1950,7 +1950,28 @@ impl SessionDirectory {
                 })
                 .await?;
         }
+        self.session_started(&handle, &req.ctx).await;
         Ok(handle)
+    }
+
+    /// `dispatchSessionStart(deps, reason, signal)` (`session-create.mjs` `buildSession`, right after `materializeSession`): the
+    /// runtime's new session fires `SessionStart` before anything else uses it, and the context its handlers add is stored
+    /// ahead of the first user turn as a reminder and its ack (`rt.session.messages.push(..)`, `updatedAt` stamped with
+    /// them). Best-effort: a hook problem, or rows that could not be stored, never fail the creation; a caller that gave
+    /// up stops the wait (`runAbortable(signal, ..)`).
+    async fn session_started(&self, handle: &Arc<SessionHandle>, ctx: &CallContext) {
+        let header = handle.cell.header.load_full();
+        let context = tokio::select! {
+            context = self.inner.deps.lifecycle.session_start(&handle.id, &header) => context,
+            () = ctx.cancel.cancelled() => return,
+        };
+        let Some(rows) = super::lifecycle_hooks::session_start_rows(&context) else { return };
+        // Model context only, never displayed: rows of no turn.
+        let rows: Vec<Value> = rows.into_iter().map(|body| json!({ "body": body, "visible": false })).collect();
+        let commit = CoreRequest { method: Method("thread/roomRows/commit"), params: json!({ "rows": rows }), op: None, ctx: CallContext::internal("session-start-hook") };
+        if let Err(error) = handle.request(commit).await {
+            tracing::warn!("session {}: the SessionStart hook context was not stored: {error}", handle.id.as_str());
+        }
     }
 
     /// The draft's worktree, entered before the first prompt (Node: after the draft's route, workflow and mode).

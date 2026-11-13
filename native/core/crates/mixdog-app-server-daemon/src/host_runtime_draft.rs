@@ -93,7 +93,8 @@ impl HostRuntime for LiveHostRuntime {
     }
 
     /// Node `applyResolvedCwd`: `writeLastSessionCwd(cwd, session.clientHostPid)`, then `moveLeadRow` (`update_lead_worker_cwd`, which cannot throw; Node swallows its
-    /// throws). The header `cwd` is `SessionWorkspaceHost::save`'s. NOT here (no Rust call yet, run-host): the folder-exists check, the `CwdChanged` hook, the code-graph prewarm.
+    /// throws). The header `cwd` is `SessionWorkspaceHost::save`'s; the `CwdChanged` hook, the MCP reconcile and the code-graph prewarm follow the apply on the session's actor
+    /// (`Ctl::CwdApplied`). NOT here (no Rust call yet, run-host): the folder-exists check.
     async fn set_runtime_cwd(&self, id: &str, cwd: &str) -> Result<(), ScmFailure> {
         let pid = self.client_host_pid(id).map(|p| p.to_string());
         self.user_cwd.write_last_cwd(cwd, pid.as_deref()).await;

@@ -1330,9 +1330,11 @@ async fn drive(
     search_usage: Arc<mixdog_tools::web::NativeSearchUsageSinks>,
     run: RunStart,
 ) -> RunOutcome {
-    let RunStart { thread, turn, input_body, header, port, context, surface, progress, turn_messages, cancel, signal, review, agent_turn, unattended, verb, skill_selection: routine_selection, input: submitted, input_item, goal_reminder, notice: carried_notice, transcripts } = run;
+    let RunStart { thread, turn, input_body, header, port, context, surface, progress, turn_messages, cancel, signal, review, agent_turn, unattended, verb, skill_selection: routine_selection, input: submitted, input_item, goal_reminder, notice: carried_notice, transcripts, lifecycle } = run;
     // whileTurnDispatched and the runtime entry (`runtime-state.mjs`): the run is live from here to the end of the drive.
     let _live = super::turn_liveness::TurnLiveness::begin(&liveness, &thread, Value::Object(header.clone()), progress.subscribe(), cancel.clone());
+    // The turn's own context (`options.context`: an agent spawn's or send's `context` argument).
+    let own_context = agent_turn.as_ref().and_then(|turn| turn.context.as_ref()).and_then(Value::as_str).map(str::to_owned);
     let (slot, skill_selection, on_tool_result, notify) = match agent_turn {
         Some(turn) => {
             let hook = turn.hooks.notify;
@@ -1394,6 +1396,19 @@ async fn drive(
     if let Some(transcript) = &turn_transcript {
         transcript.user(input_body.get("content").unwrap_or(&Value::Null));
     }
+    // `dispatchPromptSubmit` (`turn-prepare.mjs:185-208`), after the prompt row and before the model is asked: a handler's
+    // block refuses the turn (`prompt blocked by hook: <reason>`), a hook failure decides nothing, and the context the
+    // handlers add joins the turn's own as the context this turn carries. The wait ends with the turn (`turn.awaitTurn`):
+    // a turn stopped meanwhile goes on to the loop, which ends it as stopped.
+    let submitted_prompt = input_body.get("content").cloned().unwrap_or(Value::Null);
+    let verdict = tokio::select! {
+        verdict = lifecycle.prompt_submit(&thread, &header, &submitted_prompt) => verdict,
+        () = cancel.cancelled() => Default::default(),
+    };
+    if verdict.blocked {
+        return failed(format!("prompt blocked by hook: {}", verdict.reason.as_deref().unwrap_or_default()), Value::Null);
+    }
+    let turn_context = super::lifecycle_hooks::turn_context(own_context.as_deref(), &verdict.context);
     let surface_now = surface.borrow().clone();
     let assembled = match parts.assemble(AssembleInput { thread: &thread, turn: &turn, header: &header, surface: surface_now, port: &port, surface_rx: surface.clone(), slot, skill_selection, prior: &prior, request: &request, injected, notify, progress: tool_progress }).await {
         Ok(assembled) => assembled,
@@ -1467,7 +1482,9 @@ async fn drive(
             Ok(reminders) => reminders,
             Err(text) => return failed(text, input_body),
         };
-        let Some(carried) = reminders.carry(&input_body) else {
+        // `prefixUserTurnContent(prompt, contextBlock)` (`buildUserTurn`): the turn's context leads the prompt, the reminders
+        // trail it. A retried turn resends its message as it was built (`retainedUserTurn` reads no context).
+        let Some(carried) = super::lifecycle_hooks::with_turn_context(&input_body, &turn_context).and_then(|message| reminders.carry(&message)) else {
             return failed("the turn's input row cannot carry the turn's reminders".to_owned(), input_body);
         };
         (carried, reminders.revisions)
@@ -1697,6 +1714,12 @@ async fn drive(
             // `transcript.appendFinalAssistant(result)` (`turn-settle.mjs:44`): `historyContent ?? content`.
             if let Some(turn_transcript) = &turn_transcript {
                 turn_transcript.final_text(output.response.history_content.as_deref().unwrap_or(&output.response.content));
+            }
+            // `completeTurn` (`turn-settle.mjs:46-51`): the `Stop` hook, awaited before the turn reports its end; nothing it
+            // answers is read. The wait ends with the turn (`turn.awaitTurn`).
+            tokio::select! {
+                () = lifecycle.stop(&thread, &header) => {}
+                () = cancel.cancelled() => {}
             }
             sink.live.clear();
             progress.done(output.response.content.trim().is_empty());
@@ -2271,6 +2294,83 @@ mod tests {
         let second: Vec<_> = requests[1].messages.iter().map(|m| m.role).collect();
         assert_eq!(second, [Role::User, Role::Assistant, Role::Tool]);
         let _ = AtomicI64::new(0);
+    }
+
+    /// The hooks a turn fired, in order, and what its `UserPromptSubmit` answers.
+    #[derive(Default)]
+    struct TurnHooks {
+        calls: Mutex<Vec<String>>,
+        verdict: Mutex<mixdog_core_session::session::lifecycle_hooks::PromptVerdict>,
+    }
+
+    #[async_trait]
+    impl mixdog_core_session::session::lifecycle_hooks::LifecycleHooks for TurnHooks {
+        async fn prompt_submit(&self, _: &ThreadId, header: &mixdog_store::schema::record::Header, prompt: &Value) -> mixdog_core_session::session::lifecycle_hooks::PromptVerdict {
+            lock(&self.calls).push(format!("UserPromptSubmit:{}:{prompt}", header["cwd"].as_str().unwrap_or_default()));
+            lock(&self.verdict).clone()
+        }
+        async fn stop(&self, _: &ThreadId, _: &mixdog_store::schema::record::Header) {
+            lock(&self.calls).push("Stop".to_owned());
+        }
+        async fn stop_failure(&self, _: &ThreadId, _: &mixdog_store::schema::record::Header, error_type: &str) {
+            lock(&self.calls).push(format!("StopFailure:{error_type}"));
+        }
+    }
+
+    /// A turn's hooks (`turn-run.mjs` `runTurn`): `UserPromptSubmit` with the prompt as submitted, before the model is asked;
+    /// the context it adds leads the prompt the model reads (`# Additional context` / `# Task`); `Stop` once the turn
+    /// completed. A handler's block refuses the turn with Node's message before any request, and that turn fires
+    /// `StopFailure` instead of `Stop`.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_turn_fires_its_prompt_and_stop_hooks_and_a_blocked_prompt_asks_no_model() {
+        use mixdog_core_session::session::lifecycle_hooks::PromptVerdict;
+        let done = |text: &str| vec![StreamEvent::TextDelta(text.into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }];
+        let provider = Arc::new(Scripted {
+            id: ProviderId::from("scripted"),
+            policy: RetryPolicy::codex_default(),
+            keepalive: KeepaliveSchedule::SPEC,
+            codec: MockCodec,
+            script: Mutex::new(VecDeque::from([done("ok")])),
+            requests: Mutex::new(Vec::new()),
+            fail_first: std::sync::atomic::AtomicBool::new(false),
+        });
+        let hooks = Arc::new(TurnHooks::default());
+        *lock(&hooks.verdict) = PromptVerdict { blocked: false, reason: None, context: vec!["remember X".to_owned(), " and Y\n".to_owned()] };
+        let workspace = tempfile::tempdir().unwrap();
+        let rig = Rig::new();
+        let mut deps = rig.deps_parts(rig.store.clone());
+        deps.lifecycle = hooks.clone();
+        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None, effort: None })));
+        let directory = SessionDirectory::new(Arc::new(deps));
+        let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
+        let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
+        let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
+        let handle = directory.handle(&id).expect("loaded");
+        let ended = || {
+            rig.store
+                .records(&id)
+                .into_iter()
+                .filter(|(_, record)| matches!(record, Record::Run(run) if matches!(run.phase, mixdog_store::schema::record::RunPhase::Completed | mixdog_store::schema::record::RunPhase::Failed)))
+                .count()
+        };
+        let calls = || lock(&hooks.calls).clone();
+
+        handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
+        eventually_on_awaiting(|| "the first turn's end record".to_owned(), &[handle.stepped()], || (ended() >= 1).then_some(())).await;
+        assert_eq!(calls(), ["UserPromptSubmit:/ws:\"go\"", "Stop"]);
+        let requests = lock(&provider.requests).clone();
+        assert_eq!(requests.len(), 1);
+        let asked = format!("{:?}", requests[0].messages.iter().find(|m| m.role == Role::User).expect("the prompt").content);
+        // The debug form writes each line break as `\n`. The joined context is trimmed as one text, as Node trims it.
+        assert!(asked.contains(r"# Additional context\nremember X\n\n and Y\n\n# Task\ngo"), "the context leads the prompt: {asked}");
+
+        *lock(&hooks.verdict) = PromptVerdict { blocked: true, reason: Some("not now".to_owned()), context: vec!["never read".to_owned()] };
+        handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-2", "input": { "prompt": "again" } }), "op-2")).await.expect("turn/start");
+        eventually_on_awaiting(|| "the refused turn's end record and its StopFailure".to_owned(), &[handle.stepped()], || (ended() >= 2 && calls().len() >= 4).then_some(())).await;
+        assert_eq!(calls()[2..], ["UserPromptSubmit:/ws:\"again\"", "StopFailure:unknown"]);
+        assert_eq!(lock(&provider.requests).len(), 1, "a blocked prompt asks no model");
+        let stored = format!("{:?}", rig.store.records(&id));
+        assert!(stored.contains("prompt blocked by hook: not now"), "the turn failed with Node's message");
     }
 
     /// The provider that, when its request arrives, makes the store refuse the next write (the assistant row the reply commits).

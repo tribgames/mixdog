@@ -816,6 +816,8 @@ pub struct RunStart {
     pub transcripts: Option<Arc<super::transcript_writer::TranscriptFiles>>,
     /// `Some` for a worker's turn started by `agent_registry::SessionTurns`.
     pub agent_turn: Option<AgentTurn>,
+    /// The session's user hooks: the run fires `UserPromptSubmit` after the prompt row and `Stop` after the final text.
+    pub lifecycle: Arc<dyn super::lifecycle_hooks::LifecycleHooks>,
     /// A routine fire's trusted skill-selection text (`options.skillSelection`).
     pub skill_selection: Option<String>,
     /// `snapshotPendingGoalReminder`: the Goal's state the turn's tail block carries (after the
