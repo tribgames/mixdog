@@ -368,7 +368,7 @@ test('Vertex Gemini 4 Argon routes as a Google publisher model with a documented
 
 test('Vertex Gemini 4 Argon and 3.8 Flash offer Low, Medium and High and send the chosen level (#292)', async () => {
   const { provider, requests } = recordingProvider({ location: 'global' }, () => geminiSse());
-  const models = await provider.listModels();
+  const models = await withIsolatedModelCache(() => provider.listModels());
   for (const id of ['gemini-4-argon', 'gemini-3.8-flash']) {
     const row = hydrateProviderModelRow(
       {},
@@ -425,7 +425,7 @@ test('Vertex Claude on a regional location is priced as the regional SKU', async
 
 test('Vertex lists the current Gemini, Claude and open-model roster with its service tiers', async () => {
   const { provider } = recordingProvider({}, () => geminiSse());
-  const models = await provider.listModels();
+  const models = await withIsolatedModelCache(() => provider.listModels());
   const ids = models.map((model) => model.id);
   for (const id of [
     'gemini-4-argon',
@@ -1248,7 +1248,7 @@ test('Vertex classifies realistic error bodies of every wire the same way', asyn
 
 test('Vertex lists open models only with documented locations and enforces them', async () => {
   const { provider } = recordingProvider({}, () => geminiSse());
-  const open = (await provider.listModels()).filter((model) => model.id.includes('/'));
+  const open = (await withIsolatedModelCache(() => provider.listModels())).filter((model) => model.id.includes('/'));
   assert.ok(open.length > 0);
   for (const model of open) assert.ok(Array.isArray(model.locations) && model.locations.length > 0, model.id);
   const hi = [{ role: 'user', content: 'hi' }];

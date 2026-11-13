@@ -37,6 +37,28 @@ test('a Claude family is read from the id, so a new family supersedes without an
   ]);
 });
 
+test('Gemini tiers sharing one catalog family do not supersede each other', () => {
+  // models.dev files every Gemini 4 tier under family "gemini"; only a newer
+  // version of the same tier (here flash) supersedes.
+  const models = {
+    'gemini-4-argon': ['gemini', 2],
+    'gemini-4-carbon': ['gemini', 1],
+    'gemini-4-hydrogen': ['gemini', 0],
+    'gemini-3.8-flash': ['gemini', 1],
+    'gemini-3.5-flash': ['gemini', 3],
+  };
+  const kept = sanitizeModelList(rows('vertex-ai', Object.keys(models)), {
+    provider: 'vertex-ai',
+    _testCatalog: catalog('google-vertex', models),
+  }).map((r) => r.id);
+  assert.deepEqual(kept, [
+    'gemini-4-argon',
+    'gemini-4-carbon',
+    'gemini-4-hydrogen',
+    'gemini-3.8-flash',
+  ]);
+});
+
 test('rolling aliases survive newer concrete versions and the age cut; stable supersession still applies', () => {
   const models = {
     '~google/gemini-flash-latest': ['gemini-flash', 4],
