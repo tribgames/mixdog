@@ -1,9 +1,14 @@
 //! `cycle-scheduler.mjs` and `cycle-scheduler/`: the cycle1 outer coalesce layer (one in-flight
 //! run shared by every caller, caller deadlines), the scheduled enqueue, the backlog probe and the
 //! 60-second self-rescheduling tick.
+//!
+//! Divergence from Node: the raw embedding flush. Node's every tick embeds up to 200 unchunked rows; here the flush runs once per
+//! cycle1 interval (`memory.cycle1.interval`), on the first tick after the scheduled cycle has run, and takes the rows the minutes of
+//! that interval would have taken. The raw flush embeds only rows no chunk holds, so a flush that follows the cycle skips the rows it
+//! just chunked (their chunk roots get their own vectors), and the embedding model wakes once per interval instead of every minute.
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -29,6 +34,10 @@ use crate::memory::schema::get_meta;
 const TICK: Duration = Duration::from_secs(60);
 const CYCLE_LAST_RUN_KEY: &str = "state.cycle_last_run";
 const BACKLOG_WARN_PENDING: i64 = 500;
+/// The rows the raw flush takes per minute of the cycle interval (Node's one flush of 200 per minute's tick).
+const RAW_FLUSH_ROWS_PER_MINUTE: usize = 200;
+/// The most rows one raw flush takes (an hour's worth): a long interval does not turn into one unbounded run of the model.
+const RAW_FLUSH_MAX_ROWS: usize = 12_000;
 
 type Shared1 = Shared<BoxFuture<'static, std::result::Result<Cycle1Result, String>>>;
 
@@ -64,6 +73,10 @@ struct Inner {
     tick: Mutex<Tick>,
     checking: AtomicBool,
     flushing: AtomicBool,
+    /// When the last raw flush started (epoch ms); the scheduler's creation before the first.
+    raw_flushed_at: AtomicI64,
+    /// A scheduled cycle was enqueued since the last raw flush: the flush follows it once it has run.
+    raw_flush_after_cycle: AtomicBool,
     /// Cancelled on shutdown: stops runs this scheduler started.
     shutdown: CancellationToken,
 }
@@ -100,6 +113,7 @@ impl CycleScheduler {
         let SchedulerDeps { db, llm, embeddings, config, state_file, lane, now, timer } = deps;
         let runner = Cycle1Runner::new(db.clone(), llm, Arc::clone(&embeddings), Arc::clone(&config), Arc::clone(&now), Arc::clone(&timer));
         let ledger = Arc::new(Ledger::new(state_file, lane, Arc::clone(&now)));
+        let created = now();
         Self(Arc::new(Inner {
             db,
             runner,
@@ -116,6 +130,8 @@ impl CycleScheduler {
             tick: Mutex::new(Tick { active: false, started_at: 0, stop: None, task: None }),
             checking: AtomicBool::new(false),
             flushing: AtomicBool::new(false),
+            raw_flushed_at: AtomicI64::new(created),
+            raw_flush_after_cycle: AtomicBool::new(false),
             shutdown: CancellationToken::new(),
         }))
     }
@@ -418,8 +434,8 @@ impl Inner {
         }
     }
 
-    /// `enqueueScheduledCycle1`.
-    async fn enqueue_scheduled(self: &Arc<Self>, interval_ms: f64) {
+    /// `enqueueScheduledCycle1`: whether this process claimed the slot (and so runs the cycle).
+    async fn enqueue_scheduled(self: &Arc<Self>, interval_ms: f64) -> bool {
         let config = self.periodic_cycle1_config();
         let signature = scheduled_cycle1_signature(&config);
         let timeout = number_or_zero(config.get("timeout"));
@@ -429,11 +445,12 @@ impl Inner {
         if claim.claimed {
             self.schedule_scheduled(&config, &signature, 0.0);
         }
+        claim.claimed
     }
 
-    /// `backlog-probe`: the unchunked counts for the state file and the warning, and the raw
-    /// embedding flush while rows are unchunked. Never fails the tick.
-    async fn probe_backlog(self: &Arc<Self>, now: i64) {
+    /// `backlog-probe`: the unchunked counts for the state file and the warning; answers the unchunked count (0 when it could not be
+    /// read). Never fails the tick.
+    async fn probe_backlog(self: &Arc<Self>, now: i64) -> i64 {
         let unchunked_sql = cycle1_unchunked_sql("");
         let counted = async {
             let unchunked: i64 = self.db.query(format!("SELECT COUNT(*) c FROM entries WHERE {unchunked_sql}").as_str(), &[]).await?[0].get(0);
@@ -441,23 +458,21 @@ impl Inner {
             let eligible: i64 = self.db.query(eligible_sql.as_str(), &[&now]).await?[0].get(0);
             Ok::<_, MemoryError>((unchunked, eligible))
         };
-        let Ok((unchunked, eligible)) = counted.await else { return };
+        let Ok((unchunked, eligible)) = counted.await else { return 0 };
         self.ledger.set_backlog(json!({"unchunked": unchunked, "unchunked_eligible": eligible, "at": now})).await;
         if unchunked > BACKLOG_WARN_PENDING {
             self.ledger.warn(&format!("backlog unchunked={unchunked} eligible={eligible}"));
         }
-        if unchunked > 0 {
-            self.flush_raw_once();
-        }
+        unchunked
     }
 
-    fn flush_raw_once(self: &Arc<Self>) {
+    fn flush_raw_once(self: &Arc<Self>, limit: usize) {
         if self.flushing.swap(true, Ordering::SeqCst) {
             return;
         }
         let this = Arc::clone(self);
         spawn_work("memory-cycle-raw-flush", async move {
-            match this.embeddings.flush_raw(200).await {
+            match this.embeddings.flush_raw(limit).await {
                 Ok((attempted, embedded)) if attempted > 0 => log(&format!("[embed] raw fallback flush attempted={attempted} embedded={embedded}\n")),
                 Ok(_) => {}
                 Err(error) => log(&format!("[embed] raw fallback flush failed: {error}\n")),
@@ -475,10 +490,21 @@ impl Inner {
         let now = (self.now)();
         let last = self.last_run().await;
         let started_at = self.tick.lock().expect("tick").started_at;
+        let mut enqueued = false;
         if cycles_on && periodic_cycle_due(last.cycle1, started_at as f64, cycle1_ms, now as f64) {
-            self.enqueue_scheduled(cycle1_ms).await;
+            enqueued = self.enqueue_scheduled(cycle1_ms).await;
         }
-        self.probe_backlog(now).await;
+        if enqueued {
+            self.raw_flush_after_cycle.store(true, Ordering::SeqCst);
+        }
+        let unchunked = self.probe_backlog(now).await;
+        let busy = enqueued || self.in_flight.lock().expect("in flight").is_some();
+        let since_flush = (now - self.raw_flushed_at.load(Ordering::SeqCst)) as f64;
+        if unchunked > 0 && raw_flush_due(self.raw_flush_after_cycle.load(Ordering::SeqCst), busy, since_flush, cycle1_ms, cycles_on) {
+            self.raw_flush_after_cycle.store(false, Ordering::SeqCst);
+            self.raw_flushed_at.store(now, Ordering::SeqCst);
+            self.flush_raw_once(raw_flush_limit(cycle1_ms));
+        }
         Ok(())
     }
 
@@ -493,6 +519,55 @@ impl Inner {
     }
 }
 
+/// Whether this tick runs the raw flush: never while the cycle runs, or on the tick that enqueued it; on the first tick after a
+/// scheduled cycle; otherwise once the interval has passed since the last flush (twice the interval while the cycles are on, so the
+/// fallback does not land just before a cycle that is coming).
+fn raw_flush_due(after_cycle: bool, cycle_busy: bool, since_flush_ms: f64, cycle1_ms: f64, cycles_on: bool) -> bool {
+    if cycle_busy {
+        return false;
+    }
+    after_cycle || since_flush_ms >= if cycles_on { cycle1_ms * 2.0 } else { cycle1_ms }
+}
+
+/// The rows one raw flush takes: [`RAW_FLUSH_ROWS_PER_MINUTE`] for each started minute of the interval, at most [`RAW_FLUSH_MAX_ROWS`].
+fn raw_flush_limit(cycle1_ms: f64) -> usize {
+    let minutes = (cycle1_ms / 60_000.0).ceil();
+    let minutes = if minutes.is_finite() && minutes >= 1.0 { minutes as usize } else { 1 };
+    minutes.saturating_mul(RAW_FLUSH_ROWS_PER_MINUTE).min(RAW_FLUSH_MAX_ROWS)
+}
+
 fn spawn_work_value<T: Send + 'static>(name: &'static str, fut: impl std::future::Future<Output = T> + Send + 'static) -> JoinHandle<T> {
     mixdog_rt::spawn(name, mixdog_rt::TaskClass::Work, fut)
+}
+
+#[cfg(test)]
+mod raw_flush_cadence {
+    use super::{raw_flush_due, raw_flush_limit};
+
+    const TEN_MINUTES: f64 = 600_000.0;
+
+    #[test]
+    fn the_raw_flush_follows_the_cycle() {
+        // While the cycle runs, or on the tick that enqueued it, the flush waits.
+        assert!(!raw_flush_due(true, true, 0.0, TEN_MINUTES, true));
+        assert!(!raw_flush_due(false, true, 3.0 * TEN_MINUTES, TEN_MINUTES, true));
+        // The first tick after a scheduled cycle flushes.
+        assert!(raw_flush_due(true, false, 60_000.0, TEN_MINUTES, true));
+        // Between cycles nothing flushes; a cycle that did not come for two intervals is not waited for.
+        assert!(!raw_flush_due(false, false, TEN_MINUTES, TEN_MINUTES, true));
+        assert!(raw_flush_due(false, false, 2.0 * TEN_MINUTES, TEN_MINUTES, true));
+        // With the cycles off the flush keeps the interval by itself.
+        assert!(!raw_flush_due(false, false, TEN_MINUTES - 1.0, TEN_MINUTES, false));
+        assert!(raw_flush_due(false, false, TEN_MINUTES, TEN_MINUTES, false));
+    }
+
+    #[test]
+    fn one_flush_takes_the_rows_of_its_interval() {
+        assert_eq!(raw_flush_limit(TEN_MINUTES), 2_000);
+        assert_eq!(raw_flush_limit(90_000.0), 400, "a started minute counts");
+        assert_eq!(raw_flush_limit(1_000.0), 200);
+        assert_eq!(raw_flush_limit(0.0), 200);
+        assert_eq!(raw_flush_limit(f64::NAN), 200);
+        assert_eq!(raw_flush_limit(24.0 * 3_600_000.0), 12_000, "at most an hour's rows");
+    }
 }
