@@ -294,9 +294,48 @@ fn read_blob<L: IoLane>(lane: &InLane<L>, blobs: &BlobStore, reference: &str) ->
     (!bytes.is_empty()).then_some(bytes)
 }
 
-/// `namedAttachmentFile` (store.mjs:212): a copy of the stored attachment under its original name,
-/// `<data>/prompt-attachments/files/<ref>/<name>`; the folder is keyed by the original's bytes when
-/// the picked file was kept and still readable. A copy that is already there is never overwritten.
+/// One named copy to publish (`namedCopyPlan`): its folder, its file, and the bytes to write, none when a copy of
+/// the blob's size is already there.
+struct CopyPlan {
+    dir: PathBuf,
+    target: PathBuf,
+    buffer: Option<Vec<u8>>,
+}
+
+/// `namedCopyPlan`: the blob is proven by its size on disk (a file of 1 to `MAX_BLOB_BYTES` bytes), and a copy
+/// that is already there by a stat (a file of the blob's size). Neither is read then; only a missing or torn copy
+/// has the blob read.
+fn copy_plan(lane: &InLane<DurabilityIo>, blobs: &BlobStore, files_dir: &Path, key_ref: &str, type_for_name: &str, filename: &str, mime_type: &str) -> Option<CopyPlan> {
+    let size = blobs.len(lane, &digest_of_reference(key_ref)?).ok()??;
+    if size == 0 || size > mixdog_protocol::MAX_BLOB_BYTES {
+        return None;
+    }
+    let dir = files_dir.join(key_ref);
+    let name = if filename.is_empty() {
+        let existing = mixdog_statefile::list_dir(lane, &dir).ok().and_then(|names| names.into_iter().find(|n| !n.contains(".mixdog-tmp-")));
+        existing.unwrap_or_else(|| attachment_file_name("", mime_type, if mime_type.starts_with("image/") { "image" } else { "attachment" }))
+    } else {
+        attachment_file_name(filename, type_for_name, "attachment")
+    };
+    let target = dir.join(&name);
+    let present = mixdog_statefile::metadata(lane, &target).is_ok_and(|copy| copy.is_file() && copy.len() == size);
+    let buffer = if present { None } else { Some(read_blob(lane, blobs, key_ref)?) };
+    Some(CopyPlan { dir, target, buffer })
+}
+
+/// `publishNamedCopy`: writes the copy the plan asks for; a write that fails is the failure.
+fn publish_copy(lane: &InLane<DurabilityIo>, plan: CopyPlan) -> Option<String> {
+    if let Some(buffer) = &plan.buffer {
+        mixdog_statefile::create_private_dir_all(lane, &plan.dir).ok()?;
+        mixdog_statefile::write_file(lane, &plan.target, buffer, &mixdog_statefile::Opts::default()).ok()?;
+    }
+    Some(plan.target.to_string_lossy().into_owned())
+}
+
+/// `namedAttachmentFile` (store.mjs): a copy of the stored attachment under its original name,
+/// `<data>/prompt-attachments/files/<ref>/<name>`; the folder is keyed by the original's bytes when the picked
+/// file was kept. Only an original that cannot be read falls back to the stored blob: once its copy is planned,
+/// failing to publish it is the failure, so resized bytes never stand in for a readable original.
 fn named_copy(
     lane: &InLane<DurabilityIo>,
     blobs: &BlobStore,
@@ -306,31 +345,13 @@ fn named_copy(
     mime_type: &str,
     original: Option<&OriginalFile>,
 ) -> Option<String> {
-    let mut buffer = read_blob(lane, blobs, reference)?;
-    let mut key_ref = reference.to_owned();
-    let mut type_for_name = mime_type.to_owned();
-    if let Some(original) = original
-        && let Some(bytes) = read_blob(lane, blobs, &original.attachment_ref)
-    {
-        buffer = bytes;
-        key_ref = original.attachment_ref.clone();
-        if let Some(own) = original.mime_type.as_deref().filter(|m| !m.is_empty()) {
-            type_for_name = own.to_owned();
+    if let Some(original) = original {
+        let own_type = original.mime_type.as_deref().filter(|m| !m.is_empty()).unwrap_or(mime_type);
+        if let Some(plan) = copy_plan(lane, blobs, files_dir, &original.attachment_ref, own_type, filename, mime_type) {
+            return publish_copy(lane, plan);
         }
     }
-    let dir = files_dir.join(&key_ref);
-    let name = if filename.is_empty() {
-        let existing = mixdog_statefile::list_dir(lane, &dir).ok().and_then(|names| names.into_iter().find(|n| !n.contains(".mixdog-tmp-")));
-        existing.unwrap_or_else(|| attachment_file_name("", mime_type, if mime_type.starts_with("image/") { "image" } else { "attachment" }))
-    } else {
-        attachment_file_name(filename, &type_for_name, "attachment")
-    };
-    let target = dir.join(&name);
-    if !matches!(mixdog_statefile::read_content(&target), Ok(Some(_))) {
-        mixdog_statefile::create_private_dir_all(lane, &dir).ok()?;
-        mixdog_statefile::write_file(lane, &target, &buffer, &mixdog_statefile::Opts::default()).ok()?;
-    }
-    Some(target.to_string_lossy().into_owned())
+    publish_copy(lane, copy_plan(lane, blobs, files_dir, reference, mime_type, filename, mime_type)?)
 }
 
 /// The attachment store's files (`storeInlineImagePart` / `storeInlineDocumentPart`,
@@ -525,7 +546,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
-    async fn a_named_copy_is_made_reused_keyed_by_the_original_and_never_overwritten() {
+    async fn a_named_copy_is_made_reused_by_its_size_and_keyed_by_the_original() {
         let (dir, store, tokens, golden) = world();
         let files = StoreFiles::new(store.clone(), dir.path(), &tokens);
         let named = &golden["named"];
