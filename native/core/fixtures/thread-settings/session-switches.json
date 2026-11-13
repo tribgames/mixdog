@@ -61,7 +61,7 @@
   "standalone": [
     {
       "$tool": "agent",
-      "hash": "1fb5d1d77c543631"
+      "hash": "38de04cce3c60d7f"
     },
     {
       "$tool": "recall",
@@ -1763,7 +1763,7 @@
             "deferredLateToolCatalog": [
               {
                 "$tool": "agent",
-                "hash": "1fb5d1d77c543631"
+                "hash": "38de04cce3c60d7f"
               }
             ],
             "deferredToolDeltaRevision": 1,
@@ -1882,7 +1882,7 @@
             "deferredLateToolCatalog": [
               {
                 "$tool": "agent",
-                "hash": "1fb5d1d77c543631"
+                "hash": "38de04cce3c60d7f"
               }
             ],
             "deferredToolDeltaRevision": 2,
@@ -2010,7 +2010,7 @@
             "deferredLateToolCatalog": [
               {
                 "$tool": "agent",
-                "hash": "1fb5d1d77c543631"
+                "hash": "38de04cce3c60d7f"
               }
             ],
             "deferredToolDeltaRevision": 3,
@@ -2150,7 +2150,7 @@
             "deferredLateToolCatalog": [
               {
                 "$tool": "agent",
-                "hash": "1fb5d1d77c543631"
+                "hash": "38de04cce3c60d7f"
               }
             ],
             "deferredToolDeltaRevision": 1,
@@ -4512,7 +4512,7 @@
             "deferredLateToolCatalog": [
               {
                 "$tool": "agent",
-                "hash": "1fb5d1d77c543631"
+                "hash": "38de04cce3c60d7f"
               }
             ],
             "workflowOverlay": {

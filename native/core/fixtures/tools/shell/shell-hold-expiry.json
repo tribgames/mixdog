@@ -4,7 +4,7 @@
     "wait_ms": 1000
   },
   "isError": false,
-  "text": "background task\ntask_id: JOB\nlabel: echo tick; Start-Sleep 30\nstatus: running\nstarted: TS\nlogs: LOGS\nmoved to background after the 1s hold; still running. Its result is delivered automatically when it finishes; use task wait only if you need it now.\n\n[progress] +0.0 KB, +1 lines since you last saw it · last line: \"tick\" — still running, not an error\n\n[stdout]\ntick\n",
+  "text": "background task\ntask_id: JOB\nlabel: echo tick; Start-Sleep 30\nstatus: running\nstarted: TS\nlogs: LOGS\nmoved to background after the 1s hold; still running. Its result is delivered automatically when it finishes; use task wait only if no other work remains.\n\n[progress] +0.0 KB, +1 lines since you last saw it · last line: \"tick\" — still running, not an error\n\n[stdout]\ntick\n",
   "tool": "shell",
   "note": "normalized: JOB task id, TS timestamps, LOGS paths"
 }

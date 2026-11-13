@@ -1,5 +1,5 @@
 {
-  "command": "node benchmarks/rust-core/recorders/record-tool-pool.mjs --tree <dir with node_modules> --patch benchmarks/rust-core/recorders/node-patches/node-fix-spawn-model-settings.patch,benchmarks/rust-core/recorders/node-patches/node-change-shell-cover-tools.patch",
+  "command": "node benchmarks/rust-core/recorders/record-tool-pool.mjs --tree <dir with node_modules>",
   "fileCount": 6,
   "files": [
     {
@@ -8,9 +8,9 @@
       "sha256": "dc14d995c2ebb4dfe1bac112a4bc401684e705b0a63ec115ba96cdbc68cfe3f9"
     },
     {
-      "bytes": 116000,
+      "bytes": 116068,
       "path": "catalog.json",
-      "sha256": "e118be642ce51af639e37260972d5917f187bc07723f5279d6d4979caf39ac03"
+      "sha256": "fe0f5270a49e7a069ed988f0b28765d3ac43c6cd6b09aad702e811ce4e8fcda5"
     },
     {
       "bytes": 6698,
@@ -36,7 +36,7 @@
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+      "sha256": "da506d542901b83b8a599b8a6443e86ec265aeddbe37ec1c8b28ccb4caa1f106"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
@@ -49,51 +49,17 @@
   ],
   "nodeVersion": "v22.20.0",
   "product": {
-    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
-    "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
-    "commit": "b6f10295a2f698afc85332467192de28500bd146",
-    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
-    "exact": true,
-    "files": 9145,
-    "patches": [
-      {
-        "file": "node-fix-spawn-model-settings.patch",
-        "paths": [
-          "src/session-runtime/services/agent-tool/model-select.mjs",
-          "src/session-runtime/services/agent-tool/spawn-model-settings.test.mjs",
-          "src/session-runtime/services/agent-tool/spawn-preset.mjs",
-          "src/session-runtime/services/agent-tool/tool-def.mjs",
-          "src/tui/app/model-picker/route-selection/effort.mjs"
-        ],
-        "sha256": "1d24877bf3c2d410716946070fe56cd66f4f34b400b82690818a98c2bf266502"
-      },
-      {
-        "file": "node-change-shell-cover-tools.patch",
-        "paths": [
-          "src/runtime/agent/orchestrator/session/loop/tool-exec.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/arg-guard.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/bash-tool/misuse-guard.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/bash-tool/misuse-guard.test.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/bash-tool/tool-cover.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/bash-tool/tool-cover.test.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/machine-tool.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/machine-tool.test.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/read-args.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/read-tail.test.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/read-tool.mjs"
-        ],
-        "sha256": "ca6b18ef1d71590b7e55ff03af464ed2956ffa94e67533b412d1b01df2a99088"
-      }
-    ],
+    "appsSha256": "f66e41a34f39697c75ca2955626eedfb8e105efb5043256fe8b3af5f4c82099a",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9239,
     "refComparison": {
-      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
-      "commitFilesMissingFromTree": 0,
+      "closestCommit": "d392ffa546f77a40323628fe35805552bb6fa4c8",
+      "commitFilesMissingFromTree": 288,
       "exact": false,
-      "filesDifferingFromCommit": 18
+      "filesDifferingFromCommit": 626
     },
-    "srcSha256": "88edfae3d00e08a9f1ef8fbbf84788351f0ea9d6d6ca8ab1b4043a3c229b4351",
+    "srcSha256": "ec0c02f005655288486e646f3e92c145e9fefcb8c718e6d60a0831fe1a9fb567",
     "tree": "product tree loaded by the recorder",
     "treeKind": "archive",
     "version": "1.4.5"
@@ -101,5 +67,5 @@
   "recorder": "benchmarks/rust-core/recorders/record-tool-pool.mjs",
   "recorderSha256": "514e962815bb9e06902251f9d70a45a5a0d1d11b87b80b10a8ca03f29e3086bb",
   "set": "tool-pool",
-  "totalBytes": 199620
+  "totalBytes": 199688
 }

@@ -1,5 +1,5 @@
-//! `goal-tool-exec.mjs`: the model-facing `goal` tool's runtime half (status, create and the
-//! model's two settlements), as the [`GoalPort`] the tool front end calls.
+//! `goal-tool-exec.mjs`: the model-facing `goal` tool's runtime half (status, create, extend and
+//! the model's two settlements), as the [`GoalPort`] the tool front end calls.
 
 use async_trait::async_trait;
 use mixdog_protocol::ThreadId;
@@ -11,7 +11,7 @@ use super::error::{GoalError, GoalResult};
 use super::js::{Goal, number, string};
 use super::mutations::CreateArgs;
 use super::runtime::GoalRuntime;
-use super::state::assert_session_id;
+use super::state::{assert_session_id, parse_goal_duration, set_goal_time_limit};
 
 fn port_error(error: GoalError) -> PortError {
     PortError::Failed { capability: "goal".into(), message: error.message }
@@ -51,6 +51,27 @@ impl GoalRuntime {
                     start_in_current_turn: true,
                     ..CreateArgs::default()
                 })
+            })
+            .await
+    }
+
+    /// `extend`: the user's explicit ask for more time. The cap grows by `added_ms` and re-earns its
+    /// warnings, exactly as the user's own duration edit does.
+    pub async fn tool_extend(&self, session_id: &str, added_ms: f64) -> GoalResult<Option<Goal>> {
+        self.inner
+            .with_mutation(session_id, move |tx| {
+                let mut current = tx.require_goal()?;
+                let status = string(&current, "status");
+                if status != "active" && status != "paused" {
+                    return Err(GoalError::new(format!("goal extend works only on an active or paused Goal (status {status})")));
+                }
+                let limit = number(&current, "timeLimitMs");
+                if !(limit > 0.0) {
+                    return Err(GoalError::new("goal extend needs a Goal with a time cap; this one has none"));
+                }
+                let limit = parse_goal_duration(&mixdog_js::json_number(limit + added_ms))?;
+                set_goal_time_limit(&mut current, limit, tx.now());
+                tx.commit(Some(current), None)
             })
             .await
     }
@@ -102,5 +123,9 @@ impl GoalPort for GoalRuntime {
             GoalSettlement::Block { blocker } => ("block", Some(blocker)),
         };
         self.tool_settle(thread.as_str(), action, blocker).await.map(snapshot_of).map_err(port_error)
+    }
+
+    async fn extend(&self, thread: &ThreadId, added_ms: u64) -> Result<GoalSnapshot, PortError> {
+        self.tool_extend(thread.as_str(), added_ms as f64).await.map(snapshot_of).map_err(port_error)
     }
 }

@@ -95,19 +95,19 @@
         "definition": {
           "$tool": "shell",
           "variant": "claude",
-          "hash": "1338c4ef7c9c6132"
+          "hash": "9cf95c927942dd43"
         }
       },
       {
         "name": "task",
         "definition": {
           "$tool": "task",
-          "hash": "2497dcfd717a5382"
+          "hash": "ba31b13f309601ca"
         },
         "agent": {
           "$tool": "task",
           "variant": "agent",
-          "hash": "437411d255456564"
+          "hash": "8a6a54d41204a199"
         }
       },
       {
@@ -146,7 +146,7 @@
         "definition": {
           "$tool": "agent",
           "variant": "internal",
-          "hash": "ac4b8ff47222b0b9"
+          "hash": "87671b659bab7918"
         }
       },
       {
@@ -185,7 +185,7 @@
         "name": "goal",
         "definition": {
           "$tool": "goal",
-          "hash": "0753540fc1687ea2",
+          "hash": "4462f51e82119feb",
           "unset": [
             "title"
           ]
@@ -429,16 +429,16 @@
     "shell": {
       "$tool": "shell",
       "variant": "claude",
-      "hash": "1338c4ef7c9c6132"
+      "hash": "9cf95c927942dd43"
     },
     "task": {
       "$tool": "task",
-      "hash": "2497dcfd717a5382"
+      "hash": "ba31b13f309601ca"
     },
     "agent": {
       "$tool": "agent",
       "variant": "internal",
-      "hash": "ac4b8ff47222b0b9"
+      "hash": "87671b659bab7918"
     },
     "web_search": {
       "$tool": "web_search",
@@ -478,7 +478,7 @@
     "shell#2": {
       "$tool": "shell",
       "variant": "gpt",
-      "hash": "de6adeec02485e37"
+      "hash": "dbde6708c1dcb258"
     },
     "load_tool#2": {
       "$tool": "load_tool",
@@ -521,7 +521,7 @@
     },
     "agent#2": {
       "$tool": "agent",
-      "hash": "1fb5d1d77c543631"
+      "hash": "38de04cce3c60d7f"
     },
     "ask_user#2": {
       "$tool": "ask_user",
@@ -562,7 +562,7 @@
     "task#2": {
       "$tool": "task",
       "variant": "agent",
-      "hash": "437411d255456564"
+      "hash": "8a6a54d41204a199"
     },
     "web_fetch#3": {
       "$tool": "web_fetch",
@@ -590,7 +590,7 @@
     },
     "goal": {
       "$tool": "goal",
-      "hash": "0753540fc1687ea2",
+      "hash": "4462f51e82119feb",
       "unset": [
         "title"
       ]

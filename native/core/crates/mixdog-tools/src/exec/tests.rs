@@ -1127,7 +1127,7 @@ async fn held_command_moves_to_background_and_task_cancels_it() {
             .call(&ctx(&rig, "c1"), serde_json::json!({"command": "sleep 100", "background": true}))
             .await,
     );
-    assert!(text.contains("\nstarted in the background; still running. Its result is delivered automatically when it finishes; use task wait only if you need it now.\n\n[progress] no new output since you last saw it — still running, not an error\n\n(no new output)"), "{text}");
+    assert!(text.contains("\nstarted in the background; still running. Its result is delivered automatically when it finishes; use task wait only if no other work remains.\n\n[progress] no new output since you last saw it — still running, not an error\n\n(no new output)"), "{text}");
     let c = ctx(&rig, "c2");
     let cancelled = body(rig.task.call(&c, serde_json::json!({"action": "cancel", "task_id": "task-c1"})).await);
     assert_eq!(cancelled, "status: completed\ntask_id: task-c1\ncancelled: shell/shell");

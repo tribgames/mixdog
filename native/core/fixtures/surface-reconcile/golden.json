@@ -86,7 +86,7 @@
     },
     {
       "$tool": "agent",
-      "hash": "1fb5d1d77c543631"
+      "hash": "38de04cce3c60d7f"
     }
   ],
   "cases": [
@@ -127,11 +127,11 @@
           },
           {
             "$tool": "shell",
-            "hash": "6106817f821d8614"
+            "hash": "027dbbe634df0888"
           },
           {
             "$tool": "agent",
-            "hash": "1fb5d1d77c543631"
+            "hash": "38de04cce3c60d7f"
           },
           {
             "$tool": "ask_user",
@@ -165,11 +165,11 @@
           },
           {
             "$tool": "shell",
-            "hash": "6106817f821d8614"
+            "hash": "027dbbe634df0888"
           },
           {
             "$tool": "agent",
-            "hash": "1fb5d1d77c543631"
+            "hash": "38de04cce3c60d7f"
           },
           {
             "$tool": "ask_user",
@@ -371,11 +371,11 @@
           },
           {
             "$tool": "shell",
-            "hash": "6106817f821d8614"
+            "hash": "027dbbe634df0888"
           },
           {
             "$tool": "agent",
-            "hash": "1fb5d1d77c543631"
+            "hash": "38de04cce3c60d7f"
           },
           {
             "$tool": "ask_user",
@@ -409,11 +409,11 @@
           },
           {
             "$tool": "shell",
-            "hash": "6106817f821d8614"
+            "hash": "027dbbe634df0888"
           },
           {
             "$tool": "agent",
-            "hash": "1fb5d1d77c543631"
+            "hash": "38de04cce3c60d7f"
           },
           {
             "$tool": "ask_user",
@@ -629,11 +629,11 @@
           },
           {
             "$tool": "shell",
-            "hash": "6106817f821d8614"
+            "hash": "027dbbe634df0888"
           },
           {
             "$tool": "agent",
-            "hash": "1fb5d1d77c543631"
+            "hash": "38de04cce3c60d7f"
           },
           {
             "$tool": "ask_user",
@@ -667,11 +667,11 @@
           },
           {
             "$tool": "shell",
-            "hash": "6106817f821d8614"
+            "hash": "027dbbe634df0888"
           },
           {
             "$tool": "agent",
-            "hash": "1fb5d1d77c543631"
+            "hash": "38de04cce3c60d7f"
           },
           {
             "$tool": "ask_user",
@@ -854,11 +854,11 @@
           },
           {
             "$tool": "shell",
-            "hash": "6106817f821d8614"
+            "hash": "027dbbe634df0888"
           },
           {
             "$tool": "agent",
-            "hash": "1fb5d1d77c543631"
+            "hash": "38de04cce3c60d7f"
           },
           {
             "$tool": "ask_user",
@@ -892,11 +892,11 @@
           },
           {
             "$tool": "shell",
-            "hash": "6106817f821d8614"
+            "hash": "027dbbe634df0888"
           },
           {
             "$tool": "agent",
-            "hash": "1fb5d1d77c543631"
+            "hash": "38de04cce3c60d7f"
           },
           {
             "$tool": "ask_user",
@@ -1097,11 +1097,11 @@
           },
           {
             "$tool": "shell",
-            "hash": "6106817f821d8614"
+            "hash": "027dbbe634df0888"
           },
           {
             "$tool": "agent",
-            "hash": "1fb5d1d77c543631"
+            "hash": "38de04cce3c60d7f"
           },
           {
             "$tool": "ask_user",
@@ -1135,11 +1135,11 @@
           },
           {
             "$tool": "shell",
-            "hash": "6106817f821d8614"
+            "hash": "027dbbe634df0888"
           },
           {
             "$tool": "agent",
-            "hash": "1fb5d1d77c543631"
+            "hash": "38de04cce3c60d7f"
           },
           {
             "$tool": "ask_user",
@@ -1340,11 +1340,11 @@
           },
           {
             "$tool": "shell",
-            "hash": "6106817f821d8614"
+            "hash": "027dbbe634df0888"
           },
           {
             "$tool": "agent",
-            "hash": "1fb5d1d77c543631"
+            "hash": "38de04cce3c60d7f"
           },
           {
             "$tool": "ask_user",
@@ -1378,11 +1378,11 @@
           },
           {
             "$tool": "shell",
-            "hash": "6106817f821d8614"
+            "hash": "027dbbe634df0888"
           },
           {
             "$tool": "agent",
-            "hash": "1fb5d1d77c543631"
+            "hash": "38de04cce3c60d7f"
           },
           {
             "$tool": "ask_user",
@@ -1561,11 +1561,11 @@
           },
           {
             "$tool": "shell",
-            "hash": "6106817f821d8614"
+            "hash": "027dbbe634df0888"
           },
           {
             "$tool": "agent",
-            "hash": "1fb5d1d77c543631"
+            "hash": "38de04cce3c60d7f"
           },
           {
             "$tool": "ask_user",
@@ -1599,11 +1599,11 @@
           },
           {
             "$tool": "shell",
-            "hash": "6106817f821d8614"
+            "hash": "027dbbe634df0888"
           },
           {
             "$tool": "agent",
-            "hash": "1fb5d1d77c543631"
+            "hash": "38de04cce3c60d7f"
           },
           {
             "$tool": "ask_user",
@@ -1773,11 +1773,11 @@
           },
           {
             "$tool": "shell",
-            "hash": "6106817f821d8614"
+            "hash": "027dbbe634df0888"
           },
           {
             "$tool": "agent",
-            "hash": "1fb5d1d77c543631"
+            "hash": "38de04cce3c60d7f"
           },
           {
             "$tool": "ask_user",
@@ -1811,11 +1811,11 @@
           },
           {
             "$tool": "shell",
-            "hash": "6106817f821d8614"
+            "hash": "027dbbe634df0888"
           },
           {
             "$tool": "agent",
-            "hash": "1fb5d1d77c543631"
+            "hash": "38de04cce3c60d7f"
           },
           {
             "$tool": "ask_user",
@@ -2005,11 +2005,11 @@
           },
           {
             "$tool": "shell",
-            "hash": "6106817f821d8614"
+            "hash": "027dbbe634df0888"
           },
           {
             "$tool": "agent",
-            "hash": "1fb5d1d77c543631"
+            "hash": "38de04cce3c60d7f"
           },
           {
             "$tool": "ask_user",
@@ -2043,11 +2043,11 @@
           },
           {
             "$tool": "shell",
-            "hash": "6106817f821d8614"
+            "hash": "027dbbe634df0888"
           },
           {
             "$tool": "agent",
-            "hash": "1fb5d1d77c543631"
+            "hash": "38de04cce3c60d7f"
           },
           {
             "$tool": "ask_user",

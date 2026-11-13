@@ -5,12 +5,12 @@
     {
       "bytes": 169594,
       "path": "golden.json",
-      "sha256": "d423a29d604c1f462d9f6059b42398b112d67ae9ed108c1a7d4fc8e178d2a6f3"
+      "sha256": "a4e48807fcbb004c13d14c3bec05a25a1b7e0b363d358a76be0dc085a1d19866"
     },
     {
-      "bytes": 37343,
+      "bytes": 37510,
       "path": "harness-request.json",
-      "sha256": "c897d97cb5fc424b01265b7b50d114e38e37dda5fb76b6241e263e6b5a629d63"
+      "sha256": "cd427bb8cfd4e903aa09171e02a0afe1ebeab46335f3afff63bda945d78a6afa"
     }
   ],
   "harnessRequest": {
@@ -113,5 +113,5 @@
   "recorder": "benchmarks/rust-core/recorders/record-tool-resolution.mjs",
   "recorderSha256": "6ed147265097db17ce55d7e00b0373169cf0f444b1e619c13a27c7405306ccdb",
   "set": "tool-resolution",
-  "totalBytes": 206937
+  "totalBytes": 207104
 }

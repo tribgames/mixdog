@@ -6,9 +6,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 1406,
+      "bytes": 1412,
       "path": "golden.json",
-      "sha256": "bddbf7cae48b1ff9e643769842580126b8837725f8ae811159e3a261b2b1128f"
+      "sha256": "dcb4532dde467a9d9eb7540f4a529ca5c8e169c519dd81074bcc5d0557a8ad1a"
     }
   ],
   "inputs": [
@@ -57,5 +57,5 @@
   "set": "shell-unread-stdin",
   "standin": "native/core/crates/mixdog-app-server-daemon/src/testdata/unread_stdin_shell.rs",
   "standinSha256": "419f472b7a35de58a37985e19644a0cfbc978cad3f58f8cc0834fe6fe25c9d1c",
-  "totalBytes": 1406
+  "totalBytes": 1412
 }

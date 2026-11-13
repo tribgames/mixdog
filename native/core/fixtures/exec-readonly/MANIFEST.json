@@ -9,24 +9,24 @@
       "sha256": "241b2fa83253802e9947a59a2de07514f41272cf844023cfcb8cdacd61362554"
     },
     {
-      "bytes": 32037,
+      "bytes": 32052,
       "path": "full-json.json",
-      "sha256": "b6409ebd978a9cb7a9be61fcc5fc6c5448e9cd08cd30b93349857b5f123f4c93"
+      "sha256": "6cb53186fe78714e313eda9fbe1cccf85d6f01701850b4b2c9ae9064d13041da"
     },
     {
-      "bytes": 26701,
+      "bytes": 26716,
       "path": "full-simple.json",
-      "sha256": "bf16a5a39b86b58ce13e26fe37dcdc4336fc59b51b0021fef7b9769b50c5cc8b"
+      "sha256": "25bfa5da9ee25704c8488bf862eff237785138f86a3cffffce2ad202f2b703a2"
     },
     {
-      "bytes": 35664,
+      "bytes": 35679,
       "path": "interactive-gated.json",
-      "sha256": "777725c77c590b3ce544143a1609e0508b9645b4fd5f05bcf5ad00f6d82c9b24"
+      "sha256": "232838e6bdd0362795d8dc21908529385bef613074348bab1acb15387c05a5ca"
     },
     {
-      "bytes": 43933,
+      "bytes": 43948,
       "path": "interactive-toggled.json",
-      "sha256": "242df60b741755ab50e255fc49d8a20fca2ba2f46a0151222031eff7513757c9"
+      "sha256": "61fe484d1559a61933beee88cf04277714171ecbcfec96c3727fe7b2f4ef35c9"
     },
     {
       "bytes": 24795,
@@ -128,5 +128,5 @@
   "recorder": "benchmarks/rust-core/recorders/record-exec-readonly.mjs",
   "recorderSha256": "ed02070e653ccc6436c8cebef45fc944a74903d1fe13a2960a053edffa91c48e",
   "set": "exec-readonly",
-  "totalBytes": 189424
+  "totalBytes": 189484
 }

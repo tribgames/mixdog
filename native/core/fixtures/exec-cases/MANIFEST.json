@@ -79,9 +79,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 287697,
+      "bytes": 287703,
       "path": "golden.json",
-      "sha256": "02cbcb6e661400f002e5b4bbdb221f3328853a49f27e3bc0e020175c49f3ae5a"
+      "sha256": "6948141c67348a33aa2be018a3d6260fbfb4fd047742eeddb7652ca298cd852a"
     }
   ],
   "inputs": [
@@ -209,5 +209,5 @@
     }
   ],
   "set": "exec-cases",
-  "totalBytes": 287697
+  "totalBytes": 287703
 }
