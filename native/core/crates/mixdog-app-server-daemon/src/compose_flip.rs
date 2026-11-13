@@ -2989,7 +2989,10 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         usage: usage_sources.clone(),
     });
     let route_follow = Arc::new(mixdog_core_ports::ports::route::SessionRoutes::new(threads.clone(), threads.clone(), late_route_session.clone(), routes.clone()));
-    let route_service = Arc::new(mixdog_core_domains::domains::ai_admin::route_service::RouteService { config: config.clone(), facts: facts.clone(), writer: route_writer, session: route_follow.clone(), models: model_list.clone(), controls: directory.clone() });
+    // A `route/set` or `fast/set` with no thread acts on the pre-session route (`PRE_SESSION`): there is no session to follow, tune or switch, and
+    // asking the directory for one opened the sessions folder itself as a session (`session-store-open: unexpected entry`).
+    let route_session = Arc::new(mixdog_core_domains::domains::ai_admin::route_set_service::PreSessionAware { inner: route_follow.clone() });
+    let route_service = Arc::new(mixdog_core_domains::domains::ai_admin::route_service::RouteService { config: config.clone(), facts: facts.clone(), writer: route_writer, session: route_session, models: model_list.clone(), controls: directory.clone() });
     // The task-report host (`createAgentTaskSessions`): a bot's sends are watched durably in its home's queue, followed to the final answer and reported
     // there; the watches an earlier process left are re-attached at start. The same `BotWork` the list overlay reads; the `session` tool's send reports through it.
     {
