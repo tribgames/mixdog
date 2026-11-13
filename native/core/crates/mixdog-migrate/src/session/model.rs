@@ -39,6 +39,10 @@ pub struct SessionModel {
     pub archive: Vec<Row>,
     /// The transcript rows.
     pub messages: Vec<Row>,
+    /// The model context 1.4.5 held (`(iid, body)` of every message and recovered turn row, in its order), when rows of
+    /// it were written out of that order (`source::place_retained`): a silent `compacted` record after the rows
+    /// restarts the context at it.
+    pub context: Option<Vec<(String, Value)>>,
     /// Rows of recovered turn checkpoints, each followed by its run.
     pub checkpoint_rows: Vec<Row>,
     pub runs: Vec<RunModel>,

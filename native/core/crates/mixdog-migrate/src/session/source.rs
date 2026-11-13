@@ -1370,11 +1370,21 @@ pub fn read(cx: &ItemContext<'_>, item: &ManifestItem, id: &str, office: &Office
         messages.iter_mut().chain(checkpoint_rows.iter_mut()),
         &super::restore::StoreBlobs(cx),
     );
+    let mut archive_rows = archive_rows;
+    // A turn recovered from its checkpoint holds the requests its own compaction carried over the same way.
+    let held: Vec<(String, Value)> = if archive_rows.is_empty() {
+        Vec::new()
+    } else {
+        messages.iter().chain(&checkpoint_rows).map(|row| (row.iid.clone(), row.body.clone())).collect()
+    };
+    let moved = [place_retained(&mut archive_rows, &mut messages), place_retained(&mut archive_rows, &mut checkpoint_rows)];
+    let context = moved.iter().any(Option::is_some).then_some(held);
     Ok(SessionModel {
         id: id.to_string(),
         header,
         archive: archive_rows,
         messages,
+        context,
         checkpoint_rows,
         runs,
         queue,
@@ -1382,6 +1392,109 @@ pub fn read(cx: &ItemContext<'_>, item: &ManifestItem, id: &str, office: &Office
         superseded_jobs: superseded,
         replaced_surrogates: replaced,
     })
+}
+
+/// Moves the requests a compaction carried over out of `messages` to where they were said among the archived rows.
+///
+/// 1.4.5 keeps the user's earlier requests in the model context after a compaction and archives what it dropped, so a
+/// stored session lists every archived row, then the kept requests one after another with none of their answers between
+/// them (`store-transcript-projection.mjs:288`, `[...archived.items, ...restored]`). Only its live view had them in
+/// place. A history is read in the order it was written, so the kept requests are written among the archived rows: each
+/// before the first shown archived row that is newer than it (rows carry their time: an archived row's `at`, a
+/// message's `meta.transcript.at`), a request as old as the newest divider before that divider. A row is one the
+/// transcript shows as the user's prompt (`prompt`), sent no later than the newest shown divider; everything else stays
+/// where it was.
+///
+/// The model context is the messages in 1.4.5's order, which the moved rows no longer are: the returned list (every
+/// message, in that order) is what the context restarts at. `None` when nothing moved.
+fn place_retained(archive: &mut Vec<Row>, messages: &mut Vec<Row>) -> Option<Vec<(String, Value)>> {
+    let shown_at = |row: &Row| row.body.get("at").and_then(Value::as_f64).filter(|at| at.is_finite());
+    let is_divider = |row: &Row| row.body.get("status").and_then(Value::as_str) == Some("compacted");
+    let said_at = |row: &Row| row.body.pointer("/meta/transcript/at").and_then(Value::as_f64).filter(|at| at.is_finite());
+    let newest_divider =
+        archive.iter().filter(|row| row.visible && is_divider(row)).filter_map(shown_at).fold(None, |max: Option<f64>, at| Some(max.map_or(at, |m| m.max(at))))?;
+    let retained = |row: &Row| row.visible && row.prompt.is_some() && row.role.as_deref() == Some("user") && said_at(row).is_some_and(|at| at <= newest_divider);
+    if !messages.iter().any(retained) {
+        return None;
+    }
+    let context: Vec<(String, Value)> = messages.iter().map(|row| (row.iid.clone(), row.body.clone())).collect();
+    let (mut moved, kept): (Vec<Row>, Vec<Row>) = std::mem::take(messages).into_iter().partition(retained);
+    *messages = kept;
+    // Oldest first; requests of one instant keep the order they were said in.
+    moved.sort_by(|a, b| said_at(a).partial_cmp(&said_at(b)).unwrap_or(std::cmp::Ordering::Equal));
+    let mut moved = moved.into_iter().peekable();
+    let mut placed = Vec::with_capacity(archive.len() + moved.len());
+    for row in std::mem::take(archive) {
+        if let Some(at) = shown_at(&row).filter(|_| row.visible) {
+            while let Some(request) = moved.next_if(|request| said_at(request).is_some_and(|said| said < at || (said == at && is_divider(&row)))) {
+                placed.push(request);
+            }
+        }
+        placed.push(row);
+    }
+    placed.extend(moved);
+    *archive = placed;
+    Some(context)
+}
+
+#[cfg(test)]
+mod place_retained_tests {
+    use serde_json::json;
+
+    use super::*;
+
+    fn archived(id: &str, body: Value) -> Row {
+        Row { iid: id.into(), turn: None, role: None, form: Form::Display, model: false, visible: true, archive: None, prompt: None, body }
+    }
+
+    fn message(id: &str, role: &str, at: Option<i64>, prompt: bool) -> Row {
+        let mut body = json!({ "role": role, "content": id });
+        if let Some(at) = at {
+            body["meta"] = json!({ "transcript": { "messageId": id, "at": at } });
+        }
+        Row { iid: id.into(), turn: None, role: Some(role.into()), form: Form::Message, model: true, visible: true, archive: None, prompt: prompt.then(|| id.to_owned()), body }
+    }
+
+    fn ids(rows: &[Row]) -> Vec<&str> {
+        rows.iter().map(|row| row.iid.as_str()).collect()
+    }
+
+    #[test]
+    fn a_request_a_compaction_carried_over_is_written_where_it_was_said() {
+        let mut archive = vec![
+            archived("a1", json!({ "kind": "assistant", "at": 10 })),
+            archived("t1", json!({ "kind": "tool" })), // a row without a time stays with the row before it
+            archived("a2", json!({ "kind": "assistant", "at": 30 })),
+            archived("d1", json!({ "kind": "statusdone", "status": "compacted", "at": 40 })),
+        ];
+        let mut summary = message("sum", "user", Some(41), false);
+        summary.visible = false;
+        let mut messages = vec![
+            summary,
+            message("u1", "user", Some(5), true),
+            message("u2", "user", Some(20), true),
+            message("u3", "user", Some(40), true), // as old as the divider: the compaction carried it too
+            message("kept", "assistant", Some(35), false),
+            message("u4", "user", Some(50), true), // said after the compaction
+        ];
+        let context = place_retained(&mut archive, &mut messages).expect("rows moved");
+        assert_eq!(ids(&archive), ["u1", "a1", "t1", "u2", "a2", "u3", "d1"]);
+        assert_eq!(ids(&messages), ["sum", "kept", "u4"], "what the compaction did not carry over stays in its order");
+        // The context is 1.4.5's: every message, in the order it held them.
+        assert_eq!(context.iter().map(|(iid, _)| iid.as_str()).collect::<Vec<_>>(), ["sum", "u1", "u2", "u3", "kept", "u4"]);
+        assert!(archive.iter().filter(|row| row.form == Form::Message).all(|row| row.model && row.visible), "a moved row is the message itself");
+    }
+
+    #[test]
+    fn a_session_with_no_shown_divider_or_no_carried_request_is_left_as_it_is() {
+        let mut archive = vec![archived("a1", json!({ "kind": "assistant", "at": 10 }))];
+        let mut messages = vec![message("u1", "user", Some(5), true)];
+        assert_eq!(place_retained(&mut archive, &mut messages), None, "no divider");
+        archive.push(archived("d1", json!({ "kind": "statusdone", "status": "compacted", "at": 40 })));
+        let mut later = vec![message("u9", "user", Some(50), true), message("n", "user", None, true)];
+        assert_eq!(place_retained(&mut archive, &mut later), None, "nothing said before the divider");
+        assert_eq!((ids(&archive), ids(&later)), (vec!["a1", "d1"], vec!["u9", "n"]));
+    }
 }
 
 #[cfg(test)]
