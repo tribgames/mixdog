@@ -194,6 +194,10 @@ pub trait McpScopes: Send + Sync {
     async fn open_runtime(&self, cwd: &Path) -> Result<String, ScopeReleased>;
     /// `awaitInitialMcpConnect()` for `scope`: returns once its first connect settled or the startup budget passed.
     async fn await_initial(&self, _scope: &str) {}
+    /// `onCwdChanged` (`boot/infrastructure.mjs:299`): the session that holds `scope` moved to `cwd`. Plugin
+    /// servers without a declared cwd follow the session's folder, so the scope reconciles for it in place
+    /// (`connectConfiguredMcp({ reconcile: true })`). A host with no scopes reconnects nothing.
+    async fn cwd_changed(&self, _scope: &str, _cwd: &Path) {}
 }
 
 /// A server's toggle chain: the state last asked (`desired`) and the run in flight (`running`), which every
@@ -738,6 +742,10 @@ impl McpScopes for McpGlue {
 
     async fn open_runtime(&self, cwd: &Path) -> Result<String, ScopeReleased> {
         self.scopes.open_runtime(&cwd.to_string_lossy()).await
+    }
+
+    async fn cwd_changed(&self, scope: &str, cwd: &Path) {
+        self.scopes.cwd_changed(scope, &cwd.to_string_lossy()).await;
     }
 
     async fn await_initial(&self, scope: &str) {

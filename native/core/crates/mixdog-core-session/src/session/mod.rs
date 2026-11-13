@@ -84,6 +84,9 @@ pub mod agent_activity;
 pub mod prewarm_signals;
 #[cfg(test)]
 mod prewarm_signals_tests;
+pub mod lifecycle_hooks;
+#[cfg(test)]
+mod lifecycle_hooks_tests;
 #[cfg(test)]
 mod agent_activity_tests;
 #[cfg(test)]
@@ -436,6 +439,9 @@ pub struct SessionDeps {
     pub live_workspace: Arc<dyn worktree::LiveWorkspace>,
     /// The code-graph prewarm this session's events schedule and wake (`prewarm_signals.rs`).
     pub code_graph_prewarm: Arc<dyn prewarm_signals::CodeGraphPrewarmSignals>,
+    /// The user hooks this session's life fires: `SessionStart`, `UserPromptSubmit`, `Stop`, `StopFailure`,
+    /// `SessionEnd` and `CwdChanged` (`lifecycle_hooks.rs`).
+    pub lifecycle: Arc<dyn lifecycle_hooks::LifecycleHooks>,
     /// The session's shell-job strip at load (`shell_jobs::ShellStrips`).
     pub shell_strips: Arc<dyn shell_jobs::ShellStrips>,
     /// The agent-status sources this session's actor emits (an approval wait, a stored record).

@@ -1622,6 +1622,13 @@ impl SessionActor {
     /// runtime's first turn armed its own; otherwise at once for a changed folder, after the
     /// configured delay for the same one.
     fn cwd_applied(&self, changed: bool) {
+        // `CwdChanged` (`cwd-apply.mjs:91-100`): only a folder that really moved, unawaited (`void hooks.dispatch(..)`), and
+        // `onCwdChanged` after it (the session's MCP scope reconciles for the new folder). The header carries the new `cwd`:
+        // the move saved it before it applied.
+        if changed {
+            let (hooks, thread, header) = (self.deps.lifecycle.clone(), self.id.clone(), self.acked.header.clone());
+            tokio::spawn(async move { hooks.cwd_changed(&thread, &header).await });
+        }
         let prewarm = &self.deps.code_graph_prewarm;
         if prewarm.lazy() && !self.first_turn_prewarm_done {
             return;
@@ -1691,8 +1698,26 @@ impl SessionActor {
             return;
         };
         // Left, or a subscriber came back and it stays: either way a close has its answer.
-        directory.unload(&self.id, &self.cell, self.close_ingest());
+        directory.unload(&self.id, &self.cell, self.close_work("other"));
         self.answer_closes();
+    }
+
+    /// The closing runtime's own work (`close(reason)`, `lifecycle/teardown.mjs:185-195`): `dispatchSessionEnd`, waited for no
+    /// longer than `withTeardownDeadline`'s 300 ms (a slower hook goes on by itself), then the memory ingest. `reason` is the
+    /// payload's (`sessionEndReason`): `exit` for the core's shutdown (`cli-exit`), `other` for an unload. A session its
+    /// close tombstoned or deleted has none left to end: `closeCanonicalSession` drops it before the runtime closes
+    /// (`if (!session?.id) return`).
+    fn close_work(&self, reason: &'static str) -> futures::future::BoxFuture<'static, ()> {
+        let ingest = self.close_ingest();
+        if self.tombstoned || self.deleting {
+            return ingest;
+        }
+        let (hooks, thread, header) = (self.deps.lifecycle.clone(), self.id.clone(), self.acked.header.clone());
+        Box::pin(async move {
+            let ended = tokio::spawn(async move { hooks.session_end(&thread, &header, reason).await });
+            let _ = mixdog_rt::time::timeout(super::lifecycle_hooks::SESSION_END_WAIT, ended).await;
+            ingest.await;
+        })
     }
 
     /// Today's `ingestSessionIntoMemory(session)` over the model context, each message through the sensitive projection:
@@ -3598,7 +3623,7 @@ impl SessionActor {
                     // Teardown's `quiesce('cli-exit')`.
                     run.cancel.abort_with(&mixdog_agent::cancel::Abort::runtime_close(self.id.as_str(), "cli-exit"));
                 }
-                let _ = done.send(self.close_ingest());
+                let _ = done.send(self.close_work("exit"));
             }
         }
     }
@@ -7208,8 +7233,10 @@ impl SessionActor {
                 Arc::new(move || cell.header.load().get("cwd").and_then(Value::as_str).unwrap_or_default().to_owned());
             async move { admission.admit(thread.as_str(), cwd, &token).await }
         };
+        let (hooks, hook_thread, hook_header) = (self.deps.lifecycle.clone(), self.id.clone(), self.acked.header.clone());
         let future = self.deps.runs.start(RunStart {
             agent_turn,
+            lifecycle: self.deps.lifecycle.clone(),
             skill_selection,
             goal_reminder,
             notice,
@@ -7252,6 +7279,17 @@ impl SessionActor {
                     (RunOutcome::Failed(TurnError { message, data: json!({}), provider_error: None }), None)
                 }
             };
+            // `reportTurnError` (`turn-settle.mjs`): a turn that ended any way but completed fires `StopFailure` with its
+            // error's class, unawaited (`void hooks.dispatch(..)`). A stopped turn ends with an error there too (`askSession`
+            // rethrows the abort), whose message names no class.
+            let failure = match &outcome {
+                RunOutcome::Completed(_) => None,
+                RunOutcome::Failed(error) => Some(mixdog_mcp::hooks::stop_failure_type(&error.message)),
+                RunOutcome::Interrupted => Some("unknown"),
+            };
+            if let Some(error_type) = failure {
+                tokio::spawn(async move { hooks.stop_failure(&hook_thread, &hook_header, error_type).await });
+            }
             // The turn's review is sealed before the turn reports settled.
             review.finish(&cancel).await;
             drop(warm);

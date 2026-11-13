@@ -152,6 +152,7 @@ pub mod warm_ports;
 pub mod desktop_notices;
 pub mod inheritance_fit;
 pub mod compact_hooks;
+pub mod lifecycle_hooks;
 pub mod heartbeat_parts;
 pub mod routine_host;
 pub mod retiring_compactor;

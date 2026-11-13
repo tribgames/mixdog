@@ -169,9 +169,9 @@ pub fn common_of_header(header: &Header) -> HookCommon {
 /// `TurnPathParts.hook_common`: the session's common fields from its live header. A session that
 /// is not loaded has none, so it answers Node's defaults.
 ///
-/// `transcript_path` stays `None`: Node hands hooks the session's `.log`/`.json` record file, and
-/// the store keeps a session as a directory of log files with no such single file (wu-purge-hooks
-/// decides what a hook is given).
+/// `transcript_path` is not read here: the bus asks the session service for it just before a handler
+/// runs (`HookBus::bind_transcripts` over the session's `TranscriptFiles` export, Node's
+/// `hookTranscriptPath`), so every payload that names a session carries it.
 pub fn hook_common(directory: Arc<LateDirectory>) -> CommonOf {
     Arc::new(move |session_id: &str| match directory.live_header(session_id) {
         Some(header) => common_of_header(&header),

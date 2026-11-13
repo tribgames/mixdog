@@ -2326,6 +2326,7 @@ impl Rig {
             context_status: Arc::new(NoContextStatus),
             live_workspace: Arc::new(super::worktree::NoLiveWorkspace),
             code_graph_prewarm: self.code_graph.clone(),
+            lifecycle: Arc::new(super::lifecycle_hooks::NoLifecycleHooks),
             shell_strips: Arc::new(NoShellStrips),
             agent_signals: self.signals.clone(),
             side: self.side.clone(),
