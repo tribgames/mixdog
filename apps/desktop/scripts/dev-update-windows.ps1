@@ -427,7 +427,13 @@ function Stop-Daemon {
     $process = Get-Process -Id ([int]$record.pid) -ErrorAction SilentlyContinue
     if (-not $process) { Write-Host '    core process already gone'; return }
     & $coreExe ctl stop --when-idle --reason fastDeploy --json | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "mixdogd ctl stop exited with $LASTEXITCODE" }
+    if ($LASTEXITCODE -ne 0) {
+        $stopExit = $LASTEXITCODE
+        # The app that was just closed was the core's last client: a core that ended by itself (noClients) between the
+        # look above and the ask has nothing left to stop. Seen: the ask answered 1 and the deploy stopped with the app closed.
+        if ($process.WaitForExit(15000)) { Write-Host '    core ended by itself before the stop was asked'; return }
+        throw "mixdogd ctl stop exited with $stopExit"
+    }
     Write-Host "    asked core pid=$($record.pid) to stop when idle"
     if ($AbortRunning) { Confirm-AbortRunningWork }
     # The idle wait has a limit: a drain was seen staying `draining` for 15+ minutes with no client and no work.
