@@ -447,6 +447,82 @@ async function authenticate(client, pipe, desktop = 'Default') {
   return connected;
 }
 
+/** A client whose connections are `pipes` in order, with a socket given up in its handshake: the first connect is
+ *  made, its helper does not answer yet, and the client closes. Returns the first socket's client nonce. */
+async function giveUpFirstHandshake(pipes) {
+  let opened = 0;
+  const client = createSecureDesktopClient({
+    environment: WIN_ENV,
+    readState: () => STATE,
+    createConnection: () => pipes[opened++].clientTransport,
+  });
+  const closes = [];
+  client.on('close', () => closes.push('close'));
+  const first = { outcome: 'pending' };
+  client.connect().then(
+    () => (first.outcome = 'resolved'),
+    (error) => (first.outcome = error.message)
+  );
+  await settle();
+  const firstNonce = decodeNonce(pipes[0].received[0].message.clientNonce);
+  client.close();
+  await settle();
+  return { client, closes, firstNonce, first };
+}
+
+/** The helper's answer to a client hello with nonce `cn`. */
+function honestServerAuth(cn) {
+  const sn = generateNonce();
+  return encodeControl({
+    type: 'server-auth',
+    protocol: PROTOCOL_VERSION,
+    serverNonce: sn,
+    mac: serverAuthTag(STATE.secret, cn, decodeNonce(sn)),
+  });
+}
+
+test('a connect given up in its handshake fails at once with connection closed', async () => {
+  const { first } = await giveUpFirstHandshake([makePipePair()]);
+  assert.equal(first.outcome, 'connection closed');
+});
+
+test('a late close of a socket given up in its handshake leaves the connection that replaced it', async () => {
+  const pipes = [makePipePair(), makePipePair()];
+  const { client, closes } = await giveUpFirstHandshake(pipes);
+  await authenticate(client, pipes[1]);
+  pipes[0].clientTransport.destroy();
+  await settle();
+  assert.deepEqual(closes, [], 'the old socket closing is not the connection closing');
+  assert.equal(client.session()?.session, 3, 'the replacement stays connected');
+  await client.sendInput({ kind: 'key', down: true, vk: 0x41, scan: 0x1e, extended: false });
+  await settle();
+  assert.equal(pipes[1].received.at(-1).message.type, 'input', 'and usable');
+});
+
+test('late data and a late error of a socket given up in its handshake do not reach the connect that replaced it', async () => {
+  const pipes = [makePipePair(), makePipePair()];
+  const { client, closes, firstNonce } = await giveUpFirstHandshake(pipes);
+  const errors = [];
+  client.on('error', (code) => errors.push(code));
+  const second = client.connect();
+  await settle();
+  // The first socket's helper answers its own hello now: not the replacement's handshake.
+  pipes[0].sendToClient(honestServerAuth(firstNonce));
+  await settle();
+  pipes[0].clientTransport.destroy(new Error('read ECONNRESET'));
+  await settle();
+  assert.deepEqual(errors, []);
+  assert.deepEqual(closes, []);
+  pipes[1].sendToClient(honestServerAuth(decodeNonce(pipes[1].received[0].message.clientNonce)));
+  await settle();
+  pipes[1].sendToClient(
+    encodeControl({ type: 'server-hello', protocol: PROTOCOL_VERSION, version: '0.1.0', session: 4, desktop: 'Winlogon' })
+  );
+  const hello = await second;
+  assert.equal(hello.session, 4);
+  assert.equal(client.session()?.desktop, 'Winlogon');
+});
+
 test('v4: grant challenges surface, grants / video runs / sas reach the helper, and the lock state is tracked', async () => {
   const pipe = makePipePair();
   const client = createSecureDesktopClient({

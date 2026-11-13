@@ -460,6 +460,54 @@ test("a session terminal's X closes the dock of its session even when that pane 
   }
 });
 
+test("the X of a child's terminal shown in its owner's dock closes that dock", async () => {
+  const { dom, restore } = installTestDom(null, {
+    html: '<!doctype html><html><body><main id="root"></main></body></html>',
+    expose: ['navigator', 'Element', 'HTMLElement', 'Node', 'CustomEvent'],
+  });
+  dom.window.requestAnimationFrame = (callback) => {
+    callback(16);
+    return 1;
+  };
+  dom.window.cancelAnimationFrame = () => {};
+  const { requestPaneDockClose } = await import('./pane-dock-chrome.tsx');
+  const Icon = () => React.createElement('span');
+  const closes = [];
+  const root = createRoot(document.getElementById('root'));
+  try {
+    await act(async () =>
+      root.render(
+        React.createElement(PaneSideDock, {
+          leafId: 'pane-1',
+          sessionId: 'owner',
+          // An agent's `terminal` run opened the child's terminal in this dock.
+          terminalSessionId: 'child',
+          groups: [['terminal']],
+          descriptors: new Map([['terminal', { id: 'terminal', label: 'Terminal', icon: Icon }]]),
+          focused: false,
+          onSelect() {},
+          onClose: () => closes.push('pane-1'),
+          onCloseDiff() {},
+          onMoveGroup() {},
+          onMoveView() {},
+          onFocusPane() {},
+          openFileTab() {},
+          renderTerminalSurface: () => null,
+          renderView: () => null,
+          entry: { open: true, view: 'source-control', surface: 'terminal', diff: null },
+        })
+      )
+    );
+    await act(async () => requestPaneDockClose('terminal', 'other'));
+    assert.deepEqual(closes, [], 'an unrelated session leaves the dock open');
+    await act(async () => requestPaneDockClose('terminal', 'child'));
+    assert.deepEqual(closes, ['pane-1'], "the shown child terminal's X closes its owner's dock");
+  } finally {
+    await act(async () => root.unmount());
+    restore();
+  }
+});
+
 test('a stored Profile view outside the session groups never titles the Changes body', async () => {
   const { dom, restore } = installTestDom(null, {
     html: '<!doctype html><html><body><main id="root"></main></body></html>',

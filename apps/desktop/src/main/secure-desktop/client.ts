@@ -119,7 +119,7 @@ export class SecureDesktopClient {
 
   private readonly state?: InstallState;
   private readonly createConnection: (pipeName: string) => SecureDesktopTransport;
-  private readonly parser = new FrameParser();
+  private parser = new FrameParser();
   private readonly handlers: { [K in keyof SecureDesktopEvents]: Set<SecureDesktopEvents[K]> } = {
     frame: new Set(),
     'desktop-changed': new Set(),
@@ -194,12 +194,23 @@ export class SecureDesktopClient {
     const state = this.state;
     const connection = this.createConnection(state.pipeName || SERVICE_PIPE_NAME);
     this.connection = connection;
+    // Bytes an earlier connection left half-read must not prefix this one's.
+    this.parser = new FrameParser();
 
     return new Promise<ServerHello>((resolve, reject) => {
       this.pendingConnect = { resolve, reject };
-      connection.on('data', (chunk: Buffer) => this.onData(chunk));
-      connection.on('error', (error: Error) => this.fail(error));
+      // A socket's events count only while it is the client's connection: a socket given up by `close()` or
+      // replaced by a later `connect()` may still deliver data, an error or its close, and none of them may reach
+      // the shared parser, fail the current connect or end the current session. Its own close still counts while
+      // no other socket has taken its place (after `close()` or an abort).
+      connection.on('data', (chunk: Buffer) => {
+        if (this.connection === connection) this.onData(chunk);
+      });
+      connection.on('error', (error: Error) => {
+        if (this.connection === connection) this.fail(error);
+      });
       connection.on('close', () => {
+        if (this.connection && this.connection !== connection) return;
         this.endSession('connection closed');
         this.emit('close');
         this.fail(new Error('connection closed'));
@@ -446,6 +457,8 @@ export class SecureDesktopClient {
     // Writes already issued flush before `end`; their `sendInput` promises
     // settle from their own callbacks. Only the session view is cleared here.
     this.current = undefined;
+    // A connect still in its handshake fails now: its socket's events no longer count.
+    this.fail(new Error('connection closed'));
     try {
       this.connection.end();
     } catch {

@@ -549,16 +549,18 @@ export function useDockCloseRequest(
   surface: string,
   focused: boolean,
   onClose: () => void,
-  sessionId = ''
+  sessionId = '',
+  /** Another session whose surface this dock shows (a child's terminal): its X names that session. */
+  shownSessionId = ''
 ) {
   useEffect(() => {
     if (!active) return undefined;
     const onCloseRequest = (event: Event) => {
       const detail = (event as CustomEvent<{ surface?: string; sessionId?: string }>).detail;
       if (detail?.surface !== surface) return;
-      if (detail.sessionId ? detail.sessionId === sessionId : focused) onClose();
+      if (detail.sessionId ? detail.sessionId === sessionId || detail.sessionId === shownSessionId : focused) onClose();
     };
     window.addEventListener(PANE_DOCK_CLOSE_EVENT, onCloseRequest);
     return () => window.removeEventListener(PANE_DOCK_CLOSE_EVENT, onCloseRequest);
-  }, [active, surface, focused, onClose, sessionId]);
+  }, [active, surface, focused, onClose, sessionId, shownSessionId]);
 }
