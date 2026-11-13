@@ -632,3 +632,44 @@ async fn the_wait_for_a_first_connect_is_not_made_when_a_servers_startup_budget_
     assert_eq!(started.elapsed(), std::time::Duration::ZERO, "the held connect was not waited for");
     go.send(()).unwrap();
 }
+/// `syncScopeRoot` (mcp-glue/connect.mjs:28, :111; server-connection.mjs:70) over `setMcpScopeRoot`
+/// (mcp/client.mjs:1603): a server that follows its scope (a plugin's, `_mixdogRootsFollowScope`) advertises the
+/// folder the scope was opened in, and when the session's folder changes the reconcile keeps its connection and
+/// tells it the roots changed; it then lists the new folder.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_cwd_change_readvertises_the_roots_of_the_scopes_following_servers() {
+    async fn asked(server: &McpServer, tool: &str) -> String {
+        let out = server.call_tool_unlisted("t", tool, json!({}), &tokio_util::sync::CancellationToken::new(), None).await.unwrap();
+        out.parts.iter().filter_map(|part| if let mixdog_core_api::domain::tool::ToolPart::Text(text) = part { Some(text.as_str()) } else { None }).collect()
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let (first, second) = (dir.path().join("first"), dir.path().join("second"));
+    std::fs::create_dir_all(&first).unwrap();
+    std::fs::create_dir_all(&second).unwrap();
+    let uri = |root: &std::path::Path| url::Url::from_file_path(root).unwrap().to_string();
+
+    let Rig { runtime, hub, configs, .. } = rig();
+    let following = McpServerConfig::from_entry("plug", &json!({"command": MOCK, "_mixdogRootsFollowScope": true}), &std::env::vars().collect()).unwrap();
+    *lock(&configs.configs) = vec![following];
+    runtime.open("s1", "t1", first.to_str().unwrap()).await.unwrap();
+    let plug = hub.server_in("s1", "plug").unwrap();
+    until(&plug, ready).await;
+    let listed: serde_json::Value = serde_json::from_str(&asked(&plug, "roots").await).unwrap();
+    assert_eq!(listed["result"]["roots"], json!([{"uri": uri(&first), "name": "first"}]));
+
+    runtime.cwd_changed("s1", second.to_str().unwrap()).await;
+    let kept = hub.server_in("s1", "plug").unwrap();
+    assert!(Arc::ptr_eq(&plug, &kept), "no reconnect: the connection and its tools stay as they are");
+    let mut told = String::new();
+    for _ in 0..200 {
+        told = asked(&plug, "roots_changes").await;
+        if told != "0" {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+    assert_eq!(told, "1");
+    let listed: serde_json::Value = serde_json::from_str(&asked(&plug, "roots").await).unwrap();
+    assert_eq!(listed["result"]["roots"], json!([{"uri": uri(&second), "name": "second"}]));
+    runtime.release("t1");
+}

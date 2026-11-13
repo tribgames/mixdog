@@ -12,7 +12,8 @@
 //! of this value: an overload or an untyped 429 retries only with server
 //! advice, and the initial POST retries 5xx only while 408/429 go to the
 //! stream budget. `contentFilterRetryable` is the agent loop's
-//! content-filter recovery, not a provider row.
+//! content-filter recovery, not a provider row: the policy only states the
+//! opt-in (`content_filter_retryable`).
 
 use std::time::Duration;
 
@@ -54,5 +55,7 @@ pub fn retry_policy() -> RetryPolicy {
         jitter: Jitter::symmetric(JITTER_RATIO),
         advice: AdviceRule::honored_in_full(),
     });
+    // `retryPolicy.contentFilterRetryable` (openai-oauth.mjs:91, openai-ws.mjs:86).
+    policy.content_filter_retryable = true;
     policy
 }

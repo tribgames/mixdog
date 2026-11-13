@@ -27,6 +27,10 @@ struct Shared {
     fixture_calls: AtomicUsize,
     /// The arguments of every fixture call, in order.
     fixture_args: Mutex<Vec<Value>>,
+    /// The `capabilities` the client's `initialize` declared.
+    client_capabilities: Mutex<Value>,
+    /// How many `notifications/roots/list_changed` arrived.
+    roots_changes: AtomicUsize,
 }
 
 fn send(shared: &Shared, message: Value) {
@@ -64,6 +68,13 @@ fn call(shared: &Arc<Shared>, id: Value, params: &Value) {
             eprintln!("crashing on purpose");
             std::process::exit(3);
         }
+        // Never listed: answers, then ends the process while no call is in flight.
+        "die_soon" => {
+            send(shared, json!({"jsonrpc": "2.0", "id": id, "result": text("dying")}));
+            std::thread::sleep(Duration::from_millis(100));
+            eprintln!("dying on purpose");
+            std::process::exit(3);
+        }
         "elicit" => {
             let (tx, rx) = std::sync::mpsc::channel();
             *shared.elicit_answer.lock().unwrap() = Some(tx);
@@ -79,6 +90,17 @@ fn call(shared: &Arc<Shared>, id: Value, params: &Value) {
             return;
         }
         "cancels" => text(shared.cancels.load(Ordering::SeqCst).to_string()),
+        // Never listed: what the client declared, the roots it answers `roots/list` with (the whole reply), and how
+        // many times it announced a change of them.
+        "client_capabilities" => text(shared.client_capabilities.lock().unwrap().to_string()),
+        "roots_changes" => text(shared.roots_changes.load(Ordering::SeqCst).to_string()),
+        "roots" => {
+            let (tx, rx) = std::sync::mpsc::channel();
+            *shared.elicit_answer.lock().unwrap() = Some(tx);
+            send(shared, json!({"jsonrpc": "2.0", "id": "e1", "method": "roots/list"}));
+            let answer = rx.recv_timeout(Duration::from_secs(5)).unwrap_or(Value::Null);
+            text(json!({"result": answer["result"], "error": answer["error"]["code"]}).to_string())
+        }
         // Never listed (like the Gmail connector's): answers the result in `MOCK_DESCRIBE_RESULT`.
         "describe_emails" => {
             *shared.last_describe.lock().unwrap() = params["arguments"].clone();
@@ -133,6 +155,8 @@ fn main() {
         last_describe: Mutex::new(Value::Null),
         fixture_calls: AtomicUsize::new(0),
         fixture_args: Mutex::new(Vec::new()),
+        client_capabilities: Mutex::new(Value::Null),
+        roots_changes: AtomicUsize::new(0),
     });
     // `MOCK_SCENARIO`: `{tools, results}` — lists `tools` and answers `tools/call {name, {i}}`
     // with `results[name][i]` (a recorded case of `record-mcp-output-schema.mjs`). `MOCK_SCENARIO_FILE`: the same, in a
@@ -181,11 +205,17 @@ fn main() {
                 let result = scenario.as_ref().map(|s| s["results"][params["name"].as_str().unwrap_or_default()][index].clone());
                 send(&shared, json!({"jsonrpc": "2.0", "id": id, "result": result}));
             }
-            (Some("initialize"), Some(id)) => send(&shared, json!({"jsonrpc": "2.0", "id": id, "result": {
-                "protocolVersion": "2025-06-18",
-                "capabilities": {"tools": {"listChanged": true}},
-                "serverInfo": {"name": "mock", "version": "0"},
-                "instructions": "mock instructions"}})),
+            (Some("initialize"), Some(id)) => {
+                *shared.client_capabilities.lock().unwrap() = message["params"]["capabilities"].clone();
+                send(&shared, json!({"jsonrpc": "2.0", "id": id, "result": {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {"tools": {"listChanged": true}},
+                    "serverInfo": {"name": "mock", "version": "0"},
+                    "instructions": "mock instructions"}}));
+            }
+            (Some("notifications/roots/list_changed"), None) => {
+                shared.roots_changes.fetch_add(1, Ordering::SeqCst);
+            }
             (Some("tools/list"), Some(id)) => {
                 let cursor = message["params"]["cursor"].as_str();
                 // `MOCK_TOOLS` (a JSON list of names): exactly those tools, in one page.

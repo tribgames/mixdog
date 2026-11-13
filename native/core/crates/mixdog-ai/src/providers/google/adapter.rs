@@ -521,6 +521,13 @@ impl ProviderAdapter for GoogleAdapter {
         self.direct_gemini(model) && !exposed && transient
     }
 
+    /// `[gemini] stream failed (<code, else message>); recovered via non-streaming generateContent` (gemini.mjs), as
+    /// the broker writes it for its own sends.
+    fn recovery_line(&self, _model: &str, failure: &ProviderError) -> Option<String> {
+        let cause = crate::oauth::carried::remembered().redact_str(failure.code.as_deref().filter(|c| !c.is_empty()).unwrap_or(&failure.message));
+        Some(format!("[gemini] stream failed ({cause}); recovered via non-streaming generateContent"))
+    }
+
     /// `_recoverGeminiNonStreaming`: the same body once to `:generateContent`; an answer with a candidate is the turn
     /// (and the stderr line), anything else fails the re-issue.
     async fn recover_spent(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {

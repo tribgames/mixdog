@@ -851,6 +851,8 @@ impl OpenAiAdapter {
                 continue;
             }
             let mut err = codec.classify(&rejected);
+            // `rejectedToolSchema`: a 400 that names one of the tools this body carried.
+            crate::providers::rejections::mark_tool_schema(&mut err, &rejected.body, &crate::providers::rejections::wire_tool_names(&wire.body));
             // `_wsErrLabel` for the upgrade (`openai-ws-handshake.mjs:107`), `httpLabel` for the HTTP/SSE request.
             let label = match (wire_kind, self.codec.route()) {
                 (Wire::Ws, Route::Codex) => "OpenAI OAuth WS handshake",

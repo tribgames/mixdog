@@ -199,6 +199,7 @@ impl RunObserver for CaseObserver {
         let reason = match retraction.reason {
             RetractReason::OutputLimitEscalation => "output-limit-escalation",
             RetractReason::TransportRetraction => "transport-retraction",
+            RetractReason::StreamingFallback => "anthropic-streaming-fallback",
         };
         self.resets.lock().unwrap().push(json!({"chars": retraction.chars, "reason": reason}));
         answer

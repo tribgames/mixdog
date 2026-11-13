@@ -17,6 +17,7 @@ use mixdog_core_api::domain::provider::{
     DeliveryState, ModelRequest, ModelStream, ProviderAdapter, ProviderError, StreamEvent,
     WireCodec, WireDecoder, WireRequest,
 };
+use mixdog_core_api::domain::provider::ErrorKind;
 use mixdog_core_api::domain::retry::RetryPolicy;
 use mixdog_protocol::ProviderId;
 
@@ -164,12 +165,15 @@ impl CompatAdapter {
         profile.credential == CredentialKind::StaticKey { reauth_on_401: false }
     }
 
-    async fn failure(codec: &dyn WireCodec, response: HttpResponse, key: Option<&str>) -> ProviderError {
+    /// The refusal of the request whose body was `sent`.
+    async fn failure(codec: &dyn WireCodec, response: HttpResponse, key: Option<&str>, sent: &[u8]) -> ProviderError {
         let body = match response.read_all().await {
             Ok(body) => body,
             Err(err) => return err,
         };
         let mut err = codec.classify(&body);
+        // `rejectedToolSchema`: a 400 that names one of the tools this body carried.
+        crate::providers::rejections::mark_tool_schema(&mut err, &body.body, &crate::providers::rejections::wire_tool_names(sent));
         if let Some(key) = key {
             err.message = redact_key(&err.message, key);
         }
@@ -233,6 +237,61 @@ impl ProviderAdapter for CompatAdapter {
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
         self.attempt_with(&self.codec, request).await
     }
+
+    /// `canFallbackNonStreaming` (retry-classification.mjs:402) of the failure a Chat Completions send's ladder ended
+    /// on: nothing reached the caller, no call was cut or dispatched, and it is transient, stalled or a truncated
+    /// stream.
+    fn recovers_spent(&self, _model: &str, failure: &ProviderError) -> bool {
+        let exposed =
+            failure.unsafe_to_retry || failure.exposure.text_emitted || failure.exposure.tool_dispatched || failure.exposure.tool_input_cut;
+        let transient = matches!(failure.kind, ErrorKind::Transient | ErrorKind::Overloaded)
+            || failure.timed_out
+            || failure.transport == Some(mixdog_core_api::domain::provider::TransportFault::TruncatedStream);
+        !exposed && transient
+    }
+
+    /// `recoverCompatNonStreaming` (openai-compat-chat-send.mjs:268): the same Chat Completions body once more with
+    /// `stream: false` and no `stream_options`; an answer with a choice is the turn, anything else fails the re-issue.
+    async fn recover_spent(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+        let failed = || ProviderError::new(ErrorKind::Transient, DeliveryState::Accepted);
+        let request = match &self.configured_effort {
+            Some(effort) if request.options.effort.is_none() => {
+                let mut owned = (*request).clone();
+                owned.options.effort = Some(effort.clone());
+                Arc::new(owned)
+            }
+            _ => request,
+        };
+        let mut wire = self.codec.encode(&request)?;
+        // Only the Chat Completions send has this recovery (`sendCompatChat`).
+        if !wire.url.ends_with("/chat/completions") {
+            return Err(ProviderError::new(ErrorKind::Unknown, DeliveryState::NotSent));
+        }
+        wire.body = super::nonstream::body(&wire.body).ok_or_else(failed)?;
+        let key = match &self.key {
+            Some(source) => Some(source.key().await?),
+            None => None,
+        };
+        request.options.send_identity.raise_stage("requesting");
+        let response = self.http.send(Self::with_key(&wire, key.as_deref()), MODEL_STREAM).await?;
+        if !response.is_success() {
+            return Err(Self::failure(&self.codec, response, key.as_deref(), &wire.body).await);
+        }
+        let answered = response.read_all().await?;
+        let chunk = super::nonstream::as_stream(&answered.body).ok_or_else(failed)?;
+        let mut decoder = self.codec.decoder(&request);
+        let mut events = decoder.feed(&chunk)?;
+        events.extend(decoder.finish()?);
+        Ok(Box::new(CompatStream { body: None, decoder, queue: super::nonstream::whole(events).into(), failed: None }))
+    }
+
+    /// `[<provider>] stream failed (<code, else message, else unknown>); recovered via non-streaming request`. The
+    /// failure's text repeats what the endpoint answered: any credential the process holds is redacted.
+    fn recovery_line(&self, _model: &str, failure: &ProviderError) -> Option<String> {
+        let cause = [failure.code.as_deref(), Some(failure.message.as_str())].into_iter().flatten().find(|text| !text.is_empty()).unwrap_or("unknown");
+        let cause = crate::oauth::carried::remembered().redact_str(cause);
+        Some(format!("[{}] stream failed ({cause}); recovered via non-streaming request", self.id))
+    }
 }
 
 impl CompatAdapter {
@@ -268,7 +327,7 @@ impl CompatAdapter {
             if response.is_success() {
                 return Ok(Box::new(CompatStream::new(response.body, codec.decoder(&request))));
             }
-            let err = Self::failure(codec, response, key.as_deref()).await;
+            let err = Self::failure(codec, response, key.as_deref(), &wire.body).await;
             if err.status == Some(401)
                 && !reloaded
                 && Self::reloadable(self.codec.profile())

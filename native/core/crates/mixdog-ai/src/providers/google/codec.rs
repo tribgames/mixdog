@@ -283,6 +283,10 @@ impl GoogleCodec {
             (_, Some(_)) => claude::classify(response),
             _ => classify(response, &self.error_dialect(), SystemTime::now()),
         };
+        // `rejectedToolSchema`: a 400 that names one of the request's function declarations, which go out in the
+        // request's own order.
+        let declared: Vec<Option<String>> = request.tools.iter().map(|tool| Some(tool.name.clone())).collect();
+        crate::providers::rejections::mark_tool_schema(&mut error, &response.body, &declared);
         let vertex = match maas.or(claude) {
             Some(model) => Some(model),
             None => self.model_id(&request.model).ok().map(|id| VertexModel { publisher: "google".into(), id: id.to_owned(), wire: Wire::Gemini }),

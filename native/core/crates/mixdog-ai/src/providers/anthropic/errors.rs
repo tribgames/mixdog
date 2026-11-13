@@ -211,6 +211,8 @@ pub(crate) fn classify_response(response: &ErrorResponse) -> ProviderError {
         Some(status) => format!("Anthropic API {status}: {detail}"),
         None => format!("Anthropic API: {detail}"),
     };
+    // `isThinkingReplayRejection`: a reasoning replay the API will not take back, typed for the loop's repair.
+    crate::providers::rejections::mark_replay_rejection(&mut err);
     err
 }
 
@@ -244,5 +246,6 @@ pub(crate) fn classify_stream_error(event: &Value) -> ProviderError {
             .and_then(Value::as_str)
             .unwrap_or("Anthropic SSE error")
     );
+    crate::providers::rejections::mark_replay_rejection(&mut err);
     err
 }

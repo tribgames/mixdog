@@ -1782,6 +1782,49 @@ mod liveness {
         assert!(!err.message.contains("sk-test-key"), "{}", err.message);
     }
 
+    /// `recoverCompatNonStreaming` (openai-compat-chat-send.mjs:268): the same body with `stream: false` and no
+    /// `stream_options`, the response's first choice the turn (its text whole, no delta), and the line Node writes once
+    /// it answered. `canFallbackNonStreaming` gates it: only a failure that showed nothing and is transient.
+    #[tokio::test]
+    async fn a_spent_chat_send_is_reissued_without_streaming_as_node_does() {
+        use mixdog_core_api::domain::provider::{StreamEvent, TransportFault};
+        let answer = br#"{"id":"r1","model":"m","choices":[{"index":0,"message":{"role":"assistant","content":"whole"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":1,"total_tokens":4}}"#.to_vec();
+        let (adapter, http) = adapter(200, vec![answer]);
+        let streaming = adapter.codec().encode(&base_request("m")).unwrap();
+        let mut stream = adapter.recover_spent(Arc::new(base_request("m"))).await.expect("the re-issue answers");
+        let mut events = Vec::new();
+        while let Some(event) = stream.next().await {
+            events.push(event.expect("no failure"));
+        }
+        assert!(events.contains(&StreamEvent::FinalContent("whole".into())), "{events:?}");
+        assert!(!events.iter().any(|e| matches!(e, StreamEvent::TextDelta(_))), "no text delta streams");
+        assert!(matches!(events.last(), Some(StreamEvent::Completed { .. })), "{events:?}");
+        let sent = http.sent.lock().unwrap();
+        let (mut expected, sent_body): (JsonValue, JsonValue) = (serde_json::from_slice(&streaming.body).unwrap(), serde_json::from_slice(&sent[0].body).unwrap());
+        assert_eq!(expected["stream"], true);
+        expected["stream"] = json!(false);
+        expected.as_object_mut().unwrap().remove("stream_options");
+        assert_eq!(sent_body, expected);
+        assert_eq!(sent[0].url, streaming.url);
+
+        let cut = ProviderError::transport(TransportFault::TruncatedStream, DeliveryState::Accepted);
+        assert!(adapter.recovers_spent("m", &cut));
+        assert_eq!(adapter.recovery_line("m", &cut).as_deref(), Some("[deepseek] stream failed (unknown); recovered via non-streaming request"));
+        let mut shown = cut.clone();
+        shown.exposure.text_emitted = true;
+        assert!(!adapter.recovers_spent("m", &shown), "shown text is the loop's retraction replay");
+        let mut refused = ProviderError::new(ErrorKind::InvalidRequest, DeliveryState::Accepted);
+        refused.status = Some(400);
+        assert!(!adapter.recovers_spent("m", &refused));
+    }
+
+    /// `if (!choice) return null`: a response without a choice fails the re-issue.
+    #[tokio::test]
+    async fn a_reissue_without_a_choice_fails() {
+        let (adapter, _) = adapter(200, vec![br#"{"choices":[]}"#.to_vec()]);
+        assert!(adapter.recover_spent(Arc::new(base_request("m"))).await.is_err());
+    }
+
     #[test]
     fn a_half_open_link_ends_as_a_keepalive_failure_within_the_schedule() {
         let (adapter, _) = adapter(200, vec![]);

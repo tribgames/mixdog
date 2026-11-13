@@ -103,7 +103,12 @@ pub struct RpcClient {
     closed: watch::Sender<Option<CloseCause>>,
     tools_changed: Notify,
     notices: mpsc::Sender<Notice>,
+    /// The answer to the server's `roots/list`, when the client declared roots ([`RpcClient::serve_roots`]).
+    roots: std::sync::OnceLock<RootsList>,
 }
+
+/// What a `roots/list` request is answered with: its result object.
+pub type RootsList = Arc<dyn Fn() -> Value + Send + Sync>;
 
 async fn cancelled(token: Option<&CancellationToken>) {
     match token {
@@ -129,6 +134,7 @@ impl RpcClient {
             pending: Mutex::new(HashMap::new()),
             closed,
             tools_changed: Notify::new(),
+            roots: std::sync::OnceLock::new(),
         });
         mixdog_rt::spawn("mcp.rpc.read", TaskClass::Work, Arc::clone(&client).read_loop(incoming));
         client
@@ -192,9 +198,18 @@ impl RpcClient {
         }
     }
 
+    /// Answers the server's `roots/list` with what `list` returns (the result object), as the SDK client answers it
+    /// from the handler `createMcpClient` registers (`mcp/client.mjs:1580`). Without it the method is not supported.
+    /// Set before `initialize` declares the capability; a second call changes nothing.
+    pub fn serve_roots(&self, list: RootsList) {
+        let _ = self.roots.set(list);
+    }
+
     fn answer_request(self: &Arc<Self>, method: &str, id: Value) {
         let reply = if method == "ping" {
             json!({"jsonrpc": "2.0", "id": id, "result": {}})
+        } else if let ("roots/list", Some(list)) = (method, self.roots.get()) {
+            json!({"jsonrpc": "2.0", "id": id, "result": list()})
         } else {
             json!({
                 "jsonrpc": "2.0",
@@ -258,6 +273,11 @@ impl RpcClient {
     }
 
     /// Queues a notification for the writer task and returns; it is never awaited.
+    /// A notification that carries no parameters (the SDK's `sendRootsListChanged`: `{ method }` alone).
+    pub fn notify_bare(&self, method: &str) -> Result<(), RpcError> {
+        self.enqueue(json!({"jsonrpc": "2.0", "method": method}), None)
+    }
+
     pub fn notify(&self, method: &str, params: Value) -> Result<(), RpcError> {
         self.enqueue(
             json!({"jsonrpc": "2.0", "method": method, "params": params}),

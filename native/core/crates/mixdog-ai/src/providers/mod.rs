@@ -31,6 +31,7 @@ pub mod key_source;
 pub mod listing_row;
 pub mod local;
 pub mod openai;
+pub(crate) mod rejections;
 #[cfg(test)]
 mod served_model_wire_tests;
 #[cfg(test)]

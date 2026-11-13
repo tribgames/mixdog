@@ -142,6 +142,11 @@ pub enum CallError {
     /// The result could not be checked against its output schema: the lane that checks it is full.
     #[error("{0}; retry after running work completes")]
     Overloaded(String),
+    /// A call its connection failed, after the reconnect that followed (`executeMcpTool`, mcp/client.mjs:536-594): the
+    /// reconnect failed too, the call was not replayed because it may have reached the server, or its one replay failed.
+    /// `outcome_unknown`: the call may have run.
+    #[error("{message}")]
+    Recovery { message: String, outcome_unknown: bool },
 }
 
 pub struct McpServer {
@@ -156,6 +161,14 @@ pub struct McpServer {
     generation: AtomicU64,
     connecting: AtomicBool,
     shutdown: CancellationToken,
+    /// The folder of the server's scope now, which a server that follows its scope advertises as its root
+    /// (`_scopeRoots`, mcp/client.mjs:79); empty: none set.
+    scope_root: Arc<Mutex<String>>,
+    /// The connection the server was ready on ended by itself (Node keeps such a server registered with
+    /// `liveness.alive === false`): a call finds no connection to send on, and reconnects.
+    died: AtomicBool,
+    /// One failure-driven reconnect at a time (`reconnects.run(registryKey, …)`).
+    reconnecting: tokio::sync::Mutex<()>,
     /// Test seam: the transport that serves a server whose identity (`config`) is a remote one, so a replay can drive the real
     /// call path of a server the core never reaches over the network.
     #[cfg(feature = "test-support")]
@@ -309,6 +322,21 @@ async fn list_tools(client: &RpcClient) -> Result<Vec<Value>, ConnectError> {
     }
 }
 
+/// The result of `roots/list` (`createMcpClient`'s handler, mcp/client.mjs:1581-1596): the scope's folder for a server
+/// that follows its scope (`follow`), else or failing that the fixed root, as `{ uri: pathToFileURL(resolve(root)), name:
+/// basename(root) || root }`; no root at all is an empty list.
+fn roots_result(follow: bool, fixed: Option<&str>, scope_root: &Mutex<String>) -> Value {
+    let scoped = follow.then(|| scope_root.lock().unwrap_or_else(|e| e.into_inner()).clone()).filter(|root| !root.is_empty());
+    let Some(root) = scoped.or_else(|| fixed.map(str::to_owned)) else {
+        return json!({"roots": []});
+    };
+    let path = std::path::absolute(&root).unwrap_or_else(|_| std::path::PathBuf::from(&root));
+    let shown = path.to_string_lossy().into_owned();
+    let name = path.file_name().map(|name| name.to_string_lossy().into_owned()).filter(|name| !name.is_empty()).unwrap_or_else(|| shown.clone());
+    let uri = url::Url::from_file_path(&path).map_or(shown, String::from);
+    json!({"roots": [{"uri": uri, "name": name}]})
+}
+
 impl McpServer {
     pub fn new(
         config: McpServerConfig,
@@ -332,6 +360,9 @@ impl McpServer {
             generation: AtomicU64::new(0),
             connecting: AtomicBool::new(false),
             shutdown: CancellationToken::new(),
+            scope_root: Arc::default(),
+            died: AtomicBool::new(false),
+            reconnecting: tokio::sync::Mutex::new(()),
             #[cfg(feature = "test-support")]
             stand_in: None,
         })
@@ -397,6 +428,10 @@ impl McpServer {
         }
         // Clears the single-flight flag on every exit, including this future being dropped.
         let _attempt = ConnectingGuard(&self.connecting);
+        // `missingEnvWarnings` logs what the configuration could not resolve at every connect.
+        for warning in &self.config.warnings {
+            crate::config::mcp_log(&format!("[mcp-client] \"{}\": {warning}", self.config.name));
+        }
         let generation = self.generation.fetch_add(1, Ordering::AcqRel) + 1;
         self.state.send_replace(Arc::new(ServerState::Starting));
         let opened: Mutex<Option<Arc<RpcClient>>> = Mutex::new(None);
@@ -408,6 +443,9 @@ impl McpServer {
             // The budget is disabled: the handshake is not bounded, as Node arms no deadline for it.
             None => self.handshake(&opened).await,
         };
+        // The connect settled: whatever connection died before it is replaced or given up. Until here a call still
+        // finds the dead one and waits for this connect with the others (`died`).
+        self.died.store(false, Ordering::Release);
         match outcome {
             Ok(ready) => {
                 let client = Arc::clone(&ready.client);
@@ -482,12 +520,20 @@ impl McpServer {
         let (transport, incoming) = self.open_transport().await?;
         let client = RpcClient::start(transport, incoming);
         *opened.lock().unwrap_or_else(|e| e.into_inner()) = Some(Arc::clone(&client));
+        // `createMcpClient` (mcp/client.mjs:1569): a server with a root (its scope's, or a fixed one) is told the client
+        // has roots, and that they change when they follow the scope; its `roots/list` is answered with the root now.
+        let (follow, fixed) = (self.config.roots_follow_scope, self.config.project_root.clone());
+        let capabilities = if follow || fixed.is_some() { json!({"roots": {"listChanged": follow}}) } else { json!({}) };
+        if follow || fixed.is_some() {
+            let scope_root = Arc::clone(&self.scope_root);
+            client.serve_roots(Arc::new(move || roots_result(follow, fixed.as_deref(), &scope_root)));
+        }
         let init = client
             .request(
                 "initialize",
                 json!({
                     "protocolVersion": PROTOCOL_VERSION,
-                    "capabilities": {},
+                    "capabilities": capabilities,
                     "clientInfo": {"name": "mixdog", "version": env!("CARGO_PKG_VERSION")},
                 }),
                 RequestOptions::default(),
@@ -531,6 +577,9 @@ impl McpServer {
             let tail = closed.borrow().as_ref().map(|c| c.stderr_tail.clone()).unwrap_or_default();
             let cause = append_stderr_tail(&format!("MCP server \"{}\" closed", server.name()), &tail);
             let cause = scrub(&cause, &server.secrets);
+            if server.generation.load(Ordering::Acquire) == generation {
+                server.died.store(true, Ordering::Release);
+            }
             server.publish(generation, ServerState::Failed { cause });
         });
     }
@@ -556,7 +605,7 @@ impl McpServer {
                 }
                 // `runToolRefresh` keeps the listing it had and logs this line.
                 Err(PageError::Shape(text)) => {
-                    return tracing::warn!("[mcp-client] Failed to refresh tools for \"{}\": {}", self.name(), scrub(&text, &self.secrets));
+                    return crate::config::mcp_log(&format!("[mcp-client] Failed to refresh tools for \"{}\": {}", self.name(), scrub(&text, &self.secrets)));
                 }
                 Err(PageError::Rpc(error)) => return tracing::warn!(server = self.name(), %error, "tools/list failed after list_changed"),
             }
@@ -624,20 +673,154 @@ impl McpServer {
         Ok(ready.client.request(method, params, options).await?)
     }
 
+    /// `setMcpScopeRoot` (mcp/client.mjs:1603) for this server: the folder its scope works in now. A server that
+    /// follows its scope advertises it as its root and, while connected, is told when it changed
+    /// (`notifications/roots/list_changed`); the connection and its tools stay as they are. Any other server ignores it.
+    pub fn set_scope_root(&self, root: &str) {
+        if !self.config.roots_follow_scope {
+            return;
+        }
+        let next = mixdog_js::js_trim(root);
+        {
+            let mut current = self.scope_root.lock().unwrap_or_else(|e| e.into_inner());
+            if *current == next {
+                return;
+            }
+            *current = next.to_owned();
+        }
+        if let ServerState::Ready(ready) = &*self.state() {
+            // A server that rejects the notification keeps its previous roots.
+            let _ = ready.client.notify_bare("notifications/roots/list_changed");
+        }
+    }
+
     /// Calls `tool` (the server's own name). `owner` identifies the caller for fair admission.
+    ///
+    /// A call its connection fails is answered as `executeMcpTool` answers it (mcp/client.mjs:536-594): the server is
+    /// reconnected, one reconnect shared by every call that failed on the same connection, and the call is replayed
+    /// once only when it provably never left this process (there was no live connection to send it on). A cancelled
+    /// call, a timed-out one and one the server answered with an error are not transport failures.
     pub async fn call_tool(
-        &self,
+        self: &Arc<Self>,
         owner: &str,
         tool: &str,
         arguments: Value,
         cancel: &CancellationToken,
         deadline: Option<Instant>,
     ) -> Result<ToolOutput, CallError> {
+        let ready = match self.ready() {
+            Ok(ready) if !ready.client.is_closed() => ready,
+            // The connection ended before the call: nothing to send on (the SDK's `Not connected`).
+            Ok(ready) => {
+                let tail = ready.client.transport().stderr_tail();
+                return self.recover_call(Some(Arc::clone(&ready.client)), None, tail, owner, tool, arguments, cancel, deadline).await;
+            }
+            Err(_) if self.died.load(Ordering::Acquire) && !self.shutdown.is_cancelled() => {
+                return self.recover_call(None, None, String::new(), owner, tool, arguments, cancel, deadline).await;
+            }
+            Err(not_ready) => return Err(not_ready),
+        };
+        if !ready.catalog.entries.iter().any(|e| e.tool == tool) {
+            return Err(CallError::UnknownTool { server: self.name().to_owned(), tool: tool.to_owned() });
+        }
+        let first = match self.call_ready(&ready, owner, tool, arguments.clone(), cancel, deadline).await {
+            Ok(output) => return Ok(output),
+            Err(error) => error,
+        };
+        let tail = match &first {
+            CallError::Rpc(RpcError::Closed(tail)) => Some(tail.clone()),
+            CallError::Rpc(RpcError::Transport(_)) => Some(String::new()),
+            _ => None,
+        };
+        let Some(tail) = tail.filter(|_| !cancel.is_cancelled()) else {
+            return Err(first);
+        };
+        self.recover_call(Some(Arc::clone(&ready.client)), Some(first.to_string()), tail, owner, tool, arguments, cancel, deadline).await
+    }
+
+    /// The reconnect after a call's connection failed, and what follows it. `sent`: the failure of a call that was
+    /// handed to the connection (it may have reached the server, so it is never replayed); `None`: the call found no
+    /// connection and is replayed once on the new one. `tail`: what the dead server wrote to stderr.
+    #[allow(clippy::too_many_arguments)]
+    async fn recover_call(
+        self: &Arc<Self>,
+        failed: Option<Arc<RpcClient>>,
+        sent: Option<String>,
+        tail: String,
+        owner: &str,
+        tool: &str,
+        arguments: Value,
+        cancel: &CancellationToken,
+        deadline: Option<Instant>,
+    ) -> Result<ToolOutput, CallError> {
+        let undelivered = sent.is_none();
+        let first = sent.unwrap_or_else(|| "Not connected".to_owned());
+        crate::config::mcp_log("[mcp-client] Tool call failed, attempting shared reconnect...");
+        // The reconnect is shared: this caller's cancel only stops it from waiting; the reconnect keeps running for
+        // its other waiters.
+        let reconnect = {
+            let server = Arc::clone(self);
+            mixdog_rt::spawn("mcp.server.reconnect", TaskClass::Work, async move { server.reconnect_after(failed).await })
+        };
+        let reconnected = tokio::select! {
+            joined = reconnect => joined.unwrap_or_else(|error| Err(error.to_string())),
+            () = cancel.cancelled() => return Err(RpcError::Cancelled.into()),
+        };
+        if let Err(reason) = reconnected {
+            let message = append_stderr_tail(&format!("Tool call failed: {first}; reconnect also failed: {reason}"), &tail);
+            return Err(CallError::Recovery { message: scrub(&message, &self.secrets), outcome_unknown: !undelivered });
+        }
+        if !undelivered {
+            let message = append_stderr_tail(
+                &format!(
+                    "Tool call failed: {first}; MCP server \"{}\" was reconnected for the next call, but this call was not replayed because the request may already have reached the server",
+                    self.name()
+                ),
+                &tail,
+            );
+            return Err(CallError::Recovery { message: scrub(&message, &self.secrets), outcome_unknown: true });
+        }
+        // A reconnect that outlived the caller's cancel must not dispatch the replay.
+        if cancel.is_cancelled() {
+            return Err(RpcError::Cancelled.into());
+        }
         let ready = self.ready()?;
         if !ready.catalog.entries.iter().any(|e| e.tool == tool) {
             return Err(CallError::UnknownTool { server: self.name().to_owned(), tool: tool.to_owned() });
         }
-        self.call_ready(&ready, owner, tool, arguments, cancel, deadline).await
+        match self.call_ready(&ready, owner, tool, arguments, cancel, deadline).await {
+            Err(CallError::Rpc(retry)) if !matches!(retry, RpcError::Cancelled) && !cancel.is_cancelled() => {
+                // The SDK's text of a JSON-RPC error (`McpError`).
+                let (text, answered) = match &retry {
+                    RpcError::Server { code, message, .. } => (format!("MCP error {code}: {message}"), true),
+                    other => (other.to_string(), false),
+                };
+                let message = format!("Tool call failed: {first}; retry after reconnect also failed: {text}");
+                Err(CallError::Recovery { message: scrub(&message, &self.secrets), outcome_unknown: !answered })
+            }
+            other => other,
+        }
+    }
+
+    /// `reconnectMcpServer` (mcp/client.mjs:432): replaces the connection `failed` was, unless a peer already did (its
+    /// replacement is reused) or the server was closed meanwhile (a failed call never brings back a server someone
+    /// removed).
+    async fn reconnect_after(self: &Arc<Self>, failed: Option<Arc<RpcClient>>) -> Result<(), String> {
+        let _one = self.reconnecting.lock().await;
+        let disconnected = || format!("MCP server \"{}\" was disconnected", self.name());
+        match &*self.state() {
+            ServerState::Ready(ready) if !ready.client.is_closed() && failed.as_ref().is_none_or(|old| !Arc::ptr_eq(old, &ready.client)) => {
+                return Ok(());
+            }
+            ServerState::Closed => return Err(disconnected()),
+            // A peer's reconnect of the same connection already failed: this caller shares that failure.
+            ServerState::Failed { cause } if !self.died.load(Ordering::Acquire) => return Err(cause.clone()),
+            _ => {}
+        }
+        if self.shutdown.is_cancelled() {
+            return Err(disconnected());
+        }
+        self.reconnect().await.map_err(|error| error.to_string())
     }
 
     /// Calls a tool the server answers without listing it (a read-only helper the approval

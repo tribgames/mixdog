@@ -19,6 +19,7 @@ pub(crate) mod errors;
 pub mod fast_mode;
 pub mod images;
 mod lowering;
+mod max_tokens;
 mod models;
 mod nonstream;
 pub mod oauth;
