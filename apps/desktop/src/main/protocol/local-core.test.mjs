@@ -8,7 +8,7 @@ import test from 'node:test';
 import { beginDaemonSpawnCapture } from '../../../../../packages/protocol-client/src/launch/crash-capture/spawn-capture.mjs';
 import { launchCore } from '../../../../../packages/protocol-client/src/launch/ensure-core.mjs';
 import { ensureCore } from '../../../../../packages/protocol-client/src/launch/ensure-core.mjs';
-import { coreBinaryPath, coreEnvironment, DESKTOP_CORE_READY_TIMEOUT_MS, packagedMixdogRoot, resolveLocalCore } from './local-core.ts';
+import { coreBinaryPath, coreEnvironment, coreLaunchPath, DESKTOP_CORE_READY_TIMEOUT_MS, packagedMixdogRoot, resolveLocalCore } from './local-core.ts';
 
 test('a packaged app tells the core where its unpacked resources and its profile are; a development run leaves the environment alone', () => {
   const base = { PATH: 'p' };
@@ -26,6 +26,13 @@ test('a packaged app tells the core where its unpacked resources and its profile
 test('the packaged core binary sits beside the resources', () => {
   assert.equal(coreBinaryPath(true, 'res', 'win32'), join('res', 'core', 'mixdogd.exe'));
   assert.equal(coreBinaryPath(true, 'res', 'linux'), join('res', 'core', 'mixdogd'));
+});
+
+test('on Windows a core named as the app is started when the install has one', () => {
+  const named = join('res', 'core', 'Mixdog.exe');
+  assert.equal(coreLaunchPath(true, 'res', 'win32', (path) => path === named), named);
+  assert.equal(coreLaunchPath(true, 'res', 'win32', () => false), join('res', 'core', 'mixdogd.exe'));
+  assert.equal(coreLaunchPath(true, 'res', 'linux', () => true), join('res', 'core', 'mixdogd'));
 });
 
 test('launching the core spawns it detached with the given environment', async (context) => {

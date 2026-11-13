@@ -115,7 +115,7 @@ import { loginUpdateOf } from './protocol/login-feed';
 import { readOrCreateHostId, createLocalHostRole } from './protocol/desktop-host-wiring';
 import { resolveTunnelEndpoint } from './protocol/discovery';
 import { openCore } from './protocol/open-core';
-import { coreBinaryPath, coreEnvironment, resolveLocalCore } from './protocol/local-core';
+import { coreEnvironment, coreLaunchPath, resolveLocalCore } from './protocol/local-core';
 import { createOpenRequestedHandler } from './protocol/open-requested';
 import { createVisualizePublisher } from './protocol/visualize-publish';
 import type { VisualizeHostEvent } from '../shared/visualize';
@@ -521,7 +521,7 @@ const connectionDependencies: DesktopConnectionDependencies = {
       : connection.kind === 'local'
         ? resolveLocalCore({
             runtimeRoot: resolveRuntimeRoot(),
-            bin: coreBinaryPath(app.isPackaged, process.resourcesPath),
+            bin: coreLaunchPath(app.isPackaged, process.resourcesPath),
             env: () => coreEnvironment(app.isPackaged, process.resourcesPath, app.getPath('userData')),
             environmentReady: () => loginShellEnvironmentReady,
           })
