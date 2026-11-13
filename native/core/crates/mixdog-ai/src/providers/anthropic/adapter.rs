@@ -618,6 +618,30 @@ impl ProviderAdapter for AnthropicAdapter {
         })
     }
 
+    /// `decideStreamError` (anthropic-midstream-recovery.mjs), the two branches that end in the non-streaming
+    /// re-issue: a stream that died after text or thinking was shown (`recoverNonStreaming`, once the owner withdrew it)
+    /// and a stall that exposed nothing (`classifier === 'stream_stalled'`). A dispatched tool call is a replay
+    /// boundary, and a cut while a tool input was streaming is the loop's split-call replay.
+    fn recovers_cut(&self, _model: &str, failure: &ProviderError) -> bool {
+        let exposure = failure.exposure;
+        if exposure.tool_dispatched || exposure.tool_input_cut {
+            return false;
+        }
+        exposure.text_emitted || failure.timeout_phase.is_some()
+    }
+
+    /// `issueNonStreamingFallback` for a stream that died: the same request once more without streaming. Its failure
+    /// ends the send's recovery (`markProviderRecoveryExhausted`).
+    async fn recover_spent(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+        let exhausted = |mut err: ProviderError| {
+            err.recovery_exhausted = true;
+            err
+        };
+        let plain = self.plain(&request).await.map_err(exhausted)?;
+        let secret = self.credentials.current().await.map_err(exhausted)?;
+        self.non_streaming(&request, &plain.wire, &secret).await
+    }
+
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
         if let Some(preconnect) = &self.preconnect {
             preconnect.warm(ANTHROPIC_ORIGIN);
@@ -627,6 +651,9 @@ impl ProviderAdapter for AnthropicAdapter {
         let mut refreshed = false;
         let mut directive = None;
         let mut floor_replays = Vec::new();
+        // The `max_tokens` a context-overflow 400 shrank this send to (`maxTokensAdjusted`): once per attempt, and kept
+        // by every body the attempt builds after it.
+        let mut shrunk_max_tokens: Option<u64> = None;
         // A threaded request the API refuses over its thread is planned again, as a create or unthreaded.
         'plan: loop {
             // Diagnostic: per-block prefix hashes of exactly what is sent (`recordAnthropicPrefix(anthropicPrefixSessionId(opts), …)`).
@@ -638,6 +665,11 @@ impl ProviderAdapter for AnthropicAdapter {
                 Some(plan) if plan.mode != Mode::None => threaded(&plain.wire, &plan.body, &plan.betas),
                 _ => plain.wire.clone(),
             };
+            if let Some(max) = shrunk_max_tokens
+                && let Some(body) = super::max_tokens::with_max_tokens(&wire.body, max)
+            {
+                wire.body = body;
+            }
             let mut speed_dropped = false;
             loop {
                 // The subscription route raises `requesting` before every POST (`doRequest`, anthropic-oauth-request.mjs:64);
@@ -676,12 +708,25 @@ impl ProviderAdapter for AnthropicAdapter {
                     speed_dropped = true;
                     continue;
                 }
+                // "input length and `max_tokens` exceed context limit": `max_tokens` shrinks to what the context has room
+                // for and the request is replayed once (`withBodyRecovery`, anthropic-api-transport.mjs:122-139;
+                // `_openResponse`, anthropic-oauth.mjs:823-836).
+                if shrunk_max_tokens.is_none()
+                    && let Some((body, max)) =
+                        super::max_tokens::adjust_for_context_overflow(&wire.body, rejected.status, &String::from_utf8_lossy(&rejected.body))
+                {
+                    wire.body = body;
+                    shrunk_max_tokens = Some(max);
+                    continue;
+                }
                 if self.floor_rejected(&request, rejected.status, &String::from_utf8_lossy(&rejected.body), &mut floor_replays) {
                     directive = None;
                     plain = self.plain(&request).await?;
                     continue 'plan;
                 }
                 let mut err = self.codec.classify(&rejected);
+                // `rejectedToolSchema`: a 400 that names one of the tools this body carried.
+                crate::providers::rejections::mark_tool_schema(&mut err, &rejected.body, &crate::providers::rejections::wire_tool_names(&wire.body));
                 if !refreshed && self.credentials.refreshable(err.status, &rejected.body) {
                     refreshed = true;
                     if self.codec.flavor() == Flavor::OAuth {

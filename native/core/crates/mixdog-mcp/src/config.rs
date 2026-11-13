@@ -112,6 +112,31 @@ pub struct McpServerConfig {
     pub oauth: Option<OAuthBinding>,
     /// The plugin that declared the server (`_mixdogPlugin.id`, Node's `mcpPluginId`): its scope limits the server too.
     pub plugin_id: Option<String>,
+    /// `_mixdogRootsFollowScope`: the root the client advertises is its scope's current folder, and the server is told
+    /// when that changes (`createMcpClient`, mcp/client.mjs:1569).
+    pub roots_follow_scope: bool,
+    /// The fixed root the client advertises (`_mixdogProjectRoot`, else `cwd`); none: no root of its own.
+    pub project_root: Option<String>,
+    /// What the configuration could not resolve but connects with anyway (`missingEnvWarnings`: the unset variables of a
+    /// server that is not strict about them, names only); logged at each connect.
+    pub warnings: Vec<String>,
+}
+
+/// `mcpLog` (mcp/client.mjs:147): the client's own log lines are dropped while `MIXDOG_QUIET_MCP_LOG` is set to
+/// anything but the empty string.
+pub fn log_quiet() -> bool {
+    quiet(std::env::var_os("MIXDOG_QUIET_MCP_LOG").as_deref())
+}
+
+fn quiet(value: Option<&std::ffi::OsStr>) -> bool {
+    value.is_some_and(|v| !v.is_empty())
+}
+
+/// One line of the MCP client's log (`mcpLog`), unless it is quiet.
+pub(crate) fn mcp_log(line: &str) {
+    if !log_quiet() {
+        tracing::warn!("{line}");
+    }
 }
 
 /// The wire name of an [`ActionKind`] in config.
@@ -153,7 +178,8 @@ pub enum ConfigError {
     InsecureUrl,
     #[error("MCP WebSocket URLs must use wss://; ws:// is allowed only for loopback")]
     InsecureWebSocketUrl,
-    #[error("unset environment variables: {0:?}")]
+    /// `missingEnvWarnings` under `strictEnv`: the names of the unset variables, never their values.
+    #[error("missing environment variable(s): {}", .0.join(", "))]
     MissingEnv(Vec<String>),
 }
 
@@ -476,6 +502,50 @@ fn number_or_off(value: &Value) -> Option<Option<u64>> {
     }
 }
 
+/// `a ?? b ?? env.NAME`: the entry's first key that is set (not null), else the environment's variable.
+fn first_set(entry: &Value, keys: &[&str], env: &Env, name: &str) -> Option<Value> {
+    keys.iter()
+        .find_map(|key| entry.get(*key).filter(|v| !v.is_null()).cloned())
+        .or_else(|| env.get(name).map(|text| Value::String(text.clone())))
+}
+
+/// `Number(value)` for the values a config entry or an environment variable holds.
+fn js_number(value: &Value) -> f64 {
+    match value {
+        Value::Number(n) => n.as_f64().unwrap_or(f64::NAN),
+        Value::String(s) => string_to_number(js_trim(s)),
+        Value::Bool(b) => f64::from(u8::from(*b)),
+        _ => f64::NAN,
+    }
+}
+
+/// `positiveInt` (runtime/shared/numbers.mjs): `Math.floor(Number(value))` when that is at least 1.
+fn positive_int(value: &Value) -> Option<u64> {
+    let floored = js_number(value).floor();
+    (floored.is_finite() && floored >= 1.0).then_some(floored as u64)
+}
+
+/// `resolveMcpMaxTotalTimeoutMs` (client-config.mjs:347): the entry's `maxTotalTimeoutMs` / `max_total_timeout_ms`, else
+/// the environment's `MIXDOG_MCP_MAX_TOTAL_TIMEOUT_MS`, else the default. `0`, `off`, `none` or `false` (as text) in
+/// the one that is set removes the cap (`None`); the empty string, `false` and anything unusable are the default.
+fn max_total_cap(entry: &Value, env: &Env) -> Option<Duration> {
+    let Some(raw) = first_set(entry, &["maxTotalTimeoutMs", "max_total_timeout_ms"], env, "MIXDOG_MCP_MAX_TOTAL_TIMEOUT_MS") else {
+        return Some(DEFAULT_MAX_TOTAL_TIMEOUT);
+    };
+    match &raw {
+        Value::Bool(false) => return Some(DEFAULT_MAX_TOTAL_TIMEOUT),
+        Value::String(s) if s.is_empty() => return Some(DEFAULT_MAX_TOTAL_TIMEOUT),
+        Value::Number(n) if n.as_f64() == Some(0.0) => return None,
+        Value::String(s) if matches!(js_trim(s).to_ascii_lowercase().as_str(), "0" | "off" | "none" | "false") => return None,
+        _ => {}
+    }
+    let parsed = js_number(&raw);
+    if !parsed.is_finite() || parsed <= 0.0 {
+        return Some(DEFAULT_MAX_TOTAL_TIMEOUT);
+    }
+    Some(Duration::from_millis(parsed.round().min(MAX_TIMER_MS) as u64))
+}
+
 fn positive(value: Option<&Value>) -> Option<usize> {
     value
         .and_then(number_or_off)
@@ -550,8 +620,20 @@ impl McpServerConfig {
             }
             _ => None,
         };
+        // `missingEnvWarnings` (client-transport.mjs:261): a server that is strict about its variables (a plugin's,
+        // `_mixdogStrictEnv`) fails on an unset one; any other connects with it expanded to the empty string and says so.
+        let mut warnings = Vec::new();
         if !missing.is_empty() {
-            return Err(ConfigError::MissingEnv(missing));
+            let mut names: Vec<String> = Vec::new();
+            for name in missing {
+                if !names.contains(&name) {
+                    names.push(name);
+                }
+            }
+            if entry.get("_mixdogStrictEnv").and_then(Value::as_bool) == Some(true) {
+                return Err(ConfigError::MissingEnv(names));
+            }
+            warnings.push(ConfigError::MissingEnv(names).to_string());
         }
         let call_timeout = duration_ms(
             entry,
@@ -570,21 +652,39 @@ impl McpServerConfig {
                 env.get("MIXDOG_MCP_MAX_INFLIGHT")
                     .and_then(|v| positive(Some(&Value::String(v.clone()))))
             });
+        // `resolveMcpRequestTimeouts` (client-config.mjs:362): a call without a timeout has no ceiling either, and the
+        // ceiling is never below the call timeout.
+        let max_total_timeout = call_timeout.and_then(|call| max_total_cap(entry, env).map(|cap| cap.max(call)));
+        // `callAdmissionFor` (mcp/client.mjs:340): `positiveInt(cfg.maxQueue ?? cfg.max_queue ?? MIXDOG_MCP_MAX_QUEUE, 256)`
+        // and `positiveInt(cfg.waitTimeoutMs ?? cfg.wait_timeout_ms ?? MIXDOG_MCP_WAIT_TIMEOUT_MS, 30_000)`.
+        let max_queue = first_set(entry, &["maxQueue", "max_queue"], env, "MIXDOG_MCP_MAX_QUEUE")
+            .and_then(|v| positive_int(&v))
+            .and_then(|n| usize::try_from(n).ok())
+            .unwrap_or(DEFAULT_MAX_QUEUE);
+        let wait_timeout = first_set(entry, &["waitTimeoutMs", "wait_timeout_ms"], env, "MIXDOG_MCP_WAIT_TIMEOUT_MS")
+            .and_then(|v| positive_int(&v))
+            .map_or(DEFAULT_WAIT_TIMEOUT, Duration::from_millis);
+        // `createMcpClient`'s fixed root: `String(cfg._mixdogProjectRoot || cfg.cwd || '').trim()`.
+        let project_root = ["_mixdogProjectRoot", "cwd"]
+            .iter()
+            .find_map(|key| entry.get(*key).and_then(Value::as_str).filter(|root| !root.is_empty()))
+            .map(js_trim)
+            .filter(|root| !root.is_empty())
+            .map(str::to_owned);
         Ok(Self {
             name: name.to_owned(),
             enabled: entry.get("enabled").and_then(Value::as_bool).unwrap_or(true),
             transport,
             max_concurrency,
-            max_queue: positive(entry.get("maxQueue").or_else(|| entry.get("max_queue")))
-                .unwrap_or(DEFAULT_MAX_QUEUE),
+            max_queue,
             min_owner_queue: DEFAULT_MIN_OWNER_QUEUE,
-            wait_timeout: duration_ms(entry, &["waitTimeoutMs", "wait_timeout_ms"], &[])
-                .flatten()
-                .unwrap_or(DEFAULT_WAIT_TIMEOUT),
+            wait_timeout,
             startup_timeout,
             call_timeout,
-            max_total_timeout: duration_ms(entry, &["maxTotalTimeoutMs", "max_total_timeout_ms"], &[])
-                .unwrap_or(Some(DEFAULT_MAX_TOTAL_TIMEOUT)),
+            max_total_timeout,
+            roots_follow_scope: entry.get("_mixdogRootsFollowScope").and_then(Value::as_bool) == Some(true),
+            project_root,
+            warnings,
             shutdown_grace: DEFAULT_SHUTDOWN_GRACE,
             outbound_kinds: string_map(entry.get("outbound"))
                 .into_iter()
@@ -666,6 +766,87 @@ mod tests {
         assert_eq!(env.get("KEEP").map(String::as_str), Some("k"));
         assert_eq!(env.get("X").map(String::as_str), Some("k"));
         assert!(!env.contains_key("SECRET"));
+    }
+
+    /// `missingEnvWarnings` (client-transport.mjs:261): a user's server connects with an unset variable expanded to
+    /// the empty string and one warning that names it; a plugin's server (`_mixdogStrictEnv`) fails with the same text.
+    #[test]
+    fn an_unset_variable_is_a_warning_for_a_users_server_and_a_failure_for_a_plugins() {
+        let entry = json!({"command": "c", "args": ["--key=${MISSING_KEY}", "${OTHER}", "${MISSING_KEY}"], "env": {"X": "${SET:-d}"}});
+        let cfg = McpServerConfig::from_entry("s", &entry, &Env::new()).unwrap();
+        assert_eq!(cfg.warnings, ["missing environment variable(s): MISSING_KEY, OTHER"]);
+        let TransportConfig::Stdio { args, env: child, .. } = &cfg.transport else { panic!() };
+        assert_eq!(args, &["--key=", "", ""]);
+        assert_eq!(child.get("X").map(String::as_str), Some("d"));
+
+        let mut strict = entry.clone();
+        strict["_mixdogStrictEnv"] = json!(true);
+        let refused = McpServerConfig::from_entry("s", &strict, &Env::new()).unwrap_err();
+        assert_eq!(refused.to_string(), "missing environment variable(s): MISSING_KEY, OTHER");
+        // With the variables set neither warns.
+        let set = env(&[("MISSING_KEY", "k"), ("OTHER", "o")]);
+        assert!(McpServerConfig::from_entry("s", &strict, &set).unwrap().warnings.is_empty());
+    }
+
+    /// `callAdmissionFor` (mcp/client.mjs:352-357) and `resolveMcpMaxTotalTimeoutMs` / `resolveMcpRequestTimeouts`
+    /// (client-config.mjs:347-372): the entry's value decides alone when it is set; the environment's otherwise.
+    #[test]
+    fn the_queue_wait_and_total_tunables_read_the_entry_then_the_environment() {
+        let of = |entry: Value, vars: &[(&str, &str)]| McpServerConfig::from_entry("s", &entry, &env(vars)).unwrap();
+        let base = || json!({"command": "c"});
+        let with = |extra: Value| {
+            let mut entry = base();
+            entry.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            entry
+        };
+        // MIXDOG_MCP_MAX_QUEUE
+        assert_eq!(of(base(), &[]).max_queue, 256);
+        assert_eq!(of(base(), &[("MIXDOG_MCP_MAX_QUEUE", "12")]).max_queue, 12);
+        assert_eq!(of(with(json!({"maxQueue": 4})), &[("MIXDOG_MCP_MAX_QUEUE", "12")]).max_queue, 4);
+        assert_eq!(of(with(json!({"max_queue": "x"})), &[("MIXDOG_MCP_MAX_QUEUE", "12")]).max_queue, 256, "`??` keeps the entry's unusable value");
+        assert_eq!(of(base(), &[("MIXDOG_MCP_MAX_QUEUE", "0")]).max_queue, 256);
+        assert_eq!(of(base(), &[("MIXDOG_MCP_MAX_QUEUE", "7.9")]).max_queue, 7, "floored");
+        // MIXDOG_MCP_WAIT_TIMEOUT_MS
+        assert_eq!(of(base(), &[]).wait_timeout, Duration::from_secs(30));
+        assert_eq!(of(base(), &[("MIXDOG_MCP_WAIT_TIMEOUT_MS", "1500")]).wait_timeout, Duration::from_millis(1500));
+        assert_eq!(of(with(json!({"wait_timeout_ms": 250})), &[("MIXDOG_MCP_WAIT_TIMEOUT_MS", "1500")]).wait_timeout, Duration::from_millis(250));
+        assert_eq!(of(base(), &[("MIXDOG_MCP_WAIT_TIMEOUT_MS", "off")]).wait_timeout, Duration::from_secs(30));
+        // MIXDOG_MCP_MAX_TOTAL_TIMEOUT_MS
+        let half_hour = Some(Duration::from_secs(30 * 60));
+        assert_eq!(of(base(), &[]).max_total_timeout, half_hour);
+        assert_eq!(of(base(), &[("MIXDOG_MCP_MAX_TOTAL_TIMEOUT_MS", "600000")]).max_total_timeout, Some(Duration::from_secs(600)));
+        assert_eq!(of(with(json!({"maxTotalTimeoutMs": 900000})), &[("MIXDOG_MCP_MAX_TOTAL_TIMEOUT_MS", "600000")]).max_total_timeout, Some(Duration::from_secs(900)));
+        for off in ["0", "off", "NONE", "false"] {
+            assert_eq!(of(base(), &[("MIXDOG_MCP_MAX_TOTAL_TIMEOUT_MS", off)]).max_total_timeout, None, "{off}");
+        }
+        assert_eq!(of(with(json!({"maxTotalTimeoutMs": 0})), &[]).max_total_timeout, None);
+        assert_eq!(of(base(), &[("MIXDOG_MCP_MAX_TOTAL_TIMEOUT_MS", "")]).max_total_timeout, half_hour);
+        assert_eq!(of(with(json!({"maxTotalTimeoutMs": false})), &[]).max_total_timeout, half_hour, "`false` is the default, not off");
+        assert_eq!(of(base(), &[("MIXDOG_MCP_MAX_TOTAL_TIMEOUT_MS", "junk")]).max_total_timeout, half_hour);
+        // The ceiling is never below the call timeout, and a call without a timeout has none.
+        assert_eq!(of(with(json!({"timeoutMs": 5000, "maxTotalTimeoutMs": 1000})), &[]).max_total_timeout, Some(Duration::from_secs(5)));
+        assert_eq!(of(with(json!({"timeoutMs": 0})), &[("MIXDOG_MCP_MAX_TOTAL_TIMEOUT_MS", "600000")]).max_total_timeout, None);
+    }
+
+    /// `createMcpClient` (mcp/client.mjs:1570-1571): the root a server's client advertises.
+    #[test]
+    fn the_advertised_root_is_the_project_root_then_the_cwd_and_a_plugin_server_follows_its_scope() {
+        let of = |entry: Value| McpServerConfig::from_entry("s", &entry, &Env::new()).unwrap();
+        let plain = of(json!({"command": "c"}));
+        assert_eq!((plain.roots_follow_scope, plain.project_root), (false, None));
+        assert_eq!(of(json!({"command": "c", "cwd": " /work "})).project_root.as_deref(), Some("/work"));
+        assert_eq!(of(json!({"command": "c", "cwd": "/work", "_mixdogProjectRoot": "/project"})).project_root.as_deref(), Some("/project"));
+        assert!(of(json!({"command": "c", "_mixdogRootsFollowScope": true})).roots_follow_scope);
+    }
+
+    /// `mcpLog`: quiet for any non-empty `MIXDOG_QUIET_MCP_LOG`.
+    #[test]
+    fn the_client_log_is_quiet_while_the_variable_is_set() {
+        use std::ffi::OsStr;
+        assert!(!quiet(None));
+        assert!(!quiet(Some(OsStr::new(""))));
+        assert!(quiet(Some(OsStr::new("1"))));
+        assert!(quiet(Some(OsStr::new("0"))), "any non-empty value, as `process.env.X` is truthy");
     }
 
     #[test]

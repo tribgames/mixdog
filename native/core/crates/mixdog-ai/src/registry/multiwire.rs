@@ -156,6 +156,26 @@ impl ProviderAdapter for MultiWireAdapter {
         self.engine(self.route(model)?).retry_line(model)
     }
 
+    /// The re-issue of a spent or cut send is the engine's of the model's wire.
+    fn recovers_spent(&self, model: &str, failure: &ProviderError) -> bool {
+        self.route(model).is_some_and(|wire| self.engine(wire).recovers_spent(model, failure))
+    }
+
+    fn recovers_cut(&self, model: &str, failure: &ProviderError) -> bool {
+        self.route(model).is_some_and(|wire| self.engine(wire).recovers_cut(model, failure))
+    }
+
+    fn recovery_line(&self, model: &str, failure: &ProviderError) -> Option<String> {
+        self.engine(self.route(model)?).recovery_line(model, failure)
+    }
+
+    async fn recover_spent(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+        match self.route(request.model.as_str()) {
+            Some(wire) => self.engine(wire).recover_spent(request).await,
+            None => Err(ProviderError::new(ErrorKind::Unknown, DeliveryState::NotSent)),
+        }
+    }
+
     /// A custom provider behind several wires (`createCustomProvider`: `provider.nativePdf = false`).
     fn native_pdf(&self) -> bool {
         false

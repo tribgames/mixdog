@@ -11,6 +11,7 @@ pub mod login;
 pub(crate) mod listing;
 pub mod error;
 pub mod models;
+mod nonstream;
 pub mod pairing;
 pub mod profile;
 pub mod responses;

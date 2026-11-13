@@ -465,6 +465,9 @@ pub struct Run {
     /// send succeeds (`state.imageStrip`).
     pub(crate) image_strip: Option<crate::recovery::ImageStrip>,
     pub(crate) image_strip_used: bool,
+    /// The provider's own re-issue of this send ([`crate::send::Reissue`]), from the failure that asked for it until
+    /// the send completes or its ladder starts over.
+    pub(crate) reissue: Option<crate::send::Reissue>,
     pub(crate) replay_repair_used: bool,
     pub(crate) tool_schema_drop_used: bool,
     pub(crate) step_effort: Option<crate::step_effort::PendingStep>,
@@ -596,6 +599,7 @@ impl Run {
             fixed_surface: None,
             image_strip: None,
             image_strip_used: false,
+            reissue: None,
             replay_repair_used: false,
             tool_schema_drop_used: false,
             step_effort: None,

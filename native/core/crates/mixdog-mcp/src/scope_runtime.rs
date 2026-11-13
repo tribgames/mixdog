@@ -250,6 +250,8 @@ impl ScopeRuntime {
         if *cell.ready.borrow() {
             return;
         }
+        // `syncScopeRoot` before the connect (mcp-glue/connect.mjs:111).
+        self.hub.set_scope_root(&cell.scope, &cell.cwd());
         let resolved = self.configs.resolve(&cell.scope, &cell.cwd(), None).await;
         let budgets: Vec<Option<Duration>> = resolved.configs.iter().filter(|c| c.enabled).map(|c| c.startup_timeout).collect();
         if budgets.contains(&None) {
@@ -444,6 +446,9 @@ impl ScopeRuntime {
         if let Some(watch) = &watch {
             watch.connecting(&cell.scope, op).await;
         }
+        // `syncScopeRoot` (mcp-glue/server-connection.mjs:70): the roots the scope-following servers advertise track
+        // the session's folder, and the connected ones are told when it moved.
+        self.hub.set_scope_root(&cell.scope, &cell.cwd());
         let resolved = self.configs.resolve(&cell.scope, &cell.cwd(), only).await;
         self.connect(&cell.scope, generation, op, resolved).await;
         #[cfg(feature = "test-support")]

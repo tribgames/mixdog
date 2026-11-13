@@ -303,6 +303,14 @@ impl ProviderAdapter for AccountedAdapter {
         self.inner.recovers_spent(model, failure)
     }
 
+    fn recovers_cut(&self, model: &str, failure: &ProviderError) -> bool {
+        self.inner.recovers_cut(model, failure)
+    }
+
+    fn recovery_line(&self, model: &str, failure: &ProviderError) -> Option<String> {
+        self.inner.recovery_line(model, failure)
+    }
+
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
         self.accounted(request, false).await
     }

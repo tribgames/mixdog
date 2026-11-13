@@ -268,8 +268,10 @@ impl ModelBroker {
                         return Err(SendError::Cancelled);
                     }
                 }
+                // A ladder that goes by the connection re-issues only a stream that opened (`runGeminiStreamAttempts`);
+                // the Chat Completions send re-issues whatever its ladder ended on (`recoverCompatNonStreaming`).
                 Verdict::Surface | Verdict::Exhausted
-                    if streamed && !cancel.is_cancelled() && adapter.recovers_spent(&model, &failure) =>
+                    if (streamed || !stages.ladder_by_connection) && !cancel.is_cancelled() && adapter.recovers_spent(&model, &failure) =>
                 {
                     // The provider's last re-issue of a stream that died with nothing shown; its own failure is
                     // dropped and the ladder's surfaces.
@@ -283,7 +285,10 @@ impl ModelBroker {
                             // The dead stream's text repeats what the endpoint answered, as the retry line's does.
                             let cause = crate::oauth::carried::remembered()
                                 .redact_str(failure.code.as_deref().filter(|c| !c.is_empty()).unwrap_or(&failure.message));
-                            mixdog_rt::node_stderr!("[gemini] stream failed ({cause}); recovered via non-streaming generateContent");
+                            match adapter.recovery_line(&model, &failure) {
+                                Some(line) => mixdog_rt::node_stderr!("{line}"),
+                                None => mixdog_rt::node_stderr!("[gemini] stream failed ({cause}); recovered via non-streaming generateContent"),
+                            }
                             return Ok(attempts + 1);
                         }
                         Err(Stop::Cancelled) => {

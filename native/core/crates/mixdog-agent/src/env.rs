@@ -428,6 +428,8 @@ pub struct TextRetraction {
 pub enum RetractReason {
     OutputLimitEscalation,
     TransportRetraction,
+    /// The provider repeats the request without streaming (Node `anthropic-streaming-fallback`).
+    StreamingFallback,
 }
 
 /// What the owner of the shown text did with a retraction request.

@@ -1427,10 +1427,25 @@ pub trait ProviderAdapter: Send + Sync {
     fn recovers_spent(&self, _model: &str, _failure: &ProviderError) -> bool {
         false
     }
-    /// That re-issue, called only when [`Self::recovers_spent`] holds: its stream, or its failure, after which the
-    /// ladder's own failure surfaces.
+    /// That re-issue, called only when [`Self::recovers_spent`] or [`Self::recovers_cut`] holds: its stream, or its
+    /// failure. After a spent ladder the ladder's own failure surfaces; after a cut stream the re-issue's own does.
     async fn recover_spent(&self, _request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
         Err(ProviderError::new(ErrorKind::Unknown, DeliveryState::NotSent))
+    }
+    /// Whether the provider answers a stream of a send to `model` that died on `failure` with its re-issue
+    /// ([`Self::recover_spent`]) at once, in place of another attempt of the stream (the Anthropic routes'
+    /// `decideStreamError`, anthropic-midstream-recovery.mjs: shown text or thinking is withdrawn and the request
+    /// repeated without streaming; a stall that showed nothing is repeated without streaming too).
+    /// `failure.exposure.text_emitted` states whether text or reasoning of the dead stream reached the caller, who
+    /// withdraws it before the re-issue. False by default; a wrapper forwards its inner provider's.
+    fn recovers_cut(&self, _model: &str, _failure: &ProviderError) -> bool {
+        false
+    }
+    /// The line the provider writes to stderr once its re-issue of a send to `model` that failed on `failure` answered
+    /// (`[<provider>] stream failed (<cause>); recovered via non-streaming request`); `None` for a provider that writes
+    /// none. A wrapper forwards its inner provider's.
+    fn recovery_line(&self, _model: &str, _failure: &ProviderError) -> Option<String> {
+        None
     }
 }
 

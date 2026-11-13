@@ -105,7 +105,9 @@ pub struct McpHub {
     /// The id of the process's one runtime scope (`rt.mcpScopeId` of the runtime the daemon's own
     /// callers act as, `boot/begin.mjs:24`): minted once with the hub, never claimed or minted again.
     runtime_scope: String,
-
+    /// The folder each scope works in now (`_scopeRoots`, mcp/client.mjs:79), which its scope-following servers
+    /// advertise as their root; a scope with none has no entry.
+    scope_roots: Mutex<HashMap<String, String>>,
 }
 
 /// The server a prefixed tool name refers to, and its catalog entry when it lists the tool. A
@@ -129,6 +131,7 @@ impl McpHub {
             accounts: ArcSwap::from_pointee(HashMap::new()),
             lives: Mutex::new(HashMap::new()),
             runtime_scope: uuid::Uuid::new_v4().to_string(),
+            scope_roots: Mutex::new(HashMap::new()),
         })
     }
 
@@ -252,6 +255,27 @@ impl McpHub {
     /// Makes the running set equal to `configs`: unchanged servers keep their connection, new
     /// or changed ones start connecting in the background, removed or disabled ones close.
     /// Never waits for a connection.
+    /// `setMcpScopeRoot(scopeId, root)` (mcp/client.mjs:1603): `scope`'s servers that follow their scope advertise
+    /// `root` from now on, and the connected ones are told when it changed. No reconnect.
+    pub fn set_scope_root(&self, scope: &str, root: &str) {
+        let scope = normalize_scope(Some(scope));
+        let root = mixdog_js::js_trim(root);
+        {
+            let mut roots = self.scope_roots.lock().unwrap_or_else(|e| e.into_inner());
+            if roots.get(&scope).map_or("", String::as_str) == root {
+                return;
+            }
+            if root.is_empty() {
+                roots.remove(&scope);
+            } else {
+                roots.insert(scope.clone(), root.to_owned());
+            }
+        }
+        for server in self.in_scope(&scope) {
+            server.set_scope_root(root);
+        }
+    }
+
     pub fn apply(self: &Arc<Self>, configs: Vec<McpServerConfig>) {
         self.apply_in(&self.default_scope(), configs);
     }
@@ -307,6 +331,9 @@ impl McpHub {
                         next_oauth.insert(config.name.clone(), oauth);
                     }
                     let server = McpServer::new(config.clone(), self.io, self.spiller.clone(), self.policy, authorizer);
+                    // A server that follows its scope starts with the scope's root as it is now.
+                    let root = self.scope_roots.lock().unwrap_or_else(|e| e.into_inner()).get(&scope).cloned();
+                    server.set_scope_root(root.as_deref().unwrap_or_default());
                     started.push(server);
                 }
             }
@@ -342,7 +369,7 @@ impl McpHub {
             mixdog_rt::spawn("mcp.hub.connect", TaskClass::Work, async move {
                 // The lines Node's `connectServer` writes to the log (`[mcp-client] Failed to connect`, `[mcp] connected`).
                 match server.connect().await {
-                    Err(error) => tracing::warn!("[mcp-client] Failed to connect \"{}\": {error}", server.name()),
+                    Err(error) => crate::config::mcp_log(&format!("[mcp-client] Failed to connect \"{}\": {error}", server.name())),
                     Ok(()) => {
                         let catalog = server.catalog();
                         let names: Vec<&str> = catalog.iter().flat_map(|c| c.entries.iter().map(|e| e.qualified.as_str())).collect();

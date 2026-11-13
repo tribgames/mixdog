@@ -5194,3 +5194,202 @@ async fn a_call_after_a_switch_in_one_batch_runs_in_the_folder_the_batch_began_i
     finish(h.run(cfg, tools, vec![AgentMessage::user("go")])).await;
     assert_eq!(*ran.lock().unwrap(), [a.as_path().to_path_buf()]);
 }
+
+// ---------------------------------------------------------------------------
+// Provider recoveries the loop drives: the content-filter replay and the provider's own re-issue of a send
+// ---------------------------------------------------------------------------
+
+/// A `content_filter` refusal as the Responses decoders type it (`markContentFilter`: code `content_filter`, a policy
+/// refusal).
+fn content_filtered() -> Attempt {
+    let mut error = ProviderError::new(ErrorKind::Policy, DeliveryState::Accepted);
+    error.code = Some("content_filter".into());
+    error.message = "OpenAI response.incomplete: content_filter".into();
+    Attempt::Reject(error)
+}
+
+/// A harness over `Scripted` judged by the production decider, under `policy`.
+fn judged(script: Vec<Attempt>, policy: RetryPolicy) -> (Harness, Arc<Scripted>) {
+    let provider = Scripted::with_policy(script, policy);
+    (Harness::with_adapter(provider.clone()), provider)
+}
+
+/// `isReplayableContentFilter` + `contentFilterNotice` (`send-with-recovery.mjs:352-366, 464-475`): on a provider that
+/// opted in, a content-filter stop is replayed after the transport ladder's wait with the guidance notice appended
+/// once, and the notice is part of the transcript under the `content-filter-recovery` source.
+#[tokio::test]
+async fn a_content_filter_stop_is_replayed_with_the_guidance_notice_on_an_opted_in_provider() {
+    let mut policy = RetryPolicy::codex_default();
+    policy.content_filter_retryable = true;
+    let (h, provider) = judged(vec![content_filtered(), content_filtered(), turn(vec![text("ok"), done(StopReason::EndTurn)])], policy);
+    let output = finish(h.run(config(), vec![], vec![AgentMessage::user("go")])).await;
+    const NOTICE: &str = "[mixdog-runtime] The previous response was stopped by the provider content filter before it completed. Continue the task, but rephrase or avoid the content that likely triggered the filter; do not repeat it verbatim.";
+    let requests = provider.requests();
+    assert_eq!(requests.len(), 3);
+    assert_eq!(wire_dump(&requests[0]), ["User:go"]);
+    // `appendRecoveryNotice`: a repeated stop keeps the single notice already at the tail.
+    let second = wire_dump(&requests[1]);
+    assert_eq!(second.len(), 2);
+    assert!(second[1].starts_with("User:") && second[1].contains(NOTICE), "{second:?}");
+    assert_eq!(wire_dump(&requests[2]), wire_dump(&requests[1]));
+    let notices: Vec<&AgentMessage> = output.transcript.iter().filter(|m| m.source == Some(Source::ContentFilterRecovery)).collect();
+    assert_eq!(notices.len(), 1);
+    assert_eq!(notices[0].text(), NOTICE);
+    // `TRANSPORT_RETRY_BACKOFF_MS`: 5 s, then 15 s (the jitter's midpoint sample adds nothing).
+    assert_eq!(*h.waiter.0.lock().unwrap(), [Duration::from_secs(5), Duration::from_secs(15)]);
+    let stages: Vec<(u32, u32)> = h
+        .observer
+        .events()
+        .into_iter()
+        .filter_map(|e| match e {
+            RunEvent::Stage(Stage::Reconnecting { attempt, max, .. }) => Some((attempt, max)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(stages, [(1, 3), (2, 3)], "attempt n of TRANSPORT_RETRY_MAX");
+}
+
+/// The replay is bounded by `TRANSPORT_RETRY_MAX` (3), and a provider that did not opt in surfaces the stop at once.
+#[tokio::test]
+async fn a_content_filter_stop_surfaces_past_the_transport_budget_and_without_the_opt_in() {
+    let mut policy = RetryPolicy::codex_default();
+    policy.content_filter_retryable = true;
+    let (h, provider) = judged((0..4).map(|_| content_filtered()).collect(), policy);
+    let failure = h.run(config(), vec![], vec![AgentMessage::user("go")]).run().await.expect_err("the budget is spent");
+    assert!(matches!(&failure.error, AgentError::Provider(e) if e.code.as_deref() == Some("content_filter")));
+    assert_eq!(provider.requests().len(), 4, "the first send and three replays");
+
+    let (h, provider) = judged(vec![content_filtered()], RetryPolicy::codex_default());
+    let failure = h.run(config(), vec![], vec![AgentMessage::user("go")]).run().await.expect_err("no opt-in");
+    assert!(matches!(failure.error, AgentError::Provider(_)));
+    assert_eq!(provider.requests().len(), 1);
+    assert!(h.waiter.0.lock().unwrap().is_empty());
+}
+
+/// A provider with a re-issue of its own (`ProviderAdapter::recover_spent`), scripted: `cut` answers a stream that
+/// died after output was shown, `spent` a ladder that ended.
+struct Reissuing {
+    inner: Arc<Scripted>,
+    cut: bool,
+    spent: bool,
+    reissues: Mutex<VecDeque<Attempt>>,
+    reissued: Mutex<Vec<Arc<ModelRequest>>>,
+}
+
+impl Reissuing {
+    fn new(script: Vec<Attempt>, reissues: Vec<Attempt>, cut: bool, spent: bool) -> Arc<Self> {
+        Arc::new(Self { inner: Scripted::new(script), cut, spent, reissues: Mutex::new(reissues.into()), reissued: Mutex::default() })
+    }
+}
+
+#[async_trait]
+impl ProviderAdapter for Reissuing {
+    fn id(&self) -> &ProviderId {
+        self.inner.id()
+    }
+    fn codec(&self) -> &dyn WireCodec {
+        self.inner.codec()
+    }
+    fn retry_policy(&self) -> &RetryPolicy {
+        self.inner.retry_policy()
+    }
+    fn keepalive(&self) -> &KeepaliveSchedule {
+        self.inner.keepalive()
+    }
+    async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+        self.inner.attempt(request).await
+    }
+    fn recovers_cut(&self, _model: &str, failure: &ProviderError) -> bool {
+        self.cut && failure.exposure.text_emitted
+    }
+    fn recovers_spent(&self, _model: &str, _failure: &ProviderError) -> bool {
+        self.spent
+    }
+    async fn recover_spent(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+        self.reissued.lock().unwrap().push(request);
+        match self.reissues.lock().unwrap().pop_front() {
+            Some(Attempt::Stream(steps)) => Ok(Box::new(ScriptedStream(steps.into(), None, Arc::default()))),
+            Some(Attempt::Reject(error)) => Err(error),
+            None => panic!("re-issue script exhausted"),
+        }
+    }
+    async fn settle_send(&self, group: &str, end: mixdog_core_api::domain::provider::SendEnd) {
+        self.inner.settle_send(group, end).await;
+    }
+    fn release_send(&self, group: &str) {
+        self.inner.release_send(group);
+    }
+}
+
+fn whole(text: &str) -> Attempt {
+    turn(vec![Step::Event(StreamEvent::FinalContent(text.into())), done(StopReason::EndTurn)])
+}
+
+fn truncated() -> ProviderError {
+    ProviderError::transport(TransportFault::TruncatedStream, DeliveryState::Accepted)
+}
+
+/// `decideStreamError` -> `recoverNonStreaming` (anthropic-midstream-recovery.mjs:176-178, anthropic-recovery-guards.mjs):
+/// a stream that dies after text was shown is answered by the provider's re-issue once the owner withdrew the text, in
+/// place of another streaming attempt, with no wait.
+#[tokio::test]
+async fn a_stream_that_dies_after_shown_text_is_reissued_by_the_provider_once_the_text_is_withdrawn() {
+    let provider = Reissuing::new(vec![turn(vec![text("par"), Step::Fail(truncated())])], vec![whole("whole answer")], true, false);
+    let h = Harness::with_adapter(provider.clone());
+    let output = finish(h.run(config(), vec![], vec![AgentMessage::user("go")])).await;
+    assert_eq!(output.response.content, "whole answer");
+    assert_eq!(provider.inner.requests().len(), 1, "no second streaming attempt");
+    let reissued = provider.reissued.lock().unwrap().clone();
+    assert_eq!(reissued.len(), 1);
+    assert_eq!(wire_dump(&reissued[0]), wire_dump(&provider.inner.requests()[0]), "the same request");
+    assert_eq!(reissued[0].options.send_group, provider.inner.requests()[0].options.send_group, "one logical send");
+    assert!(h.waiter.0.lock().unwrap().is_empty(), "the re-issue follows at once");
+}
+
+/// No acknowledgement, no re-issue (`refuseReplay`): the failure takes the loop's ordinary path, and a provider without
+/// the re-issue is retried as a stream.
+#[tokio::test]
+async fn a_dead_stream_is_not_reissued_without_the_withdrawal_or_by_a_provider_that_has_none() {
+    let provider = Reissuing::new(vec![turn(vec![text("par"), Step::Fail(truncated())])], vec![], true, false);
+    let mut h = Harness::with_adapter(provider.clone());
+    h.observer = Observer::new(Retracted::Refused);
+    let _ = h.run(config(), vec![], vec![AgentMessage::user("go")]).run().await;
+    assert!(provider.reissued.lock().unwrap().is_empty());
+
+    let provider = Reissuing::new(vec![turn(vec![text("par"), Step::Fail(truncated())]), turn(vec![text("again"), done(StopReason::EndTurn)])], vec![], false, false);
+    let h = Harness::with_adapter(provider.clone());
+    let output = finish(h.run(config(), vec![], vec![AgentMessage::user("go")])).await;
+    assert_eq!(output.response.content, "again");
+    assert!(provider.reissued.lock().unwrap().is_empty());
+    assert_eq!(provider.inner.requests().len(), 2);
+}
+
+/// A refusal the ladder does not retry (`x-should-retry: false`).
+fn final_503(message: &str) -> ProviderError {
+    let mut error = ProviderError::new(ErrorKind::Transient, DeliveryState::Accepted);
+    error.status = Some(503);
+    error.should_retry = Some(false);
+    error.message = message.into();
+    error
+}
+
+/// `recoverCompatNonStreaming` (openai-compat-chat-send.mjs:227-236): when the provider's ladder ends, its re-issue
+/// runs once; its answer is the turn.
+#[tokio::test]
+async fn a_send_whose_ladder_ended_is_reissued_once_and_its_answer_is_the_turn() {
+    let provider = Reissuing::new(vec![Attempt::Reject(final_503("ladder"))], vec![whole("recovered")], false, true);
+    let h = Harness::with_adapter(provider.clone());
+    let output = finish(h.run(config(), vec![], vec![AgentMessage::user("go")])).await;
+    assert_eq!(output.response.content, "recovered");
+    assert_eq!((provider.inner.requests().len(), provider.reissued.lock().unwrap().len()), (1, 1));
+}
+
+/// `if (!recovered) throw streamErr`: a re-issue that fails too is dropped and the ladder's own failure surfaces.
+#[tokio::test]
+async fn a_failed_reissue_surfaces_the_ladders_failure() {
+    let provider = Reissuing::new(vec![Attempt::Reject(final_503("ladder"))], vec![Attempt::Reject(final_503("re-issue"))], false, true);
+    let h = Harness::with_adapter(provider.clone());
+    let failure = h.run(config(), vec![], vec![AgentMessage::user("go")]).run().await.expect_err("both failed");
+    assert!(matches!(&failure.error, AgentError::Provider(e) if e.message == "ladder"), "{}", failure.error);
+    assert_eq!((provider.inner.requests().len(), provider.reissued.lock().unwrap().len()), (1, 1), "the re-issue runs once");
+}

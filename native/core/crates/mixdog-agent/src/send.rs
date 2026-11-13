@@ -50,6 +50,22 @@ use crate::run::Run;
 /// arguments would likely be cut again.
 const TOOL_INPUT_CUT_NOTICE: &str = "[mixdog-runtime] The previous response was cut off in transit while a tool call's arguments were still streaming, so that call never ran. This was a network interruption, not a tool failure; tools remain available. Do not resend the same large arguments in one call: split the content across several smaller tool calls (for example, write the first part, then append or patch the rest), keeping each call well under about 8K tokens of arguments.";
 
+/// `CONTENT_FILTER_NOTICE` (`send-with-recovery.mjs:360`): the guidance a content-filter replay carries. The
+/// `[mixdog-runtime]` prefix keeps it out of the visible transcript.
+const CONTENT_FILTER_NOTICE: &str = "[mixdog-runtime] The previous response was stopped by the provider content filter before it completed. Continue the task, but rephrase or avoid the content that likely triggered the filter; do not repeat it verbatim.";
+
+/// The provider's own re-issue of a send (`ProviderAdapter::recover_spent`: the non-streaming request of the
+/// Anthropic, Chat Completions and Gemini sends), which a send gets once per run of the provider's ladder.
+pub(crate) struct Reissue {
+    /// The next attempt is the re-issue.
+    pending: bool,
+    /// The attempt that just ran was the re-issue.
+    ran: bool,
+    /// The failure the provider's ladder ended on, which surfaces when the re-issue fails too
+    /// (`if (!recovered) throw streamErr`); `None` for the re-issue of a cut stream, whose own failure surfaces.
+    ladder_failure: Option<ProviderError>,
+}
+
 pub(crate) enum SendResult {
     Proceed(Box<ModelResponse>),
     /// The transcript or route changed: start the round over.
@@ -321,6 +337,7 @@ impl Run {
     async fn send_attempts(&mut self) -> Result<SendResult, AgentError> {
         self.request_started_ms = self.env.clock.now_ms();
         self.send_identity = Default::default();
+        self.reissue = None;
         self.emit(RunEvent::ProviderSendStarted);
         // The mark of this send is stored before the request leaves; a cancel ends the wait and the loop below reports it.
         let _ = or_cancelled(&self.cancel, self.env.sink.drafted()).await;
@@ -358,6 +375,12 @@ impl Run {
                         }
                     }
                     self.image_strip_used = false;
+                    // The re-issue of a spent ladder answered: the provider's line (`recoverCompatNonStreaming`).
+                    if let Some(Reissue { ran: true, ladder_failure: Some(failure), .. }) = self.reissue.take()
+                        && let Some(line) = self.provider.recovery_line(&self.model, &failure)
+                    {
+                        mixdog_rt::node_stderr!("{line}");
+                    }
                     if let Some(group) = self.send_group.take() {
                         group.complete();
                     }
@@ -650,6 +673,10 @@ impl Run {
         if stages.each_attempt {
             self.emit(RunEvent::Stage(Stage::Requesting));
         }
+        let reissued = self.reissue.as_mut().is_some_and(|reissue| {
+            reissue.ran = std::mem::take(&mut reissue.pending);
+            reissue.ran
+        });
         let identity = request.options.send_identity.clone();
         // The projection is rebuilt from the transcript for every request.
         // The provider's own `requesting` is delivered as its request goes out: the attempt may already be reading the
@@ -660,6 +687,14 @@ impl Run {
             }
         };
         let attempt = match &self.config.effort {
+            // The provider's re-issue of this send, with the projection an attempt carries (`ProjectingAdapter`).
+            _ if reissued => {
+                let mut request = Arc::unwrap_or_clone(request);
+                if let Some(wiring) = &self.config.effort {
+                    request.options.effort_projection = wiring.route.project(&self.messages).map(Into::into);
+                }
+                identity.deliver_stages(or_cancelled(&self.cancel, provider.recover_spent(Arc::new(request))), deliver).await
+            }
             Some(wiring) => {
                 let projection = wiring.route.project(&self.messages);
                 let adapter = Arc::clone(&wiring.adapter);
@@ -804,12 +839,24 @@ impl Run {
 
     async fn recover(&mut self, fail: Failure) -> Result<Recovery, AgentError> {
         let Failure {
-            error,
+            mut error,
             partial,
             midstream,
             shown_chars,
             reasoning_shown,
         } = fail;
+        // The provider's re-issue failed: after a spent ladder its own failure is dropped and the ladder's surfaces;
+        // either way the provider's recovery of this send is over (`markProviderRecoveryExhausted`).
+        let mut reissue_failed = false;
+        if let Some(reissue) = self.reissue.as_mut()
+            && std::mem::take(&mut reissue.ran)
+        {
+            if let Some(ladder) = reissue.ladder_failure.clone() {
+                error = ladder;
+            }
+            error.recovery_exhausted = true;
+            reissue_failed = true;
+        }
         // Parsed tool calls survive a cut stream: continuing is not replaying.
         // The calls resolve and run exactly once, and the next request carries
         // them forward. A half-streamed call is never one of them.
@@ -844,8 +891,14 @@ impl Run {
         if error.kind == ErrorKind::ContextOverflow {
             return self.on_context_overflow(error, replay_safe).await;
         }
+        if self.content_filter_replayable(&error) {
+            return self.replay_after_content_filter(error, &partial, replay_safe, shown_chars, reasoning_shown).await;
+        }
         if let Some(recovery) = self.request_changing_recovery(&error, &partial, replay_safe) {
             return Ok(recovery);
+        }
+        if midstream && self.reissue_cut_stream(&error, &partial, shown_chars, reasoning_shown) {
+            return Ok(Recovery::Replay);
         }
         let text_shown = error.exposure.text_emitted || shown_chars > 0;
         let exposed = text_shown || reasoning_shown;
@@ -865,7 +918,19 @@ impl Run {
         let mut spent: Vec<RetryState> = Vec::new();
         let provider = Arc::clone(&self.provider);
         let policy = request_policy(provider.as_ref(), &self.model, self.config.retry_529);
+        // A failure the provider's own recovery ended on has no step left on the provider's rows: the loop's outage
+        // and recovery ladders take it, or it surfaces (`providerRecoveryEnded`).
+        let mut ended = false;
+        if reissue_failed {
+            match escalate(class, &decide_on) {
+                Some(next) => class = next,
+                None => ended = true,
+            }
+        }
         let committed = loop {
+            if ended {
+                break None;
+            }
             let decision = self.env.decider.verdict(
                 &decide_on,
                 self.retry.get(class),
@@ -875,6 +940,22 @@ impl Run {
                     advice: self.env.jitter.draw(),
                 },
             );
+            // The provider's ladder ended on this failure: its re-issue of the send runs once before the loop's own
+            // ladders (`recoverCompatNonStreaming`, `_recoverGeminiNonStreaming`).
+            if matches!(decision.verdict, Verdict::Exhausted | Verdict::Surface)
+                && class == first_class(midstream)
+                && self.reissues_spent(&error, &partial, midstream, replay_safe)
+            {
+                for state in spent {
+                    self.retry.store(state);
+                }
+                self.retry.store(decision.next);
+                if provider.send_stages(&self.model).before_recovery {
+                    self.emit(RunEvent::Stage(Stage::Requesting));
+                }
+                self.reissue = Some(Reissue { pending: true, ran: false, ladder_failure: Some(error) });
+                return Ok(Recovery::Replay);
+            }
             match decision.verdict {
                 // A WebSocket send's budget is its own: a spent one surfaces, whatever the loop's ladder would allow.
                 Verdict::Retry { .. } if error.ws_phase.is_some() && self.ws_retries >= WS_RETRY_LIMIT => break None,
@@ -948,6 +1029,8 @@ impl Run {
         // rows are the provider's own ladder, so only these replays refill them.
         if matches!(next.class(), RetryClass::Connection | RetryClass::Recovery) {
             self.retry.restart_provider_rows(next.model());
+            // The provider's whole send runs again, its re-issue included.
+            self.reissue = None;
         }
         if let Some(model) = fallback {
             self.model = model.clone();
@@ -992,6 +1075,109 @@ impl Run {
                 ))
                 .await?;
             }
+        }
+        Ok(Recovery::Replay)
+    }
+
+    /// Whether the provider re-issues this send now that its ladder ended on `error` (`canFallbackNonStreaming`): once
+    /// per run of the ladder, with nothing shown and no tool call started. A ladder that goes by the connection
+    /// re-issues only a stream that opened.
+    fn reissues_spent(&self, error: &ProviderError, partial: &ModelResponse, midstream: bool, replay_safe: bool) -> bool {
+        self.reissue.is_none()
+            && replay_safe
+            && !error.exposure.tool_input_cut
+            && self.eager.is_empty()
+            && partial.tool_calls.is_empty()
+            && (midstream || !self.provider.send_stages(&self.model).ladder_by_connection)
+            && self.provider.recovers_spent(&self.model, error)
+    }
+
+    /// The provider's answer to a stream that died mid-response (`decideStreamError`,
+    /// anthropic-midstream-recovery.mjs): the request is repeated without streaming, after the owner withdrew whatever
+    /// text or thinking the dead stream had shown (`recoverNonStreaming`: no acknowledgement, no re-issue). Never past
+    /// a tool call. `true` when the next attempt is the re-issue.
+    fn reissue_cut_stream(&mut self, error: &ProviderError, partial: &ModelResponse, shown_chars: usize, reasoning_shown: bool) -> bool {
+        let tool_work = error.exposure.tool_dispatched || error.exposure.tool_input_cut || !self.eager.is_empty() || !partial.tool_calls.is_empty();
+        if self.reissue.is_some() || tool_work {
+            return false;
+        }
+        let exposed = error.exposure.text_emitted || shown_chars > 0 || reasoning_shown;
+        let mut seen = error.clone();
+        seen.exposure.text_emitted = exposed;
+        if !self.provider.recovers_cut(&self.model, &seen) {
+            return false;
+        }
+        if exposed {
+            let withdrawn = self.env.observer.can_retract()
+                && self.env.observer.retract_text(TextRetraction { chars: shown_chars, reasoning: reasoning_shown, reason: RetractReason::StreamingFallback })
+                    == Retracted::Withdrawn;
+            if !withdrawn {
+                return false;
+            }
+        }
+        self.reissue = Some(Reissue { pending: true, ran: false, ladder_failure: None });
+        true
+    }
+
+    /// `isReplayableContentFilter` (`send-with-recovery.mjs:352`): a `content_filter` refusal on a provider that opted in
+    /// (`retryPolicy.contentFilterRetryable`).
+    fn content_filter_replayable(&self, error: &ProviderError) -> bool {
+        self.provider.retry_policy_for(&self.model).content_filter_retryable
+            && error.code.as_deref().is_some_and(|code| code.trim().eq_ignore_ascii_case("content_filter"))
+    }
+
+    /// The content-filter replay (`send-with-recovery.mjs:464-475`): under the transport row's budget and wait, and
+    /// only when nothing reached the user or what did was withdrawn, the send is replayed with a guidance notice for
+    /// the model (`contentFilterNotice`); otherwise the refusal surfaces.
+    async fn replay_after_content_filter(
+        &mut self,
+        error: ProviderError,
+        partial: &ModelResponse,
+        replay_safe: bool,
+        shown_chars: usize,
+        reasoning_shown: bool,
+    ) -> Result<Recovery, AgentError> {
+        let provider = Arc::clone(&self.provider);
+        let policy = request_policy(provider.as_ref(), &self.model, self.config.retry_529);
+        // The refusal itself is deterministic to the decider; the transport row is asked for its next step as for any
+        // failure it covers (`transportRetryWaitMs`: the server's advice, else the ladder's jittered step).
+        let mut covered = ProviderError::new(ErrorKind::Transient, error.delivery);
+        covered.retry_after = error.retry_after;
+        let decision = self.env.decider.verdict(
+            &covered,
+            self.retry.get(RetryClass::Transport),
+            &policy,
+            JitterSamples { step: self.env.jitter.draw(), advice: self.env.jitter.draw() },
+        );
+        let Verdict::Retry { delay, .. } = decision.verdict else {
+            return self.surface(error).await;
+        };
+        if !replay_safe {
+            // `retractExposedTextForReplay`: never past a tool call, and only with the owner's acknowledgement.
+            let tool_work = error.exposure.tool_dispatched || !self.eager.is_empty() || !partial.tool_calls.is_empty();
+            let exposed = shown_chars > 0 || reasoning_shown;
+            if tool_work || !exposed || self.retraction(shown_chars, reasoning_shown) != Retracted::Withdrawn {
+                return self.surface(error).await;
+            }
+        }
+        let next = decision.next;
+        let attempt = next.count(None).retries;
+        self.retry.store(next);
+        let max = policy.row(RetryClass::Transport).map_or(0, |row| row.schedule.max_retries);
+        // `emitLoopReconnectProgress`: the replay about to run, of the transport budget.
+        let payload = mixdog_ai::retry::stage::reconnecting(&error, attempt, max, delay, u64::try_from(self.env.clock.now_ms()).unwrap_or(0));
+        self.emit(RunEvent::Stage(Stage::Reconnecting {
+            attempt,
+            max,
+            delay,
+            reason: mixdog_core_api::domain::retry::RetryReason::Other,
+            payload: Some(payload),
+        }));
+        or_cancelled(&self.cancel, self.env.waiter.wait(delay)).await.ok_or(AgentError::Aborted)?;
+        // `appendRecoveryNotice`: a repeated refusal keeps the single notice already at the tail.
+        let tail_is_notice = self.messages.last().is_some_and(|m| m.source == Some(Source::ContentFilterRecovery));
+        if !tail_is_notice {
+            self.push(AgentMessage::sourced(Source::ContentFilterRecovery, CONTENT_FILTER_NOTICE)).await?;
         }
         Ok(Recovery::Replay)
     }

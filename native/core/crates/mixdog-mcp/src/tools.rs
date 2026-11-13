@@ -42,10 +42,16 @@ pub(crate) fn tool_error(server: &McpServer, error: CallError) -> ToolError {
         ),
         CallError::UnknownTool { tool, .. } => ToolError::new(ToolErrorCode::NotFound { target: tool }, message),
         CallError::Admission(AdmissionError::Cancelled) => ToolError::new(ToolErrorCode::Cancelled, "cancelled"),
-        CallError::Admission(_) | CallError::Overloaded(_) => ToolError::new(
+        CallError::Admission(_) | CallError::Overloaded(_) | CallError::Recovery { outcome_unknown: false, .. } => ToolError::new(
             ToolErrorCode::Unavailable { capability, reason: message.clone() },
             message,
         ),
+        // The call was handed to a connection that then failed: it may have run.
+        CallError::Recovery { .. } => {
+            let mut e = ToolError::new(ToolErrorCode::OutcomeUnknown, message);
+            e.outcome_unknown = true;
+            e
+        }
         CallError::Rpc(RpcError::Cancelled) => {
             let mut e = ToolError::new(ToolErrorCode::Cancelled, "cancelled");
             e.outcome_unknown = true;

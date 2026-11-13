@@ -62,7 +62,7 @@ fn text_of(parts: &[ToolPart]) -> String {
         .collect()
 }
 
-async fn call(server: &McpServer, tool: &str, args: Value) -> Result<String, CallError> {
+async fn call(server: &Arc<McpServer>, tool: &str, args: Value) -> Result<String, CallError> {
     let out = server.call_tool("t1", tool, args, &CancellationToken::new(), None).await?;
     Ok(text_of(&out.parts))
 }
@@ -142,17 +142,151 @@ async fn caller_cancel_ends_the_call() {
 async fn crash_is_a_failed_state_with_the_stderr_tail_and_reconnect_recovers() {
     let dir = tempfile::tempdir().unwrap();
     let server = ready(json!({}), dir.path()).await;
+    // `executeMcpTool` (mcp/client.mjs:536-575): a call whose connection ends under it reconnects the server for the
+    // next call and is not replayed, since the request may have reached the server; the dead server's stderr follows.
     let crashed = call(&server, "crash", json!({})).await;
-    assert!(matches!(crashed, Err(CallError::Rpc(RpcError::Closed(_)))), "{crashed:?}");
-    until(&server, |s| matches!(s, ServerState::Failed { .. })).await;
-    match &*server.state() {
-        ServerState::Failed { cause } => assert!(cause.contains("crashing on purpose"), "{cause}"),
-        _ => unreachable!(),
+    match &crashed {
+        Err(CallError::Recovery { message, outcome_unknown: true }) => {
+            assert!(
+                message.starts_with("Tool call failed: MCP error -32000: Connection closed; MCP server \"mock\" was reconnected for the next call, but this call was not replayed because the request may already have reached the server"),
+                "{message}"
+            );
+            assert!(message.contains("crashing on purpose"), "{message}");
+        }
+        other => panic!("{other:?}"),
     }
-    assert!(matches!(call(&server, "echo", json!({})).await, Err(CallError::NotReady { .. })));
-    server.reconnect().await.unwrap();
+    assert!(matches!(&*server.state(), ServerState::Ready(_)), "reconnected by the failed call");
     assert_eq!(call(&server, "echo", json!({"text": "again"})).await.unwrap(), "again");
+    // An explicit reconnect still replaces the connection.
+    server.reconnect().await.unwrap();
+    assert_eq!(call(&server, "echo", json!({"text": "once more"})).await.unwrap(), "once more");
     server.close().await;
+}
+
+async fn unlisted(server: &McpServer, tool: &str) -> String {
+    let out = server.call_tool_unlisted("t", tool, json!({}), &CancellationToken::new(), None).await.unwrap();
+    text_of(&out.parts)
+}
+
+fn starts(file: &std::path::Path) -> usize {
+    std::fs::read_to_string(file).unwrap_or_default().lines().count()
+}
+
+/// A server whose connection ended while no call was in flight, with the file its starts are counted in.
+async fn died(dir: &std::path::Path, extra: Value) -> (Arc<McpServer>, std::path::PathBuf) {
+    let counted = dir.join("starts");
+    let mut entry = json!({"env": {"MOCK_STARTS": counted}});
+    entry["env"].as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+    let server = ready(entry, dir).await;
+    assert_eq!(unlisted(&server, "die_soon").await, "dying");
+    until(&server, |s| matches!(s, ServerState::Failed { .. })).await;
+    assert_eq!(starts(&counted), 1);
+    (server, counted)
+}
+
+/// `executeMcpTool` (mcp/client.mjs:540-590): a call that finds no live connection (the SDK's `Not connected`) was
+/// never delivered, so after the reconnect it is replayed once and its answer is the call's.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_call_on_a_dead_connection_reconnects_and_is_replayed_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let (server, counted) = died(dir.path(), json!({})).await;
+    assert_eq!(call(&server, "echo", json!({"text": "after"})).await.unwrap(), "after");
+    assert_eq!(starts(&counted), 2, "one reconnect");
+    server.close().await;
+}
+
+/// `reconnectMcpServer` (mcp/client.mjs:432-452): the reconnect is shared; calls that failed on the same connection
+/// reuse the replacement a peer made instead of each closing a fresh one.
+#[tokio::test(flavor = "multi_thread")]
+async fn calls_that_fail_together_share_one_reconnect() {
+    let dir = tempfile::tempdir().unwrap();
+    let (server, counted) = died(dir.path(), json!({})).await;
+    let calls: Vec<_> = (0..4)
+        .map(|n| {
+            let server = Arc::clone(&server);
+            tokio::spawn(async move { call(&server, "echo", json!({"text": format!("c{n}")})).await })
+        })
+        .collect();
+    for (n, joined) in calls.into_iter().enumerate() {
+        assert_eq!(joined.await.unwrap().unwrap(), format!("c{n}"));
+    }
+    assert_eq!(starts(&counted), 2, "four calls, one reconnect");
+    server.close().await;
+}
+
+/// `Tool call failed: <first>; reconnect also failed: <reason>` (mcp/client.mjs:561-565): the call never ran.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_reconnect_that_fails_is_reported_with_the_first_failure() {
+    let dir = tempfile::tempdir().unwrap();
+    let down = dir.path().join("down");
+    let (server, _) = died(dir.path(), json!({"MOCK_DOWN_WHILE": down})).await;
+    std::fs::write(&down, "").unwrap();
+    match call(&server, "echo", json!({"text": "x"})).await {
+        Err(CallError::Recovery { message, outcome_unknown: false }) => {
+            assert!(message.starts_with("Tool call failed: Not connected; reconnect also failed: "), "{message}");
+        }
+        other => panic!("{other:?}"),
+    }
+    // A server whose reconnect failed is not connected: the next call says so and does not reconnect again.
+    assert!(matches!(call(&server, "echo", json!({})).await, Err(CallError::NotReady { .. })));
+    server.close().await;
+}
+
+/// `createMcpClient` (mcp/client.mjs:1569-1597) and `setMcpScopeRoot` (:1603): a server that follows its scope is told
+/// the client has roots that change, lists the scope's folder as `{ uri: pathToFileURL(root), name: basename(root) }`,
+/// and gets `notifications/roots/list_changed` when the folder changed (not when it is set to the same one).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_scope_following_server_is_advertised_the_scopes_folder_and_told_when_it_moves() {
+    let dir = tempfile::tempdir().unwrap();
+    let (first, second) = (dir.path().join("first"), dir.path().join("second"));
+    std::fs::create_dir_all(&first).unwrap();
+    std::fs::create_dir_all(&second).unwrap();
+    let listed = |root: &std::path::Path| {
+        json!({"result": {"roots": [{"uri": url::Url::from_file_path(root).unwrap().as_str(), "name": root.file_name().unwrap().to_str().unwrap()}]}, "error": null})
+    };
+    let server = server(json!({"_mixdogRootsFollowScope": true}), dir.path());
+    server.set_scope_root(first.to_str().unwrap());
+    server.connect().await.unwrap();
+    assert_eq!(serde_json::from_str::<Value>(&unlisted(&server, "client_capabilities").await).unwrap(), json!({"roots": {"listChanged": true}}));
+    assert_eq!(serde_json::from_str::<Value>(&unlisted(&server, "roots").await).unwrap(), listed(&first));
+    assert_eq!(unlisted(&server, "roots_changes").await, "0");
+
+    server.set_scope_root(second.to_str().unwrap());
+    server.set_scope_root(second.to_str().unwrap());
+    let mut told = String::new();
+    for _ in 0..200 {
+        told = unlisted(&server, "roots_changes").await;
+        if told != "0" {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert_eq!(told, "1", "told once: the second set changed nothing");
+    assert_eq!(serde_json::from_str::<Value>(&unlisted(&server, "roots").await).unwrap(), listed(&second));
+    server.close().await;
+}
+
+/// A server with a fixed root (its `cwd`) lists it and is told the roots never change; one with no root declares
+/// nothing and `roots/list` is not a method of its client.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_fixed_root_is_listed_unchanging_and_a_server_without_one_gets_no_roots() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("project");
+    std::fs::create_dir_all(&root).unwrap();
+    let fixed = ready(json!({"cwd": root}), dir.path()).await;
+    assert_eq!(serde_json::from_str::<Value>(&unlisted(&fixed, "client_capabilities").await).unwrap(), json!({"roots": {"listChanged": false}}));
+    let listed: Value = serde_json::from_str(&unlisted(&fixed, "roots").await).unwrap();
+    assert_eq!(listed["result"]["roots"][0]["name"], "project");
+    assert_eq!(listed["result"]["roots"][0]["uri"], url::Url::from_file_path(&root).unwrap().as_str());
+    // The scope's folder is not this server's root.
+    fixed.set_scope_root(dir.path().to_str().unwrap());
+    assert_eq!(unlisted(&fixed, "roots_changes").await, "0");
+    fixed.close().await;
+
+    let plain = ready(json!({}), dir.path()).await;
+    assert_eq!(serde_json::from_str::<Value>(&unlisted(&plain, "client_capabilities").await).unwrap(), json!({}));
+    assert_eq!(serde_json::from_str::<Value>(&unlisted(&plain, "roots").await).unwrap(), json!({"result": null, "error": -32601}));
+    plain.close().await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
