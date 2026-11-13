@@ -240,3 +240,44 @@ async fn a_provider_without_a_roster_sends_unscoped() {
     let script = Script::new(vec![("default", vec![Ok("plain")])]);
     assert_eq!(rotation.pool_send(PROVIDER, &ctx(), &script).await.unwrap(), "plain");
 }
+
+/// A probe whose reading of one account shows a full window; it keeps which accounts it was asked to measure.
+struct FullReading {
+    store: AccountStore,
+    full: &'static str,
+    measured: Mutex<Vec<String>>,
+}
+
+#[async_trait]
+impl UsageProbe for FullReading {
+    async fn measure(&self, provider: &str, account_id: &str, _force: bool) {
+        self.measured.lock().unwrap().push(account_id.to_owned());
+        let used_pct = if account_id == self.full { 100.0 } else { 10.0 };
+        let window = QuotaWindowInput { label: "7D".into(), used_pct: Some(used_pct), reset_at: Some(1_900_000_000_000), models: None, except: None, limit: None };
+        self.store.record_usage(provider, account_id, vec![window]).await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn a_fallback_is_chosen_on_readings_taken_as_the_pool_switches() {
+    mixdog_rt::testing::tokens();
+    const ID_C: &str = "33333333-3333-4333-8333-333333333333";
+    let dir = tempfile::tempdir().unwrap();
+    let s = store(&dir);
+    for (id, label) in [(ID_A, "A"), (ID_B, "B"), (ID_C, "C")] {
+        s.register(PROVIDER, id, label, false).await.unwrap();
+    }
+    let probe = Arc::new(FullReading { store: s.clone(), full: ID_B, measured: Mutex::default() });
+    let rotation = AccountRotation::new(s.clone(), probe.clone(), clock());
+    let script = Script::new(vec![(ID_A, vec![Err(refusal(ErrorKind::QuotaExhausted, 429))]), (ID_C, vec![Ok("answer")])]);
+
+    let got = rotation.pool_send(PROVIDER, &ctx(), &script).await.unwrap();
+
+    // B was next in the roster, but the reading taken before the switch shows it full: no request is spent on it.
+    assert_eq!(script.calls(), [ID_A, ID_C]);
+    assert!(got.starts_with("answer@33"));
+    let mut measured = probe.measured.lock().unwrap().clone();
+    measured.retain(|id| id != ID_A);
+    measured.sort();
+    assert_eq!(measured, [ID_B, ID_C], "the accounts it could switch to are measured, once");
+}

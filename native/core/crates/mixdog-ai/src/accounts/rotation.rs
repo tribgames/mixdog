@@ -36,6 +36,9 @@ const INFERRED_COOLDOWN_MS: i64 = 5 * 60_000;
 const QUOTA_WINDOW_RETRY_AFTER_MS: i64 = 60_000;
 /// Pacing of the re-measure of refused accounts.
 const PROBE_INTERVAL_MS: i64 = 5 * 60_000;
+/// How old a reading may be when the pool picks an account other than the one the send prefers. An older one is
+/// measured again before the choice (see `measure_fallback_candidates`).
+const FALLBACK_READING_MAX_AGE_MS: i64 = 5 * 60_000;
 const SESSION_ACCOUNT_LIMIT: usize = 1000;
 
 /// A provider's roster cooldowns (`accountCooldownPolicy`).
@@ -570,6 +573,38 @@ impl AccountRotation {
         true
     }
 
+    /// Before the pool moves a send to an account it does not prefer (the selected one, or the session's under the
+    /// headroom policy), re-measures the usable accounts whose reading is older than [`FALLBACK_READING_MAX_AGE_MS`],
+    /// paced per account like every probe. Returns whether it measured any.
+    ///
+    /// Not Node's: there the fallback is chosen on whatever the roster last recorded, and an account nobody used for a
+    /// day is offered with the reading of a day ago. A spent one then costs a refused request and another switch; a
+    /// fresh reading that shows a full window keeps the request from being sent to it at all, and lets the headroom
+    /// ranking see every candidate. The same reason other clients read each candidate's usage as they rank them.
+    async fn measure_fallback_candidates(&self, provider: &str, pool: &Pool, excluded: &HashSet<String>, model: &str) -> bool {
+        let now = self.now();
+        let due: Vec<&Account> = {
+            let state = self.state();
+            pool.accounts
+                .iter()
+                .filter(|r| !excluded.contains(&r.id) && !policy::account_exhausted(r, now, model, pool.uses_credits()))
+                .filter(|r| now - r.usage.as_ref().map_or(0, |u| u.checked_at) > FALLBACK_READING_MAX_AGE_MS)
+                .filter(|r| now - state.last_probe.get(&format!("{provider}:{}", r.id)).copied().unwrap_or(0) >= PROBE_INTERVAL_MS)
+                .collect()
+        };
+        if due.is_empty() {
+            return false;
+        }
+        {
+            let mut state = self.state();
+            for row in &due {
+                state.last_probe.insert(format!("{provider}:{}", row.id), now);
+            }
+        }
+        futures::future::join_all(due.iter().map(|row| self.probe.measure(provider, &row.id, true))).await;
+        true
+    }
+
     /// A cooldown-only eligible set whose earliest cooldown ends inside the
     /// remaining wait budget is waited out; otherwise the send fails.
     async fn wait_out_cooldown_or_fail<T: Send>(
@@ -733,6 +768,7 @@ impl AccountRotation {
         let mut ledger = Ledger::default();
         let mut last_error: Option<ProviderError> = None;
         let mut probed = false;
+        let mut ranked = false;
         let mut sends = 0;
         let session_key = Self::session_key(provider, ctx);
         let bound_id = self.bound_id(session_key.as_deref(), ctx);
@@ -765,6 +801,14 @@ impl AccountRotation {
                 self.wait_out_cooldown_or_fail(provider, ctx, sender, &mut ledger, last_error.clone(), None).await?;
                 continue;
             };
+            // Once per send: an account the send does not prefer is chosen on current readings.
+            let preferred = if policy_now == Policy::Headroom { bound_id.as_deref() } else { pool.selected_id.as_deref() };
+            if !ranked && policy_now != Policy::Manual && preferred != Some(row.id.as_str()) {
+                ranked = true;
+                if self.measure_fallback_candidates(provider, &pool, &ledger.attempted, model).await {
+                    continue;
+                }
+            }
             ledger.attempted.insert(row.id.clone());
             sends += 1;
             let failed = match sender.send(&row.id, true).await {
