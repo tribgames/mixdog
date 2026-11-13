@@ -306,7 +306,7 @@ impl SpawnWorld for DirectorySpawnWorld {
         for key in ["createdAt", "updatedAt", "lastUsedAt"] {
             header.insert(key.into(), now.clone());
         }
-        let id = self.directory.create_session(header.clone(), json!({})).await.map_err(|error| format!("{error:?}"))?;
+        let id = self.directory.create_agent_session(header.clone(), json!({})).await.map_err(|error| format!("{error:?}"))?;
         // The parent was cancelled while the session was being created (`agent-child.mjs:51-69`):
         // close the child like any cancelled child instead of leaving it unlinked and open.
         if let Err(cancelled) = self.registry.assert_admission(&parent, Some(parent_epoch)) {

@@ -856,6 +856,23 @@ impl SessionDirectory {
             .map(|_| ())
     }
 
+    /// [`create_session`](Self::create_session) for an agent-owned session (a delegated worker, `createAgentChild`): its
+    /// header begins with the tool surface and prompt identity Node's `createSession` gives it
+    /// (`NewThreadTools::seed_agent`), so its first turn composes its prompt and sends its tools. Without them the
+    /// worker's requests carried no system prompt and no tools.
+    pub async fn create_agent_session(&self, header: Header, params: Value) -> Result<ThreadId, CoreError> {
+        let id = ThreadId::from(super::new_session_id(self.inner.deps.clock.now_ms()));
+        let header = self
+            .inner
+            .deps
+            .new_tools
+            .seed_agent(&id, &header)
+            .await
+            .map_err(|message| mixdog_core_base::support::failed("session", format!("session: tools: {message}")))?;
+        let spec = CreateSpec { id: Some(id), header, base: None, op: None, method: Method("thread/start"), params, seed: None, settings: None, starting: None };
+        self.inner.create(spec).await.map(|handle| handle.id.clone())
+    }
+
     /// Creates a thread under a minted id with `header` as its first durable write (an internal
     /// `createSession`: nobody subscribes to it).
     pub async fn create_session(&self, header: Header, params: Value) -> Result<ThreadId, CoreError> {
