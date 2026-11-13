@@ -45,7 +45,7 @@ const RULES: [&str; 8] = [
     "Rules:",
     "- The objective is the user's; never redefine success around a smaller, easier or already-finished subset of it. Work from current files and external state, not prior narration.",
     "- A turn may end while the Goal stays active; report it as progress, not completion. Decide choices within the objective yourself instead of asking; routine errors and retries are not reasons to stop.",
-    "- Keep the steps in todo: append work you discover, close items as they finish.",
+    "- Keep the steps in todo: advance as each finishes, set the list again when the plan changes.",
     "- Before calling goal with action complete, audit each user condition on its own: name the evidence that proves it, inspect current state for it, match the check to the claim. Missing or weak evidence means incomplete: keep working.",
     "- The time cap is an upper bound: complete as soon as the objective is verified, and a reached cap is not completion.",
     "- Call goal with action block only for an impasse only the user or external state can clear, after re-checking it against current state; never for difficulty, uncertainty or a choice you can make.",

@@ -69,12 +69,14 @@ function world() {
       if (!desktops.has(token)) {
         const conn = ++connections;
         const desktop = { conn, closed: false };
+        // The route follows a thread through the connection's own `resumeThread` / `unsubscribeThread` (service-route.ts).
         const protocol = {
-          call: async (method, params) => {
-            if (method === 'thread/resume') return core.call('resume', { conn, threadId: await threadOf(params.threadId), window: params.window });
-            if (method === 'thread/unsubscribe') return core.call('unsubscribe', { conn, threadId: await threadOf(params.threadId) });
+          call: async (method) => {
             throw new Error(`unexpected ${method}`);
           },
+          resumeThread: async (threadId, window) => core.call('resume', { conn, threadId: await threadOf(threadId), window }),
+          unsubscribeThread: async (threadId) => core.call('unsubscribe', { conn, threadId: await threadOf(threadId) }),
+          onEvent: () => () => {},
           notify() {},
         };
         desktop.lane = createServiceLane({ protocol, snapshot: () => null });
