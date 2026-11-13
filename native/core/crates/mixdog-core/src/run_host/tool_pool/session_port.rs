@@ -387,6 +387,8 @@ pub struct SessionPortParts {
 
 pub struct DirectorySessionPort {
     parts: SessionPortParts,
+    /// What resolves a call's `attachments`; unbound until [`Self::with_attachments`] names a bound cell.
+    attachments: Arc<super::session_attachments::LateAttachments>,
 }
 
 fn failed(message: impl Into<String>) -> PortError {
@@ -408,7 +410,13 @@ fn nested(header: &Header, outer: &str, key: &str) -> Option<String> {
 
 impl DirectorySessionPort {
     pub fn new(parts: SessionPortParts) -> Self {
-        Self { parts }
+        Self { parts, attachments: Arc::default() }
+    }
+
+    /// The port with the resolver of a call's `attachments`, bound once the session directory exists.
+    pub fn with_attachments(mut self, attachments: Arc<super::session_attachments::LateAttachments>) -> Self {
+        self.attachments = attachments;
+        self
     }
 
     async fn header(&self, thread: &ThreadId) -> Result<Header, PortError> {
@@ -564,11 +572,20 @@ impl SessionPort for DirectorySessionPort {
         self.unknown_bot_text(target).await
     }
 
-    async fn resolve_attachments(&self, _: &ThreadId, _: &Value, _: &AbsPath, _: &str) -> Result<Vec<Value>, PortError> {
-        Err(PortError::Unavailable {
-            capability: "attachments".to_owned(),
-            message: "session: attachments cannot be resolved in this runtime".to_owned(),
-        })
+    /// `callerAttachmentParts(rt, args, callerCwd, surface)`: against the caller's own conversation and folders.
+    async fn resolve_attachments(&self, thread: &ThreadId, names: &Value, cwd: &AbsPath, surface: &str) -> Result<Vec<Value>, PortError> {
+        let Some(attachments) = self.attachments.get() else {
+            return Err(PortError::Unavailable {
+                capability: "attachments".to_owned(),
+                message: format!("{surface}: attachments cannot be resolved in this runtime"),
+            });
+        };
+        // `rt.session`: a caller whose record cannot be read has no folders but the call's own.
+        let header = self.header(thread).await.unwrap_or_default();
+        attachments
+            .resolve(thread, &header, names, &cwd.as_path().to_string_lossy(), surface)
+            .await
+            .map_err(|message| PortError::Failed { capability: "attachments".to_owned(), message })
     }
 
     async fn control(&self, call: ControlCall) -> Result<Value, PortError> {

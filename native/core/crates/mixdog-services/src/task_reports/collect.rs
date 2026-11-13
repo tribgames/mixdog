@@ -281,27 +281,29 @@ struct ContainedFile {
     size: u64,
 }
 
-/// `readContained`: one file inside the roots, read once; `Err` is the reason it was left out.
+/// `readContained`: one file inside the roots, read once; `Err` is the reason it was left out, in Node's words without
+/// the surface that leads them (`handoffError`).
 fn read_contained<L: IoLane>(lane: &InLane<L>, raw: &str, options: &Options) -> Result<ContainedFile, String> {
     let value = js_trim(raw);
     if value.is_empty() || value.contains('\0') {
         return Err("an attachment path is empty or invalid".to_owned());
     }
     let absolute = resolve(&base_dir(&options.cwd), value);
-    let info = metadata(lane, &absolute).map_err(|_| "does not exist".to_owned())?;
+    let missing = || format!("attachment \"{value}\" does not exist");
+    let info = metadata(lane, &absolute).map_err(|_| missing())?;
     if !info.is_file() {
-        return Err("not a file".to_owned());
+        return Err(format!("attachment \"{value}\" is not a file"));
     }
     let opened = identity(&info);
-    let real = mixdog_workspace::pathguard::canonical(&absolute).map_err(|_| "does not exist".to_owned())?;
+    let real = mixdog_workspace::pathguard::canonical(&absolute).map_err(|_| missing())?;
     if !options.roots.iter().any(|root| within(root, &real)) {
-        return Err("outside this session's folders".to_owned());
+        return Err(format!("attachment \"{value}\" is outside this session's folders"));
     }
     if is_sensitive_local_path(&absolute, &options.scopes) || is_sensitive_local_path(&real, &options.scopes) {
-        return Err("can hold credentials or secrets".to_owned());
+        return Err(format!("attachment \"{value}\" can hold credentials or secrets and is never attached"));
     }
     if !same_path_and_handle(lane, &real, &opened) {
-        return Err("changed while it was opened".to_owned());
+        return Err(format!("attachment \"{value}\" changed while it was opened"));
     }
     let name = real.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let head = read_range(lane, &real, 0, HEAD_BYTES).map_err(|e| e.to_string())?;
@@ -316,7 +318,7 @@ fn read_contained<L: IoLane>(lane: &InLane<L>, raw: &str, options: &Options) -> 
         None => None,
     };
     if !same_path_and_handle(lane, &real, &opened) {
-        return Err("changed while it was read".to_owned());
+        return Err(format!("attachment \"{value}\" changed while it was read"));
     }
     let size = bytes.as_ref().map_or(info.len(), |b| b.len() as u64);
     Ok(ContainedFile { path: real, name, typ, bytes, size })
@@ -539,6 +541,164 @@ pub fn collect_turn_artifacts<L: IoLane>(
     Artifacts { files, omitted }
 }
 
+/// The prompt parts and attachment records of a call's `attachments` (`resolveHandoffAttachments`).
+#[derive(Debug, Default, PartialEq)]
+pub struct Handoff {
+    /// The stored reference parts a forwarded prompt carries (`referencePart`).
+    pub parts: Vec<Value>,
+    /// `{ id, attachmentRef, kind, name, mimeType, size }` of each.
+    pub records: Vec<Value>,
+}
+
+/// `ATTACHMENT_ID`.
+fn is_attachment_id(text: &str) -> bool {
+    text.len() == 64 && text.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+/// An attachment a conversation shows: its id, kind, name and type.
+#[derive(Clone, Debug, PartialEq)]
+struct Shown {
+    id: String,
+    kind: &'static str,
+    name: String,
+    mime: String,
+}
+
+/// `conversationAttachments(messages)`: the attachments a conversation already shows, newest last. Only what the runtime
+/// recorded in structured fields counts: a user message's stored reference parts and attachment records, and a room speech
+/// row's stored files. Assistant and tool messages hold what a model or tool wrote and never name one.
+fn conversation_attachments(messages: &Value) -> Vec<Shown> {
+    let mut found: Vec<Shown> = Vec::new();
+    // `String(a || b || fallback).slice(0, limit)`.
+    let text = |values: [Option<&Value>; 2], fallback: &str, limit: usize| {
+        let picked = values.into_iter().flatten().find(|v| truthy(v)).map_or_else(|| fallback.to_owned(), value_to_string);
+        mixdog_js::slice_utf16(&picked, limit)
+    };
+    let mut add = |id: Option<&Value>, kind: Option<&str>, name: [Option<&Value>; 2], mime: [Option<&Value>; 2]| {
+        let id = id.filter(|v| truthy(v)).map(value_to_string).unwrap_or_default();
+        if !is_attachment_id(&id) {
+            return;
+        }
+        let kind = match kind {
+            Some("image") => "image",
+            Some("text") => "text",
+            _ => "file",
+        };
+        // A later occurrence moves the id to the end: the order is recency.
+        found.retain(|shown| shown.id != id);
+        let mime = text(mime, if kind == "image" { "image/png" } else { "application/octet-stream" }, 100);
+        found.push(Shown { id, kind, name: text(name, "attachment", 200), mime });
+    };
+    for message in messages.as_array().map_or(&[][..], Vec::as_slice) {
+        let meta = message.get("meta");
+        let user = message.get("role").and_then(Value::as_str) == Some("user");
+        let room = meta.and_then(|m| m.get("room"));
+        let speech = meta.and_then(|m| m.get("source")).and_then(Value::as_str) == Some(mixdog_core_base::rooms::ids::ROOM_ROW_SOURCE)
+            && room.and_then(|r| r.get("kind")).and_then(Value::as_str) == Some("speech");
+        if !user && !speech {
+            continue;
+        }
+        let content = message.get("content").and_then(Value::as_array).filter(|_| user);
+        let room_parts = room.and_then(|r| r.get("parts")).and_then(Value::as_array);
+        for part in content.into_iter().flatten().chain(room_parts.into_iter().flatten()) {
+            let Some(kind) = part.get("type").and_then(Value::as_str).filter(|k| matches!(*k, "image" | "file" | "text")) else { continue };
+            if !part.get("attachmentRef").is_some_and(truthy) || (kind == "text" && !part.get("textKind").is_some_and(truthy)) {
+                continue;
+            }
+            add(part.get("attachmentRef"), Some(kind), [part.get("filename"), part.get("name")], [part.get("mimeType"), part.get("mediaType")]);
+        }
+        let records = crate::bots::delivery::rows::normalize_attachments(meta.and_then(|m| m.get("transcript")).and_then(|t| t.get("attachments")));
+        for record in &records {
+            add(record.get("id"), record.get("kind").and_then(Value::as_str), [record.get("name"), None], [record.get("mimeType"), None]);
+        }
+    }
+    found
+}
+
+/// `referencePart`: a stored reference part of one attachment, as a desktop prompt carries it.
+fn reference_part(kind: &str, reference: &str, mime: &str, name: &str, size: u64) -> Value {
+    let mut part = Map::new();
+    part.insert("type".into(), json!(kind));
+    if kind == "text" {
+        part.insert("textKind".into(), json!("file"));
+    }
+    part.insert("attachmentRef".into(), json!(reference));
+    part.insert("sizeBytes".into(), json!(size));
+    part.insert("mimeType".into(), json!(mime));
+    part.insert("filename".into(), json!(name));
+    Value::Object(part)
+}
+
+/// `resolveHandoffAttachments(refs, { messages, roots, cwd, surface })`: the prompt parts for the `attachments` of a
+/// `session` or `agent` call. Each reference is an attachment the caller's conversation shows (`messages`), by its id or
+/// by its file name (the newest of that name), or a file path inside the roots, which is read once and stored through
+/// `store`. `stored_len` answers the size of a stored attachment (`readAttachmentBuffer(id).length`), `None` when the
+/// store no longer holds it. `Err` is the text Node throws: an unknown id, a path outside the roots, a secret file, an
+/// unsupported type or a limit, naming the reference.
+pub fn resolve_handoff_attachments<L: IoLane>(
+    lane: &InLane<L>,
+    refs: &Value,
+    messages: &Value,
+    options: &Options,
+    surface: &str,
+    stored_len: &dyn Fn(&str) -> Option<u64>,
+    store: &dyn Fn(&[u8]) -> Result<String, String>,
+) -> Result<Handoff, String> {
+    let refused = |message: String| format!("{surface}: {message}");
+    if refs.is_null() {
+        return Ok(Handoff::default());
+    }
+    let Some(given) = refs.as_array().filter(|list| list.iter().all(Value::is_string)) else {
+        return Err(refused("attachments must be a list of attachment ids or file paths".to_owned()));
+    };
+    let mut list: Vec<&str> = Vec::new();
+    for reference in given.iter().filter_map(Value::as_str).map(js_trim).filter(|r| !r.is_empty()) {
+        if !list.contains(&reference) {
+            list.push(reference);
+        }
+    }
+    if list.len() > MAX_FILES {
+        return Err(refused(format!("at most {MAX_FILES} attachments can be passed at once")));
+    }
+    let known = conversation_attachments(messages);
+    let mut budget = Budget::default();
+    let mut out = Handoff::default();
+    for reference in list {
+        // An upload the model knows only by the name its prompt showed: the newest attachment of that name.
+        let by_id = is_attachment_id(reference);
+        let shown = if by_id { known.iter().find(|s| s.id == reference) } else { known.iter().rev().find(|s| s.name == reference) };
+        if by_id && shown.is_none() {
+            return Err(refused(format!("attachment {reference} is not in this conversation")));
+        }
+        let (id, kind, name, mime, size) = match shown {
+            Some(shown) => {
+                let size = stored_len(&shown.id).ok_or_else(|| refused(format!("attachment \"{reference}\" is no longer stored")))?;
+                (shown.id.clone(), shown.kind, shown.name.clone(), shown.mime.clone(), size)
+            }
+            None => {
+                let file = read_contained(lane, reference, options).map_err(refused)?;
+                let Some(typ) = file.typ else {
+                    return Err(refused(format!("attachment \"{reference}\" is not an image, PDF, Office or text file")));
+                };
+                let Some(bytes) = file.bytes else {
+                    return Err(refused(format!("attachment \"{reference}\" is larger than the attachment limit")));
+                };
+                if typ.kind == "image" && !SUPPORTED_IMAGE_MIME_TYPES.contains(&typ.mime) {
+                    return Err(refused(format!("attachment \"{reference}\" is not a PNG, JPEG, GIF or WebP image")));
+                }
+                // The store's own refusal (an empty file) is thrown as it is, without the surface.
+                (store(&bytes)?, typ.kind, file.name, typ.mime.to_owned(), bytes.len() as u64)
+            }
+        };
+        if !budget.take(kind, size) {
+            return Err(refused(format!("attachment \"{name}\" exceeds the attachment size limits")));
+        }
+        out.parts.push(reference_part(kind, &id, &mime, &name, size));
+        out.records.push(json!({ "id": id, "attachmentRef": id, "kind": kind, "name": name, "mimeType": mime, "size": size }));
+    }
+    Ok(out)
+}
+
 /// `storeAttachmentBuffer(bytes)`: the bytes stored under their content address; the reference is
 /// the digest's 64 hex digits.
 pub fn store_attachment<L: WriteLane>(blobs: &BlobStore, lane: &InLane<L>, bytes: &[u8]) -> Result<String, String> {
@@ -642,6 +802,38 @@ mod tests {
             };
             let (messages, blobs) = (input["messages"].clone(), BlobStore::new(&data));
             let got = on_lane(move |lane| collect_turn_artifacts(lane, &messages, &options, &|bytes| store_attachment(&blobs, lane, bytes)).to_json());
+            assert_eq!(tokenized(&got, &tmp), tokenized(&case["result"], "\0"), "{}", case["name"]);
+        }
+    }
+
+    /// `resolveHandoffAttachments` over the same tree: the parts and records of each recorded `attachments`, and each
+    /// refusal in Node's words. The attachments a case's messages name are stored first, as the recorder stored them.
+    #[test]
+    fn every_recorded_attachment_resolution_equals_node() {
+        let golden: Value = serde_json::from_str::<Value>(&GOLDEN).unwrap()["handoff"].clone();
+        let (_dir, tmp) = tree(&golden["collect"]);
+        let data = PathBuf::from(&tmp).join("data-dir");
+        let scopes = sensitive_scopes(&[PathBuf::from(&tmp).join("home"), data.clone(), data.clone()]);
+        let seeds: Vec<Vec<u8>> = golden["resolve"]["stored"].as_array().unwrap().iter().map(|text| text.as_str().unwrap().as_bytes().to_vec()).collect();
+        let blobs = BlobStore::new(&data);
+        on_lane(move |lane| seeds.iter().for_each(|bytes| drop(store_attachment(&blobs, lane, bytes).unwrap())));
+        let cases = golden["resolve"]["cases"].as_array().unwrap();
+        assert!(cases.len() > 30, "the recording holds the resolution cases");
+        for case in cases {
+            let input = fill(case, &tmp);
+            let options = Options {
+                cwd: native(input["cwd"].as_str().unwrap()).to_string_lossy().into_owned(),
+                roots: input["roots"].as_array().unwrap().iter().map(|r| resolve(Path::new(&tmp), &native(r.as_str().unwrap()).to_string_lossy())).collect(),
+                scopes: scopes.clone(),
+            };
+            let (refs, messages, surface, blobs) = (input["refs"].clone(), input["messages"].clone(), input["surface"].as_str().unwrap().to_owned(), BlobStore::new(&data));
+            let got = on_lane(move |lane| {
+                let stored_len = |id: &str| blobs.read(lane, &mixdog_store::schema::bounded::Digest::try_from(format!("sha256:{id}")).ok()?).ok().map(|bytes| bytes.len() as u64);
+                match resolve_handoff_attachments(lane, &refs, &messages, &options, &surface, &stored_len, &|bytes| store_attachment(&blobs, lane, bytes)) {
+                    Ok(found) => json!({ "parts": found.parts, "records": found.records }),
+                    Err(error) => json!({ "error": error }),
+                }
+            });
             assert_eq!(tokenized(&got, &tmp), tokenized(&case["result"], "\0"), "{}", case["name"]);
         }
     }
