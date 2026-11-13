@@ -125,8 +125,11 @@ impl AgentWorld {
 }
 
 impl DispatchWorld for AgentWorld {
+    /// The `agent` section of the file (`getConfigSnapshot` is `loadConfig`'s agent config): the roles' routes (`agents.<role>`),
+    /// `presets`, `default` and `maintenance` are saved there. The whole file has none of them at its top (its own `agents` holds
+    /// only app marks), and a dispatch that read it found no route for any internal role.
     fn config(&self) -> Map<String, Value> {
-        (*self.config.full()).clone()
+        self.config.agent()
     }
 
     fn hidden_agent(&self, name: &str) -> Option<Value> {
@@ -364,6 +367,34 @@ mod tests {
         assert!(configured_route_candidates(config, "explore").is_empty(), "an empty route is no route");
         assert!(configured_route_candidates(config, "").is_empty());
         assert!(configured_route_candidates(config, "absent").is_empty());
+    }
+
+    struct Epoch;
+
+    impl Clock for Epoch {
+        fn now_ms(&self) -> i64 {
+            0
+        }
+    }
+
+    #[tokio::test]
+    async fn a_dispatch_reads_the_agent_section_of_the_saved_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mixdog-config.json");
+        let saved = serde_json::json!({
+            "agent": { "agents": { "maintainer": { "provider": "p", "model": "m" } }, "default": "lead", "presets": [{ "id": "lead" }] },
+            "agents": { "greeted": true },
+        });
+        std::fs::write(&path, serde_json::to_vec(&saved).unwrap()).unwrap();
+        let tokens = mixdog_rt::testing::tokens();
+        let lanes = mixdog_core_config::config::ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
+        let (config, _) = Config::open(path, Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), lanes).await.unwrap();
+        let world = AgentWorld::new(config, Arc::new(Table), Arc::new(|_: &str| None), Arc::new(Epoch), Arc::new(|_| {}));
+        let seen = world.config();
+        assert_eq!(world.route_candidates(&seen, "maintainer"), vec![serde_json::json!({ "provider": "p", "model": "m" })], "the Maintainer's route");
+        assert_eq!(seen.get("default"), Some(&serde_json::json!("lead")));
+        assert_eq!(seen.get("presets"), Some(&serde_json::json!([{ "id": "lead" }])));
+        assert!(seen.get("agent").is_none(), "the section itself, not the file that holds it");
     }
 
     #[test]
