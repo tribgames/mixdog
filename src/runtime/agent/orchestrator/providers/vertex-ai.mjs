@@ -32,6 +32,7 @@ import { parseSSEStream } from './anthropic-sse.mjs';
 import { buildAnthropicTurnResult } from './anthropic-turn-result.mjs';
 import { streamCallbacks } from './lib/send-callbacks.mjs';
 import { preparePdfTextForProvider } from './media-normalization.mjs';
+import { PROVIDER_FIRST_OUTPUT_TIMEOUT_MS } from '../stall-policy.mjs';
 import { VERTEX_API_KEY_MODE, VertexAccessTokenManager } from './vertex-ai-auth.mjs';
 import { VertexMaasRoute, toVertexExclusiveUsage, vertexErrorBody } from './vertex-ai-maas.mjs';
 import {
@@ -112,6 +113,15 @@ const SERVED_TIER = Object.freeze({
 // 60s first-chunk window would kill and replay a healthy one. Kept under the
 // 600s socket body timeout (MIXDOG_LLM_BODY_TIMEOUT_MS).
 const VERTEX_FLEX_FIRST_CHUNK_TIMEOUT_MS = 570_000;
+
+// Vertex holds a Gemini stream's response headers until the model's first
+// output (a thought summary or text) and sends them together, so the wait for
+// the headers is the model's silent thinking: 38–194 s for a one-line prompt
+// on gemini-4-carbon at high effort, against the agent watchdog's 120s
+// first-transport default. That wait gets the first-output window every
+// reasoning stream has (PROVIDER_FIRST_OUTPUT_TIMEOUT_MS), not the
+// connection window.
+const VERTEX_GEMINI_FIRST_OUTPUT_MS = PROVIDER_FIRST_OUTPUT_TIMEOUT_MS;
 
 // Multi-region locations are served by representative endpoints, not by
 // <location>-aiplatform.googleapis.com.
@@ -221,13 +231,25 @@ export class VertexAIProvider {
     return vertexProjectOverride(this.config) || this._auth.projectId();
   }
 
-  // Only a Flex route has a budget; the shared window covers the rest. Vertex
-  // never marks transport progress at the response headers, so the transport
-  // deadline must already cover the headers wait plus the first-chunk wait.
-  firstResponseBudget(_model, { modelParameters } = {}) {
-    if (vertexRequestedTier({ modelParameters }) !== VERTEX_FLEX_TIER) return null;
-    const ms = 2 * VERTEX_FLEX_FIRST_CHUNK_TIMEOUT_MS;
-    return { transportMs: ms, semanticMs: ms };
+  // Vertex never marks transport progress at the response headers, so the
+  // transport deadline must already cover the headers wait plus the
+  // first-chunk wait. Flex adds its server-side queue; every other Gemini
+  // route gets the first-output window (see VERTEX_GEMINI_FIRST_OUTPUT_MS).
+  // Claude and MaaS routes keep the shared window.
+  firstResponseBudget(model, { modelParameters } = {}) {
+    if (vertexRequestedTier({ modelParameters }) === VERTEX_FLEX_TIER) {
+      const ms = 2 * VERTEX_FLEX_FIRST_CHUNK_TIMEOUT_MS;
+      return { transportMs: ms, semanticMs: ms };
+    }
+    let wire;
+    try {
+      wire = vertexRoute(model).wire;
+    } catch {
+      // An unroutable model fails at send; the shared window is enough until then.
+      return null;
+    }
+    if (wire !== 'gemini') return null;
+    return { transportMs: VERTEX_GEMINI_FIRST_OUTPUT_MS, semanticMs: VERTEX_GEMINI_FIRST_OUTPUT_MS };
   }
 
   _express() {
