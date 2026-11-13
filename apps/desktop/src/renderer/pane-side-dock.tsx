@@ -1404,6 +1404,10 @@ type PaneSideDockProps = {
   entry: PaneSideDockEntry;
   /** A session stands behind the pane (its session-owned toggles are live). */
   sessionBound?: boolean;
+  /** The session whose terminal this dock shows when it is not the dock's own
+   *  (a child's terminal revealed in its owner's dock): that terminal's X
+   *  names the child, so the dock answers to it too. */
+  terminalSessionId?: string;
   /** Phone sheet header: shows the pane project's Files tree. Absent without
    *  a project, so no Files toggle is drawn. */
   onOpenFiles?(): void;
@@ -1844,6 +1848,7 @@ export function PaneSideDock(rawProps: PaneSideDockProps) {
     groups,
     focused,
     sessionId = '',
+    terminalSessionId = '',
     prewarm = false,
     onClose,
     onCloseDiff,
@@ -1944,7 +1949,8 @@ export function PaneSideDock(rawProps: PaneSideDockProps) {
     sessionDiffPanelShowing ? (entry.view ?? '') : entry.surface,
     focused,
     onClose,
-    sessionId
+    sessionId,
+    terminalShowing ? terminalSessionId : ''
   );
   // The pane edge this render commits (recorded below); its layout effect
   // re-measures the transcripts it narrowed or widened in the same frame.

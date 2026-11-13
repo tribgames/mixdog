@@ -12,6 +12,8 @@
   commit object WITHOUT touching the tree itself, a temporary worktree checks
   that commit out, and the deploy runs there. Later edits cannot reach the frozen copy, so the
   build is exactly one point in time and the assertion passes on the first try.
+  With -CommittedOnly the recorded tree is HEAD's own, for a deploy that must
+  not carry another session's unfinished edits.
 
   The install target and the FastDirect caches stay with the real checkout, so
   incremental state carries across runs instead of rebuilding from scratch.
@@ -31,6 +33,9 @@ param(
     [switch]$StopBeforeSwap,
     [string]$ReceiptPath = '',
     [switch]$CleanupOnly,
+    # Deploy HEAD as committed: uncommitted and untracked changes (another
+    # session's work in progress) stay out of the snapshot.
+    [switch]$CommittedOnly,
     [string]$InstallDir = (Join-Path $env:LOCALAPPDATA 'Programs\mixdog-desktop')
 )
 
@@ -331,8 +336,10 @@ try {
                     (Test-Path -LiteralPath (Join-Path $repoRoot $_)) -or
                     @(& git ls-files -- $_).Count -gt 0
                 })
-            & git -c core.safecrlf=false add -A -- @snapshotPaths
-            if ($LASTEXITCODE -ne 0) { throw "git add exited with $LASTEXITCODE" }
+            if (-not $CommittedOnly) {
+                & git -c core.safecrlf=false add -A -- @snapshotPaths
+                if ($LASTEXITCODE -ne 0) { throw "git add exited with $LASTEXITCODE" }
+            }
             $tree = (& git write-tree).Trim()
             if ($LASTEXITCODE -ne 0) { throw "git write-tree exited with $LASTEXITCODE" }
             $snapshot = (& git commit-tree $tree -p HEAD -m 'fastdirect snapshot').Trim()
@@ -343,7 +350,7 @@ try {
             Remove-Item -LiteralPath $tempIndex -Force -ErrorAction SilentlyContinue
         }
         Save-Timing 'freezeMs' $stepTimer
-        Write-Host "  snapshot commit $($snapshot.Substring(0,8)) (uncommitted and untracked files included)"
+        Write-Host "  snapshot commit $($snapshot.Substring(0,8)) ($(if ($CommittedOnly) { 'HEAD as committed; uncommitted and untracked files left out' } else { 'uncommitted and untracked files included' }))"
 
         Write-Step 'checking the snapshot out into a temporary worktree'
         $stepTimer = [Diagnostics.Stopwatch]::StartNew()
