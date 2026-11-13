@@ -72,7 +72,8 @@ export function resolveLocalCore({
     await environmentReady();
     await ensure({
       readDiscovery: () => readCoreState(runtimeRoot),
-      launch: () => launchCore({ bin, ...(env ? { env: env() } : {}) }),
+      // The app owns its core: an ordinary child, so the core ends when the app does and Windows lists it under the app.
+      launch: () => launchCore({ bin, detached: false, ...(env ? { env: env() } : {}) }),
       readyTimeoutMs: Number(process.env.MIXDOG_DAEMON_READY_TIMEOUT_MS) || DESKTOP_CORE_READY_TIMEOUT_MS,
     });
     return readLocalDiscovery(runtimeRoot);

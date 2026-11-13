@@ -15,6 +15,6 @@ export interface EnsureCoreOptions {
   now?(): number;
   log?(line: string): void;
 }
-export function launchCore(options?: { bin?: string; env?: NodeJS.ProcessEnv; spawnImpl?: unknown; log?(line: string): void; beginCapture?(options: unknown): unknown }): Promise<unknown>;
+export function launchCore(options?: { bin?: string; env?: NodeJS.ProcessEnv; spawnImpl?: unknown; log?(line: string): void; beginCapture?(options: unknown): unknown; detached?: boolean }): Promise<unknown>;
 export function processRuns(pid: number): boolean;
 export function ensureCore(options: EnsureCoreOptions): Promise<CoreState>;

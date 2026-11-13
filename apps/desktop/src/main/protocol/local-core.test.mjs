@@ -48,6 +48,22 @@ test('launching the core spawns it detached with the given environment', async (
   assert.equal(spawned[0].options.env, env);
   assert.equal(spawned[0].options.detached, true);
 });
+test('a launcher that owns its core starts it as an ordinary child', async (context) => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'local-core-'));
+  context.after(() => rmSync(dataDir, { recursive: true, force: true }));
+  const spawned = [];
+  const spawnImpl = (bin, args, options) => {
+    spawned.push(options);
+    return {
+      once(event, listener) {
+        if (event === 'spawn') queueMicrotask(listener);
+      },
+      unref() {},
+    };
+  };
+  await launchCore({ bin: 'mixdogd', detached: false, spawnImpl, beginCapture: (options) => beginDaemonSpawnCapture({ ...options, dataDir, prune: false }) });
+  assert.equal(spawned[0].detached, false);
+});
 test('the launched core writes fd 2 into its boot capture, which records its ready and its exit', async (context) => {
   const dataDir = mkdtempSync(join(tmpdir(), 'local-core-'));
   context.after(() => rmSync(dataDir, { recursive: true, force: true }));

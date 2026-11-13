@@ -7,7 +7,9 @@ const DEFAULT_READY_TIMEOUT_MS = 15_000;
 const POLL_MS = 50;
 
 /**
- * Starts `mixdogd serve` detached from this process, so closing the terminal never stops running work. Its fd 2 goes
+ * Starts `mixdogd serve` detached from this process, so closing the terminal never stops running work. A launcher
+ * that owns its core (`detached: false`, the desktop app) starts it as an ordinary child instead: the core ends with
+ * the launcher and belongs to its process group. Its fd 2 goes
  * to the boot's crash capture (`<data>/daemon-crash`), whose sidecar the core fills with its own exit; resolves the
  * capture.
  */
@@ -17,18 +19,19 @@ export function launchCore({
   spawnImpl = spawn,
   log = () => {},
   beginCapture = beginDaemonSpawnCapture,
+  detached = true,
 } = {}) {
   return new Promise((resolve, reject) => {
     const capture = beginCapture({ launcher: 'core', log });
     let child;
     try {
-      child = spawnImpl(bin, ['serve'], { detached: true, stdio: ['ignore', 'ignore', capture.stderrStdio], windowsHide: true, env });
+      child = spawnImpl(bin, ['serve'], { detached, stdio: ['ignore', 'ignore', capture.stderrStdio], windowsHide: true, env });
     } catch (error) {
       capture.noteSpawnError(error);
       reject(new Error(`cannot start ${bin}: ${error.message}`));
       return;
     }
-    capture.track(child, { detached: true });
+    capture.track(child, { detached });
     child.once('error', (error) => reject(new Error(`cannot start ${bin}: ${error.message}`)));
     child.once('spawn', () => {
       child.stderr?.unref?.();
