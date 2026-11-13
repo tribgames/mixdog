@@ -36,6 +36,7 @@ pub mod repair;
 pub mod response;
 pub mod result_kind;
 pub mod run;
+pub mod skill_update;
 mod send;
 #[cfg(feature = "test-support")]
 pub mod test_hooks;

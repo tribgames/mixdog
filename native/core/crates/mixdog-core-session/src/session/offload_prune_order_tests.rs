@@ -885,7 +885,9 @@ async fn an_inheritance_that_fails_anywhere_never_takes_its_reference_set_back()
         // The source is cleared and opened again: only the heir's rows (if any were written) name `named` now. While the
         // mark stands, the prune deletes nothing.
         let source_id = source.as_str().to_owned();
-        within("the clear answers", world.handle.request(request("thread/clear", json!({ "threadId": source_id, "opId": "op-clear" }), "op-clear"))).await.expect("thread/clear");
+        // The core's own reset: no copy of the cleared conversation is kept (a person's clear keeps one, which would name the file too).
+        let clear = CoreRequest { method: Method("thread/clear"), params: json!({ "threadId": source_id, "opId": "op-clear" }), op: Some(mixdog_core_api::ids::OpId::from("op-clear")), ctx: CallContext::internal("test") };
+        within("the clear answers", world.handle.request(clear)).await.expect("thread/clear");
         within("the directory shuts down", world.directory.shutdown_for("test close")).await;
         let (directory, _handle) = world.reopened(1).await;
         let named_on_disk = || std::path::Path::new(world.path("named")).exists();

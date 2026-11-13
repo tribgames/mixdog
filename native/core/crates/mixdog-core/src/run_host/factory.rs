@@ -1751,6 +1751,12 @@ async fn drive(
                 close_cancelled(&end_port, &sink, &rows, &history, &input_item, &input_text, &observed, signal.close_reason()).await;
                 return RunOutcome::Interrupted;
             }
+            // The turn's terminal error: a provider timeout or stall that ended it (a retry the turn recovered from never
+            // reaches here) stops its shell work, while nothing else stopped the turn first
+            // (`armTurnTimeoutOnProviderError` then `reapTurnShellJobs`, `ask-session.mjs`).
+            if !signal.is_aborted() && matches!(&failure.error, AgentError::Provider(error) if provider_timeout_or_stall(error)) {
+                parts.reap_turn_shells(&thread, asked_at);
+            }
             progress.error();
             let data = if failure.carried_report.is_empty() { Value::Null } else { json!({ "carriedReport": failure.carried_report }) };
             // A provider's refusal keeps what `turnFailureRecord` reads off it: kind, status, code, retry advice and
@@ -1765,6 +1771,17 @@ async fn drive(
             failed(failure.error.to_string(), data)
         }
     }
+}
+
+/// Whether a provider error is one of the runtime's own timeout or stall errors (`armTurnTimeoutOnProviderError`,
+/// `turn-reap.mjs`): a code of `PROVIDER_TIMEOUT_CODES`, or Node's `streamStalled` flag. The flag is not a field
+/// here; its producers are a stream watchdog's expiry (`timeout_phase`) and a stream cut after it showed text (a
+/// truncated stream whose text was emitted).
+fn provider_timeout_or_stall(error: &mixdog_core_api::domain::provider::ProviderError) -> bool {
+    use mixdog_core_api::domain::provider::TransportFault;
+    matches!(error.code.as_deref(), Some("ESTREAMSTALL" | "EPROVIDERTIMEOUT" | "EGEMINITIMEOUT"))
+        || error.timeout_phase.is_some()
+        || (matches!(error.transport, Some(TransportFault::TruncatedStream)) && error.exposure.text_emitted)
 }
 
 #[cfg(test)]
@@ -2860,6 +2877,102 @@ mod tests {
         }
     }
 
+    /// [`Parts`] that records every shell reap it is asked for.
+    struct Reaping {
+        inner: Parts,
+        reaps: Arc<Mutex<Vec<(ThreadId, i64)>>>,
+        woke: Arc<tokio::sync::Notify>,
+    }
+
+    #[async_trait]
+    impl RunParts for Reaping {
+        async fn reconcile_turn(&self, thread: &ThreadId, header: mixdog_store::schema::record::Header, conversation: bool) -> Result<mixdog_store::schema::record::Header, TurnError> {
+            self.inner.reconcile_turn(thread, header, conversation).await
+        }
+
+        async fn assemble(&self, input: AssembleInput<'_>) -> Result<Assembled, TurnError> {
+            self.inner.assemble(input).await
+        }
+
+        fn reap_turn_shells(&self, thread: &ThreadId, since_ms: i64) {
+            lock(&self.reaps).push((thread.clone(), since_ms));
+            self.woke.notify_one();
+        }
+    }
+
+    /// `PROVIDER_TIMEOUT_CODES` and `streamStalled` (`turn-reap.mjs`): the three codes, a stream watchdog's expiry and a
+    /// stream cut after it showed text; nothing else.
+    #[test]
+    fn only_a_timeout_or_stall_error_is_one() {
+        use mixdog_core_api::domain::provider::{ErrorKind, StreamTimeoutPhase, TransportFault};
+        let plain = || ProviderError::new(ErrorKind::Transient, DeliveryState::Accepted);
+        for code in ["ESTREAMSTALL", "EPROVIDERTIMEOUT", "EGEMINITIMEOUT"] {
+            let mut error = plain();
+            error.code = Some(code.to_owned());
+            assert!(super::provider_timeout_or_stall(&error), "{code}");
+        }
+        let mut watchdog = plain();
+        watchdog.timeout_phase = Some(StreamTimeoutPhase::Idle);
+        assert!(super::provider_timeout_or_stall(&watchdog));
+        let mut cut = ProviderError::transport(TransportFault::TruncatedStream, DeliveryState::Accepted);
+        assert!(!super::provider_timeout_or_stall(&cut), "a cut stream that showed nothing is no stall");
+        cut.exposure.text_emitted = true;
+        assert!(super::provider_timeout_or_stall(&cut));
+        let mut other = plain();
+        other.code = Some("ECONNRESET".to_owned());
+        other.timed_out = true;
+        assert!(!super::provider_timeout_or_stall(&other));
+        assert!(!super::provider_timeout_or_stall(&plain()));
+    }
+
+    /// A turn a provider timeout ended (no retry recovered it, nothing else stopped it) reaps the shells it started
+    /// since its ask (`armTurnTimeoutOnProviderError`); a turn any other provider error ended keeps them.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_turn_ended_by_a_provider_timeout_reaps_its_shells() {
+        let failed_end = |rig: &Rig, id: &ThreadId| {
+            rig.store.records(id).into_iter().any(|(_, record)| match record {
+                Record::Amend(amend) => match amend.body {
+                    Slot::Inline(body) => body.pointer("/meta/transcript/completion/status") == Some(&json!("failed")),
+                    _ => false,
+                },
+                _ => false,
+            })
+        };
+        for (code, reaped) in [(Some("EPROVIDERTIMEOUT"), true), (None, false)] {
+            let mut refusal = ProviderError::new(mixdog_core_api::domain::provider::ErrorKind::InvalidRequest, DeliveryState::NotSent);
+            refusal.code = code.map(str::to_owned);
+            refusal.message = "provider timed out after 1000ms".to_owned();
+            let provider = Arc::new(Refusing { id: ProviderId::from("mock"), policy: RetryPolicy::codex_default(), keepalive: KeepaliveSchedule::SPEC, codec: MockCodec, error: refusal });
+            let workspace = tempfile::tempdir().unwrap();
+            let rig = Rig::new();
+            let (reaps, woke) = (Arc::new(Mutex::new(Vec::new())), Arc::new(tokio::sync::Notify::new()));
+            let parts = Reaping { inner: Parts { provider, workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None, effort: None }, reaps: reaps.clone(), woke: woke.clone() };
+            let mut deps = rig.deps_parts(rig.store.clone());
+            deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(parts)));
+            let directory = SessionDirectory::new(Arc::new(deps));
+            let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
+            let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
+            let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
+            let handle = directory.handle(&id).expect("loaded");
+            handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
+            tokio::time::timeout(Duration::from_secs(60), async {
+                while !failed_end(&rig, &id) {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+            })
+            .await
+            .expect("the failed turn records its end");
+            let reaps = lock(&reaps).clone();
+            if reaped {
+                let [(thread, since)] = reaps.as_slice() else { panic!("one reap of the timed-out turn: {reaps:?}") };
+                assert_eq!(thread, &id);
+                assert!(*since > 0, "the reap starts at the turn's ask");
+            } else {
+                assert!(reaps.is_empty(), "a turn another error ended keeps its shells: {reaps:?}");
+            }
+        }
+    }
+
     /// A production failed turn: the provider refuses on exhausted quota and names the reset. The run ends with the
     /// facts Node's `turnFailureRecord` reads off that error (`fixtures/turn-failure`, the first case), the row's
     /// completion stores them, the turn end is shown, and the quota settlement that reads it queues the auto-resume at
@@ -3569,6 +3682,7 @@ mod tests {
             mcp: mcp.clone(),
             skills_listed: Arc::new(NoSkills),
             skill_names: Arc::new(NoSkillNames),
+            skill_deliveries: None,
             ext_pool: Arc::new(mixdog_core_api::domain::mock::MockExtPool::new(4)),
             hook_bus,
             hook_common: Arc::new(|_| mixdog_mcp::hook_bus::HookCommon::default()),
@@ -4567,7 +4681,7 @@ mod tests {
         );
         let port = mixdog_mcp::skill_port::CatalogSkillPort::new(catalog.clone(), Arc::new(NothingToArm), Arc::new(NoBodies));
         let tool: Arc<dyn Tool> = Arc::new(mixdog_tools::orch::skill::SkillTool::new(Arc::new(port)));
-        (catalog.clone(), watch, super::super::assemble::SkillParts { names: catalog, tool })
+        (catalog.clone(), watch, super::super::assemble::SkillParts { names: catalog.clone(), tool, deliveries: Some(catalog) })
     }
 
     /// The thread's model conversation as stored (`thread/messages/read`, Node's `session.messages`): its user rows.

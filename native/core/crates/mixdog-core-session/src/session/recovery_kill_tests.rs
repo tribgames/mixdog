@@ -284,3 +284,56 @@ fn a_second_kill_during_the_recovery_leaves_each_row_once() {
     }
     assert!(pairs >= 2, "the second recovery wrote nothing to cut: {pairs}");
 }
+
+/// `normalizeStaleCompactingStage` (`compaction-runner.mjs`): only the transient `compacting` stage (or `inProgress: true`) is
+/// rewritten, to `lastStage: 'interrupted'`, `inProgress: false` and `lastCheckedAt: now`; every other key and every terminal
+/// stage stays as stored.
+#[test]
+fn only_a_transient_compacting_stage_is_normalized() {
+    let header = |compaction: serde_json::Value| -> mixdog_store::schema::record::Header { serde_json::from_value(json!({ "id": "s", "compaction": compaction })).expect("a header") };
+    let change = |compaction: serde_json::Value| super::actor::stale_compacting_change(&header(compaction), 77).map(|change| serde_json::Value::Object(change.set));
+    assert_eq!(
+        change(json!({ "lastCheckedAt": 5, "lastStage": "compacting", "compactCount": 2 })),
+        Some(json!({ "compaction": { "lastCheckedAt": 77, "lastStage": "interrupted", "compactCount": 2, "inProgress": false } }))
+    );
+    assert_eq!(
+        change(json!({ "lastStage": "post_turn", "inProgress": true })),
+        Some(json!({ "compaction": { "lastStage": "interrupted", "inProgress": false, "lastCheckedAt": 77 } }))
+    );
+    for stage in ["post_turn", "manual", "auto_clear", "overflow_failed", "pre_send", "interrupted"] {
+        assert_eq!(change(json!({ "lastStage": stage, "inProgress": false })), None, "{stage}");
+    }
+    assert_eq!(super::actor::stale_compacting_change(&header(json!(null)), 77), None);
+}
+
+/// A process that died while a compaction ran left `lastStage: 'compacting'` in the header: the next open of the session writes
+/// `interrupted` over it, before any turn.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_session_opened_after_a_crash_in_a_compaction_is_no_longer_compacting() {
+    use mixdog_store::schema::blob::Slot;
+    use mixdog_store::schema::record::{HeaderChange, MetaRecord, Record};
+
+    let rig = Rig::new();
+    let first = SessionDirectory::new(rig.deps());
+    let thread = start_thread(&first).await;
+    let mut set = serde_json::Map::new();
+    set.insert("compaction".into(), json!({ "lastStage": "compacting", "lastTrigger": "pre_send", "compactCount": 1 }));
+    rig.store.append_record(&thread.id, Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new() }) }));
+
+    let second = SessionDirectory::new(rig.deps());
+    second.open_handle(&thread.id, &CallContext::internal("test")).await.expect("the thread reopens");
+    let stored = super::testing::awaiting(|| "the normalized stage to be stored".to_owned(), async {
+        loop {
+            let compaction = rig.store.stored_header(&thread.id).and_then(|header| header.get("compaction").cloned());
+            if let Some(compaction) = compaction.filter(|compaction| compaction["lastStage"] == "interrupted") {
+                return compaction;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    })
+    .await;
+    assert_eq!(stored["inProgress"], json!(false));
+    assert_eq!(stored["lastTrigger"], json!("pre_send"));
+    assert_eq!(stored["compactCount"], json!(1));
+    assert!(stored["lastCheckedAt"].is_number());
+}

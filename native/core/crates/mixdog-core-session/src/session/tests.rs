@@ -3247,7 +3247,9 @@ async fn clear_with_rebuild_prompt_reseeds_the_emptied_thread_and_answers_whethe
         eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 2).then_some(())).await;
         let Reply::Value(plain) = handle.request(request("thread/clear", json!({ "threadId": handle.id, "opId": "op-2" }), "op-2")).await.expect("clear") else { panic!("a value") };
         assert_eq!(plain, json!({}), "without rebuildPrompt the answer is the clear's own");
-        assert!(calls.lock().expect("calls").is_empty(), "nothing is rebuilt without it");
+        // The copy a person's clear keeps (`forkOutgoingTranscript`'s heir) has its own prompt composed; the cleared thread's is not.
+        assert!(!calls.lock().expect("calls").contains(&handle.id), "nothing is rebuilt without it");
+        calls.lock().expect("calls").clear();
         let Reply::Value(rebuilt) = handle
             .request(request("thread/clear", json!({ "threadId": handle.id, "opId": "op-3", "rebuildPrompt": true }), "op-3"))
             .await
@@ -5649,4 +5651,105 @@ async fn a_refused_lane_job_anywhere_in_a_turn_never_closes_the_session() {
             break;
         }
     }
+}
+
+/// `rewindToItem` (`rewind.mjs`): a composer that cannot hold file parts (`restoreFiles: false`) is refused with Node's sentence and
+/// the conversation stays as it was; otherwise the stored prompt's pasted text, image and file come back with their bytes
+/// (`restorableAttachmentsFromPrompt`, `hydrateTolerantly`), a blob that is gone dropped alone and counted in `notice`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_rewind_hands_back_the_prompts_attachments_and_refuses_a_composer_that_cannot_hold_its_files() {
+    use sha2::Digest;
+
+    let rig = Rig::new();
+    let deps = rig.deps_parts(rig.store.clone());
+    let root = deps.attachments.0.clone();
+    let deps = Arc::new(deps);
+    let first = SessionDirectory::new(deps.clone());
+    let id = start_thread(&first).await.id.clone();
+    let blob = |bytes: &[u8]| {
+        let reference = format!("{:x}", sha2::Sha256::digest(bytes));
+        let dir = root.join("prompt-attachments/sha256").join(&reference[..2]);
+        std::fs::create_dir_all(&dir).expect("blob dir");
+        std::fs::write(dir.join(&reference), bytes).expect("blob");
+        reference
+    };
+    let (paste, image, pdf) = (blob(b"pasted body"), blob(&[1, 2, 3]), blob(b"%PDF-1.7"));
+    let gone = "e".repeat(64);
+    let content = json!([
+        { "type": "text", "text": "see [Pasted text #1 +1 lines] [Image #2] [Image #3]" },
+        { "type": "text", "textKind": "paste", "attachmentRef": paste, "sizeBytes": 11 },
+        { "type": "image", "attachmentRef": image, "sizeBytes": 3, "mimeType": "image/png" },
+        { "type": "image", "attachmentRef": gone, "sizeBytes": 4, "mimeType": "image/png" },
+        { "type": "file", "attachmentRef": pdf, "mimeType": "application/pdf", "filename": "r.pdf" },
+    ]);
+    let record: mixdog_store::schema::record::ItemRecord = serde_json::from_value(json!({
+        "iid": "u1", "role": "user", "form": "message", "model": true, "visible": true, "refs": [],
+        "prompt": { "inline": "see [Pasted text #1 +1 lines] [Image #2] [Image #3]" },
+        "body": { "inline": { "role": "user", "content": content } },
+    }))
+    .expect("an item record");
+    rig.store.seed(&id, vec![mixdog_store::schema::record::Record::Item(record)]);
+
+    let second = SessionDirectory::new(deps);
+    let reopened = second.open_handle(&id, &CallContext::internal("test")).await.expect("open");
+    let refused = reopened
+        .request(request("thread/rewind", json!({ "threadId": id, "opId": "op-r1", "itemId": "u1", "restoreFiles": false }), "op-r1"))
+        .await;
+    let Err(CoreError::DomainError { message, .. }) = refused else { panic!("a refusal") };
+    assert_eq!(message.as_deref(), Some("this message has PDF/Office attachments the terminal composer cannot restore; edit it in the desktop app"));
+
+    // Untouched: the same prompt is still there to rewind to.
+    let reply = reopened.request(request("thread/rewind", json!({ "threadId": id, "opId": "op-r2", "itemId": "u1" }), "op-r2")).await.expect("rewind");
+    let Reply::Value(value) = reply else { panic!("a value") };
+    assert_eq!(value["text"], json!("see [Pasted text #1 +1 lines] [Image #2] [Image #3]"), "{value}");
+    assert_eq!(value["pastedTexts"], json!({ "1": { "id": 1, "source": "paste", "attachmentRef": paste, "sizeBytes": 11, "text": "pasted body" } }), "{value}");
+    assert_eq!(value["pastedImages"], json!({ "2": { "id": 2, "type": "image", "mediaType": "image/png", "attachmentRef": image, "sizeBytes": 3, "content": "AQID" } }), "{value}");
+    assert_eq!(value["content"], json!([{ "type": "file", "data": "JVBERi0xLjc=", "mimeType": "application/pdf", "filename": "r.pdf" }]), "{value}");
+    assert_eq!(value["notice"], json!("1 attachment was no longer available and dropped."), "{value}");
+}
+
+/// `clearSessionMessages` (`session-crud.mjs`): a person's clear first copies the outgoing conversation to a fresh session id
+/// (`forkOutgoingTranscript`), so it stays resumable, and records the clear in the header (`lastStage: 'auto_clear'`, `lastClearAt`).
+/// A conversation the user never spoke in keeps no copy, and neither does a reset the core runs itself (it keeps its own).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_persons_clear_keeps_the_conversation_as_a_session_of_its_own_and_records_when() {
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    let ids = || -> std::collections::BTreeSet<String> { rig.store.log_ids().iter().map(|id| id.as_str().to_owned()).collect() };
+
+    // Nothing said yet: no copy.
+    handle.request(request("thread/clear", json!({ "threadId": handle.id, "opId": "op-c0" }), "op-c0")).await.expect("clear");
+    assert_eq!(ids().len(), 1, "an empty conversation keeps no copy");
+
+    turn(&handle, "one", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 2).then_some(())).await;
+    let before = ids();
+    handle.request(request("thread/clear", json!({ "threadId": handle.id, "opId": "op-c1" }), "op-c1")).await.expect("clear");
+    eventually_on!(&[&handle.cell.stepped], || rows(&handle).is_empty().then_some(())).await;
+    let copies: Vec<String> = ids().difference(&before).cloned().collect();
+    let [copy] = copies.as_slice() else { panic!("one copy of the cleared conversation: {copies:?}") };
+    assert!(copy.starts_with("sess_"), "{copy}");
+    let copy = ThreadId::from(copy.as_str());
+    let read = CoreRequest { method: Method("thread/modelMessages/list"), params: json!({ "threadId": copy, "start": 0 }), op: None, ctx: CallContext::internal("test") };
+    let Reply::Value(listed) = directory.request(read).await.expect("the copy's conversation") else { panic!("a value") };
+    let said: Vec<&str> = listed["messages"].as_array().expect("messages").iter().filter(|m| m["role"] == "user").filter_map(|m| m["content"].as_str()).collect();
+    assert!(said.contains(&"one"), "the copy holds what was said: {listed}");
+
+    let header = rig.store.stored_header(&handle.id).expect("the cleared session's header");
+    let compaction = &header["compaction"];
+    assert_eq!(compaction["lastStage"], json!("auto_clear"), "{compaction}");
+    let now = rig.clock.0.load(std::sync::atomic::Ordering::SeqCst);
+    assert_eq!(compaction["lastClearAt"], json!(now), "{compaction}");
+    assert_eq!(compaction["lastCheckedAt"], json!(now), "{compaction}");
+    assert_eq!(compaction["lastClearCompactError"], Value::Null);
+
+    // The core's own reset: it keeps (or drops) its copy itself.
+    turn(&handle, "two", "op-2").await;
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 2).then_some(())).await;
+    let before = ids();
+    let own = CoreRequest { method: Method("thread/clear"), params: json!({ "threadId": handle.id, "opId": "op-c2" }), op: Some(OpId::from("op-c2")), ctx: CallContext::internal("test") };
+    handle.request(own).await.expect("clear");
+    assert_eq!(ids(), before, "an internal reset makes no copy of its own");
 }

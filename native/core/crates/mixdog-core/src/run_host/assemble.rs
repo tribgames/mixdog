@@ -74,6 +74,8 @@ pub struct SkillParts {
     pub names: Arc<dyn mixdog_mcp::skill_select::SkillNames>,
     /// The session's `Skill` tool.
     pub tool: Arc<dyn Tool>,
+    /// What a loaded skill delivers now (`currentSkillDelivery`), for the skill-update notices.
+    pub deliveries: Option<Arc<dyn super::mcp_seams::SkillDeliveries>>,
 }
 
 /// The run's own parts a compactor reads its transcript through: the same values the run commits
@@ -727,7 +729,7 @@ impl RunParts for HostRunParts {
             skills: seams.skill_parts().map(|parts| {
                 let selection = input.skill_selection.clone();
                 Box::new(move |run: SkillContext| {
-                    Arc::new(super::mcp_seams::ExplicitSkillSelector::new(parts.names, parts.tool, run.gate, run.env, run.cancel).with_selection(selection)) as Arc<dyn SkillSelector>
+                    Arc::new(super::mcp_seams::ExplicitSkillSelector::new(parts.names, parts.tool, run.gate, run.env, run.cancel).with_selection(selection).with_deliveries(parts.deliveries)) as Arc<dyn SkillSelector>
                 }) as SkillsBuilder
             }),
             hooks: Some(Arc::new(SessionToolHooks::new(session_id, &cwd, seams.post_tool_dispatch()))),

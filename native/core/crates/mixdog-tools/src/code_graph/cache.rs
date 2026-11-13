@@ -492,14 +492,22 @@ impl GraphCache {
         }
     }
 
-    /// Drops `root` from the cache (`forgetDiskCodeGraphRoot`): the staged copy, the manifest row
-    /// and its payload. Only this exact root; nested roots are other roots. Returns what was
-    /// removed and the files that matched but could not be deleted. A lane job; never creates the
-    /// directory.
+    /// Drops `root` from the cache (`forgetCodeGraphStateRoot`, `forgetDiskCodeGraphRoot`): its resident
+    /// graph, the staged copy, the manifest row and its payload. Only this exact root; nested roots are
+    /// other roots. Returns what was removed and the files that matched but could not be deleted. A lane
+    /// job; never creates the directory.
     pub fn forget(&self, root: &Path) -> (Vec<String>, Vec<PathBuf>) {
         let key = path_key(root);
         let mut removed = Vec::new();
         let mut kept = Vec::new();
+        {
+            let mut resident = self.resident.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let before = resident.len();
+            resident.retain(|entry| path_key(Path::new(&entry.root)) != key);
+            if resident.len() != before {
+                removed.push(format!("resident-graph:{key}"));
+            }
+        }
         if self.pending.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(&key).is_some() {
             removed.push(format!("pending:{key}"));
         }
@@ -529,6 +537,17 @@ impl GraphCache {
             }
         }
         (removed, kept)
+    }
+
+    /// [`Self::forget`] on `lane`: the cleanup a removed worktree's root runs (`cache-cleanups.mjs`, `code-graph`).
+    pub async fn forget_root(
+        self: &Arc<Self>,
+        lane: mixdog_rt::MaintenanceIo,
+        cancel: &tokio_util::sync::CancellationToken,
+        root: &Path,
+    ) -> io::Result<(Vec<String>, Vec<PathBuf>)> {
+        let (cache, root) = (self.clone(), root.to_path_buf());
+        mixdog_scm::repo::on_lane(lane, cancel, move || cache.forget(&root)).await.map_err(io::Error::other)
     }
 
     /// Writes everything staged now, on `lane` (the exit drain; a failed write is the error).
@@ -598,6 +617,30 @@ mod tests {
         let (removed, kept) = cache.forget(&proj);
         assert!(kept.is_empty() && removed.len() == 2, "{removed:?}");
         assert!(cache.roots().is_empty() && cache.load(&proj).is_none());
+    }
+
+    /// The cleanup of a removed worktree's root (`cache-cleanups.mjs`, `code-graph`: `forgetCodeGraphStateRoot` and
+    /// `forgetDiskCodeGraphRoot`): its resident graph, manifest row and payload go on the lane; another root keeps all of its own.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_removed_roots_cache_is_forgotten_with_its_resident_graph_and_no_other_roots() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cache = Arc::new(GraphCache::new(tmp.path().join("cache")));
+        let (gone, stays) = (root(tmp.path(), "Gone"), root(tmp.path(), "Stays"));
+        for proj in [&gone, &stays] {
+            cache.stage(proj, vec![file("a.mjs", "export const a = 1;")]);
+            cache.lookups_for(&proj.to_string_lossy(), 1, || (10, 0));
+        }
+        cache.flush().unwrap();
+        let lane = mixdog_rt::testing::tokens().maintenance_io;
+        let (removed, kept) = cache.forget_root(lane, &tokio_util::sync::CancellationToken::new(), &gone).await.unwrap();
+        assert!(kept.is_empty(), "{kept:?}");
+        assert!(removed.iter().any(|name| name.starts_with("resident-graph:")) && removed.iter().any(|name| name.starts_with("manifest:")), "{removed:?}");
+        assert_eq!(cache.roots(), vec![stays.clone()]);
+        assert!(cache.load(&gone).is_none() && cache.load(&stays).is_some());
+        let resident: Vec<String> = cache.resident.lock().unwrap().iter().map(|entry| entry.root.clone()).collect();
+        assert_eq!(resident, [stays.to_string_lossy().into_owned()]);
+        // Nothing left to forget: nothing removed, nothing kept.
+        assert_eq!(cache.forget_root(lane, &tokio_util::sync::CancellationToken::new(), &gone).await.unwrap(), (Vec::new(), Vec::new()));
     }
 
     #[test]

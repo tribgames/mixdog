@@ -623,6 +623,25 @@ impl SessionHandle {
         carried
     }
 
+    /// `forkOutgoingTranscript` (`session-crud.mjs`): before the wipe, the conversation about to be discarded is copied
+    /// to a fresh session id, so it stays reachable by resume. Only a conversation the user took part in is worth a
+    /// copy (`hasUserConversationMessage`). Best-effort: a copy that fails is logged and never blocks the clear.
+    async fn keep_cleared_copy(&self) {
+        let view = self.cell.view.load_full();
+        let spoken = view.has_older || view.items.iter().any(|item| matches!(item.as_ref(), mixdog_protocol::ThreadItem::UserMessage { .. }));
+        if !spoken {
+            return;
+        }
+        // `mintSessionId`: `sess_<pid>_<ms>_<uuid>`, unused by any other session.
+        let copy = format!("sess_{}_{}_{}", std::process::id(), self.deps.clock.now_ms(), uuid::Uuid::new_v4().simple());
+        let op = mixdog_core_api::ids::OpId::from(uuid::Uuid::now_v7().to_string());
+        let params = json!({ "threadId": self.id, "opId": op.as_str(), "intoThreadId": copy });
+        let fork = CoreRequest { method: mixdog_core_api::ids::Method("thread/fork"), params, op: Some(op), ctx: mixdog_core_api::call::CallContext::internal("clear-copy") };
+        if let Err(error) = self.fork(fork).await {
+            tracing::warn!("session {}: the cleared conversation was not kept as {copy}: {error:?}", self.id.as_str());
+        }
+    }
+
     /// `thread/clear`. With `rebuildPrompt` (an agent chat's reset, `session-ops.mjs clear`) it is refused while a turn runs, and
     /// the emptied thread's prompt and tool surface are composed again from the current rules as a new thread's are; the answer
     /// is `{ promptRebuilt }`, whether that was applied.
@@ -643,6 +662,11 @@ impl SessionHandle {
             if !super::SessionDirectory::over(directory).holds_session(&self.id).await? {
                 return Err(mixdog_core_base::support::failed("session", "The conversation could not be cleared."));
             }
+        }
+        // A person's clear keeps the outgoing conversation as a resumable session of its own (`forkOutgoingTranscript`);
+        // the core's own resets (an agent home, a room member) keep or drop their copy themselves (`archiveAs`, `fork: false`).
+        if matches!(req.ctx.caller, Caller::Connection(_)) {
+            self.keep_cleared_copy().await;
         }
         let reply = self.to_actor(req).await?;
         if !rebuild {
@@ -786,6 +810,58 @@ impl SessionHandle {
 }
 
 impl SessionHandle {
+    /// `rewindToItem` (`rewind.mjs`): the prompt's restore payload is built from its stored content before any history
+    /// changes, so a refusal (`restoreFiles: false` over a file part) or an attachment read error leaves the
+    /// conversation untouched; the actor then rewinds, and the payload rides its reply.
+    async fn rewind(&self, req: CoreRequest) -> Result<Reply, CoreError> {
+        let restore = self.rewind_restore(&req).await?;
+        let (reply, restore) = match (self.to_actor(req).await?, restore) {
+            (Reply::Value(value), Some(restore)) => (value, restore),
+            (reply, _) => return Ok(reply),
+        };
+        let mut value = reply;
+        for key in ["pastedImages", "pastedTexts", "content", "notice"] {
+            if let Some(found) = restore.get(key) {
+                value[key] = found.clone();
+            }
+        }
+        Ok(Reply::Value(value))
+    }
+
+    /// The restore payload of the prompt `itemId` names, read from the model context (Node's dry-run preview of the
+    /// stored message): `None` when the row is not there to read or is plain text, and the actor answers alone.
+    async fn rewind_restore(&self, req: &CoreRequest) -> Result<Option<Value>, CoreError> {
+        let Some(wanted) = req.params.get("itemId").and_then(Value::as_str).filter(|id| !id.is_empty()).map(str::to_owned) else { return Ok(None) };
+        let restore_files = req.params.get("restoreFiles").and_then(Value::as_bool) != Some(false);
+        let context = super::run::ModelContext {
+            store: self.deps.store.clone(),
+            sensitive: self.deps.sensitive.clone(),
+            lanes: self.deps.lanes,
+            thread: self.id.clone(),
+            input: mixdog_core_api::ids::ItemId::from(String::new()),
+        };
+        let Ok(rows) = context.read().await else { return Ok(None) };
+        // The displayed id first (a user row shows its submission id), then the row's own id (`position_of_id`).
+        let user = |body: &Value| body.get("role").and_then(Value::as_str) == Some("user");
+        let names = |body: &Value| {
+            ["/meta/transcript/submissionIds", "/meta/submissionIds"]
+                .iter()
+                .any(|path| body.pointer(path).and_then(Value::as_array).is_some_and(|ids| ids.iter().any(|id| id.as_str() == Some(wanted.as_str()))))
+        };
+        let found = rows.iter().find(|(_, body)| user(body) && names(body)).or_else(|| rows.iter().find(|(iid, body)| user(body) && iid.as_str() == wanted));
+        let Some((_, body)) = found else { return Ok(None) };
+        if !body.get("content").is_some_and(Value::is_array) {
+            return Ok(None);
+        }
+        let (store, body) = (self.deps.attachments.clone(), body.clone());
+        mixdog_core_base::support::on_lane(self.deps.lanes.io, &mixdog_rt::CancellationToken::new(), move |lane| {
+            // The row's text as the transcript shows it: the tokens name the references in order.
+            let Some(text) = store.facts(lane, &mut body.clone()).prompt else { return Ok(None) };
+            super::restore_hydrate::rewind_restore(&store, lane, &body["content"], &text, restore_files)
+        })
+        .await?
+    }
+
     /// `abort` while the scheduled compaction holds the turns back: the prompt submitted meanwhile is Node's ask waiting on
     /// the gate, so the busy path runs (`abort.mjs:92`) with nothing to abort: the reply hands the prompt back
     /// (`aborted: false`, its text and submission) and the ask still runs when the gate opens, so nothing leaves the queue.
@@ -950,6 +1026,7 @@ impl ThreadHandle for SessionHandle {
             "thread/resume" => self.resume(&req),
             "thread/read" => self.read(&req).await,
             "thread/clear" => self.clear(req).await,
+            "thread/rewind" => self.rewind(req).await,
             "thread/fork" => self.fork(req).await,
             "turn/start" => self.turn_start(req).await,
             // `goalControl` makes the session when there is none (`createCurrentSession('goal')`).

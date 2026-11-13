@@ -1288,6 +1288,55 @@ async fn an_automatic_removal_that_finds_the_checkout_changed_keeps_it() {
     assert!(std::path::Path::new(&record.path).exists());
 }
 
+/// Node 2eaa9c6d7 (`removeAutomatically`): the registry record must be exactly the one that was checked. A claim, share,
+/// mark or any other write made while the slow checks ran keeps the worktree, `changed`.
+#[tokio::test]
+async fn an_automatic_removal_keeps_a_worktree_whose_record_changed_meanwhile() {
+    use crate::worktree::removal::Auto;
+    use crate::worktree::removal::AutoOptions;
+    let (_guard, _data, worktrees, made, cancel) = two_worktrees().await;
+    // The record as a pass read it, then a write to it (a mark) before the removal takes the lock.
+    let mut stale = worktrees.record(&cancel, &made[0].id).await.unwrap().unwrap();
+    worktrees.mark_disposable(&made[0].id, true, &cancel).await.unwrap();
+    match worktrees.remove_automatically(&mut stale, &AutoOptions::default(), &cancel).await.unwrap() {
+        Auto::Kept(verdict) => assert_eq!(verdict["reason"], "changed", "{verdict}"),
+        Auto::Removed(_) => panic!("a worktree whose record changed was removed"),
+    }
+    assert!(std::path::Path::new(&stale.path).exists());
+    assert!(worktrees.record(&cancel, &made[0].id).await.unwrap().is_some());
+    // The record as it is now is removed.
+    let mut current = worktrees.record(&cancel, &made[0].id).await.unwrap().unwrap();
+    assert!(matches!(worktrees.remove_automatically(&mut current, &AutoOptions::default(), &cancel).await.unwrap(), Auto::Removed(_)));
+    assert!(!std::path::Path::new(&stale.path).exists());
+}
+
+/// Node 2eaa9c6d7 (`maintenance-lock.slow.test.mjs`): the slow checks run outside the repository lock, so a pass that keeps a
+/// worktree never waits for the lock; only the removal itself takes it.
+#[tokio::test]
+async fn an_automatic_removal_runs_its_checks_outside_the_repository_lock() {
+    use crate::worktree::removal::Auto;
+    use crate::worktree::removal::AutoOptions;
+    let (_guard, _data, worktrees, made, cancel) = two_worktrees().await;
+    let mut dirty = worktrees.record(&cancel, &made[0].id).await.unwrap().unwrap();
+    let mut clean = worktrees.record(&cancel, &made[1].id).await.unwrap().unwrap();
+    std::fs::write(std::path::Path::new(&dirty.path).join("late.txt"), "x
+").unwrap();
+    let opened = worktrees.scm().open(std::path::Path::new(&dirty.project_path), &cancel).await.unwrap();
+    let lock = opened.lock_repository().await.unwrap();
+    // Kept on the checks alone: answered while another writer holds the lock.
+    let options = AutoOptions::default();
+    let kept = tokio::time::timeout(std::time::Duration::from_secs(60), worktrees.remove_automatically(&mut dirty, &options, &cancel)).await.expect("the checks do not wait for the lock").unwrap();
+    assert!(matches!(&kept, Auto::Kept(verdict) if verdict["reason"] == "dirty"));
+    // Clean and merged: the removal waits for the lock, and runs once it is free.
+    let removal = worktrees.remove_automatically(&mut clean, &options, &cancel);
+    tokio::pin!(removal);
+    assert!(tokio::time::timeout(std::time::Duration::from_secs(3), &mut removal).await.is_err(), "the removal itself takes the repository lock");
+    assert!(std::path::Path::new(&made[1].path).exists());
+    drop(lock);
+    assert!(matches!(removal.await.unwrap(), Auto::Removed(_)));
+    assert!(!std::path::Path::new(&made[1].path).exists());
+}
+
 #[tokio::test]
 async fn an_automatic_removal_whose_final_check_runs_out_of_time_is_kept_busy() {
     use crate::worktree::removal::Auto;

@@ -415,6 +415,8 @@ pub struct Run {
     /// The prompts whose skills are prepared before the next request: the content, whether it is the turn's own
     /// prompt, the message it is and the ticket of its commit (the stamp lands on a durable row).
     pub(crate) pending_skill_prompts: Vec<(Content, bool, AgentMessage, Option<Ticket>)>,
+    /// The turn's skill-update notices were appended (`appendSkillUpdateNotices`, once a turn).
+    pub(crate) skill_updates_checked: bool,
     /// The latest message pushed since the last send: the next request waits until it is durable, so a
     /// request never leaves before the rows it carries (a restart resends what the store holds).
     pub(crate) unsaved: Option<Ticket>,
@@ -571,6 +573,7 @@ impl Run {
             tool_batch_just_completed: false,
             last_batch_later: false,
             pending_skill_prompts: Vec::new(),
+            skill_updates_checked: false,
             unsaved: None,
             context,
             baseline: None,
@@ -781,6 +784,15 @@ impl Run {
                         self.until_durable(ticket).await?;
                     }
                     self.env.sink.skills_applied(&message, &applied).await;
+                }
+                self.throw_if_aborted()?;
+            }
+            // Every turn, whatever its prompt source: a loaded skill that changed since it was loaded is announced
+            // once, after the history (`ask-turn-execute.mjs`, after `prepareExplicitSkills`).
+            if !std::mem::replace(&mut self.skill_updates_checked, true) {
+                for notice in skills.update_notices(&self.messages).await {
+                    self.messages.push(notice.clone());
+                    self.env.sink.commit(&notice).await.map_err(AgentError::Commit)?;
                 }
                 self.throw_if_aborted()?;
             }
