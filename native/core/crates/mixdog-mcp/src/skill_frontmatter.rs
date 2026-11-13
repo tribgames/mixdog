@@ -10,10 +10,9 @@
 //! - strings fold at 80 columns, quote when a plain scalar would read back as another type, and
 //!   switch to block style for multi-line text.
 //!
-//! The frontmatter text is written with `\n` line ends, as Node prints it. Frontmatter whose
-//! three values Node would print through machinery this port does not carry (a flow-style
-//! mapping, an alias, a tag other than `!!str`, a flow or collection value) is refused with
-//! [`SkillDocumentError::Unsupported`] instead of being rewritten.
+//! The frontmatter text is written with `\n` line ends, as Node prints it. A key whose value is a
+//! collection, a flow value or an alias has that node (with its properties and comments) replaced
+//! by the new scalar.
 
 use std::collections::HashSet;
 use std::sync::LazyLock;
