@@ -272,6 +272,8 @@ pub fn install_for_process() {
     let alive = |pid: u32| pid_alive(&crate::verdict::OsProcessTable, pid);
     install(&paths.data_dir, &alive);
     crate::stale_temps::reclaim_dead_capture_temps(&capture_dir(&paths.data_dir), &alive);
+    // The captures of earlier boots keep a budget (`pruneDaemonCrashCaptures`); this boot's own is active and untouched.
+    crate::stale_temps::prune_crash_captures(&capture_dir(&paths.data_dir), &alive);
 }
 
 /// Whether `pid` may still be running (`isPidAlive`): only a table that answers "no such process" proves it gone. A table that
