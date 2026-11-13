@@ -233,8 +233,9 @@ impl Worktrees {
         Ok((ids, stale))
     }
 
-    /// The conservative reconcile; see the module docs. One repository at a time, each under
-    /// its write lock; a failure of one record or repository is reported, never aborts the rest.
+    /// The conservative reconcile; see the module docs. One repository at a time; a failure of one record or
+    /// repository is reported, never aborts the rest. The repository lock covers the bookkeeping and each removal
+    /// alone: the removal checks run outside it (`remove_automatically`), as in Node's `reconcileManagedWorktrees`.
     pub async fn reconcile(&self, options: &ReconcileOptions, cancel: &CancellationToken) -> Result<ReconcileReport, ScmFailure> {
         let mut report = ReconcileReport::default();
         let only = options.repo_common_dir.as_deref().map(|dir| path_key(Path::new(dir)));
@@ -261,17 +262,47 @@ impl Worktrees {
                     Ok(opened) => opened,
                     Err(_) => self.scm().open(Path::new(&common), cancel).await?,
                 };
-                let _lock = opened.lock_repository().await?;
-                let records: Vec<WorktreeRecord> =
-                    self.all_records(cancel).await?.into_iter().filter(|r| path_key(Path::new(&r.repo_common_dir)) == key).collect();
-                for mut record in records {
-                    match self.reconcile_record(&mut record, options, &mut budget_used, &mut report, cancel).await {
-                        Err(ScmFailure::Cancelled) => return Err(ScmFailure::Cancelled),
-                        Err(error) => report.errors.push(json!({ "id": record.id, "error": describe(&error) })),
-                        Ok(()) => {}
+                let mut candidates: Vec<(WorktreeRecord, bool)> = Vec::new();
+                {
+                    let _lock = opened.lock_repository().await?;
+                    let records: Vec<WorktreeRecord> =
+                        self.all_records(cancel).await?.into_iter().filter(|r| path_key(Path::new(&r.repo_common_dir)) == key).collect();
+                    for mut record in records {
+                        match self.reconcile_record(&mut record, options, &mut report, cancel).await {
+                            Err(ScmFailure::Cancelled) => return Err(ScmFailure::Cancelled),
+                            Err(error) => report.errors.push(json!({ "id": record.id, "error": describe(&error) })),
+                            Ok(Some(budgeted)) => candidates.push((record, budgeted)),
+                            Ok(None) => {}
+                        }
                     }
                 }
-                let pruned = self.prune_stale_registrations(&common, cancel).await?;
+                // Checked outside the lock, which each removal takes for itself (`remove_automatically`).
+                for (mut record, budgeted) in candidates {
+                    // Count, age and archive removals share one budget per pass.
+                    if budgeted && budget_used >= options.max_removals {
+                        report.kept.push(json!({ "id": record.id, "reason": "budget" }));
+                        continue;
+                    }
+                    let auto = AutoOptions { in_use: options.in_use.clone(), preserve_branch: options.preserve_branch, final_check_timeout: options.final_check_timeout };
+                    match self.remove_automatically(&mut record, &auto, cancel).await {
+                        Err(ScmFailure::Cancelled) => return Err(ScmFailure::Cancelled),
+                        Err(error) => report.errors.push(json!({ "id": record.id, "error": describe(&error) })),
+                        Ok(Auto::Kept(mut verdict)) => {
+                            verdict["id"] = json!(record.id);
+                            report.kept.push(verdict);
+                        }
+                        Ok(Auto::Removed(deletion)) => {
+                            Self::report_deletion(&mut report, &record, &deletion);
+                            if budgeted && deletion.removed {
+                                budget_used += 1;
+                            }
+                        }
+                    }
+                }
+                let pruned = {
+                    let _lock = opened.lock_repository().await?;
+                    self.prune_stale_registrations(&common, cancel).await?
+                };
                 report.pruned.extend(pruned);
                 Ok(())
             }
@@ -297,17 +328,19 @@ impl Worktrees {
         }
     }
 
-    async fn reconcile_record(&self, record: &mut WorktreeRecord, options: &ReconcileOptions, budget_used: &mut usize, report: &mut ReconcileReport, cancel: &CancellationToken) -> Result<(), ScmFailure> {
+    /// One record's bookkeeping under the repository lock. `Some(budgeted)` names it a candidate of the automatic
+    /// removal the caller runs once the lock is released (`budgeted`: it counts against the pass's budget).
+    async fn reconcile_record(&self, record: &mut WorktreeRecord, options: &ReconcileOptions, report: &mut ReconcileReport, cancel: &CancellationToken) -> Result<Option<bool>, ScmFailure> {
         let is_retained = record.owner_session_id.as_ref().is_some_and(|id| options.retained.contains(id));
         let keep = |report: &mut ReconcileReport, reason: &str| report.kept.push(json!({ "id": record.id, "reason": reason }));
         if !record.shared_session_ids.is_empty() {
             keep(report, "shared");
-            return Ok(());
+            return Ok(None);
         }
         if record.state == "creating" || record.state == "recovery" {
             if is_retained {
                 keep(report, "retained");
-                return Ok(());
+                return Ok(None);
             }
             // Holding the repository lock proves no creator is still running.
             let (complete, remaining) = self.rollback_record(record, None, cancel).await?;
@@ -316,7 +349,7 @@ impl Worktrees {
             } else {
                 report.kept.push(json!({ "id": record.id, "reason": "recovery", "remaining": remaining }));
             }
-            return Ok(());
+            return Ok(None);
         }
         if record.state == "deleting" && is_snapshot(record) {
             // An unfinished snapshot deletion: whatever entered the surviving folder since still keeps it.
@@ -324,14 +357,14 @@ impl Worktrees {
                 Ok(grant) => grant,
                 Err(error) if snapshot_in_use(&error) => {
                     keep(report, "snapshot-in-use");
-                    return Ok(());
+                    return Ok(None);
                 }
                 Err(error) => return Err(error),
             };
             let deletion = self.finish_deletion(record, cancel).await;
             self.release_folder(grant).await;
             Self::report_deletion(report, record, &deletion?);
-            return Ok(());
+            return Ok(None);
         }
         if record.state == "deleting" && record.extra.get("deleting").and_then(|d| d.get("automatic")).and_then(Value::as_bool) == Some(true) {
             // An automatic removal that was interrupted is never resumed blindly: what it took
@@ -344,13 +377,13 @@ impl Worktrees {
             let kept_remaining = remaining.clone();
             self.keep_incomplete_removal(record, remaining, "interrupted", cancel).await?;
             report.kept.push(json!({ "id": record.id, "reason": "incomplete", "remaining": kept_remaining }));
-            return Ok(());
+            return Ok(None);
         }
         if record.state == "deleting" {
             // A decided deletion: its session already left the folder.
             let deletion = self.finish_deletion(record, cancel).await?;
             Self::report_deletion(report, record, &deletion);
-            return Ok(());
+            return Ok(None);
         }
         if is_snapshot(record) {
             // Read-only and turn-scoped: once its holder is gone it goes, whatever autoCleanup
@@ -369,7 +402,7 @@ impl Worktrees {
             }
             if !held {
                 keep(report, "snapshot-in-use");
-                return Ok(());
+                return Ok(None);
             }
             let deleted: Result<crate::worktree::removal::Deletion, ScmFailure> = async {
                 self.assert_recovery_stores_clear(record, cancel).await?;
@@ -381,7 +414,7 @@ impl Worktrees {
             .await;
             self.release_folder(grant).await;
             Self::report_deletion(report, record, &deleted?);
-            return Ok(());
+            return Ok(None);
         }
         let lease = self.read_owner_lease(record, cancel).await?;
         let lease_running = lease.as_ref().and_then(|l| l.owner.pid).is_some_and(|pid| crate::worktree::ownership::pid_alive_or_unknown(Some(pid)));
@@ -394,28 +427,11 @@ impl Worktrees {
             report.missing.push(record.id.clone());
         }
         if options.remove_orphans && !owner_live && cleanup_wants(record, is_retained, &options.rules) {
-            // Count, age and archive removals share one budget per pass.
             let archived = record.extra.get("disposableReason").and_then(Value::as_str) == Some("archived");
             let budgeted = is_retained && (options.rules.selected.contains(&record.id) || archived);
-            if budgeted && *budget_used >= options.max_removals {
-                keep(report, "budget");
-                return Ok(());
-            }
-            let auto = AutoOptions { in_use: options.in_use.clone(), preserve_branch: options.preserve_branch, final_check_timeout: options.final_check_timeout };
-            match self.remove_automatically(record, &auto, cancel).await? {
-                Auto::Kept(mut verdict) => {
-                    verdict["id"] = json!(record.id);
-                    report.kept.push(verdict);
-                }
-                Auto::Removed(deletion) => {
-                    Self::report_deletion(report, record, &deletion);
-                    if budgeted && deletion.removed {
-                        *budget_used += 1;
-                    }
-                }
-            }
+            return Ok(Some(budgeted));
         }
-        Ok(())
+        Ok(None)
     }
 }
 

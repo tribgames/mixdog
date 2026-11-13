@@ -110,6 +110,13 @@ pub trait SteerSource: Send + Sync {
 #[async_trait]
 pub trait SkillSelector: Send + Sync {
     async fn select(&self, content: &Content, initial: bool, transcript: &mut Vec<AgentMessage>) -> Vec<String>;
+
+    /// `appendSkillUpdateNotices(outgoing, cwd)`: the notices owed for the skills whose bodies `transcript` holds,
+    /// one per skill whose state (current, changed, unavailable) differs from the last one told. Asked once a turn,
+    /// before its first request.
+    async fn update_notices(&self, _transcript: &[AgentMessage]) -> Vec<AgentMessage> {
+        Vec::new()
+    }
 }
 
 // ---------------------------------------------------------------------------

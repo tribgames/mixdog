@@ -1192,6 +1192,8 @@ impl SessionActor {
         surface: watch::Sender<Arc<SessionSurface>>,
         ch: ActorChannels,
     ) -> Self {
+        // The owner's start is stamped by the first session of the process (`PENDING_PROCESS_START_MS`).
+        pending::owner_started_ms(deps.clock.now_ms());
         let (jobs_tx, jobs_rx) = mpsc::unbounded_channel();
         let goal_watch = super::goal_lane::GoalWatch::new(state.sections.goal.as_ref());
         #[cfg(any(test, feature = "test-support"))]
@@ -1343,6 +1345,7 @@ impl SessionActor {
                     self.ops.fence(&OpId::from(op)).expect("a loading actor has seen no op");
                 }
                 self.opened = Some(ready);
+                self.normalize_stale_compacting();
                 self.recover();
                 if !self.recovering {
                     self.recovery_ended();
@@ -4236,6 +4239,7 @@ impl SessionActor {
             self.check_goal_entry(next.entry);
             return;
         }
+        let next = super::state::Queued { entry: self.late_delivery(&next.entry), ..next };
         let input = TurnInput {
             prompt: serde_json::from_value(next.entry["message"].clone())
                 .unwrap_or(PromptContent::Text(String::new())),
@@ -4268,6 +4272,8 @@ impl SessionActor {
             Vec::new(),
             Vec::new(),
         );
+        // A channel notice that is no completion is a user injection too (`isStaleUserInjection`).
+        let next = super::state::Queued { entry: self.late_delivery(&next.entry), ..next };
         let input = TurnInput {
             prompt: PromptContent::Text(completions::text(&next.entry)),
             options: None,
@@ -4276,6 +4282,13 @@ impl SessionActor {
             self.suppressed.insert(execution);
         }
         self.start_run_with(input, completions::input_row(&next.entry), None, None, None, true);
+    }
+
+    /// The queued entry as it is delivered: one that waited more than thirty minutes since before this process owned
+    /// sessions carries Node's late-delivery header (`hydratePendingMessages`, `pending-messages.mjs`).
+    fn late_delivery(&self, entry: &Value) -> Value {
+        let now = self.deps.clock.now_ms();
+        pending::late_delivery(entry, now, pending::owner_started_ms(now))
     }
 
     /// A route saved while a turn runs is held for the next turn (`pendingRoute`, written
@@ -4973,6 +4986,7 @@ impl SessionActor {
             if let Some(meta) = pending::steered_meta(&entry) {
                 self.steered_meta.insert(qid.as_str().to_owned(), meta.clone());
             }
+            let entry = self.late_delivery(&entry);
             out.push(pending::steered(qid.clone(), &entry));
             taken.push(qid);
         }
@@ -5020,6 +5034,11 @@ impl SessionActor {
                     .into_iter()
                     .partition(|(qid, entry)| !super::goal_lane::is_goal_entry(entry) || checked.get(qid.as_str()) == Some(&true));
                 dropped.extend(gone.into_iter().map(|(qid, _)| qid));
+                // A stale user entry is delivered under its late-delivery header (`hydratePendingMessages`).
+                let deliver: Vec<(QueuedId, Value)> = deliver
+                    .into_iter()
+                    .map(|(qid, entry)| if super::goal_lane::is_goal_entry(&entry) { (qid, entry) } else { let entry = self.late_delivery(&entry); (qid, entry) })
+                    .collect();
                 let groups = pending::groups(&deliver);
                 // Nothing that carries content is released back to the queue.
                 if !groups.is_empty() {
@@ -6189,10 +6208,19 @@ impl SessionActor {
                 change.unset.push(PROVIDER_STATE.into());
             }
         }
-        if !change.set.is_empty() || !change.unset.is_empty() {
-            let reset = Record::Meta(MetaRecord { op: None, change: Slot::Inline(change) });
-            records.push((reset, Class::Normal, Display::None, Vec::new()));
-        }
+        // The clear's own facts (`clearSessionMessages`, `session-crud.mjs`): its stage and when it happened. The
+        // session-life mark reads `lastClearAt` (`sessionLifeMark`), so what was granted to the cleared conversation
+        // ends with it.
+        let now = self.deps.clock.now_ms();
+        let mut compaction = change.set.get("compaction").or_else(|| self.projected.header.get("compaction")).and_then(Value::as_object).cloned().unwrap_or_default();
+        compaction.insert("lastStage".into(), json!("auto_clear"));
+        compaction.insert("lastCheckedAt".into(), json!(now));
+        compaction.insert("lastClearAt".into(), json!(now));
+        compaction.insert("lastClearCompactError".into(), Value::Null);
+        change.set.insert("compaction".into(), Value::Object(compaction));
+        change.unset.retain(|key| key != "compaction");
+        let reset = Record::Meta(MetaRecord { op: None, change: Slot::Inline(change) });
+        records.push((reset, Class::Normal, Display::None, Vec::new()));
         // `supersedeQuotaResume`: a cleared session's wait goes.
         self.quota_cancel_now();
         let (settlement, id) = (self.quota.settlement.clone(), self.id.as_str().to_owned());
@@ -7303,6 +7331,16 @@ impl SessionActor {
         mixdog_rt::spawn("session-run", TaskClass::Work, run);
     }
 
+    /// `normalizeStaleCompactingStage` (`compaction-runner.mjs`): `compacting` is the transient stage written just
+    /// before a compaction runs. A session opened with it (the process died, or only part of the pass was saved) is
+    /// not compacting: the stage becomes `interrupted` so no surface shows a compaction that never ends. Terminal
+    /// stages are the durable record of the last real outcome and stay.
+    fn normalize_stale_compacting(&mut self) {
+        let Some(change) = stale_compacting_change(&self.acked.header, self.deps.clock.now_ms()) else { return };
+        let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(change) });
+        self.accept_record(meta, Class::Control, Display::None, Vec::new(), Vec::new());
+    }
+
     /// Open-time recovery: a run without a terminal record is interrupted, and so are its
     /// approvals (P §5.2, §8.2; Codex daemon recovery).
     fn recover(&mut self) {
@@ -7720,4 +7758,21 @@ async fn mark_go(mark: &mut Option<oneshot::Receiver<serde_json::Map<String, Val
         Some(mark) => mark.await,
         None => std::future::pending().await,
     }
+}
+
+/// The header change `normalizeStaleCompactingStage` makes: a `compaction` whose `lastStage` is `compacting`, or
+/// whose `inProgress` is `true`, with `lastStage: 'interrupted'`, `inProgress: false` and `lastCheckedAt: now`;
+/// `None` for any other header.
+pub(crate) fn stale_compacting_change(header: &mixdog_store::schema::record::Header, now: i64) -> Option<HeaderChange> {
+    let compaction = header.get("compaction")?.as_object()?;
+    if compaction.get("lastStage").and_then(Value::as_str) != Some("compacting") && compaction.get("inProgress") != Some(&Value::Bool(true)) {
+        return None;
+    }
+    let mut next = compaction.clone();
+    next.insert("lastStage".into(), json!("interrupted"));
+    next.insert("inProgress".into(), json!(false));
+    next.insert("lastCheckedAt".into(), json!(now));
+    let mut set = serde_json::Map::new();
+    set.insert("compaction".into(), Value::Object(next));
+    Some(HeaderChange { set, unset: Vec::new() })
 }

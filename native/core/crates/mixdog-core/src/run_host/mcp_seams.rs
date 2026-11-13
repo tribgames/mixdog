@@ -98,6 +98,25 @@ pub fn prompt_of(content: &Content) -> Prompt {
     }
 }
 
+/// What the `Skill` tool would deliver for a skill at a folder now (`currentSkillDelivery(name, cwd).body`): the
+/// injected `<skill>` body, or `None` when the skill no longer loads there (refused, or removed).
+#[async_trait]
+pub trait SkillDeliveries: Send + Sync {
+    async fn delivery(&self, name: &str, cwd: &Path) -> Result<Option<String>, String>;
+}
+
+#[async_trait]
+impl SkillDeliveries for SkillCatalog {
+    async fn delivery(&self, name: &str, cwd: &Path) -> Result<Option<String>, String> {
+        Ok(match self.load(name, cwd).await.map_err(|error| error.to_string())? {
+            mixdog_mcp::skill_catalog::SkillLoad::Loaded(resource) => {
+                Some(mixdog_tools::orch::skill::result_envelope(name, &resource.body, Some(resource.dir.as_str())))
+            }
+            _ => None,
+        })
+    }
+}
+
 /// Explicit skill selection for typed steering input (`prepareExplicitSkills`): each selected
 /// skill is loaded through the session's `Skill` tool, and its result and body join the
 /// transcript before the next request.
@@ -110,13 +129,21 @@ pub struct ExplicitSkillSelector {
     /// The turn's trusted selection input (`selection` of `prepareExplicitSkills`): when given, even empty,
     /// it is read instead of the prompt.
     selection: Option<String>,
+    /// What each loaded skill delivers now, for the turn's skill-update notices; `None` announces nothing.
+    deliveries: Option<Arc<dyn SkillDeliveries>>,
 }
 
 impl ExplicitSkillSelector {
     /// `env` and `cancel` are the run's, `gate` is the run's tool gate and `skill_tool` is the
     /// session's `Skill` tool.
     pub fn new(names: Arc<dyn SkillNames>, skill_tool: Arc<dyn Tool>, gate: Arc<dyn ToolGate>, env: ToolEnv, cancel: CancellationToken) -> Self {
-        Self { names, skill_tool, gate, env, cancel, selection: None }
+        Self { names, skill_tool, gate, env, cancel, selection: None, deliveries: None }
+    }
+
+    #[must_use]
+    pub fn with_deliveries(mut self, deliveries: Option<Arc<dyn SkillDeliveries>>) -> Self {
+        self.deliveries = deliveries;
+        self
     }
 
     #[must_use]
@@ -206,6 +233,25 @@ impl SkillSelector for ExplicitSkillSelector {
             transcript.extend(follow_ups.into_iter().map(|m| AgentMessage::sourced(Source::Skill, m.text)));
         }
         applied
+    }
+
+    /// `appendSkillUpdateNotices(messages, cwd)`: every skill whose latest body the transcript holds is compared
+    /// with what the Skill tool would deliver at the turn's folder now.
+    async fn update_notices(&self, transcript: &[AgentMessage]) -> Vec<AgentMessage> {
+        let Some(deliveries) = &self.deliveries else { return Vec::new() };
+        let mut notices = Vec::new();
+        for body in mixdog_agent::skill_update::latest_skill_bodies(transcript) {
+            let delivery = match deliveries.delivery(&body.name, Path::new(self.env.cwd.as_path())).await {
+                Ok(delivery) => delivery,
+                // A catalog that cannot be read says nothing about the skill: no state is told this turn.
+                Err(error) => {
+                    tracing::warn!(%error, skill = %body.name, "the skill-update notice could not read the skill catalog");
+                    continue;
+                }
+            };
+            notices.extend(mixdog_agent::skill_update::skill_update_notice(transcript, &body, delivery.as_deref()));
+        }
+        notices
     }
 }
 

@@ -423,6 +423,87 @@ async fn allow_all_actions_is_on_only_for_a_stored_true() {
     }
 }
 
+/// `appendSkillUpdateNotices` (`skill-update-notice.mjs`) over the real skill catalog: a turn's selector compares the body
+/// the transcript holds with what the Skill tool would deliver at the folder now, and tells each change of state once: the
+/// file edited, the skill removed, the skill back unchanged.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_loaded_skills_changes_are_announced_from_the_catalog() {
+    use mixdog_core::run_host::mcp_seams::SkillDeliveries;
+    use mixdog_mcp::skill_catalog::SkillSettings;
+    use mixdog_mcp::skill_catalog::SkillSettingsSource;
+    use mixdog_mcp::skills::SkillRoot;
+    use mixdog_mcp::skills::SkillSource;
+    use mixdog_mcp::skills_watch::SkillsWatch;
+
+    struct NoSettings;
+    impl SkillSettingsSource for NoSettings {
+        fn current(&self) -> SkillSettings {
+            SkillSettings::default()
+        }
+    }
+
+    const V1: &[u8] = b"---\nname: alpha\ndescription: Use when alpha.\n---\n\nbody one\n";
+    const V2: &[u8] = b"---\nname: alpha\ndescription: Use when alpha.\n---\n\nbody two\n";
+    let tokens = mixdog_rt::testing::tokens();
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("skills").join("alpha").join("SKILL.md");
+    write_file(&file, V1).await;
+    let skill_root = SkillRoot { dir: dir.path().join("skills"), source: SkillSource::Global, plugin: None };
+    let catalog = SkillCatalog::new(dir.path().to_path_buf(), tokens.maintenance_io, Arc::new(move |_lane| vec![skill_root.clone()]), Arc::new(NoSettings), &SkillsWatch::new());
+    let env = tool_env();
+    let cwd = env.cwd.as_path().to_path_buf();
+    let (selector, _tool) = selector(&golden(), None, false);
+    let selector = selector.with_deliveries(Some(catalog.clone() as Arc<dyn SkillDeliveries>));
+
+    // The body the Skill tool delivered when the skill was loaded.
+    let loaded = catalog.delivery("alpha", &cwd).await.expect("the catalog reads").expect("alpha loads");
+    assert!(loaded.starts_with("<skill>\n<name>alpha</name>\n") && loaded.contains("body one"), "{loaded}");
+    let mut transcript = vec![AgentMessage::user("hi"), AgentMessage::sourced(Source::Skill, loaded)];
+    async fn told_in(selector: &ExplicitSkillSelector, transcript: &mut Vec<AgentMessage>) -> Vec<Value> {
+        let notices = selector.update_notices(transcript).await;
+        let rows: Vec<Value> = notices.iter().map(mixdog_agent::message_row::row_of).collect();
+        transcript.extend(notices);
+        rows
+    }
+    assert!(told_in(&selector, &mut transcript).await.is_empty(), "the loaded body is current");
+
+    write_file(&file, V2).await;
+    catalog.invalidate();
+    let told = told_in(&selector, &mut transcript).await;
+    assert_eq!(told.len(), 1, "{told:?}");
+    assert_eq!(told[0]["content"], json!("[mixdog-runtime] Skill \"alpha\" was updated since it was loaded. Reload it with the Skill tool before relying on it."));
+    assert_eq!(told[0]["meta"]["source"], json!("skill-update-notice"));
+    assert_eq!(told[0]["meta"]["skill"], json!("alpha"));
+    assert_eq!(told[0]["meta"]["version"].as_str().map(str::len), Some(16), "{told:?}");
+    assert!(told_in(&selector, &mut transcript).await.is_empty(), "told once");
+
+    remove_dir_all(&dir.path().join("skills").join("alpha")).await;
+    catalog.invalidate();
+    let told = told_in(&selector, &mut transcript).await;
+    assert_eq!(
+        told,
+        [json!({
+            "role": "user",
+            "content": "[mixdog-runtime] Skill \"alpha\" is no longer available in this session (switched off, removed, or outside this project's scope). Do not rely on its instructions.",
+            "meta": { "source": "skill-update-notice", "synthetic": true, "skill": "alpha", "version": "unavailable" },
+        })]
+    );
+    assert!(told_in(&selector, &mut transcript).await.is_empty(), "told once");
+
+    write_file(&file, V1).await;
+    catalog.invalidate();
+    let told = told_in(&selector, &mut transcript).await;
+    assert_eq!(
+        told,
+        [json!({
+            "role": "user",
+            "content": "[mixdog-runtime] Skill \"alpha\" is available again, unchanged; its loaded instructions apply again.",
+            "meta": { "source": "skill-update-notice", "synthetic": true, "skill": "alpha", "version": "current" },
+        })]
+    );
+    assert!(told_in(&selector, &mut transcript).await.is_empty());
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn the_skill_listing_answers_from_the_catalog() {
     use mixdog_mcp::skill_catalog::SkillSettings;

@@ -383,6 +383,7 @@ pub fn turn_path_parts(process: &ProcessServices, registry: Arc<ProviderRegistry
         tool_pool: owed.tool_pool,
         mcp: owed.mcp,
         skills_listed: ready.skills_listed,
+        skill_deliveries: Some(owed.skills.clone()),
         skill_names: owed.skills,
         ext_pool: owed.ext_pool,
         hook_bus: owed.hook_bus,

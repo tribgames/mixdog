@@ -1684,6 +1684,9 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let worktrees = Arc::new(
         mixdog_scm::worktree::manager::Worktrees::new(scm.clone(), b.data_dir.clone())
             .with_root_cleanup(Arc::new(mixdog_scm::worktree::release::FolderReleaseCleanup::new(folder_releases.clone())))
+            // `registerWorktreeCacheCleanups` (`daemon.mjs`): a removed worktree leaves no turn-review shadow or code-graph cache.
+            .with_root_cleanup(Arc::new(crate::worktree_cache_cleanups::TurnSnapshotCleanup::new(turn_review.clone())))
+            .with_root_cleanup(Arc::new(crate::worktree_cache_cleanups::CodeGraphCleanup::new(code_graph_cache.clone(), b.tokens.maintenance_io)))
             .with_settings(Arc::new(mixdog_core_config::config::ConfigWorktreeSettings::new(config.clone())))
             .with_activity(Arc::new(mixdog_scm::worktree::activity::Activity::new(&b.data_dir))),
     );

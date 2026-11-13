@@ -44,6 +44,12 @@ impl TurnReview {
         Self::new(Config::from_env(env), tokens.cpu_interactive, data_dir, disk, git, worktrees, bases)
     }
 
+    /// `forgetTurnWorktreeRoot(root)`: the shadow repository and state of a root that is going away (a removed
+    /// managed worktree). Answers the removed and the kept (undeletable) shadow paths.
+    pub async fn forget_worktree_root(&self, root: &str) -> (Vec<std::path::PathBuf>, Vec<std::path::PathBuf>) {
+        self.inner.worktrees.forget_root(root).await
+    }
+
     /// Resolves once every review signal raised so far has reached its listeners.
     #[cfg(any(test, feature = "test-support"))]
     pub async fn review_signal_settled(&self) {

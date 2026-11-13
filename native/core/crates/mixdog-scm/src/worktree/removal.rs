@@ -809,25 +809,65 @@ impl Worktrees {
         }
     }
 
-    /// One automatic removal of the ready worktree `record`: the slow checks run before the
-    /// folder is held; then, under the hold, the lease and `in_use` again, a cheap token
-    /// against the one taken before, and one time-bounded full status. Only then is the
-    /// deletion decided, `automatic`.
-    pub async fn remove_automatically(&self, record: &mut WorktreeRecord, options: &AutoOptions, cancel: &CancellationToken) -> Result<Auto, ScmFailure> {
-        let token = self.checkout_token(record, cancel).await?;
+    /// The slow checks of `record`, always run afresh (`checkoutVerdict` and `verdictKeep`, `manager.mjs`): the full
+    /// status with untracked and ignored files, the commit walk and, with nothing else found, an operation in
+    /// progress. Answers the keep reason, `None` when the checkout is clean and merged, and the artefact roots the
+    /// final check reads again.
+    async fn checkout_keep(&self, record: &WorktreeRecord, cancel: &CancellationToken) -> Result<(Option<Value>, Vec<String>), ScmFailure> {
         let (dirty, ignored, artefacts) = self.automatic_keep_paths(record, cancel).await?;
         let unmerged = self.checkout_unmerged_count(record, cancel).await?;
         if !dirty.is_empty() || unmerged > 0 {
-            return Ok(Auto::Kept(kept(if dirty.is_empty() { "unmerged" } else { "dirty" })));
+            return Ok((Some(kept(if dirty.is_empty() { "unmerged" } else { "dirty" })), artefacts));
         }
         // As assert_removable: an operation in progress keeps the checkout.
         if let Ok(opened) = self.scm().open(Path::new(&record.path), cancel).await {
             if operation_in_progress(&opened.identity.git_dir).is_some() {
-                return Ok(Auto::Kept(kept("dirty")));
+                return Ok((Some(kept("dirty")), artefacts));
             }
         }
         if !ignored.is_empty() {
-            return Ok(Auto::Kept(ignored_keep(&ignored)));
+            return Ok((Some(ignored_keep(&ignored)), artefacts));
+        }
+        Ok((None, artefacts))
+    }
+
+    /// One automatic removal of the ready worktree `record` (`removeAutomatically`, `manager.mjs`). The caller does
+    /// not hold the repository lock: the slow checks run first, outside the lock and the folder hold, so no claim,
+    /// creation, git write or turn waits through them. Only a clean, merged worktree then takes the repository lock,
+    /// and under it: the registry record exactly as checked (a claim, share, mark or any other write since keeps it,
+    /// `changed`) and the owner lease as it was; then the folder is held, and under the hold `in_use` again, a cheap
+    /// token against the one taken before the checks, and one time-bounded full status. Only then is the deletion
+    /// decided, `automatic`.
+    pub async fn remove_automatically(&self, record: &mut WorktreeRecord, options: &AutoOptions, cancel: &CancellationToken) -> Result<Auto, ScmFailure> {
+        let snapshot = record.clone();
+        let lease = self.read_owner_lease(record, cancel).await?;
+        let checked: Result<(String, (Option<Value>, Vec<String>)), ScmFailure> = async {
+            let token = self.checkout_token(record, cancel).await?;
+            Ok((token, self.checkout_keep(record, cancel).await?))
+        }
+        .await;
+        let (token, (keep, artefacts)) = match checked {
+            Ok(checked) => checked,
+            Err(ScmFailure::Cancelled) => return Err(ScmFailure::Cancelled),
+            // Outside the lock a concurrent removal or claim can pull the folder away mid-check.
+            Err(error) => {
+                if self.record(cancel, &snapshot.id).await?.as_ref() != Some(&snapshot) {
+                    return Ok(Auto::Kept(kept("changed")));
+                }
+                return Err(error);
+            }
+        };
+        if let Some(keep) = keep {
+            return Ok(Auto::Kept(keep));
+        }
+        let opened = self.scm().open(&repo_cwd(record), cancel).await?;
+        let _lock = opened.lock_repository().await?;
+        if self.record(cancel, &snapshot.id).await?.as_ref() != Some(&snapshot) {
+            return Ok(Auto::Kept(kept("changed")));
+        }
+        let current_lease = self.read_owner_lease(record, cancel).await?;
+        if current_lease != lease || current_lease.and_then(|lease| lease.owner.pid).is_some_and(|pid| pid_alive_or_unknown(Some(pid))) {
+            return Ok(Auto::Kept(kept("in-use")));
         }
         let grant = match self.hold_folder(record).await {
             Ok(grant) => grant,
@@ -840,7 +880,7 @@ impl Worktrees {
     }
 
     async fn remove_under_hold(&self, record: &mut WorktreeRecord, options: &AutoOptions, token: &str, artefacts: Vec<String>, cancel: &CancellationToken) -> Result<Auto, ScmFailure> {
-        if self.lease_alive(record, cancel).await? || options.in_use.in_use(record).await {
+        if options.in_use.in_use(record).await {
             return Ok(Auto::Kept(kept("in-use")));
         }
         if self.checkout_token(record, cancel).await? != token {
@@ -888,14 +928,6 @@ impl Worktrees {
     /// the acting session, as in Node.
     pub async fn remove_locked(&self, current: &mut WorktreeRecord, request: &RemoveRequest, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
         Self::assert_not_shared(current, request.session_id.as_deref().or(current.owner_session_id.as_deref()))?;
-        // A deleted session's leftover: the verified automatic path, never forced or recursive.
-        if request.automatic && !request.force && current.state == "ready" && !is_snapshot(current) {
-            let options = AutoOptions { preserve_branch: request.preserve_branch, ..AutoOptions::default() };
-            return match self.remove_automatically(current, &options, cancel).await? {
-                Auto::Removed(deletion) => Ok(deletion.to_json()),
-                Auto::Kept(verdict) => Err(Self::automatic_refusal(current, &verdict)),
-            };
-        }
         if current.state == "creating" || current.state == "recovery" {
             let (complete, remaining) = self.rollback_record(current, None, cancel).await?;
             return Ok(if complete { json!({ "removed": true }) } else { json!({ "removed": false, "retryable": true, "remaining": remaining }) });
@@ -971,15 +1003,39 @@ impl Worktrees {
                     && record.extra.get("holderSessionId").and_then(Value::as_str) == expected.holder_session_id.as_deref()
             })
         };
-        let Some(record) = self.record(cancel, &request.entry_id).await? else {
-            return if request.expected.is_some() { Ok(skipped) } else { Err(errors::missing(Some(request.entry_id.clone()), None, None)) };
+        let missing = || if request.expected.is_some() { Ok(skipped.clone()) } else { Err(errors::missing(Some(request.entry_id.clone()), None, None)) };
+        // This read only names the repository whose lock to take (a record never changes repository); the routing is
+        // decided from the locked read below.
+        let Some(found) = self.record(cancel, &request.entry_id).await? else { return missing() };
+        let opened = self.scm().open(&repo_cwd(&found), cancel).await?;
+        // The one routing decision, made once under the repository lock. A deleted session's leftover (`automatic`)
+        // that is ready takes the verified automatic path, never a forced or recursive one: its record is handed out
+        // and `remove_automatically` runs the slow checks after the lock is released, taking the lock again for the
+        // removal alone and keeping the worktree if the record changed meanwhile. Every other removal (force,
+        // snapshot, creating, recovery) finishes under this lock.
+        let mut automatic = {
+            let _lock = opened.lock_repository().await?;
+            let Some(mut current) = self.record(cancel, &request.entry_id).await? else { return missing() };
+            if !matches(&current) {
+                return Ok(skipped);
+            }
+            if request.automatic && !request.force && current.state == "ready" && !is_snapshot(&current) {
+                Self::assert_not_shared(&current, request.session_id.as_deref().or(current.owner_session_id.as_deref()))?;
+                current
+            } else {
+                return self.remove_locked(&mut current, &request, cancel).await;
+            }
         };
-        let opened = self.scm().open(&repo_cwd(&record), cancel).await?;
-        let _lock = opened.lock_repository().await?;
-        let Some(mut current) = self.record(cancel, &request.entry_id).await?.filter(|r| matches(r)) else {
-            return if request.expected.is_none() { Err(errors::missing(Some(request.entry_id.clone()), None, None)) } else { Ok(skipped) };
-        };
-        self.remove_locked(&mut current, &request, cancel).await
+        let options = AutoOptions { preserve_branch: request.preserve_branch, ..AutoOptions::default() };
+        match self.remove_automatically(&mut automatic, &options, cancel).await? {
+            Auto::Removed(deletion) => Ok(deletion.to_json()),
+            Auto::Kept(verdict) => {
+                if verdict.get("reason").and_then(Value::as_str) == Some("changed") && self.record(cancel, &request.entry_id).await?.is_none() {
+                    return missing();
+                }
+                Err(Self::automatic_refusal(&automatic, &verdict))
+            }
+        }
     }
 
     /// Marks an entry disposable: a reconcile may remove it once clean and merged. A deleted

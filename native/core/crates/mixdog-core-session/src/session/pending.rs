@@ -39,6 +39,55 @@ pub(crate) fn groups(entries: &[(QueuedId, Value)]) -> Vec<SteerInput> {
     out
 }
 
+/// `STALE_USER_INJECTION_TTL_MS` (`pending-message-entry.mjs`).
+const STALE_USER_INJECTION_TTL_MS: i64 = 30 * 60 * 1000;
+
+/// `PENDING_PROCESS_START_MS`: when this process began owning sessions, read once from the first session's clock
+/// (no entry of this process is queued before its first session exists).
+pub(crate) fn owner_started_ms(now: i64) -> i64 {
+    static STARTED: std::sync::OnceLock<i64> = std::sync::OnceLock::new();
+    *STARTED.get_or_init(|| now)
+}
+
+/// `isStaleUserInjection`: an entry that is no completion, queued before this owner started and more than thirty
+/// minutes ago.
+fn is_stale_user_injection(entry: &Value, now: i64, owner_started: i64) -> bool {
+    if entry.get("notificationKind").and_then(Value::as_str) == Some(completions::KIND) {
+        return false;
+    }
+    let enqueued_at = entry.get("enqueuedAt").and_then(Value::as_f64).unwrap_or(0.0) as i64;
+    if enqueued_at <= 0 || enqueued_at >= owner_started {
+        return false;
+    }
+    now - enqueued_at > STALE_USER_INJECTION_TTL_MS
+}
+
+/// `lateDeliveryText`: the text under a header naming how long it waited; blank text is left as it is.
+pub(crate) fn late_delivery_text(text: &str, enqueued_at: i64, now: i64) -> String {
+    if mixdog_js::js_trim(text).is_empty() {
+        return text.to_owned();
+    }
+    // `Math.round` of a positive quotient.
+    let round = |num: i64, den: i64| ((num as f64 / den as f64) + 0.5).floor() as i64;
+    let minutes = round(now - enqueued_at, 60_000).max(1);
+    let age = if minutes >= 120 { format!("~{}h", round(minutes, 60)) } else { format!("~{minutes}m") };
+    format!("[late delivery: queued {age} ago, before the current session owner started]\n{text}")
+}
+
+/// The entry as it is delivered (`hydratePendingMessages`): a stale user entry's string `message` carries the
+/// late-delivery header instead of being dropped; structured content and completions are delivered as they are.
+pub(crate) fn late_delivery(entry: &Value, now: i64, owner_started: i64) -> Value {
+    let mut out = entry.clone();
+    if !is_stale_user_injection(entry, now, owner_started) {
+        return out;
+    }
+    if let Some(message) = entry.get("message").and_then(Value::as_str) {
+        let enqueued_at = entry.get("enqueuedAt").and_then(Value::as_f64).unwrap_or(0.0) as i64;
+        out["message"] = Value::String(late_delivery_text(message, enqueued_at, now));
+    }
+    out
+}
+
 /// `entry.transcriptMeta` when it is an object (`steeringEntryMetadata`, `steering.mjs:33`).
 fn meta_of(entry: &Value) -> Option<&Value> {
     entry.get("transcriptMeta").filter(|meta| meta.is_object())
@@ -306,6 +355,32 @@ mod tests {
         assert_eq!(second.text.as_deref(), Some("at this\n[Image]"));
         assert_eq!(second.queued_ids, [id("u2")]);
         assert!(groups(&[(id("u4"), json!({ "message": " \n" }))]).is_empty());
+    }
+
+    /// `isStaleUserInjection` and `lateDeliveryText` (`pending-message-entry.mjs`): only a user entry queued before
+    /// the owner started and more than thirty minutes ago is headed; the age is minutes below two hours, hours from there.
+    #[test]
+    fn a_stale_user_entry_is_delivered_under_nodes_late_delivery_header() {
+        const MIN: i64 = 60_000;
+        let (start, now) = (1_000 * MIN, 1_010 * MIN);
+        let late = |entry: Value| late_delivery(&entry, now, start)["message"].clone();
+        let header = |age: &str| format!("[late delivery: queued {age} ago, before the current session owner started]\nhello");
+        // 31 minutes before now, before the owner started.
+        assert_eq!(late(json!({ "message": "hello", "enqueuedAt": now - 31 * MIN })), json!(header("~31m")));
+        // 119.4 minutes rounds to 119m; 120 minutes is 2h; 150 minutes rounds to 3h (`Math.round(2.5)`).
+        assert_eq!(late(json!({ "message": "hello", "enqueuedAt": now - 119 * MIN - 24_000 })), json!(header("~119m")));
+        assert_eq!(late(json!({ "message": "hello", "enqueuedAt": now - 120 * MIN })), json!(header("~2h")));
+        assert_eq!(late(json!({ "message": "hello", "enqueuedAt": now - 150 * MIN })), json!(header("~3h")));
+        // Exactly thirty minutes is not stale, nor is an entry this owner queued, one without a stamp, or a completion.
+        assert_eq!(late(json!({ "message": "hello", "enqueuedAt": now - 30 * MIN })), json!("hello"));
+        assert_eq!(late_delivery(&json!({ "message": "hello", "enqueuedAt": start }), start + 90 * MIN, start)["message"], json!("hello"));
+        assert_eq!(late(json!({ "message": "hello" })), json!("hello"));
+        assert_eq!(late(json!({ "message": "hello", "notificationKind": "completion_notification", "enqueuedAt": 1 })), json!("hello"));
+        // A channel notice that is no completion is headed; structured content is delivered as it is.
+        assert_eq!(late(json!({ "message": "hello", "mode": "task-notification", "origin": "channel", "enqueuedAt": MIN })), json!(header("~17h")));
+        let parts = json!([{ "type": "text", "text": "hello" }]);
+        assert_eq!(late(json!({ "message": parts, "enqueuedAt": 1 })), parts);
+        assert_eq!(late_delivery_text("  ", 1, now), "  ");
     }
 
     /// A delivered entry names the client's submission (Node's `submissionIds`), else its queue id.

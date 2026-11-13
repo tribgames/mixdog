@@ -143,7 +143,7 @@ impl SessionSeams for HostSeams {
     }
 
     fn skill_parts(&self) -> Option<SkillParts> {
-        self.parts.skills.as_ref().map(|s| SkillParts { names: s.names.clone(), tool: s.tool.clone() })
+        self.parts.skills.as_ref().map(|s| SkillParts { names: s.names.clone(), tool: s.tool.clone(), deliveries: s.deliveries.clone() })
     }
 
     fn run_settings(&self, thread: &ThreadId, header: &Header) -> RunSettings {

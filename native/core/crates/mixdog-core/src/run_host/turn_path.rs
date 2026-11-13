@@ -90,6 +90,8 @@ pub struct TurnPathParts {
     pub skills_listed: Arc<dyn SkillsListed>,
     /// The skill names available for a cwd (`SkillCatalog`).
     pub skill_names: Arc<dyn SkillNames>,
+    /// What a loaded skill delivers now, for the skill-update notices (the skill catalog).
+    pub skill_deliveries: Option<Arc<dyn super::mcp_seams::SkillDeliveries>>,
     pub ext_pool: Arc<dyn ExtPool>,
     pub hook_bus: Arc<HookBus>,
     pub hook_common: CommonOf,
@@ -157,7 +159,7 @@ impl TurnPath {
     pub fn new(parts: TurnPathParts) -> Result<Self, TurnPathError> {
         let TurnPathParts {
             tokens, clock, paths, registry, effort_judge, side, next, files, processes, policy, connectors, resolver, unattended, approvals, exclusions, agents, allow_all, hub, blobs, tool_pool, mcp,
-            skills_listed, skill_names, ext_pool, hook_bus, hook_common, goals, todos, work, cycles, config, settings, ladder, deps, compactors, hops, shells, liveness, search_usage, reuses,
+            skills_listed, skill_names, skill_deliveries, ext_pool, hook_bus, hook_common, goals, todos, work, cycles, config, settings, ladder, deps, compactors, hops, shells, liveness, search_usage, reuses,
         } = parts;
         let io = ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io };
         let skill_tool = tool_pool.iter().find(|t| t.spec().name == "Skill").cloned().ok_or(TurnPathError::NoSkillTool)?;
@@ -187,7 +189,7 @@ impl TurnPath {
                 tools: SessionToolBuilder::new(tool_pool, mcp, skills_listed)?,
                 todos: TodoViews::new(todos, goals, work, cycles),
                 post_tool: Arc::new(BusPostToolDispatch::new(hook_bus, hook_common)),
-                skills: Some(SkillParts { names: skill_names, tool: skill_tool }),
+                skills: Some(SkillParts { names: skill_names, tool: skill_tool, deliveries: skill_deliveries }),
                 config,
                 ladder,
                 images: Some(Arc::new(ToolImageCompactor::new(Arc::new(ExtImageCodec::new(ext_pool))))),
