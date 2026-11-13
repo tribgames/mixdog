@@ -671,7 +671,7 @@
               "extend_minutes": 15
             }
           },
-          "error": "goal action must be one of: status, create, complete, block",
+          "error": "goal extend works only on an active or paused Goal (status blocked)",
           "events": [],
           "timers": [],
           "storageErrors": []
@@ -1182,7 +1182,7 @@
               "extend_minutes": 15
             }
           },
-          "error": "goal action must be one of: status, create, complete, block",
+          "error": "goal extend works only on an active or paused Goal (status blocked)",
           "events": [],
           "timers": [],
           "storageErrors": []
@@ -1635,7 +1635,7 @@
               "extend_minutes": 0
             }
           },
-          "error": "goal action must be one of: status, create, complete, block",
+          "error": "goal extend_minutes must be a number from 1 to 10080 minutes",
           "events": [],
           "timers": [
             -540000
@@ -3238,7 +3238,7 @@
               "extend_minutes": 10079
             }
           },
-          "error": "goal action must be one of: status, create, complete, block",
+          "error": "goal extend works only on an active or paused Goal (status duration_reached)",
           "events": [],
           "timers": [],
           "storageErrors": []
@@ -3819,7 +3819,7 @@
               "extend_minutes": 10079
             }
           },
-          "error": "goal action must be one of: status, create, complete, block",
+          "error": "goal duration exceeds 7 days",
           "events": [],
           "timers": [],
           "storageErrors": []
@@ -4312,7 +4312,7 @@
               "extend_minutes": "5"
             }
           },
-          "error": "goal action must be one of: status, create, complete, block",
+          "error": "goal extend_minutes must be a number from 1 to 10080 minutes",
           "events": [],
           "timers": [],
           "storageErrors": []
@@ -4481,7 +4481,7 @@
               "time_limit_minutes": 10081
             }
           },
-          "error": "goal duration exceeds 7 days",
+          "error": "goal time_limit_minutes must be a number from 1 to 10080 minutes",
           "events": [],
           "timers": [
             50000,
@@ -6505,7 +6505,7 @@
               "time_limit_minutes": 10081
             }
           },
-          "error": "goal duration exceeds 7 days",
+          "error": "goal time_limit_minutes must be a number from 1 to 10080 minutes",
           "events": [],
           "timers": [],
           "storageErrors": []
@@ -6815,7 +6815,7 @@
               "extend_minutes": "5"
             }
           },
-          "error": "goal action must be one of: status, create, complete, block",
+          "error": "goal extend_minutes must be a number from 1 to 10080 minutes",
           "events": [],
           "timers": [
             60000,
@@ -7430,7 +7430,7 @@
               "extend_minutes": 10079
             }
           },
-          "error": "goal action must be one of: status, create, complete, block",
+          "error": "goal extend needs a Goal with a time cap; this one has none",
           "events": [],
           "timers": [
             60000
@@ -7552,7 +7552,7 @@
               "time_limit_minutes": 0.5
             }
           },
-          "error": "cannot create a new Goal while an unfinished Goal exists (status active); finish it, or ask the user to stop it from the Goal controls",
+          "error": "goal time_limit_minutes must be a number from 1 to 10080 minutes",
           "events": [],
           "timers": [
             60000
@@ -7567,7 +7567,7 @@
               "action": "extend"
             }
           },
-          "error": "goal action must be one of: status, create, complete, block",
+          "error": "goal extend_minutes must be a number from 1 to 10080 minutes",
           "events": [],
           "timers": [
             60000
@@ -8287,7 +8287,7 @@
               "action": "nope"
             }
           },
-          "error": "goal action must be one of: status, create, complete, block",
+          "error": "goal action must be one of: status, create, complete, block, extend",
           "events": [],
           "timers": [
             1000,
@@ -8320,7 +8320,7 @@
               "extend_minutes": 10079
             }
           },
-          "error": "goal action must be one of: status, create, complete, block",
+          "error": "goal duration exceeds 7 days",
           "events": [],
           "timers": [
             -599000,
@@ -9022,7 +9022,7 @@
               "extend_minutes": 10079
             }
           },
-          "error": "goal action must be one of: status, create, complete, block",
+          "error": "goal duration exceeds 7 days",
           "events": [],
           "timers": [
             50000,
@@ -9173,7 +9173,7 @@
               "action": "nope"
             }
           },
-          "error": "goal action must be one of: status, create, complete, block",
+          "error": "goal action must be one of: status, create, complete, block, extend",
           "events": [],
           "timers": [],
           "storageErrors": []
@@ -9619,7 +9619,7 @@
               "extend_minutes": 0
             }
           },
-          "error": "goal action must be one of: status, create, complete, block",
+          "error": "goal extend_minutes must be a number from 1 to 10080 minutes",
           "events": [],
           "timers": [
             60000
@@ -9703,7 +9703,7 @@
               "extend_minutes": 15
             }
           },
-          "error": "goal action must be one of: status, create, complete, block",
+          "error": "goal extend needs a Goal with a time cap; this one has none",
           "events": [],
           "timers": [
             60000
@@ -10871,7 +10871,7 @@
               "extend_minutes": 10079
             }
           },
-          "error": "goal action must be one of: status, create, complete, block",
+          "error": "no Goal exists for this session",
           "events": [],
           "timers": [],
           "storageErrors": []
@@ -12459,7 +12459,7 @@
               "time_limit_minutes": 0.5
             }
           },
-          "error": "cannot create a new Goal while an unfinished Goal exists (status active); finish it, or ask the user to stop it from the Goal controls",
+          "error": "goal time_limit_minutes must be a number from 1 to 10080 minutes",
           "events": [],
           "timers": [
             60000
@@ -12587,7 +12587,7 @@
               "extend_minutes": "5"
             }
           },
-          "error": "goal action must be one of: status, create, complete, block",
+          "error": "goal extend_minutes must be a number from 1 to 10080 minutes",
           "events": [],
           "timers": [
             60000,
@@ -15398,7 +15398,7 @@
               "time_limit_minutes": 0.5
             }
           },
-          "error": "cannot create a new Goal while an unfinished Goal exists (status active); finish it, or ask the user to stop it from the Goal controls",
+          "error": "goal time_limit_minutes must be a number from 1 to 10080 minutes",
           "events": [],
           "timers": [
             50000,
@@ -15948,7 +15948,7 @@
               "time_limit_minutes": 0.5
             }
           },
-          "error": "cannot create a new Goal while an unfinished Goal exists (status duration_reached); finish it, or ask the user to stop it from the Goal controls",
+          "error": "goal time_limit_minutes must be a number from 1 to 10080 minutes",
           "events": [],
           "timers": [],
           "storageErrors": []
@@ -16079,7 +16079,7 @@
               "action": "extend"
             }
           },
-          "error": "goal action must be one of: status, create, complete, block",
+          "error": "goal extend_minutes must be a number from 1 to 10080 minutes",
           "events": [],
           "timers": [
             60000,
@@ -16170,7 +16170,7 @@
               "extend_minutes": 0
             }
           },
-          "error": "goal action must be one of: status, create, complete, block",
+          "error": "goal extend_minutes must be a number from 1 to 10080 minutes",
           "events": [],
           "timers": [
             60000,
@@ -16607,7 +16607,7 @@
               "action": "extend"
             }
           },
-          "error": "goal action must be one of: status, create, complete, block",
+          "error": "goal extend_minutes must be a number from 1 to 10080 minutes",
           "events": [],
           "timers": [],
           "storageErrors": []
@@ -17020,7 +17020,7 @@
               "extend_minutes": "5"
             }
           },
-          "error": "goal action must be one of: status, create, complete, block",
+          "error": "goal extend_minutes must be a number from 1 to 10080 minutes",
           "events": [],
           "timers": [
             60000,
@@ -17579,7 +17579,7 @@
               "extend_minutes": 15
             }
           },
-          "error": "goal action must be one of: status, create, complete, block",
+          "error": "goal extend works only on an active or paused Goal (status complete)",
           "events": [],
           "timers": [],
           "storageErrors": []
@@ -17609,7 +17609,7 @@
               "extend_minutes": 10079
             }
           },
-          "error": "goal action must be one of: status, create, complete, block",
+          "error": "goal extend works only on an active or paused Goal (status complete)",
           "events": [],
           "timers": [],
           "storageErrors": []
@@ -19243,7 +19243,7 @@
               "extend_minutes": "5"
             }
           },
-          "error": "goal action must be one of: status, create, complete, block",
+          "error": "goal extend_minutes must be a number from 1 to 10080 minutes",
           "events": [],
           "timers": [
             60000,
@@ -19358,7 +19358,7 @@
               "extend_minutes": 0
             }
           },
-          "error": "goal action must be one of: status, create, complete, block",
+          "error": "goal extend_minutes must be a number from 1 to 10080 minutes",
           "events": [],
           "timers": [
             60000,
@@ -21725,7 +21725,7 @@
               "action": "nope"
             }
           },
-          "error": "goal action must be one of: status, create, complete, block",
+          "error": "goal action must be one of: status, create, complete, block, extend",
           "events": [],
           "timers": [],
           "storageErrors": []
@@ -22087,14 +22087,44 @@
               "extend_minutes": 15
             }
           },
-          "error": "goal action must be one of: status, create, complete, block",
-          "events": [],
+          "value": "{\"goal\":{\"id\":\"<goal 1>\",\"warningRevision\":0,\"sessionId\":\"s1\",\"objective\":\"Ship the release\",\"title\":\"Title: Ship the release\",\"status\":\"active\",\"turnCount\":1,\"blocker\":\"\",\"pauseReason\":\"user\",\"timeLimitMs\":2700000,\"timeUsedMs\":600000,\"remainingMs\":2100000,\"deadlineAt\":1800002700000,\"snapshotAt\":1800000600000,\"createdAt\":1800000000000,\"updatedAt\":1800000600000,\"lastStartedAt\":1800000600000,\"completedAt\":null,\"stoppedAt\":null,\"archivedAt\":null},\"remaining_ms\":2100000}",
+          "events": [
+            {
+              "sessionId": "s1",
+              "goal": {
+                "id": "<goal 1>",
+                "warningRevision": 0,
+                "sessionId": "s1",
+                "objective": "Ship the release",
+                "title": "Title: Ship the release",
+                "status": "active",
+                "turnCount": 1,
+                "blocker": "",
+                "pauseReason": "user",
+                "timeLimitMs": 2700000,
+                "timeUsedMs": 600000,
+                "remainingMs": 2100000,
+                "deadlineAt": 1800002700000,
+                "snapshotAt": 1800000600000,
+                "createdAt": 1800000000000,
+                "updatedAt": 1800000600000,
+                "lastStartedAt": 1800000600000,
+                "completedAt": null,
+                "stoppedAt": null,
+                "archivedAt": null
+              }
+            }
+          ],
           "timers": [
             60000,
-            600250,
-            1200000
+            1500250,
+            2100000
           ],
-          "storageErrors": []
+          "storageErrors": [],
+          "files": {
+            "s1.json": "{\n  \"version\": 1,\n  \"goal\": {\n    \"id\": \"<goal 1>\",\n    \"sessionId\": \"s1\",\n    \"objective\": \"Ship the release\",\n    \"title\": \"Title: Ship the release\",\n    \"objectiveRevision\": 0,\n    \"status\": \"active\",\n    \"legacyTasks\": [],\n    \"blocker\": \"\",\n    \"pauseReason\": \"user\",\n    \"failureReason\": \"\",\n    \"failureCount\": 0,\n    \"turnCount\": 1,\n    \"timeLimitMs\": 2700000,\n    \"timeUsedMs\": 600000,\n    \"createdAt\": 1800000000000,\n    \"updatedAt\": 1800000600000,\n    \"lastStartedAt\": 1800000600000,\n    \"liveAt\": 1800000600000,\n    \"completedAt\": null,\n    \"stoppedAt\": null,\n    \"archivedAt\": null,\n    \"deadlineWarnedMs\": 9007199254740991,\n    \"warningRevision\": 0\n  }\n}\n",
+            "s1.json.bak": "{\n  \"version\": 1,\n  \"goal\": {\n    \"id\": \"<goal 1>\",\n    \"sessionId\": \"s1\",\n    \"objective\": \"Ship the release\",\n    \"title\": \"Title: Ship the release\",\n    \"objectiveRevision\": 0,\n    \"status\": \"active\",\n    \"legacyTasks\": [],\n    \"blocker\": \"\",\n    \"pauseReason\": \"user\",\n    \"failureReason\": \"\",\n    \"failureCount\": 0,\n    \"turnCount\": 1,\n    \"timeLimitMs\": 1800000,\n    \"timeUsedMs\": 0,\n    \"createdAt\": 1800000000000,\n    \"updatedAt\": 1800000600000,\n    \"lastStartedAt\": 1800000000000,\n    \"liveAt\": 1800000600000,\n    \"completedAt\": null,\n    \"stoppedAt\": null,\n    \"archivedAt\": null,\n    \"deadlineWarnedMs\": 9007199254740991,\n    \"warningRevision\": 0\n  }\n}\n"
+          }
         },
         {
           "op": "settleTurn",
@@ -22116,9 +22146,9 @@
             "turnCount": 1,
             "blocker": "quota used",
             "pauseReason": "user",
-            "timeLimitMs": 1800000,
+            "timeLimitMs": 2700000,
             "timeUsedMs": 600000,
-            "remainingMs": 1200000,
+            "remainingMs": 2100000,
             "deadlineAt": null,
             "snapshotAt": 1800000600000,
             "createdAt": 1800000000000,
@@ -22141,9 +22171,9 @@
                 "turnCount": 1,
                 "blocker": "quota used",
                 "pauseReason": "user",
-                "timeLimitMs": 1800000,
+                "timeLimitMs": 2700000,
                 "timeUsedMs": 600000,
-                "remainingMs": 1200000,
+                "remainingMs": 2100000,
                 "deadlineAt": null,
                 "snapshotAt": 1800000600000,
                 "createdAt": 1800000000000,
@@ -22158,8 +22188,8 @@
           "timers": [],
           "storageErrors": [],
           "files": {
-            "s1.json": "{\n  \"version\": 1,\n  \"goal\": {\n    \"id\": \"<goal 1>\",\n    \"sessionId\": \"s1\",\n    \"objective\": \"Ship the release\",\n    \"title\": \"Title: Ship the release\",\n    \"objectiveRevision\": 0,\n    \"status\": \"usage_limited\",\n    \"legacyTasks\": [],\n    \"blocker\": \"quota used\",\n    \"pauseReason\": \"user\",\n    \"failureReason\": \"\",\n    \"failureCount\": 0,\n    \"turnCount\": 1,\n    \"timeLimitMs\": 1800000,\n    \"timeUsedMs\": 600000,\n    \"createdAt\": 1800000000000,\n    \"updatedAt\": 1800000600000,\n    \"lastStartedAt\": null,\n    \"liveAt\": 1800000600000,\n    \"completedAt\": null,\n    \"stoppedAt\": null,\n    \"archivedAt\": null,\n    \"deadlineWarnedMs\": 9007199254740991,\n    \"warningRevision\": 0\n  }\n}\n",
-            "s1.json.bak": "{\n  \"version\": 1,\n  \"goal\": {\n    \"id\": \"<goal 1>\",\n    \"sessionId\": \"s1\",\n    \"objective\": \"Ship the release\",\n    \"title\": \"Title: Ship the release\",\n    \"objectiveRevision\": 0,\n    \"status\": \"active\",\n    \"legacyTasks\": [],\n    \"blocker\": \"\",\n    \"pauseReason\": \"user\",\n    \"failureReason\": \"\",\n    \"failureCount\": 0,\n    \"turnCount\": 1,\n    \"timeLimitMs\": 1800000,\n    \"timeUsedMs\": 0,\n    \"createdAt\": 1800000000000,\n    \"updatedAt\": 1800000600000,\n    \"lastStartedAt\": 1800000000000,\n    \"liveAt\": 1800000600000,\n    \"completedAt\": null,\n    \"stoppedAt\": null,\n    \"archivedAt\": null,\n    \"deadlineWarnedMs\": 9007199254740991,\n    \"warningRevision\": 0\n  }\n}\n"
+            "s1.json": "{\n  \"version\": 1,\n  \"goal\": {\n    \"id\": \"<goal 1>\",\n    \"sessionId\": \"s1\",\n    \"objective\": \"Ship the release\",\n    \"title\": \"Title: Ship the release\",\n    \"objectiveRevision\": 0,\n    \"status\": \"usage_limited\",\n    \"legacyTasks\": [],\n    \"blocker\": \"quota used\",\n    \"pauseReason\": \"user\",\n    \"failureReason\": \"\",\n    \"failureCount\": 0,\n    \"turnCount\": 1,\n    \"timeLimitMs\": 2700000,\n    \"timeUsedMs\": 600000,\n    \"createdAt\": 1800000000000,\n    \"updatedAt\": 1800000600000,\n    \"lastStartedAt\": null,\n    \"liveAt\": 1800000600000,\n    \"completedAt\": null,\n    \"stoppedAt\": null,\n    \"archivedAt\": null,\n    \"deadlineWarnedMs\": 9007199254740991,\n    \"warningRevision\": 0\n  }\n}\n",
+            "s1.json.bak": "{\n  \"version\": 1,\n  \"goal\": {\n    \"id\": \"<goal 1>\",\n    \"sessionId\": \"s1\",\n    \"objective\": \"Ship the release\",\n    \"title\": \"Title: Ship the release\",\n    \"objectiveRevision\": 0,\n    \"status\": \"active\",\n    \"legacyTasks\": [],\n    \"blocker\": \"\",\n    \"pauseReason\": \"user\",\n    \"failureReason\": \"\",\n    \"failureCount\": 0,\n    \"turnCount\": 1,\n    \"timeLimitMs\": 2700000,\n    \"timeUsedMs\": 600000,\n    \"createdAt\": 1800000000000,\n    \"updatedAt\": 1800000600000,\n    \"lastStartedAt\": 1800000600000,\n    \"liveAt\": 1800000600000,\n    \"completedAt\": null,\n    \"stoppedAt\": null,\n    \"archivedAt\": null,\n    \"deadlineWarnedMs\": 9007199254740991,\n    \"warningRevision\": 0\n  }\n}\n"
           }
         },
         {
@@ -22176,9 +22206,9 @@
             "turnCount": 1,
             "blocker": "quota used",
             "pauseReason": "user",
-            "timeLimitMs": 1800000,
+            "timeLimitMs": 2700000,
             "timeUsedMs": 600000,
-            "remainingMs": 1200000,
+            "remainingMs": 2100000,
             "deadlineAt": null,
             "createdAt": 1800000000000,
             "updatedAt": 1800000600000,
@@ -22249,9 +22279,9 @@
               "turnCount": 1,
               "blocker": "quota used",
               "pauseReason": "user",
-              "timeLimitMs": 1800000,
+              "timeLimitMs": 2700000,
               "timeUsedMs": 600000,
-              "remainingMs": 1200000,
+              "remainingMs": 2100000,
               "deadlineAt": null,
               "snapshotAt": 1800004659000,
               "createdAt": 1800000000000,
@@ -22346,7 +22376,7 @@
           "storageErrors": [],
           "files": {
             "s1.json": "{\n  \"version\": 1,\n  \"goal\": {\n    \"id\": \"<goal 1>\",\n    \"sessionId\": \"s1\",\n    \"objective\": \"Ship the release\",\n    \"title\": \"Title: Ship the release\",\n    \"objectiveRevision\": 0,\n    \"status\": \"usage_limited\",\n    \"legacyTasks\": [],\n    \"blocker\": \"quota used\",\n    \"pauseReason\": \"user\",\n    \"failureReason\": \"\",\n    \"failureCount\": 0,\n    \"turnCount\": 1,\n    \"timeLimitMs\": 5400000,\n    \"timeUsedMs\": 600000,\n    \"createdAt\": 1800000000000,\n    \"updatedAt\": 1800004659000,\n    \"lastStartedAt\": null,\n    \"liveAt\": 1800000600000,\n    \"completedAt\": null,\n    \"stoppedAt\": null,\n    \"archivedAt\": null,\n    \"deadlineWarnedMs\": 9007199254740991,\n    \"warningRevision\": 0\n  }\n}\n",
-            "s1.json.bak": "{\n  \"version\": 1,\n  \"goal\": {\n    \"id\": \"<goal 1>\",\n    \"sessionId\": \"s1\",\n    \"objective\": \"Ship the release\",\n    \"title\": \"Title: Ship the release\",\n    \"objectiveRevision\": 0,\n    \"status\": \"usage_limited\",\n    \"legacyTasks\": [],\n    \"blocker\": \"quota used\",\n    \"pauseReason\": \"user\",\n    \"failureReason\": \"\",\n    \"failureCount\": 0,\n    \"turnCount\": 1,\n    \"timeLimitMs\": 1800000,\n    \"timeUsedMs\": 600000,\n    \"createdAt\": 1800000000000,\n    \"updatedAt\": 1800000600000,\n    \"lastStartedAt\": null,\n    \"liveAt\": 1800000600000,\n    \"completedAt\": null,\n    \"stoppedAt\": null,\n    \"archivedAt\": null,\n    \"deadlineWarnedMs\": 9007199254740991,\n    \"warningRevision\": 0\n  }\n}\n"
+            "s1.json.bak": "{\n  \"version\": 1,\n  \"goal\": {\n    \"id\": \"<goal 1>\",\n    \"sessionId\": \"s1\",\n    \"objective\": \"Ship the release\",\n    \"title\": \"Title: Ship the release\",\n    \"objectiveRevision\": 0,\n    \"status\": \"usage_limited\",\n    \"legacyTasks\": [],\n    \"blocker\": \"quota used\",\n    \"pauseReason\": \"user\",\n    \"failureReason\": \"\",\n    \"failureCount\": 0,\n    \"turnCount\": 1,\n    \"timeLimitMs\": 2700000,\n    \"timeUsedMs\": 600000,\n    \"createdAt\": 1800000000000,\n    \"updatedAt\": 1800000600000,\n    \"lastStartedAt\": null,\n    \"liveAt\": 1800000600000,\n    \"completedAt\": null,\n    \"stoppedAt\": null,\n    \"archivedAt\": null,\n    \"deadlineWarnedMs\": 9007199254740991,\n    \"warningRevision\": 0\n  }\n}\n"
           }
         },
         {
@@ -23852,7 +23882,7 @@
               "time_limit_minutes": 10081
             }
           },
-          "error": "goal duration exceeds 7 days",
+          "error": "goal time_limit_minutes must be a number from 1 to 10080 minutes",
           "events": [],
           "timers": [],
           "storageErrors": []
@@ -23909,7 +23939,7 @@
               "extend_minutes": "5"
             }
           },
-          "error": "goal action must be one of: status, create, complete, block",
+          "error": "goal extend_minutes must be a number from 1 to 10080 minutes",
           "events": [],
           "timers": [],
           "storageErrors": []
@@ -24283,7 +24313,7 @@
               "time_limit_minutes": 0.5
             }
           },
-          "error": "cannot create a new Goal while an unfinished Goal exists (status active); finish it, or ask the user to stop it from the Goal controls",
+          "error": "goal time_limit_minutes must be a number from 1 to 10080 minutes",
           "events": [],
           "timers": [
             60000,
@@ -28962,7 +28992,7 @@
               "extend_minutes": 10079
             }
           },
-          "error": "goal action must be one of: status, create, complete, block",
+          "error": "goal extend needs a Goal with a time cap; this one has none",
           "events": [],
           "timers": [
             60000
@@ -28977,7 +29007,7 @@
               "action": "nope"
             }
           },
-          "error": "goal action must be one of: status, create, complete, block",
+          "error": "goal action must be one of: status, create, complete, block, extend",
           "events": [],
           "timers": [
             60000
@@ -30219,94 +30249,10 @@
               "time_limit_minutes": 0.5
             }
           },
-          "value": "{\"goal\":{\"id\":\"<goal 2>\",\"warningRevision\":0,\"sessionId\":\"s1\",\"objective\":\"x\",\"title\":\"x\",\"status\":\"active\",\"turnCount\":1,\"blocker\":\"\",\"pauseReason\":\"user\",\"timeLimitMs\":30000,\"timeUsedMs\":0,\"remainingMs\":30000,\"deadlineAt\":1800001011000,\"snapshotAt\":1800000981000,\"createdAt\":1800000981000,\"updatedAt\":1800000981000,\"lastStartedAt\":1800000981000,\"completedAt\":null,\"archivedAt\":null},\"remaining_ms\":30000}",
-          "events": [
-            {
-              "sessionId": "s1",
-              "goal": {
-                "id": "<goal 2>",
-                "warningRevision": 0,
-                "sessionId": "s1",
-                "objective": "x",
-                "title": "x",
-                "status": "active",
-                "turnCount": 1,
-                "blocker": "",
-                "pauseReason": "user",
-                "timeLimitMs": 60000,
-                "timeUsedMs": 0,
-                "remainingMs": 60000,
-                "deadlineAt": 1800001041000,
-                "snapshotAt": 1800000981000,
-                "createdAt": 1800000981000,
-                "updatedAt": 1800000981000,
-                "lastStartedAt": 1800000981000,
-                "completedAt": null,
-                "stoppedAt": null,
-                "archivedAt": null
-              }
-            },
-            {
-              "sessionId": "s1",
-              "goal": {
-                "id": "<goal 2>",
-                "warningRevision": 1,
-                "sessionId": "s1",
-                "objective": "x",
-                "title": "x",
-                "status": "active",
-                "turnCount": 1,
-                "blocker": "",
-                "pauseReason": "user",
-                "timeLimitMs": 60000,
-                "timeUsedMs": 0,
-                "remainingMs": 60000,
-                "deadlineAt": 1800001041000,
-                "snapshotAt": 1800000981000,
-                "createdAt": 1800000981000,
-                "updatedAt": 1800000981000,
-                "lastStartedAt": 1800000981000,
-                "completedAt": null,
-                "stoppedAt": null,
-                "archivedAt": null
-              }
-            },
-            {
-              "sessionId": "s1",
-              "goal": {
-                "id": "<goal 2>",
-                "warningRevision": 1,
-                "sessionId": "s1",
-                "objective": "x",
-                "title": "Title: x",
-                "status": "active",
-                "turnCount": 1,
-                "blocker": "",
-                "pauseReason": "user",
-                "timeLimitMs": 60000,
-                "timeUsedMs": 0,
-                "remainingMs": 60000,
-                "deadlineAt": 1800001041000,
-                "snapshotAt": 1800000981000,
-                "createdAt": 1800000981000,
-                "updatedAt": 1800000981000,
-                "lastStartedAt": 1800000981000,
-                "completedAt": null,
-                "stoppedAt": null,
-                "archivedAt": null
-              }
-            }
-          ],
-          "timers": [
-            60000,
-            60000
-          ],
-          "storageErrors": [],
-          "files": {
-            "history/s1/<goal 1>.json": "{\n  \"version\": 1,\n  \"goal\": {\n    \"id\": \"<goal 1>\",\n    \"sessionId\": \"s1\",\n    \"objective\": \"Edited\",\n    \"title\": \"Title: Edited\",\n    \"objectiveRevision\": 1,\n    \"status\": \"complete\",\n    \"legacyTasks\": [],\n    \"blocker\": \"\",\n    \"pauseReason\": \"user\",\n    \"failureReason\": \"\",\n    \"failureCount\": 0,\n    \"turnCount\": 1,\n    \"timeLimitMs\": 2700000,\n    \"timeUsedMs\": 910000,\n    \"createdAt\": 1800000000000,\n    \"updatedAt\": 1800000981000,\n    \"lastStartedAt\": null,\n    \"liveAt\": 1800000900000,\n    \"completedAt\": 1800000971000,\n    \"stoppedAt\": null,\n    \"archivedAt\": null,\n    \"deadlineWarnedMs\": 9007199254740991,\n    \"warningRevision\": 0\n  }\n}\n",
-            "s1.json": "{\n  \"version\": 1,\n  \"goal\": {\n    \"id\": \"<goal 2>\",\n    \"sessionId\": \"s1\",\n    \"objective\": \"x\",\n    \"title\": \"Title: x\",\n    \"objectiveRevision\": 0,\n    \"status\": \"active\",\n    \"legacyTasks\": [],\n    \"blocker\": \"\",\n    \"pauseReason\": \"user\",\n    \"failureReason\": \"\",\n    \"failureCount\": 0,\n    \"turnCount\": 1,\n    \"timeLimitMs\": 60000,\n    \"timeUsedMs\": 0,\n    \"createdAt\": 1800000981000,\n    \"updatedAt\": 1800000981000,\n    \"lastStartedAt\": 1800000981000,\n    \"liveAt\": 1800000981000,\n    \"completedAt\": null,\n    \"stoppedAt\": null,\n    \"archivedAt\": null,\n    \"deadlineWarnedMs\": 300000,\n    \"warningRevision\": 1\n  }\n}\n",
-            "s1.json.bak": "{\n  \"version\": 1,\n  \"goal\": {\n    \"id\": \"<goal 2>\",\n    \"sessionId\": \"s1\",\n    \"objective\": \"x\",\n    \"title\": \"x\",\n    \"objectiveRevision\": 0,\n    \"status\": \"active\",\n    \"legacyTasks\": [],\n    \"blocker\": \"\",\n    \"pauseReason\": \"user\",\n    \"failureReason\": \"\",\n    \"failureCount\": 0,\n    \"turnCount\": 1,\n    \"timeLimitMs\": 60000,\n    \"timeUsedMs\": 0,\n    \"createdAt\": 1800000981000,\n    \"updatedAt\": 1800000981000,\n    \"lastStartedAt\": 1800000981000,\n    \"liveAt\": 1800000981000,\n    \"completedAt\": null,\n    \"stoppedAt\": null,\n    \"archivedAt\": null,\n    \"deadlineWarnedMs\": 300000,\n    \"warningRevision\": 1\n  }\n}\n"
-          }
+          "error": "goal time_limit_minutes must be a number from 1 to 10080 minutes",
+          "events": [],
+          "timers": [],
+          "storageErrors": []
         }
       ]
     },
@@ -30650,7 +30596,7 @@
               "extend_minutes": 30
             }
           },
-          "error": "goal action must be one of: status, create, complete, block",
+          "error": "goal extend works only on an active or paused Goal (status duration_reached)",
           "events": [],
           "timers": [],
           "storageErrors": []
@@ -30784,7 +30730,7 @@
               "extend_minutes": 5
             }
           },
-          "error": "goal action must be one of: status, create, complete, block",
+          "error": "goal extend works only on an active or paused Goal (status duration_reached)",
           "events": [],
           "timers": [],
           "storageErrors": []

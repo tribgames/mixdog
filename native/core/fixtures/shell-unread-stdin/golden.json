@@ -20,7 +20,7 @@
         "size": 1048576,
         "wait_ms": 1000
       },
-      "text": "background task\ntask_id: <TASK>\nlabel: $null = $PSScriptRoot; $s = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nstatus: running\nstarted: <TIME>\nlogs: <LOGS>\nmoved to background after the 1s hold; still running. Its result is delivered automatically when it finishes; use task wait only if you need it now.\n\n[progress] +0.0 KB, +1 lines since you last saw it · last line: \"standin|started\" — still running, not an error\n\n[stdout]\nstandin|started\n",
+      "text": "background task\ntask_id: <TASK>\nlabel: $null = $PSScriptRoot; $s = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nstatus: running\nstarted: <TIME>\nlogs: <LOGS>\nmoved to background after the 1s hold; still running. Its result is delivered automatically when it finishes; use task wait only if no other work remains.\n\n[progress] +0.0 KB, +1 lines since you last saw it · last line: \"standin|started\" — still running, not an error\n\n[stdout]\nstandin|started\n",
       "isError": false,
       "answeredBeforeTheShellEnded": true
     }

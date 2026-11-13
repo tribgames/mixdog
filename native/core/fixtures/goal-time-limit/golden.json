@@ -12,7 +12,8 @@
     {
       "args": {
         "time_limit_minutes": ""
-      }
+      },
+      "error": "goal time_limit_minutes must be a number from 1 to 10080 minutes"
     },
     {
       "args": {
@@ -24,7 +25,7 @@
       "args": {
         "time_limit_minutes": 0.5
       },
-      "timeLimitMs": 30000
+      "error": "goal time_limit_minutes must be a number from 1 to 10080 minutes"
     },
     {
       "args": {
@@ -42,85 +43,85 @@
       "args": {
         "time_limit_minutes": 10080.4
       },
-      "error": "goal duration exceeds 7 days"
+      "error": "goal time_limit_minutes must be a number from 1 to 10080 minutes"
     },
     {
       "args": {
         "time_limit_minutes": 10081
       },
-      "error": "goal duration exceeds 7 days"
+      "error": "goal time_limit_minutes must be a number from 1 to 10080 minutes"
     },
     {
       "args": {
         "time_limit_minutes": 20000
       },
-      "error": "goal duration exceeds 7 days"
+      "error": "goal time_limit_minutes must be a number from 1 to 10080 minutes"
     },
     {
       "args": {
         "time_limit_minutes": 0
       },
-      "error": "goal time_limit_minutes must be a positive number"
+      "error": "goal time_limit_minutes must be a number from 1 to 10080 minutes"
     },
     {
       "args": {
         "time_limit_minutes": -5
       },
-      "error": "goal time_limit_minutes must be a positive number"
+      "error": "goal time_limit_minutes must be a number from 1 to 10080 minutes"
     },
     {
       "args": {
         "time_limit_minutes": 0.000005
       },
-      "timeLimitMs": 0
+      "error": "goal time_limit_minutes must be a number from 1 to 10080 minutes"
     },
     {
       "args": {
         "time_limit_minutes": 0.0000083
       },
-      "timeLimitMs": 0
+      "error": "goal time_limit_minutes must be a number from 1 to 10080 minutes"
     },
     {
       "args": {
         "time_limit_minutes": "5"
       },
-      "timeLimitMs": 300000
+      "error": "goal time_limit_minutes must be a number from 1 to 10080 minutes"
     },
     {
       "args": {
         "time_limit_minutes": " 5 "
       },
-      "timeLimitMs": 300000
+      "error": "goal time_limit_minutes must be a number from 1 to 10080 minutes"
     },
     {
       "args": {
         "time_limit_minutes": "0x10"
       },
-      "timeLimitMs": 960000
+      "error": "goal time_limit_minutes must be a number from 1 to 10080 minutes"
     },
     {
       "args": {
         "time_limit_minutes": "1e2"
       },
-      "timeLimitMs": 6000000
+      "error": "goal time_limit_minutes must be a number from 1 to 10080 minutes"
     },
     {
       "args": {
         "time_limit_minutes": "x"
       },
-      "error": "goal time_limit_minutes must be a positive number"
+      "error": "goal time_limit_minutes must be a number from 1 to 10080 minutes"
     },
     {
       "args": {
         "time_limit_minutes": true
       },
-      "timeLimitMs": 60000
+      "error": "goal time_limit_minutes must be a number from 1 to 10080 minutes"
     },
     {
       "args": {
         "time_limit_minutes": false
       },
-      "error": "goal time_limit_minutes must be a positive number"
+      "error": "goal time_limit_minutes must be a number from 1 to 10080 minutes"
     },
     {
       "args": {
@@ -128,61 +129,61 @@
           2
         ]
       },
-      "timeLimitMs": 120000
+      "error": "goal time_limit_minutes must be a number from 1 to 10080 minutes"
     },
     {
       "args": {
         "time_limit_minutes": []
       },
-      "error": "goal time_limit_minutes must be a positive number"
+      "error": "goal time_limit_minutes must be a number from 1 to 10080 minutes"
     },
     {
       "args": {
         "time_limit_minutes": {}
       },
-      "error": "goal time_limit_minutes must be a positive number"
+      "error": "goal time_limit_minutes must be a number from 1 to 10080 minutes"
     },
     {
       "args": {
         "time_limit_minutes": 1e+303
       },
-      "error": "goal duration exceeds 7 days"
+      "error": "goal time_limit_minutes must be a number from 1 to 10080 minutes"
     },
     {
       "args": {
         "time_limit_minutes": 1e+304
       },
-      "error": "goal duration must be positive"
+      "error": "goal time_limit_minutes must be a number from 1 to 10080 minutes"
     },
     {
       "args": {
         "time_limit_minutes": 1e+305
       },
-      "error": "goal duration must be positive"
+      "error": "goal time_limit_minutes must be a number from 1 to 10080 minutes"
     },
     {
       "args": {
         "time_limit_minutes": 1e+308
       },
-      "error": "goal duration must be positive"
+      "error": "goal time_limit_minutes must be a number from 1 to 10080 minutes"
     },
     {
       "args": {
         "time_limit_minutes": 1.7976931348623157e+308
       },
-      "error": "goal duration must be positive"
+      "error": "goal time_limit_minutes must be a number from 1 to 10080 minutes"
     },
     {
       "args": {
         "time_limit_minutes": -1e+308
       },
-      "error": "goal time_limit_minutes must be a positive number"
+      "error": "goal time_limit_minutes must be a number from 1 to 10080 minutes"
     },
     {
       "args": {
         "time_limit_minutes": 5e-324
       },
-      "timeLimitMs": 0
+      "error": "goal time_limit_minutes must be a number from 1 to 10080 minutes"
     }
   ]
 }

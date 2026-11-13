@@ -26,7 +26,8 @@ use crate::orch::util::spec_from_def;
 use crate::orch::util::text;
 
 pub const MAX_GOAL_TIME_LIMIT_MS: u64 = 7 * 24 * 60 * 60 * 1000;
-const ACTIONS: [&str; 4] = ["status", "create", "complete", "block"];
+const MAX_TOOL_MINUTES: f64 = 10_080.0;
+const ACTIONS: [&str; 5] = ["status", "create", "complete", "block", "extend"];
 /// Fields of the retired task/revision schema a restored provider may still fill from a frozen
 /// tool list; they carry nothing now and are ignored.
 const RETIRED_FIELDS: [&str; 4] = ["tasks", "updates", "revision", "time_mode"];
@@ -35,6 +36,7 @@ fn action_fields(action: &str) -> &'static [&'static str] {
     match action {
         "create" => &["action", "objective", "time_limit_minutes"],
         "block" => &["action", "blocker"],
+        "extend" => &["action", "extend_minutes"],
         _ => &["action"],
     }
 }
@@ -66,6 +68,8 @@ pub trait GoalPort: Send + Sync {
         time_limit_ms: Option<u64>,
     ) -> Result<GoalSnapshot, PortError>;
     async fn settle(&self, thread: &ThreadId, settlement: GoalSettlement) -> Result<GoalSnapshot, PortError>;
+    /// Adds `added_ms` to the time cap of an active or paused Goal that has one.
+    async fn extend(&self, thread: &ThreadId, added_ms: u64) -> Result<GoalSnapshot, PortError>;
 }
 
 #[derive(Serialize)]
@@ -116,7 +120,7 @@ fn validate(args: &Value) -> Result<String, String> {
     if !ACTIONS.contains(&action.as_str()) {
         return Err(format!("goal action must be one of: {}", ACTIONS.join(", ")));
     }
-    let tool_fields = ["action", "objective", "time_limit_minutes", "blocker"];
+    let tool_fields = ["action", "objective", "time_limit_minutes", "blocker", "extend_minutes"];
     let extras: Vec<&str> = object
         .keys()
         .map(String::as_str)
@@ -132,27 +136,25 @@ fn validate(args: &Value) -> Result<String, String> {
     Ok(action)
 }
 
-/// `toolTimeLimitMs` (`goal-tool-exec.mjs`): `Number(minutes)` must be positive, then `parseGoalDuration` of the ms
-/// (rounded, at most 7 days); `None` when the call carries none.
-fn time_limit_ms(args: &Value) -> Result<Option<u64>, String> {
-    let minutes = match args.get("time_limit_minutes") {
-        None | Some(Value::Null) => return Ok(None),
-        Some(Value::String(s)) if s.is_empty() => return Ok(None),
-        Some(value) => mixdog_js::to_number(value),
+/// `toolMinutesMs` (`goal-tool-exec.mjs`): a minutes field as validated ms. A JSON number from 1 to 10080, nothing
+/// coerced; then `parseGoalDuration` of the ms (`Math.round`, at most 7 days by the range).
+fn minutes_ms(value: &Value, field: &str) -> Result<u64, String> {
+    let minutes = match value {
+        Value::Number(n) => n.as_f64().unwrap_or(f64::NAN),
+        _ => f64::NAN,
     };
-    if !minutes.is_finite() || minutes <= 0.0 {
-        return Err("goal time_limit_minutes must be a positive number".to_owned());
+    if !minutes.is_finite() || !(1.0..=MAX_TOOL_MINUTES).contains(&minutes) {
+        return Err(format!("goal {field} must be a number from 1 to {MAX_TOOL_MINUTES} minutes"));
     }
-    // `parseGoalDuration` (`goal-state.mjs`) of the product: finite minutes can overflow to infinity here.
-    let product = minutes * 60_000.0;
-    if !product.is_finite() || product <= 0.0 {
-        return Err("goal duration must be positive".to_owned());
+    Ok((minutes * 60_000.0 + 0.5).floor() as u64)
+}
+
+/// `toolTimeLimitMs`: the create budget; `None` when the call carries none (absent or null).
+fn time_limit_ms(args: &Value) -> Result<Option<u64>, String> {
+    match args.get("time_limit_minutes") {
+        None | Some(Value::Null) => Ok(None),
+        Some(value) => minutes_ms(value, "time_limit_minutes").map(Some),
     }
-    let ms = product.round();
-    if ms > MAX_GOAL_TIME_LIMIT_MS as f64 {
-        return Err("goal duration exceeds 7 days".to_owned());
-    }
-    Ok(Some(ms as u64))
 }
 
 pub struct GoalTool {
@@ -192,6 +194,12 @@ impl Tool for GoalTool {
                 let limit = time_limit_ms(&args).map_err(|m| invalid("time_limit_minutes", m))?;
                 let objective = args.get("objective").and_then(Value::as_str).unwrap_or_default().to_owned();
                 reply(&self.goals.create(thread, objective, limit).await?, true)
+            }
+            // The user's explicit ask for more time (the description restricts it to that).
+            "extend" => {
+                let added = minutes_ms(args.get("extend_minutes").unwrap_or(&Value::Null), "extend_minutes")
+                    .map_err(|m| invalid("extend_minutes", m))?;
+                reply(&self.goals.extend(thread, added).await?, true)
             }
             "block" => {
                 let blocker = clean(args.get("blocker"));
@@ -249,22 +257,24 @@ mod tests {
         assert_eq!(validate(&json!({})).unwrap_err(), "goal action is required");
         assert_eq!(
             validate(&json!({"action":"stop"})).unwrap_err(),
-            "goal action must be one of: status, create, complete, block"
+            "goal action must be one of: status, create, complete, block, extend"
         );
-        // Node has no `extend` action (`goal-tool-defs.mjs`): it is an unknown action, and `extend_minutes` an unknown field.
-        assert_eq!(validate(&json!({"action":"extend","extend_minutes":5})).unwrap_err(), "goal action must be one of: status, create, complete, block");
+        // `extend_minutes` is a tool field (`TOOL_FIELDS`), so it is no unknown field on another action either.
+        assert_eq!(validate(&json!({"action":"extend","extend_minutes":5})), Ok("extend".to_owned()));
+        assert_eq!(validate(&json!({"action":"create","extend_minutes":5})), Ok("create".to_owned()));
         assert_eq!(
-            validate(&json!({"action":"create","extend_minutes":5})).unwrap_err(),
-            "goal arguments contain unknown fields: extend_minutes. Allowed for create: action, objective, time_limit_minutes"
+            validate(&json!({"action":"extend","bogus":1})).unwrap_err(),
+            "goal arguments contain unknown fields: bogus. Allowed for extend: action, extend_minutes"
         );
     }
 
-    /// Node's own `executeGoalTool` create over every case of the recorder (`record-goal-time-limit.mjs`), overflow included.
+    /// Node's own `executeGoalTool` create over every case of the recorder (`record-goal-time-limit.mjs`): strings,
+    /// booleans and out-of-range numbers are refused, nothing is coerced.
     #[test]
     fn the_time_limit_equals_nodes_for_every_recorded_case() {
         let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/goal-time-limit/golden.json")).expect("golden");
         let cases = golden["cases"].as_array().expect("cases");
-        assert!(cases.iter().any(|c| c["error"] == "goal duration must be positive" && c["args"]["time_limit_minutes"].as_f64().is_some_and(f64::is_finite)));
+        assert!(cases.iter().any(|c| c["error"] == "goal time_limit_minutes must be a number from 1 to 10080 minutes" && c["args"]["time_limit_minutes"].is_string()));
         for case in cases {
             let got = time_limit_ms(&case["args"]);
             match case.get("error") {
@@ -275,37 +285,30 @@ mod tests {
     }
 
     #[test]
-    fn the_time_limit_is_js_number_coerced_positive_and_at_most_seven_days() {
-        for (ok, want) in [(json!(1), 60_000), (json!(0.5), 30_000), (json!(2.5), 150_000), (json!(10080), 604_800_000), (json!("5"), 300_000), (json!(true), 60_000), (json!([2]), 120_000)] {
+    fn minutes_are_a_json_number_from_1_to_10080_and_nothing_is_coerced() {
+        for (ok, want) in [(json!(1), 60_000), (json!(2.5), 150_000), (json!(10080), 604_800_000), (json!(1.00001), 60_001)] {
             assert_eq!(time_limit_ms(&json!({"time_limit_minutes": ok})), Ok(Some(want)), "create {ok}");
+            assert_eq!(minutes_ms(&ok, "extend_minutes"), Ok(want), "extend {ok}");
         }
-        for bad in [json!(0), json!(-5), json!(false), json!("x"), json!({})] {
+        for bad in [json!(0), json!(0.5), json!(-5), json!(10080.4), json!(10081), json!("5"), json!(""), json!(true), json!([2]), json!({})] {
             assert_eq!(
                 time_limit_ms(&json!({"time_limit_minutes": bad})).unwrap_err(),
-                "goal time_limit_minutes must be a positive number",
+                "goal time_limit_minutes must be a number from 1 to 10080 minutes",
                 "create {bad}"
             );
         }
-        assert_eq!(time_limit_ms(&json!({"time_limit_minutes": 10081})).unwrap_err(), "goal duration exceeds 7 days");
+        assert_eq!(minutes_ms(&Value::Null, "extend_minutes").unwrap_err(), "goal extend_minutes must be a number from 1 to 10080 minutes");
         assert_eq!(time_limit_ms(&json!({"time_limit_minutes": null})), Ok(None));
-        assert_eq!(time_limit_ms(&json!({"time_limit_minutes": ""})), Ok(None));
-    }
-
-    /// The tool definition is Node's own (`goal-tool-defs.mjs`): four actions, no `extend`.
-    #[test]
-    fn the_definition_has_nodes_four_actions() {
-        let def: Value = serde_json::from_str(include_str!("defs/goal.json")).expect("goal.json");
-        assert!(!def["description"].as_str().expect("description").contains("extend"));
-        let props = &def["inputSchema"]["properties"];
-        assert_eq!(props["action"]["enum"], json!(["status", "create", "complete", "block"]));
-        assert!(props.get("extend_minutes").is_none());
-    }
-
-    #[test]
-    fn time_limit_converts_minutes_and_rejects_nonpositive() {
-        assert_eq!(time_limit_ms(&json!({"time_limit_minutes": 2})), Ok(Some(120_000)));
         assert_eq!(time_limit_ms(&json!({})), Ok(None));
-        assert!(time_limit_ms(&json!({"time_limit_minutes": 0})).is_err());
-        assert_eq!(time_limit_ms(&json!({"time_limit_minutes": 20000})).unwrap_err(), "goal duration exceeds 7 days");
+    }
+
+    /// The tool definition is Node's own (`goal-tool-defs.mjs`): five actions, `extend` with its minutes.
+    #[test]
+    fn the_definition_has_nodes_five_actions() {
+        let def: Value = serde_json::from_str(include_str!("defs/goal.json")).expect("goal.json");
+        assert!(def["description"].as_str().expect("description").contains("extend adds minutes"));
+        let props = &def["inputSchema"]["properties"];
+        assert_eq!(props["action"]["enum"], json!(ACTIONS));
+        assert_eq!(props["extend_minutes"]["maximum"], json!(10080));
     }
 }

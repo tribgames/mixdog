@@ -8,7 +8,7 @@
     "idempotentHint": false,
     "openWorldHint": false
   },
-  "description": "Manage shell tasks. Completion is delivered automatically; wait only when you need the result now, never poll with read. wait returns when the task finishes, or when new user input or any task notification arrives (the task keeps running). read/wait return new output, prioritizing the tail on completion. Use read on the log path for omitted content.",
+  "description": "Manage shell tasks. Completion is delivered automatically; wait only when no other work remains, never poll with read. wait returns when the task finishes, or when new user input or any task notification arrives (the task keeps running). read/wait return new output, prioritizing the tail on completion. Use read on the log path for omitted content.",
   "inputSchema": {
     "type": "object",
     "properties": {

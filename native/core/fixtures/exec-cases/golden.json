@@ -762,7 +762,7 @@
       "test": "scripts/shellhardening/guardians-background.slow.test.mjs",
       "command": "Write-Output started; Start-Sleep -Seconds 20",
       "holdMs": 5000,
-      "result": "background task\ntask_id: <ID>\nlabel: Write-Output started; Start-Sleep -Seconds 20\nstatus: running\nstarted: 2026-11-11T23:26:29.387Z\nlogs: C:/mixdog-build/tmp/w27/exec-work/auto-background-live-zsd6dt/mixdog-shell-fixture-l8jfqe/MIXDOG_DATA_DIR/shell-output/shell_d9ed1a75.{stdout,stderr}\nmoved to background after the 5s hold; still running. Its result is delivered automatically when it finishes; use task wait only if you need it now.\n\n[progress] +0.0 KB, +1 lines since you last saw it · last line: \"started\" — still running, not an error\n\n[stdout]\nstarted\n"
+      "result": "background task\ntask_id: <ID>\nlabel: Write-Output started; Start-Sleep -Seconds 20\nstatus: running\nstarted: 2026-11-11T23:26:29.387Z\nlogs: C:/mixdog-build/tmp/w27/exec-work/auto-background-live-zsd6dt/mixdog-shell-fixture-l8jfqe/MIXDOG_DATA_DIR/shell-output/shell_d9ed1a75.{stdout,stderr}\nmoved to background after the 5s hold; still running. Its result is delivered automatically when it finishes; use task wait only if no other work remains.\n\n[progress] +0.0 KB, +1 lines since you last saw it · last line: \"started\" — still running, not an error\n\n[stdout]\nstarted\n"
     },
     "descendants-live": {
       "test": "scripts/shellhardening/guardians-background.slow.test.mjs",

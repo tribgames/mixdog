@@ -826,9 +826,9 @@
       "sha256": "f2a07872ed8467b9cd299ac9a08a25d557bd95011eadea10602cab72eedcaef3"
     },
     {
-      "bytes": 549,
+      "bytes": 555,
       "path": "shell/shell-background-start.json",
-      "sha256": "9dcc7cdbb7e1e40736c4cb3636a51003887ef7800886e3a585e646ea0b8c6c9e"
+      "sha256": "8fa69d8218d1e676b49c3b2894b1a96c453e532017f6c722c2feb560e429ec69"
     },
     {
       "bytes": 246,
@@ -841,9 +841,9 @@
       "sha256": "7fae529c699130e663336d75996c08e4037acb74c17433c9146edba473f5ae20"
     },
     {
-      "bytes": 586,
+      "bytes": 592,
       "path": "shell/shell-hold-expiry.json",
-      "sha256": "9c1099b4618572f534c0455454493fcd928c57ef45159d87e5883254399063cc"
+      "sha256": "de382f425e75ef750a24892ed83b8dca490ff8af6a4200ee016e453852014144"
     },
     {
       "bytes": 273,
@@ -980,5 +980,5 @@
     }
   ],
   "set": "tools",
-  "totalBytes": 2438676
+  "totalBytes": 2438688
 }

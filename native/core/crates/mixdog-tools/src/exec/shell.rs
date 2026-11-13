@@ -98,7 +98,7 @@ pub(crate) const SURVIVING_DESCENDANTS_WARNING: &str =
 pub(crate) const SURVIVING_DESCENDANTS_UNREACHABLE_WARNING: &str =
     "⚠️ the command finished but left a descendant running that this process can no longer signal (its parent exited and Windows keeps no live link to it). It stays tracked as the task below and its completion is reported, but `task cancel` may not be able to terminate it.";
 const BACKGROUND_GUIDANCE: &str =
-    "Its result is delivered automatically when it finishes; use task wait only if you need it now.";
+    "Its result is delivered automatically when it finishes; use task wait only if no other work remains.";
 
 /// Why the command left the foreground (`promotion-results.mjs` `backgroundVerb`).
 #[derive(Clone, Copy, PartialEq, Eq)]

@@ -1,17 +1,17 @@
 {
-  "command": "node benchmarks/rust-core/recorders/record-surface-preview.mjs --tree <tree> --patch benchmarks/rust-core/recorders/node-patches/node-fix-spawn-model-settings.patch,benchmarks/rust-core/recorders/node-patches/node-change-shell-cover-tools.patch",
+  "command": "node benchmarks/rust-core/recorders/record-surface-preview.mjs --tree <tree>",
   "fileCount": 1,
   "files": [
     {
-      "bytes": 181695,
+      "bytes": 183514,
       "path": "golden.json",
-      "sha256": "a15859a0cb28cc869105f7ac6f4d660b7865b758ab1ac3b6f90cc8eb6ff20849"
+      "sha256": "95548a204236e8a9817d70e4f1d2714a8ed42090df8c105ac95f5f19b63b1eb3"
     }
   ],
   "inputs": [
     {
       "path": "benchmarks/rust-core/recorders/lib/common.mjs",
-      "sha256": "fba9d6f5cbb2a6fac09a45ea052c4b9b00c0fbf6440dd75bd2fbbbed8a2f66b8"
+      "sha256": "da506d542901b83b8a599b8a6443e86ec265aeddbe37ec1c8b28ccb4caa1f106"
     },
     {
       "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
@@ -24,51 +24,17 @@
   ],
   "nodeVersion": "v22.20.0",
   "product": {
-    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
-    "baseCommit": "b6f10295a2f698afc85332467192de28500bd146",
-    "commit": "b6f10295a2f698afc85332467192de28500bd146",
-    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
-    "exact": true,
-    "files": 9145,
-    "patches": [
-      {
-        "file": "node-fix-spawn-model-settings.patch",
-        "paths": [
-          "src/session-runtime/services/agent-tool/model-select.mjs",
-          "src/session-runtime/services/agent-tool/spawn-model-settings.test.mjs",
-          "src/session-runtime/services/agent-tool/spawn-preset.mjs",
-          "src/session-runtime/services/agent-tool/tool-def.mjs",
-          "src/tui/app/model-picker/route-selection/effort.mjs"
-        ],
-        "sha256": "1d24877bf3c2d410716946070fe56cd66f4f34b400b82690818a98c2bf266502"
-      },
-      {
-        "file": "node-change-shell-cover-tools.patch",
-        "paths": [
-          "src/runtime/agent/orchestrator/session/loop/tool-exec.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/arg-guard.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/bash-tool/misuse-guard.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/bash-tool/misuse-guard.test.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/bash-tool/tool-cover.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/bash-tool/tool-cover.test.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/machine-tool.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/machine-tool.test.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/read-args.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/read-tail.test.mjs",
-          "src/runtime/agent/orchestrator/tools/builtin/read-tool.mjs"
-        ],
-        "sha256": "ca6b18ef1d71590b7e55ff03af464ed2956ffa94e67533b412d1b01df2a99088"
-      }
-    ],
+    "appsSha256": "f66e41a34f39697c75ca2955626eedfb8e105efb5043256fe8b3af5f4c82099a",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9239,
     "refComparison": {
-      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
-      "commitFilesMissingFromTree": 0,
+      "closestCommit": "d392ffa546f77a40323628fe35805552bb6fa4c8",
+      "commitFilesMissingFromTree": 288,
       "exact": false,
-      "filesDifferingFromCommit": 18
+      "filesDifferingFromCommit": 626
     },
-    "srcSha256": "88edfae3d00e08a9f1ef8fbbf84788351f0ea9d6d6ca8ab1b4043a3c229b4351",
+    "srcSha256": "ec0c02f005655288486e646f3e92c145e9fefcb8c718e6d60a0831fe1a9fb567",
     "tree": "product tree loaded by the recorder",
     "treeKind": "archive",
     "version": "1.4.5"
@@ -76,5 +42,5 @@
   "recorder": "benchmarks/rust-core/recorders/record-surface-preview.mjs",
   "recorderSha256": "47a294383fde4e75dede56fb327186a69a4398bad85acc663b191cddecf2c559",
   "set": "surface-host",
-  "totalBytes": 181695
+  "totalBytes": 183514
 }

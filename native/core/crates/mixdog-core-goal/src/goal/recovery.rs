@@ -63,6 +63,9 @@ pub async fn recover_active_goals(source: &dyn RecoverySource) -> RecoverySummar
                 source.log(&format!("active Goal recovery failed session={id}: {}", error.message));
             }
         }
+        // One session per turn of the scheduler: a restart with many active Goals resumes them in a
+        // paced sequence, never as one uninterrupted run that holds the task's thread.
+        tokio::task::yield_now().await;
     }
     summary
 }

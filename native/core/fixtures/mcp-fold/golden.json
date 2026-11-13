@@ -17,7 +17,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -71,7 +71,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -166,7 +166,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -220,7 +220,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -314,7 +314,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -368,7 +368,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -484,7 +484,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -538,7 +538,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -676,7 +676,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -730,7 +730,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -846,7 +846,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -900,7 +900,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -1017,7 +1017,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -1071,7 +1071,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -1165,7 +1165,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -1219,7 +1219,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -1336,7 +1336,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -1390,7 +1390,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -1495,7 +1495,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -1550,7 +1550,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -1666,7 +1666,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -1721,7 +1721,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -1826,7 +1826,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -1888,7 +1888,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -2011,7 +2011,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -2073,7 +2073,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -2196,7 +2196,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -2258,7 +2258,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -2370,7 +2370,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -2432,7 +2432,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -2554,7 +2554,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -2616,7 +2616,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -2729,7 +2729,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -2763,7 +2763,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -2869,7 +2869,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -2903,7 +2903,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -2997,7 +2997,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -3051,7 +3051,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -3168,7 +3168,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -3222,7 +3222,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -3366,7 +3366,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -3420,7 +3420,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -3578,7 +3578,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -3632,7 +3632,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -3773,7 +3773,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -3827,7 +3827,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -3947,7 +3947,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -4001,7 +4001,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -4120,7 +4120,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -4174,7 +4174,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -4325,7 +4325,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -4379,7 +4379,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -4501,7 +4501,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -4555,7 +4555,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -4686,7 +4686,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -4740,7 +4740,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -4890,7 +4890,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -4944,7 +4944,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -5077,7 +5077,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -5139,7 +5139,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -5275,7 +5275,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -5337,7 +5337,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -5502,7 +5502,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -5564,7 +5564,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -5709,7 +5709,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -5773,7 +5773,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -5880,7 +5880,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -5944,7 +5944,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -6066,7 +6066,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -6130,7 +6130,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -6240,7 +6240,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -6294,7 +6294,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -6402,7 +6402,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -6456,7 +6456,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -6602,7 +6602,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -6656,7 +6656,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -6807,7 +6807,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -6861,7 +6861,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -7015,7 +7015,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -7069,7 +7069,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -7164,7 +7164,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -7218,7 +7218,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -7313,7 +7313,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -7367,7 +7367,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -7463,7 +7463,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -7525,7 +7525,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -7627,7 +7627,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -7689,7 +7689,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -7791,7 +7791,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -7853,7 +7853,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -7956,7 +7956,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -8010,7 +8010,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -8126,7 +8126,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -8180,7 +8180,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -8318,7 +8318,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -8372,7 +8372,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -8536,7 +8536,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -8590,7 +8590,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -8754,7 +8754,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -8808,7 +8808,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -8968,7 +8968,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -9030,7 +9030,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -9143,7 +9143,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -9205,7 +9205,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -9307,7 +9307,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -9369,7 +9369,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -9484,7 +9484,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -9546,7 +9546,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -9675,7 +9675,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -9729,7 +9729,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -9834,7 +9834,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -9888,7 +9888,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -10021,7 +10021,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -10075,7 +10075,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -10197,7 +10197,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -10251,7 +10251,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -10347,7 +10347,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -10409,7 +10409,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -10521,7 +10521,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -10583,7 +10583,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -10705,7 +10705,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -10767,7 +10767,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -10881,7 +10881,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -10943,7 +10943,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -11044,7 +11044,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -11098,7 +11098,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -11204,7 +11204,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -11258,7 +11258,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -11375,7 +11375,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -11429,7 +11429,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -11561,7 +11561,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -11615,7 +11615,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -11751,7 +11751,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -11805,7 +11805,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -11947,7 +11947,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -12001,7 +12001,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -12151,7 +12151,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -12205,7 +12205,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -12322,7 +12322,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -12376,7 +12376,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -12493,7 +12493,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -12547,7 +12547,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -12683,7 +12683,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -12737,7 +12737,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -12874,7 +12874,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -12929,7 +12929,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -13081,7 +13081,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -13134,7 +13134,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -13269,7 +13269,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -13323,7 +13323,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -13430,7 +13430,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -13484,7 +13484,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -13604,7 +13604,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -13658,7 +13658,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -13777,7 +13777,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -13831,7 +13831,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -13940,7 +13940,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -14002,7 +14002,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -14123,7 +14123,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -14185,7 +14185,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -14300,7 +14300,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -14362,7 +14362,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -14478,7 +14478,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -14536,7 +14536,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -14650,7 +14650,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -14712,7 +14712,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -14825,7 +14825,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -14887,7 +14887,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -15006,7 +15006,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -15060,7 +15060,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -15180,7 +15180,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -15234,7 +15234,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -15357,7 +15357,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -15419,7 +15419,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -15534,7 +15534,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -15588,7 +15588,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -15695,7 +15695,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -15749,7 +15749,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -15850,7 +15850,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -15904,7 +15904,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -16012,7 +16012,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -16066,7 +16066,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -16166,7 +16166,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -16220,7 +16220,7 @@
           {
             "$tool": "shell",
             "variant": "claude",
-            "hash": "1338c4ef7c9c6132"
+            "hash": "9cf95c927942dd43"
           },
           {
             "$tool": "web_search",
@@ -16324,7 +16324,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",
@@ -16378,7 +16378,7 @@
               {
                 "$tool": "shell",
                 "variant": "claude",
-                "hash": "1338c4ef7c9c6132"
+                "hash": "9cf95c927942dd43"
               },
               {
                 "$tool": "web_search",

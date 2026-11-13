@@ -4,28 +4,28 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 3623,
+      "bytes": 4647,
       "path": "golden.json",
-      "sha256": "62c122a4cb4e973083ea467da647d9bfca6518047341c760fb77f1bb463893d7"
+      "sha256": "f1ab2852f3f07f1dd9e9857540df5c634b4d7d0359c44ce7bc6348e4c16d739e"
     }
   ],
   "product": {
-    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "appsSha256": "f66e41a34f39697c75ca2955626eedfb8e105efb5043256fe8b3af5f4c82099a",
     "commit": null,
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
-    "files": 9139,
+    "files": 9239,
     "refComparison": {
-      "closestCommit": "b20c78b8dd46733a892afc333a4287898f5ecebd",
-      "commitFilesMissingFromTree": 119,
+      "closestCommit": "d392ffa546f77a40323628fe35805552bb6fa4c8",
+      "commitFilesMissingFromTree": 288,
       "exact": false,
-      "filesDifferingFromCommit": 137
+      "filesDifferingFromCommit": 626
     },
-    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "srcSha256": "ec0c02f005655288486e646f3e92c145e9fefcb8c718e6d60a0831fe1a9fb567",
     "tree": "product tree loaded by the recorder",
     "treeKind": "archive",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-goal-time-limit.mjs",
   "set": "goal-time-limit",
-  "totalBytes": 3623
+  "totalBytes": 4647
 }
