@@ -290,13 +290,32 @@ fn refuse(message: impl Into<String>) -> TurnError {
     TurnError { message: message.into(), data: json!({}), provider_error: None }
 }
 
-/// The turn's working directory: the header's `cwd`.
+/// The turn's working directory: the header's `cwd`, else the folder the daemon runs in. Node's turn runs in
+/// `cwdOverride || session.cwd` (`ask-turn-execute.mjs:193`), which is null for a session made without one (a hidden
+/// role's dispatch passes null rather than `process.cwd()`, `session-prep.mjs:62`), and each reader of it falls back to
+/// `process.cwd()` (`ask-session.mjs:109`, `record-outcome.mjs:125`). A turn refused for it failed every memory cycle1 call.
 fn cwd_of(header: &Header) -> Result<PathBuf, TurnError> {
     let cwd = text(header, "cwd");
-    if cwd.is_empty() {
-        return Err(refuse("the session has no working directory"));
+    if !cwd.is_empty() {
+        return Ok(Path::new(cwd).to_path_buf());
     }
-    Ok(Path::new(cwd).to_path_buf())
+    std::env::current_dir().map_err(|_| refuse("the session has no working directory"))
+}
+
+#[cfg(test)]
+mod cwd_tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn a_session_without_a_working_directory_runs_in_the_daemons_folder() {
+        let named = json!({ "cwd": " C:/work " }).as_object().unwrap().clone();
+        assert_eq!(cwd_of(&named).unwrap(), Path::new("C:/work"));
+        let here = std::env::current_dir().unwrap();
+        assert_eq!(cwd_of(&json!({}).as_object().unwrap().clone()).unwrap(), here, "a header without one");
+        assert_eq!(cwd_of(&json!({ "cwd": " " }).as_object().unwrap().clone()).unwrap(), here, "an empty one");
+    }
 }
 
 /// The registry's connected-server tools (`isMcpTool`, `mcp__…`), which a non-bridge session's call reaches
