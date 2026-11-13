@@ -1,7 +1,7 @@
 import { getModelMetadataSync } from '../../../shared/llm/model-catalog.mjs';
 
-// The thinkingLevel values the Gemini wire accepts.
-const LEVELS = ['minimal', 'low', 'medium', 'high'];
+// The thinkingLevel values the Gemini wire accepts (Gemini 4 Hydrogen takes xhigh).
+const LEVELS = ['minimal', 'low', 'medium', 'high', 'xhigh'];
 
 // The thinkingLevel values the catalogs declare for the model (provider live
 // roster, then models.dev / LiteLLM rows, resolved by getModelMetadataSync),
@@ -51,7 +51,8 @@ function budgetSpec(model) {
 }
 
 // Levels documented for models whose ladder differs from the generic wire
-// vocabulary (a catalog ladder, when declared, still takes precedence).
+// vocabulary. They take precedence over catalog ladders, which can list
+// levels the server rejects (Gemini 4 Argon returns 400 for xhigh).
 export function geminiDocumentedThinkingLevels(model) {
   const bare = String(model || '')
     .replace(/^models\//i, '')
@@ -105,7 +106,7 @@ export function geminiThinkingConfig(model, opts = {}, { includeThoughts, provid
     }
     config.thinkingBudget = spec.efforts[level];
   } else if (level) {
-    const supported = catalogThinkingLevels(model, provider) ?? geminiDocumentedThinkingLevels(model) ?? LEVELS;
+    const supported = geminiDocumentedThinkingLevels(model) ?? catalogThinkingLevels(model, provider) ?? LEVELS;
     if (!supported.includes(level)) {
       throw new TypeError(`${model} supports thinking levels ${supported.join(', ')}; received ${level}.`);
     }

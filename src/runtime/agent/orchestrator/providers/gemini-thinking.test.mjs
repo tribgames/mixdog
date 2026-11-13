@@ -97,13 +97,24 @@ test('catalog effort ladder decides the allowed levels for gemini-4-argon, by th
       thinkingLevel: level,
     });
   }
-  // 'xhigh' is a catalog value the Gemini wire cannot take; 'minimal' is not declared.
+  // Argon's documented ladder overrides a catalog that lists xhigh (the server answers 400).
   assert.throws(
     () => geminiThinkingConfig('gemini-4-argon', { effort: 'xhigh' }),
     /supports thinking levels low, medium, high/
   );
   assert.throws(() => geminiThinkingConfig('gemini-4-argon', { effort: 'minimal' }), /supports thinking levels/);
-  assert.ok(catalogHits.every((hit) => hit === 'gemini:gemini-4-argon'));
+});
+
+test('a catalog ladder with xhigh lets gemini-4-hydrogen send thinkingLevel xhigh', () => {
+  catalogRows.clear();
+  catalogRows.set('vertex-ai:gemini-4-hydrogen', effortRow('low', 'medium', 'high', 'xhigh'));
+  assert.deepEqual(geminiThinkingConfig('gemini-4-hydrogen', { effort: 'xhigh' }, { provider: 'vertex-ai' }), {
+    thinkingLevel: 'xhigh',
+  });
+  assert.throws(
+    () => geminiThinkingConfig('gemini-4-hydrogen', { effort: 'minimal' }, { provider: 'vertex-ai' }),
+    /supports thinking levels low, medium, high, xhigh/
+  );
 });
 
 test('a catalog ladder decides the allowed levels for any id, whatever its name says', () => {
