@@ -132,6 +132,9 @@ impl WorktreeMaintenance {
                         log_reconcile(&line);
                     }
                 }
+                // Node's reconcile takes no signal and runs to its end; here the core's stop cancels it, which is not a failure to report
+                // (every quit within the reconcile's run logged "worktree reconcile failed: This operation was aborted").
+                Err(_) if reconcile_cancel.is_cancelled() => {}
                 Err(error) => log_reconcile(&format!("worktree reconcile failed: {error}")),
             }
         }));
