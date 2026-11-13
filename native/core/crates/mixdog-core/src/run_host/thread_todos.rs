@@ -122,22 +122,33 @@ mod tests {
         }
     }
 
-    /// Node's `executeTodoTool` over the recorded stored lists: every operation (the refusals
-    /// too) runs through the production `run` and `ThreadTodos::update` over `SessionThreads`
-    /// with Node's clock value, and the reply or error and the header it leaves equal Node's
-    /// (`todo` and the session's `updatedAt`). A refusal leaves the header as it was.
+    /// The tool's operations through the production `run` and `ThreadTodos::update` over `SessionThreads`: a commit
+    /// leaves the list and the session's `updatedAt` at the call's time, a refusal leaves the header as it was. (Node's
+    /// recorded operations were `init`/`append`/`rm` by item wording; the tool is now `set`/`advance` and step numbers,
+    /// so the cases are this tool's own. What a stored list reads as, and a cleared one, are still Node's, above and
+    /// below.)
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn every_recorded_operation_leaves_the_record_node_leaves() {
+    async fn every_operation_commits_the_record_or_leaves_it() {
         let golden = golden();
         let at = golden["at"].as_i64().expect("at");
-        let (mut committed, mut refused) = (0, 0);
-        for case in golden["commits"].as_array().expect("commits") {
-            let name = &case["name"];
-            let (todos, threads, thread, _rig) = store(json!({ "todo": case["before"], "updatedAt": 1 })).await;
+        let two = json!({ "phases": [{ "name": "Tasks", "tasks": [{ "content": "A", "status": "in_progress" }, { "content": "B", "status": "pending" }] }], "updatedAt": 5 });
+        let cases = [
+            ("set from nothing", Value::Null, json!({ "op": "set", "items": ["A", "B"] }), Ok("0/2\nTasks\n  [>] A\n  [ ] B")),
+            ("set over open steps", two.clone(), json!({ "op": "set", "items": ["A", "C"], "done": 1 }), Ok("1/2\nTasks\n  [x] A\n  [>] C")),
+            ("advance", two.clone(), json!({ "op": "advance", "note": "ok" }), Ok("1/2 · advance: A · next: B")),
+            ("done by number", two.clone(), json!({ "op": "done", "index": 2 }), Ok("1/2 · done: B · next: A")),
+            ("start by number", two.clone(), json!({ "op": "start", "index": 2 }), Ok("0/2 · start: B · next: B")),
+            ("drop by number", two.clone(), json!({ "op": "drop", "index": 2 }), Ok("0/1 · drop: B · next: A")),
+            ("advance with no list", Value::Null, json!({ "op": "advance" }), Err("todo: the list is empty; set it first")),
+            ("a number past the list", two.clone(), json!({ "op": "done", "index": 3 }), Err("todo: index is a step number from 1 to 2")),
+            ("an operation of the earlier tool", two.clone(), json!({ "op": "init", "items": ["Z"] }), Err("todo: op must be one of set, advance, done, start, drop, view")),
+        ];
+        for (name, before_todo, args, want) in cases {
+            let (todos, threads, thread, _rig) = store(json!({ "todo": before_todo, "updatedAt": 1 })).await;
             let before = threads.header(&thread).await.expect("header");
             let mut reply = None;
             let result = todos
-                .update(&thread, &mut |list| match mixdog_tools::state::todo::run(list, &case["args"], at) {
+                .update(&thread, &mut |list| match mixdog_tools::state::todo::run(list, &args, at) {
                     Ok(mixdog_tools::state::todo::TodoRun::Commit { list, reply: r }) => {
                         reply = Some(r);
                         Ok(list)
@@ -150,24 +161,21 @@ mod tests {
                 })
                 .await;
             let header = threads.header(&thread).await.expect("header");
-            match (&case["error"], result) {
-                (Value::String(want), Err(got)) => {
-                    assert_eq!(&got, want, "{name}");
+            match (want, result) {
+                (Err(want), Err(got)) => {
+                    assert_eq!(got, want, "{name}");
                     // Nothing moved: not the list, not the session's time.
                     assert_eq!((header.get("todo"), header.get("updatedAt")), (before.get("todo"), before.get("updatedAt")), "{name}");
-                    assert_eq!(header.get("todo").unwrap_or(&Value::Null), &case["after"]["todo"], "{name}");
-                    assert_eq!(header["updatedAt"], case["after"]["updatedAt"], "{name}");
-                    refused += 1;
                 }
-                (Value::Null, Ok(())) => {
-                    assert_eq!(json!(reply), case["reply"], "{name}");
-                    assert_eq!((&header["todo"], &header["updatedAt"]), (&case["after"]["todo"], &case["after"]["updatedAt"]), "{name}");
-                    committed += 1;
+                (Ok(want), Ok(())) => {
+                    assert_eq!(reply.as_deref(), Some(want), "{name}");
+                    assert_eq!((&header["todo"]["updatedAt"], &header["updatedAt"]), (&json!(at), &json!(at)), "{name}");
+                    assert_eq!(mixdog_core_ports::ports::todo_list::list_of(&header).render(), todos.read(&thread).await.render(), "{name}");
                 }
-                (want, got) => panic!("{name}: Node {want}, here {got:?}"),
+                (want, got) => panic!("{name}: wanted {want:?}, got {got:?}"),
             }
         }
-        assert_eq!((committed, refused), (6, 3));        let cleared = &golden["cleared"];
+        let cleared = &golden["cleared"];
         let (todos, threads, thread, rig) = store(json!({ "todo": cleared["before"] })).await;
         // Node stamps the clear from its clock, frozen at `at` in the recording: drive ours to it.
         rig.clock.0.store(at as u64, std::sync::atomic::Ordering::SeqCst);

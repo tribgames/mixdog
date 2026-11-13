@@ -51,7 +51,7 @@ pub(crate) fn spec_from_def(
 
 #[cfg(test)]
 mod tests {
-    /// Every embedded definition is Node's definition object, key for key
+    /// Every embedded definition but `todo`'s is Node's definition object, key for key
     /// (`fixtures/tool-definitions/definitions.json`, `record-tool-definitions.mjs`, through `mixdog_js::fixture_tools`): title, trigger,
     /// description, inputSchema and every hint as the definition states it, `idempotentHint` and an
     /// explicit `agentHidden: false` included (`ask_user` reads read-only but not idempotent).
@@ -71,7 +71,11 @@ mod tests {
             let spec = super::spec_from_def(def, false, &[]);
             let node = mixdog_js::fixture_tools::definition(&spec.name).expect("a Node definition");
             let got = spec.definition();
-            assert_eq!(got, node, "{}", spec.name);
+            // `todo` is this core's own: `set` (the whole plan), `advance` and step numbers, where Node's took `init`,
+            // `append`, `rm` and item wordings. Its hints are still Node's.
+            if spec.name != "todo" {
+                assert_eq!(got, node, "{}", spec.name);
+            }
             assert_eq!(got["annotations"].to_string(), node["annotations"].to_string(), "{} annotations", spec.name);
         }
         let ask = defs.iter().map(|def| super::spec_from_def(def, false, &[])).find(|spec| spec.name == "ask_user").expect("ask_user");
