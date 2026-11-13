@@ -59,6 +59,33 @@ test('a session whose runtime loads after the turn starts is linked on a later s
   assert.equal(getProgressWatchdogState(mgr, 'worker').registered, false);
 });
 
+test('a turn that released its runtime is not stopped for the time the job ran before', async () => {
+  process.env.MIXDOG_AGENT_TRACE_DISABLE = '1';
+  const idle = { firstTransportMs: 0, firstSemanticMs: 0, idleStaleMs: 1500 };
+  let live = true;
+  let signal = null;
+  const mgr = {
+    // A live turn keeps reporting progress; then its runtime is released.
+    getSessionProgressSnapshot: () => (live ? { stage: 'streaming', lastProgressAt: Date.now() } : null),
+    linkParentSignalToSession: (_id, parentSignal) => {
+      signal = parentSignal;
+      return () => {};
+    },
+  };
+  const handle = createProgressWatchdogRegistry({ mgr }).start('worker', idle);
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  // The job outlives the idle window while its turn is live.
+  await sleep(2600);
+  assert.equal(signal.aborted, false);
+  live = false;
+  await sleep(1100);
+  assert.equal(signal.aborted, false, 'the release starts a fresh idle window');
+  // A job that never settles after the release is still stopped.
+  await sleep(1600);
+  assert.equal(signal.aborted, true);
+  handle.stop();
+});
+
 test('stopping a registered watchdog clears its state and abort listener', () => {
   let unlinked = 0;
   const mgr = {

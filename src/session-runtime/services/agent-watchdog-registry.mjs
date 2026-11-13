@@ -106,6 +106,7 @@ export function createProgressWatchdogRegistry({ mgr }) {
         }
       }
     }
+    if (snapshot) state.lastSnapshotAt = now;
     const abortErr = snapshot ? evaluateAgentWatchdogAbort(snapshot, now, watchdogPolicy) : null;
     // No progress snapshot: fall back to the coarse last-progress timestamp so a
     // session that never reports structured progress can still stall out.
@@ -130,7 +131,12 @@ export function createProgressWatchdogRegistry({ mgr }) {
           reported = 0;
         }
       }
-      const last = reported || anchorTs;
+      // A finished turn releases its runtime before the spawn settles, so the
+      // snapshot vanishes while the job is still wrapping up. Measuring that
+      // gap from the registration anchor stopped every agent that had run
+      // longer than the idle window the moment its turn ended; the window
+      // starts when the snapshot was last seen instead.
+      const last = reported || state.lastSnapshotAt || anchorTs;
       if (watchdogPolicy.idleStaleMs > 0 && now - last > watchdogPolicy.idleStaleMs) {
         abortOnTimeout(controller, {
           sessionId,
