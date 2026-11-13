@@ -28,11 +28,46 @@ test('the packaged core binary sits beside the resources', () => {
   assert.equal(coreBinaryPath(true, 'res', 'linux'), join('res', 'core', 'mixdogd'));
 });
 
-test('on Windows a core named as the app is started when the install has one', () => {
+test('on Windows the core is started under the name of the app through a hard link the app keeps current', () => {
+  const bin = join('res', 'core', 'mixdogd.exe');
   const named = join('res', 'core', 'Mixdog.exe');
-  assert.equal(coreLaunchPath(true, 'res', 'win32', (path) => path === named), named);
-  assert.equal(coreLaunchPath(true, 'res', 'win32', () => false), join('res', 'core', 'mixdogd.exe'));
-  assert.equal(coreLaunchPath(true, 'res', 'linux', () => true), join('res', 'core', 'mixdogd'));
+  const world = (files) => {
+    const calls = [];
+    return {
+      calls,
+      fs: {
+        identity: (path) => files[path] ?? null,
+        link: (existing, path) => {
+          calls.push(`link ${path}`);
+          if (files.refuseLink) throw new Error('EPERM');
+          files[path] = files[existing];
+        },
+        remove: (path) => {
+          calls.push(`remove ${path}`);
+          delete files[path];
+        },
+      },
+    };
+  };
+  // No link yet: it is made.
+  let w = world({ [bin]: 'a' });
+  assert.equal(coreLaunchPath(true, 'res', 'win32', w.fs), named);
+  assert.deepEqual(w.calls, [`remove ${named}`, `link ${named}`]);
+  // The link is the core: nothing is touched.
+  w = world({ [bin]: 'a', [named]: 'a' });
+  assert.equal(coreLaunchPath(true, 'res', 'win32', w.fs), named);
+  assert.deepEqual(w.calls, []);
+  // The core was replaced: the name moves to the new file.
+  w = world({ [bin]: 'b', [named]: 'a' });
+  assert.equal(coreLaunchPath(true, 'res', 'win32', w.fs), named);
+  assert.deepEqual(w.calls, [`remove ${named}`, `link ${named}`]);
+  // A link that cannot be made, or no core: the plain binary.
+  w = world({ [bin]: 'a', refuseLink: true });
+  assert.equal(coreLaunchPath(true, 'res', 'win32', w.fs), bin);
+  assert.equal(coreLaunchPath(true, 'res', 'win32', world({}).fs), bin);
+  // Elsewhere there is no second name.
+  assert.equal(coreLaunchPath(true, 'res', 'linux', world({}).fs), join('res', 'core', 'mixdogd'));
+  assert.equal(coreLaunchPath(false, 'res', 'win32', world({}).fs), process.env.MIXDOGD_BIN || 'mixdogd');
 });
 
 test('launching the core spawns it detached with the given environment', async (context) => {
