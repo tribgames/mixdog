@@ -188,6 +188,11 @@ impl crate::session::directory::OwnerTeardown for AgentOwnerTeardown {
         self.sessions.teardown_owner(owner.as_str(), reason, &self.board).await;
     }
 }
+/// The header carries the archive flag, as the sidebar reads it.
+fn archived(header: &serde_json::Map<String, Value>) -> bool {
+    crate::session::delete::sidebar_flag(header, "archivedAt")
+}
+
 #[async_trait]
 impl Sessions for AgentSessions {
     /// Stored agent sessions open on demand, so there is nothing to load ahead: the registry's
@@ -254,6 +259,33 @@ impl Sessions for AgentSessions {
 
     fn begin_cancellation(&self, ids: &[String]) -> Box<dyn Send> {
         Box::new(self.registry.begin_cancellation(ids))
+    }
+
+    async fn hide_sessions(&self, session_ids: &[String]) {
+        for id in session_ids.iter().filter(|id| !id.is_empty()) {
+            let thread = ThreadId::from(id.as_str());
+            // An archived session keeps its stamp; one that is gone has nothing to hide.
+            match self.threads.header(&thread).await {
+                Ok(header) if !archived(&header) => {
+                    let set = serde_json::Map::from_iter([("archivedAt".to_owned(), serde_json::json!(self.clock.now_ms()))]);
+                    if let Err(error) = self.threads.patch_header(&thread, set, vec![]).await {
+                        tracing::warn!(session = %id, ?error, "a closed agent's session stays listed");
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    async fn reveal_session(&self, session_id: &str) {
+        if session_id.is_empty() {
+            return;
+        }
+        let thread = ThreadId::from(session_id);
+        // Still hidden on a failed write: the next send tries again.
+        if matches!(self.threads.header(&thread).await, Ok(header) if archived(&header)) {
+            let _ = self.threads.patch_header(&thread, serde_json::Map::new(), vec!["archivedAt".to_owned()]).await;
+        }
     }
 
     fn clear_statusline_route(&self, session_id: &str) {
