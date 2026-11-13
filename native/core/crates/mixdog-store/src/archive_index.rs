@@ -3,9 +3,16 @@
 //! One mechanism: the compactions that apply to a row are those of the reader's lineage
 //! that came after it (the thread's own and its bases', and every compaction of a fork
 //! applies to the rows the fork inherits), and each decides by its event
-//! (`compaction_view`): `drop_mode` 0 takes every row before its divider, 1 none, 2 by
-//! the ids of `compaction_dropped`, run through `ArchivedRows` over the row's facets.
-//! A row is archived when every part it stands for was taken out by some compaction.
+//! (`compaction_view`): `drop_mode` 0 takes every row before it that its replacement did
+//! not keep, 1 none, 2 by the ids of `compaction_dropped`, run through `ArchivedRows` over
+//! the row's facets. A row is archived when every part it stands for was taken out by some
+//! compaction.
+//!
+//! The divider of a compaction sits where the compaction happened: at its own record, in
+//! its own session's rows. (1.4.5 put it before the oldest row the replacement kept, which
+//! is where its stored view began the live rows. A compaction keeps the user's requests
+//! from anywhere in the conversation, so that place could be far above the stretch that was
+//! summarized, and it was not where the live view showed the same divider.)
 #![allow(clippy::disallowed_types, reason = "mixdog-store::archive_index reads the sqlite projection")]
 
 use std::collections::{HashMap, HashSet};
@@ -20,7 +27,6 @@ use crate::sqlite::LineageLevel;
 struct Compaction {
     session_level: usize,
     ordinal: u64,
-    boundary: u64,
     mode: DropMode,
 }
 
@@ -35,13 +41,8 @@ pub struct Verdict {
     pub calls: Vec<String>,
 }
 
-/// The oldest live message row of lineage level `k` (below its range end and `bound`, live
-/// as of `asof`) whose id is an entry of the replacement of the compaction at `ordinal` of
-/// `session`.
-const OLDEST_KEPT_SQL: &str = "SELECT min(h.ordinal) FROM message_rows m
-     JOIN history h ON h.session = ?4 AND h.iid = m.iid
-     WHERE m.session = ?1 AND m.ordinal = ?2 AND m.ver = m.ordinal AND h.ordinal < ?5
-       AND h.form = 0 AND h.model = 1 AND (h.superseded_rev IS NULL OR h.superseded_rev >= ?3)";
+/// Whether `iid` is an entry of the replacement of the compaction at `ordinal` of `session`: a row it kept.
+const KEPT_ENTRY_SQL: &str = "SELECT EXISTS (SELECT 1 FROM message_rows WHERE session = ?1 AND ordinal = ?2 AND ver = ordinal AND iid = ?3)";
 
 /// The ordinal bound of rows of lineage level `i` for a reader with `cut`.
 pub(crate) fn level_bound(lineage: &[LineageLevel], cut: Option<u64>, i: usize) -> i64 {
@@ -49,36 +50,10 @@ pub(crate) fn level_bound(lineage: &[LineageLevel], cut: Option<u64>, i: usize) 
     if i > 0 { lineage[i].end.into_iter().chain(cut).min().map_or(i64::MAX, clamp) } else { i64::MAX }
 }
 
-/// Where the divider of the compaction at `ordinal` of lineage level `home` sits: before
-/// the oldest message row its replacement kept, wherever the lineage holds it (the deepest
-/// level with one; a fork's inherited rows come first in display order), else before the
-/// end of the rows of its own session (`own_boundary`). `(level, ordinal)`. The one place
-/// both the divider and the rows a compaction archives (`DropMode::All`) are cut at.
-pub(crate) fn divider_place(
-    c: &Connection,
-    lineage: &[LineageLevel],
-    cut: Option<u64>,
-    home: usize,
-    ordinal: u64,
-    own_boundary: u64,
-) -> rusqlite::Result<(usize, u64)> {
-    let clamp = |v: u64| v.min(i64::MAX as u64) as i64;
-    for k in (home + 1..lineage.len()).rev() {
-        let kept: Option<i64> = c.prepare_cached(OLDEST_KEPT_SQL)?.query_row(
-            params![
-                lineage[home].session,
-                clamp(ordinal),
-                lineage[k].end.map_or(i64::MAX, clamp),
-                lineage[k].session,
-                level_bound(lineage, cut, k)
-            ],
-            |r| r.get(0),
-        )?;
-        if let Some(o) = kept {
-            return Ok((k, o as u64));
-        }
-    }
-    Ok((home, own_boundary))
+/// Where the divider of the compaction at `ordinal` of lineage level `home` sits: at the
+/// compaction's own record, `(level, ordinal)`.
+pub(crate) fn divider_place(home: usize, ordinal: u64) -> (usize, u64) {
+    (home, ordinal)
 }
 
 /// The live compactions of a lineage, loaded per level when first needed.
@@ -103,15 +78,14 @@ impl<'a> Compactions<'a> {
             let asof = level.end.map_or(i64::MAX, clamp);
             let bound = if j > 0 { level.end.into_iter().chain(self.cut).min().map_or(i64::MAX, clamp) } else { i64::MAX };
             let mut stmt = self.c.prepare_cached(
-                "SELECT ordinal, boundary, drop_mode FROM compactions WHERE session = ?1 AND ordinal < ?3
+                "SELECT ordinal, drop_mode FROM compactions WHERE session = ?1 AND ordinal < ?3
                  AND (superseded_rev IS NULL OR superseded_rev >= ?2) ORDER BY ordinal",
             )?;
             let rows = stmt.query_map(params![level.session, asof, bound], |r| {
                 Ok(Compaction {
                     session_level: j,
                     ordinal: r.get::<_, i64>(0)? as u64,
-                    boundary: r.get::<_, i64>(1)? as u64,
-                    mode: DropMode::from_db(r.get(2)?).unwrap_or(DropMode::All),
+                    mode: DropMode::from_db(r.get(1)?).unwrap_or(DropMode::All),
                 })
             })?;
             self.levels[j] = Some(rows.collect::<Result<_, _>>()?);
@@ -139,12 +113,15 @@ impl<'a> Compactions<'a> {
                 }
             }
         }
-        // Every row before the divider, where the divider is (the same place `dividers`
-        // reports): rows the replacement kept stay live.
+        // Every row before the compaction (all of these are) that its replacement did not
+        // keep: a kept row stays live.
         for comp in all {
-            let (place_level, place) =
-                divider_place(self.c, self.lineage, self.cut, comp.session_level, comp.ordinal, comp.boundary)?;
-            everything |= level > place_level || (level == place_level && ordinal < place);
+            let clamp = |v: u64| v.min(i64::MAX as u64) as i64;
+            let kept: bool = self.c.prepare_cached(KEPT_ENTRY_SQL)?.query_row(
+                params![self.lineage[comp.session_level].session, clamp(comp.ordinal), iid],
+                |r| r.get(0),
+            )?;
+            everything |= !kept;
         }
         if everything {
             text = parts.text.is_some();
