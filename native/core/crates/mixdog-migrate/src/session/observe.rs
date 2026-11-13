@@ -84,9 +84,12 @@ impl Observable {
                 header.insert(k.clone(), v.clone());
             }
         }
-        let live: Vec<&Row> = model.messages.iter().chain(&model.checkpoint_rows).collect();
+        // The rows in the order they are written: the archive (with the requests a compaction carried over, which
+        // `source::place_retained` wrote among its rows), the messages, the recovered turn's.
+        let written: Vec<&Row> = model.archive.iter().chain(&model.messages).chain(&model.checkpoint_rows).collect();
+        let live: Vec<&Row> = written.iter().copied().filter(|r| r.form == Form::Message && r.model).collect();
         let mut refs = BTreeSet::new();
-        for row in model.archive.iter().chain(live.iter().copied()) {
+        for row in &written {
             attachment_refs(&row.body, &mut refs);
         }
         Ok(Self {
@@ -96,18 +99,19 @@ impl Observable {
                 .filter(|r| r.visible)
                 .map(|r| (r.iid.clone(), r.body.clone()))
                 .collect(),
-            model_context: live.iter().map(|r| r.iid.clone()).collect(),
-            archive: archive_view(model.archive.iter().map(|r| {
-                (r.archive.as_ref().map_or(0, |a| a.seq), r.form, r.visible, &r.body)
-            })),
+            // 1.4.5's order of the messages: the context the written log restarts at when rows moved, else the rows'.
+            model_context: match &model.context {
+                Some(context) => context.iter().map(|(iid, _)| iid.clone()).collect(),
+                None => live.iter().map(|r| r.iid.clone()).collect(),
+            },
+            archive: archive_view(model.archive.iter().filter_map(|r| r.archive.as_ref().map(|a| (a.seq, r.form, r.visible, &r.body)))),
             runs: model
                 .runs
                 .iter()
                 .map(|run| RunView {
                     rid: run.rid.clone(),
                     phases: run.phases.clone(),
-                    input_iids: model
-                        .checkpoint_rows
+                    input_iids: written
                         .iter()
                         .filter(|r| r.turn.as_deref() == Some(run.rid.as_str()))
                         .map(|r| r.iid.clone())

@@ -168,7 +168,18 @@ fn folded_rows(
         .into_iter()
         .map(|(id, folded)| {
             prefixes.insert(id.clone(), crate::run::tests::header_system_messages(&folded.header).len());
-            (id, folded.rows)
+            // 1.4.5's order of the messages, which the recorded vectors index by: the context a log restarts at when the
+            // requests a compaction carried over were written among its archived rows (`source::place_retained`).
+            let mut rows = folded.rows;
+            if let Some((_, context)) = &folded.context {
+                let places: std::collections::HashMap<&str, usize> = context.iter().enumerate().map(|(at, iid)| (iid.as_str(), at)).collect();
+                let place = |row: &FoldedRow| places.get(row.iid.as_str()).copied().filter(|_| row.form == Form::Message && row.archive.is_none());
+                let (mut messages, others): (Vec<FoldedRow>, Vec<FoldedRow>) = rows.into_iter().partition(|row| place(row).is_some());
+                messages.sort_by_key(|row| place(row));
+                rows = others;
+                rows.extend(messages);
+            }
+            (id, rows)
         })
         .collect();
     (rows, prefixes)

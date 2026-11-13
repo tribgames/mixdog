@@ -22,6 +22,8 @@ use mixdog_store::schema::frame::ROTATE_AT;
 use mixdog_store::schema::migration::QuarantineCode;
 use mixdog_store::schema::record::Anchor;
 use mixdog_store::schema::record::CheckpointRecord;
+use mixdog_store::schema::record::CompactedRecord;
+use mixdog_store::schema::record::ReplacementEntry;
 use mixdog_store::schema::record::Form;
 use mixdog_store::schema::record::Header;
 use mixdog_store::schema::record::HeaderChange;
@@ -122,6 +124,8 @@ struct Builder<'a> {
     header: Header,
     rows: u64,
     visible_rows: u64,
+    /// The `compacted` record the model context restarts at, once written.
+    context: Option<FramePos>,
     runs: Vec<OpenRun>,
     queue: Vec<QueuedEntry>,
 }
@@ -137,7 +141,7 @@ impl Builder<'_> {
             base: None,
             base_cut: None,
             control: false,
-            context: None,
+            context: self.context,
             runs: self.runs.clone(),
             approvals: Vec::new(),
             queue: self.queue.clone(),
@@ -247,6 +251,7 @@ pub fn frames(
         header: model.header.clone(),
         rows: 0,
         visible_rows: 0,
+        context: None,
         runs: Vec::new(),
         queue: Vec::new(),
     };
@@ -270,6 +275,24 @@ pub fn frames(
     }))?;
     for row in model.archive.iter().chain(&model.messages).chain(&model.checkpoint_rows) {
         b.row(row)?;
+    }
+    // Rows written out of 1.4.5's message order (`source::place_retained`): the context restarts at the messages in
+    // that order, after every row, so none is in it twice. Silent: no divider is listed for it, and it takes nothing
+    // out of the transcript.
+    if let Some(context) = &model.context {
+        let entries: Vec<ReplacementEntry> = context.iter().map(|(iid, body)| ReplacementEntry { iid: iid.clone(), body: body.clone() }).collect();
+        let (replacement, _) = slot(cx, entries)?;
+        let pos = b.push(&Record::Compacted(CompactedRecord {
+            cid: bounded("migrated-context", "compaction id")?,
+            summary_iid: None,
+            op: None,
+            at: None,
+            dropped_count: Some(0),
+            dropped: None,
+            silent: Some(true),
+            replacement,
+        }))?;
+        b.context = Some(pos);
     }
     for run in &model.runs {
         for (phase, detail) in &run.phases {
