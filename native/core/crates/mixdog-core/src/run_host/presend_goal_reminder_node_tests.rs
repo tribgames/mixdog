@@ -220,7 +220,7 @@ fn budget_of() -> u64 {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_pre_send_goal_reminder_equals_node() {
-    let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+    let golden: Value = serde_json::from_str(&mixdog_testkit::todo_wording(GOLDEN)).unwrap();
     let mut replayed = 0;
     for case in golden["cases"].as_array().unwrap() {
         let want = json!({

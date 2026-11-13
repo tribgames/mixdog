@@ -32,7 +32,7 @@ pub async fn continuation_input(
     cycles: &mixdog_core_run::run_host::guards::UserCycles,
     thread: &mixdog_protocol::ThreadId,
 ) -> mixdog_core_goal::goal::ContinuationInput {
-    let todo = todos.read(thread).await.context_block("Todo list for this Goal (exact wordings):", true);
+    let todo = todos.read(thread).await.context_block("Todo list for this Goal:", true);
     let awaiting_work = mixdog_core_run::run_host::guards::awaiting_background_work(work, cycles, thread.as_str()).await;
     mixdog_core_goal::goal::ContinuationInput { awaiting_work, todo }
 }

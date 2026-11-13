@@ -34,7 +34,7 @@ impl Blobs for Store<'_> {
 }
 
 fn twin() -> Value {
-    serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/turn-reminders/twin.json")).expect("twin.json")
+    serde_json::from_str(&mixdog_testkit::todo_wording(mixdog_testkit::fixture!("../../fixtures/turn-reminders/twin.json"))).expect("twin.json")
 }
 
 fn now_ms(twin: &Value) -> i64 {

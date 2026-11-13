@@ -70,7 +70,7 @@ pub fn snapshot(header: &Header, goal: Option<Goal>, todo: &mixdog_tools::state:
     }
     // Compaction drops the todo tool results too: the open list rides once.
     let todo_block = if revision != 0.0 && marked == "compaction" {
-        todo.context_block("Context was compacted; your todo list (exact wordings):", false)
+        todo.context_block("Context was compacted; your todo list:", false)
     } else {
         String::new()
     };

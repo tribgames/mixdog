@@ -266,7 +266,7 @@ async fn a_continuation_carries_the_todo_list_and_waits_on_background_work() {
     assert_eq!(lock(&seen).len(), 1, "the session waits on background work: no continuation turn");
     let first = lock(&spy.inputs)[0].clone();
     assert!(first.awaiting_work, "an agent still runs");
-    assert!(first.todo.starts_with("<todo_state>\nTodo list for this Goal (exact wordings):\n"), "{}", first.todo);
+    assert!(first.todo.starts_with("<todo_state>\nTodo list for this Goal:\n"), "{}", first.todo);
     assert!(first.todo.contains("Write the parser"), "{}", first.todo);
 
     rig.work.0.store(false, std::sync::atomic::Ordering::SeqCst);
