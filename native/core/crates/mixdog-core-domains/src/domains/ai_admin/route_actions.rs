@@ -61,7 +61,8 @@ pub struct RouteActions {
     pub schema: Value,
 }
 
-const ACTIONS: [&str; 6] = [
+/// The setup actions [`RouteActions`] serves.
+pub const ACTIONS: [&str; 6] = [
     "set_route",
     "set_agent_route",
     "reset_route_fallback",

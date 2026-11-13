@@ -44,6 +44,7 @@ mod warmup_schedulers_replay;
 pub mod compose_domains;
 pub mod late_live_route;
 pub mod late_route_positions;
+pub mod late_setup_actions;
 pub mod late_agent_cells;
 pub mod late_session;
 pub mod late_seams;

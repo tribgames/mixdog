@@ -1183,7 +1183,9 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // Stage one needs nothing of the directory; stage two runs after `TurnPath::new` (below).
     // The `agents` status reader reads the route positions of the live threads through a late cell bound after `TurnPath::new` (`SessionRoutePositions` takes the directory).
     let route_positions = Arc::new(crate::late_route_positions::LateRoutePositions::default());
+    let route_setup_actions = crate::late_setup_actions::LateSetupActions::new(&mixdog_core_domains::domains::ai_admin::route_actions::ACTIONS);
     let pre = compose_domains_pre(&domain_inputs).await.map_err(ComposeError::ComposeDomains)?;
+    let route_setup_calls = Arc::new(crate::late_setup_actions::DomainCoreCalls(pre.late.clone()));
     // `thread/setWorkflow`, `thread/setOutputStyle` and the other settings of a thread read the same workflow config and output styles as the config service.
     let workflow_config = pre.workflow_config.clone();
     let output_styles = pre.output_styles.clone();
@@ -1313,7 +1315,15 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             voice: Arc::new(crate::compose_domains::VoiceToggle(pre.voice_setup.clone())),
             // Every other owner's `SetupActions` as `compose_domains` collected them (wp-config-setup-1: `SettingsSetup`, ...);
             // `SetupService::with_actions` takes them one at a time (compose_mcp.rs).
-            other_actions: pre.setup_actions.clone(),
+            other_actions: {
+                let mut owners = pre.setup_actions.clone();
+                // `forget_provider_auth`, `set_provider_account`: over the one `ProviderAdmin`.
+                owners.push(Arc::new(mixdog_core_domains::domains::ai_admin::account_actions::AccountActions::over(provider_admin.clone(), mixdog_tools::orch::setup_input::input_schema())));
+                // `set_route`, `set_agent_route`, `reset_route_fallback`, `continue_in_model` and the quota resume pair: a late cell, bound
+                // where the route service and the directory exist.
+                owners.push(route_setup_actions.clone());
+                owners
+            },
             automation: channel_admin.clone(), // `schedules` / `webhooks` status and actions (`AutomationActions`)
             // wp-config's `ConfigStatus` (the config-backed domains) first, then each other owner's reader; one reader per domain.
             other_status: {
@@ -2993,6 +3003,14 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // asking the directory for one opened the sessions folder itself as a session (`session-store-open: unexpected entry`).
     let route_session = Arc::new(mixdog_core_domains::domains::ai_admin::route_set_service::PreSessionAware { inner: route_follow.clone() });
     let route_service = Arc::new(mixdog_core_domains::domains::ai_admin::route_service::RouteService { config: config.clone(), facts: facts.clone(), writer: route_writer, session: route_session, models: model_list.clone(), controls: directory.clone() });
+    route_setup_actions
+        .bind(Arc::new(mixdog_core_domains::domains::ai_admin::route_actions::RouteActions {
+            writes: Arc::new(mixdog_core_domains::domains::ai_admin::route_actions::ServiceWrites { routes: route_service.clone(), agents: route_setter.clone() }),
+            sessions: Arc::new(mixdog_core_session::session::route_setup::SessionRouteSetup::new(directory.clone(), route_bots.clone(), route_setup_calls)),
+            callers: mcp.callers.clone(),
+            schema: mixdog_tools::orch::setup_input::input_schema(),
+        }))
+        .map_err(ComposeError::AlreadyBound)?;
     // The task-report host (`createAgentTaskSessions`): a bot's sends are watched durably in its home's queue, followed to the final answer and reported
     // there; the watches an earlier process left are re-attached at start. The same `BotWork` the list overlay reads; the `session` tool's send reports through it.
     {
