@@ -120,6 +120,20 @@ pub struct ClosedView {
     pub session_id: Option<String>,
     pub task_id: Option<String>,
     pub forgotten: bool,
+    /// The session's record was already deleted: only its row was dropped (`sessionGone`).
+    pub session_gone: bool,
+    /// Why a close did not land.
+    pub reason: Option<String>,
+    pub note: Option<String>,
+    /// The closed sessions that stay listed (`hideFailed`).
+    pub hide_failed: Vec<HideFailed>,
+}
+
+/// A session whose hiding could not be saved, with the reason.
+#[derive(Clone, PartialEq, Debug, Default)]
+pub struct HideFailed {
+    pub session_id: String,
+    pub reason: String,
 }
 
 #[derive(Clone, PartialEq, Debug, Default)]
@@ -389,6 +403,14 @@ pub fn render_closed(v: &ClosedView) -> String {
     if v.forgotten {
         lines.push("forgotten: true".to_owned());
     }
+    for (label, value) in [("reason", &v.reason), ("note", &v.note)] {
+        if let Some(value) = value.as_deref().filter(|s| !s.is_empty()) {
+            lines.push(format!("{label}: {value}"));
+        }
+    }
+    for failed in &v.hide_failed {
+        lines.push(format!("not hidden: {} ({})", failed.session_id, failed.reason));
+    }
     lines.join("\n")
 }
 
@@ -582,6 +604,17 @@ mod tests {
         assert_eq!(
             render_closed(&ClosedView { closed: true, tag: Some("w".into()), forgotten: true, ..ClosedView::default() }),
             "agent close: ok\ntag: w\nforgotten: true"
+        );
+        // `renderClosed` (render.mjs): the reason, the note and each session left listed follow.
+        assert_eq!(
+            render_closed(&ClosedView {
+                session_id: Some("s1".into()),
+                reason: Some("the session close was not recorded".into()),
+                note: Some("n".into()),
+                hide_failed: vec![HideFailed { session_id: "s2".into(), reason: "could not save".into() }],
+                ..ClosedView::default()
+            }),
+            "agent close: not closed\nsessionId: s1\nreason: the session close was not recorded\nnote: n\nnot hidden: s2 (could not save)"
         );
         let content = ContentView { tag: Some("w".into()), provider: Some("p".into()), model: Some("m".into()), content: "hi".into(), ..ContentView::default() };
         assert_eq!(render_content(&content), "agent result tag=w p/m\nhi");

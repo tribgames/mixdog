@@ -72,6 +72,11 @@ pub struct TagRecord {
     pub agent: String,
     pub cwd: String,
     pub owner: Owner,
+    /// A worker row's `status` and `stage`; empty on a tombstone or a session record.
+    pub status: String,
+    pub stage: String,
+    /// `workerRowTime(row)`: epoch milliseconds, `0` when the row carries no time.
+    pub at_ms: f64,
 }
 
 impl Scope {

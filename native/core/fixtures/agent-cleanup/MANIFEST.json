@@ -1,0 +1,53 @@
+{
+  "cases": 27,
+  "command": "node benchmarks/rust-core/recorders/record-agent-cleanup.mjs --tree <exact export of 0bf8fe0457fac66e5a51d319dad1fd3eee365bf6>",
+  "exclusions": {
+    "delivery: the close that follows": "a delivered agent is then closed through the scripted fakes; the replay compares only whether the table reads the agent as delivered (`closed`) or not (`undelivered`)",
+    "dispatch: the daemon's hidden set": "Node hides a session in its own hidden set (runtime/shared/session-hidden.mjs), which the recorder seeds from the world's `hidden` and which is not one of the logged collaborators; the core hides by the session header's archivedAt, and a replay seeds its fake of that from the same list. Which sessions a cleanup hid is compared through the count in the answer"
+  },
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 27710,
+      "path": "cases.json",
+      "sha256": "01184be3c5ca9c583f5c7b7047c84b0ec3bf2fc8c662496c49fd97d111bf6bde"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "benchmarks/rust-core/recorders/lib/common.mjs",
+      "sha256": "da506d542901b83b8a599b8a6443e86ec265aeddbe37ec1c8b28ccb4caa1f106"
+    },
+    {
+      "path": "benchmarks/rust-core/recorders/lib/provenance.mjs",
+      "sha256": "2a50b3de6ef0ab360d34e1dc35badeedbc4dd886edf0f8eadf5d220e14da28ec"
+    }
+  ],
+  "keptWhole": "dispatch: per scenario its arguments, context and world, the effect calls in order and the rendered answer; delivery: per scenario its steps and the state releaseIdle answered",
+  "nodeVersion": "v22.20.0",
+  "product": {
+    "appsSha256": "f66e41a34f39697c75ca2955626eedfb8e105efb5043256fe8b3af5f4c82099a",
+    "commit": "0bf8fe0457fac66e5a51d319dad1fd3eee365bf6",
+    "comparedAgainst": "0bf8fe0457fac66e5a51d319dad1fd3eee365bf6",
+    "exact": true,
+    "files": 9239,
+    "refComparison": {
+      "closestCommit": "0bf8fe0457fac66e5a51d319dad1fd3eee365bf6",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "ec0c02f005655288486e646f3e92c145e9fefcb8c718e6d60a0831fe1a9fb567",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-agent-cleanup.mjs",
+  "recorderSha256": "eafd047177cf37e6cffbbb462a0a31a1eb55776afda2e420e67f6b8a841c055b",
+  "set": "agent-cleanup",
+  "syntheticInputs": [
+    "dispatch: the registry, views and session manager are the scripted fakes of native/core/fixtures/agent/record-agent-tool.mjs; sessionGone, isSessionTurnInFlight and listSessions answer from the world and log nothing; every job of a world is running",
+    "delivery: the jobs are put on the real table and ended by the table's own calls; no notifier is attached, so a completion goes out to nobody"
+  ],
+  "totalBytes": 27710
+}

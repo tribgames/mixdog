@@ -458,6 +458,9 @@ pub fn tag_record(row: &Row, tag_key: &str, id_key: &str) -> TagRecord {
         agent: clean(row.get("agent")),
         cwd: clean(row.get("cwd")),
         owner: owner_of(row),
+        status: clean(row.get("status")),
+        stage: clean(row.get("stage")),
+        at_ms: worker_row_time(row),
     }
 }
 

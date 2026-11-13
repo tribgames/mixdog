@@ -153,8 +153,8 @@ pub fn is_active_worker(status: &str, stage: &str) -> bool {
     !is_terminal_worker_status(effective)
 }
 
-/// A finished worker that is still open: it takes follow-ups and can be closed.
-fn is_open_idle(status: &str, stage: &str) -> bool {
+/// `isOpenIdleRow`: a finished worker that is still open: it takes follow-ups and can be closed.
+pub fn is_open_idle(status: &str, stage: &str) -> bool {
     let (stage, status) = (lowered(stage), lowered(status));
     if is_cancelled_state(&stage) || is_cancelled_state(&status) {
         return false;
