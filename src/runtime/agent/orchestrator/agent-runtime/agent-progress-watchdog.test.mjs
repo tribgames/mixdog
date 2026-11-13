@@ -10,7 +10,7 @@ import {
   watchdogPartialHandoffFromError,
   watchdogStoppedHandoff,
 } from './agent-progress-watchdog.mjs';
-import { PROVIDER_FIRST_BYTE_TIMEOUT_MS, STALL_TICK_MS } from '../stall-policy.mjs';
+import { PROVIDER_FIRST_BYTE_TIMEOUT_MS, PROVIDER_FIRST_OUTPUT_TIMEOUT_MS, STALL_TICK_MS } from '../stall-policy.mjs';
 import { VertexAIProvider } from '../providers/vertex-ai.mjs';
 
 test('the first-transport deadline sits one tick above the provider first-byte window', () => {
@@ -52,7 +52,7 @@ test('the first-semantic ceiling covers the provider first-output budget, so a r
   assert.equal(resolveAgentWatchdogPolicy('worker').firstSemanticMs, 600_000);
 });
 
-test('a Vertex Flex route raises the first-response deadlines above the 120s default; other tiers keep it', () => {
+test('a Vertex Flex route raises the first-response deadlines above the 120s default', () => {
   const provider = new VertexAIProvider({});
   const budget = provider.firstResponseBudget('gemini-3.8-flash', { modelParameters: { serviceTier: 'flex' } });
   const policy = resolveAgentWatchdogPolicy('worker', {
@@ -61,10 +61,34 @@ test('a Vertex Flex route raises the first-response deadlines above the 120s def
   });
   assert.ok(policy.firstTransportMs > 600_000, `${policy.firstTransportMs}`);
   assert.equal(policy.firstTransportMs, budget.transportMs + STALL_TICK_MS);
-  for (const modelParameters of [undefined, {}, { serviceTier: 'priority' }, { serviceTier: 'standard' }]) {
-    assert.equal(provider.firstResponseBudget('gemini-3.8-flash', { modelParameters }), null);
-  }
   assert.equal(resolveAgentWatchdogPolicy('worker').firstTransportMs, 120_000);
+});
+
+// Vertex sends a Gemini stream's headers only with its first thought summary,
+// so a model still thinking past 120s has not stalled.
+test('a Vertex Gemini model thinking silently past 120s is not stopped before the first-output window', () => {
+  const provider = new VertexAIProvider({});
+  for (const modelParameters of [undefined, {}, { serviceTier: 'priority' }, { serviceTier: 'standard' }]) {
+    const budget = provider.firstResponseBudget('gemini-4-carbon', { modelParameters });
+    assert.deepEqual(budget, { transportMs: PROVIDER_FIRST_OUTPUT_TIMEOUT_MS, semanticMs: PROVIDER_FIRST_OUTPUT_TIMEOUT_MS });
+    const policy = resolveAgentWatchdogPolicy('heavy-worker', {
+      providerFirstByteTimeoutMs: budget.transportMs,
+      providerFirstOutputTimeoutMs: budget.semanticMs,
+    });
+    const now = 10_000_000;
+    const thinking = {
+      stage: 'requesting',
+      modelRequestStartedAt: now - 194_000,
+      waitingForTransport: true,
+      waitingForFirstSemantic: true,
+    };
+    assert.equal(evaluateAgentWatchdogAbort(thinking, now, policy), null);
+    const late = { ...thinking, modelRequestStartedAt: now - PROVIDER_FIRST_OUTPUT_TIMEOUT_MS - STALL_TICK_MS - 1 };
+    assert.match(evaluateAgentWatchdogAbort(late, now, policy).message, /^agent first transport stale \(/);
+  }
+  // Claude and MaaS routes answer with headers first and keep the shared window.
+  assert.equal(provider.firstResponseBudget('claude-opus-4-6'), null);
+  assert.equal(provider.firstResponseBudget('deepseek-ai/deepseek-v3.2-maas'), null);
 });
 
 test('a per-agent first-response deadline applies above the floor; 0 keeps it off', () => {
