@@ -1,5 +1,6 @@
 // Attach-or-start of this PC's core (lifecycle spec §5.4): the one place the desktop launches `mixdogd serve`, then waits
 // until the discovery file says `serving`. The endpoint itself is read by `readLocalDiscovery` on every dial.
+import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ensureCore, launchCore } from '../../../../../packages/protocol-client/src/launch/ensure-core.mjs';
@@ -10,6 +11,22 @@ import type { WsEndpoint } from './ws-connector';
 export function coreBinaryPath(packaged: boolean, resourcesPath: string, platform: NodeJS.Platform = process.platform): string {
   if (!packaged) return process.env.MIXDOGD_BIN || 'mixdogd';
   return join(resourcesPath, 'core', platform === 'win32' ? 'mixdogd.exe' : 'mixdogd');
+}
+
+/** The binary the packaged app starts its core from. On Windows a copy of the core named as the app's own executable
+ *  (`core/Mixdog.exe`), when the install has one, is started instead: Task Manager lists a child under its app only
+ *  when the child's image carries the app's name (the core as `mixdogd.exe` shows inside the Mixdog group for a
+ *  moment and then on a row of its own). The command-line `mixdogd.exe` stays where it is. */
+export function coreLaunchPath(
+  packaged: boolean,
+  resourcesPath: string,
+  platform: NodeJS.Platform = process.platform,
+  exists: (path: string) => boolean = existsSync
+): string {
+  const bin = coreBinaryPath(packaged, resourcesPath, platform);
+  if (!packaged || platform !== 'win32') return bin;
+  const named = join(resourcesPath, 'core', 'Mixdog.exe');
+  return exists(named) ? named : bin;
 }
 
 // Switches to `desktopMixdogRoot` of scripts/core-layout.mjs when k1-packaging combines.
