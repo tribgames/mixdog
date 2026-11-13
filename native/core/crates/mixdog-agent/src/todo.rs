@@ -223,11 +223,11 @@ impl TurnGuards for TodoGuards {
         if phases.is_empty() {
             check.create_nudged = true;
             return Some(reminder([
-                "No todo list exists for this work yet. If it has three or more steps, init one now with the steps left and keep it current; if it is a single step, ignore this. Keep working; do not mention this reminder.".to_owned(),
+                "No todo list exists for this work yet. If more than one step is left, set one now with the steps left and advance it as you go; if it is a single step, ignore this. Keep working; do not mention this reminder.".to_owned(),
             ]));
         }
         let mut lines = vec![
-            "The todo tool has not been used for a while. Mark finished items done now (one call each, never batched at the end) so the in-progress pointer is on what you are doing. Keep working; do not mention this reminder.".to_owned(),
+            "The todo list has not moved for a while. Advance past the steps that are finished, or set the list again if the plan changed, so the step in progress is the one you are on. Keep working; do not mention this reminder.".to_owned(),
         ];
         lines.extend(
             phases
@@ -281,7 +281,7 @@ impl TurnGuards for TodoGuards {
         check.audit_asked = true;
         check.awaiting_progress = true;
         Some(reminder([
-            "Every todo item is closed but the Goal is still active. Audit each user condition of the Goal objective against current evidence: when all are proven met, call goal with action complete; otherwise append the remaining work to todo and continue.".to_owned(),
+            "Every todo item is closed but the Goal is still active. Audit each user condition of the Goal objective against current evidence: when all are proven met, call goal with action complete; otherwise set the remaining work in todo and continue.".to_owned(),
         ]))
     }
 }

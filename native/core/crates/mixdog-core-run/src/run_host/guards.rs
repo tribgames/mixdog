@@ -174,23 +174,6 @@ impl SessionGuards {
     }
 }
 
-/// `todoStartReminder`: a delegated agent received a new brief with no open list — the hidden
-/// reminder trailing that prompt, once per prompt. `has_todo_tool` is whether its tools include
-/// the todo tool; `hidden_agent` whether its role is a hidden one.
-pub fn todo_start_reminder(delegated: bool, hidden_agent: bool, has_todo_tool: bool, open_items: usize) -> Option<String> {
-    if !delegated || hidden_agent || !has_todo_tool || open_items > 0 {
-        return None;
-    }
-    Some(
-        [
-            "<system-reminder>",
-            "If this brief has three or more steps or several asks, init the todo list with every ask as its own item in the same response as your first tool call; each item the brief lists is its own todo item, never folded into one. A single step or a plain answer needs none. Do not mention this reminder.",
-            "</system-reminder>",
-        ]
-        .join("\n"),
-    )
-}
-
 const MCP_TOOL_PREFIX: &str = "mcp__plugin_mixdog_mixdog__";
 
 /// A tool name without its MCP plugin prefix.
@@ -357,14 +340,6 @@ mod tests {
         for row in golden.as_array().unwrap() {
             let (name, args) = (row[0].as_str().unwrap(), &row[1]);
             assert_eq!(json!(is_mutating_call(name, args)), row[2], "{name} {args}");
-        }
-    }
-
-    #[test]
-    fn the_start_reminder_only_trails_a_brief_of_an_agent_with_no_open_list() {
-        assert!(todo_start_reminder(true, false, true, 0).unwrap().starts_with("<system-reminder>\nIf this brief"));
-        for (delegated, hidden, tool, open) in [(false, false, true, 0), (true, true, true, 0), (true, false, false, 0), (true, false, true, 2)] {
-            assert!(todo_start_reminder(delegated, hidden, tool, open).is_none());
         }
     }
 }

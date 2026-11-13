@@ -84,6 +84,31 @@ fn plain(message: &Value) -> Value {
     plain
 }
 
+/// Node trailed a delegated agent's brief with a hidden reminder to make a todo list (`todoStartReminder`). The core
+/// sends none: the shared rules say when a list is set (`rules/shared/25-plan.md`), for the Lead and every agent. So a
+/// recorded message is compared without that one part of its block.
+fn without_todo_start(message: &Value) -> Value {
+    const OPEN: &str = "\n\n<system-reminder>\nIf this brief has three or more steps";
+    const CLOSE: &str = "</system-reminder>";
+    let mut out = message.clone();
+    let Some(suffix) = message.pointer("/meta/runtimeUserContext/suffix").and_then(Value::as_str) else { return out };
+    let Some(from) = suffix.find(OPEN) else { return out };
+    let to = from + suffix[from..].find(CLOSE).expect("the reminder closes") + CLOSE.len();
+    let kept = format!("{}{}", &suffix[..from], &suffix[to..]);
+    let text = out["content"].as_str().expect("a text message").strip_suffix(suffix).expect("the suffix ends the text").to_owned();
+    out["content"] = Value::String(format!("{text}{kept}"));
+    if kept.is_empty() {
+        let meta = out["meta"].as_object_mut().expect("meta");
+        meta.shift_remove("runtimeUserContext");
+        if meta.is_empty() {
+            out.as_object_mut().expect("message").shift_remove("meta");
+        }
+    } else {
+        out["meta"]["runtimeUserContext"]["suffix"] = Value::String(kept);
+    }
+    out
+}
+
 fn entries(value: &Value) -> Option<Vec<AgentEntry>> {
     let list = value.as_array()?;
     Some(list.iter().map(|entry| AgentEntry { id: entry["id"].as_str().expect("id").to_owned(), name: entry["name"].as_str().expect("name").to_owned(), line: entry["line"].as_str().expect("line").to_owned() }).collect())
@@ -141,8 +166,14 @@ fn every_recorded_turn_carries_the_reminders_node_sent_in_node_order() {
         let name = case["name"].as_str().expect("name");
         let turn = turn_of(case, now);
         let reminders = with_local_zone(Tz::Asia__Seoul, || built(&turn, now));
-        let sent = reminders.carry(&plain(&case["message"])).unwrap_or_else(|| panic!("{name}: the message carries the block"));
-        assert_eq!(sent, case["message"], "{name}: the message the model is sent");
+        let (base, expected) = (plain(&case["message"]), without_todo_start(&case["message"]));
+        let sent = match reminders.carry(&base) {
+            Some(sent) => sent,
+            // Nothing but the todo start reminder trailed this message in Node: here it is sent as it is.
+            None if expected == base => base,
+            None => panic!("{name}: the message carries the block"),
+        };
+        assert_eq!(sent, expected, "{name}: the message the model is sent");
 
         let revisions = &reminders.revisions;
         let got = json!({

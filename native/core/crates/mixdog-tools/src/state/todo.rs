@@ -21,8 +21,9 @@ use crate::orch::util::one_line;
 use crate::orch::util::spec_from_def;
 use crate::orch::util::text;
 
-pub const TODO_OPS: [&str; 7] = ["init", "start", "done", "drop", "append", "rm", "view"];
-pub const MAX_TODO_ITEMS: usize = 50;
+pub const TODO_OPS: [&str; 6] = ["set", "advance", "done", "start", "drop", "view"];
+/// A plan of more steps than this is a backlog, not the steps of one request.
+pub const MAX_TODO_ITEMS: usize = 15;
 pub const MAX_TODO_TEXT_LENGTH: usize = 200;
 const DEFAULT_TODO_PHASE: &str = "Tasks";
 
@@ -158,7 +159,7 @@ impl TodoList {
         format!("{completed}/{}", total - abandoned)
     }
 
-    /// The whole list as text: init/view replies and context re-injection.
+    /// The whole list as text: set/view replies and context re-injection.
     pub fn render(&self) -> String {
         if self.phases.is_empty() {
             return "todo: empty".to_owned();
@@ -233,60 +234,54 @@ fn arg_line(args: &Value, key: &str) -> String {
     }
 }
 
-fn init_phases(args: &Value) -> Result<Vec<TodoPhase>, String> {
-    let named: Vec<(Value, Vec<Value>)> = match (args.get("phases"), args.get("items")) {
-        (Some(Value::Array(phases)), _) if !phases.is_empty() => phases
-            .iter()
-            .map(|entry| {
-                let items = entry.get("items").and_then(Value::as_array).cloned().unwrap_or_default();
-                (entry.get("name").cloned().unwrap_or(Value::Null), items)
-            })
-            .collect(),
-        (_, Some(Value::Array(items))) if !items.is_empty() => {
-            let phase = arg_line(args, "phase");
-            let name = if phase.is_empty() { DEFAULT_TODO_PHASE.to_owned() } else { phase };
-            vec![(Value::String(name), items.clone())]
-        }
-        _ => return Err("todo: init requires items or phases".to_owned()),
+/// `set`: the whole plan in order, replacing the list there was. `done` says how many of its leading steps are
+/// already finished, for a plan set again part-way through.
+fn set_list(args: &Value, now_ms: i64) -> Result<TodoList, String> {
+    let items = match args.get("items") {
+        Some(Value::Array(items)) if !items.is_empty() => items,
+        _ => return Err("todo: set requires items".to_owned()),
+    };
+    if items.len() > MAX_TODO_ITEMS {
+        return Err(format!("todo: at most {MAX_TODO_ITEMS} steps"));
+    }
+    let finished = match args.get("done") {
+        None | Some(Value::Null) => 0,
+        Some(count) => count
+            .as_u64()
+            .and_then(|n| usize::try_from(n).ok())
+            .filter(|n| *n <= items.len())
+            .ok_or_else(|| "todo: done is how many of the leading steps are already finished".to_owned())?,
     };
     let mut seen = HashSet::new();
-    let mut phase_names = HashSet::new();
-    let mut phases = Vec::with_capacity(named.len());
-    for (raw_name, items) in named {
-        let name = item_text(&raw_name, "phase")?;
-        if !phase_names.insert(name.clone()) {
-            return Err(format!("todo: duplicate phase \"{name}\""));
+    let mut tasks = Vec::with_capacity(items.len());
+    for (at, raw) in items.iter().enumerate() {
+        let content = item_text(raw, "step")?;
+        if !seen.insert(content.clone()) {
+            return Err(format!("todo: duplicate step \"{content}\""));
         }
-        if items.is_empty() {
-            return Err(format!("todo: phase \"{name}\" has no items"));
+        let mut task = TodoTask::pending(content);
+        if at < finished {
+            task.status = TodoStatus::Completed;
         }
-        let mut tasks = Vec::with_capacity(items.len());
-        for raw in &items {
-            let content = item_text(raw, "item")?;
-            if !seen.insert(content.clone()) {
-                return Err(format!("todo: duplicate item \"{content}\""));
-            }
-            tasks.push(TodoTask::pending(content));
-        }
-        phases.push(TodoPhase { name, tasks });
+        tasks.push(task);
     }
-    if seen.len() > MAX_TODO_ITEMS {
-        return Err(format!("todo: at most {MAX_TODO_ITEMS} items"));
-    }
-    Ok(phases)
+    let mut list = TodoList {
+        phases: vec![TodoPhase { name: DEFAULT_TODO_PHASE.to_owned(), tasks }],
+        updated_at_ms: now_ms,
+    };
+    list.normalize();
+    Ok(list)
 }
 
-fn find_task(list: &TodoList, raw: &str) -> Result<(usize, usize), String> {
-    let content = one_line(raw);
-    if content.is_empty() {
-        return Err("todo: item (its exact wording) is required".to_owned());
-    }
-    for (p, phase) in list.phases.iter().enumerate() {
-        if let Some(t) = phase.tasks.iter().position(|task| task.content == content) {
-            return Ok((p, t));
-        }
-    }
-    Err(format!("todo: no item \"{content}\"; view the list for exact wordings"))
+/// The position of the step a 1-based `index` names, counted over the whole list in order.
+fn step_index(list: &TodoList, args: &Value) -> Result<usize, String> {
+    let total = list.tasks().count();
+    args.get("index")
+        .and_then(Value::as_u64)
+        .and_then(|n| usize::try_from(n).ok())
+        .filter(|n| (1..=total).contains(n))
+        .map(|n| n - 1)
+        .ok_or_else(|| format!("todo: index is a step number from 1 to {total}"))
 }
 
 fn summary_line(list: &TodoList, op: &str, content: &str) -> String {
@@ -307,109 +302,71 @@ pub fn run(current: &TodoList, args: &Value, now_ms: i64) -> Result<TodoRun, Str
     if op == "view" {
         return Ok(TodoRun::View(current.render()));
     }
-    if op == "init" {
-        // Replacing a list that still has unfinished work would silently erase it.
-        let unfinished = current.unfinished_items();
-        if !unfinished.is_empty() {
-            let mut named: Vec<String> =
-                unfinished.iter().take(5).map(|t| format!("\"{}\"", t.content)).collect();
-            if unfinished.len() > named.len() {
-                named.push(format!("{} more", unfinished.len() - named.len()));
-            }
-            return Err(format!(
-                "todo: init would erase unfinished items ({}); done or drop each first, or append to add asks",
-                named.join(", ")
-            ));
-        }
-        let mut list = TodoList {
-            phases: init_phases(args)?,
-            updated_at_ms: now_ms,
-        };
-        list.normalize();
+    if op == "set" {
+        let list = set_list(args, now_ms)?;
         let reply = list.render();
         return Ok(TodoRun::Commit { list, reply });
     }
     let mut list = current.clone();
     if list.phases.is_empty() {
-        return Err("todo: the list is empty; init it first".to_owned());
+        return Err("todo: the list is empty; set it first".to_owned());
     }
+    let note = arg_line(args, "note");
+    let close = |task: &mut TodoTask| {
+        task.status = TodoStatus::Completed;
+        if !note.is_empty() {
+            task.note = Some(note.clone());
+        }
+        task.content.clone()
+    };
     let content = match op.as_str() {
-        "start" => {
-            let (p, t) = find_task(&list, &arg_line(args, "item"))?;
-            if list.phases[p].tasks[t].status == TodoStatus::Completed {
-                return Err(format!("todo: \"{}\" is completed and stays closed", list.phases[p].tasks[t].content));
+        "advance" => match list.tasks_mut().find(|task| task.status == TodoStatus::InProgress) {
+            Some(task) => close(task),
+            None => return Err("todo: every step is closed; set a new list for new work".to_owned()),
+        },
+        "done" => {
+            let at = step_index(&list, args)?;
+            match list.tasks_mut().nth(at) {
+                Some(task) => close(task),
+                None => return Err("todo: no such step".to_owned()),
+            }
+        }
+        "drop" => {
+            let at = step_index(&list, args)?;
+            match list.tasks_mut().nth(at) {
+                Some(task) if task.status == TodoStatus::Completed => {
+                    return Err(format!("todo: step {} is completed and stays closed", at + 1));
+                }
+                Some(task) => {
+                    task.status = TodoStatus::Abandoned;
+                    task.content.clone()
+                }
+                None => return Err("todo: no such step".to_owned()),
+            }
+        }
+        _ => {
+            let at = step_index(&list, args)?;
+            if list.tasks().nth(at).is_some_and(|task| task.status == TodoStatus::Completed) {
+                return Err(format!("todo: step {} is completed and stays closed", at + 1));
             }
             for task in list.tasks_mut() {
                 if task.status == TodoStatus::InProgress {
                     task.status = TodoStatus::Pending;
                 }
             }
-            list.phases[p].tasks[t].status = TodoStatus::InProgress;
-            list.phases[p].tasks[t].content.clone()
-        }
-        "done" => {
-            let (p, t) = find_task(&list, &arg_line(args, "item"))?;
-            let note = arg_line(args, "note");
-            let task = &mut list.phases[p].tasks[t];
-            task.status = TodoStatus::Completed;
-            if !note.is_empty() {
-                task.note = Some(note);
+            match list.tasks_mut().nth(at) {
+                Some(task) => {
+                    task.status = TodoStatus::InProgress;
+                    task.content.clone()
+                }
+                None => return Err("todo: no such step".to_owned()),
             }
-            task.content.clone()
-        }
-        "drop" => {
-            let (p, t) = find_task(&list, &arg_line(args, "item"))?;
-            let task = &mut list.phases[p].tasks[t];
-            if task.status == TodoStatus::Completed {
-                return Err(format!("todo: \"{}\" is completed and stays closed", task.content));
-            }
-            task.status = TodoStatus::Abandoned;
-            task.content.clone()
-        }
-        "append" => append_items(&mut list, args)?,
-        _ => {
-            let (p, t) = find_task(&list, &arg_line(args, "item"))?;
-            list.phases[p].tasks.remove(t).content
         }
     };
     list.normalize();
     list.updated_at_ms = now_ms;
     let reply = summary_line(&list, &op, &content);
     Ok(TodoRun::Commit { list, reply })
-}
-
-fn append_items(list: &mut TodoList, args: &Value) -> Result<String, String> {
-    let items = match args.get("items") {
-        Some(Value::Array(items)) => items.iter().map(|raw| item_text(raw, "item")).collect::<Result<Vec<_>, _>>()?,
-        _ => Vec::new(),
-    };
-    if items.is_empty() {
-        return Err("todo: append requires items".to_owned());
-    }
-    let mut existing: HashSet<String> = list.tasks().map(|t| t.content.clone()).collect();
-    for content in &items {
-        if !existing.insert(content.clone()) {
-            return Err(format!("todo: item \"{content}\" already exists"));
-        }
-    }
-    if existing.len() > MAX_TODO_ITEMS {
-        return Err(format!("todo: at most {MAX_TODO_ITEMS} items"));
-    }
-    let requested = arg_line(args, "phase");
-    let name = if !requested.is_empty() {
-        requested
-    } else {
-        list.phases.last().map(|p| p.name.clone()).unwrap_or_else(|| DEFAULT_TODO_PHASE.to_owned())
-    };
-    let index = match list.phases.iter().position(|p| p.name == name) {
-        Some(index) => index,
-        None => {
-            list.phases.push(TodoPhase { name, tasks: Vec::new() });
-            list.phases.len() - 1
-        }
-    };
-    list.phases[index].tasks.extend(items.iter().cloned().map(TodoTask::pending));
-    Ok(items.join(", "))
 }
 
 /// A list edit: takes the current list for any borrow. (Written as an elided `&TodoList` in the
@@ -516,64 +473,98 @@ mod tests {
     }
 
     #[test]
-    fn init_renders_progress_and_starts_first_item() {
-        let (list, reply) = commit(
-            &TodoList::default(),
-            json!({"op":"init","items":["Read spec","Write code"]}),
-        );
+    fn set_renders_the_plan_and_starts_its_first_step() {
+        let (list, reply) = commit(&TodoList::default(), json!({"op":"set","items":["Read spec","Write code"]}));
         assert_eq!(reply, "0/2\nTasks\n  [>] Read spec\n  [ ] Write code");
         assert_eq!(list.phases.len(), 1);
     }
 
     #[test]
-    fn done_moves_the_pointer_and_summarizes() {
-        let (list, _) = commit(&TodoList::default(), json!({"op":"init","items":["A","B"]}));
-        let (list, reply) = commit(&list, json!({"op":"done","item":"A","note":"ok"}));
-        assert_eq!(reply, "1/2 · done: A · next: B");
+    fn advance_closes_the_step_in_progress_and_starts_the_next() {
+        let (list, _) = commit(&TodoList::default(), json!({"op":"set","items":["A","B"]}));
+        let (list, reply) = commit(&list, json!({"op":"advance","note":"ok"}));
+        assert_eq!(reply, "1/2 · advance: A · next: B");
         assert_eq!(list.render(), "1/2\nTasks\n  [x] A — ok\n  [>] B");
-        let (_, reply) = commit(&list, json!({"op":"done","item":"B"}));
-        assert_eq!(reply, "2/2 · done: B · all closed");
-    }
-
-    #[test]
-    fn init_refuses_to_erase_unfinished_work() {
-        let (list, _) = commit(&TodoList::default(), json!({"op":"init","items":["A"]}));
-        let error = run(&list, &json!({"op":"init","items":["B"]}), 1).unwrap_err();
+        let (list, reply) = commit(&list, json!({"op":"advance"}));
+        assert_eq!(reply, "2/2 · advance: B · all closed");
         assert_eq!(
-            error,
-            "todo: init would erase unfinished items (\"A\"); done or drop each first, or append to add asks"
+            run(&list, &json!({"op":"advance"}), 1).unwrap_err(),
+            "todo: every step is closed; set a new list for new work"
         );
     }
 
+    /// A plan that changed is set again, whatever was open: the steps already finished are counted, not repeated.
     #[test]
-    fn errors_use_the_existing_wordings() {
-        assert_eq!(
-            run(&TodoList::default(), &json!({"op":"start","item":"x"}), 1).unwrap_err(),
-            "todo: the list is empty; init it first"
-        );
-        let (list, _) = commit(&TodoList::default(), json!({"op":"init","items":["A"]}));
-        assert_eq!(
-            run(&list, &json!({"op":"done","item":"Z"}), 1).unwrap_err(),
-            "todo: no item \"Z\"; view the list for exact wordings"
-        );
-        let (list, _) = commit(&list, json!({"op":"done","item":"A"}));
-        assert_eq!(
-            run(&list, &json!({"op":"drop","item":"A"}), 1).unwrap_err(),
-            "todo: \"A\" is completed and stays closed"
-        );
-        assert_eq!(
-            run(&TodoList::default(), &json!({"op":"view"}), 1),
-            Ok(TodoRun::View("todo: empty".to_owned()))
-        );
+    fn set_replaces_a_list_with_open_steps() {
+        let (list, _) = commit(&TodoList::default(), json!({"op":"set","items":["A","B","C"]}));
+        let (list, _) = commit(&list, json!({"op":"advance"}));
+        let (list, reply) = commit(&list, json!({"op":"set","items":["A","B2","D"],"done":1}));
+        assert_eq!(reply, "1/3\nTasks\n  [x] A\n  [>] B2\n  [ ] D");
+        assert_eq!(list.open_items().len(), 2);
     }
 
     #[test]
-    fn append_adds_to_the_last_phase_and_rm_removes() {
-        let (list, _) = commit(&TodoList::default(), json!({"op":"init","items":["A"]}));
-        let (list, reply) = commit(&list, json!({"op":"append","items":["B","C"],"phase":"More"}));
-        assert_eq!(reply, "0/3 · append: B, C · next: A");
-        assert_eq!(list.phases[1].name, "More");
-        let (_, reply) = commit(&list, json!({"op":"rm","item":"B"}));
-        assert_eq!(reply, "0/2 · rm: B · next: A");
+    fn done_and_start_take_a_step_number() {
+        let (list, _) = commit(&TodoList::default(), json!({"op":"set","items":["A","B","C"]}));
+        let (list, reply) = commit(&list, json!({"op":"done","index":2}));
+        assert_eq!(reply, "1/3 · done: B · next: A");
+        let (list, reply) = commit(&list, json!({"op":"start","index":3}));
+        assert_eq!(reply, "1/3 · start: C · next: C");
+        assert_eq!(list.render(), "1/3\nTasks\n  [ ] A\n  [x] B\n  [>] C");
+        assert_eq!(
+            run(&list, &json!({"op":"start","index":2}), 1).unwrap_err(),
+            "todo: step 2 is completed and stays closed"
+        );
+        // A step given up leaves the count; the pointer goes back to the earliest open one.
+        let (list, reply) = commit(&list, json!({"op":"drop","index":3}));
+        assert_eq!(reply, "1/2 · drop: C · next: A");
+        assert_eq!(list.render(), "1/2
+Tasks
+  [>] A
+  [x] B
+  [-] C");
+    }
+
+    #[test]
+    fn refusals_say_what_to_send() {
+        assert_eq!(
+            run(&TodoList::default(), &json!({"op":"advance"}), 1).unwrap_err(),
+            "todo: the list is empty; set it first"
+        );
+        assert_eq!(run(&TodoList::default(), &json!({"op":"set"}), 1).unwrap_err(), "todo: set requires items");
+        assert_eq!(
+            run(&TodoList::default(), &json!({"op":"set","items":["A","A"]}), 1).unwrap_err(),
+            "todo: duplicate step \"A\""
+        );
+        let many: Vec<String> = (0..=MAX_TODO_ITEMS).map(|n| format!("step {n}")).collect();
+        assert_eq!(run(&TodoList::default(), &json!({"op":"set","items":many}), 1).unwrap_err(), "todo: at most 15 steps");
+        let (list, _) = commit(&TodoList::default(), json!({"op":"set","items":["A"]}));
+        assert_eq!(run(&list, &json!({"op":"done","index":2}), 1).unwrap_err(), "todo: index is a step number from 1 to 1");
+        assert_eq!(run(&list, &json!({"op":"done"}), 1).unwrap_err(), "todo: index is a step number from 1 to 1");
+        assert_eq!(
+            run(&list, &json!({"op":"init","items":["B"]}), 1).unwrap_err(),
+            "todo: op must be one of set, advance, done, start, drop, view"
+        );
+        assert_eq!(run(&TodoList::default(), &json!({"op":"view"}), 1), Ok(TodoRun::View("todo: empty".to_owned())));
+    }
+
+    /// A list stored by an earlier version (named phases) is still numbered through, in order.
+    #[test]
+    fn a_list_of_several_phases_is_numbered_through() {
+        let stored = TodoList {
+            phases: vec![
+                TodoPhase {
+                    name: "P1".to_owned(),
+                    tasks: vec![TodoTask { content: "a".to_owned(), status: TodoStatus::Completed, note: None }],
+                },
+                TodoPhase {
+                    name: "P2".to_owned(),
+                    tasks: vec![TodoTask::pending("b".to_owned()), TodoTask::pending("c".to_owned())],
+                },
+            ],
+            updated_at_ms: 1,
+        };
+        let (_, reply) = commit(&stored, json!({"op":"done","index":3}));
+        assert_eq!(reply, "2/3 · done: c · next: b");
     }
 }

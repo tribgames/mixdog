@@ -1,7 +1,7 @@
 {
   "name": "todo",
   "title": "Todo",
-  "description": "The step list for this request; the Lead and each agent keep their own. Use it whenever the work has three or more steps or several asks (a delegated brief with several parts counts); skip it only for a single step or a plain answer. Create it before the first real action: init with every ask as its own item, in order, covering investigation through verification. A follow-up that adds to the request: append its asks and any steps you discover; init is for a new, unrelated request and refuses while items are open. An item is named by its outcome in 3-8 words and keeps that exact wording; it is how you refer to it — lost the wording: view, never guess. Keep it current while you work, not at the end: the moment an item is finished and its result is read, mark it done with your next call — never batch completions. The runtime keeps exactly one item in progress; done moves it to the next. Send todo beside your next real tool call; when no real call is due, call it alone rather than skip the update. Mark an item done only after reading its result; an item waiting on the user, an agent or a shell stays open.",
+  "description": "The step list for this request; the Lead and each agent keep their own. set: the whole plan in order, each step a short outcome (it replaces the previous list; the first open step is in progress). advance: closes the step in progress and starts the next. done, start and drop take a 1-based step number, for work out of order or given up. view shows the list.",
   "annotations": {
     "title": "Todo",
     "readOnlyHint": false,
@@ -16,12 +16,11 @@
       "op": {
         "type": "string",
         "enum": [
-          "init",
-          "start",
+          "set",
+          "advance",
           "done",
+          "start",
           "drop",
-          "append",
-          "rm",
           "view"
         ]
       },
@@ -31,46 +30,22 @@
           "type": "string"
         },
         "minItems": 1,
-        "maxItems": 50,
-        "description": "init (one default phase) / append: item wordings."
+        "maxItems": 15,
+        "description": "set: the steps, in order."
       },
-      "phases": {
-        "type": "array",
-        "minItems": 1,
-        "items": {
-          "type": "object",
-          "properties": {
-            "name": {
-              "type": "string"
-            },
-            "items": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              },
-              "minItems": 1,
-              "maxItems": 50
-            }
-          },
-          "required": [
-            "name",
-            "items"
-          ],
-          "additionalProperties": false
-        },
-        "description": "init: named phases instead of items."
+      "done": {
+        "type": "integer",
+        "minimum": 0,
+        "description": "set: how many of the leading steps are already finished (a plan set again part-way)."
       },
-      "item": {
-        "type": "string",
-        "description": "start/done/drop/rm: exact item wording."
-      },
-      "phase": {
-        "type": "string",
-        "description": "append: target phase (default last; new name adds one)."
+      "index": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "done/start/drop: the step number."
       },
       "note": {
         "type": "string",
-        "description": "done: optional one-line evidence."
+        "description": "advance/done: optional one-line evidence."
       }
     },
     "required": [

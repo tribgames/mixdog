@@ -21,6 +21,12 @@ impl Todos {
             todos::TodoRun::View(_) => panic!("not an edit"),
         }
     }
+
+    /// Node's script closes an item by its wording; the tool takes its number.
+    fn close(&self, item: &str) {
+        let at = self.0.lock().unwrap().phases.iter().flat_map(|phase| &phase.tasks).position(|task| task.content == item).expect("the item is listed");
+        self.apply(json!({"op": "done", "index": at + 1}));
+    }
 }
 
 #[async_trait]
@@ -126,7 +132,7 @@ impl ProviderAdapter for CaseProvider {
             self.script.get(index).unwrap_or_else(|| panic!("script exhausted at send {sends}")).clone()
         };
         if let Some(item) = entry["todoDone"].as_str() {
-            self.todos.as_ref().unwrap().apply(json!({"op": "done", "item": item}));
+            self.todos.as_ref().unwrap().close(item);
         }
         if entry["abort"] == true {
             match entry["abortReason"].as_str() {
@@ -349,7 +355,7 @@ async fn replay(case: &JsonValue, hidden_name: &str) -> JsonValue {
     let h = Harness::new(Vec::new());
     let todo_list = case.get("todo").map(|items| {
         let list = Arc::new(Todos::default());
-        list.apply(json!({"op": "init", "items": items}));
+        list.apply(json!({"op": "set", "items": items}));
         list
     });
     let signal = Cancel::from_token(&h.cancel);
