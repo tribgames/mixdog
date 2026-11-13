@@ -68,6 +68,9 @@ pub(crate) enum Change {
     PromptWithout(String),
     /// No change: its effects run once every earlier record is durable.
     Barrier,
+    /// The records (by ordinal) whose rows in view a compaction took out of the model context: the rows show `archived`,
+    /// as a reopened window shows them (`fold_opened`). Not persisted: a reopen reads it from the index.
+    Archived(Vec<u64>),
     /// A live completion card (not persisted): a new item at the end of the view, or the item
     /// with its id replaced.
     Card(ThreadItem),
@@ -185,6 +188,11 @@ impl SessionState {
                 self.prompt_history = prompt_history::without(&self.prompt_history, text);
             }
             Change::Barrier => {}
+            Change::Archived(ordinals) => {
+                for row in self.window.iter_mut().filter(|row| row.ordinal.is_some_and(|ordinal| ordinals.contains(&ordinal))) {
+                    super::view::meta_mut(Arc::make_mut(&mut row.item)).ext.insert("archived".into(), Value::Bool(true));
+                }
+            }
             Change::Shown { item, before } => {
                 // A live item shown complete (a finished `Reasoning` item) becomes its row.
                 self.live.retain(|live| live.item.id() != item.id());

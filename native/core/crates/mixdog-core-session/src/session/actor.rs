@@ -337,6 +337,8 @@ pub(crate) enum JobDone {
     },
     PromptSession { session: Vec<String>, publish: bool },
     PromptPersisted(Vec<String>),
+    /// The records whose rows a durable compaction took out of the context ([`SessionActor::mark_archived`]).
+    Archived(Vec<u64>),
     /// The recovery's records are durable (or failed): requests are served again.
     RecoveryDone(Result<(), RunError>),
     /// A prompt-history append job ended: the list as the writer saw it, and the appends that did
@@ -2218,6 +2220,7 @@ impl SessionActor {
                 let persisted = self.redacted_prompts(&persisted);
                 self.accept_view(Change::PromptPersisted(persisted), Vec::new())
             }
+            JobDone::Archived(ordinals) => self.show_archived(ordinals),
             JobDone::PromptFlushed { list, unwritten } => {
                 if let Some(list) = list {
                     let list = self.redacted_prompts(&list);
@@ -2803,6 +2806,14 @@ impl SessionActor {
                     value: change,
                 },
             ));
+        }
+        // A durable compaction that took rows out of the context: the rows in view show it, as a reopened window does.
+        if ordinal.is_some()
+            && let Change::Record { record, .. } = &entry.change
+            && let Record::Compacted(compacted) = &**record
+            && (compacted.dropped.is_some() || compacted.dropped_count != Some(0))
+        {
+            self.mark_archived();
         }
         for effect in entry.effects {
             self.effect_done(effect);
@@ -7620,6 +7631,45 @@ impl SessionActor {
     }
 
     /// The session part over the remaining lineage after a history mutation.
+    /// Reads which rows of the window the compactions took out of the model context, as the index says of a reopened
+    /// window (`ThreadStore::window_archived`): the one verdict, so a live row and its reopened copy show the same.
+    fn mark_archived(&mut self) {
+        let deps = self.deps.clone();
+        let jobs = self.jobs_tx.clone();
+        let thread = self.id.clone();
+        mixdog_core_base::support::lane_job(
+            self.deps.lanes.io,
+            "compaction-archived-rows",
+            move |lane| deps.store.window_archived(lane, &thread),
+            move |read| match read {
+                Ok(Ok(ordinals)) => drop(jobs.send(JobDone::Archived(ordinals))),
+                Ok(Err(error)) => tracing::warn!("the rows a compaction took out of the context were not read, so they show as live until a reopen: {error:?}"),
+                Err(error) => tracing::warn!("the rows a compaction took out of the context were not read, so they show as live until a reopen: {error:?}"),
+            },
+        );
+    }
+
+    /// The rows in view of the records `ordinals` show `archived`; a client hears each as its item, completed again.
+    fn show_archived(&mut self, ordinals: Vec<u64>) {
+        // The acked window: a row has its record's ordinal once it is acked, and only an acked row is older than the compaction.
+        let notes: Vec<Note> = self
+            .acked
+            .window
+            .iter()
+            .filter(|row| row.ordinal.is_some_and(|ordinal| ordinals.contains(&ordinal)))
+            .filter(|row| !super::view::meta(&row.item).ext.contains_key("archived"))
+            .map(|row| {
+                let mut item = (*row.item).clone();
+                super::view::meta_mut(&mut item).ext.insert("archived".into(), Value::Bool(true));
+                Note::new("item/completed", &ItemNotificationParams { thread_id: self.id.clone(), turn_id: TurnId::from(""), item })
+            })
+            .collect();
+        if notes.is_empty() {
+            return;
+        }
+        self.accept_view(Change::Archived(ordinals), notes);
+    }
+
     fn recompute_prompts(&mut self, publish: bool) {
         let deps = self.deps.clone();
         let jobs = self.jobs_tx.clone();
