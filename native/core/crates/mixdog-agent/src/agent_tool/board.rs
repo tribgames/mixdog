@@ -316,6 +316,34 @@ struct Outgoing {
 struct State {
     tasks: Vec<Record>,
     seq: u64,
+    /// `lostResults` (`close-flow.mjs`): the agents (session id, and the owner's tag) whose undelivered job was pruned.
+    /// A missing job never reads as delivered.
+    lost: std::collections::HashSet<String>,
+}
+
+/// `lostTagKey`: a tag is one owner's.
+fn lost_tag_key(owner: &str, tag: &str) -> String {
+    format!("tag:{}
+{tag}", js_trim(owner))
+}
+
+/// The eviction listener of `close-flow.mjs`: a pruned job marks its agent lost unless its result was delivered
+/// (`cancelled`, or its completion went out with the body or was read); a later delivered one supersedes an earlier lost.
+fn note_evicted(lost: &mut std::collections::HashSet<String>, task: &Record) {
+    let delivered = task.status == "cancelled" || task.notified_with_body || task.acknowledged;
+    let mut mark = |key: String| {
+        if delivered {
+            lost.remove(&key);
+        } else {
+            lost.insert(key);
+        }
+    };
+    if let Some(session) = task.meta.session_id.as_deref().filter(|s| !s.is_empty()) {
+        mark(session.to_owned());
+    }
+    if let Some(tag) = task.meta.tag.as_deref().filter(|t| !t.is_empty()) {
+        mark(lost_tag_key(task.notify_session.as_deref().unwrap_or_default(), tag));
+    }
 }
 
 struct Inner {
@@ -425,9 +453,14 @@ impl JobBoard {
     /// then the oldest finished rows beyond the cap.
     fn prune(&self, state: &mut State, scope: &Scope, force: bool) {
         let now = self.now();
-        state.tasks.retain(|t| {
+        let State { tasks, lost, .. } = state;
+        tasks.retain(|t| {
             let expired = force || t.finished_ms.is_some_and(|f| f > 0 && now - f > TASK_TTL_MS);
-            !(expired && matches_scope(t, scope, true))
+            let evict = expired && matches_scope(t, scope, true);
+            if evict {
+                note_evicted(lost, t);
+            }
+            !evict
         });
         if state.tasks.len() <= MAX_TASKS {
             return;
@@ -439,7 +472,14 @@ impl JobBoard {
             if state.tasks.len() <= MAX_TASKS {
                 break;
             }
-            state.tasks.retain(|t| t.task_id != id);
+            let State { tasks, lost, .. } = state;
+            tasks.retain(|t| {
+                let evict = t.task_id == id;
+                if evict {
+                    note_evicted(lost, t);
+                }
+                !evict
+            });
         }
     }
 
@@ -607,6 +647,32 @@ impl JobBoard {
         let before = count(&state);
         self.prune(&mut state, scope, force);
         (before - count(&state)) as u64
+    }
+
+    /// `resultDelivered(row, scopedContext)` (`close-flow.mjs`): the newest job in `scope` that ran the session or the
+    /// tag decides: running, not delivered; else delivered once cancelled, or once its completion went out with the body
+    /// or was read. With no job left, delivered unless one was pruned undelivered ([`note_evicted`]).
+    pub fn result_delivered(&self, session_id: &str, tag: &str, owner: &str, scope: &Scope) -> bool {
+        let mut state = self.lock();
+        self.prune(&mut state, scope, false);
+        let mut latest: Option<&Record> = None;
+        for task in state.tasks.iter().filter(|t| matches_scope(t, scope, true)) {
+            let runs = task.meta.session_id.as_deref() == Some(session_id) || (!tag.is_empty() && task.meta.tag.as_deref() == Some(tag));
+            // The later of two started together wins, as Node's `>=` over the list.
+            if runs && latest.is_none_or(|held| task.started_ms >= held.started_ms) {
+                latest = Some(task);
+            }
+        }
+        match latest {
+            None => !state.lost.contains(session_id) && !(!tag.is_empty() && state.lost.contains(&lost_tag_key(owner, tag))),
+            Some(task) if task.status == "running" => false,
+            Some(task) => task.status == "cancelled" || task.notified_with_body || task.acknowledged,
+        }
+    }
+
+    /// `lostResults.delete(sessionId)`: a dropped row's session holds no lost result.
+    pub fn forget_lost(&self, session_id: &str) {
+        self.lock().lost.remove(session_id);
     }
 
     pub fn set_report_appendix(&self, task_id: &str, appendix: Arc<dyn Fn() -> String + Send + Sync>) {
@@ -858,5 +924,11 @@ impl Tasks for JobBoard {
     }
     fn cleanup(&self, scope: &Scope, force: bool) -> Cleaned {
         Cleaned { removed: self.cleanup_jobs(scope, force) }
+    }
+    fn result_delivered(&self, session_id: &str, tag: &str, owner: &str, scope: &Scope) -> bool {
+        JobBoard::result_delivered(self, session_id, tag, owner, scope)
+    }
+    fn forget_lost(&self, session_id: &str) {
+        JobBoard::forget_lost(self, session_id);
     }
 }

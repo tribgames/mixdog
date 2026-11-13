@@ -2870,3 +2870,119 @@ async fn a_failed_write_is_queued_again_and_told_once() {
     assert_eq!(*owner.taken.lock().unwrap(), ["restart:t-1"]);
     assert_eq!(owner.queued.load(Ordering::SeqCst), 2);
 }
+
+/// `parkSession` and the `parked` stage (`agent-tree.mjs`, main 6de9f07bc): an open agent with no runtime left is parked and
+/// reads `parked` (`descriptor.parked === true && status === 'idle' && !owner`) until a turn starts on it
+/// (`agent-turns.mjs`: `descriptor.parked = false`); an unknown or closed agent is not parked, and a loaded session keeps
+/// its runtime. `sessionGone`: only a record proven absent is gone, never a loaded session.
+#[tokio::test(start_paused = true)]
+async fn an_idle_agent_with_no_runtime_left_is_parked_until_a_turn_starts() {
+    use mixdog_agent::agent_tool::host::Sessions;
+    use mixdog_agent::agent_tool::views::Workers;
+
+    use crate::session::SessionDirectory;
+    use crate::session::tests::start_thread;
+    use crate::session::thread_state::SessionThreads;
+
+    struct NoJobs;
+    impl mixdog_core_run::run_host::progress::WaitedJobs for NoJobs {
+        fn silence(&self, _: &[String], _: i64) -> Option<mixdog_agent::agent_tool::progress::ToolSilence> {
+            None
+        }
+    }
+    let srig = crate::session::testing::Rig::new();
+    let directory = Arc::new(SessionDirectory::new(srig.deps()));
+    let rig = Rig::new();
+    let registry = Arc::new(AgentRegistry::new(rig.store.clone(), directory.clone(), Arc::new(Hour), rig.clock.clone()));
+    let loaded = start_thread(&directory).await;
+    let owned = json!({ "parentSessionId": "lead", "ownerSessionId": "lead" });
+    rig.store.sessions.lock().unwrap().push(session("sess_w1", "w1", &at(NOW - HOUR), owned.clone()));
+    rig.store.sessions.lock().unwrap().push(session("sess_closed", "c1", &at(NOW - HOUR), json!({ "parentSessionId": "lead", "ownerSessionId": "lead", "closed": true })));
+    rig.store.write_row("sess_w1", Some(worker_row("sess_w1", "w1", owned)));
+    rig.store.touch_sessions();
+    registry.refresh_tags_from_sessions(false, &lead("lead")).await;
+    let threads = Arc::new(SessionThreads::new(directory.clone()));
+    let sessions = AgentSessions::new(
+        directory.clone(),
+        threads.clone(),
+        registry.clone(),
+        Arc::new(Statusline::default()),
+        rig.clock.clone(),
+        Arc::new(ClosedShells::default()),
+        Arc::new(mixdog_tools::fs::ReadState::default()),
+    );
+    let workers = super::workers::AgentWorkers::new(directory.clone(), threads, registry.clone(), Arc::new(NoJobs), rig.clock.clone());
+    let stage = || async { workers.entries(false, &lead("lead")).await.into_iter().find(|(tag, _)| tag == "w1").expect("w1 is listed").1.stage };
+
+    assert!(!sessions.park_session("sess_unknown").await);
+    assert!(!sessions.park_session("sess_closed").await);
+    assert!(!sessions.park_session(loaded.id.as_str()).await, "a loaded session keeps its runtime");
+    assert_eq!(stage().await.as_deref(), Some("idle"));
+    assert!(sessions.park_session("sess_w1").await);
+    assert_eq!(stage().await.as_deref(), Some("parked"));
+    assert_eq!(workers.live("sess_w1").runtime_stage.as_deref(), Some("parked"));
+    crate::session::TurnStarts::turn_started(&*registry, &ThreadId::from("sess_w1"));
+    assert_eq!(stage().await.as_deref(), Some("idle"));
+    assert_eq!(workers.live("sess_w1").runtime_stage, None);
+
+    // What cleanup reads: the open agent sessions, the sessions a tag is bound to, and whether one is hidden already.
+    use mixdog_agent::agent_tool::host::Registry;
+    let open: Vec<(String, String)> = sessions.open_sessions().into_iter().filter(|s| !s.tag.is_empty()).map(|s| (s.id, s.tag)).collect();
+    assert_eq!(open, [("sess_w1".to_owned(), "w1".to_owned())], "a closed session is not listed");
+    assert_eq!(registry.bound_sessions(), ["sess_w1".to_owned()]);
+    let started = loaded.id.as_str().to_owned();
+    assert!(!sessions.is_hidden(&started).await);
+    assert!(sessions.hide_sessions(std::slice::from_ref(&started)).await.is_empty());
+    assert!(sessions.is_hidden(&started).await);
+    sessions.reveal_session(&started).await;
+    assert!(!sessions.is_hidden(&started).await);
+
+    // Gone: neither the index nor the store knows the session. Not gone: one the index lists, and a loaded one.
+    assert!(sessions.session_gone("sess_never").await);
+    assert!(!sessions.session_gone("sess_w1").await);
+    assert!(!sessions.session_gone(loaded.id.as_str()).await);
+    assert!(!sessions.session_gone("").await);
+}
+
+/// The idle release (`close-flow/idle-release.mjs` over `parkIdle`): an idle row past its period is released at once. The row
+/// of a session whose record is gone is dropped (`dropGoneRow`); an agent whose session is still loaded is not parked and
+/// keeps its row.
+#[tokio::test(start_paused = true)]
+async fn the_idle_release_drops_the_row_of_a_deleted_session_and_leaves_a_loaded_one() {
+    use crate::session::SessionDirectory;
+    use crate::session::tests::start_thread;
+    use crate::session::thread_state::SessionThreads;
+
+    struct Frozen;
+    impl mixdog_agent::env::Clock for Frozen {
+        fn now_ms(&self) -> i64 {
+            NOW
+        }
+    }
+    let srig = crate::session::testing::Rig::new();
+    let directory = Arc::new(SessionDirectory::new(srig.deps()));
+    let rig = Rig::new();
+    let registry = Arc::new(AgentRegistry::new(rig.store.clone(), directory.clone(), Arc::new(Hour), rig.clock.clone()));
+    let loaded = start_thread(&directory).await;
+    let owned = json!({ "parentSessionId": "lead", "ownerSessionId": "lead" });
+    rig.store.write_row("sess_deleted", Some(worker_row("sess_deleted", "d1", owned.clone())));
+    rig.store.write_row(loaded.id.as_str(), Some(worker_row(loaded.id.as_str(), "l1", owned)));
+    rig.store.touch_sessions();
+    registry.refresh_tags_from_sessions(false, &lead("lead")).await;
+    assert_eq!(registry.idle_rows().len(), 2);
+    let sessions = Arc::new(AgentSessions::new(
+        directory.clone(),
+        Arc::new(SessionThreads::new(directory.clone())),
+        registry.clone(),
+        Arc::new(Statusline::default()),
+        rig.clock.clone(),
+        Arc::new(ClosedShells::default()),
+        Arc::new(mixdog_tools::fs::ReadState::default()),
+    ));
+    let board = mixdog_agent::agent_tool::board::JobBoard::new(Arc::new(Frozen), None, None);
+    let release = tokio::spawn(AgentSessions::keep_idle_release(Arc::downgrade(&sessions), board));
+    crate::eventually_on!(&[&rig.store.written], || rig.store.map("sess_deleted").is_none().then_some(())).await;
+    assert!(rig.store.map(loaded.id.as_str()).is_some());
+    assert!(!registry.is_parked(loaded.id.as_str()));
+    release.abort();
+}

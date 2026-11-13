@@ -25,6 +25,11 @@
       "path": "flows/spawn.json",
       "reason": "the context Node is handed carries a routing session id (routingSessionId) and a notify callback (notifyFn) that the core's SpawnContext has no field for: neither input exists on the Rust side. The number of calls Node's callback got (recorded 0) is compared with the notices the replay delivered to the stale session id it passes in the context's session id (sessionId, which Node ignores while a caller session id is set); the completion reaching the caller alone is compared through the notices, whole",
       "scope": "\"staleNotifyCalls\" (the stale-context scenario)"
+    },
+    {
+      "path": "agent_tool/cases.json",
+      "reason": "main's 6de9f07bc changed both answers after this set was recorded (cleanup also reports agentsClosed and leftoversHidden; a close that did not land names its reason). The replay leaves these two scenarios of this file out and replays them from the agent-cleanup set (benchmarks/rust-core/recorders/record-agent-cleanup.mjs, recorded from 0bf8fe045), which holds them under the same names with the same worlds",
+      "scope": "the scenarios \"cleanup\" and \"close_that_fails_keeps_the_row\""
     }
   ],
   "fileCount": 93,

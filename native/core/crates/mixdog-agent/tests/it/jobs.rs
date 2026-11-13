@@ -66,6 +66,57 @@ fn backend() {
     mixdog_rt::testing::tokens();
 }
 
+/// `resultDelivered` (`close-flow.mjs`) against what real Node's `releaseIdle` answered for the same jobs
+/// (`fixtures/agent-cleanup`, `delivery`): `closed` is a delivered result, `undelivered` one the owner never got.
+#[tokio::test(start_paused = true)]
+#[allow(clippy::disallowed_methods)] // test fixture loading
+async fn an_idle_agents_result_reads_as_delivered_as_node_reads_it() {
+    backend();
+    let path = format!("{}/../../fixtures/agent-cleanup/cases.json", env!("CARGO_MANIFEST_DIR"));
+    let recorded: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let cases = recorded["delivery"].as_array().unwrap();
+    assert!(cases.len() >= 18);
+    let owned = |owner: &str| Scope { caller_session_id: Some(owner.to_owned()), host_pid: None };
+    for case in cases {
+        let name = text(case, "name").unwrap();
+        let clock = Arc::new(TestClock(AtomicI64::new(1_000)));
+        let board = JobBoard::new(clock.clone(), None, None);
+        for step in case["ops"].as_array().unwrap() {
+            let id = text(step, "id").unwrap_or_default();
+            match step["op"].as_str().unwrap() {
+                "register" => {
+                    clock.0.fetch_add(1, Ordering::SeqCst);
+                    board
+                        .register(NewJob {
+                            task_id: Some(id),
+                            owner: JobOwner { caller_session_id: text(step, "owner"), ..JobOwner::default() },
+                            meta: JobMeta { session_id: text(step, "session"), tag: text(step, "tag"), ..JobMeta::default() },
+                            ..NewJob::default()
+                        })
+                        .unwrap();
+                }
+                "complete" => {
+                    board.complete(&id, Completion { result: Some(TaskResult::Content("the result".into())), ..Completion::new("completed") });
+                }
+                "acknowledge" => board.acknowledge(&id),
+                "cancel" => board.cancel(&id, "cancelled by the recorder", CancelNotice::Default),
+                "evict" => {
+                    board.cleanup_jobs(&owned(&text(step, "owner").unwrap()), true);
+                }
+                other => panic!("{name}: unknown step {other}"),
+            }
+        }
+        let (row, owner) = (&case["row"], text(case, "owner").unwrap());
+        let delivered = board.result_delivered(&text(row, "sessionId").unwrap(), &text(row, "tag").unwrap(), &owner, &owned(&owner));
+        let expected = match case["state"].as_str().unwrap() {
+            "closed" => true,
+            "undelivered" => false,
+            other => panic!("{name}: state {other} says nothing of the delivery"),
+        };
+        assert_eq!(delivered, expected, "{name}");
+    }
+}
+
 fn text(v: &Value, key: &str) -> Option<String> {
     v.get(key).and_then(Value::as_str).map(str::to_owned)
 }

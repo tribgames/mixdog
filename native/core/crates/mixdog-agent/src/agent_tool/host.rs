@@ -4,12 +4,14 @@
 //! The decision logic in this module is the port; these are its edges.
 
 use async_trait::async_trait;
+use mixdog_tools::orch::agent::HideFailed;
 use mixdog_tools::orch::agent::JobRow;
 use mixdog_tools::orch::agent::TaskView;
 use mixdog_tools::orch::agent::WorkerRow;
 use serde_json::Value;
 
 use super::scope::Caller;
+use super::scope::Owner;
 use super::scope::Scope;
 use super::scope::SessionFacts;
 use super::scope::TagRecord;
@@ -109,6 +111,10 @@ pub trait Registry: Send + Sync {
     fn consume_tag_tombstone(&self, tombstone: &TagRecord);
     fn last_tag_session(&self, tag: &str, scope: &Scope) -> Option<TagRecord>;
     async fn resumable_tag_session(&self, tag: &str, session_id: &str, scope: &Scope) -> Option<Resumable>;
+    /// `tags.values()`: every session a tag is bound to.
+    fn bound_sessions(&self) -> Vec<String> {
+        Vec::new()
+    }
 }
 
 #[async_trait]
@@ -171,9 +177,45 @@ pub trait Sessions: Send + Sync {
     /// The record stays. Node keeps a hidden set that its listings read as archived, and a desktop follows it with
     /// the archive flag; here the archive flag is the header's `archivedAt`, which every listing reads. A session
     /// whose flag cannot be written stays listed.
-    async fn hide_sessions(&self, _session_ids: &[String]) {}
+    /// Answers the sessions that stay listed, each with the reason (`failed`).
+    async fn hide_sessions(&self, _session_ids: &[String]) -> Vec<HideFailed> {
+        Vec::new()
+    }
     /// `revealSession(id)`: a session that is used again is listed again.
     async fn reveal_session(&self, _session_id: &str) {}
+    /// Whether the session is hidden from the lists already (`archivedSessions()[id] !== undefined`).
+    async fn is_hidden(&self, _session_id: &str) -> bool {
+        false
+    }
+    /// `mgr.sessionGone(id)`: the session's stored record is deleted. Only a record proven absent is gone: a session
+    /// that is loaded, a record that is there but cannot be read, or a store that cannot be asked, is not.
+    async fn session_gone(&self, _session_id: &str) -> bool {
+        false
+    }
+    /// `mgr.isSessionTurnInFlight(id)`.
+    fn turn_in_flight(&self, _session_id: &str) -> bool {
+        false
+    }
+    /// `mgr.listSessions()`: the agent sessions that are not closed, as cleanup reads them.
+    fn open_sessions(&self) -> Vec<OpenSession> {
+        Vec::new()
+    }
+    /// `mgr.parkSession(id)`: an idle agent's live runtime is released while the agent stays open; its next turn loads
+    /// the session from disk. `false` when the session is closed, busy or watched; `true` when no runtime is left.
+    async fn park_session(&self, _session_id: &str) -> bool {
+        false
+    }
+}
+
+/// An agent session as `mgr.listSessions()` lists it.
+#[derive(Clone, Default, PartialEq, Debug)]
+pub struct OpenSession {
+    pub id: String,
+    /// `agentTag`.
+    pub tag: String,
+    pub agent: String,
+    pub owner: Owner,
+    pub status: String,
 }
 
 /// The process-wide background-task table, `surface: 'agent'` only.
@@ -185,6 +227,14 @@ pub trait Tasks: Send + Sync {
     /// this session started (a job with no owner is never claimed).
     fn cancel_owned(&self, session_id: &str, reason: &str);
     fn cleanup(&self, scope: &Scope, force: bool) -> Cleaned;
+    /// `resultDelivered(row, scopedContext)` (`close-flow.mjs`): the newest job of the session or the tag was cancelled,
+    /// or its completion went out with the body or was read. With no job left, delivered unless one was pruned
+    /// undelivered. `owner`: the session the row's tag belongs to.
+    fn result_delivered(&self, _session_id: &str, _tag: &str, _owner: &str, _scope: &Scope) -> bool {
+        true
+    }
+    /// A dropped row's session no longer counts as holding a lost result (`lostResults.delete(sessionId)`).
+    fn forget_lost(&self, _session_id: &str) {}
 }
 
 /// The readers over the job board and the tag registry. Listing and lookup refresh the

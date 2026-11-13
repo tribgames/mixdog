@@ -1,0 +1,1330 @@
+{
+  "note": "agent cleanup and close of real Node since 6de9f07bc: the dispatch over a scripted world, and whether an idle agent reads as delivered",
+  "dispatch": [
+    {
+      "name": "cleanup",
+      "args": {
+        "type": "cleanup"
+      },
+      "context": {
+        "callerSessionId": "lead1",
+        "clientHostPid": 4242,
+        "cwd": "/work"
+      },
+      "world": {
+        "tags": {
+          "a": "s1",
+          "b": "s2"
+        },
+        "jobs": [
+          {
+            "task_id": "t1",
+            "status": "running"
+          }
+        ],
+        "workers": [
+          {
+            "tag": "a"
+          }
+        ]
+      },
+      "trace": [
+        [
+          "resolveTombstoneOwners"
+        ],
+        [
+          "rehydrate"
+        ],
+        [
+          "refreshTags",
+          true,
+          {
+            "s": "lead1",
+            "p": 4242
+          }
+        ],
+        [
+          "refreshTags",
+          false,
+          {
+            "s": "lead1",
+            "p": 4242
+          }
+        ]
+      ],
+      "result": "{\n  \"tasksRemoved\": 0,\n  \"tagsRemoved\": 0,\n  \"agentsClosed\": 0,\n  \"leftoversHidden\": 0,\n  \"tasks\": 1,\n  \"workers\": 1\n}"
+    },
+    {
+      "name": "cleanup_closes_the_delivered_idle_agents",
+      "args": {
+        "type": "cleanup"
+      },
+      "context": {
+        "callerSessionId": "lead1",
+        "clientHostPid": 4242,
+        "cwd": "/work"
+      },
+      "world": {
+        "tags": {
+          "w1": "s1",
+          "w2": "s2",
+          "w3": "s3",
+          "w4": "s4",
+          "w6": "s6"
+        },
+        "live": {
+          "s1": {
+            "id": "s1",
+            "agent": "worker",
+            "cwd": "/work",
+            "parentSessionId": "lead1"
+          },
+          "s2": {
+            "id": "s2",
+            "agent": "worker",
+            "cwd": "/work",
+            "parentSessionId": "lead1"
+          },
+          "s3": {
+            "id": "s3",
+            "agent": "worker",
+            "cwd": "/work",
+            "parentSessionId": "lead1"
+          },
+          "s4": {
+            "id": "s4",
+            "agent": "worker",
+            "cwd": "/work",
+            "parentSessionId": "lead1"
+          },
+          "s6": {
+            "id": "s6",
+            "agent": "worker",
+            "cwd": "/work",
+            "parentSessionId": "lead1"
+          }
+        },
+        "descendants": {
+          "s1": [
+            "d1"
+          ]
+        },
+        "closeOk": true,
+        "rows": [
+          {
+            "tag": "w1",
+            "sessionId": "s1",
+            "status": "idle",
+            "agent": "worker",
+            "cwd": "/work",
+            "parentSessionId": "lead1"
+          },
+          {
+            "tag": "w2",
+            "sessionId": "s2",
+            "status": "running",
+            "agent": "worker",
+            "cwd": "/work",
+            "parentSessionId": "lead1"
+          },
+          {
+            "tag": "w3",
+            "sessionId": "s3",
+            "status": "idle",
+            "agent": "worker",
+            "cwd": "/work",
+            "parentSessionId": "lead1"
+          },
+          {
+            "tag": "w4",
+            "sessionId": "s4",
+            "stage": "idle",
+            "agent": "worker",
+            "cwd": "/work",
+            "parentSessionId": "lead1"
+          },
+          {
+            "tag": "w5",
+            "sessionId": "s5",
+            "status": "idle",
+            "agent": "worker",
+            "cwd": "/work",
+            "parentSessionId": "other"
+          },
+          {
+            "tag": "w6",
+            "sessionId": "s6",
+            "status": "idle",
+            "agent": "worker",
+            "cwd": "/work",
+            "parentSessionId": "lead1",
+            "stage": "cancelled"
+          }
+        ],
+        "inFlight": [
+          "s4"
+        ],
+        "tasks": [
+          {
+            "task_id": "task-run",
+            "sessionId": "s3",
+            "tag": "w3"
+          }
+        ]
+      },
+      "trace": [
+        [
+          "resolveTombstoneOwners"
+        ],
+        [
+          "rehydrate"
+        ],
+        [
+          "refreshTags",
+          true,
+          {
+            "s": "lead1",
+            "p": 4242
+          }
+        ],
+        [
+          "refreshTags",
+          false,
+          {
+            "s": "lead1",
+            "p": 4242
+          }
+        ],
+        [
+          "refreshTags",
+          false,
+          {
+            "s": "lead1",
+            "p": 4242
+          }
+        ],
+        [
+          "resolveTag",
+          "s1",
+          {
+            "s": "lead1",
+            "p": 4242
+          },
+          {
+            "scan": false,
+            "traces": false
+          }
+        ],
+        [
+          "closeSession",
+          "s1",
+          "cli-agent-close",
+          {
+            "tombstone": false,
+            "ownerClose": true
+          }
+        ],
+        [
+          "forgetTerminalSession",
+          "w1",
+          "s1"
+        ],
+        [
+          "removeWorkerRow",
+          "d1"
+        ],
+        [
+          "markReleased",
+          [
+            "s1",
+            "d1"
+          ]
+        ]
+      ],
+      "result": "{\n  \"tasksRemoved\": 0,\n  \"tagsRemoved\": 0,\n  \"agentsClosed\": 1,\n  \"leftoversHidden\": 0,\n  \"tasks\": 0,\n  \"workers\": 0\n}"
+    },
+    {
+      "name": "cleanup_clears_the_rows_of_deleted_sessions",
+      "args": {
+        "type": "cleanup"
+      },
+      "context": {
+        "callerSessionId": "lead1",
+        "clientHostPid": 4242,
+        "cwd": "/work"
+      },
+      "world": {
+        "tags": {
+          "g1": "g1s"
+        },
+        "rows": [
+          {
+            "tag": "g1",
+            "sessionId": "g1s",
+            "status": "running",
+            "agent": "worker",
+            "cwd": "/work",
+            "parentSessionId": "lead1"
+          },
+          {
+            "tag": "g2",
+            "sessionId": "g2s",
+            "status": "idle",
+            "agent": "worker",
+            "cwd": "/work",
+            "parentSessionId": "lead1"
+          }
+        ],
+        "gone": [
+          "g1s",
+          "g2s"
+        ],
+        "tasks": [
+          {
+            "task_id": "task-G",
+            "sessionId": "g1s",
+            "tag": "g1"
+          }
+        ]
+      },
+      "trace": [
+        [
+          "resolveTombstoneOwners"
+        ],
+        [
+          "rehydrate"
+        ],
+        [
+          "refreshTags",
+          true,
+          {
+            "s": "lead1",
+            "p": 4242
+          }
+        ],
+        [
+          "refreshTags",
+          false,
+          {
+            "s": "lead1",
+            "p": 4242
+          }
+        ],
+        [
+          "cancelTask",
+          "task-G"
+        ],
+        [
+          "removeWorkerRow",
+          "g1s"
+        ],
+        [
+          "unbindTag",
+          "g1"
+        ],
+        [
+          "removeWorkerRow",
+          "g2s"
+        ],
+        [
+          "unbindTag",
+          "g2"
+        ]
+      ],
+      "result": "{\n  \"tasksRemoved\": 0,\n  \"tagsRemoved\": 1,\n  \"agentsClosed\": 0,\n  \"goneRowsCleared\": 2,\n  \"leftoversHidden\": 0,\n  \"tasks\": 0,\n  \"workers\": 0\n}"
+    },
+    {
+      "name": "cleanup_names_the_idle_agents_it_could_not_close",
+      "args": {
+        "type": "cleanup"
+      },
+      "context": {
+        "callerSessionId": "lead1",
+        "clientHostPid": 4242,
+        "cwd": "/work"
+      },
+      "world": {
+        "tags": {
+          "w1": "s1"
+        },
+        "live": {
+          "s1": {
+            "id": "s1",
+            "agent": "worker",
+            "cwd": "/work",
+            "parentSessionId": "lead1"
+          }
+        },
+        "closeOk": false,
+        "rows": [
+          {
+            "tag": "w1",
+            "sessionId": "s1",
+            "status": "idle",
+            "agent": "worker",
+            "cwd": "/work",
+            "parentSessionId": "lead1"
+          },
+          {
+            "tag": "w7",
+            "sessionId": "s7",
+            "status": "idle",
+            "agent": "worker",
+            "cwd": "/work",
+            "parentSessionId": "lead1"
+          }
+        ]
+      },
+      "trace": [
+        [
+          "resolveTombstoneOwners"
+        ],
+        [
+          "rehydrate"
+        ],
+        [
+          "refreshTags",
+          true,
+          {
+            "s": "lead1",
+            "p": 4242
+          }
+        ],
+        [
+          "refreshTags",
+          false,
+          {
+            "s": "lead1",
+            "p": 4242
+          }
+        ],
+        [
+          "refreshTags",
+          false,
+          {
+            "s": "lead1",
+            "p": 4242
+          }
+        ],
+        [
+          "resolveTag",
+          "s1",
+          {
+            "s": "lead1",
+            "p": 4242
+          },
+          {
+            "scan": false,
+            "traces": false
+          }
+        ],
+        [
+          "closeSession",
+          "s1",
+          "cli-agent-close",
+          {
+            "tombstone": false,
+            "ownerClose": true
+          }
+        ],
+        [
+          "refreshTags",
+          false,
+          {
+            "s": "lead1",
+            "p": 4242
+          }
+        ],
+        [
+          "resolveTag",
+          "s7",
+          {
+            "s": "lead1",
+            "p": 4242
+          },
+          {
+            "scan": false,
+            "traces": false
+          }
+        ]
+      ],
+      "result": "{\n  \"tasksRemoved\": 0,\n  \"tagsRemoved\": 0,\n  \"agentsClosed\": 0,\n  \"leftoversHidden\": 0,\n  \"notClosed\": [\n    {\n      \"tag\": \"w1\",\n      \"sessionId\": \"s1\",\n      \"reason\": \"the session close was not recorded\"\n    },\n    {\n      \"tag\": \"w7\",\n      \"sessionId\": \"s7\",\n      \"reason\": \"agent close: target \\\"s7\\\" not found\"\n    }\n  ],\n  \"tasks\": 0,\n  \"workers\": 0\n}"
+    },
+    {
+      "name": "cleanup_hides_the_idle_sessions_no_row_points_to",
+      "args": {
+        "type": "cleanup"
+      },
+      "context": {
+        "callerSessionId": "lead1",
+        "clientHostPid": 4242,
+        "cwd": "/work"
+      },
+      "world": {
+        "tags": {
+          "bound": "l7"
+        },
+        "rows": [
+          {
+            "tag": "pointed",
+            "sessionId": "l6",
+            "status": "running",
+            "agent": "worker",
+            "cwd": "/work",
+            "parentSessionId": "other"
+          }
+        ],
+        "sessions": [
+          {
+            "id": "l1",
+            "agentTag": "old",
+            "agent": "worker",
+            "status": "idle",
+            "parentSessionId": "lead1"
+          },
+          {
+            "id": "l2",
+            "agentTag": "foreign",
+            "agent": "worker",
+            "status": "idle",
+            "parentSessionId": "other"
+          },
+          {
+            "id": "l3",
+            "agentTag": "busy",
+            "agent": "worker",
+            "status": "running",
+            "parentSessionId": "lead1"
+          },
+          {
+            "id": "l4",
+            "agentTag": "",
+            "agent": "worker",
+            "status": "idle",
+            "parentSessionId": "lead1"
+          },
+          {
+            "id": "l5",
+            "agentTag": "boss",
+            "agent": "Lead",
+            "status": "idle",
+            "parentSessionId": "lead1"
+          },
+          {
+            "id": "l6",
+            "agentTag": "pointed",
+            "agent": "worker",
+            "status": "idle",
+            "parentSessionId": "lead1"
+          },
+          {
+            "id": "l7",
+            "agentTag": "bound",
+            "agent": "worker",
+            "status": "idle",
+            "parentSessionId": "lead1"
+          },
+          {
+            "id": "l8",
+            "agentTag": "hid",
+            "agent": "worker",
+            "status": "idle",
+            "parentSessionId": "lead1"
+          },
+          {
+            "id": "l9",
+            "agentTag": "fly",
+            "agent": "worker",
+            "status": "idle",
+            "parentSessionId": "lead1"
+          },
+          {
+            "id": "l10",
+            "agentTag": "und",
+            "agent": "worker",
+            "status": "idle",
+            "parentSessionId": "lead1"
+          },
+          {
+            "id": "l11",
+            "agentTag": "fresh",
+            "agent": "worker",
+            "parentSessionId": "lead1"
+          }
+        ],
+        "hidden": [
+          "l8"
+        ],
+        "inFlight": [
+          "l9"
+        ],
+        "tasks": [
+          {
+            "task_id": "task-und",
+            "sessionId": null,
+            "tag": "und"
+          }
+        ]
+      },
+      "trace": [
+        [
+          "resolveTombstoneOwners"
+        ],
+        [
+          "rehydrate"
+        ],
+        [
+          "refreshTags",
+          true,
+          {
+            "s": "lead1",
+            "p": 4242
+          }
+        ],
+        [
+          "refreshTags",
+          false,
+          {
+            "s": "lead1",
+            "p": 4242
+          }
+        ]
+      ],
+      "result": "{\n  \"tasksRemoved\": 0,\n  \"tagsRemoved\": 0,\n  \"agentsClosed\": 0,\n  \"leftoversHidden\": 2,\n  \"tasks\": 0,\n  \"workers\": 0\n}"
+    },
+    {
+      "name": "close_that_fails_keeps_the_row",
+      "args": {
+        "type": "cancel",
+        "sessionId": "s1"
+      },
+      "context": {
+        "callerSessionId": "lead1",
+        "clientHostPid": 4242,
+        "cwd": "/work"
+      },
+      "world": {
+        "tags": {
+          "w1": "s1"
+        },
+        "live": {
+          "s1": {
+            "id": "s1",
+            "agent": "worker",
+            "cwd": "/work",
+            "parentSessionId": "lead1"
+          }
+        },
+        "closeOk": false
+      },
+      "trace": [
+        [
+          "resolveTombstoneOwners"
+        ],
+        [
+          "rehydrate"
+        ],
+        [
+          "refreshTags",
+          true,
+          {
+            "s": "lead1",
+            "p": 4242
+          }
+        ],
+        [
+          "refreshTags",
+          false,
+          {
+            "s": "lead1",
+            "p": 4242
+          }
+        ],
+        [
+          "resolveTag",
+          "s1",
+          {
+            "s": "lead1",
+            "p": 4242
+          },
+          {
+            "scan": false,
+            "traces": false
+          }
+        ],
+        [
+          "closeSession",
+          "s1",
+          "cli-agent-close",
+          {
+            "tombstone": false,
+            "ownerClose": true
+          }
+        ]
+      ],
+      "result": "agent close: not closed\ntag: w1\nsessionId: s1\nreason: the session close was not recorded"
+    },
+    {
+      "name": "close_of_a_deleted_session_drops_its_row",
+      "args": {
+        "type": "close",
+        "tag": "w1",
+        "task_id": "task-B"
+      },
+      "context": {
+        "callerSessionId": "lead1",
+        "clientHostPid": 4242,
+        "cwd": "/work"
+      },
+      "world": {
+        "tags": {
+          "w1": "s1"
+        },
+        "live": {
+          "s1": {
+            "id": "s1",
+            "agent": "worker",
+            "cwd": "/work",
+            "parentSessionId": "lead1"
+          }
+        },
+        "gone": [
+          "s1"
+        ],
+        "closeOk": true,
+        "tasks": [
+          {
+            "task_id": "task-B",
+            "sessionId": "s1",
+            "tag": "w1"
+          }
+        ]
+      },
+      "trace": [
+        [
+          "resolveTombstoneOwners"
+        ],
+        [
+          "rehydrate"
+        ],
+        [
+          "refreshTags",
+          true,
+          {
+            "s": "lead1",
+            "p": 4242
+          }
+        ],
+        [
+          "refreshTags",
+          false,
+          {
+            "s": "lead1",
+            "p": 4242
+          }
+        ],
+        [
+          "resolveTag",
+          "w1",
+          {
+            "s": "lead1",
+            "p": 4242
+          },
+          {
+            "scan": false,
+            "traces": false
+          }
+        ],
+        [
+          "removeWorkerRow",
+          "s1"
+        ],
+        [
+          "unbindTag",
+          "w1"
+        ],
+        [
+          "cancelTask",
+          "task-B"
+        ]
+      ],
+      "result": "agent close: ok\ntag: w1\nsessionId: s1\ntask_id: task-B\nnote: the session was already gone; its row was dropped"
+    },
+    {
+      "name": "close_of_a_deleted_session_by_its_id",
+      "args": {
+        "type": "close",
+        "sessionId": "sess_gone"
+      },
+      "context": {
+        "callerSessionId": "lead1",
+        "clientHostPid": 4242,
+        "cwd": "/work"
+      },
+      "world": {
+        "live": {
+          "sess_gone": {
+            "id": "sess_gone",
+            "agent": "worker",
+            "cwd": "/work",
+            "parentSessionId": "lead1"
+          }
+        },
+        "gone": [
+          "sess_gone"
+        ],
+        "closeOk": true
+      },
+      "trace": [
+        [
+          "resolveTombstoneOwners"
+        ],
+        [
+          "rehydrate"
+        ],
+        [
+          "refreshTags",
+          true,
+          {
+            "s": "lead1",
+            "p": 4242
+          }
+        ],
+        [
+          "refreshTags",
+          false,
+          {
+            "s": "lead1",
+            "p": 4242
+          }
+        ],
+        [
+          "resolveTag",
+          "sess_gone",
+          {
+            "s": "lead1",
+            "p": 4242
+          },
+          {
+            "scan": false,
+            "traces": false
+          }
+        ],
+        [
+          "removeWorkerRow",
+          "sess_gone"
+        ]
+      ],
+      "result": "agent close: ok\nsessionId: sess_gone\nnote: the session was already gone; its row was dropped"
+    },
+    {
+      "name": "close_of_a_deleted_session_by_a_bare_name",
+      "args": {
+        "type": "close",
+        "sessionId": "bare"
+      },
+      "context": {
+        "callerSessionId": "lead1",
+        "clientHostPid": 4242,
+        "cwd": "/work"
+      },
+      "world": {
+        "live": {
+          "bare": {
+            "id": "bare",
+            "agent": "worker",
+            "cwd": "/work",
+            "parentSessionId": "lead1"
+          }
+        },
+        "gone": [
+          "bare"
+        ],
+        "closeOk": true
+      },
+      "trace": [
+        [
+          "resolveTombstoneOwners"
+        ],
+        [
+          "rehydrate"
+        ],
+        [
+          "refreshTags",
+          true,
+          {
+            "s": "lead1",
+            "p": 4242
+          }
+        ],
+        [
+          "refreshTags",
+          false,
+          {
+            "s": "lead1",
+            "p": 4242
+          }
+        ],
+        [
+          "resolveTag",
+          "bare",
+          {
+            "s": "lead1",
+            "p": 4242
+          },
+          {
+            "scan": false,
+            "traces": false
+          }
+        ],
+        [
+          "removeWorkerRow",
+          "bare"
+        ],
+        [
+          "unbindTag",
+          "bare"
+        ]
+      ],
+      "result": "agent close: ok\nsessionId: bare\nnote: the session was already gone; its row was dropped"
+    }
+  ],
+  "delivery": [
+    {
+      "name": "no_job_reads_as_delivered",
+      "ops": [],
+      "row": {
+        "tag": "w1",
+        "sessionId": "s1"
+      },
+      "owner": "lead1",
+      "state": "closed"
+    },
+    {
+      "name": "a_running_job_is_not_delivered",
+      "ops": [
+        {
+          "op": "register",
+          "id": "d1",
+          "session": "s1",
+          "tag": "w1",
+          "owner": "lead1"
+        }
+      ],
+      "row": {
+        "tag": "w1",
+        "sessionId": "s1"
+      },
+      "owner": "lead1",
+      "state": "undelivered"
+    },
+    {
+      "name": "a_completion_nobody_was_told_is_not_delivered",
+      "ops": [
+        {
+          "op": "register",
+          "id": "d1",
+          "session": "s1",
+          "tag": "w1",
+          "owner": "lead1"
+        },
+        {
+          "op": "complete",
+          "id": "d1"
+        }
+      ],
+      "row": {
+        "tag": "w1",
+        "sessionId": "s1"
+      },
+      "owner": "lead1",
+      "state": "undelivered"
+    },
+    {
+      "name": "a_completion_that_was_read_is_delivered",
+      "ops": [
+        {
+          "op": "register",
+          "id": "d1",
+          "session": "s1",
+          "tag": "w1",
+          "owner": "lead1"
+        },
+        {
+          "op": "complete",
+          "id": "d1"
+        },
+        {
+          "op": "acknowledge",
+          "id": "d1"
+        }
+      ],
+      "row": {
+        "tag": "w1",
+        "sessionId": "s1"
+      },
+      "owner": "lead1",
+      "state": "closed"
+    },
+    {
+      "name": "a_cancelled_job_is_delivered",
+      "ops": [
+        {
+          "op": "register",
+          "id": "d1",
+          "session": "s1",
+          "tag": "w1",
+          "owner": "lead1"
+        },
+        {
+          "op": "cancel",
+          "id": "d1"
+        }
+      ],
+      "row": {
+        "tag": "w1",
+        "sessionId": "s1"
+      },
+      "owner": "lead1",
+      "state": "closed"
+    },
+    {
+      "name": "the_newest_job_decides",
+      "ops": [
+        {
+          "op": "register",
+          "id": "d1",
+          "session": "s1",
+          "tag": "w1",
+          "owner": "lead1"
+        },
+        {
+          "op": "cancel",
+          "id": "d1"
+        },
+        {
+          "op": "register",
+          "id": "d2",
+          "session": "s1",
+          "tag": "w1",
+          "owner": "lead1"
+        }
+      ],
+      "row": {
+        "tag": "w1",
+        "sessionId": "s1"
+      },
+      "owner": "lead1",
+      "state": "undelivered"
+    },
+    {
+      "name": "the_newest_job_decides_when_it_was_read",
+      "ops": [
+        {
+          "op": "register",
+          "id": "d1",
+          "session": "s1",
+          "tag": "w1",
+          "owner": "lead1"
+        },
+        {
+          "op": "register",
+          "id": "d2",
+          "session": "s1",
+          "tag": "w1",
+          "owner": "lead1"
+        },
+        {
+          "op": "complete",
+          "id": "d2"
+        },
+        {
+          "op": "acknowledge",
+          "id": "d2"
+        }
+      ],
+      "row": {
+        "tag": "w1",
+        "sessionId": "s1"
+      },
+      "owner": "lead1",
+      "state": "closed"
+    },
+    {
+      "name": "a_job_of_the_tag_on_another_session_counts",
+      "ops": [
+        {
+          "op": "register",
+          "id": "d1",
+          "session": "earlier",
+          "tag": "w1",
+          "owner": "lead1"
+        }
+      ],
+      "row": {
+        "tag": "w1",
+        "sessionId": "s1"
+      },
+      "owner": "lead1",
+      "state": "undelivered"
+    },
+    {
+      "name": "a_job_of_the_session_under_another_tag_counts",
+      "ops": [
+        {
+          "op": "register",
+          "id": "d1",
+          "session": "s1",
+          "tag": "other",
+          "owner": "lead1"
+        }
+      ],
+      "row": {
+        "tag": "w1",
+        "sessionId": "s1"
+      },
+      "owner": "lead1",
+      "state": "undelivered"
+    },
+    {
+      "name": "a_job_with_neither_does_not_count",
+      "ops": [
+        {
+          "op": "register",
+          "id": "d1",
+          "session": "s9",
+          "tag": "w9",
+          "owner": "lead1"
+        }
+      ],
+      "row": {
+        "tag": "w1",
+        "sessionId": "s1"
+      },
+      "owner": "lead1",
+      "state": "closed"
+    },
+    {
+      "name": "another_owners_job_is_outside_the_scope",
+      "ops": [
+        {
+          "op": "register",
+          "id": "d1",
+          "session": "s1",
+          "tag": "w1",
+          "owner": "lead2"
+        }
+      ],
+      "row": {
+        "tag": "w1",
+        "sessionId": "s1"
+      },
+      "owner": "lead1",
+      "state": "closed"
+    },
+    {
+      "name": "a_job_pruned_undelivered_is_lost",
+      "ops": [
+        {
+          "op": "register",
+          "id": "d1",
+          "session": "s1",
+          "tag": "w1",
+          "owner": "lead1"
+        },
+        {
+          "op": "complete",
+          "id": "d1"
+        },
+        {
+          "op": "evict",
+          "owner": "lead1"
+        }
+      ],
+      "row": {
+        "tag": "w1",
+        "sessionId": "s1"
+      },
+      "owner": "lead1",
+      "state": "undelivered"
+    },
+    {
+      "name": "a_running_job_pruned_is_lost",
+      "ops": [
+        {
+          "op": "register",
+          "id": "d1",
+          "session": "s1",
+          "tag": "w1",
+          "owner": "lead1"
+        },
+        {
+          "op": "evict",
+          "owner": "lead1"
+        }
+      ],
+      "row": {
+        "tag": "w1",
+        "sessionId": "s1"
+      },
+      "owner": "lead1",
+      "state": "undelivered"
+    },
+    {
+      "name": "a_job_pruned_delivered_is_not_lost",
+      "ops": [
+        {
+          "op": "register",
+          "id": "d1",
+          "session": "s1",
+          "tag": "w1",
+          "owner": "lead1"
+        },
+        {
+          "op": "cancel",
+          "id": "d1"
+        },
+        {
+          "op": "evict",
+          "owner": "lead1"
+        }
+      ],
+      "row": {
+        "tag": "w1",
+        "sessionId": "s1"
+      },
+      "owner": "lead1",
+      "state": "closed"
+    },
+    {
+      "name": "a_later_delivered_prune_supersedes_a_lost_one",
+      "ops": [
+        {
+          "op": "register",
+          "id": "d1",
+          "session": "s1",
+          "tag": "w1",
+          "owner": "lead1"
+        },
+        {
+          "op": "complete",
+          "id": "d1"
+        },
+        {
+          "op": "evict",
+          "owner": "lead1"
+        },
+        {
+          "op": "register",
+          "id": "d2",
+          "session": "s1",
+          "tag": "w1",
+          "owner": "lead1"
+        },
+        {
+          "op": "cancel",
+          "id": "d2"
+        },
+        {
+          "op": "evict",
+          "owner": "lead1"
+        }
+      ],
+      "row": {
+        "tag": "w1",
+        "sessionId": "s1"
+      },
+      "owner": "lead1",
+      "state": "closed"
+    },
+    {
+      "name": "a_lost_tag_holds_the_owners_next_session_of_it",
+      "ops": [
+        {
+          "op": "register",
+          "id": "d1",
+          "session": "earlier",
+          "tag": "w1",
+          "owner": "lead1"
+        },
+        {
+          "op": "complete",
+          "id": "d1"
+        },
+        {
+          "op": "evict",
+          "owner": "lead1"
+        }
+      ],
+      "row": {
+        "tag": "w1",
+        "sessionId": "s1"
+      },
+      "owner": "lead1",
+      "state": "undelivered"
+    },
+    {
+      "name": "a_lost_tag_of_another_owner_does_not_hold",
+      "ops": [
+        {
+          "op": "register",
+          "id": "d1",
+          "session": "earlier",
+          "tag": "w1",
+          "owner": "lead2"
+        },
+        {
+          "op": "complete",
+          "id": "d1"
+        },
+        {
+          "op": "evict",
+          "owner": "lead2"
+        }
+      ],
+      "row": {
+        "tag": "w1",
+        "sessionId": "s1"
+      },
+      "owner": "lead1",
+      "state": "closed"
+    },
+    {
+      "name": "a_live_job_decides_before_a_lost_one",
+      "ops": [
+        {
+          "op": "register",
+          "id": "d1",
+          "session": "s1",
+          "tag": "w1",
+          "owner": "lead1"
+        },
+        {
+          "op": "complete",
+          "id": "d1"
+        },
+        {
+          "op": "evict",
+          "owner": "lead1"
+        },
+        {
+          "op": "register",
+          "id": "d2",
+          "session": "s1",
+          "tag": "w1",
+          "owner": "lead1"
+        },
+        {
+          "op": "cancel",
+          "id": "d2"
+        }
+      ],
+      "row": {
+        "tag": "w1",
+        "sessionId": "s1"
+      },
+      "owner": "lead1",
+      "state": "closed"
+    }
+  ]
+}

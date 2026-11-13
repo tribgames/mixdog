@@ -8,6 +8,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use mixdog_tools::orch::agent::AgentReply;
 use mixdog_tools::orch::agent::ClosedView;
+use mixdog_tools::orch::agent::HideFailed;
 use mixdog_tools::orch::agent::TaskResult;
 use mixdog_tools::orch::agent::AgentPort;
 use mixdog_tools::orch::agent::AgentRequest;
@@ -41,8 +42,25 @@ use super::scope::Scope;
 use super::scope::TagRecord;
 use super::scope::clean;
 use super::scope::clean_str;
+use super::views::is_open_idle;
 
 const CLOSE_REASON: &str = "cancelled by agent close";
+/// `closeFailureReason`'s fallback: the close left no barrier failure to name.
+const CLOSE_NOT_RECORDED: &str = "the session close was not recorded";
+
+/// What became of an idle agent (`releaseIdle`, `parkIdle`).
+#[derive(Clone, PartialEq, Debug)]
+pub enum IdleOutcome {
+    /// Closed; `hide_failed`: the closed sessions that stay listed, with the reason.
+    Closed { hide_failed: Vec<HideFailed> },
+    /// Its runtime was released; the agent stays open and listed.
+    Parked,
+    /// Its session was deleted: only the row was left, and is dropped.
+    Gone,
+    Busy,
+    Undelivered,
+    Failed { reason: Option<String> },
+}
 
 /// The collaborators the agent tool is wired to.
 pub struct AgentDeps {
@@ -128,6 +146,55 @@ fn cancel_session_tasks(tasks: &dyn Tasks, session_id: &str, target: &str, scope
     }
 }
 
+/// `dropGoneRow`: a deleted session has nothing left to close, only its row and tag remain.
+fn drop_gone_row(registry: &dyn Registry, tasks: &dyn Tasks, tag: &str, session_id: &str) {
+    registry.remove_worker_row(session_id);
+    if !tag.is_empty() {
+        registry.unbind_tag(tag);
+    }
+    tasks.forget_lost(session_id);
+}
+
+/// `rowContext`: the scope of the row's owner session, else of its host process.
+fn row_scope(row: &TagRecord) -> Scope {
+    let owner = [&row.owner.parent_session_id, &row.owner.owner_session_id].into_iter().map(|id| clean_str(id)).find(|id| !id.is_empty());
+    match owner {
+        Some(owner) => Scope { caller_session_id: Some(owner), host_pid: None },
+        None => Scope { caller_session_id: None, host_pid: row.owner.client_host_pid },
+    }
+}
+
+/// `resultDelivered(row, scopedContext)`: see [`Tasks::result_delivered`]. A tag is its owner's: the row's, else the caller.
+fn result_delivered(tasks: &dyn Tasks, row: &TagRecord, scope: &Scope) -> bool {
+    let owner = [row.owner.parent_session_id.as_str(), row.owner.owner_session_id.as_str(), scope.caller_session_id.as_deref().unwrap_or_default()]
+        .into_iter()
+        .find(|id| !id.is_empty())
+        .unwrap_or_default();
+    tasks.result_delivered(&row.session_id, &row.tag, owner, scope)
+}
+
+/// `parkIdle(row)` (`close-flow.mjs`), the idle timer's release: an idle agent whose last result was delivered gives up
+/// its runtime but stays open, listed and unhidden; a send resumes it from disk.
+pub async fn park_idle(parts: CloseParts<'_>, row: &TagRecord) -> IdleOutcome {
+    let CloseParts { registry, sessions, tasks } = parts;
+    let scope = row_scope(row);
+    if sessions.session_gone(&row.session_id).await {
+        drop_gone_row(registry, tasks, &clean_str(&row.tag), &row.session_id);
+        return IdleOutcome::Gone;
+    }
+    if sessions.turn_in_flight(&row.session_id) {
+        return IdleOutcome::Busy;
+    }
+    if !result_delivered(tasks, row, &scope) {
+        return IdleOutcome::Undelivered;
+    }
+    if sessions.park_session(&row.session_id).await {
+        IdleOutcome::Parked
+    } else {
+        IdleOutcome::Failed { reason: Some("the session runtime could not be released".to_owned()) }
+    }
+}
+
 /// `cancelAgentTree` (`agent-cancel.mjs:112-150`): the session and every agent below it close,
 /// descendants first and one at a time, all refusing admission until the last has closed. Each
 /// member's own jobs go first with the tree's `reason` (the agent jobs it started, then the jobs
@@ -200,8 +267,29 @@ pub async fn close_resolved(
     if registry.live_session(session_id).is_some_and(|s| is_lead_pool_agent(&s.agent)) {
         return Err(format!("agent close: target \"{target}\" is a Lead session"));
     }
-    let descendants = sessions.descendant_session_ids(session_id);
     let tag = registry.tag_for_session(session_id);
+    if sessions.session_gone(session_id).await {
+        let row_tag = match tag.as_deref().filter(|tag| !tag.is_empty()) {
+            Some(tag) => tag,
+            None if target.starts_with("sess_") => "",
+            None => target,
+        };
+        drop_gone_row(registry, tasks, row_tag, session_id);
+        if let Some(id) = &task_id_out {
+            tasks.cancel(id, CLOSE_REASON);
+        }
+        return Ok(ClosedView {
+            closed: true,
+            session_gone: true,
+            note: Some("the session was already gone; its row was dropped".to_owned()),
+            tag,
+            session_id: Some(session_id.to_owned()),
+            task_id: task_id_out,
+            ..ClosedView::default()
+        });
+    }
+    let descendants = sessions.descendant_session_ids(session_id);
+    let mut hide_failed = Vec::new();
     sessions.clear_statusline_route(session_id);
     cancel_session_tasks(tasks, session_id, target, scope);
     // Close (and stamp the cancel) before dropping the worker row, so the row never
@@ -226,9 +314,12 @@ pub async fn close_resolved(
         released.extend(descendants.iter().cloned());
         registry.mark_released(&released);
         // A closed agent's session is hidden from the lists; a send that uses it again lists it again.
-        sessions.hide_sessions(&released).await;
+        hide_failed = sessions.hide_sessions(&released).await;
     }
-    Ok(ClosedView { closed: ok, tag, session_id: Some(session_id.to_owned()), task_id: task_id_out, forgotten: false })
+    // A close that did not land names why. Node reads the barrier failure its runtime entry kept; a close that fails
+    // its durable stamp is this function's `Err` here, so what is left is the close that recorded nothing.
+    let reason = (!ok).then(|| CLOSE_NOT_RECORDED.to_owned());
+    Ok(ClosedView { closed: ok, tag, session_id: Some(session_id.to_owned()), task_id: task_id_out, reason, hide_failed, ..ClosedView::default() })
 }
 
 fn is_lead_pool_agent(agent: &str) -> bool {
@@ -349,7 +440,7 @@ impl AgentRuntime {
         if target.is_empty() {
             if let Some(task) = task {
                 self.deps.tasks.cancel(&task.task_id, CLOSE_REASON);
-                return Ok(ClosedView { closed: true, tag: task.tag.clone(), session_id: None, task_id: Some(task.task_id), forgotten: false });
+                return Ok(ClosedView { closed: true, tag: task.tag.clone(), task_id: Some(task.task_id), ..ClosedView::default() });
             }
             return Err("agent close: tag or sessionId is required".into());
         }
@@ -360,18 +451,113 @@ impl AgentRuntime {
                 if let Some(id) = &task_id_out {
                     self.deps.tasks.cancel(id, CLOSE_REASON);
                 }
-                return Ok(ClosedView { closed: true, tag: Some(target), session_id: None, task_id: task_id_out, forgotten: true });
+                return Ok(ClosedView { closed: true, tag: Some(target), task_id: task_id_out, forgotten: true, ..ClosedView::default() });
             }
             return Err(format!("agent close: target \"{target}\" not found"));
         };
         close_resolved(CloseParts { registry: &*self.deps.registry, sessions: &*self.deps.sessions, tasks: &*self.deps.tasks }, &session_id, &target, &scope, task_id_out, keep_row).await
     }
 
+    /// `releaseIdle(row, scopedContext)`: closes an idle agent whose last result was delivered.
+    async fn release_idle(&self, row: &TagRecord, scope: &Scope) -> IdleOutcome {
+        let AgentDeps { registry, sessions, tasks, .. } = &self.deps;
+        if sessions.session_gone(&row.session_id).await {
+            drop_gone_row(&**registry, &**tasks, &clean_str(&row.tag), &row.session_id);
+            return IdleOutcome::Gone;
+        }
+        if sessions.turn_in_flight(&row.session_id) {
+            return IdleOutcome::Busy;
+        }
+        if !result_delivered(&**tasks, row, scope) {
+            return IdleOutcome::Undelivered;
+        }
+        let caller = Caller { scope: scope.clone(), cwd: String::new() };
+        match self.close(&json!({ "sessionId": row.session_id }), &caller, false).await {
+            Ok(view) if view.session_gone => IdleOutcome::Gone,
+            Ok(view) if view.closed => IdleOutcome::Closed { hide_failed: view.hide_failed },
+            Ok(view) => IdleOutcome::Failed { reason: view.reason },
+            Err(error) => IdleOutcome::Failed { reason: Some(error) },
+        }
+    }
+
+    /// `hideLeftovers`: the idle records of the caller's agents that no worker row points to (what earlier closes left
+    /// open) are hidden, not closed. Answers how many were hidden and the ones that stay listed.
+    async fn hide_leftovers(&self, scope: &Scope) -> (usize, Vec<HideFailed>) {
+        let AgentDeps { registry, sessions, tasks, .. } = &self.deps;
+        let mut pointed: std::collections::HashSet<String> =
+            registry.read_worker_rows(&Scope::default()).unwrap_or_default().iter().map(|row| clean_str(&row.session_id)).collect();
+        pointed.extend(registry.bound_sessions());
+        let mut leftovers = Vec::new();
+        for session in sessions.open_sessions() {
+            let (id, tag, status) = (clean_str(&session.id), clean_str(&session.tag), clean_str(&session.status));
+            if id.is_empty() || pointed.contains(&id) {
+                continue;
+            }
+            if tag.is_empty() || is_lead_pool_agent(&session.agent) || !scope.owns(&session.owner) {
+                continue;
+            }
+            if !(status.is_empty() || status == "idle") || sessions.turn_in_flight(&id) || sessions.is_hidden(&id).await {
+                continue;
+            }
+            // The row Node builds here names the session and its tag only: the tag's owner is the caller.
+            let row = TagRecord { session_id: id.clone(), tag, ..TagRecord::default() };
+            if result_delivered(&**tasks, &row, scope) {
+                leftovers.push(id);
+            }
+        }
+        let failed = sessions.hide_sessions(&leftovers).await;
+        (leftovers.len().saturating_sub(failed.len()), failed)
+    }
+
+    /// `cleanup` (`close-flow.mjs`): finished jobs and stale tags go; then every worker row of the caller whose session
+    /// was deleted is dropped, every idle agent whose last result was delivered is closed, and the idle agent sessions no
+    /// row points to are hidden. Node also forgets the hidden ids of deleted sessions (`forgetGoneHidden`); the hiding
+    /// here is the session header's own flag, which goes with the session.
     async fn cleanup(&self, args: &Value, scope: &Scope) -> Result<AgentReply, String> {
         let registry = &self.deps.registry;
         let before = registry.tag_count() as i64;
         registry.refresh_tags_from_sessions(wants_session_scan(args), scope).await;
         let cleaned = self.deps.tasks.cleanup(scope, args.get("force") == Some(&Value::Bool(true)));
+        let (mut agents_closed, mut gone_rows_cleared) = (0u64, 0u64);
+        let (mut not_closed, mut not_hidden) = (Vec::new(), Vec::new());
+        let tag_or_null = |tag: &str| if tag.is_empty() { Value::Null } else { Value::String(tag.to_owned()) };
+        for row in registry.read_worker_rows(scope).unwrap_or_default() {
+            let session_id = clean_str(&row.session_id);
+            if session_id.is_empty() {
+                continue;
+            }
+            // A row of any status whose session was deleted is only a leftover.
+            if self.deps.sessions.session_gone(&session_id).await {
+                cancel_session_tasks(&*self.deps.tasks, &session_id, &session_id, scope);
+                drop_gone_row(&**registry, &*self.deps.tasks, &clean_str(&row.tag), &session_id);
+                gone_rows_cleared += 1;
+                continue;
+            }
+            if !is_open_idle(&row.status, &row.stage) {
+                continue;
+            }
+            match self.release_idle(&row, scope).await {
+                IdleOutcome::Closed { hide_failed } => {
+                    agents_closed += 1;
+                    for failed in hide_failed {
+                        not_hidden.push(json!({ "tag": tag_or_null(&row.tag), "sessionId": failed.session_id, "reason": failed.reason }));
+                    }
+                }
+                IdleOutcome::Gone => gone_rows_cleared += 1,
+                IdleOutcome::Failed { reason } => {
+                    let mut entry = json!({ "tag": tag_or_null(&row.tag), "sessionId": session_id });
+                    if let Some(reason) = reason {
+                        entry["reason"] = Value::String(reason);
+                    }
+                    not_closed.push(entry);
+                }
+                IdleOutcome::Parked | IdleOutcome::Busy | IdleOutcome::Undelivered => {}
+            }
+        }
+        let (leftovers_hidden, leftovers_failed) = self.hide_leftovers(scope).await;
+        for failed in leftovers_failed {
+            not_hidden.push(json!({ "tag": Value::Null, "sessionId": failed.session_id, "reason": failed.reason }));
+        }
         let tags_removed = before - registry.tag_count() as i64;
         let tasks = self.deps.views.list_jobs(scope).await.len();
         // Cleanup reports how many worker rows remain known (idle/terminal included).
@@ -381,12 +567,23 @@ impl AgentRuntime {
             .list(scope, ListOptions { scan_sessions: wants_session_scan(args), include_terminal: true, ..ListOptions::default() })
             .await
             .len();
-        Ok(AgentReply::Json(json!({
-            "tasksRemoved": cleaned.removed,
-            "tagsRemoved": tags_removed,
-            "tasks": tasks,
-            "workers": workers,
-        })))
+        let mut reply = serde_json::Map::new();
+        reply.insert("tasksRemoved".into(), json!(cleaned.removed));
+        reply.insert("tagsRemoved".into(), json!(tags_removed));
+        reply.insert("agentsClosed".into(), json!(agents_closed));
+        if gone_rows_cleared > 0 {
+            reply.insert("goneRowsCleared".into(), json!(gone_rows_cleared));
+        }
+        reply.insert("leftoversHidden".into(), json!(leftovers_hidden));
+        if !not_closed.is_empty() {
+            reply.insert("notClosed".into(), Value::Array(not_closed));
+        }
+        if !not_hidden.is_empty() {
+            reply.insert("notHidden".into(), Value::Array(not_hidden));
+        }
+        reply.insert("tasks".into(), json!(tasks));
+        reply.insert("workers".into(), json!(workers));
+        Ok(AgentReply::Json(Value::Object(reply)))
     }
 
     // ---- send ------------------------------------------------------------------------------
@@ -489,6 +686,7 @@ impl AgentRuntime {
             )
             .await?;
         if let Some(reply) = resumed {
+            self.deps.sessions.reveal_session(&inherited.resume_session_id).await;
             return Ok(reply);
         }
         // Drop this terminal's trace and remove ONLY the persisted row matching the inherited
@@ -532,6 +730,7 @@ impl AgentRuntime {
             let mut named = args.clone();
             named["tag"] = Value::String(tag.to_owned());
             let mut prepared = self.deps.send_flow.prepare_send(&named, scope).await?;
+            self.deps.sessions.reveal_session(&prepared.session_id).await;
             self.deps.send_flow.adopt_caller(&prepared, caller).await?;
             prepared.route = requested_route(args);
             let reply = self
@@ -556,6 +755,7 @@ impl AgentRuntime {
                 )
                 .await?;
             if let Some(reply) = resumed {
+                self.deps.sessions.reveal_session(&tombstone.session_id).await;
                 return Ok(SpawnPlan::Reused(Box::new(reply)));
             }
             registry.consume_tag_tombstone(&tombstone);
@@ -589,6 +789,7 @@ impl AgentRuntime {
                 )
                 .await?;
             if let Some(reply) = resumed {
+                self.deps.sessions.reveal_session(&record.session_id).await;
                 return Ok(SpawnPlan::Reused(Box::new(reply)));
             }
         }

@@ -5,10 +5,13 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use mixdog_agent::agent_tool::board::{CancelAll, CancelNotice, JobBoard};
-use mixdog_agent::agent_tool::dispatch::{CloseParts, cancel_agent_tree, close_resolved};
+use mixdog_agent::agent_tool::dispatch::{CloseParts, cancel_agent_tree, close_resolved, park_idle};
+use mixdog_agent::agent_tool::idle_release::IdleRelease;
 use mixdog_agent::agent_tool::error_text::{ErrorText, PlainErrorText};
 use mixdog_tools::orch::agent::ClosedView;
+use mixdog_tools::orch::agent::HideFailed;
 use mixdog_agent::agent_tool::host::CloseOptions;
+use mixdog_agent::agent_tool::host::OpenSession;
 use mixdog_agent::agent_tool::host::Registry;
 use mixdog_agent::agent_tool::scope::Scope;
 use mixdog_agent::agent_tool::host::Sessions;
@@ -135,7 +138,7 @@ impl AgentSessions {
                 continue;
             }
             board.cancel(&job.task_id, reason, CancelNotice::Default);
-            report.closed.push(ClosedView { closed: true, tag: job.meta.tag.clone(), session_id: job.meta.session_id.clone(), task_id: Some(job.task_id.clone()), forgotten: false });
+            report.closed.push(ClosedView { closed: true, tag: job.meta.tag.clone(), session_id: job.meta.session_id.clone(), task_id: Some(job.task_id.clone()), ..ClosedView::default() });
         }
         if !keep_rows {
             let closed: std::collections::HashSet<String> = report.closed.iter().filter_map(|view| view.session_id.clone()).collect();
@@ -157,6 +160,57 @@ impl AgentSessions {
             self.cancel_descendants(owner, reason, board),
         )
         .await;
+    }
+}
+
+impl AgentSessions {
+    /// The idle release (`createIdleRelease`, `close-flow/idle-release.mjs`, with `parkIdle` as its release): every open
+    /// idle agent row has a deadline a period after its row's time, checked again whenever the worker rows may have
+    /// changed; at its deadline the agent is parked, one agent at a time. Node arms a timer per row; this waits for the
+    /// earliest deadline on the registry's clock. Ends once the sessions are gone.
+    pub fn keep_idle_release(sessions: std::sync::Weak<Self>, board: JobBoard) -> impl std::future::Future<Output = ()> + Send + 'static {
+        Self::idle_release(sessions, board)
+    }
+
+    async fn idle_release(sessions: std::sync::Weak<Self>, board: JobBoard) {
+        // A deadline past the longest wait looks at the rows again.
+        const LONGEST_WAIT_MS: f64 = 3_600_000.0;
+        let Some(first) = sessions.upgrade() else { return };
+        let (changed, clock) = (first.registry.rows_changed(), first.clock.clone());
+        drop(first);
+        let mut release = IdleRelease::default();
+        loop {
+            let rows_changed = changed.notified();
+            tokio::pin!(rows_changed);
+            rows_changed.as_mut().enable();
+            let Some(this) = sessions.upgrade() else { return };
+            let now = this.clock.now_ms() as f64;
+            let idle = this.registry.idle_rows();
+            // A parked agent that stopped being idle (a send resumed it) reads as parked no longer.
+            for session in release.check(&idle.iter().map(|(session, row)| (session.clone(), row.at_ms)).collect(), now) {
+                this.registry.set_parked(&session, false);
+            }
+            if let Some(session) = release.take_due(now) {
+                if let Some(row) = idle.get(&session) {
+                    let parts = CloseParts { registry: &*this.registry, sessions: &*this, tasks: &board };
+                    let outcome = park_idle(parts, row).await;
+                    let still_idle = this.registry.idle_rows().contains_key(&session);
+                    release.settled(&session, &outcome, still_idle, this.clock.now_ms() as f64);
+                }
+                drop(this);
+                // One at a time, a turn apart: a restart finds every old idle agent due at once.
+                tokio::task::yield_now().await;
+                continue;
+            }
+            drop(this);
+            match release.next_due() {
+                Some(at) => tokio::select! {
+                    () = clock.until_ms(at.min(now + LONGEST_WAIT_MS).ceil() as i64) => {}
+                    () = &mut rows_changed => {}
+                },
+                None => rows_changed.await,
+            }
+        }
     }
 }
 
@@ -261,7 +315,8 @@ impl Sessions for AgentSessions {
         Box::new(self.registry.begin_cancellation(ids))
     }
 
-    async fn hide_sessions(&self, session_ids: &[String]) {
+    async fn hide_sessions(&self, session_ids: &[String]) -> Vec<HideFailed> {
+        let mut failed = Vec::new();
         for id in session_ids.iter().filter(|id| !id.is_empty()) {
             let thread = ThreadId::from(id.as_str());
             // An archived session keeps its stamp; one that is gone has nothing to hide.
@@ -270,11 +325,58 @@ impl Sessions for AgentSessions {
                     let set = serde_json::Map::from_iter([("archivedAt".to_owned(), serde_json::json!(self.clock.now_ms()))]);
                     if let Err(error) = self.threads.patch_header(&thread, set, vec![]).await {
                         tracing::warn!(session = %id, ?error, "a closed agent's session stays listed");
+                        failed.push(HideFailed { session_id: id.clone(), reason: format!("could not save the hidden sessions: {error:?}") });
                     }
                 }
                 _ => {}
             }
         }
+        failed
+    }
+
+    /// Read as a listing reads the session, without opening it: a cleanup asks this of every closed agent of the caller.
+    async fn is_hidden(&self, session_id: &str) -> bool {
+        self.directory.listed_header(&ThreadId::from(session_id)).await.is_some_and(|header| archived(&header))
+    }
+
+    /// `sessionGone` (`agent-tree.mjs`) over `storedSessionAbsent`: gone only when the index lists the session no longer
+    /// and its record reads as absent. A loaded session is there, and so is one whose record could not be read.
+    async fn session_gone(&self, session_id: &str) -> bool {
+        !session_id.is_empty()
+            && self.registry.session_of(session_id).is_none()
+            && self.directory.stored_presence(&ThreadId::from(session_id)).await == Some(false)
+    }
+
+    fn turn_in_flight(&self, session_id: &str) -> bool {
+        super::LiveSessions::running(&*self.directory, session_id)
+    }
+
+    /// `parkSession` (`agent-tree.mjs`): an agent that is known and not closed is parked once no runtime of it is left.
+    /// Node releases a runtime that is neither busy nor watched there and then, reaping the background work the session
+    /// runs (`keepBackgroundWork: false`). Here a quiet session nobody watches leaves memory by the session's own idle
+    /// clock ([`IDLE_EVICT`](crate::session::actor)), which keeps a session whose background work still runs: while the
+    /// session is loaded this answers `false`, and the idle release asks again one period later.
+    async fn park_session(&self, session_id: &str) -> bool {
+        let Some(session) = self.registry.session_of(session_id) else { return false };
+        if session.get("closed") == Some(&Value::Bool(true)) || self.directory.handle(&ThreadId::from(session_id)).is_some() {
+            return false;
+        }
+        self.registry.set_parked(session_id, true);
+        true
+    }
+
+    fn open_sessions(&self) -> Vec<OpenSession> {
+        self.registry
+            .open_sessions()
+            .iter()
+            .map(|session| OpenSession {
+                id: mixdog_agent::agent_tool::scope::clean(session.get("id")),
+                tag: super::rows::agent_tag_of(session),
+                agent: mixdog_agent::agent_tool::scope::clean(session.get("agent")),
+                owner: super::rows::owner_of(session),
+                status: mixdog_agent::agent_tool::scope::clean(session.get("status")),
+            })
+            .collect()
     }
 
     async fn reveal_session(&self, session_id: &str) {

@@ -191,6 +191,9 @@ pub struct AgentRegistry {
     loads: Mutex<Loads>,
     /// The restart notices this process has begun to queue and not yet stamped (`restart::notify_restart_failures`).
     restart_notices: Mutex<HashMap<String, restart::NoticeStage>>,
+    /// `descriptor.parked` (`agent-tree.mjs`): the idle agents the idle release parked, until a turn starts on them. Of
+    /// this process only, as Node's descriptors are.
+    parked: Mutex<HashSet<String>>,
 }
 
 /// The loads of the index: one runs at a time, and the callers that arrive meanwhile wait for its end. Bookkeeping only:
@@ -420,7 +423,7 @@ fn without_tombstone(map: &Row) -> Option<Row> {
 
 impl AgentRegistry {
     pub fn new(store: Arc<dyn WorkerStore>, live: Arc<dyn LiveSessions>, reap: Arc<dyn ReapWindow>, clock: Arc<dyn Clock>) -> Self {
-        Self { store, live, reap, clock, state: Mutex::new(State::default()), rearm: Arc::default(), loads: Mutex::default(), restart_notices: Mutex::default() }
+        Self { store, live, reap, clock, state: Mutex::new(State::default()), rearm: Arc::default(), loads: Mutex::default(), restart_notices: Mutex::default(), parked: Mutex::default() }
     }
 
     /// `nextStaleRowDeadline({}, since)`: the next moment after `since` a row of any owner comes due by its stamps alone
@@ -791,6 +794,45 @@ impl AgentRegistry {
         if let Some(row) = row_from_session(session, tag, extra, stage.as_deref(), &iso(self.now())) {
             self.upsert_row(st, &row);
         }
+    }
+
+    /// `descriptor.parked = on`.
+    pub(crate) fn set_parked(&self, session: &str, on: bool) {
+        let mut parked = self.parked.lock().unwrap_or_else(|p| p.into_inner());
+        if on {
+            parked.insert(session.to_owned());
+        } else {
+            parked.remove(session);
+        }
+    }
+
+    /// Whether the idle release parked the session and no turn started on it since.
+    pub(crate) fn is_parked(&self, session: &str) -> bool {
+        self.parked.lock().unwrap_or_else(|p| p.into_inner()).contains(session)
+    }
+
+    /// `idleRows()` (`close-flow/idle-release.mjs`): every owner's open idle worker row, by session. A Lead's own row,
+    /// which Node's index does not list, is no agent to park.
+    pub(crate) fn idle_rows(&self) -> HashMap<String, TagRecord> {
+        let st = self.lock();
+        st.rows(&Scope::default(), self.now())
+            .iter()
+            .filter(|row| !is_lead_pool_agent(row.get("agent")))
+            .map(|row| tag_record(row, "tag", "sessionId"))
+            .filter(|row| !row.session_id.is_empty() && mixdog_agent::agent_tool::views::is_open_idle(&row.status, &row.stage))
+            .map(|row| (row.session_id.clone(), row))
+            .collect()
+    }
+
+    /// Woken by every refresh and row write (`registry.onWorkerRowsChange`, and more often).
+    pub(crate) fn rows_changed(&self) -> Arc<tokio::sync::Notify> {
+        self.rearm.clone()
+    }
+
+    /// `mgr.listSessions()`: the agent sessions that are not closed.
+    pub(crate) fn open_sessions(&self) -> Vec<Row> {
+        let st = self.lock();
+        self.list_sessions(&st, false)
     }
 
     /// `forgetDeletedSession` (`gone-rows.mjs`): a deleted session's settled row goes, as a
@@ -1408,6 +1450,10 @@ impl Registry for AgentRegistry {
         Ok(st.rows(scope, self.now()).iter().map(|row| tag_record(row, "tag", "sessionId")).collect())
     }
 
+    fn bound_sessions(&self) -> Vec<String> {
+        self.lock().tags.iter().map(|(_, session)| session.clone()).collect()
+    }
+
     fn read_all_tag_tombstones(&self) -> Vec<TagRecord> {
         let st = self.lock();
         st.tombstones(self.now()).iter().map(|row| tag_record(row, "tag", "sessionId")).collect()
@@ -1550,6 +1596,8 @@ impl TerminalTrace for AgentRegistry {
 impl super::TurnStarts for AgentRegistry {
     fn turn_started(&self, thread: &ThreadId) {
         let id = thread.as_str();
+        // `descriptor.parked = false` (`agent-tree/agent-turns.mjs`).
+        self.set_parked(id, false);
         let mut st = self.lock();
         let Some(map) = st.map(id).filter(|m| m.contains_key("releasedAt")).cloned() else { return };
         let mut map = map;

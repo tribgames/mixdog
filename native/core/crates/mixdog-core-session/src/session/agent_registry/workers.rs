@@ -42,6 +42,24 @@ impl AgentWorkers {
         Self { directory, threads, registry, jobs, clock }
     }
 
+    /// `descriptor.parked === true && status === 'idle' && !owner` (`agentDescriptor`, `agent-tree.mjs`): the idle
+    /// release parked the agent, it is still idle and no runtime of it is loaded.
+    fn parked(&self, id: &str, session: &Row) -> bool {
+        self.registry.is_parked(id)
+            && session.get("closed") != Some(&Value::Bool(true))
+            && text(session, "status").is_none_or(|status| status == "idle")
+            && self.directory.handle(&ThreadId::from(id)).is_none()
+    }
+
+    /// The record as the views read it; a parked agent's stage is `parked`.
+    fn facts(&self, id: &str, session: &Row, result_text: String) -> WorkerFacts {
+        let mut facts = facts_of(id, session, self.awaiting_user(id), result_text);
+        if self.parked(id, session) {
+            facts.stage = Some("parked".to_owned());
+        }
+        facts
+    }
+
     /// Whether the worker's turn waits on a user approval (`runtime.awaitingUser`).
     fn awaiting_user(&self, id: &str) -> bool {
         self.directory.handle(&ThreadId::from(id)).is_some_and(|handle| !handle.cell.approvals.load().is_empty())
@@ -130,11 +148,17 @@ impl Workers for AgentWorkers {
         // The result is the newest assistant message: only the context's tail that holds it is read.
         let messages = self.directory.model_context(&thread).read_tail_until(is_result).await.unwrap_or_default();
         let result = worker_result_text(&header, &messages);
-        Some(facts_of(session_id, &header, self.awaiting_user(session_id), result))
+        Some(self.facts(session_id, &header, result))
     }
 
+    /// `mgr.getSessionRuntime(id)`: a session with no runtime answers its own stage, which for a parked agent is
+    /// `parked`.
     fn live(&self, session_id: &str) -> WorkerLive {
-        self.directory.worker_live(&ThreadId::from(session_id), self.clock.now_ms(), &*self.jobs)
+        let mut live = self.directory.worker_live(&ThreadId::from(session_id), self.clock.now_ms(), &*self.jobs);
+        if live.runtime_stage.is_none() && self.registry.is_parked(session_id) && self.directory.handle(&ThreadId::from(session_id)).is_none() {
+            live.runtime_stage = Some("parked".to_owned());
+        }
+        live
     }
 
     /// `agentSessionEntries`: index rows and live sessions as the registry holds them; the list
@@ -145,8 +169,7 @@ impl Workers for AgentWorkers {
             .into_iter()
             .map(|(tag, session)| {
                 let id = mixdog_js::js_trim(session.get("id").and_then(Value::as_str).unwrap_or_default()).to_owned();
-                let awaiting = self.awaiting_user(&id);
-                let facts = facts_of(&id, &session, awaiting, NO_OUTPUT.to_owned());
+                let facts = self.facts(&id, &session, NO_OUTPUT.to_owned());
                 (tag, facts)
             })
             .collect()

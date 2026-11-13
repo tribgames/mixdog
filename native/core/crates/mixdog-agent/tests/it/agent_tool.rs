@@ -40,7 +40,7 @@ fn owner_of(v: &Value) -> Owner {
 }
 
 fn record(v: &Value) -> TagRecord {
-    TagRecord { tag: s(v, "tag"), session_id: s(v, "sessionId"), agent: s(v, "agent"), cwd: s(v, "cwd"), owner: owner_of(v) }
+    TagRecord { tag: s(v, "tag"), session_id: s(v, "sessionId"), agent: s(v, "agent"), cwd: s(v, "cwd"), owner: owner_of(v), status: s(v, "status"), stage: s(v, "stage"), at_ms: 0.0 }
 }
 
 fn scope_json(scope: &Scope) -> Value {
@@ -58,6 +58,8 @@ pub(crate) struct World {
     prepare: Mutex<VecDeque<Value>>,
     jobs: Mutex<u32>,
     cancelled: Mutex<HashSet<String>>,
+    /// The sessions hidden: the world's, then the ones the run hid.
+    hidden: Mutex<HashSet<String>>,
 }
 
 impl World {
@@ -67,6 +69,10 @@ impl World {
 
     fn list(&self, key: &str) -> Vec<Value> {
         self.json.get(key).and_then(Value::as_array).cloned().unwrap_or_default()
+    }
+
+    fn names(&self, key: &str, id: &str) -> bool {
+        self.list(key).iter().any(|v| v.as_str() == Some(id))
     }
 
     fn live(&self, id: &str) -> Option<SessionFacts> {
@@ -133,6 +139,9 @@ impl Registry for Fakes {
     }
     fn read_worker_rows(&self, scope: &Scope) -> Result<Vec<TagRecord>, String> {
         Ok(self.0.list("rows").iter().map(record).filter(|r| scope.owns(&r.owner)).collect())
+    }
+    fn bound_sessions(&self) -> Vec<String> {
+        self.0.tags.lock().unwrap().iter().map(|(_, id)| id.clone()).collect()
     }
     fn read_all_tag_tombstones(&self) -> Vec<TagRecord> {
         self.0.list("tombstones").iter().chain(self.0.list("foreignTombstones").iter()).map(record).collect()
@@ -259,6 +268,27 @@ impl Sessions for Fakes {
         Vec::new()
     }
     fn clear_statusline_route(&self, _session_id: &str) {}
+    // The recorder's manager answers these from the world and logs none of them; the hidden set is the daemon's own.
+    async fn hide_sessions(&self, session_ids: &[String]) -> Vec<mixdog_tools::orch::agent::HideFailed> {
+        self.0.hidden.lock().unwrap().extend(session_ids.iter().cloned());
+        Vec::new()
+    }
+    async fn is_hidden(&self, session_id: &str) -> bool {
+        self.0.hidden.lock().unwrap().contains(session_id)
+    }
+    async fn session_gone(&self, session_id: &str) -> bool {
+        self.0.names("gone", session_id)
+    }
+    fn turn_in_flight(&self, session_id: &str) -> bool {
+        self.0.names("inFlight", session_id)
+    }
+    fn open_sessions(&self) -> Vec<OpenSession> {
+        self.0
+            .list("sessions")
+            .iter()
+            .map(|v| OpenSession { id: s(v, "id"), tag: s(v, "agentTag"), agent: s(v, "agent"), owner: owner_of(v), status: s(v, "status") })
+            .collect()
+    }
 }
 
 fn task_facts(v: &Value) -> TaskFacts {
@@ -284,6 +314,12 @@ impl Tasks for Fakes {
     fn cancel_owned(&self, _session_id: &str, _reason: &str) {}
     fn cleanup(&self, _scope: &Scope, _force: bool) -> Cleaned {
         Cleaned { removed: 0 }
+    }
+    // The recorder's table is the real one and every job of a world is running until it is cancelled: the newest job
+    // of the session or the tag decides, and none left reads as delivered.
+    fn result_delivered(&self, session_id: &str, tag: &str, _owner: &str, _scope: &Scope) -> bool {
+        let newest = self.0.list("tasks").iter().map(task_facts).rfind(|t| t.session_id.as_deref() == Some(session_id) || t.tag.as_deref() == Some(tag));
+        newest.is_none_or(|task| self.0.cancelled.lock().unwrap().contains(&task.task_id))
     }
 }
 
@@ -398,12 +434,35 @@ fn runtime(world: &Arc<World>) -> AgentRuntime {
     })
 }
 
+/// The two scenarios of the first recording whose answer main's 6de9f07bc changed (cleanup reports what it closed and
+/// hid, a close names why it did not land): `fixtures/agent-cleanup` holds them as recorded from that commit.
+const RECORDED_AGAIN: [&str; 2] = ["cleanup", "close_that_fails_keeps_the_row"];
+
 #[tokio::test]
 async fn every_recorded_scenario_equals_nodes_trace_and_answer() {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/agent/agent_tool/cases.json");
     let cases: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
     let cases = cases.as_array().unwrap();
     assert!(cases.len() >= 40);
+    let kept: Vec<Value> = cases.iter().filter(|case| !RECORDED_AGAIN.contains(&s(case, "name").as_str())).cloned().collect();
+    assert_eq!(kept.len(), cases.len() - RECORDED_AGAIN.len());
+    replay(&kept).await;
+}
+
+/// `fixtures/agent-cleanup` (`record-agent-cleanup.mjs`, main 0bf8fe045): cleanup closes the delivered idle agents,
+/// drops the rows of deleted sessions and hides the idle sessions no row points to; a close names why it did not land
+/// and drops the row of a deleted session.
+#[tokio::test]
+async fn cleanup_and_close_equal_nodes_trace_and_answer() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/agent-cleanup/cases.json");
+    let recorded: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let cases = recorded["dispatch"].as_array().unwrap();
+    assert!(cases.len() >= 9);
+    assert!(RECORDED_AGAIN.iter().all(|name| cases.iter().any(|case| s(case, "name") == *name)));
+    replay(cases).await;
+}
+
+async fn replay(cases: &[Value]) {
     for case in cases {
         let name = s(case, "name");
         let world_json = case.get("world").cloned().unwrap_or(Value::Null);
@@ -417,6 +476,8 @@ async fn every_recorded_scenario_equals_nodes_trace_and_answer() {
             .and_then(Value::as_array)
             .map(|a| a.iter().map(|t| t.as_str().unwrap().to_owned()).collect())
             .unwrap_or_default();
+        let hidden: HashSet<String> =
+            world_json.get("hidden").and_then(Value::as_array).map(|a| a.iter().filter_map(|id| id.as_str().map(str::to_owned)).collect()).unwrap_or_default();
         let world = Arc::new(World {
             prepare: Mutex::new(world_json.get("prepare").and_then(Value::as_array).cloned().unwrap_or_default().into()),
             json: world_json,
@@ -425,6 +486,7 @@ async fn every_recorded_scenario_equals_nodes_trace_and_answer() {
             tag_agents: Mutex::new(tag_agents),
             jobs: Mutex::new(0),
             cancelled: Mutex::new(HashSet::new()),
+            hidden: Mutex::new(hidden),
         });
         let rt = runtime(&world);
         let caller = Caller { scope: Scope { caller_session_id: Some("lead1".into()), host_pid: Some(4242) }, cwd: "/work".into() };
