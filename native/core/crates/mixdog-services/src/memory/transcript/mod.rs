@@ -176,6 +176,12 @@ impl TranscriptIngest {
         self.offsets.persist(&self.db).await;
     }
 
+    /// [`Self::persist_transcript_offsets`] through `db`, an open handle of the same schema: the stop's last write, made while
+    /// the stack already refuses uses through its own (deferred) handle.
+    pub async fn persist_transcript_offsets_over(&self, db: &Db) {
+        self.offsets.persist(db).await;
+    }
+
     /// `getOffset`.
     pub fn get_offset(&self, path: &Path) -> Option<Position> {
         self.offsets.get(&path.to_string_lossy())
