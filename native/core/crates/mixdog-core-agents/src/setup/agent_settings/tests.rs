@@ -248,3 +248,82 @@ async fn the_setup_actions_answer_what_the_recorded_node_handlers_answered() {
         assert_eq!(files_of(&data), want, "{label}: files");
     }
 }
+
+/// The calling turn's approval gate: keeps each request and answers with the scripted resolution.
+struct Gate {
+    asks: Mutex<Vec<mixdog_core_api::domain::approval::ApprovalAsk>>,
+    answer: mixdog_protocol::ApprovalResolution,
+}
+
+#[async_trait]
+impl mixdog_core_api::domain::approval::ApprovalGate for Gate {
+    async fn request(&self, ask: mixdog_core_api::domain::approval::ApprovalAsk) -> mixdog_protocol::ApprovalResolution {
+        self.asks.lock().unwrap_or_else(PoisonError::into_inner).push(ask);
+        self.answer.clone()
+    }
+}
+
+/// `GateWidenCards` hands the turn's gate the request Node's `askToWidenConnectorTool` handed
+/// `requestApproval` (every card of the recording, whole), and reads the settlement back as Node's
+/// answer: the picked level is the decision's `scope`.
+#[tokio::test]
+async fn a_widening_card_is_the_recorded_request_on_the_turns_approval_gate() {
+    use mixdog_protocol::{ApprovalResolution, ConnectionKind, HumanGateResponse, ToolApprovalDecision, ToolCallId};
+    use mixdog_tools::orch::service::{CallApprovals, with_call_approvals};
+
+    let twin: Value = serde_json::from_str(&TWIN).unwrap();
+    let thread = ThreadId::from("thread-1");
+    let card_of = |asked: &Value| WidenCard {
+        agent: asked["agentId"].as_str().unwrap().to_owned(),
+        server: asked["connector"]["server"].as_str().unwrap().to_owned(),
+        tool: asked["connector"]["tool"].as_str().unwrap().to_owned(),
+        from: Permission::parse(asked["connector"]["from"].as_str().unwrap()).unwrap(),
+        requested: asked["connector"]["requested"].clone(),
+        choices: asked["connector"]["choices"].as_array().unwrap().iter().map(|level| Permission::parse(level.as_str().unwrap()).unwrap()).collect(),
+        args: asked["args"].clone(),
+        reason: asked["reason"].as_str().unwrap().to_owned(),
+    };
+    let decided = |approved: bool, scope: Option<&str>, response: HumanGateResponse| ApprovalResolution::Decided {
+        decision: ToolApprovalDecision { approved, reason: None, answers: None, reply: None, response: Some(response), edited_args: None, remember: None, scope: scope.map(str::to_owned) },
+        device: "phone".into(),
+        connection_kind: ConnectionKind::Phone,
+        at: 1,
+    };
+    let mut replayed = 0;
+    for asked in twin["steps"].as_array().unwrap().iter().flat_map(|step| step["asked"].as_array().into_iter().flatten()) {
+        let gate = Arc::new(Gate { asks: Mutex::default(), answer: decided(true, Some("auto"), HumanGateResponse::Approve) });
+        let card = card_of(asked);
+        let outcome = with_call_approvals(CallApprovals { gate: gate.clone(), call_id: ToolCallId::from("call-1") }, GateWidenCards.ask(&thread, &card)).await;
+        assert_eq!(
+            outcome,
+            CardOutcome::Settled(Some(CardAnswer { approved: true, scope: Some("auto".into()), timed_out: false, response: Some("approve".into()), device: Some("phone".into()) }))
+        );
+        let asks = gate.asks.lock().unwrap();
+        assert_eq!(asks.len(), 1);
+        assert_eq!(asks[0].payload, *asked, "the request Node raised");
+        assert_eq!(asks[0].call_id, Some(ToolCallId::from("call-1")));
+        assert_eq!(asks[0].tool.as_deref(), Some("setup"));
+        assert!(asks[0].remember.is_empty() && asks[0].action_kind.is_none(), "nothing is remembered");
+        replayed += 1;
+    }
+    assert!(replayed > 0, "the recording raises cards");
+
+    let asked = twin["steps"].as_array().unwrap().iter().find_map(|step| step["asked"].get(0)).unwrap();
+    let card = card_of(asked);
+    // Outside a turn's tool call there is no approval hook (`typeof requestApproval !== 'function'`).
+    assert_eq!(GateWidenCards.ask(&thread, &card).await, CardOutcome::NoHook);
+    let settle = |answer: ApprovalResolution| {
+        let (card, thread) = (card.clone(), thread.clone());
+        async move {
+            let gate = Arc::new(Gate { asks: Mutex::default(), answer });
+            with_call_approvals(CallApprovals { gate, call_id: ToolCallId::from("call-1") }, GateWidenCards.ask(&thread, &card)).await
+        }
+    };
+    assert_eq!(settle(ApprovalResolution::Unavailable { at: 1 }).await, CardOutcome::NoHook, "a session with no approval surface asked nobody");
+    assert_eq!(settle(ApprovalResolution::TimedOut { at: 1 }).await, CardOutcome::Settled(Some(CardAnswer { timed_out: true, ..CardAnswer::default() })));
+    assert_eq!(settle(ApprovalResolution::Withdrawn { at: 1 }).await, CardOutcome::Settled(None));
+    assert_eq!(
+        settle(decided(false, None, HumanGateResponse::Deny)).await,
+        CardOutcome::Settled(Some(CardAnswer { approved: false, scope: None, timed_out: false, response: Some("deny".into()), device: Some("phone".into()) }))
+    );
+}

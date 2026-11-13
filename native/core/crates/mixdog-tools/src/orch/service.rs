@@ -22,6 +22,31 @@ use super::util::PortError;
 use super::util::cancelled;
 use super::util::spec_from_def;
 
+/// The calling turn's approval gate and the tool call asking (Node `callerCtx.toolApprovalHook`,
+/// `toolCallId`).
+#[derive(Clone)]
+pub struct CallApprovals {
+    pub gate: Arc<dyn mixdog_core_api::domain::approval::ApprovalGate>,
+    pub call_id: mixdog_protocol::ToolCallId,
+}
+
+tokio::task_local! {
+    /// Set around a service call made by a turn's tool: an action that must ask a person (the
+    /// setup tool's connector widening) raises its card through it.
+    static CALL_APPROVALS: CallApprovals;
+}
+
+/// The approval gate of the tool call this task serves; `None` outside one (a caller with no
+/// approval hook).
+pub fn call_approvals() -> Option<CallApprovals> {
+    CALL_APPROVALS.try_with(Clone::clone).ok()
+}
+
+/// Runs `work` as the service call of a tool call that asks through `approvals`.
+pub async fn with_call_approvals<F: std::future::Future>(approvals: CallApprovals, work: F) -> F::Output {
+    CALL_APPROVALS.scope(approvals, work).await
+}
+
 /// One call into a tool service.
 pub struct ServiceCall<'a> {
     pub thread: &'a ThreadId,
@@ -81,7 +106,7 @@ impl Tool for ServiceTool {
         let parts = tokio::select! {
             biased;
             _ = ctx.cancel.cancelled() => return Err(cancelled()),
-            r = self.service.call(call) => r?,
+            r = with_call_approvals(CallApprovals { gate: ctx.approvals.clone(), call_id: ctx.call_id.clone() }, self.service.call(call)) => r?,
         };
         Ok(ToolOutput { parts, ..ToolOutput::default() })
     }

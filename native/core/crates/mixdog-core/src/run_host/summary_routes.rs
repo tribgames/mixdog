@@ -21,6 +21,10 @@ pub struct SessionRoute {
     pub model: String,
     /// `sessionRef.contextWindow`, when the session holds one.
     pub context_window: Option<u64>,
+    /// `resolveHandoffSummaryModel(sessionRef)`: the model an operator configured for the summary
+    /// (`compaction.summaryModel`, else `MIXDOG_AGENT_COMPACT_SUMMARY_MODEL`). The session step
+    /// runs on it, on the conversation's own provider; `None` is the conversation's own model.
+    pub summary_model: Option<String>,
 }
 
 /// The Maintainer's own model: set, and its provider enabled.
@@ -117,8 +121,11 @@ impl SummaryRoutes {
     }
 
     async fn session_route(&self) -> Result<SummaryRoute, SummaryFailure> {
+        // `model: resolveHandoffSummaryModel(sessionRef) || model` (`pre-send-compact.mjs`, `compaction-runner.mjs`), then
+        // `resolveSessionRoute`: the session's provider with that model. The window is the conversation's own only for its own model.
         let session = self.host.session();
-        self.route(RouteStep::Session, &session.provider, &session.model, false, None).await
+        let model = session.summary_model.as_deref().filter(|model| !model.is_empty()).unwrap_or(&session.model);
+        self.route(RouteStep::Session, &session.provider, model, false, None).await
     }
 }
 
@@ -265,7 +272,7 @@ mod tests {
 
     fn host(provider: &str, model: &str) -> Host {
         Host {
-            session: SessionRoute { provider: provider.into(), model: model.into(), context_window: Some(272_000) },
+            session: SessionRoute { provider: provider.into(), model: model.into(), context_window: Some(272_000), summary_model: None },
             maintainer: None,
             missing: &[],
             catalog: None,
@@ -285,6 +292,24 @@ mod tests {
         other.maintainer = Some(MaintainerRoute { provider: "anthropic".into(), model: "claude-haiku-4-5".into(), fast: false, effort: "low".into() });
         let routes = SummaryRoutes::new(Arc::new(other));
         assert_eq!(routes.resolve(RouteStep::Maintainer).await.unwrap().unwrap().context_window, 200_000);
+    }
+
+    /// `model: resolveHandoffSummaryModel(sessionRef) || model` into `resolveSessionRoute` (`fresh-context.mjs`): the session step
+    /// runs on the configured summary model under the conversation's provider, with that model's whole window (`sameModel` is
+    /// false), and the lighter step compares against it (`lighter === session.model`).
+    #[tokio::test]
+    async fn a_configured_summary_model_is_the_session_steps_model() {
+        let mut h = host("anthropic-oauth", "claude-sonnet-4");
+        h.session.summary_model = Some("claude-haiku-4-5".into());
+        h.catalog = Some(vec![serde_json::json!({ "id": "claude-haiku-4-5", "family": "haiku" })]);
+        let routes = SummaryRoutes::new(Arc::new(h));
+        let own = routes.resolve(RouteStep::Session).await.unwrap().unwrap();
+        assert_eq!((own.step, own.provider_name.as_str(), own.model.as_str(), own.context_window), (RouteStep::Session, "anthropic-oauth", "claude-haiku-4-5", 200_000));
+        assert!(routes.resolve(RouteStep::Lighter).await.unwrap().is_none(), "the summary already runs on the lighter model");
+        // The conversation's own model named as the summary model keeps the conversation's window.
+        let mut same = host("openai-oauth", "gpt-5");
+        same.session.summary_model = Some("gpt-5".into());
+        assert_eq!(SummaryRoutes::new(Arc::new(same)).resolve(RouteStep::Session).await.unwrap().unwrap().context_window, 272_000);
     }
 
     /// `String(route.effort || '').trim() || 'low'`, values checked against Node.

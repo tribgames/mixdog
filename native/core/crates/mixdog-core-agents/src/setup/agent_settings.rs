@@ -16,15 +16,18 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use mixdog_core_api::domain::approval::{ApprovalAsk, ApprovalGate as _, ApprovalKind};
 use mixdog_core_ports::ports::setup_actions::{SetupActions, SetupCall};
 use mixdog_mcp::permissions::Permission;
+use mixdog_protocol::ApprovalResolution;
 use mixdog_tools::orch::util::PortError;
 use mixdog_tools::policy::{AuditEntry, GrantStore};
 use serde_json::{Map, Value, json};
 
 use crate::agents::{AgentConnectors, AgentPermissions, AgentsError, NO_WIDEN};
 
-const ACTIONS: &[&str] = &[
+/// The action names this owner serves.
+pub const ACTIONS: &[&str] = &[
     "read_agent_settings",
     "read_project_connectors",
     "set_agent_permission",
@@ -85,6 +88,65 @@ pub enum CardOutcome {
 #[async_trait]
 pub trait WidenCards: Send + Sync {
     async fn ask(&self, thread: &mixdog_protocol::ThreadId, card: &WidenCard) -> CardOutcome;
+}
+
+/// [`WidenCards`] over the calling turn's approval gate (`callerCtx.toolApprovalHook`): the card
+/// is an approval request of kind `connector`, answered with the picked level as its `scope`.
+pub struct GateWidenCards;
+
+impl GateWidenCards {
+    /// The request Node's `askToWidenConnectorTool` hands `requestApproval`. The session and the
+    /// tool call are the gate's own (`sessionId`, `toolCallId`).
+    fn ask(card: &WidenCard, call_id: mixdog_protocol::ToolCallId) -> ApprovalAsk {
+        let level = |permission: &Permission| Value::String(permission.name().to_owned());
+        ApprovalAsk {
+            kind: ApprovalKind::Tool,
+            call_id: Some(call_id),
+            tool: Some("setup".to_owned()),
+            action_kind: None,
+            reason: Some(card.reason.clone()),
+            payload: json!({
+                "name": "setup",
+                "kind": "connector",
+                "agentId": card.agent,
+                "connector": {
+                    "server": card.server,
+                    "tool": card.tool,
+                    "from": level(&card.from),
+                    "requested": card.requested,
+                    "choices": card.choices.iter().map(level).collect::<Vec<_>>(),
+                },
+                "args": card.args,
+                "reason": card.reason,
+                "remember": ["once"],
+            }),
+            // Nothing is remembered: every widening asks again.
+            remember: Vec::new(),
+            expires_after: None,
+        }
+    }
+
+    fn outcome(resolution: ApprovalResolution) -> CardOutcome {
+        match resolution {
+            ApprovalResolution::Decided { decision, device, .. } => {
+                let response = decision.response.and_then(|response| serde_json::to_value(response).ok()).and_then(|name| name.as_str().map(str::to_owned));
+                CardOutcome::Settled(Some(CardAnswer { approved: decision.approved, scope: decision.scope, timed_out: false, response, device: Some(device).filter(|device| !device.is_empty()) }))
+            }
+            ApprovalResolution::TimedOut { .. } => CardOutcome::Settled(Some(CardAnswer { timed_out: true, ..CardAnswer::default() })),
+            // The session has no approval surface: nobody was asked.
+            ApprovalResolution::Unavailable { .. } => CardOutcome::NoHook,
+            ApprovalResolution::Interrupted { .. } | ApprovalResolution::Cancelled { .. } | ApprovalResolution::Withdrawn { .. } => CardOutcome::Settled(None),
+        }
+    }
+}
+
+#[async_trait]
+impl WidenCards for GateWidenCards {
+    async fn ask(&self, _: &mixdog_protocol::ThreadId, card: &WidenCard) -> CardOutcome {
+        // A setup call no turn's tool made has no approval hook.
+        let Some(approvals) = mixdog_tools::orch::service::call_approvals() else { return CardOutcome::NoHook };
+        Self::outcome(approvals.gate.request(Self::ask(card, approvals.call_id)).await)
+    }
 }
 
 pub struct AgentSettingsSetup {

@@ -233,7 +233,7 @@ mod tests {
     #[async_trait]
     impl SummaryHost for Host {
         fn session(&self) -> SessionRoute {
-            SessionRoute { provider: "openai".into(), model: "gpt-5".into(), context_window: Some(200_000) }
+            SessionRoute { provider: "openai".into(), model: "gpt-5".into(), context_window: Some(200_000), summary_model: None }
         }
         fn maintainer_route(&self) -> Option<MaintainerRoute> {
             None

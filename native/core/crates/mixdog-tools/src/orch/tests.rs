@@ -249,3 +249,39 @@ fn tidy_definition_equals_the_recorded_node_one() {
     assert_eq!(spec.description, golden["description"].as_str().unwrap());
     assert_eq!(spec.input_schema, golden["inputSchema"]);
 }
+
+/// A service call a turn's tool makes carries that turn's approval gate and the asking tool call
+/// (Node `callerCtx.toolApprovalHook` and `toolCallId`, `internal-tool-executor/feature-tools.mjs`):
+/// the service asks a person through it. Outside a tool call there is none.
+#[tokio::test]
+async fn a_service_call_carries_the_turns_approval_gate() {
+    use mixdog_core_api::domain::approval::{ApprovalAsk, ApprovalKind};
+
+    struct Asks;
+    #[async_trait]
+    impl super::service::ToolService for Asks {
+        async fn call(&self, _: super::service::ServiceCall<'_>) -> Result<Vec<ToolPart>, super::util::PortError> {
+            let approvals = super::service::call_approvals().expect("the tool call's gate");
+            let ask = ApprovalAsk {
+                kind: ApprovalKind::Tool,
+                call_id: Some(approvals.call_id.clone()),
+                tool: Some("tidy".into()),
+                action_kind: None,
+                reason: None,
+                payload: json!({}),
+                remember: Vec::new(),
+                expires_after: None,
+            };
+            let _ = approvals.gate.request(ask).await;
+            Ok(vec![ToolPart::Text(approvals.call_id.to_string())])
+        }
+    }
+    assert!(super::service::call_approvals().is_none(), "no tool call, no gate");
+    let gate = Arc::new(MockApprovalGate::default());
+    let context = ToolContext { approvals: gate.clone(), ..ctx() };
+    let out = super::service::ServiceTool::tidy(Arc::new(Asks)).call(&context, json!({})).await.expect("call");
+    assert_eq!(out.parts, [ToolPart::Text("c".into())]);
+    let asks = gate.asks.lock().unwrap();
+    assert_eq!(asks.len(), 1, "the ask reached the turn's own gate");
+    assert_eq!(asks[0].call_id, Some(ToolCallId::from("c")));
+}

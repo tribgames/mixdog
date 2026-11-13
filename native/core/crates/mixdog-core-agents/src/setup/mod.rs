@@ -28,6 +28,8 @@ mod workflow_status;
 mod tests;
 
 pub use agent_settings::AgentSettingsSetup;
+pub use agent_settings::ACTIONS as AGENT_SETTINGS_ACTIONS;
+pub use agent_settings::GateWidenCards;
 pub use agent_settings::CardAnswer;
 pub use agent_settings::CardOutcome;
 pub use agent_settings::ProjectSwitches;

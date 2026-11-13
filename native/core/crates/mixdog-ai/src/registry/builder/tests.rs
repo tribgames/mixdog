@@ -478,3 +478,57 @@ async fn a_custom_provider_warms_on_the_wires_node_warms_on() {
         assert_eq!(sent, recorded_sent, "{wire}: the requests the sends made");
     }
 }
+
+/// `xaiServerToolSearchEnabled` (`openai-compat-xai-send.mjs`): `provider.config?.xaiServerToolSearch === true` and nothing else
+/// turns the server's tool search on. On, the xAI Responses body declares one `tool_search` tool and marks the deferred tools
+/// (`toResponsesTools(.., { serverToolSearch: true })`); unset or anything but `true`, every tool is a plain function.
+#[tokio::test]
+async fn the_xai_server_tool_search_is_the_providers_own_opt_in() {
+    use mixdog_core_api::domain::provider::{ModelRequest, RequestOptions, ToolDefinition};
+    let dir = tempfile::tempdir().unwrap();
+    // The network keeps each request's body and refuses it: the request as it leaves is all that is read.
+    let sent = Arc::new(std::sync::Mutex::new(Vec::<(String, Vec<u8>)>::new()));
+    let record = sent.clone();
+    let net: Arc<dyn HttpSend> = Arc::new(crate::providers::listing_row::testing::Replay::new(move |request| {
+        record.lock().unwrap().push((request.url.clone(), request.body.clone()));
+        (400, b"{}".to_vec())
+    }));
+    let b = builder_over(&dir, Arc::new(ProcessEnv), Some(net), Arc::new(SessionContext::new()));
+    let tool = |name: &str, defer_loading: bool| ToolDefinition {
+        name: name.to_owned(),
+        description: name.to_owned(),
+        input_schema: json!({"type": "object", "properties": {}}),
+        defer_loading,
+        freeform: None,
+    };
+    let request = Arc::new(ModelRequest {
+        model: "grok-4".to_owned(),
+        messages: Vec::new(),
+        tools: vec![tool("read", false), tool("load_tool", false), tool("mcp__a__b", true)],
+        options: RequestOptions::default(),
+    });
+    let kinds = |cfg: Value| {
+        let (b, request, sent) = (&b, request.clone(), sent.clone());
+        async move {
+            let adapter = b.build("xai", &cfg).await.unwrap();
+            sent.lock().unwrap().clear();
+            let _ = adapter.attempt(request).await;
+            let sent = sent.lock().unwrap();
+            let (url, body) = sent.first().expect("the request left");
+            assert!(url.ends_with("/v1/responses"), "{url}");
+            let body: Value = serde_json::from_slice(body).unwrap();
+            body["tools"].as_array().unwrap().iter().map(|t| (t["type"].as_str().unwrap().to_owned(), t.get("defer_loading").is_some())).collect::<Vec<_>>()
+        }
+    };
+    let function = |deferred: bool| ("function".to_owned(), deferred);
+    let plain = vec![function(false), function(false), function(false)];
+    assert_eq!(kinds(json!({"enabled": true, "apiKey": "k"})).await, plain);
+    assert_eq!(kinds(json!({"enabled": true, "apiKey": "k", "xaiServerToolSearch": "true"})).await, plain, "only the boolean opts in");
+    assert_eq!(kinds(json!({"enabled": true, "apiKey": "k", "xaiServerToolSearch": false})).await, plain);
+    assert_eq!(
+        kinds(json!({"enabled": true, "apiKey": "k", "xaiServerToolSearch": true})).await,
+        vec![function(false), ("tool_search".to_owned(), false), function(true)]
+    );
+    assert!(xai_server_tool_search(&json!({"xaiServerToolSearch": true})));
+    assert!(!xai_server_tool_search(&json!({})) && !xai_server_tool_search(&json!({"xaiServerToolSearch": 1})));
+}

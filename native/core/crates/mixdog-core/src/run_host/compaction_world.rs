@@ -589,7 +589,7 @@ pub(crate) mod tests {
         assert!(!world.facts(&thread(), &header("groq"), &[]).await.native_pdf);
         assert_eq!(facts.redactor.redact(vec![json!({ "role": "user", "content": "s3cret" })]), [json!({ "role": "user", "content": "[redacted]" })]);
         assert!(facts.saved_request.is_none());
-        assert_eq!(facts.summary.session(), SessionRoute { provider: " anthropic ".into(), model: "m".into(), context_window: None }, "the summary route is the session's stored provider text");
+        assert_eq!(facts.summary.session(), SessionRoute { provider: " anthropic ".into(), model: "m".into(), context_window: None, summary_model: None }, "the summary route is the session's stored provider text");
 
         let sent = store.capture(&thread(), saved(5), Arc::new(Tagged), crate::run_host::side_question_store::tests_material(), false);
         store.settle(&sent, Some(mixdog_agent::response::ModelResponse::default()));

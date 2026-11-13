@@ -968,6 +968,38 @@ mod tests {
         assert_eq!(h.store.audit()[0].decision, "edit-and-approve");
     }
 
+    /// What the connector says about the call (`describeEmails`, `human-gate/gate.mjs`) is on the card the person is
+    /// asked with: the account it acts as and the messages it names; the call itself is unchanged.
+    #[tokio::test]
+    async fn the_card_asked_with_carries_what_the_enricher_added() {
+        struct Describes(Mutex<Vec<(Option<String>, String)>>);
+
+        #[async_trait]
+        impl super::super::card::CardEnricher for Describes {
+            async fn enrich(&self, scope: Option<&str>, tool: &str, _args: &Value, card: &mut super::super::card::OutboundCard) {
+                self.0.lock().expect("asked").push((scope.map(str::to_owned), tool.to_owned()));
+                card.account = "me@gmail.com".into();
+                card.details.insert("messages".into(), "a@x.com · Hello · 2026-01-02".into());
+                card.details.insert("more".into(), "2".into());
+            }
+        }
+
+        let h = Harness::new(Tools::default().with("mcp__gmail__trash_emails", Some(ActionKind::Trash)));
+        h.answer(decided(true, None));
+        let describes = Arc::new(Describes(Mutex::default()));
+        let policy = h.policy(allow_hook()).with_enricher(describes.clone());
+        let args = json!({"ids": ["1", "2", "3", "4", "5"]});
+        let got = h.run(&policy, &bot(), "mcp__gmail__trash_emails", args.clone()).await.expect("ok");
+        assert_eq!(got.args, args);
+        assert_eq!(*describes.0.lock().expect("asked"), [(None, "mcp__gmail__trash_emails".to_owned())]);
+        let asks = h.asks();
+        assert_eq!(asks.len(), 1);
+        let card = &asks[0].payload["outbound"];
+        assert_eq!(card["account"], "me@gmail.com");
+        assert_eq!(card["details"]["messages"], "a@x.com · Hello · 2026-01-02");
+        assert_eq!(card["details"]["more"], "2");
+    }
+
     #[tokio::test]
     async fn an_allowing_hook_cannot_swap_the_outbound_call() {
         let h = Harness::new(github().with("shell", None));

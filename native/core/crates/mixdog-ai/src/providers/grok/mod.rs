@@ -210,8 +210,14 @@ impl Rewriter for GrokRewriter {
 
 /// The xAI Responses codec aimed at the Grok CLI proxy.
 pub fn codec(client_version: &str) -> Arc<dyn WireCodec> {
+    codec_with(client_version, false)
+}
+
+/// [`codec`], with the server-hosted tool search the provider's config opted into (`xaiServerToolSearch`).
+pub fn codec_with(client_version: &str, server_tool_search: bool) -> Arc<dyn WireCodec> {
     let profile = CompatProfile::xai();
     let config = CompatConfig {
+        server_tool_search,
         base_url: Some(PROXY_BASE_URL.to_owned()),
         client_version: client_version.to_owned(),
         environment: Some(EnvSource(Arc::new(ProcessEnv))),
@@ -228,6 +234,7 @@ pub fn adapter(
     retry_policy: RetryPolicy,
     lookup: ListingLookup,
     versions: Option<Arc<crate::client_versions::ClientVersions>>,
+    server_tool_search: bool,
 ) -> HttpAdapter {
     let client_version = client_version.unwrap_or_else(|| CLIENT_VERSION_FLOOR.into());
     let rewriter = GrokRewriter {
@@ -239,7 +246,7 @@ pub fn adapter(
         sdk_headers: sdk_headers(),
         effort_rule: Arc::new(SeedEffortRule),
     };
-    let codec: Arc<dyn WireCodec> = Arc::new(RewriteCodec::new(codec(&client_version.get()), rewriter));
+    let codec: Arc<dyn WireCodec> = Arc::new(RewriteCodec::new(codec_with(&client_version.get(), server_tool_search), rewriter));
     let listing = GrokListing::new(
         http.clone(),
         credential.clone(),

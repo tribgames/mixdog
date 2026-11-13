@@ -451,7 +451,9 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let policy = {
         let common = compose_parts::hook_common(late.clone());
         let source: mixdog_mcp::pre_tool::CommonSource = Arc::new(move |thread: &mixdog_protocol::ThreadId| common(thread.as_str()));
-        Arc::new(mixdog_tools::policy::ToolPolicy::new(grants.clone(), connectors.clone()).with_hook(Arc::new(mixdog_mcp::pre_tool::BusPreToolHook::new(hook_bus.clone(), source))))
+        // `describeEmails` (human-gate/gate.mjs): a mail or trash card of the Gmail connector names the account and the messages, asked of the connector's server.
+        let enricher = Arc::new(mixdog_mcp::policy::GmailCardEnricher::new(hub.clone()));
+        Arc::new(mixdog_tools::policy::ToolPolicy::new(grants.clone(), connectors.clone()).with_hook(Arc::new(mixdog_mcp::pre_tool::BusPreToolHook::new(hook_bus.clone(), source))).with_enricher(enricher))
     };
     // The heartbeat state file: the user-activity probe and the `session` tool's suggestions share the one store.
     let heartbeat_store = mixdog_services::bots::beat::HeartbeatStore::new(mixdog_services::bots::state_json::StateJson::new(b.data_dir.join("heartbeat.json"), b.tokens.durability_io));
@@ -1184,6 +1186,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // The `agents` status reader reads the route positions of the live threads through a late cell bound after `TurnPath::new` (`SessionRoutePositions` takes the directory).
     let route_positions = Arc::new(crate::late_route_positions::LateRoutePositions::default());
     let route_setup_actions = crate::late_setup_actions::LateSetupActions::new(&mixdog_core_domains::domains::ai_admin::route_actions::ACTIONS);
+    // `read_agent_settings`, `set_agent_permission`, the connector switches: bound where the connector catalog and the project connectors exist.
+    let agent_settings_actions = crate::late_setup_actions::LateSetupActions::new(mixdog_core_agents::setup::AGENT_SETTINGS_ACTIONS);
     let pre = compose_domains_pre(&domain_inputs).await.map_err(ComposeError::ComposeDomains)?;
     let route_setup_calls = Arc::new(crate::late_setup_actions::DomainCoreCalls(pre.late.clone()));
     // `thread/setWorkflow`, `thread/setOutputStyle` and the other settings of a thread read the same workflow config and output styles as the config service.
@@ -1322,6 +1326,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 // `set_route`, `set_agent_route`, `reset_route_fallback`, `continue_in_model` and the quota resume pair: a late cell, bound
                 // where the route service and the directory exist.
                 owners.push(route_setup_actions.clone());
+                owners.push(agent_settings_actions.clone());
                 owners
             },
             automation: channel_admin.clone(), // `schedules` / `webhooks` status and actions (`AutomationActions`)
@@ -2063,7 +2068,9 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         }));
     let snapshot_source = side_wiring.next();
     let inheritance_fit: Arc<dyn mixdog_core_session::session::inheritance::InheritanceFit> = Arc::new(mixdog_core::run_host::inheritance_fit::HostInheritanceFit::process(b.catalog.clone(), config_seams.clone(), side_wiring.next(), compaction_world.clone()));
-    let turn_starts = Arc::new(mixdog_core_session::session::LateTurnStarts::default()); // bound to the `AgentRegistry` once wp-agent's constructor exists    // `writeStatuslineRoute` / `clearGatewaySessionRoute`: ONE value, cloned (a clone shares the write queue): the route hop and the session deletion.
+    // `onSessionTurnStart(store.clearReleased)`: a turn of any origin clears the owner's release mark and its parked flag in the worker index.
+    let turn_starts: Arc<dyn mixdog_core_session::session::TurnStarts> = agent_registry.clone();
+    // `writeStatuslineRoute` / `clearGatewaySessionRoute`: ONE value, cloned (a clone shares the write queue): the route hop and the session deletion.
     let gateway_routes = mixdog_core_session::session::gateway_routes::GatewaySessionRoutes::new(&b.data_dir, b.tokens.maintenance_io);
     let gateway_settle = gateway_routes.clone(); // the stop procedure's drain (`gatewaySessionRoutesSettled`)
     let liveness = mixdog_services::task_reports::runtime_state::RuntimeLiveness::new();
@@ -2231,7 +2238,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                     mcp_scopes: mcp_glue.clone(), // a closed session's MCP scope goes with it
                 }),
                 purge,
-                goals: early_goals.clone(),
+                // A Goal record written before the todo list still carries its tasks: the session's list adopts them (`goal-facade-api.mjs` `adoptLegacyTasks`).
+                goals: Arc::new(mixdog_core::run_host::legacy_goal_todos::AdoptingGoals::new(early_goals.clone(), early_todos.clone())),
                 todos: early_todos.clone(),
                 work: early_work.clone(),
                 cycles: early_cycles.clone(),
@@ -2862,6 +2870,17 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         &b.data_dir,
         mixdog_mcp::permissions::PolicyIo { maintenance: b.tokens.maintenance_io, interactive: b.tokens.interactive_io, durability: b.tokens.durability_io },
     );
+    // The agent and project-connector setup actions (`setup-tool/agent-settings-actions.mjs`): the same connector catalog, grant store and project
+    // switches the settings surfaces use; a connector tool's widening asks on the calling turn's approval gate (`GateWidenCards`).
+    agent_settings_actions
+        .bind(Arc::new(mixdog_core_agents::setup::AgentSettingsSetup::new(
+            Arc::new(mixdog_core_agents::agents::AgentConnectors::new(mcp.agents.clone(), connector_catalog.clone())),
+            Arc::new(mixdog_core_agents::agents::AgentPermissions::new(grants.clone())),
+            Arc::new(project_connectors.clone()),
+            Arc::new(mixdog_core_agents::setup::GateWidenCards),
+            grants.clone(),
+        )))
+        .map_err(ComposeError::AlreadyBound)?;
     let worktree_setup = Arc::new(mixdog_core_session::session::worktree::worktree_setup::WorktreeSetup::new(worktrees.clone(), b.process_manager.clone()));
     // `SessionWorkspaceHost` needs the `HostRuntime`: the live one over the directory, the agent registry, the shells and the stores (flip-ce-misc rows).
     let host_runtime: Arc<dyn mixdog_core_session::session::worktree::worktree_host_impl::HostRuntime> = Arc::new(crate::host_runtime_draft::LiveHostRuntime {
