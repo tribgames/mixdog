@@ -260,10 +260,10 @@ fn tool_item(mut row: Row, ctx: &Ctx<'_>) -> ThreadItem {
         id: item_id(&id),
         name,
         input,
-        output: result.map(|text| match text {
-            MaybeBlob::Inline(text) => MaybeBlob::Inline(Value::String(text)),
-            MaybeBlob::Blob(blob) => MaybeBlob::Blob(blob),
-        }),
+        // The result is the run's (`run.result`): a stored card states it once. `output` repeated the same text, so every
+        // tool row of a snapshot or a history page carried its output twice; a client reads the run's when there is no
+        // `output` (protocol-client `rowOf`, the CLI's feed).
+        output: None,
         run: Box::new(run),
         meta: finish(meta, row),
     }

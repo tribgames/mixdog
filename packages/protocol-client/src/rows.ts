@@ -71,7 +71,8 @@ function rowBody(item: Obj, m: Obj): Obj | null {
     case 'webSearch':
       return toolRow(item, m, 'web_search', { query: item.query as Json }, undefined, failed);
     case 'toolCall':
-      return toolRow(item, m, text(item.name), item.input as Json, outputText(item.output), failed);
+      // A stored card states its result once, on its run; a live one may carry `output`.
+      return toolRow(item, m, text(item.name), item.input as Json, outputText(item.output ?? asObj(item.run).result), failed);
     case 'subAgentActivity':
       return toolRow(item, m, 'agent', { agent: item.agent as Json, ...(item.threadId === undefined ? {} : { threadId: item.threadId as Json }) }, undefined, failed);
     case 'agentJob':
