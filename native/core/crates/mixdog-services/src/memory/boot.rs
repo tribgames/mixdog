@@ -806,7 +806,13 @@ impl MemoryStack {
                 if let Err(error) = watcher.finished().await {
                     tracing::warn!(%error, "[transcript-watch] shutdown");
                 }
-                self.transcripts.persist_transcript_offsets().await;
+                // The stack refuses every use through its handles from the stop's start. Node writes the offsets through the pool
+                // it opened with (`memory.mjs:414`) and refuses only new starts until PostgreSQL's own stop begins
+                // (`supervisor.mjs:794`), so this write goes through the open pool itself; without it every quit logged
+                // "persist transcript offsets failed: memory service stopping" and the next start read those transcripts again.
+                if let Some(opened) = self.opened.get() {
+                    self.transcripts.persist_transcript_offsets_over(&opened.memory_db).await;
+                }
             }
         };
         if mixdog_rt::time::timeout(PG_FORCED_STOP_AT, teardown).await.is_err() {
