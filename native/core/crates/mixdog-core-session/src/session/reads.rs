@@ -199,6 +199,25 @@ impl DirInner {
             )
             .await;
         }
+        if req.method.as_str() == "thread/finalAnswer/read" {
+            let p: ThreadFinalAnswerReadParams = params(req, "ThreadFinalAnswerReadParams")?;
+            // The desktop asks after every turn and again while the answer is pending: the answer is in the rows of
+            // the newest turn, so only as much of the history as shows them is read (a busy thread has none to read).
+            let mut want = FIRST_TAIL_ROWS;
+            loop {
+                if self.busy(&id) {
+                    // Still the thread's existence is the history's to say.
+                    history_tail(&self.deps.store, &self.deps.transcript, self.deps.lanes, &id, 1).await?;
+                    return Ok(Reply::Value(Value::Null));
+                }
+                let (History { rev: _, rows }, complete) = history_tail(&self.deps.store, &self.deps.transcript, self.deps.lanes, &id, want).await?;
+                let shown: Vec<Value> = rows.iter().map(|(item, _)| display_row(item)).collect();
+                if complete || holds_final_turn(&shown) {
+                    return Ok(Reply::Value(final_answer(&shown, self.busy(&id), p.started_at).unwrap_or(Value::Null)));
+                }
+                want = want.saturating_mul(2);
+            }
+        }
         let History { rev: _, rows } = history(&self.deps, &id).await?;
         let items: Vec<ThreadItem> = rows.iter().map(|(item, _)| item.clone()).collect();
         match req.method.as_str() {
@@ -206,11 +225,6 @@ impl DirInner {
             "thread/turns/list" => turns_list(&items, params(req, "ThreadTurnsListParams")?, self.active_turn(&id)),
             "thread/attachment/list" => attachment_list(&items, params(req, "ThreadPageParams")?),
             "thread/modelMessages/list" => self.model_messages_list(&id, params(req, "ThreadModelMessagesListParams")?).await,
-            "thread/finalAnswer/read" => {
-                let p: ThreadFinalAnswerReadParams = params(req, "ThreadFinalAnswerReadParams")?;
-                let rows: Vec<Value> = items.iter().map(display_row).collect();
-                Ok(Reply::Value(final_answer(&rows, self.busy(&id), p.started_at).unwrap_or(Value::Null)))
-            }
             _ => unreachable!("`serves` admits only these methods"),
         }
     }
@@ -641,6 +655,13 @@ fn str_of(row: &Value, key: &str) -> Option<String> {
     row.get(key).and_then(Value::as_str).map(str::to_owned)
 }
 
+/// Whether `rows`, the newest rows of a history, hold everything [`final_answer`] reads of the whole history: the
+/// newest `turndone` and the one before it. The answer is looked for between those two (an answer row found before
+/// the older one is no answer of the newest turn), so the rows older than both change nothing.
+pub(super) fn holds_final_turn(rows: &[Value]) -> bool {
+    rows.iter().filter(|row| row.get("kind") == Some(&json!("turndone"))).take(2).count() == 2
+}
+
 /// `sessionFinalAnswer(snapshot, startedAt)` over display rows: the answer of the turn that
 /// ended at or after `started_at`, by id; `None` while it is pending (a busy thread, a newer
 /// prompt, a streaming or blank answer).
@@ -798,7 +819,23 @@ mod tests {
             let got = final_answer(rows, busy, case["startedAt"].as_i64().expect("startedAt"));
             let want = (!case["expected"].is_null()).then(|| case["expected"].clone());
             assert_eq!(got, want, "{}", case["name"]);
+            // The read takes only the newest rows: any tail that holds the newest turn answers as the whole history does.
+            let started_at = case["startedAt"].as_i64().expect("startedAt");
+            for from in 0..rows.len() {
+                if holds_final_turn(&rows[from..]) {
+                    assert_eq!(final_answer(&rows[from..], busy, started_at), want, "{} from row {from}", case["name"]);
+                }
+            }
         }
+    }
+
+    #[test]
+    fn the_newest_turn_is_held_once_two_turn_ends_are_in_the_rows() {
+        let done = |id: &str| json!({ "kind": "turndone", "id": id });
+        let text = json!({ "kind": "assistant", "id": "a" });
+        assert!(!holds_final_turn(&[]));
+        assert!(!holds_final_turn(&[text.clone(), done("t2")]), "the answer may be older than these rows");
+        assert!(holds_final_turn(&[done("t1"), text, done("t2")]));
     }
 
     fn items(rows: Value) -> Vec<ThreadItem> {
