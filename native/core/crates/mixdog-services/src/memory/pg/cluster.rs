@@ -474,15 +474,21 @@ impl std::fmt::Debug for PgCluster {
     }
 }
 
+/// The jobs of the servers this core started (Windows): kill-on-close, held until the process ends, so no PostgreSQL this core started
+/// outlives it. A server that was stopped leaves an empty job behind, which costs a handle.
+#[cfg(windows)]
+static OWNED_SERVERS: std::sync::Mutex<Vec<mixdog_exthost::Containment>> = std::sync::Mutex::new(Vec::new());
+
 /// `pg_ctl start`'s outcome while it is being waited for: it is not waited for to exit (Node
 /// spawns it and polls readiness), so this only reports an exit that came before readiness.
 type StartRun = tokio::task::JoinHandle<Result<()>>;
 
 /// `pg_ctl start` as Node's `startAndWaitReady` spawns it (`process.mjs:375-400`: `spawn` with piped output and `windowsHide`, never killed by its
-/// starter). On Windows Node's child is in libuv's job, which lets the processes it starts leave it silently, so the postmaster `pg_ctl` starts belongs to
-/// no job of the daemon and outlives it (`process.mjs:378-385`); this child is not given to the process manager, whose job would end the postmaster
-/// with this process: `tokio::process::Command` assigns its child to no job, unlike [`Processes`], whose every child is put in a kill-on-close job
-/// (`mixdog-spawn/src/contain.rs`, `Containment::create`). Its stdout and stderr are drained as they come, as Node's `data` listeners do, and the run
+/// starter). In Node the postmaster belonged to no job of the daemon and outlived it (`process.mjs:378-385`). Here the server ends with the core: a
+/// quitting core stops it (`stop_for_quit`), and on Windows this child is created suspended and put in a kill-on-close job the core holds for its
+/// life ([`OWNED_SERVERS`]) before it runs, so the postmaster `pg_ctl` starts through `cmd`, and every backend, are in that job and end when a core
+/// that was killed lets go of it. PostgreSQL recovers from its log at the next start. The child is still not given to the process manager, whose
+/// job belongs to one call. Its stdout and stderr are drained as they come, as Node's `data` listeners do, and the run
 /// ends when the child has exited and both pipes have closed (Node's `close` event): the postmaster inherits the pipe ends (pg_ctl starts it with handle
 /// inheritance on), so for a postmaster that started they stay open for its life and only the readiness probe ends the wait, as in Node.
 fn spawn_start(runtime: &PgRuntime, args: &[String]) -> Result<(StartRun, StartOutput)> {
@@ -498,8 +504,17 @@ fn spawn_start(runtime: &PgRuntime, args: &[String]) -> Result<(StartRun, StartO
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(false);
     #[cfg(windows)]
-    command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW, as Node's windowsHide
+    command.creation_flags(0x0800_0000 | 0x0000_0004); // CREATE_NO_WINDOW, as Node's windowsHide; CREATE_SUSPENDED until it is in its job
     let mut child = command.spawn().map_err(|error| MemoryError::Runtime(format!("pg_ctl failed: {error}")))?;
+    #[cfg(windows)]
+    match mixdog_exthost::Containment::attach(&child) {
+        Ok(job) => OWNED_SERVERS.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(job),
+        Err(error) => {
+            // A child left suspended would never start: it is ended, and the start fails with the reason.
+            let _ = child.start_kill();
+            return Err(MemoryError::Runtime(format!("pg_ctl failed: the server could not be bound to this core ({error})")));
+        }
+    }
     let (stdout, stderr) = (child.stdout.take(), child.stderr.take());
     let output = StartOutput::default();
     let drain = |pipe: Option<Box<dyn tokio::io::AsyncRead + Unpin + Send>>, into: Arc<std::sync::Mutex<Vec<u8>>>| async move {
