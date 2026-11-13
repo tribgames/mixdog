@@ -2,8 +2,9 @@
 //! by the 5-minute cycle of `manager/idle-cleanup.mjs`): the agent-only children (Worker,
 //! Reviewer, ...) a Lead's agents spawn, each its own stored session. A tree (a top sub-agent
 //! under a Lead with every sub-agent below it, joined by any owner or parent link) is archived
-//! once each member has been idle 3 days and deleted once each has been idle 30; otherwise the
-//! whole tree stays. Never a member: a root Lead, a task session, a bot home chat or a group
+//! once each member has been idle 3 days and deleted once each has been idle 7; otherwise the
+//! whole tree stays. (Node deleted after 30. A finished sub-agent's record serves only a look back at
+//! what it did, and its scratch folder and tool results stay on disk for as long as it does.) Never a member: a root Lead, a task session, a bot home chat or a group
 //! room's log or member session.
 //!
 //! The desktop's archive flag is the header's `archivedAt` here, which goes with a deleted
@@ -33,8 +34,10 @@ use super::thread_state::SessionThreads;
 const DAY_MS: f64 = 24.0 * 60.0 * 60.0 * 1000.0;
 /// `SUB_AGENT_ARCHIVE_AFTER_MS`.
 pub const ARCHIVE_AFTER_MS: f64 = 3.0 * DAY_MS;
-/// `SUB_AGENT_DELETE_AFTER_MS`.
-pub const DELETE_AFTER_MS: f64 = 30.0 * DAY_MS;
+/// The idle time after which a tree is deleted.
+pub const DELETE_AFTER_MS: f64 = 7.0 * DAY_MS;
+/// Node's `SUB_AGENT_DELETE_AFTER_MS`: what its recordings were made with.
+pub const NODE_DELETE_AFTER_MS: f64 = 30.0 * DAY_MS;
 /// `CLEANUP_INTERVAL_MS`, which is also the cycle's initial delay.
 pub const SWEEP_INTERVAL: Duration = Duration::from_secs(5 * 60);
 
@@ -243,6 +246,12 @@ async fn tree_changed(host: &dyn RetentionHost, members: &[Member], tree: &[usiz
 /// left alone, as is a tree with a member of unknown age. A failed archive or delete keeps its
 /// session; the next pass decides again.
 pub async fn apply(host: &dyn RetentionHost, members: &[Member], now: f64, cancel: &CancellationToken) -> Applied {
+    apply_after(host, members, now, DELETE_AFTER_MS, cancel).await
+}
+
+/// [`apply`] with the idle time after which a tree is deleted given: [`DELETE_AFTER_MS`] in production,
+/// [`NODE_DELETE_AFTER_MS`] where Node's recordings are replayed.
+pub async fn apply_after(host: &dyn RetentionHost, members: &[Member], now: f64, delete_after_ms: f64, cancel: &CancellationToken) -> Applied {
     let mut applied = Applied::default();
     for tree in trees(members) {
         // After shutdown nothing new is admitted; what was admitted has finished.
@@ -253,7 +262,7 @@ pub async fn apply(host: &dyn RetentionHost, members: &[Member], now: f64, cance
             continue;
         }
         let idle = now - tree.iter().map(|&at| members[at].last_active).fold(f64::MIN, f64::max);
-        let expired = idle >= DELETE_AFTER_MS;
+        let expired = idle >= delete_after_ms;
         if !expired && idle < ARCHIVE_AFTER_MS {
             continue;
         }

@@ -8,7 +8,10 @@
 //! is permanent. A session with a live runtime is never touched, and a record the store cannot
 //! read is never swept: the store answers `Err` for the whole listing and nothing happens.
 //!
-//! What this port leaves to others: the sub-agent tree retention (three days archive, thirty
+//! After the verdicts, a session scratch folder whose session is not stored any more is removed
+//! (`SweepStore::reap_scratch`; Node had no such step and kept those folders for good).
+//!
+//! What this port leaves to others: the sub-agent tree retention (three days archive, seven
 //! delete; `sub-agent-retention.mjs`) is `session_retention`'s; the summary-index repair, the
 //! legacy `.hb`/`.own` marker reap and the compaction-archive orphan reap have no counterpart
 //! because the Rust store holds no summary index and writes none of those sidecars.
@@ -72,6 +75,9 @@ pub trait SweepStore: Send + Sync {
     /// The session owns a non-closed runtime entry (`_isSessionLive`). Only the verdict's input:
     /// a mutation never relies on it.
     fn is_live(&self, id: &str) -> bool;
+    /// Removes the session scratch folders that belong to none of `stored`, the ids of every
+    /// stored session as this pass read them. A store without scratch folders does nothing.
+    async fn reap_scratch(&self, _stored: &[String]) {}
 }
 
 /// What one pass did (`sweepStaleSessions`' tally).
@@ -163,6 +169,9 @@ pub async fn sweep_once(store: &dyn SweepStore, now: i64) -> Result<Tally, Strin
         }
     }
     prune_open(store, now, candidates, &mut tally).await;
+    // Every id the pass read, the ones it just deleted included: their folders went with them.
+    let stored: Vec<String> = rows.iter().map(|row| row.id.clone()).collect();
+    store.reap_scratch(&stored).await;
     Ok(tally)
 }
 
