@@ -4106,6 +4106,13 @@ async fn a_restored_compaction_shows_its_divider_and_the_switches_on_its_summary
     // shows right after it.
     let live = ids(&handle);
     assert!(live[3].starts_with("divider:") && !live[3].contains(":model:"), "{live:?}");
+    // Live: the rows the compaction took out of the context show `archived` once it is durable, as a reopen shows them.
+    let archived = |handle: &SessionHandle| -> Vec<bool> {
+        handle.cell.view.load_full().items.iter().map(|item| super::view::meta(item).ext.get("archived") == Some(&json!(true))).collect()
+    };
+    eventually_on!(&[&handle.cell.stepped], || archived(&handle)[0].then_some(())).await;
+    let marked = archived(&handle);
+    assert_eq!(marked, [true, true, true, false], "every row before the compaction, and not its divider");
     let id = handle.id.clone();
     let switch = |at: i64| json!({ "provider": "openai", "modelId": "gpt-next", "at": at });
     assert!(super::record_model_switch(&directory, &id, &switch(300)).await.expect("record"));
@@ -4117,6 +4124,7 @@ async fn a_restored_compaction_shows_its_divider_and_the_switches_on_its_summary
     let shown = ids(&restored);
     let divider = shown.iter().position(|id| id.starts_with("divider:") && !id.contains(":model:")).expect("a divider");
     assert_eq!(divider, 3, "after the rows before the compaction: {shown:?}");
+    assert_eq!(archived(&restored)[..4], marked[..], "the live marks are the reopened window's");
     let cid = shown[divider].trim_start_matches("divider:").to_owned();
     assert_eq!(shown[divider + 1..], [format!("divider:{cid}:model:300")]);
     let ThreadItem::ContextCompaction { meta, .. } = restored.cell.view.load_full().items[divider].as_ref().clone() else {

@@ -415,6 +415,12 @@ pub trait ThreadStore: Send + Sync + 'static {
         Ok((rev, all, complete))
     }
 
+    /// The records (by ordinal) among the window's rows that a reopened window shows as taken out of the model context
+    /// (`OpenedLog::archived`), read once the index holds every write acked so far. Empty for a store that marks none.
+    fn window_archived(&self, _lane: &InLane<InteractiveIo>, _id: &ThreadId) -> Result<Vec<u64>, CoreError> {
+        Ok(Vec::new())
+    }
+
     /// [`history_tail`](Self::history_tail) with each record's [`RowDecor`] (one per record; empty for a store that marks none).
     fn history_tail_decor(
         &self,

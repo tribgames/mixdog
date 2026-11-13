@@ -1674,6 +1674,16 @@ impl ThreadStore for StoreThreads {
         }
     }
 
+    fn window_archived(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<Vec<u64>, CoreError> {
+        self.wait(lane, self.projector.caught_up())?;
+        let _gate = self.read_gate();
+        let opened = self.open(lane, id)?;
+        let lineage = self.lineage(lane, &opened.fold)?;
+        // The rows `read_window` reads, and its verdict of them.
+        let (rows, _) = self.index.history_page_on_lane(lane, &lineage, opened.fold.base_cut, None, WINDOW_ROWS).map_err(|e| internal("window", &e))?;
+        Ok(archived_ordinals(&rows))
+    }
+
     fn history_tail_decor(
         &self,
         lane: &InLane<InteractiveIo>,
