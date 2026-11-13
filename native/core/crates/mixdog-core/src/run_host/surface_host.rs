@@ -905,7 +905,11 @@ impl NewThreadTools for LeadSurfaceHost {
         let cwd = header.get("cwd").and_then(Value::as_str).map_or_else(|| s.cwd.clone(), PathBuf::from);
         let model = clean(header.get("model"));
         let agent = clean(header.get("agent"));
-        let skills_listed = s.skills.any_for(&cwd).await?;
+        // `honoredSchemaAllowlist`: an agent-owned session honors one only for a hidden agent.
+        let honored = header.get("schemaAllowedTools").is_some_and(Value::is_array) && (s.hidden_agent)(Some(agent.as_str()).filter(|agent| !agent.is_empty()));
+        let allowed = honored.then(|| strings(header.get("schemaAllowedTools")));
+        // `skills`: a session offered no tool (a tool-free hidden role) collects none (`schemaAllowedTools?.length === 0`).
+        let skills_listed = if allowed.as_ref().is_some_and(Vec::is_empty) { false } else { s.skills.any_for(&cwd).await? };
         // `toolSpec` is the preset the record names (`opts.tools || presetObj.tools || 'full'`, stamped as `preset`).
         let spec = header.get("toolSpec").or_else(|| header.get("preset")).filter(|spec| !spec.is_null()).cloned().unwrap_or_else(|| json!("full"));
         // `disallowedTools: featureDenied` (session-builder.mjs) and `react` outside a bot's own chat.
@@ -919,9 +923,6 @@ impl NewThreadTools for LeadSurfaceHost {
         if reaction_disabled(&reaction_session, true) && !denied.iter().any(|name| name == REACTION_TOOL_NAME) {
             denied.push(REACTION_TOOL_NAME.to_owned());
         }
-        // `honoredSchemaAllowlist`: an agent-owned session honors one only for a hidden agent.
-        let honored = header.get("schemaAllowedTools").is_some_and(Value::is_array) && (s.hidden_agent)(Some(agent.as_str()).filter(|agent| !agent.is_empty()));
-        let allowed = honored.then(|| strings(header.get("schemaAllowedTools")));
         let resolved = resolve(
             &s.pool,
             s.mcp.tools(header_scope(header), &cwd),

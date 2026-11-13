@@ -58,13 +58,15 @@ impl DispatchThreads {
     }
 
     /// `createSession`: a new thread whose first durable write is `header` with `createdAt`,
-    /// `updatedAt` and `lastUsedAt` now; its id.
+    /// `updatedAt` and `lastUsedAt` now; its id. The session is agent-owned (`prepareAgentSession`), so it begins
+    /// with the tool surface and prompt identity `createSession` gives one (`create_agent_session`): a tool-free
+    /// hidden role with no tools and its own role rules. Without them its requests carried no system prompt.
     pub async fn create(&self, mut header: Header) -> Result<String, String> {
         let now = json!(self.directory.deps().clock.now_ms());
         for key in ["createdAt", "updatedAt", "lastUsedAt"] {
             header.insert(key.into(), now.clone());
         }
-        self.directory.create_session(header, json!({})).await.map(|id| id.as_str().to_owned()).map_err(|error| format!("{error:?}"))
+        self.directory.create_agent_session(header, json!({})).await.map(|id| id.as_str().to_owned()).map_err(|error| format!("{error:?}"))
     }
 
     /// The `mcpScopeId` the stored session `id` carries: the scope the sessions it spawns share
