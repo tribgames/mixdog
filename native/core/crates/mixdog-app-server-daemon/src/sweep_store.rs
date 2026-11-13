@@ -116,16 +116,82 @@ impl SweepRows for CatalogSweepRows {
     }
 }
 
+/// A session scratch folder younger than this is left alone: its session may not be stored yet.
+const ORPHAN_SCRATCH_MIN_AGE: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+
+/// The session scratch folders under `<data>/scratch` (`s.<16 hex>`, `session_scratch_dir`). A
+/// session's delete removes its folder; one whose session is gone anyway (the delete ran in a
+/// process that died first, or an earlier version left it) is removed here. Anything else in
+/// that folder (the shell's `jobs`, a folder an agent named itself) is never touched.
+pub struct ScratchReaper {
+    data_dir: PathBuf,
+    lane: mixdog_rt::MaintenanceIo,
+}
+
+impl ScratchReaper {
+    pub fn new(data_dir: &std::path::Path, lane: mixdog_rt::MaintenanceIo) -> Self {
+        Self { data_dir: data_dir.to_path_buf(), lane }
+    }
+
+    fn is_session_folder(name: &str) -> bool {
+        name.strip_prefix("s.").is_some_and(|hex| hex.len() == 16 && hex.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
+    }
+
+    /// Removes the session folders of no id in `stored`; returns their names.
+    pub async fn reap(&self, stored: &[String], cancel: &CancellationToken) -> Vec<String> {
+        self.reap_at(stored, mixdog_rt::wall_clock!(), cancel).await
+    }
+
+    /// [`Self::reap`] judging a folder's age at `now`.
+    async fn reap_at(&self, stored: &[String], now: std::time::SystemTime, cancel: &CancellationToken) -> Vec<String> {
+        let kept: std::collections::HashSet<String> = stored
+            .iter()
+            .filter_map(|id| mixdog_tools::exec::session_scratch_dir(&self.data_dir, id))
+            .filter_map(|dir| dir.file_name().map(|name| name.to_string_lossy().into_owned()))
+            .collect();
+        let scratch = self.data_dir.join("scratch");
+        let job = move |lane: &mixdog_rt::InLane<mixdog_rt::MaintenanceIo>| {
+            let mut removed = Vec::new();
+            for name in mixdog_statefile::list_dir(lane, &scratch).unwrap_or_default() {
+                if !Self::is_session_folder(&name) || kept.contains(&name) {
+                    continue;
+                }
+                mixdog_rt::job_progress();
+                let dir = scratch.join(&name);
+                let old = mixdog_statefile::metadata(lane, &dir)
+                    .ok()
+                    .filter(std::fs::Metadata::is_dir)
+                    .and_then(|meta| meta.modified().ok())
+                    .and_then(|at| now.duration_since(at).ok())
+                    .is_some_and(|age| age >= ORPHAN_SCRATCH_MIN_AGE);
+                // A file an agent's process still holds keeps its folder for the next pass.
+                if old && mixdog_statefile::remove_dir_all(lane, &dir).is_ok() {
+                    removed.push(name);
+                }
+            }
+            removed
+        };
+        mixdog_core_base::support::on_lane(self.lane, cancel, job).await.unwrap_or_default()
+    }
+}
+
 pub struct DirectorySweepStore {
     rows: Arc<dyn SweepRows>,
     sessions: Arc<dyn GuardedSessions>,
     /// The sweep's shutdown: a delete not yet admitted is refused once it fires.
     cancel: CancellationToken,
+    scratch: Option<ScratchReaper>,
 }
 
 impl DirectorySweepStore {
     pub fn new(rows: Arc<dyn SweepRows>, sessions: Arc<dyn GuardedSessions>, cancel: CancellationToken) -> Self {
-        Self { rows, sessions, cancel }
+        Self { rows, sessions, cancel, scratch: None }
+    }
+
+    /// The store also removes the session scratch folders no stored session owns.
+    pub fn with_scratch(mut self, scratch: ScratchReaper) -> Self {
+        self.scratch = Some(scratch);
+        self
     }
 }
 
@@ -152,6 +218,14 @@ impl SweepStore for DirectorySweepStore {
     fn is_live(&self, id: &str) -> bool {
         self.sessions.is_loaded(id)
     }
+
+    async fn reap_scratch(&self, stored: &[String]) {
+        let Some(scratch) = &self.scratch else { return };
+        let removed = scratch.reap(stored, &self.cancel).await;
+        if !removed.is_empty() {
+            tracing::debug!(removed = removed.len(), "idle sweep: session scratch folders without a session");
+        }
+    }
 }
 
 #[cfg(test)]
@@ -166,6 +240,32 @@ mod tests {
     use crate::session_sweep::sweep_once;
 
     const NOW: i64 = 10_000_000_000;
+
+    /// A cold session folder whose session is not stored goes; a stored session's, a fresh one and every folder that
+    /// is not a session's stay.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_session_scratch_folder_without_a_session_is_removed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let data = tmp.path();
+        let folder = |id: &str| mixdog_tools::exec::session_scratch_dir(data, id).unwrap();
+        let (stored, gone) = (folder("sess_stored"), folder("sess_gone"));
+        let (jobs, named) = (data.join("scratch").join("jobs"), data.join("scratch").join("rust-core"));
+        for dir in [&stored, &gone, &jobs, &named] {
+            std::fs::create_dir_all(dir).unwrap();
+            std::fs::write(dir.join("note.txt"), b"x").unwrap();
+        }
+        let reaper = ScratchReaper::new(data, mixdog_rt::testing::tokens().maintenance_io);
+        let (ids, live) = (["sess_stored".to_owned()], CancellationToken::new());
+        // Just made: its session may not be stored yet.
+        assert!(reaper.reap(&ids, &live).await.is_empty());
+        assert!(gone.join("note.txt").exists());
+        let later = std::time::SystemTime::now() + std::time::Duration::from_secs(3 * 60 * 60);
+        assert_eq!(reaper.reap_at(&ids, later, &live).await, [gone.file_name().unwrap().to_string_lossy().into_owned()]);
+        assert!(!gone.exists());
+        for kept in [&stored, &jobs, &named] {
+            assert!(kept.join("note.txt").exists(), "{}", kept.display());
+        }
+    }
 
     fn tombstone(id: &str, activity: i64) -> SweepRow {
         let long_ago = NOW - 3 * 24 * 60 * 60 * 1000;

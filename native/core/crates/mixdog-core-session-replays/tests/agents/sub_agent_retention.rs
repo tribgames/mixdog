@@ -129,16 +129,18 @@ impl RetentionHost for Host {
 const NOW: f64 = 100.0 * DAY;
 
 /// A tree idle under 3 days stays; 3 days archives each member once (never an archived one);
-/// 30 days deletes the whole tree, children first.
+/// 7 days deletes the whole tree, children first.
 #[tokio::test]
-async fn a_tree_is_archived_after_three_days_and_deleted_after_thirty() {
+async fn a_tree_is_archived_after_three_days_and_deleted_after_seven() {
     let host = Host::with(&[("sess_a", NOW - 2.0 * DAY), ("sess_b", NOW - 2.0 * DAY)]);
     let live = CancellationToken::new();
     assert_eq!(sweep(host.as_ref(), NOW, &live).await.unwrap(), Applied::default());
     assert_eq!(sweep(host.as_ref(), NOW + 1.0 * DAY, &live).await.unwrap().archived, ["sess_a", "sess_b"]);
-    let after_thirty = sweep(host.as_ref(), NOW - 2.0 * DAY + 30.0 * DAY, &live).await.unwrap();
-    assert_eq!(after_thirty.deleted, ["sess_a", "sess_b"]);
-    assert!(after_thirty.archived.is_empty());
+    // A day short of seven nothing is deleted.
+    assert!(sweep(host.as_ref(), NOW - 2.0 * DAY + 6.0 * DAY, &live).await.unwrap().deleted.is_empty());
+    let after_seven = sweep(host.as_ref(), NOW - 2.0 * DAY + 7.0 * DAY, &live).await.unwrap();
+    assert_eq!(after_seven.deleted, ["sess_a", "sess_b"]);
+    assert!(after_seven.archived.is_empty());
 }
 
 /// One member active recently keeps the tree; so does an open session, and a member whose
@@ -361,7 +363,8 @@ async fn outcomes_equal_nodes_applied_retention() {
         for suffix in strings(&case["unreadable"]) {
             scripted.headers.lock().unwrap().insert(sess(&suffix), None);
         }
-        let applied = apply(&scripted, &members, case["now"].as_f64().unwrap(), &CancellationToken::new()).await;
+        // Recorded from Node, which deleted after thirty days: everything but that number is this core's.
+        let applied = apply_after(&scripted, &members, case["now"].as_f64().unwrap(), NODE_DELETE_AFTER_MS, &CancellationToken::new()).await;
         let short = |ids: &[String]| ids.iter().map(|id| id.trim_start_matches("sess_ret_").to_owned()).collect::<Vec<_>>();
         assert_eq!(short(&applied.archived), strings(&case["archivedIds"]), "{name}: archived");
         assert_eq!(short(&applied.deleted), strings(&case["deletedIds"]), "{name}: deleted");

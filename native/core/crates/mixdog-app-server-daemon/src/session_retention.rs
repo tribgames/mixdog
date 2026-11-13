@@ -1,7 +1,7 @@
 //! The sub-agent retention cycle in the daemon (Node `session/manager/idle-cleanup.mjs`
 //! `_retainSubAgents`, run by the 5-minute cycle `startIdleCleanup` starts with the session
 //! runtime, `runtime-bootstrap.mjs:97`): finished sub-agent trees are archived after three idle
-//! days and deleted after thirty (`mixdog_core_session::session::sub_agent_retention`).
+//! days and deleted after seven (`mixdog_core_session::session::sub_agent_retention`).
 //!
 //! Node's timer is only unref'd; the Rust cycle is a task that ends with its token, and the stop
 //! procedure cancels it and awaits it before the session directory shuts down, so no pass is
@@ -99,17 +99,17 @@ mod tests {
     }
 
     /// An idle tree (a top sub-agent and the one below it) is archived once idle three days and
-    /// deleted once idle thirty; a tree with a member open here, and one used recently, stay.
+    /// deleted once idle seven; a tree with a member open here, and one used recently, stay.
     #[tokio::test(start_paused = true)]
-    async fn an_idle_tree_is_archived_after_three_days_and_deleted_after_thirty_but_a_live_or_recent_one_stays() {
+    async fn an_idle_tree_is_archived_after_three_days_and_deleted_after_seven_but_a_live_or_recent_one_stays() {
         mixdog_rt::testing::tokens();
         let idle_since = BASE_MS;
         let headers = [
             child("sess_idle_top", "sess_lead", idle_since),
             child("sess_idle_leaf", "sess_idle_top", idle_since),
             child("sess_live", "sess_lead", idle_since),
-            // Used on day 29: under three days idle at the 30-day mark.
-            child("sess_recent", "sess_lead", idle_since + 29.0 * 86_400_000.0),
+            // Used on day 6: under three days idle at the 7-day mark.
+            child("sess_recent", "sess_lead", idle_since + 6.0 * 86_400_000.0),
         ];
         let store = Arc::new(Store {
             headers: Mutex::new(headers.into_iter().collect()),
@@ -127,9 +127,9 @@ mod tests {
         assert_eq!(archived, ["sess_idle_leaf", "sess_idle_top"], "the whole idle tree, nothing live or recent");
         assert!(store.deleted.lock().unwrap().is_empty());
 
-        // Day 29 and a half: the idle tree is not yet idle thirty days.
-        mixdog_rt::time::sleep(26 * DAY + DAY / 2).await;
-        assert!(store.deleted.lock().unwrap().is_empty(), "idle less than thirty days");
+        // Day 6 and a half: the idle tree is not yet idle seven days.
+        mixdog_rt::time::sleep(3 * DAY + DAY / 2).await;
+        assert!(store.deleted.lock().unwrap().is_empty(), "idle less than seven days");
         mixdog_rt::time::sleep(DAY).await;
         let mut deleted = store.deleted.lock().unwrap().clone();
         deleted.sort();

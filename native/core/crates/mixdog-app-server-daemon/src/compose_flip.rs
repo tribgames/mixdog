@@ -281,7 +281,8 @@ impl Real {
     /// The idle sweep's store (session/manager/idle-cleanup.mjs): rows from the session index, closes through the directory; `stop` is its shutdown.
     pub fn sweep_store(&self, data_dir: &std::path::Path, stop: tokio_util::sync::CancellationToken) -> Arc<crate::sweep_store::DirectorySweepStore> {
         let rows = Arc::new(crate::sweep_store::CatalogSweepRows::new(self.catalog_index.clone(), data_dir.join("sessions")));
-        Arc::new(crate::sweep_store::DirectorySweepStore::new(rows, self.directory.clone(), stop))
+        let scratch = crate::sweep_store::ScratchReaper::new(data_dir, self.maintenance_io);
+        Arc::new(crate::sweep_store::DirectorySweepStore::new(rows, self.directory.clone(), stop).with_scratch(scratch))
     }
 
     /// The very first stop step (daemon.mjs:285, `stopHeartbeat?.()`): the timers are cleared at once and no check begins after it.
