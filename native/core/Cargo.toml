@@ -71,7 +71,7 @@ exclude = [
 ]
 
 [workspace.package]
-version = "1.4.5" # == root package.json version; scripts/check-release-version.mjs enforces it
+version = "1.5.0" # == root package.json version; scripts/check-release-version.mjs enforces it
 edition = "2024"
 publish = false
 
