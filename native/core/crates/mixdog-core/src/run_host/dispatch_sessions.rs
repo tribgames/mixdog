@@ -3,7 +3,8 @@
 //! records it (`session-builder.mjs`, `session-lifecycle.mjs` `resolveSessionRoute`,
 //! `session-record.mjs` `buildSessionRecord`/`sessionOriginFields`, golden
 //! `fixtures/dispatch-sessions`) and creates it; the rest is the session layer's
-//! [`DispatchThreads`]. The prompt, tool surface, context window and cache fields Node also puts
+//! [`DispatchThreads`], which creates it with the tool surface and prompt identity of an agent-owned
+//! session (`NewThreadTools::seed_agent`). The prompt, context window and cache fields Node also puts
 //! on the record are derived by the run host from this header at the turn.
 
 use std::sync::Arc;
