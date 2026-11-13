@@ -24,14 +24,14 @@
                   and the package root the core reads
                   (resources\runtime.asar.unpacked\node_modules\mixdog).
                   Native, dependency or packaging changes, and any install
-                  this script did not deploy last (a Node-core install
-                  included), fall back to win-unpacked.
+                  this script did not deploy last, fall back to win-unpacked.
 
-  The core is built with cargo (`cargo build --profile fast -p mixdog-cli`, in
-  the checkout that holds native\core: the profile compiled for the next edit;
-  the published build is `release`) and staged by `stage-core.mjs --binary`;
-  a local deploy ships no server-cores (the SSH install needs the release
-  build's other platforms).
+  The core is built with cargo in the `release` profile, the published
+  build's (`cargo build --release -p mixdog-cli --bin mixdogd`, in the checkout
+  that holds native\core, through this PC's build gate when it is there, so
+  the build lands in the gate's folder and no second one is made beside it),
+  and staged by `stage-core.mjs --binary`; a local deploy ships no
+  server-cores (the SSH install needs the release build's other platforms).
 
   -DryRun prints the resolved plan and current process/daemon state and changes
   nothing — every other mode stops the running app and its session daemon.
@@ -68,11 +68,6 @@ param(
     [string]$CoreBinary = '',
     # Ends right before the detached worker would start and prints what it would do; changes nothing.
     [switch]$StopBeforeSwap,
-    # A script the detached worker runs with nothing of the install running, right before a full replacement:
-    # `-CoreExe <the staged mixdogd>` (a failure ends the deploy, the old app is started again), and `-Undo` when the
-    # replacement fails after it ran. The switch from a 1.4.5 install uses it for the last backup and the data
-    # conversion, so the new app starts on converted data and a failed swap leaves 1.4.5 its own data.
-    [string]$BeforeSwapScript = '',
     [int]$FeedPort = 9357
 )
 
@@ -225,7 +220,6 @@ function Start-FastDirectWorker {
         + " -FastArtifactDir $(ConvertTo-PowerShellLiteral $FastArtifactDir)" `
         + " -CoreBuildRoot $(ConvertTo-PowerShellLiteral $coreBuildRoot)" `
         + $(if ($CoreBinary) { " -CoreBinary $(ConvertTo-PowerShellLiteral $CoreBinary)" } else { '' }) `
-        + $(if ($BeforeSwapScript) { " -BeforeSwapScript $(ConvertTo-PowerShellLiteral $BeforeSwapScript)" } else { '' }) `
         + " -DrainLimitSeconds $DrainLimitSeconds" `
         + $(if ($NoLaunch) { ' -NoLaunch' } else { '' })
     return Start-DetachedDeployWorker -ModeName 'FastDirect' -WorkerLabel 'fast deploy' `
@@ -339,11 +333,8 @@ function Get-DaemonRecord {
     try {
         $record = Get-Content -LiteralPath $daemonDiscovery -Raw | ConvertFrom-Json
         return [pscustomobject]@{
-            pid         = $record.pid
-            port        = $record.core.rpc.port
-            # A 1.4.5 (Node) daemon publishes its session endpoint here instead.
-            legacyPort  = $record.endpoints.session.port
-            legacyToken = $record.endpoints.session.token
+            pid  = $record.pid
+            port = $record.core.rpc.port
         }
     }
     catch { return $null }
@@ -418,82 +409,6 @@ function Confirm-AbortRunningWork {
     if ($LASTEXITCODE -ne 0) { throw "mixdogd ctl stop --abort exited with $LASTEXITCODE" }
 }
 
-function Invoke-LegacyDaemon {
-    param($Record, [string]$Method, [string]$Path, $Body = $null)
-    $arguments = @{
-        Uri         = "http://127.0.0.1:$($Record.legacyPort)$Path"
-        Method      = $Method
-        Headers     = @{ 'x-mixdog-daemon-token' = [string]$Record.legacyToken }
-        ContentType = 'application/json'
-        TimeoutSec  = 30
-    }
-    if ($null -ne $Body) { $arguments.Body = ($Body | ConvertTo-Json -Compress) }
-    return Invoke-RestMethod @arguments
-}
-
-# Non-forced /upgrade: the 1.4.5 daemon finishes its running work, then exits. Nothing here times the wait or kills
-# it; -AbortRunning (typed ABORT) sends the forced form, as the new core's own wind-down does.
-function Stop-LegacyDaemon {
-    param($Record)
-    $process = Get-Process -Id ([int]$Record.pid) -ErrorAction SilentlyContinue
-    if (-not $process) { Write-Host '    1.4.5 daemon already gone'; return }
-    if (-not $Record.legacyPort -or -not $Record.legacyToken) {
-        Write-Host "    daemon pid=$($Record.pid) publishes no session endpoint; it is left to the next core"
-        return
-    }
-    $version = if ($targetVersion) { $targetVersion } else { '1.4.6' }
-    $upgrade = @{ protocol = 1; revision = 7; version = $version }
-    # Closing the app can take the 1.4.5 daemon down with it: its process is then still there for a moment with the
-    # session port already closed, and the request is refused. That is a daemon on its way out, not a failed deploy.
-    # A daemon that answers with an error status did refuse, and that still ends the deploy.
-    $asked = $false
-    try {
-        Invoke-LegacyDaemon $Record 'POST' '/upgrade' $upgrade | Out-Null
-        $asked = $true
-    }
-    catch {
-        if ($null -ne $_.Exception.Response) { throw }
-        if ($process.WaitForExit(2000)) { Write-Host '    1.4.5 daemon exited with the app'; return }
-        # Still a process under that pid: daemon.json may be stale and the pid reused, which is nothing to wait for.
-        $info = Get-CimInstance Win32_Process -Filter "ProcessId=$([int]$Record.pid)"
-        if (-not $info) { Write-Host '    1.4.5 daemon exited with the app'; return }
-        if ($info.ExecutablePath -ne $installedExe -or $info.CommandLine -notmatch 'daemon\.mjs') {
-            Write-Host "    daemon.json names pid $($Record.pid), which is not the 1.4.5 daemon and does not answer on its port; the record is stale"
-            return
-        }
-        Write-Host "    1.4.5 daemon pid=$($Record.pid) no longer answers ($($_.Exception.Message)); waiting for it to exit"
-    }
-    if ($asked) { Write-Host "    asked 1.4.5 daemon pid=$($Record.pid) to drain and exit" }
-    if ($asked -and $AbortRunning) {
-        $typed = Read-Host '    type ABORT to force the 1.4.5 daemon down, aborting its running work'
-        if ($typed -ne 'ABORT') { throw 'Abort was not confirmed; the daemon keeps draining and exits when idle.' }
-        $upgrade.force = $true
-        Invoke-LegacyDaemon $Record 'POST' '/upgrade' $upgrade | Out-Null
-    }
-    $waited = 0
-    while (-not $process.WaitForExit(10000)) {
-        $waited += 10
-        $health = try { Invoke-LegacyDaemon $Record 'GET' '/health' } catch { $null }
-        $busy = if ($health) { $health.busySessions } else { '?' }
-        Write-Host "    waiting for the 1.4.5 daemon to become idle ($waited s, busy: $busy)"
-        Write-FastDirectReceipt -Status 'waiting-for-idle-core' -Detail "1.4.5 busy: $busy"
-        if ($waited -ge $DrainLimitSeconds) {
-            # Every session ends in this switch (the user was told): the daemon is ended by its pid, after the pid is
-            # checked to be the installed app's executable running a daemon script, so a reused pid is never touched.
-            $info = Get-CimInstance Win32_Process -Filter "ProcessId=$([int]$Record.pid)"
-            if (-not $info -or $info.ExecutablePath -ne $installedExe -or $info.CommandLine -notmatch 'daemon\.mjs') {
-                throw "pid $($Record.pid) is not the 1.4.5 daemon ($($info.CommandLine)); it was not ended. Check daemon.json, end the daemon yourself, then rerun."
-            }
-            Write-Host "    the 1.4.5 daemon did not drain within $DrainLimitSeconds s; ending pid $($Record.pid). Work that was running: busy sessions $busy; $($health | ConvertTo-Json -Compress -Depth 3)"
-            Stop-Process -Id ([int]$Record.pid) -Force
-            if (-not $process.WaitForExit(30000)) {
-                throw "The 1.4.5 daemon pid $($Record.pid) is still alive 30 s after it was ended. Run: Stop-Process -Id $($Record.pid) -Force (or taskkill /PID $($Record.pid) /F), then rerun."
-            }
-            return
-        }
-    }
-}
-
 function Stop-Daemon {
     # The one wind-down procedure (LR section 5): ask the core to stop once it
     # is idle, then wait for its OS process to exit. Nothing here kills the
@@ -502,9 +417,9 @@ function Stop-Daemon {
     $record = Get-DaemonRecord
     if (-not $record -or -not $record.pid) { Write-Host '    no core running'; return }
     if (-not (Test-Path -LiteralPath $coreExe -PathType Leaf)) {
-        # A 1.4.5 build has no mixdogd: its daemon is asked to drain through its own /upgrade route, the one call
-        # the new core makes too (legacy_owner.rs), before anything force-stops the app's children.
-        Stop-LegacyDaemon $record
+        # An install without mixdogd (1.4.5 and earlier) is not one this script deploys over: its daemon is ended
+        # with the installed processes.
+        Write-Host '    the install has no core binary; nothing to ask'
         return
     }
     # The process handle is the core's identity: the wait ends with that
@@ -610,9 +525,25 @@ function Wait-ForFreshDaemon {
 # checkout of the same files has newer mtimes, so cargo would rebuild all 41 crates every deploy).
 $coreBuildRoot = if ($CoreBuildRoot) { $CoreBuildRoot } elseif ($env:MIXDOG_FASTDIRECT_SOURCE_ROOT) { $env:MIXDOG_FASTDIRECT_SOURCE_ROOT } else { $repoRoot }
 
+# This PC's build gate (machine-wide build slots; it places each checkout's build folder). Where it is not there,
+# cargo runs as it is and builds in the checkout.
+$cargoGate = if ($env:MIXDOG_CARGO_GATE) { $env:MIXDOG_CARGO_GATE } else { 'D:\mixdog-build\tools\cargo-gate.ps1' }
+
+# Where the build of $coreBuildRoot lands: the gate's folder for that checkout (cargo-gate.ps1 names it by the
+# checkout's folder), else cargo's own. Worked out from the checkout alone, so the front process and the detached
+# worker (which gets no environment) name the same file.
+function Get-CoreTargetDir {
+    if (Test-Path -LiteralPath $cargoGate -PathType Leaf) {
+        $top = (& git -C $coreBuildRoot rev-parse --show-toplevel 2>$null)
+        $leaf = if ($top) { Split-Path -Leaf $top } else { 'misc' }
+        return "D:\mixdog-build\pool\$leaf-target"
+    }
+    return Join-Path $coreBuildRoot 'native\core\target'
+}
+
 function Get-BuiltCorePath {
     if ($CoreBinary) { return $CoreBinary }
-    return Join-Path $coreBuildRoot 'native\core\target\fast\mixdogd.exe'
+    return Join-Path (Get-CoreTargetDir) 'release\mixdogd.exe'
 }
 
 function Build-LocalCore {
@@ -624,20 +555,36 @@ function Build-LocalCore {
         if ($LASTEXITCODE -ne 0) { throw "The prebuilt core does not match the sources." }
         return $CoreBinary
     }
-    # The `fast` profile (native/core/Cargo.toml): a deploy to this PC is rebuilt after every edit, so it takes the
-    # profile compiled for the next edit. The fully optimised `release` build is the published one's (build:win).
-    Write-Step 'building mixdogd (cargo build --profile fast -p mixdog-cli)'
+    # The published build's profile: the app on this PC is the one its user works in, so it runs what a release
+    # runs. A change is checked before this, by its tests and in an isolated instance on a `dev` build.
+    Write-Step 'building mixdogd (cargo build --release -p mixdog-cli --bin mixdogd)'
     if ($FastDirect -and $fastPlan) {
         & node $fastDirectHelper --action=assert-core-source "--plan=$FastPlanPath" "--source-root=$coreBuildRoot" | Out-Host
         if ($LASTEXITCODE -ne 0) { throw 'FastDirect core sources changed after planning.' }
     }
-    & cargo build --profile fast --locked -p mixdog-cli --manifest-path (Join-Path $coreBuildRoot 'native\core\Cargo.toml')
-    if ($LASTEXITCODE -ne 0) { throw "cargo build exited with $LASTEXITCODE" }
+    $cargoArguments = @('build', '--release', '--locked', '-p', 'mixdog-cli', '--bin', 'mixdogd')
+    Push-Location (Join-Path $coreBuildRoot 'native\core')
+    try {
+        if (Test-Path -LiteralPath $cargoGate -PathType Leaf) {
+            # The gate reads the checkout from the working directory; a target folder named by the caller's
+            # environment would move the build away from the one Get-CoreTargetDir names.
+            Remove-Item Env:CARGO_TARGET_DIR -ErrorAction SilentlyContinue
+            $gateShell = (Get-Command pwsh.exe -ErrorAction Stop).Source
+            & $gateShell -NoLogo -NoProfile -ExecutionPolicy Bypass -File $cargoGate @cargoArguments | Out-Host
+        }
+        else {
+            & cargo @cargoArguments | Out-Host
+        }
+        if ($LASTEXITCODE -ne 0) { throw "cargo build exited with $LASTEXITCODE" }
+    }
+    finally {
+        Pop-Location
+    }
     if ($FastDirect -and $fastPlan) {
         & node $fastDirectHelper --action=assert-core-source "--plan=$FastPlanPath" "--source-root=$coreBuildRoot" | Out-Host
         if ($LASTEXITCODE -ne 0) { throw 'FastDirect core sources changed while building.' }
     }
-    $built = Join-Path $coreBuildRoot 'native\core\target\fast\mixdogd.exe'
+    $built = Get-BuiltCorePath
     if (-not (Test-Path -LiteralPath $built -PathType Leaf)) { throw "cargo did not produce $built" }
     return $built
 }
@@ -877,8 +824,11 @@ function Invoke-FastDirectChangedOutputs {
         preload  = 'out\preload\index.js'
         renderer = 'out\renderer\index.html'
     }
+    # Only a deploy that stages a shell reads `out/` (the complete one, or one with a changed target): a plan that
+    # swaps the core or the runtime package alone builds no Electron target.
+    $stagesShell = [bool]$Plan.full -or $targets.Count -gt 0
     $missingTargets = @($targetArtifacts.Keys | Where-Object {
-            -not (Test-Path -LiteralPath (Join-Path $desktopDir $targetArtifacts[$_]) -PathType Leaf)
+            $stagesShell -and -not (Test-Path -LiteralPath (Join-Path $desktopDir $targetArtifacts[$_]) -PathType Leaf)
         })
     if ($missingTargets.Count -gt 0) {
         Write-Step "missing build output for: $($missingTargets -join ', ')"
@@ -985,17 +935,7 @@ function Install-UnpackedBuild {
             }
         } while ($true)
     }
-    $beforeSwapRan = $false
-    $shell = (Get-Command pwsh.exe -ErrorAction Stop).Source
     try {
-        if ($BeforeSwapScript) {
-            Write-Step "running $BeforeSwapScript"
-            Write-FastDirectReceipt -Status 'before-swap' -Detail $BeforeSwapScript
-            $beforeSwapRan = $true
-            & $shell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $BeforeSwapScript `
-                -CoreExe (Join-Path $unpackedDir 'resources\core\mixdogd.exe')
-            if ($LASTEXITCODE -ne 0) { throw "$BeforeSwapScript exited with $LASTEXITCODE" }
-        }
         New-Item -ItemType Directory -Path $backupDir -ErrorAction Stop | Out-Null
         # Every entry the build produced is app-owned: an Electron upgrade also
         # changes the Chromium files beside Mixdog.exe, and a new executable
@@ -1035,15 +975,6 @@ function Install-UnpackedBuild {
                 if ($item.HadInstalled -and (Test-Path -LiteralPath $item.Backup)) {
                     Move-WithRetry $item.Backup $item.Installed "restore $(Split-Path -Leaf $item.Installed)"
                 }
-            }
-        }
-        if ($beforeSwapRan) {
-            # The old app must not start on what the script changed: it is undone first, and an undo that fails
-            # leaves the app closed (the message names what to run).
-            Write-Step "undoing $BeforeSwapScript"
-            & $shell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $BeforeSwapScript -Undo
-            if ($LASTEXITCODE -ne 0) {
-                throw "The deploy failed ($($failure.Exception.Message)) and `"$BeforeSwapScript -Undo`" exited with $($LASTEXITCODE): the app was not started. Run that undo, then start Mixdog."
             }
         }
         Remove-Item -LiteralPath $backupDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -1300,17 +1231,13 @@ if ($FastDirect -and -not $FastDirectWorker) {
     }
     if ($StopBeforeSwap) {
         Write-Step 'stopping before the swap (-StopBeforeSwap); the detached worker would:'
-        $drain = if (Test-Path -LiteralPath $coreExe -PathType Leaf) { 'ask the installed core to stop when idle (mixdogd ctl stop --when-idle)' } else { 'ask the running 1.4.5 daemon to drain through /upgrade and wait up to the drain limit, then end it by its pid (every session ends)' }
+        $drain = if (Test-Path -LiteralPath $coreExe -PathType Leaf) { 'ask the installed core to stop when idle (mixdogd ctl stop --when-idle)' } else { 'nothing to ask: the install has no core binary' }
         Write-Host "  1. close the app: $(if ($appBefore.Count) { 'pid ' + ($appBefore.ProcessId -join ', ') } else { '(not running)' })"
         Write-Host "  2. $drain"
         Write-Host '  3. force-stop what still holds files under the install dir (after 10 s)'
-        if ($BeforeSwapScript) {
-            if (-not $fastPlan.full) { throw '-BeforeSwapScript runs only before a full replacement; this plan swaps single artifacts.' }
-            Write-Host "  3a. run $BeforeSwapScript -CoreExe $(Join-Path $unpackedDir 'resources\core\mixdogd.exe') (a failure ends the deploy; -Undo runs if step 4 or 5 fails)"
-        }
         Write-Host "  4. $(if ($fastPlan.full) { "replace every entry of $InstallDir with $unpackedDir (the old ones are kept aside until the new app has published a core)" } else { "swap the changed artifacts (shell: $(@($fastPlan.targets).Count -gt 0), core: $([bool]$fastPlan.core), runtime package: $([bool]$fastPlan.runtime))" })"
         Write-Host '  5. start the app and wait for a fresh daemon.json and a visible window; on failure restore step 4'
-        Write-Host "plan current: yes (inputs match the plan); installed now: $installedBefore; target: $targetVersion; core: $(if ($CoreBinary) { $CoreBinary } else { 'built by cargo' })"
+        Write-Host "plan current: yes (inputs match the plan); installed now: $installedBefore; target: $targetVersion; core: $(Get-BuiltCorePath)"
         exit 0
     }
     Remove-Item -LiteralPath $ReceiptPath -Force -ErrorAction SilentlyContinue
@@ -1354,9 +1281,6 @@ elseif ($FastDirect) {
         # Let the launching Mixdog shell return before this independent worker
         # terminates the app and daemon that owned it.
         Start-Sleep -Seconds 2
-        if ($BeforeSwapScript -and -not $fastPlan.full) {
-            throw '-BeforeSwapScript runs only before a full replacement; this plan swaps single artifacts. Nothing was stopped.'
-        }
         Write-Step 'stopping the installed app'
         Stop-MixdogApp
         Write-Step 'stopping the session daemon'
