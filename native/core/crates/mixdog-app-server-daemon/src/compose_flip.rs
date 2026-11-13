@@ -707,6 +707,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     });
     // wp-ai-svc-warm-1..-7: the gate a warm passes before it spends a model call.
     let rotation = Arc::new(mixdog_ai::accounts::rotation::AccountRotation::new(account_store.clone(), Arc::new(oauth_usage.clone()), Arc::new(mixdog_ai::oauth::SystemPace)));
+    // The sends of every account provider walk their roster with this one rotation (`createAccountPoolProvider`): a quota refusal blocks the account and the next one serves the same request.
+    default_builder.bind_account_rotation((*rotation).clone());
     let account_gate = Arc::new(mixdog_ai::warmer::gate::AccountGate::new(
         admission.clone(),
         mixdog_ai::admission::provider_lane_settings((b.env)("MIXDOG_PROVIDER_ADMISSION_MAX_QUEUE").as_deref()),

@@ -180,12 +180,33 @@ pub struct DefaultProviderBuilder {
     /// The resizer every Messages engine fits its images with (`prepareAnthropicImages`); none where the host has no
     /// extension host.
     images: Option<Arc<dyn mixdog_core_api::domain::ext::ProfiledImageResizer>>,
+    /// The roster walk of the account providers' sends ([`Self::bind_account_rotation`]). The host's one rotation is
+    /// built after the registry (it measures through the usage service, which reads the registry), so it arrives late.
+    account_rotation: Arc<std::sync::OnceLock<AccountRotation>>,
+    /// The roster account this builder's credentials are fixed to: an account engine's builder ([`OAuthEngines`]).
+    /// `None` follows the provider's current account.
+    fixed_account: Option<String>,
 }
 
 impl DefaultProviderBuilder {
     pub fn new(env: BuilderEnv) -> Self {
         let key_rotation = AccountRotation::new(env.accounts.clone(), Arc::new(super::key_pool::NoMeter), env.pace.clone());
-        Self { env, metadata_project: tokio::sync::OnceCell::new(), capabilities: std::sync::Mutex::default(), key_rotation, images: None }
+        Self {
+            env,
+            metadata_project: tokio::sync::OnceCell::new(),
+            capabilities: std::sync::Mutex::default(),
+            key_rotation,
+            images: None,
+            account_rotation: Arc::default(),
+            fixed_account: None,
+        }
+    }
+
+    /// The rotation every account provider's send walks its roster with (`createAccountPoolProvider`): the host's
+    /// one, which the cache warm plans with and the usage service measures for. Until it is bound an account
+    /// provider sends on its current account alone. A second bind is ignored.
+    pub fn bind_account_rotation(&self, rotation: AccountRotation) {
+        let _ = self.account_rotation.set(rotation);
     }
 
     /// Every Messages engine this builder builds fits its images with `resizer`.
@@ -634,8 +655,23 @@ fn adapter<T: ProviderAdapter + 'static>(a: T) -> Arc<dyn ProviderAdapter> {
 }
 
 impl DefaultProviderBuilder {
+    /// The credential file the built adapter reads: the provider's current account's, or the one account an account
+    /// engine is built for.
     fn file(&self, provider: &str) -> Result<CredentialFile, String> {
-        self.env.accounts.current_credential_file(provider).map_err(|e| e.to_string())
+        match &self.fixed_account {
+            Some(account) => self.env.accounts.credential_file(provider, account),
+            None => self.env.accounts.current_credential_file(provider),
+        }
+        .map_err(|e| e.to_string())
+    }
+
+    /// `build_unversioned` behind the client-version gate of its dialect.
+    async fn build_engine(&self, name: &str, cfg: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
+        let built = self.build_unversioned(name, cfg).await?;
+        Ok(match (self.env.client_versions.as_ref(), Dialect::of_provider(name)) {
+            (Some(versions), Some(dialect)) => VersionedAdapter::wrap(built, dialect, Arc::clone(versions)),
+            _ => built,
+        })
     }
 
     /// Declares the stored-row capability of the adapter built under `name` (see `cached_model_info`).
@@ -1416,17 +1452,110 @@ impl DefaultProviderBuilder {
     }
 }
 
+/// An account provider's engines (`createAccountPoolProvider`'s `account(id)`): one adapter per roster account, built
+/// on first use over that account's own credential file, so an account's token, its refresh and the state its
+/// adapter keeps per session never meet another account's. Node binds each instance to its account through
+/// `withProviderAccount`; here the binding is the file the engine is built on.
+///
+/// Divergence from Node: the provider-side session id is not rewritten per account (`accountScopedSessionId`). Node
+/// scopes it because one provider instance's connections are keyed by session; here each account has its own
+/// engine, and the visible session id keeps reaching every engine's `release_session`.
+struct OAuthEngines {
+    provider: String,
+    cfg: Value,
+    env: BuilderEnv,
+    images: Option<Arc<dyn mixdog_core_api::domain::ext::ProfiledImageResizer>>,
+    rotation: Arc<std::sync::OnceLock<AccountRotation>>,
+    built: std::sync::Mutex<HashMap<String, Arc<dyn ProviderAdapter>>>,
+    /// One build at a time: two sends that reach a new account together share its engine.
+    building: tokio::sync::Mutex<()>,
+}
+
+impl OAuthEngines {
+    fn existing(&self, account: &str) -> Option<Arc<dyn ProviderAdapter>> {
+        self.built.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(account).cloned()
+    }
+}
+
+/// `ANTIGRAVITY_ACCOUNT_COOLDOWN_POLICY` (`antigravity-retry-policy.mjs:198-210`), the one provider that declares an
+/// `accountCooldownPolicy`.
+fn antigravity_cooldown_policy() -> crate::accounts::rotation::CooldownPolicy {
+    crate::accounts::rotation::CooldownPolicy {
+        floor_ms: Some(2_000),
+        rate_limited_ms: Some(30_000),
+        quota_steps_ms: vec![60_000, 5 * 60_000, 30 * 60_000, 2 * 60 * 60_000],
+        unknown_ms: Some(60_000),
+        rotate_on_rate_limit: true,
+        wait_for_cooldown_ms: Some(300_000),
+        blocked_ms: Some(600_000),
+    }
+}
+
+#[async_trait]
+impl super::key_pool::AccountEngines for OAuthEngines {
+    fn rotation(&self) -> Option<AccountRotation> {
+        self.rotation.get().cloned()
+    }
+
+    async fn engine(&self, account: &str) -> Result<Arc<dyn ProviderAdapter>, ProviderError> {
+        if let Some(engine) = self.existing(account) {
+            return Ok(engine);
+        }
+        let _one = self.building.lock().await;
+        if let Some(engine) = self.existing(account) {
+            return Ok(engine);
+        }
+        let mut builder = DefaultProviderBuilder::new(self.env.clone());
+        builder.images = self.images.clone();
+        builder.fixed_account = Some(account.to_owned());
+        let engine = builder
+            .build_engine(&self.provider, &self.cfg)
+            .await
+            .map_err(|message| super::key_pool::plain(ErrorKind::Unknown, None, message))?;
+        self.built.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(account.to_owned(), engine.clone());
+        Ok(engine)
+    }
+
+    fn built(&self) -> Vec<Arc<dyn ProviderAdapter>> {
+        self.built.lock().unwrap_or_else(std::sync::PoisonError::into_inner).values().cloned().collect()
+    }
+
+    fn cooldown_policy(&self, _account: &str) -> Option<crate::accounts::rotation::CooldownPolicy> {
+        (self.provider == "antigravity-oauth").then(antigravity_cooldown_policy)
+    }
+
+    /// Before the pool stamped answers every send went out on the provider's current account.
+    async fn home(&self) -> String {
+        self.env.accounts.current_slot(&self.provider).await
+    }
+
+    fn state_bound(&self) -> bool {
+        true
+    }
+}
+
 #[async_trait]
 impl ProviderBuilder for DefaultProviderBuilder {
     /// The adapter, and for a dialect that gates on a client version, a wrapper that warms the
     /// version before each send and learns a Grok minimum from a 426.
     async fn build(&self, name: &str, cfg: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
         self.capabilities.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(name);
-        let built = self.build_unversioned(name, cfg).await?;
-        Ok(match (self.env.client_versions.as_ref(), Dialect::of_provider(name)) {
-            (Some(versions), Some(dialect)) => VersionedAdapter::wrap(built, dialect, Arc::clone(versions)),
-            _ => built,
-        })
+        let built = self.build_engine(name, cfg).await?;
+        if !crate::accounts::ACCOUNT_PROVIDERS.contains(&name) {
+            return Ok(built);
+        }
+        // `createAccountPoolProvider` (registry.mjs:234): the adapter built above follows the current account and
+        // answers everything but the send; a send walks the roster, each account on an engine of its own.
+        let engines = Arc::new(OAuthEngines {
+            provider: name.to_owned(),
+            cfg: cfg.clone(),
+            env: self.env.clone(),
+            images: self.images.clone(),
+            rotation: self.account_rotation.clone(),
+            built: std::sync::Mutex::default(),
+            building: tokio::sync::Mutex::new(()),
+        });
+        Ok(Arc::new(super::key_pool::KeyPoolAdapter::with_engines(name, built, engines)))
     }
 
     /// The capability the adapter built under `name` owns, when its Node class has `getCachedModelInfo` (own or

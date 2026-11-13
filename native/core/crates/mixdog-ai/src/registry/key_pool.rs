@@ -8,6 +8,11 @@
 //! stream after output, stamps the serving key and publishes the committed change only once the answer is complete.
 //! The caller reads the attempt's events as they arrive; the walk pauses after each one until the caller has taken
 //! it, so the pool's notices land between the requests exactly where Node's callbacks run.
+//!
+//! The same walk serves an OAuth provider's accounts (Node `createAccountPoolProvider`, installed on every account
+//! provider at `registry.mjs:234`): [`AccountEngines`] is where an account's engine comes from. A custom provider's
+//! keys are engines built with the provider ([`KeyEngines`]); an OAuth provider's accounts are engines built on first
+//! use, each on its own account's credential file (`registry/builder.rs`, `OAuthEngines`).
 
 use std::collections::VecDeque;
 use std::future::Future;
@@ -31,6 +36,7 @@ use mixdog_core_api::domain::provider::ModelRequest;
 use mixdog_core_api::domain::provider::ModelStream;
 use mixdog_core_api::domain::provider::ProviderAdapter;
 use mixdog_core_api::domain::provider::ProviderError;
+use mixdog_core_api::domain::provider::ProviderReplay;
 use mixdog_core_api::domain::provider::SendEnd;
 use mixdog_core_api::domain::provider::StreamEvent;
 use mixdog_core_api::domain::provider::WireCodec;
@@ -60,7 +66,38 @@ impl crate::accounts::rotation::UsageProbe for NoMeter {
     async fn measure(&self, _: &str, _: &str, _: bool) {}
 }
 
-struct Pool {
+/// Where the engine of each roster account comes from, and what of a send belongs to one account.
+#[async_trait]
+pub trait AccountEngines: Send + Sync {
+    /// The roster walk the sends go through; `None` while the host has bound none (the send then goes out on the
+    /// provider's own engine, as a provider without a pool sends).
+    fn rotation(&self) -> Option<AccountRotation>;
+    /// The engine that sends as `account`.
+    async fn engine(&self, account: &str) -> Result<Arc<dyn ProviderAdapter>, ProviderError>;
+    /// Every account engine that exists now (session and transport releases reach each).
+    fn built(&self) -> Vec<Arc<dyn ProviderAdapter>>;
+    /// The provider's `accountCooldownPolicy`.
+    fn cooldown_policy(&self, _account: &str) -> Option<CooldownPolicy> {
+        None
+    }
+    /// The account that served what carries no account stamp: a message stored before the pool stamped answers, and
+    /// the session's provider state.
+    async fn home(&self) -> String {
+        "default".to_owned()
+    }
+    /// Whether a replay envelope stays on a message another account served.
+    fn keeps_replay(&self, _replay: &ProviderReplay) -> bool {
+        false
+    }
+    /// Whether the session's provider state is one account's (`boundAccountSend` passes it only to the account that
+    /// produced it).
+    fn state_bound(&self) -> bool {
+        false
+    }
+}
+
+/// A custom provider's keys: the primary engine is `default`, each additional key has an engine built with the provider.
+pub struct KeyEngines {
     provider: String,
     primary: Arc<dyn ProviderAdapter>,
     /// `(key id, engine)` of every additional key, in roster order.
@@ -68,18 +105,13 @@ struct Pool {
     rotation: AccountRotation,
 }
 
-pub struct KeyPoolAdapter {
-    pool: Arc<Pool>,
-}
-
-impl KeyPoolAdapter {
-    pub fn new(provider: &str, primary: Arc<dyn ProviderAdapter>, keys: Vec<(String, KeyEngine)>, rotation: AccountRotation) -> Self {
-        Self { pool: Arc::new(Pool { provider: provider.to_owned(), primary, keys, rotation }) }
+#[async_trait]
+impl AccountEngines for KeyEngines {
+    fn rotation(&self) -> Option<AccountRotation> {
+        Some(self.rotation.clone())
     }
-}
 
-impl Pool {
-    fn engine(&self, account: &str) -> Result<Arc<dyn ProviderAdapter>, ProviderError> {
+    async fn engine(&self, account: &str) -> Result<Arc<dyn ProviderAdapter>, ProviderError> {
         if account == "default" {
             return Ok(self.primary.clone());
         }
@@ -94,33 +126,71 @@ impl Pool {
         }
     }
 
-    /// `customKeyServedBy`: the key a message's stored routing names for this provider, else the primary's.
-    fn served_by<'a>(&self, message: &'a Message) -> &'a str {
+    fn built(&self) -> Vec<Arc<dyn ProviderAdapter>> {
+        self.keys.iter().filter_map(|(_, engine)| engine.as_ref().ok().cloned()).collect()
+    }
+
+    /// The Chat wire's `reasoningContent` is a field of its own in Node and stays; here it rides the Chat replay
+    /// envelope, which is kept.
+    fn keeps_replay(&self, replay: &ProviderReplay) -> bool {
+        crate::providers::compat::chat::reasoning::replayed(replay).is_some()
+    }
+}
+
+struct Pool {
+    provider: String,
+    primary: Arc<dyn ProviderAdapter>,
+    engines: Arc<dyn AccountEngines>,
+}
+
+pub struct KeyPoolAdapter {
+    pool: Arc<Pool>,
+}
+
+impl KeyPoolAdapter {
+    pub fn new(provider: &str, primary: Arc<dyn ProviderAdapter>, keys: Vec<(String, KeyEngine)>, rotation: AccountRotation) -> Self {
+        let engines = Arc::new(KeyEngines { provider: provider.to_owned(), primary: primary.clone(), keys, rotation });
+        Self::with_engines(provider, primary, engines)
+    }
+
+    /// A pool over `engines`: `primary` answers everything but the send.
+    pub fn with_engines(provider: &str, primary: Arc<dyn ProviderAdapter>, engines: Arc<dyn AccountEngines>) -> Self {
+        Self { pool: Arc::new(Pool { provider: provider.to_owned(), primary, engines }) }
+    }
+}
+
+impl Pool {
+    /// `customKeyServedBy` / `replayAccount`: the account a message's stored routing names for this provider, else `home`.
+    fn served_by<'a>(&self, message: &'a Message, home: &'a str) -> &'a str {
         match &message.account_routing {
             Some(routing) if routing.provider == self.provider => &routing.account_id,
-            _ => "default",
+            _ => home,
         }
     }
 
-    /// `boundAccountSend`'s history: a message another key served goes without its replay state (Node drops
-    /// `providerReplay`, `reasoning` and `thinkingBlocks`). The Chat wire's `reasoningContent` is a field of its own
-    /// in Node and stays; here it rides the Chat replay envelope, which is kept.
-    fn history_for(&self, request: &Arc<ModelRequest>, account: &str) -> Arc<ModelRequest> {
-        if request.messages.iter().all(|m| self.served_by(m) == account) {
+    /// `boundAccountSend`'s history and state: a message another account served goes without its replay state (Node
+    /// drops `providerReplay`, `reasoning` and `thinkingBlocks`), and an account that is not the session's own sends
+    /// without the session's provider state.
+    fn history_for(&self, request: &Arc<ModelRequest>, account: &str, home: &str) -> Arc<ModelRequest> {
+        let foreign_state = self.engines.state_bound() && account != home && request.options.provider_state.is_some();
+        if !foreign_state && request.messages.iter().all(|m| self.served_by(m, home) == account) {
             return request.clone();
         }
         let mut owned = (**request).clone();
+        if foreign_state {
+            owned.options.provider_state = None;
+        }
         for message in &mut owned.messages {
-            if self.served_by(message) != account {
+            if self.served_by(message, home) != account {
                 message.thinking_blocks = None;
-                message.retain_replay(|r| crate::providers::compat::chat::reasoning::replayed(r).is_some());
+                message.retain_replay(|r| self.engines.keeps_replay(r));
             }
         }
         Arc::new(owned)
     }
 }
 
-fn plain(kind: ErrorKind, code: Option<&str>, message: String) -> ProviderError {
+pub(super) fn plain(kind: ErrorKind, code: Option<&str>, message: String) -> ProviderError {
     let mut error = ProviderError::new(kind, DeliveryState::NotSent);
     error.code = code.map(str::to_owned);
     error.message = message;
@@ -227,20 +297,21 @@ struct KeySend {
     pool: Arc<Pool>,
     request: Arc<ModelRequest>,
     queue: Queue,
+    /// [`AccountEngines::home`] as the send began.
+    home: String,
 }
 
 #[async_trait]
 impl AccountSender<()> for KeySend {
-    /// A custom provider's engines declare no cooldown policy.
-    fn cooldown_policy(&self, _: &str) -> Option<CooldownPolicy> {
-        None
+    fn cooldown_policy(&self, account: &str) -> Option<CooldownPolicy> {
+        self.pool.engines.cooldown_policy(account)
     }
 
     async fn send(&self, account: &str, _scoped: bool) -> Result<(), Failed> {
         // The pool's notice of the previous refusal reaches the caller before this key's request goes out.
         taken(&self.queue).await;
-        let engine = self.pool.engine(account).map_err(Failed::new)?;
-        let request = self.pool.history_for(&self.request, account);
+        let engine = self.pool.engines.engine(account).await.map_err(Failed::new)?;
+        let request = self.pool.history_for(&self.request, account, &self.home);
         let mut stream = engine.attempt(request).await.map_err(|error| {
             let unsafe_to_retry = error.unsafe_to_retry;
             Failed { unsafe_to_retry, ..Failed::new(error) }
@@ -385,21 +456,29 @@ impl ProviderAdapter for KeyPoolAdapter {
     fn wire_routing(&self) -> Option<&dyn WireRouting> {
         self.pool.primary.wire_routing()
     }
+    // The engine that served a send is one of the accounts': what is held for a send, a session or a transport scope
+    // is released on each.
     fn release_send(&self, group: &str) {
         self.pool.primary.release_send(group);
+        for engine in self.pool.engines.built() {
+            engine.release_send(group);
+        }
     }
     async fn settle_send(&self, group: &str, end: SendEnd) {
+        for engine in self.pool.engines.built() {
+            engine.settle_send(group, end).await;
+        }
         self.pool.primary.settle_send(group, end).await;
     }
     fn release_session(&self, session_id: &str) {
         self.pool.primary.release_session(session_id);
-        for engine in self.pool.keys.iter().filter_map(|(_, engine)| engine.as_ref().ok()) {
+        for engine in self.pool.engines.built() {
             engine.release_session(session_id);
         }
     }
     fn release_transport_scope(&self, scope: &str) {
         self.pool.primary.release_transport_scope(scope);
-        for engine in self.pool.keys.iter().filter_map(|(_, engine)| engine.as_ref().ok()) {
+        for engine in self.pool.engines.built() {
             engine.release_transport_scope(scope);
         }
     }
@@ -441,6 +520,10 @@ impl ProviderAdapter for KeyPoolAdapter {
     }
     /// A walk that ends before any event is the attempt's own refusal; otherwise the events follow.
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+        let Some(rotation) = self.pool.engines.rotation() else {
+            return self.pool.primary.attempt(request).await;
+        };
+        let home = self.pool.engines.home().await;
         let queue: Queue = Arc::new(Mutex::new(Shared {
             queue: VecDeque::new(),
             waiting: None,
@@ -461,9 +544,9 @@ impl ProviderAdapter for KeyPoolAdapter {
             implicit_plan_usage: None,
         };
         let pool = self.pool.clone();
-        let sender = KeySend { pool: pool.clone(), request, queue: queue.clone() };
+        let sender = KeySend { pool: pool.clone(), request, queue: queue.clone(), home };
         let walk: Walk = Box::pin(async move {
-            pool.rotation.pool_send(&pool.provider, &context, &sender).await.map_err(pool_error)
+            rotation.pool_send(&pool.provider, &context, &sender).await.map_err(pool_error)
         });
         let mut stream = KeyStream { walk: Some(walk), queue, failure: None };
         stream.advance().await;
@@ -475,3 +558,7 @@ impl ProviderAdapter for KeyPoolAdapter {
         Ok(Box::new(stream))
     }
 }
+
+#[cfg(test)]
+#[path = "key_pool_account_tests.rs"]
+mod account_tests;
