@@ -115,7 +115,7 @@ import { loginUpdateOf } from './protocol/login-feed';
 import { readOrCreateHostId, createLocalHostRole } from './protocol/desktop-host-wiring';
 import { resolveTunnelEndpoint } from './protocol/discovery';
 import { openCore } from './protocol/open-core';
-import { type CoreProcess, coreEnvironment, coreExit, coreLaunchPath, resolveLocalCore } from './protocol/local-core';
+import { type CoreProcess, coreBinaryPath, coreEnvironment, coreExit, coreLaunchPath, requestCoreStop, resolveLocalCore } from './protocol/local-core';
 import { createOpenRequestedHandler } from './protocol/open-requested';
 import { createVisualizePublisher } from './protocol/visualize-publish';
 import type { VisualizeHostEvent } from '../shared/visualize';
@@ -1621,8 +1621,17 @@ const quitSequence = createDesktopQuitSequence({
     for (const removeWindowIpc of windowIpcDisposers.values()) removeWindowIpc();
     windowIpcDisposers.clear();
     await disposeDesktopResources();
-    // The core this app started stops by itself now that its last client has left; the app's exit would end it at once.
-    const stopped = await coreExit(localCoreProcess, DESKTOP_DAEMON_STOP_TIMEOUT_MS);
+    // The core this app started is asked to stop now that the app has left it (its own no-client grace is longer than
+    // this quit waits), then waited for: the app's exit would end it, and the PostgreSQL it runs, at once.
+    const deadline = Date.now() + DESKTOP_DAEMON_STOP_TIMEOUT_MS;
+    await requestCoreStop({
+      child: localCoreProcess,
+      bin: coreBinaryPath(app.isPackaged, process.resourcesPath),
+      runtimeRoot: resolveRuntimeRoot(),
+      env: coreEnvironment(app.isPackaged, process.resourcesPath, app.getPath('userData')),
+      timeoutMs: DESKTOP_DAEMON_STOP_TIMEOUT_MS,
+    });
+    const stopped = await coreExit(localCoreProcess, Math.max(0, deadline - Date.now()));
     if (!stopped) console.error(`The Mixdog core did not stop within ${DESKTOP_DAEMON_STOP_TIMEOUT_MS}ms of the quit; it ends with the app.`);
   },
   exit: () => {

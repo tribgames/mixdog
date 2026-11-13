@@ -104,6 +104,7 @@ export const DESKTOP_CORE_READY_TIMEOUT_MS = 120_000;
 
 /** What `coreExit` reads of a child process. */
 export interface CoreProcess {
+  readonly pid?: number;
   readonly exitCode: number | null;
   readonly signalCode: NodeJS.Signals | null;
   once(event: 'exit', listener: () => void): unknown;
@@ -122,6 +123,60 @@ export function coreExit(child: CoreProcess | null, timeoutMs: number): Promise<
       clearTimeout(timer);
       resolve(true);
     });
+  });
+}
+
+/** Asks the core this app started to stop (`mixdogd ctl stop --when-idle --reason userStop`) and resolves once the
+ *  request was answered, or after `timeoutMs`. The core stops by itself when its last client is gone, but only after its
+ *  no-client grace (10 s), which a quitting app does not wait out: its exit would end the core first. The stop is sent
+ *  only while the discovery file names that very process, so a quit never stops a core another launcher owns; a stop is
+ *  not deferred for attached clients (`userStop`), and `whenIdle` lets a running turn settle within the quit's wait.
+ *  Resolves whether the request was sent. */
+export async function requestCoreStop({
+  child,
+  bin,
+  runtimeRoot,
+  env,
+  timeoutMs,
+  spawnImpl = spawn,
+  readDiscovery = readCoreState,
+}: {
+  child: CoreProcess | null;
+  bin: string;
+  runtimeRoot: string;
+  env?: NodeJS.ProcessEnv;
+  timeoutMs: number;
+  spawnImpl?: typeof spawn;
+  readDiscovery?: (runtimeRoot: string) => Promise<{ pid: number | null }>;
+}): Promise<boolean> {
+  if (!child?.pid || child.exitCode !== null || child.signalCode !== null) return false;
+  let named: number | null = null;
+  try {
+    named = (await readDiscovery(runtimeRoot)).pid;
+  } catch {
+    return false;
+  }
+  if (named !== child.pid) return false;
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (sent: boolean) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(sent);
+    };
+    const timer = setTimeout(() => done(true), timeoutMs);
+    try {
+      const ctl = spawnImpl(bin, ['ctl', 'stop', '--when-idle', '--reason', 'userStop', '--json'], {
+        stdio: 'ignore',
+        windowsHide: true,
+        ...(env ? { env } : {}),
+      });
+      ctl.once('error', () => done(false));
+      ctl.once('exit', (code) => done(code === 0));
+    } catch {
+      done(false);
+    }
   });
 }
 
