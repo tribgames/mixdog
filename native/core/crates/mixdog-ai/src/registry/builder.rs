@@ -1452,15 +1452,20 @@ impl DefaultProviderBuilder {
     }
 }
 
-/// An account provider's engines (`createAccountPoolProvider`'s `account(id)`): one adapter per roster account, built
-/// on first use over that account's own credential file, so an account's token, its refresh and the state its
-/// adapter keeps per session never meet another account's. Node binds each instance to its account through
-/// `withProviderAccount`; here the binding is the file the engine is built on.
+/// An account provider's engines (`createAccountPoolProvider`'s `account(id)`). The provider's current account sends
+/// on the provider's own adapter, the one every send used before the pool: its connections, the transport the
+/// prewarm opened and the state it keeps per session are the ones the send finds, and a roster that never switches
+/// builds nothing more. Any other account (the one a send moves to at a limit, or a session's own under the
+/// headroom policy) sends on an adapter built on first use over that account's own credential file, so its token,
+/// its refresh and its per-session state never meet another account's. Node binds each instance to its account
+/// through `withProviderAccount`; here the binding is the file the engine is built on.
 ///
 /// Divergence from Node: the provider-side session id is not rewritten per account (`accountScopedSessionId`). Node
 /// scopes it because one provider instance's connections are keyed by session; here each account has its own
 /// engine, and the visible session id keeps reaching every engine's `release_session`.
 struct OAuthEngines {
+    /// The provider's own adapter, which follows the current account.
+    primary: Arc<dyn ProviderAdapter>,
     provider: String,
     cfg: Value,
     env: BuilderEnv,
@@ -1497,7 +1502,11 @@ impl super::key_pool::AccountEngines for OAuthEngines {
         self.rotation.get().cloned()
     }
 
-    async fn engine(&self, account: &str) -> Result<Arc<dyn ProviderAdapter>, ProviderError> {
+    async fn engine(&self, account: &str, home: &str) -> Result<Arc<dyn ProviderAdapter>, ProviderError> {
+        // `home` is the current account as the send began: the adapter that follows it is that account's.
+        if account == home {
+            return Ok(self.primary.clone());
+        }
         if let Some(engine) = self.existing(account) {
             return Ok(engine);
         }
@@ -1547,6 +1556,7 @@ impl ProviderBuilder for DefaultProviderBuilder {
         // `createAccountPoolProvider` (registry.mjs:234): the adapter built above follows the current account and
         // answers everything but the send; a send walks the roster, each account on an engine of its own.
         let engines = Arc::new(OAuthEngines {
+            primary: built.clone(),
             provider: name.to_owned(),
             cfg: cfg.clone(),
             env: self.env.clone(),
