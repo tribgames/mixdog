@@ -1,6 +1,6 @@
 // Attach-or-start of this PC's core (lifecycle spec §5.4): the one place the desktop launches `mixdogd serve`, then waits
 // until the discovery file says `serving`. The endpoint itself is read by `readLocalDiscovery` on every dial.
-import { existsSync } from 'node:fs';
+import { linkSync, rmSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ensureCore, launchCore } from '../../../../../packages/protocol-client/src/launch/ensure-core.mjs';
@@ -13,20 +13,52 @@ export function coreBinaryPath(packaged: boolean, resourcesPath: string, platfor
   return join(resourcesPath, 'core', platform === 'win32' ? 'mixdogd.exe' : 'mixdogd');
 }
 
-/** The binary the packaged app starts its core from. On Windows a copy of the core named as the app's own executable
- *  (`core/Mixdog.exe`), when the install has one, is started instead: Task Manager lists a child under its app only
- *  when the child's image carries the app's name (the core as `mixdogd.exe` shows inside the Mixdog group for a
- *  moment and then on a row of its own). The command-line `mixdogd.exe` stays where it is. */
+/** What `coreLaunchPath` asks of the file system. */
+export interface CoreLinkFs {
+  identity(path: string): string | null;
+  link(existing: string, path: string): void;
+  remove(path: string): void;
+}
+
+const coreLinkFs: CoreLinkFs = {
+  identity(path) {
+    try {
+      const stat = statSync(path, { bigint: true });
+      return stat.ino === 0n ? null : `${stat.dev}:${stat.ino}`;
+    } catch {
+      return null;
+    }
+  },
+  link: (existing, path) => linkSync(existing, path),
+  remove: (path) => rmSync(path, { force: true }),
+};
+
+/** The binary the packaged app starts its core from. On Windows that is `core/Mixdog.exe`, a hard link to
+ *  `core/mixdogd.exe` the app makes (and makes again when the core was replaced): Task Manager lists a child under
+ *  its app only when the child's image carries the app's name, so a core started as `mixdogd.exe` shows inside the
+ *  Mixdog group for a moment and then on a row of its own. A link costs no space and needs no packaging; where it
+ *  cannot be made (a read-only install, another volume) the core starts as `mixdogd.exe`. The command-line
+ *  `mixdogd.exe` stays what scripts and `ctl` run. */
 export function coreLaunchPath(
   packaged: boolean,
   resourcesPath: string,
   platform: NodeJS.Platform = process.platform,
-  exists: (path: string) => boolean = existsSync
+  fs: CoreLinkFs = coreLinkFs
 ): string {
   const bin = coreBinaryPath(packaged, resourcesPath, platform);
   if (!packaged || platform !== 'win32') return bin;
   const named = join(resourcesPath, 'core', 'Mixdog.exe');
-  return exists(named) ? named : bin;
+  try {
+    const core = fs.identity(bin);
+    if (!core) return bin;
+    if (fs.identity(named) === core) return named;
+    // A core that was replaced leaves the name on the old file.
+    fs.remove(named);
+    fs.link(bin, named);
+    return fs.identity(named) === core ? named : bin;
+  } catch {
+    return bin;
+  }
 }
 
 // Switches to `desktopMixdogRoot` of scripts/core-layout.mjs when k1-packaging combines.

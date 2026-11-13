@@ -144,6 +144,10 @@ mixdog-exthost = { workspace = true, features = ["test-support"] }
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 mixdog-trace = { workspace = true, features = ["flush-probe"] }
 
+[target.'cfg(windows)'.build-dependencies]
+# The version resource and icon of mixdogd.exe (build.rs).
+winresource = "0.1"
+
 [target.'cfg(windows)'.dependencies]
 # `serve` leaves the console it was given and claims the desktop app's AppUserModelID (Task Manager's grouping).
 windows-sys = { workspace = true, features = ["Win32_System_Console", "Win32_UI_Shell"] }
