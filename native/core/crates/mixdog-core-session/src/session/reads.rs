@@ -108,14 +108,22 @@ pub(super) async fn history(deps: &SessionDeps, id: &ThreadId) -> Result<History
     let dropped = || CoreError::Internal { incident_id: "session-history-job-dropped".into() };
     deps.store.unheld().await;
     let (store, thread) = (deps.store.clone(), id.clone());
-    let (rev, records) = deps.lanes.io.submit(&token, move |lane| store.history_rows(lane, &thread))?.await.map_err(|_| dropped())??;
-    Ok(History { rev, rows: display_rows(deps, records).await? })
+    // The whole history is its newest rows without a bound, marked as every page of it is.
+    let (rev, records, decor, _) = deps.lanes.io.submit(&token, move |lane| store.history_tail_decor(lane, &thread, usize::MAX))?.await.map_err(|_| dropped())??;
+    Ok(History { rev, rows: display_rows(deps, records, decor).await? })
 }
 
-async fn display_rows(deps: &SessionDeps, records: Vec<mixdog_store::schema::record::ItemRecord>) -> Result<Vec<(ThreadItem, usize)>, CoreError> {
+async fn display_rows(
+    deps: &SessionDeps,
+    records: Vec<mixdog_store::schema::record::ItemRecord>,
+    decor: Vec<super::seams::RowDecor>,
+) -> Result<Vec<(ThreadItem, usize)>, CoreError> {
     let token = CancellationToken::new();
     let transcript = deps.transcript.clone();
-    let rows = deps.lanes.cpu.submit(&token, move |lane| records.iter().flat_map(|record| transcript.rows(lane, record)).collect())?;
+    let rows = deps
+        .lanes
+        .cpu
+        .submit(&token, move |lane| records.iter().enumerate().flat_map(|(at, record)| decorated(transcript.rows(lane, record), decor.get(at))).collect())?;
     rows.await.map_err(|_| CoreError::Internal { incident_id: "session-history-job-dropped".into() })
 }
 
@@ -148,13 +156,38 @@ pub(super) async fn history_before(
     let shown = lanes.cpu.submit(&token, move |lane| {
         let mut rows: Vec<(ThreadItem, usize)> = Vec::new();
         let mut from = 0;
-        for record in &read.records {
+        for (at, record) in read.records.iter().enumerate() {
             from = rows.len();
-            rows.extend(transcript.rows(lane, record));
+            rows.extend(decorated(transcript.rows(lane, record), read.decor.get(at)));
         }
         Before { rev: read.rev, rows, from, complete: read.complete, named: read.named }
     })?;
     Ok(Some(shown.await.map_err(|_| dropped())?))
+}
+
+/// The `ext` member a row carries the compaction dividers shown after it under: the items of each divider (its row, then
+/// its model-switch rows), as the restored window shows them between its rows. A page's rows are the records' own, so a
+/// divider is no row of a page (a cursor names a stored row) and rides the row it follows.
+pub(super) const DIVIDERS_AFTER: &str = "dividersAfter";
+
+/// A record's rows with what its page shows beyond them: `archived` on each row a compaction took out of the context,
+/// and the dividers that follow the record on its last row.
+pub(super) fn decorated(mut rows: Vec<(ThreadItem, usize)>, decor: Option<&super::seams::RowDecor>) -> Vec<(ThreadItem, usize)> {
+    let Some(decor) = decor else { return rows };
+    if decor.archived {
+        for (item, _) in &mut rows {
+            super::view::meta_mut(item).ext.insert("archived".into(), Value::Bool(true));
+        }
+    }
+    if let Some((last, _)) = rows.last_mut().filter(|_| !decor.dividers_after.is_empty()) {
+        let mut items = Vec::new();
+        for divider in &decor.dividers_after {
+            items.push(super::transcript::divider_item(&divider.cid, divider.at));
+            items.extend(super::transcript::divider_model_switches(&divider.cid, &divider.model_switches));
+        }
+        super::view::meta_mut(last).ext.insert(DIVIDERS_AFTER.into(), serde_json::to_value(items).expect("thread items serialize"));
+    }
+    rows
 }
 
 /// [`history`] of the newest `rows` stored rows only, and whether that is all of it.
@@ -169,9 +202,11 @@ pub(super) async fn history_tail(
     let dropped = || CoreError::Internal { incident_id: "session-history-job-dropped".into() };
     store.unheld().await;
     let (store, thread) = (store.clone(), id.clone());
-    let (rev, records, complete) = lanes.io.submit(&token, move |lane| store.history_tail(lane, &thread, rows))?.await.map_err(|_| dropped())??;
+    let (rev, records, decor, complete) = lanes.io.submit(&token, move |lane| store.history_tail_decor(lane, &thread, rows))?.await.map_err(|_| dropped())??;
     let transcript = transcript.clone();
-    let rows = lanes.cpu.submit(&token, move |lane| records.iter().flat_map(|record| transcript.rows(lane, record)).collect())?;
+    let rows = lanes
+        .cpu
+        .submit(&token, move |lane| records.iter().enumerate().flat_map(|(at, record)| decorated(transcript.rows(lane, record), decor.get(at))).collect())?;
     Ok((History { rev, rows: rows.await.map_err(|_| dropped())? }, complete))
 }
 
@@ -827,6 +862,27 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn a_page_row_carries_archived_and_the_dividers_that_follow_its_record() {
+        use crate::session::seams::{RowDecor, WindowDivider};
+        let rows = |n: usize| -> Vec<(ThreadItem, usize)> {
+            (0..n).map(|i| (items(json!([{ "type": "agentMessage", "id": format!("a{i}"), "text": "x", "meta": {} }])).remove(0), 1)).collect()
+        };
+        let ext = |item: &ThreadItem| meta(item).ext.clone();
+        // No decoration: the rows as they are.
+        assert!(decorated(rows(1), None).iter().all(|(item, _)| ext(item).is_empty()));
+        let divider = WindowDivider { before: 1, ordinal: 9, cid: "k1".into(), at: Some(5), model_switches: Vec::new() };
+        let decor = RowDecor { archived: true, dividers_after: vec![divider] };
+        let shown = decorated(rows(2), Some(&decor));
+        // Every row of the record is archived; the divider rides the last one, as the item the window would show.
+        assert!(shown.iter().all(|(item, _)| ext(item).get("archived") == Some(&json!(true))));
+        assert!(ext(&shown[0].0).get(DIVIDERS_AFTER).is_none());
+        let after = ext(&shown[1].0).get(DIVIDERS_AFTER).cloned().expect("the dividers after the record");
+        assert_eq!(after, json!([crate::session::transcript::divider_item("k1", Some(5))]));
+        // A record that shows no row has none to carry them.
+        assert!(decorated(Vec::new(), Some(&decor)).is_empty());
     }
 
     #[test]

@@ -318,6 +318,15 @@ pub struct OpenedLog {
     pub append: AppendPosition,
 }
 
+/// What a history page shows of one record beyond its rows, as the restored window shows it: whether a compaction took
+/// the record out of the model context (1.4.5 `archived`), and the compaction dividers that follow it (each sits at its
+/// compaction's own record, so it is shown after the newest row older than that record).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct RowDecor {
+    pub archived: bool,
+    pub dividers_after: Vec<WindowDivider>,
+}
+
 /// What [`ThreadStore::history_before`] read.
 pub struct HistoryBefore {
     pub rev: u64,
@@ -327,6 +336,8 @@ pub struct HistoryBefore {
     pub complete: bool,
     /// How many rows the id can name (see `HistoryAnchor::named`).
     pub named: u64,
+    /// One per record, in the same order; empty for a store that marks none.
+    pub decor: Vec<RowDecor>,
 }
 
 /// An op of a thread as its log holds it (P §9.2): the indexed row and the frame that carries it.
@@ -402,6 +413,17 @@ pub trait ThreadStore: Send + Sync + 'static {
         let complete = all.len() <= rows;
         all.drain(..all.len().saturating_sub(rows));
         Ok((rev, all, complete))
+    }
+
+    /// [`history_tail`](Self::history_tail) with each record's [`RowDecor`] (one per record; empty for a store that marks none).
+    fn history_tail_decor(
+        &self,
+        lane: &InLane<InteractiveIo>,
+        id: &ThreadId,
+        rows: usize,
+    ) -> Result<(u64, Vec<ItemRecord>, Vec<RowDecor>, bool), CoreError> {
+        let (rev, records, complete) = self.history_tail(lane, id, rows)?;
+        Ok((rev, records, Vec::new(), complete))
     }
 
     /// The records from the oldest row a client's id `anchor` can name, back to at most `rows` records older than it

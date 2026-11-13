@@ -866,7 +866,21 @@ impl StoreThreads {
         mut cursor: Option<mixdog_store::sqlite::PageCursor>,
         want: usize,
     ) -> Result<Option<(Vec<ItemRecord>, bool)>, CoreError> {
+        Ok(self.read_rows_marked(lane, id, lineage, cut, cursor, want)?.map(|(rows, _, complete)| (rows, complete)))
+    }
+
+    /// [`read_rows`](Self::read_rows) with the index rows the records were read from (the same order).
+    fn read_rows_marked(
+        &self,
+        lane: &InLane<InteractiveIo>,
+        id: &ThreadId,
+        lineage: &[LineageLevel],
+        cut: Option<u64>,
+        mut cursor: Option<mixdog_store::sqlite::PageCursor>,
+        want: usize,
+    ) -> Result<Option<(Vec<ItemRecord>, Vec<HistoryRow>, bool)>, CoreError> {
         let mut rows = Vec::new();
+        let mut marks = Vec::new();
         loop {
             // One row more than wanted says whether more are left: never an index row past what the page needs.
             let room = want - rows.len();
@@ -879,16 +893,47 @@ impl StoreThreads {
             for row in page.iter().take(room) {
                 rows.push(self.history_item(lane, id, row)?);
             }
-            if page.len() > room {
-                return Ok(Some((rows, false)));
+            let more = page.len() > room;
+            marks.extend(page.into_iter().take(room));
+            if more {
+                return Ok(Some((rows, marks, false)));
             }
             // The index keeps a continuation cursor at its exact page limit, so with the wanted rows all read the
             // next page says whether any row is left (it is read, empty, and ends the history).
             match next {
                 Some(next) => cursor = Some(next),
-                None => return Ok(Some((rows, true))),
+                None => return Ok(Some((rows, marks, true))),
             }
         }
+    }
+
+    /// The [`RowDecor`] of each of `rows` (newest first, as paged; the result is oldest first): what
+    /// [`read_window`](ThreadStore::read_window) marks of the same rows. `complete` says no row is older than these.
+    /// A divider goes after the newest row older than it; one newer than every row is given to the last row only
+    /// when these rows end the history (`trailing`), else it belongs to a newer page.
+    fn page_decor(
+        &self,
+        lane: &InLane<InteractiveIo>,
+        lineage: &[LineageLevel],
+        cut: Option<u64>,
+        rows: &[HistoryRow],
+        complete: bool,
+        trailing: bool,
+    ) -> Result<Vec<super::seams::RowDecor>, CoreError> {
+        let archived = archived_ordinals(rows);
+        let mut decor: Vec<super::seams::RowDecor> =
+            rows.iter().rev().map(|row| super::seams::RowDecor { archived: archived.contains(&row.ordinal), dividers_after: Vec::new() }).collect();
+        for divider in self.window_dividers(lane, lineage, cut, rows, !complete)? {
+            // `before` counts the rows older than the divider: it follows the last of them.
+            let Some(host) = divider.before.checked_sub(1) else { continue };
+            if divider.before == decor.len() && !trailing {
+                continue;
+            }
+            if let Some(row) = decor.get_mut(host) {
+                row.dividers_after.push(divider);
+            }
+        }
+        Ok(decor)
     }
 
     /// The item record of one history row: its frame, its latest amend's body, and both
@@ -1629,6 +1674,26 @@ impl ThreadStore for StoreThreads {
         }
     }
 
+    fn history_tail_decor(
+        &self,
+        lane: &InLane<InteractiveIo>,
+        id: &ThreadId,
+        want: usize,
+    ) -> Result<(u64, Vec<ItemRecord>, Vec<super::seams::RowDecor>, bool), CoreError> {
+        self.wait(lane, self.projector.caught_up())?;
+        let _gate = self.read_gate();
+        loop {
+            let opened = self.open(lane, id)?;
+            let lineage = self.lineage(lane, &opened.fold)?;
+            let Some((mut rows, marks, complete)) = self.read_rows_marked(lane, id, &lineage, opened.fold.base_cut, None, want)? else {
+                continue;
+            };
+            let decor = self.page_decor(lane, &lineage, opened.fold.base_cut, &marks, complete, true)?;
+            rows.reverse();
+            return Ok((opened.fold.history_rev, rows, decor, complete));
+        }
+    }
+
     fn history_before(
         &self,
         lane: &InLane<InteractiveIo>,
@@ -1647,11 +1712,13 @@ impl ThreadStore for StoreThreads {
                 return Ok(None);
             };
             // The named record first, then the `rows` older.
-            let Some((mut records, complete)) = self.read_rows(lane, id, &lineage, cut, Some(named.cursor), rows.saturating_add(1))? else {
+            let Some((mut records, marks, complete)) = self.read_rows_marked(lane, id, &lineage, cut, Some(named.cursor), rows.saturating_add(1))? else {
                 continue;
             };
+            // The newest record is the cursor's own: what follows it belongs to the page that shows it.
+            let decor = self.page_decor(lane, &lineage, cut, &marks, complete, false)?;
             records.reverse();
-            return Ok(Some(HistoryBefore { rev: opened.fold.history_rev, records, complete, named: named.named }));
+            return Ok(Some(HistoryBefore { rev: opened.fold.history_rev, records, complete, named: named.named, decor }));
         }
     }
 

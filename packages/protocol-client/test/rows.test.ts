@@ -118,3 +118,16 @@ test('rows carry the product row model only: no protocol member names, compactio
   assert.equal('status' in (rows[2] ?? {}), false);
 });
 
+
+test('a history page row shows the compaction dividers the core says follow it, and never as an attribute of its own', async () => {
+  const { rowsOf } = await import('../src/rows.ts');
+  const divider: Obj = { type: 'contextCompaction', id: 'divider:k1', meta: { at: 5 } };
+  const item: Obj = { type: 'agentMessage', id: 'a1', text: 'done', meta: { at: 4, ext: { archived: true, dividersAfter: [divider] } } };
+  const rows = JSON.parse(JSON.stringify(rowsOf(item)));
+  assert.deepEqual(rows, [
+    { kind: 'assistant', id: 'a1', text: 'done', at: 4, archived: true },
+    { kind: 'statusdone', id: 'divider:k1', status: 'compacted', label: 'Conversation compacted', at: 5 },
+  ]);
+  assert.deepEqual(JSON.parse(JSON.stringify(rowOf(item))), rows[0], 'the row alone carries no divider list');
+  assert.deepEqual(rowsOf({ type: 'agentMessage', id: 'a2', text: 'x', meta: {} }).length, 1);
+});

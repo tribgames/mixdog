@@ -37,7 +37,21 @@ export function rowOf(item: Obj): Obj | null {
   const m = asObj(item.meta);
   if (item.type === 'roomRow') return roomRowItem(item, m);
   const row = rowBody(item, m);
-  return row === null ? null : Object.assign(row, extOf(item, m));
+  if (row === null) return null;
+  const { [DIVIDERS_AFTER]: _dividers, ...ext } = extOf(item, m);
+  return Object.assign(row, ext);
+}
+
+/** The `ext` member a history page's row carries the compaction dividers shown after it under (the core's `DIVIDERS_AFTER`,
+ * reads.rs): the items of each divider, which a page cannot list as rows of its own (a page cursor names a stored row). */
+const DIVIDERS_AFTER = 'dividersAfter';
+
+/** A history page's item as its rows: its own row, then the rows of the compaction dividers that follow it. */
+export function rowsOf(item: Obj): Obj[] {
+  const own = rowOf(item);
+  const after = asObj(asObj(item.meta).ext)[DIVIDERS_AFTER];
+  const dividers = Array.isArray(after) ? after.map((divider) => rowOf(asObj(divider))).filter((row): row is Obj => row !== null) : [];
+  return own === null ? dividers : [own, ...dividers];
 }
 
 function rowBody(item: Obj, m: Obj): Obj | null {
