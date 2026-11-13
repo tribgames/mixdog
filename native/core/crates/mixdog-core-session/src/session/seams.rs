@@ -646,6 +646,15 @@ pub trait NewThreadTools: Send + Sync + 'static {
         self.seed(thread, header).await
     }
 
+    /// The tool and prompt fields of a new agent-owned session's header (a delegated worker's): Node's `createSession`
+    /// gives every session its tool surface and prompt identity, a worker's included (`resolveSessionToolSurface` with
+    /// `ownerIsAgent`, `composeSessionSystem`'s `promptIdentity`). The session runs in its creator's MCP scope, the one
+    /// its header names, so the seed opens none and nothing is abandoned with it. An owner with no surface to give
+    /// returns the header as it is.
+    async fn seed_agent(&self, _thread: &ThreadId, header: &Header) -> Result<Header, String> {
+        Ok(header.clone())
+    }
+
     /// `thread` is about to be created, before its route is adopted: the config the session is created against is the one
     /// now (Node's `createSession` runs before the draft's `setRoute` saves the route, so the draft's change reaches the
     /// session as a change of settings at its first turn).

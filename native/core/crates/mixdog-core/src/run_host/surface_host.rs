@@ -894,6 +894,51 @@ impl NewThreadTools for LeadSurfaceHost {
         self.seed_scoped(thread, &scoped, &scope).await
     }
 
+    /// `createSession` for an agent-owned session (`prepareAgentSession`, session-builder.mjs): the tools its spec
+    /// resolves to for an agent owner (`resolveSessionToolSurface`: the settings gates and `react` denied, the
+    /// Lead-only control tools gone, `git` and `task` in their agent text, route order) and its prompt identity
+    /// (`composeSessionSystem`: no caller prompt, the agent's own role). The prompt itself, the deferred surface and
+    /// the workflow fields are the first turn's: an empty thread with an identity is rebuilt whole there
+    /// (`empty_surface_change`, which a delegated worker takes with its owner's finalization).
+    async fn seed_agent(&self, thread: &ThreadId, header: &Header) -> Result<Header, String> {
+        let s = &self.sources;
+        let cwd = header.get("cwd").and_then(Value::as_str).map_or_else(|| s.cwd.clone(), PathBuf::from);
+        let model = clean(header.get("model"));
+        let agent = clean(header.get("agent"));
+        let skills_listed = s.skills.any_for(&cwd).await?;
+        // `toolSpec` is the preset the record names (`opts.tools || presetObj.tools || 'full'`, stamped as `preset`).
+        let spec = header.get("toolSpec").or_else(|| header.get("preset")).filter(|spec| !spec.is_null()).cloned().unwrap_or_else(|| json!("full"));
+        // `disallowedTools: featureDenied` (session-builder.mjs) and `react` outside a bot's own chat.
+        let mut denied = strings(header.get("disallowedTools"));
+        for name in s.feature_denied.denied(Some(header)).await? {
+            if !denied.contains(&name) {
+                denied.push(name);
+            }
+        }
+        let reaction_session: serde_json::Map<String, Value> = [("id".to_owned(), json!(thread.as_str()))].into_iter().collect();
+        if reaction_disabled(&reaction_session, true) && !denied.iter().any(|name| name == REACTION_TOOL_NAME) {
+            denied.push(REACTION_TOOL_NAME.to_owned());
+        }
+        // `honoredSchemaAllowlist`: an agent-owned session honors one only for a hidden agent.
+        let honored = header.get("schemaAllowedTools").is_some_and(Value::is_array) && (s.hidden_agent)(Some(agent.as_str()).filter(|agent| !agent.is_empty()));
+        let allowed = honored.then(|| strings(header.get("schemaAllowedTools")));
+        let resolved = resolve(
+            &s.pool,
+            s.mcp.tools(header_scope(header), &cwd),
+            &Resolve { tool_spec: Some(&spec), model: &model, skills_listed, agent_owned: true, schema_allowed: allowed.as_deref(), disallowed: &denied },
+        );
+        let docs: Vec<Value> = resolved.iter().map(|tool| session_doc(&s.pool, tool)).collect();
+        let mut seeded = header.clone();
+        seeded.insert("toolSpec".to_owned(), spec);
+        seeded.insert("tools".to_owned(), Value::Array(finalize_docs(docs, allowed.as_deref(), &denied, Some(&self.agent_defs))));
+        seeded.insert("disallowedTools".to_owned(), json!(denied));
+        seeded.insert(
+            "promptIdentity".to_owned(),
+            json!({ "systemPrompt": "", "skipAgentRules": false, "profileSkip": {}, "agent": if agent.is_empty() { Value::Null } else { json!(agent) } }),
+        );
+        Ok(seeded)
+    }
+
     fn creating(&self, thread: &ThreadId) {
         let revision = (self.sources.config_revision)();
         self.creating.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(thread.as_str().to_owned(), revision);
