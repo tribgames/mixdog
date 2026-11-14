@@ -1,0 +1,2 @@
+# The repository root ignores every `refs/` directory (git refs); this crate's `src/refs` module is source.
+!/src/refs/

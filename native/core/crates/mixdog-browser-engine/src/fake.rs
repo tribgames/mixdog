@@ -371,10 +371,10 @@ mod tests {
 
     #[test]
     fn a_malformed_transcript_is_refused_with_its_line() {
-        assert!(FakeHost::from_transcript_str("{").unwrap_err().starts_with("line 1"));
-        assert!(FakeHost::from_transcript_str(r#"{"method":"m"}"#).unwrap_err().contains("exactly one"));
+        assert!(FakeHost::from_transcript_str("{").err().unwrap().starts_with("line 1"));
+        assert!(FakeHost::from_transcript_str(r#"{"method":"m"}"#).err().unwrap().contains("exactly one"));
         assert!(FakeHost::from_transcript_str(r#"{"push":"facts","params":{}}"#).is_err());
-        assert!(FakeHost::from_transcript_str(r#"{"push":"nope","params":{}}"#).unwrap_err().contains("unknown push"));
+        assert!(FakeHost::from_transcript_str(r#"{"push":"nope","params":{}}"#).err().unwrap().contains("unknown push"));
     }
 
     #[test]
