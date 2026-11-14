@@ -221,7 +221,9 @@ function floodCommand(family, mark) {
   const flood = {
     posix: `seq -f 'L%g-${FLOOD_PAD}' 1 ${FLOOD_LINES}`,
     powershell: `1..${FLOOD_LINES}|%{"L$_-${FLOOD_PAD}"}`,
-    cmd: `for /L %i in (1,1,${FLOOD_LINES}) do @echo L%i-${FLOOD_PAD}`,
+    // In parentheses: a bare `for` takes the rest of the line (`& echo FLOODEND`) into its body, and `@echo L%i-... &` would
+    // print a trailing space.
+    cmd: `(for /L %i in (1,1,${FLOOD_LINES}) do @echo L%i-${FLOOD_PAD})`,
   }[family];
   const join = family === 'cmd' ? ' & ' : '; ';
   return [`echo FLOODBEGIN-${mark}`, flood, `echo FLOODEND-${mark}`].join(join);
