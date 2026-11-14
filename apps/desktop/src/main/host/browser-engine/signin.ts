@@ -146,7 +146,11 @@ export function registerSignIn(
       deps.forget(sessionId);
       return { closed: 0 };
     }
-    if (params.op !== 'end') throw new HostRpcError(HOST_INVALID_PARAMS, 'turn op must be end or forget.');
+    if (params.op === 'begin') {
+      deps.beginTurn(sessionId, turnOf(params.turn));
+      return { closed: 0 };
+    }
+    if (params.op !== 'end') throw new HostRpcError(HOST_INVALID_PARAMS, 'turn op must be begin, end or forget.');
     const turn = turnOf(params.turn);
     if (!turn) throw new HostRpcError(HOST_INVALID_PARAMS, 'turn end needs the turn.');
     return { closed: deps.finishTurn(sessionId, turn, params.aborted === true) };

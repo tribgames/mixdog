@@ -154,18 +154,6 @@ pub fn resolve_session_mode(session: &Value) -> (&'static str, String) {
     if agent.is_empty() { (CODING_MODE, MIXY_AGENT_ID.to_owned()) } else { (AGENT_MODE, agent) }
 }
 
-/// `resolveSessionMode({ sessionId, profile })`: a session that has no record yet is resolved from its reserved id and the
-/// profile it is created with (`owner`, `visibility`, `ownerAgentId`, and the `homeAgent` the creation names as its agent).
-pub fn resolve_profile_mode(session_id: &str, profile: &Value) -> (&'static str, String) {
-    let owner_agent = truthy(profile.get("ownerAgentId")).or_else(|| profile.get("homeAgent"));
-    resolve_session_mode(&json!({
-        "id": session_id,
-        "owner": profile.get("owner").cloned().unwrap_or(Value::Null),
-        "visibility": profile.get("visibility").cloned().unwrap_or(Value::Null),
-        "ownerAgentId": owner_agent.cloned().unwrap_or(Value::Null),
-    }))
-}
-
 fn normalized_or_null(stored: &Value) -> Option<Value> {
     truthy(Some(stored))?;
     normalize_workflow_route(stored, &json!({}), false).ok().flatten()
@@ -334,15 +322,15 @@ mod tests {
         serde_json::from_str(include_str!("golden/route_chain.json")).expect("fixture")
     }
 
-    /// A session with no record resolves from its id and creation profile; an agent-owned or agent-only one is coding.
+    /// A session resolves from its reserved id and its owner fields; an agent-owned or agent-only one is coding; an invalid `ownerAgentId` is no agent.
     #[test]
-    fn a_session_without_a_record_resolves_from_its_id_and_profile() {
-        assert_eq!(resolve_profile_mode("sess_home_botty", &json!({})), (AGENT_MODE, "botty".to_owned()));
-        assert_eq!(resolve_profile_mode("sess_x", &json!({ "homeAgent": "botty" })), (AGENT_MODE, "botty".to_owned()));
-        assert_eq!(resolve_profile_mode("sess_x", &json!({ "ownerAgentId": "a", "homeAgent": "b" })), (AGENT_MODE, "a".to_owned()));
-        assert_eq!(resolve_profile_mode("sess_x", &json!({})), (CODING_MODE, MIXY_AGENT_ID.to_owned()));
-        assert_eq!(resolve_profile_mode("sess_home_botty", &json!({ "owner": "agent" })), (CODING_MODE, String::new()));
-        assert_eq!(resolve_profile_mode("sess_x", &json!({ "visibility": "agent-only", "homeAgent": "b" })), (CODING_MODE, String::new()));
+    fn a_session_resolves_from_its_id_and_owner_fields() {
+        assert_eq!(resolve_session_mode(&json!({ "id": "sess_home_botty" })), (AGENT_MODE, "botty".to_owned()));
+        assert_eq!(resolve_session_mode(&json!({ "id": "sess_x", "ownerAgentId": "a" })), (AGENT_MODE, "a".to_owned()));
+        assert_eq!(resolve_session_mode(&json!({ "id": "sess_x", "ownerAgentId": "Not Valid" })), (CODING_MODE, MIXY_AGENT_ID.to_owned()));
+        assert_eq!(resolve_session_mode(&json!({ "id": "sess_x" })), (CODING_MODE, MIXY_AGENT_ID.to_owned()));
+        assert_eq!(resolve_session_mode(&json!({ "id": "sess_home_botty", "owner": "agent" })), (CODING_MODE, String::new()));
+        assert_eq!(resolve_session_mode(&json!({ "id": "sess_x", "visibility": "agent-only", "ownerAgentId": "b" })), (CODING_MODE, String::new()));
     }
 
     /// Every reader against Node's real `route-fallback-chain.mjs` on one config and 16 sessions.

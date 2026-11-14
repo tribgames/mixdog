@@ -116,7 +116,17 @@ impl HostRuntime for LiveHostRuntime {
         self.read_state.forget_session(id);
         let header = self.directory.handle(&ThreadId::from(id)).map(|handle| handle.header_snapshot()).unwrap_or_default();
         let owner_is_agent = header.get("owner").and_then(Value::as_str) == Some("agent");
-        let memory_agent_id = text(&header, "agent").unwrap_or_default(); // Node `getMemoryAgentId()`
+        // Node `getMemoryAgentId()` = `resolveSessionMode({ session, sessionId, profile }).agentId`: the reserved id, then the owning agent; a Lead created with a
+        // `homeAgent` profile keeps that agent in its header `agent` (never the `lead` default), which is the profile's seat in the resolver.
+        let memory_agent_id = {
+            let mut record = (*header).clone();
+            record.insert("id".to_owned(), Value::String(id.to_owned()));
+            let owner_agent = text(&header, "ownerAgentId").filter(|a| !a.trim().is_empty()).or_else(|| text(&header, "agent").filter(|a| a != "lead"));
+            if let Some(agent) = owner_agent {
+                record.insert("ownerAgentId".to_owned(), Value::String(agent));
+            }
+            mixdog_core_run::run_host::route_chain::resolve_session_mode(&Value::Object(record)).1
+        };
         // Node `refreshWorkspacePrompt` -> `buildWorkspacePromptContext(session, cwd, { instructionFilesMode })` (workspace/transitions.mjs:78, session-prompt-composition.mjs:95).
         // `prewarmGitStartupProbes([cwd])` is `prewarm::compose`'s probe-and-compose-again step: the composition asks for what it lacks, it is probed, and the job runs once more.
         let tool_free_role = owner_is_agent && header.get("schemaAllowedTools").and_then(Value::as_array).is_some_and(Vec::is_empty);

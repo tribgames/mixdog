@@ -587,6 +587,21 @@ impl MediaMeter for MediaLowering {
         Ok(())
     }
 
+    fn text_pdf_discount(&self, part: &ContentPart) -> u64 {
+        let (size_bytes, facts) = if let Some(reference) = is_pdf_ref(part) {
+            let facts = self.stored_facts(reference).unwrap_or_default();
+            (facts.size_bytes, facts)
+        } else if let Lookup::Info(file) = self.lookup(part) {
+            if inline_file_kind(&file.mime, &file.data, &file.filename) != FileKind::Pdf {
+                return 0;
+            }
+            (base64_byte_length(&file.data), self.stored_facts(&file.key).unwrap_or_default())
+        } else {
+            return 0;
+        };
+        pdf_allowance(size_bytes, facts.page_count, facts.text_chars, true) - pdf_allowance(size_bytes, facts.page_count, facts.text_chars, false)
+    }
+
     /// `rawJsonFallbackFromPart` and the image and document allowances, for a part of a stored
     /// message. A stored file is read from the memo, so [`MediaText::prepare_pdf_text`] (or the
     /// host's warm of the history) comes first.
@@ -859,6 +874,10 @@ mod tests {
         assert_eq!(l.count(&content(reference("scan", "application/pdf", None)), true), 1);
         assert_eq!(pdf_allowance(5_000_000, Some(500), None, true), 300_000);
         assert_eq!(pdf_allowance(5_000_000, Some(500), None, false), 65_536);
+        // A provider that takes PDFs as text: the native meter overstates the scan by what the extraction budget cuts, a small one by nothing, an image never.
+        assert_eq!(l.text_pdf_discount(&reference("scan", "application/pdf", None)), 92_500 - 65_536);
+        assert_eq!(l.text_pdf_discount(&reference("typed", "application/pdf", None)), 0);
+        assert_eq!(l.text_pdf_discount(&reference("shot", "image/png", None)), 0);
     }
 
     /// An inline PDF (the read tool's document) is priced with its payload's page and text-layer counts once the meter

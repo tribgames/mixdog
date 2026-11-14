@@ -45,6 +45,13 @@ pub struct PartMeter {
 pub trait MediaMeter: Send + Sync {
     fn part(&self, part: &ContentPart) -> PartMeter;
 
+    /// How many tokens [`Self::part`] overstates a PDF part for a provider that takes PDFs as text (`fileDescriptorAllowance` as a native
+    /// document less as extracted text); 0 for every other part.
+    fn text_pdf_discount(&self, part: &ContentPart) -> u64 {
+        let _ = part;
+        0
+    }
+
     /// Reads from the store what pricing `messages` needs (the facts of the stored attachments
     /// they carry, the text of the stored text attachments). A meter with nothing to read has
     /// nothing to do. `Err` is a read that failed for now (Node's synchronous read throws it out of
@@ -428,5 +435,16 @@ impl MessageMeter<'_> {
 
     pub fn messages(&self, messages: &[AgentMessage]) -> u64 {
         messages.iter().map(|m| self.message(m)).sum()
+    }
+
+    /// `textPdfAllowanceDiscount`: how far the native-PDF meter overstates `messages` for a provider that takes PDFs as text.
+    pub fn text_pdf_discount(&self, messages: &[AgentMessage]) -> u64 {
+        messages
+            .iter()
+            .filter_map(|m| match &m.message.content {
+                Content::Parts(parts) => Some(parts.iter().map(|part| self.media.text_pdf_discount(part)).sum::<u64>()),
+                Content::Text(_) => None,
+            })
+            .sum()
     }
 }

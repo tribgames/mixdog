@@ -7447,6 +7447,8 @@ impl SessionActor {
         // `setActiveTurnCount(+1)` wakes the parked warmups.
         self.turn_prewarm_armed = !std::mem::replace(&mut self.first_turn_prewarm_done, true);
         self.deps.code_graph_prewarm.wake();
+        // `beginBrowserTurn`: the browser host keeps the session's pages out of reclaim while the turn is live.
+        self.deps.snapshots.turn_begun(&self.id);
         self.cell.publish_run(Some(Arc::new(ActiveRun {
             turn: turn.clone(),
             cancel: cancel.clone(),

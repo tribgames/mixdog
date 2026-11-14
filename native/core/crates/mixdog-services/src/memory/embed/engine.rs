@@ -102,6 +102,11 @@ pub struct Embedder {
 }
 
 impl Embedder {
+    /// Whether a caller holds this model besides the provider's own cell (an embed in flight keeps its own handle).
+    pub fn in_use(&self) -> bool {
+        Arc::strong_count(&self.inner) > 1
+    }
+
     /// Builds the tokenizer and sessions from the installed files.
     pub async fn load(config: EmbedConfig) -> Result<Self> {
         let model_id = js_trim(&config.model_id).to_owned();

@@ -1066,6 +1066,10 @@ impl SettlingSnapshots {
 }
 
 impl TurnSnapshots for SettlingSnapshots {
+    fn turn_begun(&self, thread: &ThreadId) {
+        self.snapshots.turn_begun(thread);
+    }
+
     fn turn_settled(&self, thread: &ThreadId) {
         let (computer, session) = (self.computer.clone(), thread.as_str().to_owned());
         let _settlement = tokio::spawn(async move {
