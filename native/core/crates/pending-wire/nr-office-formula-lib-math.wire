@@ -1,0 +1,122 @@
+# nr-office-formula-lib-math: integration requirements, not yet compiled
+
+## Ownership and registration
+
+Only math.rs, logical.rs, information.rs, twin_math.rs, record-office-math.mjs and
+fixtures/office-math are implemented by this leaf task. Do not replace another
+library task's TABLES entries.
+
+In native/core/crates/mixdog-xlsx-formula/src/functions/mod.rs, add:
+
+    pub mod math;
+    pub mod logical;
+    pub mod information;
+
+Append inside TABLES (retain every existing entry):
+
+    math::FUNCTIONS,
+    logical::FUNCTIONS,
+    information::FUNCTIONS,
+
+Each table is crate::Table; each implementation is fn(&[Value]) -> Result<Value, Failure>.
+108 paths are enumerated from the original export list, category documentation and
+function identities, including ERROR.TYPE, CEILINGMATH/FLOORMATH and ISO.CEILING's
+nested variants. The coverage test requires exact equality with that enumeration.
+
+## BLOCKING shared V8 primitive work (lead-owned; do not activate before this lands)
+
+The current mixdog-js math.rs has exp/ln/pow/min/max/round but not the following
+symbols called by this leaf. No platform-libm fallback was substituted. Searches
+of this tree's native files found no bundled fdlibm or ieee754 source to reuse.
+The existing math.rs documentation names V8 src/base/ieee754.cc as the reference.
+Lead must provide/cache the corresponding authoritative source before porting;
+this fragment does not authorize downloads.
+
+Add to native/core/crates/mixdog-js/src/math.rs:
+
+    pub fn abs(x: f64) -> f64;
+    pub fn floor(x: f64) -> f64;
+    pub fn ceil(x: f64) -> f64;
+    pub fn sqrt(x: f64) -> f64;
+    pub fn acos(x: f64) -> f64;
+    pub fn asin(x: f64) -> f64;
+    pub fn atan(x: f64) -> f64;
+    pub fn atan2(x: f64, y: f64) -> f64;
+    pub fn sin(x: f64) -> f64;
+    pub fn cos(x: f64) -> f64;
+    pub fn tan(x: f64) -> f64;
+    pub fn random() -> f64;
+
+abs/floor/ceil/sqrt must preserve V8 signed-zero/nonfinite behavior. Trig needs
+V8-compatible reduction and fdlibm operations, not std::f64::sin/acos/etc.
+atan2 arguments here are literally Math.atan2(x_num, y_num), including formulajs'
+argument order. random supplies a production sample in [0,1); the twin injects
+samples through math::with_random_sample and checks every result bit without
+assuming the independent processes have the same random seed.
+
+Add to mixdog-js/src/number.rs and re-export from mixdog-js/src/lib.rs:
+
+    pub fn number_to_radix(number: f64, radix: f64) -> Result<String, String>;
+    pub fn parse_int_radix(text: &str, radix: f64) -> f64;
+
+number_to_radix is Number.prototype.toString(radix), including fractions and the
+exact exception "toString() radix argument must be between 2 and 36" after JS
+ToIntegerOrInfinity. parse_int_radix is JS parseInt(text, radix), including
+ToInt32(radix), radix 0, hexadecimal prefixes, partial parses, signed zero and
+nonfinite failures. BASE, DECIMAL, QUOTIENT and MUNIT consume these APIs. Avoid
+replacing them with Rust format/parse rules.
+
+No new dependency is added by this leaf. Any shared-helper dependency decision
+belongs to the lead; no uncached dependency may be downloaded.
+
+## Statistics library dependency
+
+AGGREGATE and SUBTOTAL preserve the original dispatch (including AGGREGATE ignoring
+its options argument). Their statistical branches call crate::registry::library()
+for AVERAGE, COUNT, COUNTA, MAX, MIN, STDEV.S/P, VAR.S/P, MEDIAN, MODE.SNGL, LARGE,
+SMALL, PERCENTILE.INC/EXC and QUARTILE.INC/EXC. These bodies belong to the statistics
+task and must be registered before the complete twin or production usage. No
+approximation or duplicate statistical implementation is provided here.
+
+## Fixture index (lead-owned native/core/fixtures/MANIFEST.json)
+
+Append to sets in ordered position:
+
+{
+    "command": "node benchmarks/rust-core/recorders/record-office-math.mjs --tree <original tree>",
+    "fileCount": 1,
+    "manifest": "office-math/MANIFEST.json",
+    "manifestSha256": "c0aa1798aa6eeae20f8d60065a0a81565fa87779d710f451f4ea73c7cfdb5d7d",
+    "recorder": "benchmarks/rust-core/recorders/record-office-math.mjs",
+    "set": "office-math",
+    "totalBytes": 941536
+}
+
+The recorder verifies formulajs version 4.6.1, records its source SHA-256, encodes
+IEEE-754 bits (including NaN and signed zero), dates, errors, undefined, arrays and
+thrown messages. Arguments are cloned and encoded before calling mutation-prone
+original functions. Each original call has a 1-second VM execution bound; a timeout
+fails recording rather than being encoded as a successful expected answer.
+
+Node reference execution completed: 108 paths, 4,282 cases. Rust was not compiled
+or run. rustfmt only parsed/formatted the owned Rust sources.
+
+## Verification gates
+
+After shared helpers and all needed registrations land, run offline:
+
+    cargo test -p mixdog-xlsx-formula --test twin_math --offline
+    cargo test -p mixdog-xlsx-formula --test twin_engine --offline
+    cargo clippy -p mixdog-xlsx-formula --all-targets --offline -- -D warnings
+
+Every original result/error must match; there are no skipped functions or numeric
+tolerances. twin_live_math is ignored only because it re-records with Node; the
+normal coverage and result replay tests are not ignored. The existing formula-core
+production-library integration test can then be enabled by its owner.
+
+Residual limits requiring independent review: V8 recursion exhaustion for very
+large FACT/FACTDOUBLE inputs depends on its stack/cache state; this port evaluates
+finite factorials iteratively and reports the original stack exception for
+nonterminating negative/nonfinite recursion. Date/array identity follows the
+shared core Value representation. Extreme valid matrix/string allocations remain
+subject to process memory, with fallible reservations where allocation is owned.
