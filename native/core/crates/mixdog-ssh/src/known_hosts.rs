@@ -83,7 +83,7 @@ fn wildcard_matches(pattern: &str, spec: &str) -> bool {
 }
 
 fn lenient_base64() -> GeneralPurpose {
-    GeneralPurpose::new(&alphabet::STANDARD, GeneralPurposeConfig::new().with_decode_padding_mode(DecodePaddingMode::Indifferent))
+    GeneralPurpose::new(&alphabet::STANDARD, GeneralPurposeConfig::new().with_decode_padding_mode(DecodePaddingMode::Indifferent).with_decode_allow_trailing_bits(true))
 }
 
 fn pattern_matches(pattern: &str, spec: &str) -> bool {
