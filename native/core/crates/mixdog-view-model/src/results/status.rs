@@ -23,6 +23,7 @@ use crate::results::aggregate_detail::format_aggregate_detail_steps;
 use crate::results::classification::is_read_only_navigation_miss;
 use crate::results::git_media::git_result_error;
 use crate::results::git_media::git_result_exit_code;
+use crate::results::read_rows::read_rows_for_display;
 use crate::results::text::ErrorPresenter;
 use crate::results::text::strip_shell_exit_header;
 use crate::results::text::tool_error_display;
@@ -44,6 +45,8 @@ const CANCELLED_RESULT_STATUS_LINE: &str = "[status: cancelled]";
 
 static OFFLOADED_SHELL: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^\[tool output offloaded:\s*shell\b", "i"));
 static NOT_A_PLAIN_EXIT: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"\[timeout:|\[signal:|timed out|aborted|interrupted", "i"));
+static RUN_MARKER_LINE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^\[lines \d+-\d+\]$", "m"));
+static MEMBER_HEADER: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^\d+\. (.+)$", ""));
 static EXIT_HEADER: LazyLock<JsRegex> =
     LazyLock::new(|| JsRegex::new_static(r"^\s*(?:\[session:[^\n]*\]\s*\n)?(?:Error:\s*)?(?:\[shell-run-failed\]\s*)?\[exit code:\s*(\d+)\]", "i"));
 
@@ -233,6 +236,40 @@ pub fn assign_ui_diff_from_message(target: &mut Value, source: &Value) {
     }
 }
 
+/// `aggregateRawResultForDisplay`: the expanded aggregate text with the numbered rows of its read members rebuilt (the
+/// model-facing rows carry no numbers and would otherwise lose their gutter). A member opens with its `N. name` header line
+/// (the first line, or one after a blank line); only a member whose tool is `read` is renumbered. It runs at display time, so
+/// an aggregate that is never expanded is never rebuilt.
+pub fn aggregate_raw_result_for_display(text: &str) -> String {
+    fn flush<'a>(member: &mut Vec<&'a str>, in_read: bool, out: &mut Vec<String>) {
+        if member.is_empty() {
+            return;
+        }
+        let joined = member.join("\n");
+        out.push(if in_read { read_rows_for_display(&joined) } else { joined });
+        member.clear();
+    }
+    if !RUN_MARKER_LINE.is_match(text) {
+        return text.to_owned();
+    }
+    let lines: Vec<&str> = text.split('\n').collect();
+    let mut out: Vec<String> = Vec::new();
+    let mut member: Vec<&str> = Vec::new();
+    let mut in_read = false;
+    for (i, line) in lines.iter().enumerate() {
+        let header = if i == 0 || lines[i - 1].is_empty() { MEMBER_HEADER.captures(line).and_then(|found| found.get(1)) } else { None };
+        let Some(name) = header else {
+            member.push(*line);
+            continue;
+        };
+        flush(&mut member, in_read, &mut out);
+        out.push((*line).to_owned());
+        in_read = normalize_tool_name(name) == "read";
+    }
+    flush(&mut member, in_read, &mut out);
+    out.join("\n")
+}
+
 /// `aggregateToolMembers`: the atomic calls behind a visual aggregate, kept so a renderer can show the original tool names,
 /// arguments and outputs in provider order under one quiet summary row.
 pub fn aggregate_tool_members(calls: &[Value]) -> Vec<Value> {
@@ -329,8 +366,7 @@ pub fn aggregate_loading_targets_steps(calls: &[Value], mut yield_point: impl Fn
         if (count + 1) % STEP == 0 {
             yield_point();
         }
-        let args = field(call, "args").cloned().unwrap_or(Value::Null);
-        let own = tool_loading_targets(&text_or_empty(field(call, "name")), &args);
+        let own = tool_loading_targets(&text_or_empty(field(call, "name")), field(call, "args").unwrap_or(&Value::Null));
         if own.is_empty() {
             return Vec::new();
         }
@@ -493,6 +529,16 @@ mod tests {
             json!({ "resolved": true, "name": " ", "resultText": "c" }),
         ];
         assert_eq!(aggregate_raw_result(&calls), "1. grep\na\n\n2. Read\nb\n\n3. tool\nc");
+    }
+
+    #[test]
+    fn an_expanded_aggregate_renumbers_its_read_members_only() {
+        let joined = aggregate_raw_result(&[
+            json!({ "resolved": true, "name": "read", "rawResultText": "a.js [ok]\n[lines 1-2]\nconst a = 1;\n  b();" }),
+            json!({ "resolved": true, "name": "git", "rawResultText": "[lines 1-1]\n12\t3\tsrc/a.js" }),
+        ]);
+        assert_eq!(aggregate_raw_result_for_display(&joined), "1. read\na.js [ok]\n1→const a = 1;\n2→  b();\n\n2. git\n[lines 1-1]\n12\t3\tsrc/a.js");
+        assert_eq!(aggregate_raw_result_for_display("1. read\nno markers"), "1. read\nno markers");
     }
 
     #[test]
