@@ -11,6 +11,7 @@ import { join } from 'node:path';
 
 import { app, BrowserWindow, type WebContents, webContents } from 'electron';
 import { HOST_CAPABILITIES } from '../../host/connection';
+import { createComputerPresence } from '../../computer/presence/mirror';
 import { createDesktopHost } from '../../host';
 import { createProtocolConnection, type ProtocolConnection } from '../../protocol/connection';
 import { readLocalDiscovery } from '../../protocol/discovery';
@@ -112,17 +113,26 @@ export async function startCoreHarness({ engine }: { engine: CoreHarnessEngine }
       onVisualizePublishFailed: () => {},
       onBrowserViewFailed: (error) => progress(`browser view failed: ${String((error as Error)?.message ?? error)}`),
       resolveProxy: async () => 'DIRECT',
-      computer: () => null,
-      computerAppInput: { showCursor: () => undefined },
-      computerPermissions: {
-        read: () => ({
-          screen_capture: 'not_required_on_windows',
-          accessibility: 'not_required_on_windows',
-          input: 'target_integrity_dependent',
-        }),
-        request: () => undefined,
+      // The browser harness drives no computer: no desktop computer host, and the environment reports are never bound.
+      computer: {
+        mirror: createComputerPresence({ notifyPointerReleased: () => {}, now: Date.now }),
+        permissions: {
+          read: () => ({
+            screen_capture: 'not_required_on_windows',
+            accessibility: 'not_required_on_windows',
+            input: 'target_integrity_dependent',
+          }),
+          request: () => undefined,
+        },
+        environment: {
+          ready: new Promise<never>(() => {}),
+          sources: () => {
+            throw new Error('The browser harness reports no desktop transitions.');
+          },
+        },
+        desktopHostScreen: () => null,
+        desktopHostCommand: () => null,
       },
-      computerCommand: () => null,
       notifications: {
         createNotification: () => {
           throw new Error('The browser harness shows no notifications.');

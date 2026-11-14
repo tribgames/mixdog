@@ -3,7 +3,6 @@
 import { DESKTOP_IPC, type DesktopRemoteAccessInfo } from '../shared/contract';
 import type { BrowserHost } from './browser/host';
 import { readAttachmentThumbnail } from './attachment-thumbnail';
-import { attachmentViewName, readSessionAttachment } from './session-attachments';
 import { optionalSessionId, requiredSessionId } from './desktop-state';
 import { isSessionMissingError } from './session-final-answer';
 import type { DesktopService } from './desktop-service-contract';
@@ -29,6 +28,9 @@ import { requiredAgentMemoryEntry } from './agent-memory';
 import { secretInputs } from './secret-input';
 import { takeoverGate } from './takeover-gate';
 import { resolveToolApprovalAnnouncingGrant } from './approval-grant-change';
+import type { ProtocolConnection } from './protocol/connection';
+import { coreFailure } from '../shared/core-error';
+import { FileDownloadError, fileDownloadErrorReason } from '../shared/file-downloads';
 
 interface SessionIpcOptions {
   handle: Handle;
@@ -40,6 +42,15 @@ interface SessionIpcOptions {
   revokeRemoteAccessClient?: (clientId: string) => Promise<DesktopRemoteAccessInfo | null>;
   /** "Connect to another PC": saved hosts and their windows. */
   remoteHosts?: RemoteHostWindows;
+  /** The window's core connection (the session's attachments are its own); without one the attachment read fails. */
+  core?: Pick<ProtocolConnection, 'call'> | null;
+}
+
+interface ResolvedAttachment {
+  viewName: string;
+  attachment: { mimeType: string };
+  dataUrl: string;
+  bytes: number;
 }
 
 export function registerSessionIpc({
@@ -51,16 +62,23 @@ export function registerSessionIpc({
   rotateRemoteAccess,
   revokeRemoteAccessClient,
   remoteHosts,
+  core,
 }: SessionIpcOptions): void {
   handle(DESKTOP_IPC.listSessions, () => host.listSessions());
   handle(DESKTOP_IPC.readSessionAttachment, async (_event, sessionId, attachmentId) => {
-    const { meta, bytes } = await readSessionAttachment(host, requiredSessionId(sessionId), attachmentId);
-    return {
-      name: attachmentViewName(meta),
-      mimeType: meta.mimeType,
-      size: bytes.length,
-      dataUrl: `data:${meta.mimeType};base64,${bytes.toString('base64')}`,
-    };
+    const sid = requiredSessionId(sessionId);
+    if (!core) throw new Error('The core connection is not available.');
+    let resolved: ResolvedAttachment;
+    try {
+      resolved = (await core.call('desktop/attachment/resolve', { sessionId: sid, attachmentId })) as ResolvedAttachment;
+    } catch (error) {
+      // The core refuses with code file-download:<reason> (not-linked, not-found, changed), the refusal the old reader threw.
+      const failure = coreFailure(error);
+      const reason = fileDownloadErrorReason(failure);
+      throw reason ? new FileDownloadError(reason, (failure as Error).message) : failure;
+    }
+    const { viewName, attachment, dataUrl, bytes } = resolved;
+    return { name: viewName, mimeType: attachment.mimeType, size: bytes, dataUrl };
   });
   handle(DESKTOP_IPC.readAttachmentThumbnail, (_event, attachmentRef) =>
     readAttachmentThumbnail(

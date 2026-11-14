@@ -126,8 +126,9 @@ const OPERATION_ROUTES: Readonly<Record<string, Mapper>> = {
   localPageUrlIn: positional('projectFs/localPageUrl', ['root', 'rel', 'accessToken', 'ownerId']),
   localPageRevokeOwner: positional('projectFs/localPage/revokeOwner', ['ownerId']),
   localPageOrigin: positional('projectFs/localPage/origin', []),
-  // files: [{ path, dataBase64 | text, type }] (CoreLocalPages.virtualUrl maps a Record of VirtualPageFile to it).
+  // files: [{ path, dataBase64 | text, type }] (CoreLocalPages.virtual maps a Record of VirtualPageFile to it).
   localPageVirtualIn: positional('projectFs/localPage/virtual', ['files', 'ownerId']),
+  localPageAssetType: positional('projectFs/localPage/assetType', ['root', 'file', 'dataRoot']),
 
   // desktop settings are keys of the Config actor (desktop-services.md §3)
   writeMarkdownDefaultView: ([, view]) => configWrite('desktop.editor.markdownDefaultView', view),
@@ -363,6 +364,8 @@ const CUSTOM_REPLY: Readonly<Record<string, Reply>> = {
   projectEntryPathIn: (reply) => record(reply).path,
   // The core answers {url}; Node's localVirtualPageUrl returned the URL string.
   localPageVirtualIn: (reply) => record(reply).url,
+  // The core answers {type}; '' when the file is not served.
+  localPageAssetType: (reply) => String(record(reply).type ?? ''),
   // The core stats a list; Node answered the one entry, or threw the stat's error: a slot { error } is that error.
   statLocalEntryAbs: (reply) => {
     if (!Array.isArray(reply)) throw new TypeError('projectFs/statLocal did not answer a list.');

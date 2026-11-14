@@ -214,6 +214,8 @@ interface DesktopIpcDependencies {
   paneLayoutFile?: PaneLayoutFile;
   /** The connection's protocol link: pushed sections and detail calls for the renderer. */
   protocol?: ProtocolConnection | null;
+  /** This PC's own core connection (what reads this computer, e.g. its installed fonts); the window's own when absent. */
+  pcCore?: ProtocolConnection | null;
 }
 
 export function registerDesktopIpc(
@@ -244,6 +246,7 @@ export function registerDesktopIpc(
     pcHost,
     paneLayoutFile,
     protocol,
+    pcCore,
   }: DesktopIpcDependencies
 ): () => void {
   const nativeT = translateUi || ((key: string) => translateNativeUi(app.getLocale?.() || 'en', key));
@@ -358,6 +361,7 @@ export function registerDesktopIpc(
     rotateRemoteAccess,
     revokeRemoteAccessClient,
     remoteHosts,
+    core: protocol,
   });
   registerNotificationIpc({ handle, invokeDesktopOperation, core: protocol });
   registerBrowserIpc({ handle, browserHost, browserLogin });
@@ -402,6 +406,7 @@ export function registerDesktopIpc(
     previewNotificationSound,
     confirmAllowAllActions,
     writesAnnounceThemselves: Boolean(protocol),
+    pcCore: pcCore ?? protocol,
   });
   const disposeHostExtrasIpc = registerHostExtrasIpc({
     handle,

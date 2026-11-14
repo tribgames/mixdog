@@ -118,6 +118,7 @@ export function createPageFacts(options: PageFactsOptions): PageFactsPublisher {
               type: dismissed.type,
               message: known(dismissed.message),
               at: record.dismissedDialogAt ?? 0,
+              reason: dismissed.reason,
             },
           }
         : {}),

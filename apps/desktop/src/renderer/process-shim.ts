@@ -3,7 +3,7 @@
 // no global. Must be the FIRST import of the renderer entry so it initializes
 // before any shared-module top-level code runs.
 type ProcessLike = { env: Record<string, string | undefined>; stdout?: undefined; platform?: string };
-const globalRef = globalThis as { process?: ProcessLike };
+const globalRef = globalThis as unknown as { process?: ProcessLike };
 if (!globalRef.process) {
   globalRef.process = { env: {}, stdout: undefined, platform: 'win32' };
 }

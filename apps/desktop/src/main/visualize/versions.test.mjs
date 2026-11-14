@@ -18,6 +18,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
 
+import { createCoreLocalPages, setCoreLocalPages } from '../core-local-pages.ts';
+import { pageAssetType } from '../local-page-server.ts';
 import {
   createVisualizeVersionStore,
   keptAssetNames,
@@ -27,6 +29,14 @@ import {
   versionChanges,
   writeFileInside,
 } from './versions.ts';
+
+// The core page server's asset policy stands behind coreLocalPages(); here the shared policy answers the same call.
+setCoreLocalPages(
+  createCoreLocalPages(async (name, [root, file, dataRoot]) => {
+    if (name === 'localPageAssetType') return pageAssetType(root, file, dataRoot);
+    throw new Error(`unexpected core call ${name}`);
+  })
+);
 
 function workspace() {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-visualize-versions-'));
