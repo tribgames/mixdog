@@ -60,6 +60,10 @@ fn pad(result: String, places: &V) -> Result<V, Failure> {
     if !count.is_finite() || count + 1.0 > u32::MAX as f64 {
         return Err(Failure::thrown("Invalid array length"));
     }
+    // V8 rejects oversized strings before allocating the Array.join padding.
+    if places > 536_870_888.0 {
+        return Err(Failure::thrown("Invalid string length"));
+    }
     let mut out = String::new();
     out.try_reserve(places as usize)
         .map_err(|_| Failure::thrown("Invalid string length"))?;
