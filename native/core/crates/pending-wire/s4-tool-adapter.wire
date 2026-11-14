@@ -1,0 +1,99 @@
+# s4-tool-adapter core wire fragment (for CORE-WIRE-G7)
+
+New files (this task): `mixdog-tools/src/desktop/browser_engine.rs` (`EngineHostCommands`) and
+`mixdog-tools/src/desktop/browser_approval.rs` (`BrowserApprovals`, `ApprovalContext`, `CardHold`). Nothing else is edited.
+
+## 1. mixdog-tools Cargo.toml (hot file)
+
+`[dependencies]` (one new workspace edge; mixdog-browser-engine does not depend on mixdog-tools, no cycle):
+
+    mixdog-browser-engine = { workspace = true }
+
+`[dev-dependencies]` (the tests build the engine over `FakeHost`, a `test-support` item):
+
+    mixdog-browser-engine = { workspace = true, features = ["test-support"] }
+
+Cargo.lock gains `mixdog-browser-engine` in mixdog-tools' dependency list (`cargo update --workspace --offline`; the crate is
+already a member and in the lock). mixdog-workspace-hack: `cargo hakari generate` after it.
+
+## 2. desktop/mod.rs (hot file), next to `pub mod browser;`
+
+    pub mod browser_approval;
+    pub mod browser_engine;
+
+## 3. compose_flip.rs real_core (hot file)
+
+3a. `EngineHostCommands` over the browser channel, where `browser_channel` is built (the `match browser_timing {..}` above
+`pool_host`): the engine's actions run in the engine when the connected desktop serves `HostCapability::BrowserEngine`, every other
+command (the runtime-only secret actions, the pane's own actions, visualize) is `browser_channel` exactly as before. Replace the
+`RedactingHostCommands::new(browser_channel, redactor.clone())` argument by
+
+    Arc::new(RedactingHostCommands::new(
+        mixdog_tools::desktop::browser_engine::EngineHostCommands::new(browser_channel, engine.clone(), b.host.clone()),
+        redactor.clone(),
+    ))
+
+(`engine` is the `BrowserEngine` of s4-engine-runner's wire, section 3 of s4-engine-runner.wire, built over the claimed host's lane;
+`EngineHostCommands::new` returns `Arc<EngineHostCommands>`, which coerces to `Arc<dyn HostCommands>`.) The same `HostCommands` object
+is the one the `browser` and `browser_devtools` tools are built over; the line 1527 `ChannelHostCommands::new(host.clone())` of the
+computer-bridge pool is the secret fill's own channel and stays.
+
+3b. `approvals` of `EnginePorts` (s4-engine-runner.wire section 3):
+
+    approvals: BrowserApprovals::new(grant_store.clone(), Arc::new(BrowserApprovalContext { .. }), files.clone()),
+
+`grant_store` is the `Arc<dyn GrantStore>` the turn path's `ToolPolicy` is built with, `files` the engine's `Arc<dyn FilePort>`.
+`BrowserApprovalContext` is a small composition-side type implementing `mixdog_tools::desktop::browser_approval::ApprovalContext`:
+
+- `facts(thread)`: the `SessionFacts` the session actor builds for `AuthorizeRequest::facts` for that thread (acting bot, agent id,
+  life mark); `SessionFacts::default()` for an unknown thread. The port keeps its life mark only: the bot is the session id's own
+  (`own_bot_of_session`, as the desktop read it) and its `run` is ignored (a core-hosted session is decided as an
+  attended turn, owner direction 11).
+- `settings()`: the `PolicySettings { allow_all_actions }` the turn path reads (the "Allow all actions" developer option).
+- `session_grants(thread)`: `SessionGrants::of(registry, thread.as_str())` over the same `SessionGrantRegistry` the pipeline uses, so
+  an "allow for this session" answered on a Browser Use card is the one the pipeline's outbound calls read too.
+- `requester(thread)`: the engine's `approval::requester::resolve_requester` over the session roster and the agent pool
+  (`Sources { sessions, pool, agent_name, lead_name }`).
+- `session_gate(thread)`: the thread's approval gate (the `RunPort` the session's runs ask through), `None` where it has none. The
+  port prefers `orch::service::call_approvals()` (set around `ServiceTool` calls); a browser tool call is not one (the `BrowserTool`
+  is unchanged), so for it THIS is the gate that carries the card. If a gate per thread does not exist in the composition, the
+  `BrowserTool::call` must run inside `with_call_approvals(CallApprovals { gate: ctx.approvals.clone(), call_id: ctx.call_id.clone() }, ..)`
+  (a one-line scope in desktop/browser.rs, which this task does not own): without one of the two, a card cannot be raised and
+  the step fails with the `approvals` unavailable text.
+- `hold_card(request_id, thread)`: the human-only hold for the card's life (review-SINGLETONS-CORE: card holds for the Browser Use
+  approval only), from deferred-g3.md's line
+
+      let card_holds = Arc::new(mixdog_core_session::session::secret_input::CardHolds::new(human_only.clone()));
+
+  (next to `let takeover = ..CoreTakeover::new(..)`), then
+  `card_holds.hold_for_request_in(request_id, HumanOnlyCard::BrowserApproval, CardScope { thread: Some(thread.clone()), ..CardScope::default() })`
+  and `CardHold::new(move || { card_holds.release(&id); })`. The port drops the hold when the gate answers, so `release` runs on the
+  answer, on the run's cancel and on a dropped future. Closes deferred-g3.md's "card_holds" line.
+
+3c. The `BrowserToolRunner` of deferred-g5.md (`tool_runner` of `BrowserEngineService::with_test_hook`, `test-hooks` feature only):
+a composition-side type in compose_flip.rs over the same `HostCommands` object the `browser` tools are built over (`pool_host`):
+
+    #[cfg(feature = "test-hooks")]
+    struct EngineToolRunner(Arc<dyn mixdog_tools::desktop::host::HostCommands>);
+
+`run(thread, tool, args, cancel)`: `action` is `args["action"]` (a string; a missing one answers
+`{ text: "Error: action is required", is_error: true }`), `input` is `args["input"]` (an object, else `{}`); both tools send the same
+`host/browser/command`. It calls `self.0.browser(&thread, action, input, &cancel)`, renders `Ok(value)` with
+`mixdog_tools::desktop::host::browser_output(&value)` and an error with
+`mixdog_tools::desktop::host::command_error(BROWSER_UNAVAILABLE, error)`, and answers `BrowserEngineTestRunResult { text, image,
+is_error, outcome }`: `text` the output's text parts joined (the error's `message_for_model`), `image` the value's `image`
+(`mimeType`, `data`), `outcome` the value's `outcome` field. (Added in review: deferred-g5.md names this task for it; the trait is
+the daemon's, so it can only live in the composition.)
+
+## 4. No SERVICE_PENDING change, no protocol row
+
+This task registers no protocol service and adds no method: `item/browser/requestApproval` is an existing server request
+(`ApprovalKind::Browser`), its params are the payload the port builds (`{ action, request: BrowserApprovalPrompt }`) plus the
+actor's envelope.
+
+## 5. Not carried (see the task result)
+
+- The `browser_timing` trace row of a command the engine ran (the clock lives in `ChannelHostCommands`, whose timing log is private):
+  the reply value carries the engine's `timing`; a row needs an accessor on `ChannelHostCommands` (desktop/host.rs).
+- A card left open when the engine drops the asking future (a bridge command stopped without a tool call) stays until its session's
+  run or the person ends it: the gate has no withdraw call.
