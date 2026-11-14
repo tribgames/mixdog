@@ -1,0 +1,122 @@
+# x-rs-desktop-pet: desktopPet/state/read, desktopPet/state/write and the notification desktopPet/state/changed.
+# Header: add `pub mod desktop_pet;` to src/v2/mod.rs (alphabetical) and create src/v2/desktop_pet.rs with the text under [type_edits].
+
+[methods]
+# Paste after the row `MigrateProfileAdopt => "migrate/profile/adopt"` (or at the end of client_request_definitions!).
+    /// The desktop pet's per-device settings (desktop-pet-store.ts `readDesktopPetPrefs`), every field normalized: anything malformed reads as the default for that field. The first read of a data dir without the file copies the profile's `desktop-pet.json` once.
+    DesktopPetStateRead => "desktopPet/state/read" {
+        params: v2::desktop_pet::DesktopPetStateReadParams,
+        result: v2::desktop_pet::DesktopPetPrefs,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Stores the pet's settings (`writeDesktopPetPrefs`): the given document is normalized as a read does, written atomically and announced to every client as `desktopPet/state/changed`. Answers what was stored.
+    DesktopPetStateWrite => "desktopPet/state/write" {
+        params: v2::desktop_pet::DesktopPetStateWriteParams,
+        result: v2::desktop_pet::DesktopPetPrefs,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+
+[server_requests]
+none
+
+[notifications]
+# Paste after the row `UiProviderModelsChanged => "ui/providerModels/changed" ...` in the server notification table.
+    /// The pet's stored settings after a `desktopPet/state/write`.
+    DesktopPetStateChanged => "desktopPet/state/changed" (v2::desktop_pet::DesktopPetStateChangedParams) @app,
+
+[inventory]
+none: the inventory is the frozen 1.4.5 list; these are new methods.
+
+[free_text]
+# No FREE_TEXT row. The generated schema has no free-text string field of its own: the keys of `positions` are display ids
+# (digits only; the core drops any other key) and are not schema string fields. The `prefs` member of desktopPet/state/write
+# is an opaque JsonValue the core normalizes: class it in tests/it/free_text_fields.json the way the other JsonValue params
+# (for example the `config` of config/value/write) are classed, by that class's reason text.
+
+[type_edits]
+# New file native/core/crates/mixdog-app-protocol/src/v2/desktop_pet.rs:
+//! Params and results of the desktop pet's settings methods (desktop-pet-store.ts `DesktopPetPrefs`).
+
+use std::collections::BTreeMap;
+
+use mixdog_protocol::JsonValue;
+use serde::Deserialize;
+use serde::Serialize;
+
+/// Params of `desktopPet/state/read`: none.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopPetStateReadParams {}
+
+/// Params of `desktopPet/state/write`: the settings document. Anything malformed in it is stored as the default for that field.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopPetStateWriteParams {
+    pub prefs: JsonValue,
+}
+
+/// A saved free-floating window position (screen px).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+pub struct PetPoint {
+    pub x: i64,
+    pub y: i64,
+}
+
+/// Where a pinned-here window stands relative to the app window's content bounds: its top-left `dx` from the left edge (or,
+/// `right`, from the right edge, positive leftward), and `dy` from the top (or, `bottom`, the bottom).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+#[serde(rename_all = "camelCase")]
+pub struct PetHereAnchor {
+    pub right: bool,
+    pub bottom: bool,
+    pub dx: i64,
+    pub dy: i64,
+    /// Measured against the composer card instead of the content bounds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub composer: Option<bool>,
+}
+
+/// The pet's per-device settings, as `desktop-pet.json` stores them.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopPetPrefs {
+    pub enabled: bool,
+    pub keep_above: bool,
+    pub collapsed: bool,
+    pub auto_advance: bool,
+    pub auto_close: bool,
+    pub pinned: bool,
+    pub pinned_here: bool,
+    pub on_screen: bool,
+    /// One of 50, 60, ... 200.
+    pub scale: u32,
+    /// Saved free-floating window positions by display id.
+    pub positions: BTreeMap<String, PetPoint>,
+    pub here_anchor: Option<PetHereAnchor>,
+}
+
+/// Params of `desktopPet/state/changed`: the stored settings.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopPetStateChangedParams {
+    pub prefs: DesktopPetPrefs,
+}
+
+[remove]
+none
+
+[window]
+none: the pet window controller in the main process is the only caller; no deny row, nothing a window could do before is refused.
