@@ -20,7 +20,10 @@ Resolves with the existing entries only. The only lock change is the new package
 (`cargo metadata --offline --locked` rewrites it the same way.)
 
 ## 4. native/core/crates/mixdog-workspace-hack/Cargo.toml
-Nothing: mixdog-pdf does not depend on the hack crate (as mixdog-jssyntax and mixdog-js do not).
+Nothing: mixdog-pdf does not depend on the hack crate (as mixdog-js does not).
+
+## 4a. native/core/.config/hakari.toml, [final-excludes] workspace-members: add "mixdog-pdf" (as mixdog-js is listed)
+    workspace-members = ["mixdog-askpass", "mixdog-browser-rules", "mixdog-js", "mixdog-pdf"]
 
 ## 5. Seams the later tasks of the track fill (nothing to wire now)
 - `mixdog_pdf::StreamFilters` (FlateDecode, LZW, ASCII85, ASCIIHex, RunLength, DCT, ... with predictors) and
