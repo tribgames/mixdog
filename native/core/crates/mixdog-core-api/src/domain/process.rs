@@ -58,6 +58,8 @@ pub enum ProcessOwner {
         language: String,
     },
     Internal,
+    /// The Windows computer helper: its job lets the helper's cursor watchdog break away and outlive it.
+    ComputerHelper,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

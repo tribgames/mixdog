@@ -1,6 +1,7 @@
 //! The production [`SavedLoginVault`] of a Computer Use saved-login fill: one host method on
 //! `host/browser/command` (`saved_login_admit`, `saved_login_value`, `saved_login_release`; the desktop
-//! side is `apps/desktop/src/main/browser/saved-login-host.ts`).
+//! side is `apps/desktop/src/main/browser/saved-login-host.ts`). The worker steps (`saved_login_check`,
+//! `saved_login_type`) go to the session's computer helper instead.
 //!
 //! The desktop keeps the vault and the Auto login setting. For one fill it admits the fill (the core's
 //! session and agent turn), answers the exact-origin lookup of the account's value only for an admitted
@@ -65,21 +66,24 @@ impl HostSavedLogins {
 }
 
 impl HostSavedLogins {
-    /// The worker steps of this fill on the desktop's computer host: `account` and `window_id` are the
-    /// fill command's (the saved login to use, the exact browser window).
-    pub fn worker(&self, account: &str, window_id: &str) -> HostSavedLoginWorker {
-        HostSavedLoginWorker { host: self.host.clone(), thread: self.thread.clone(), turn: self.turn, account: account.to_owned(), window_id: window_id.to_owned() }
+    /// The worker steps of this fill on the session's computer helper: `window_id` is the fill
+    /// command's exact browser window.
+    pub fn worker(&self, commands: Arc<dyn ComputerCommands>, window_id: &str) -> HostSavedLoginWorker {
+        HostSavedLoginWorker { commands, thread: self.thread.clone(), window_id: window_id.to_owned() }
     }
 }
 
-/// The Windows worker of a fill (`saved_login_check`, `saved_login_type`), run by the desktop through its
-/// computer host's own dispatch (`saved-login-host.ts`): the worker's response comes back as it is. A host
-/// that fails or refuses is the call's error text, as a thrown error is in Node.
+/// The worker of a fill (`saved_login_check`, `saved_login_type`), run by the session's computer helper
+/// (`mixdog-computer`, the host's `saved_login`); never by the desktop's browser host. The helper's reply
+/// is the worker's response as the fill reads it (`{ok, error?, result?}`): a helper answer is
+/// `result`, and every refusal the helper itself answered (its `saved_login_*` codes, and its definite
+/// pre-write refusals such as `foreground_changed`, `user_input_active` or a stale window) is `error`, as
+/// `callPowerShell` returned them. Only a transport failure (a timeout, the helper gone, cancellation,
+/// no backend) is the call's error text, as a thrown error is in Node: after the value was sent the fill
+/// reports that one as possibly written.
 pub struct HostSavedLoginWorker {
-    host: Arc<dyn HostCommands>,
+    commands: Arc<dyn ComputerCommands>,
     thread: ThreadId,
-    turn: u64,
-    account: String,
     window_id: String,
 }
 
@@ -90,17 +94,34 @@ impl SavedLoginWorker for HostSavedLoginWorker {
             Some(action @ ("saved_login_check" | "saved_login_type")) => action,
             other => return Err(format!("saved login worker has no step {other:?}")),
         };
-        let mut input = json!({ "turn_id": self.turn, "window_id": self.window_id, "account": self.account, "field": request.get("field").cloned().unwrap_or(Value::Null) });
+        let mut command = json!({ "action": action, "session_id": self.thread.as_str(), "window_id": self.window_id, "field": request.get("field").cloned().unwrap_or(Value::Null) });
         if action == "saved_login_type" {
-            input["text"] = request.get("text").cloned().unwrap_or(Value::Null);
-            input["expected"] = request.get("expected").cloned().unwrap_or(Value::Null);
+            command["text"] = request.get("text").cloned().unwrap_or(Value::Null);
+            command["expected"] = request.get("expected").cloned().unwrap_or(Value::Null);
         }
         // The last core-side check, with no await between it and the request leaving.
         if let Some(before_send) = before_send {
             before_send()?;
         }
-        self.host.browser(&self.thread, action, input, &mixdog_rt::CancellationToken::new()).await.map_err(failure)
+        match self.commands.execute(&self.thread, command).await {
+            Ok(result) => Ok(json!({ "ok": true, "result": result })),
+            Err(error) if transport_failure(&error) => Err(error),
+            Err(error) => Ok(json!({ "ok": false, "error": error })),
+        }
     }
+}
+
+/// Whether a helper call failed on the way rather than with the helper's own answer.
+fn transport_failure(error: &str) -> bool {
+    const TRANSPORT: [&str; 6] = [
+        "computer_command_timeout:",
+        "computer_host_exited:",
+        "computer_response_too_large:",
+        "computer_invalid_reply:",
+        "computer_backend_unavailable:",
+        "computer_capacity_exhausted:",
+    ];
+    matches!(error, "cancelled" | "denied") || TRANSPORT.iter().any(|prefix| error.starts_with(prefix))
 }
 
 /// The process of a window, read from the computer helper's window list (`list_windows`, whose records carry
@@ -208,8 +229,7 @@ mod tests {
             Ok(match action {
                 "saved_login_admit" => json!({ "enabled": on }),
                 "saved_login_release" => json!({ "released": true }),
-                "saved_login_check" => json!({ "ok": true, "result": { "saved_login_target": { "window_id": "hwnd:0x1", "pid": "4242", "origin": "https://login.example.com" } } }),
-                "saved_login_type" => json!({ "ok": true, "result": { "action": "fill_saved_login", "effect": "confirmed" } }),
+                "saved_login_check" | "saved_login_type" => panic!("the worker steps go to the computer helper, never to host.browser"),
                 _ => json!({ "enabled": on, "value": PASSWORD, "label": "j•••e@example.com", "origin": "https://login.example.com" }),
             })
         }
@@ -324,47 +344,6 @@ mod tests {
         assert_eq!(request, json!({ "text": "", "nested": [{ "k": "" }], "n": 3 }));
     }
 
-    /// The whole fill over the desktop alone: admit, the check, the one lookup, the one write, release. The
-    /// value is in the lookup's answer and the write's request, nowhere else.
-    #[tokio::test]
-    async fn a_fill_runs_every_step_on_the_desktop_in_nodes_order() {
-        let desktop = Desktop::new();
-        let registry = SavedLoginRegistry::new();
-        let logins = HostSavedLogins::admit(desktop.clone(), ThreadId::from(SESSION), 7).await.unwrap();
-        let worker = logins.worker("j•••e@example.com", "hwnd:0x1");
-        let admitted = registry.admit(&SavedLoginTurn { session: SESSION.to_owned(), turn: 7 }).unwrap();
-        let hide = |text: &str| registry.redact(text);
-        let runnable = || Ok(());
-        let context = FillContext { registry: &registry, windows: true, assert_runnable: &runnable, redact: &hide };
-        let reply = fill_saved_login(&command(), &logins, &worker, &context).await.unwrap();
-        drop(admitted);
-        logins.release().await;
-        assert_eq!(reply["result"]["saved_login"], json!({ "account": "j•••e@example.com", "origin": "https://login.example.com", "field": "password" }));
-        assert_eq!(desktop.actions(), ["saved_login_admit", "saved_login_check", "saved_login_value", "saved_login_type", "saved_login_release"]);
-        let calls = desktop.calls.lock().unwrap().clone();
-        let target = json!({ "window_id": "hwnd:0x1", "pid": "4242", "origin": "https://login.example.com" });
-        assert_eq!(calls[1].1, json!({ "turn_id": 7, "window_id": "hwnd:0x1", "account": "j•••e@example.com", "field": "password" }));
-        assert_eq!(calls[3].1, json!({ "turn_id": 7, "window_id": "hwnd:0x1", "account": "j•••e@example.com", "field": "password", "text": PASSWORD, "expected": target }));
-        let escaped = serde_json::to_string(PASSWORD).unwrap();
-        let spelled = &escaped[1..escaped.len() - 1];
-        assert_eq!(calls.iter().filter(|(_, input)| input.to_string().contains(spelled)).count(), 1, "only the write carries the value");
-    }
-
-    #[tokio::test]
-    async fn the_worker_stops_before_sending_when_the_last_core_check_refuses_and_unknown_steps_are_errors() {
-        let desktop = Desktop::new();
-        let logins = HostSavedLogins::admit(desktop.clone(), ThreadId::from(SESSION), 7).await.unwrap();
-        let worker = logins.worker("a", "w1");
-        let mut refuse = || -> Result<(), String> { Err("Auto login is off".to_owned()) };
-        let request = json!({ "action": "saved_login_type", "field": "password", "text": "pw", "expected": {} });
-        assert_eq!(worker.call(&request, Some(&mut refuse)).await.unwrap_err(), "Auto login is off");
-        assert_eq!(desktop.actions(), ["saved_login_admit"], "nothing was sent");
-        assert!(worker.call(&json!({ "action": "type" }), None).await.unwrap_err().contains("no step"));
-        let failing = Arc::new(Desktop { calls: Mutex::new(Vec::new()), auto_login: Mutex::new(true), refuse: Some(HostCommandError::NoHost) });
-        let broken = HostSavedLoginWorker { host: failing, thread: ThreadId::from(SESSION), turn: 7, account: "a".into(), window_id: "w1".into() };
-        assert_eq!(broken.call(&json!({ "action": "saved_login_check", "field": "password" }), None).await.unwrap_err(), BROWSER_UNAVAILABLE);
-    }
-
     /// The computer helper: it keeps what it was asked and lists windows as the host's reads do.
     struct Helper(Mutex<Vec<Value>>, Result<Value, String>);
 
@@ -378,6 +357,103 @@ mod tests {
 
     fn windows(list: Value) -> Arc<Helper> {
         Arc::new(Helper(Mutex::new(Vec::new()), Ok(json!({ "windows": list }))))
+    }
+
+    /// The computer helper as the saved-login steps meet it: it answers `saved_login_check` and
+    /// `saved_login_type` the way the helper's host does, and keeps every command it was sent.
+    struct StepHelper {
+        sent: Mutex<Vec<Value>>,
+        typed: Result<Value, String>,
+    }
+
+    impl StepHelper {
+        fn new(typed: Result<Value, String>) -> Arc<Self> {
+            Arc::new(Self { sent: Mutex::new(Vec::new()), typed })
+        }
+        fn actions(&self) -> Vec<String> {
+            self.sent.lock().unwrap().iter().map(|command| command["action"].as_str().unwrap().to_owned()).collect()
+        }
+    }
+
+    #[async_trait]
+    impl ComputerCommands for StepHelper {
+        async fn execute(&self, _: &ThreadId, command: Value) -> Result<Value, String> {
+            self.sent.lock().unwrap().push(command.clone());
+            match command["action"].as_str() {
+                Some("saved_login_check") => Ok(json!({ "text": "saved login target checked; no input was sent", "saved_login_target": { "window_id": "hwnd:0x1", "pid": "4242", "origin": "https://login.example.com", "start_time": "1" } })),
+                _ => self.typed.clone(),
+            }
+        }
+    }
+
+    fn written() -> Result<Value, String> {
+        Ok(json!({ "action": "fill_saved_login", "path": "uia_setvalue", "effect": "confirmed" }))
+    }
+
+    /// The whole fill: the desktop is asked admit -> value -> release, and both worker steps go to the
+    /// computer helper with the exact request, never to `host.browser`. The value is in the lookup's
+    /// answer and the write's request, nowhere else.
+    #[tokio::test]
+    async fn a_fill_sends_its_worker_steps_to_the_computer_helper() {
+        let desktop = Desktop::new();
+        let helper = StepHelper::new(written());
+        let registry = SavedLoginRegistry::new();
+        let logins = HostSavedLogins::admit(desktop.clone(), ThreadId::from(SESSION), 7).await.unwrap();
+        let worker = logins.worker(helper.clone(), "hwnd:0x1");
+        let admitted = registry.admit(&SavedLoginTurn { session: SESSION.to_owned(), turn: 7 }).unwrap();
+        let hide = |text: &str| registry.redact(text);
+        let runnable = || Ok(());
+        let context = FillContext { registry: &registry, windows: true, assert_runnable: &runnable, redact: &hide };
+        let reply = fill_saved_login(&command(), &logins, &worker, &context).await.unwrap();
+        drop(admitted);
+        logins.release().await;
+        assert_eq!(reply["result"]["saved_login"], json!({ "account": "j•••e@example.com", "origin": "https://login.example.com", "field": "password" }));
+        assert_eq!(desktop.actions(), ["saved_login_admit", "saved_login_value", "saved_login_release"]);
+        assert_eq!(helper.actions(), ["saved_login_check", "saved_login_type"]);
+        let sent = helper.sent.lock().unwrap().clone();
+        let target = json!({ "window_id": "hwnd:0x1", "pid": "4242", "origin": "https://login.example.com", "start_time": "1" });
+        assert_eq!(sent[0], json!({ "action": "saved_login_check", "session_id": SESSION, "window_id": "hwnd:0x1", "field": "password" }));
+        assert_eq!(sent[1], json!({ "action": "saved_login_type", "session_id": SESSION, "window_id": "hwnd:0x1", "field": "password", "text": PASSWORD, "expected": target }));
+        let escaped = serde_json::to_string(PASSWORD).unwrap();
+        let spelled = &escaped[1..escaped.len() - 1];
+        let desktop_calls = desktop.calls.lock().unwrap().clone();
+        assert!(desktop_calls.iter().all(|(_, input)| !input.to_string().contains(spelled)), "no request to the desktop carries the value");
+        assert_eq!(sent.iter().filter(|command| command.to_string().contains(spelled)).count(), 1, "only the write carries the value");
+        assert!(!reply.to_string().contains(spelled), "no reply carries the value");
+    }
+
+    #[tokio::test]
+    async fn the_worker_stops_before_sending_when_the_last_core_check_refuses_and_unknown_steps_are_errors() {
+        let helper = StepHelper::new(written());
+        let worker = HostSavedLoginWorker { commands: helper.clone(), thread: ThreadId::from(SESSION), window_id: "w1".into() };
+        let mut refuse = || -> Result<(), String> { Err("Auto login is off".to_owned()) };
+        let request = json!({ "action": "saved_login_type", "field": "password", "text": "pw", "expected": {} });
+        assert_eq!(worker.call(&request, Some(&mut refuse)).await.unwrap_err(), "Auto login is off");
+        assert!(helper.actions().is_empty(), "nothing was sent");
+        assert!(worker.call(&json!({ "action": "type" }), None).await.unwrap_err().contains("no step"));
+    }
+
+    /// A refusal the worker coded is the response's `error`; a helper that fails otherwise is the call's
+    /// error text.
+    #[tokio::test]
+    async fn a_coded_refusal_is_the_worker_response_and_any_other_failure_is_the_calls_error() {
+        let request = json!({ "action": "saved_login_check", "field": "password" });
+        struct Refusing(&'static str);
+        #[async_trait]
+        impl ComputerCommands for Refusing {
+            async fn execute(&self, _: &ThreadId, _: Value) -> Result<Value, String> {
+                Err(self.0.to_owned())
+            }
+        }
+        let coded = HostSavedLoginWorker { commands: Arc::new(Refusing("saved_login_refused: the browser runs elevated; no input was sent")), thread: ThreadId::from(SESSION), window_id: "w1".into() };
+        assert_eq!(coded.call(&request, None).await.unwrap(), json!({ "ok": false, "error": "saved_login_refused: the browser runs elevated; no input was sent" }));
+        let broken = HostSavedLoginWorker { commands: Arc::new(Refusing("computer_backend_unavailable: gone")), thread: ThreadId::from(SESSION), window_id: "w1".into() };
+        assert_eq!(broken.call(&request, None).await.unwrap_err(), "computer_backend_unavailable: gone");
+        // A definite refusal the helper answered before writing stays a refusal, never "may have been written".
+        let refused = HostSavedLoginWorker { commands: Arc::new(Refusing("foreground_changed: target lost foreground before input dispatch")), thread: ThreadId::from(SESSION), window_id: "w1".into() };
+        assert_eq!(refused.call(&request, None).await.unwrap(), json!({ "ok": false, "error": "foreground_changed: target lost foreground before input dispatch" }));
+        let timed_out = HostSavedLoginWorker { commands: Arc::new(Refusing("computer_command_timeout: command exceeded 45000ms")), thread: ThreadId::from(SESSION), window_id: "w1".into() };
+        assert!(timed_out.call(&request, None).await.is_err());
     }
 
     #[tokio::test]

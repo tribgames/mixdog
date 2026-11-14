@@ -61,7 +61,7 @@ fn text<'a>(value: &'a Value, key: &str, path: &str) -> Result<&'a str, CoreErro
         .ok_or_else(|| invalid_params(path, format!("`{key}` must be a string")))
 }
 
-/// `tool{threadId,toolCallId}` | `terminalTab{tabId}` | `lsp{root,lang}` | `internal`: as an
+/// `tool{threadId,toolCallId}` | `terminalTab{tabId}` | `lsp{root,lang}` | `internal` | `computerHelper`: as an
 /// object with a `kind`, or as a single-key object, or the bare string `"internal"`.
 fn owner_of(value: &Value) -> Result<ProcessOwner, CoreError> {
     let (kind, body) = match value {
@@ -78,6 +78,7 @@ fn owner_of(value: &Value) -> Result<ProcessOwner, CoreError> {
     };
     match kind {
         "internal" => Ok(ProcessOwner::Internal),
+        "computerHelper" => Ok(ProcessOwner::ComputerHelper),
         "tool" => Ok(ProcessOwner::Tool {
             thread_id: ThreadId::from(text(body, "threadId", "owner.threadId")?),
             tool_call_id: ToolCallId::from(text(body, "toolCallId", "owner.toolCallId")?),

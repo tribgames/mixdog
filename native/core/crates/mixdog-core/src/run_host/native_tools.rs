@@ -28,6 +28,17 @@ use std::time::Instant;
 use async_trait::async_trait;
 use mixdog_core_api::domain::common::AbsPath;
 use mixdog_core_api::domain::computer::ComputerBackend;
+use mixdog_core_api::domain::computer::ComputerError;
+use mixdog_core_api::domain::computer::ComputerRequest;
+use mixdog_core_api::domain::computer::ComputerStatus;
+use mixdog_core_api::domain::computer::DesktopIdentity;
+use mixdog_core_api::domain::computer::DisplayId;
+use mixdog_core_api::domain::computer::DisplayInfo;
+use mixdog_core_api::domain::computer::InputOutcome;
+use mixdog_core_api::domain::computer::ScreenInput;
+use mixdog_core_api::domain::media::MediaFrameSource;
+use mixdog_core_api::domain::tool::ToolPart;
+use tokio_util::sync::CancellationToken;
 use mixdog_core_api::domain::computer::ComputerSessions;
 use mixdog_core_api::HostChannel;
 use mixdog_core_api::ids::ThreadId;
@@ -44,10 +55,14 @@ use mixdog_core_base::state::change_of;
 use mixdog_protocol::ComputerSection;
 use mixdog_protocol::ComputerSessionSection;
 use mixdog_protocol::SectionName;
+use mixdog_core_config::config::Config;
+use mixdog_tools::desktop::computer_budget::MAX_LIVE_HELPERS;
 use mixdog_tools::desktop::computer_backend::ComputerConfig;
+use mixdog_tools::desktop::computer_backend::ComputerShared;
 use mixdog_tools::desktop::computer_backend::ExecutionObserver;
-use mixdog_tools::desktop::computer_backend::ObserveOnlySetting;
+use mixdog_tools::desktop::computer_backend::ObserveOnly;
 use mixdog_tools::desktop::computer_backend::ProcessComputerBackend;
+use mixdog_tools::desktop::computer_user_control::UserControlState;
 
 use crate::run_host::run_seams::EnvReader;
 
@@ -162,16 +177,16 @@ impl NativeToolPaths {
     /// The `computer` tool's per-session backends: the resolved `mixdog-computer` helper run under
     /// `manager`, one helper state per session, or `None` where no place has it (the tool is then
     /// not registered). `wrap` decorates each session's backend as it is made (the secret
-    /// redaction of that session and the human-only lock); `observe_only` is the desktop's live "Observation only" setting.
+    /// redaction of that session and the human-only lock); `settings` is what the helpers read from the daemon.
     pub async fn computer_sessions(
         &self,
         manager: Arc<dyn ProcessManager>,
         wrap: WrapBackend,
         publisher: Arc<dyn StatePublisher>,
-        observe_only: ObserveOnlySetting,
+        settings: ComputerSettings,
     ) -> Option<Arc<ComputerSessionPool>> {
         let binary = self.resolve(NativeTool::Computer).await?;
-        Some(Arc::new(ComputerSessionPool::new(binary, manager, wrap, publisher, observe_only)))
+        Some(Arc::new(ComputerSessionPool::new(binary, manager, wrap, publisher, settings)))
     }
 
     async fn present(&self, path: PathBuf) -> Option<PathBuf> {
@@ -189,14 +204,40 @@ const IDLE_RELEASE: Duration = Duration::from_secs(2 * 60);
 /// `SHUTDOWN_SESSION_RELEASE_TIMEOUT_MS` (`client.mjs:43`).
 const SHUTDOWN_RELEASE: Duration = Duration::from_secs(5);
 
+/// The cap on live helper processes (`MAX_COMPUTER_WORKERS`, `worker-capacity.ts:6`).
+const MAX_RESIDENT_HELPERS: usize = MAX_LIVE_HELPERS;
+
+/// From this many live helpers on, a session idle for `IDLE_PRESSURE` is reclaimed; below it, one idle for `IDLE_STALE`
+/// (`WORKER_PRESSURE_COUNT`, `WORKER_IDLE_PRESSURE_MS`, `WORKER_IDLE_STALE_MS`, `lifecycle-worker-reclaim.ts:18-23`).
+const PRESSURE_COUNT: usize = MAX_RESIDENT_HELPERS * 3 / 4;
+const IDLE_PRESSURE: Duration = Duration::from_secs(5);
+const IDLE_STALE: Duration = Duration::from_secs(300);
+
 /// Decorates a session's backend as it is made.
 pub type WrapBackend = Arc<dyn Fn(&str, Arc<dyn ComputerBackend>) -> Arc<dyn ComputerBackend> + Send + Sync>;
+
+/// What the sessions' helpers read from the daemon: its data directory (each helper's ledger lives under it) and the live
+/// observation-only setting.
+pub struct ComputerSettings {
+    pub data_dir: PathBuf,
+    pub observe_only: ObserveOnly,
+}
+
+impl ComputerSettings {
+    /// `desktop.computerObserveOnly` of `config` (`desktop_settings`), read again on every call, so a change in Settings
+    /// reaches the next call of every session.
+    pub fn from_config(data_dir: PathBuf, config: Config) -> Self {
+        Self { data_dir, observe_only: Arc::new(move || config.desktop_settings().computer_observe_only) }
+    }
+}
 
 struct Entry {
     process: Arc<ProcessComputerBackend>,
     backend: Arc<dyn ComputerBackend>,
     /// The armed idle release (`deferComputerSessionRelease`).
     idle: Option<TimerHandle>,
+    /// When the session last asked for its helper (`workerLastUsedAt`).
+    used: Instant,
 }
 
 /// One `mixdog-computer` helper per session, made on the session's first request. Node's host
@@ -214,12 +255,14 @@ pub struct ComputerSessionPool {
     binary: PathBuf,
     manager: Arc<dyn ProcessManager>,
     wrap: WrapBackend,
+    data_dir: PathBuf,
+    /// The desktop's one keyboard and pointer, the person's control of it and the observation-only setting, which every
+    /// session's backend shares.
+    shared: ComputerShared,
     entries: Mutex<HashMap<String, Entry>>,
     presence: Arc<ComputerPresence>,
     /// The desktop whose computer host takes the screen captures (`host/computer/*`); bound once the host channel exists.
     desktop: OnceLock<Arc<dyn HostChannel>>,
-    /// The desktop's "Observation only" setting, which every session's backend reads at each action's admission.
-    observe_only: ObserveOnlySetting,
 }
 
 /// The sessions with an open execution, oldest first, and the `computer` section that says so (SPEC R40): the pill
@@ -229,9 +272,17 @@ pub struct ComputerSessionPool {
 struct ComputerPresence {
     publisher: Arc<dyn StatePublisher>,
     open: Mutex<Vec<(String, bool)>>,
+    /// The person's hold on the desktop, which the section carries beside the open executions.
+    control: Arc<UserControlState>,
 }
 
 impl ComputerPresence {
+    /// Publishes the section again after a change of the person's hold.
+    fn republish(&self) {
+        let open = self.open.lock().unwrap_or_else(PoisonError::into_inner);
+        self.publish(&open);
+    }
+
     fn publish(&self, open: &[(String, bool)]) {
         let latest = open.last();
         let section = ComputerSection {
@@ -246,6 +297,8 @@ impl ComputerPresence {
                 })
                 .collect(),
             session_thread_id: latest.map(|(session, _)| ThreadId::from(session.as_str())),
+            user_control: self.control.section(),
+            lane: None,
         };
         self.publisher.publish(SectionName::Computer, None, change_of(&section));
     }
@@ -259,6 +312,7 @@ struct SessionPresence {
 
 impl ExecutionObserver for SessionPresence {
     fn began(&self, observe_only: bool) {
+        self.presence.control.session_began(&self.session);
         let mut open = self.presence.open.lock().unwrap_or_else(PoisonError::into_inner);
         open.retain(|(session, _)| *session != self.session);
         open.push((self.session.clone(), observe_only));
@@ -266,6 +320,7 @@ impl ExecutionObserver for SessionPresence {
     }
 
     fn ended(&self) {
+        self.presence.control.session_ended(&self.session);
         let mut open = self.presence.open.lock().unwrap_or_else(PoisonError::into_inner);
         let before = open.len();
         open.retain(|(session, _)| *session != self.session);
@@ -281,16 +336,29 @@ fn session_key(session: &str) -> String {
 }
 
 impl ComputerSessionPool {
-    pub fn new(binary: PathBuf, manager: Arc<dyn ProcessManager>, wrap: WrapBackend, publisher: Arc<dyn StatePublisher>, observe_only: ObserveOnlySetting) -> Self {
-        Self {
-            binary,
-            manager,
-            wrap,
-            entries: Mutex::new(HashMap::new()),
-            presence: Arc::new(ComputerPresence { publisher, open: Mutex::default() }),
-            desktop: OnceLock::new(),
-            observe_only,
+    pub fn new(binary: PathBuf, manager: Arc<dyn ProcessManager>, wrap: WrapBackend, publisher: Arc<dyn StatePublisher>, settings: ComputerSettings) -> Self {
+        let shared = ComputerShared { observe_only: settings.observe_only, ..ComputerShared::default() };
+        let presence = Arc::new(ComputerPresence { publisher, open: Mutex::default(), control: shared.user_control.clone() });
+        let published = Arc::downgrade(&presence);
+        shared.user_control.on_change(Arc::new(move || {
+            if let Some(presence) = published.upgrade() {
+                presence.republish();
+            }
+        }));
+        // The ledgers a crashed core left are replayed now rather than at the first session's first helper: the windows it left
+        // without activation are restored before anyone uses `computer`. A session's first helper waits for this sweep.
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            let mut config = ComputerConfig::new(binary.clone(), "ledger-sweep");
+            config.data_dir = Some(settings.data_dir.clone());
+            let sweeper = ProcessComputerBackend::new(config, manager.clone());
+            let _sweep = runtime.spawn(async move { sweeper.sweep_ledgers().await });
         }
+        Self { binary, manager, wrap, data_dir: settings.data_dir, shared, entries: Mutex::new(HashMap::new()), presence, desktop: OnceLock::new() }
+    }
+
+    /// The person's hold on the desktop, which the pill's Resume and Stop (`computer/userControl`) act on.
+    pub fn user_control(&self) -> Arc<UserControlState> {
+        self.shared.user_control.clone()
     }
 
     /// Binds the desktop channel the sessions' backends ask for screen captures; the first binding stands, and only sessions made after it use it.
@@ -302,26 +370,67 @@ impl ComputerSessionPool {
         self.entries.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// The session's helper and its (decorated) backend; a use disarms a pending idle release.
-    fn entry_for(&self, session: &str) -> (Arc<ProcessComputerBackend>, Arc<dyn ComputerBackend>) {
+    /// Every request reclaims the helpers of sessions that sat idle (`reapIdleSessionWorkers`, which Node runs on each request and
+    /// on its heartbeat; here only a request can): after five minutes, after five seconds once `PRESSURE_COUNT` helpers are live.
+    /// Never one with an open execution, a command pending or a cleanup running, and never `keep`, the session asking. Each is
+    /// released as `release` does, which aborts it fully when it still owes input. The core holds no window target leases (the
+    /// desktop coordinator's are the TypeScript host's), so none exempts a session here.
+    fn reclaim_idle(&self, entries: &mut HashMap<String, Entry>, keep: &str) {
+        let limit = if self.shared.live.count() >= PRESSURE_COUNT { IDLE_PRESSURE } else { IDLE_STALE };
+        let budget = &self.shared.budget;
+        let idle: Vec<String> = entries
+            .iter()
+            .filter(|(id, entry)| {
+                id.as_str() != keep
+                    && (entry.process.is_bound() || entry.process.has_live_host())
+                    && !entry.process.is_executing()
+                    && !entry.process.is_cleaning()
+                    && !budget.is_pending(id)
+                    && entry.used.elapsed() >= limit
+            })
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in idle {
+            let Some(mut entry) = entries.remove(&id) else { continue };
+            if let Some(timer) = entry.idle.take() {
+                let _disarmed = timer.cancel();
+            }
+            if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+                let process = entry.process;
+                runtime.spawn(async move { process.release_session().await });
+            }
+        }
+    }
+
+    /// The session's helper and its (decorated) backend; a use disarms a pending idle release. `None` for a new
+    /// session when `MAX_RESIDENT_HELPERS` helper processes are live (not sessions: one that has not started a helper, or whose
+    /// helper ended, takes no slot) and none could be reclaimed.
+    fn entry_for(&self, session: &str) -> Option<(Arc<ProcessComputerBackend>, Arc<dyn ComputerBackend>)> {
         let key = session_key(session);
         let mut entries = self.entries();
+        self.reclaim_idle(&mut entries, &key);
+        if !entries.contains_key(&key) && self.shared.live.count() >= MAX_RESIDENT_HELPERS {
+            return None;
+        }
         let entry = entries.entry(key.clone()).or_insert_with(|| {
             let observer = Arc::new(SessionPresence { presence: self.presence.clone(), session: key.clone() });
-            let mut process = ProcessComputerBackend::new(ComputerConfig::new(self.binary.clone(), key.as_str()), self.manager.clone())
-                .with_observer(observer)
-                .with_observe_only_setting(self.observe_only.clone());
+            let mut config = ComputerConfig::new(self.binary.clone(), key.as_str());
+            config.data_dir = Some(self.data_dir.clone());
+            let mut process = ProcessComputerBackend::new(config, self.manager.clone()).with_shared(self.shared.clone()).with_observer(observer);
             if let Some(desktop) = self.desktop.get() {
                 process = process.with_desktop(desktop.clone());
             }
             let process = Arc::new(process);
+            self.shared.user_control.register(&key, Arc::downgrade(&process));
+            process.watch_for_death();
             let backend = (self.wrap)(&key, process.clone());
-            Entry { process, backend, idle: None }
+            Entry { process, backend, idle: None, used: Instant::now() }
         });
+        entry.used = Instant::now();
         if let Some(timer) = entry.idle.take() {
             let _disarmed = timer.cancel();
         }
-        (entry.process.clone(), entry.backend.clone())
+        Some((entry.process.clone(), entry.backend.clone()))
     }
 
     /// `releaseComputerSession(id)`: the helper is told to release the session (`release_session`),
@@ -490,7 +599,54 @@ impl TurnSnapshots for SettlingSnapshots {
 
 impl ComputerSessions for ComputerSessionPool {
     fn backend(&self, session: &str) -> Arc<dyn ComputerBackend> {
-        self.entry_for(session).1
+        match self.entry_for(session) {
+            Some((_, backend)) => backend,
+            None => Arc::new(AtCapacity),
+        }
+    }
+}
+
+/// The backend of a session that found `MAX_RESIDENT_HELPERS` helpers resident (`assertComputerWorkerCapacity`): its
+/// commands are refused in Node's words, with nothing started or sent.
+struct AtCapacity;
+
+impl AtCapacity {
+    fn refusal() -> ComputerError {
+        ComputerError::Failed {
+            code: "computer_capacity_exhausted".into(),
+            message: format!("computer_capacity_exhausted: {MAX_RESIDENT_HELPERS} workers are still live; release an idle session before retrying"),
+        }
+    }
+}
+
+#[async_trait]
+impl ComputerBackend for AtCapacity {
+    async fn run(&self, _: ComputerRequest, _: CancellationToken) -> Result<Vec<ToolPart>, ComputerError> {
+        Err(Self::refusal())
+    }
+
+    fn inject(&self, _: ScreenInput) -> Result<InputOutcome, ComputerError> {
+        Err(Self::refusal())
+    }
+
+    fn release_input(&self) -> Result<u32, ComputerError> {
+        Ok(0)
+    }
+
+    fn input_desktop(&self) -> Option<DesktopIdentity> {
+        None
+    }
+
+    fn displays(&self) -> Result<Vec<DisplayInfo>, ComputerError> {
+        Err(Self::refusal())
+    }
+
+    fn screen_source(&self, _: DisplayId) -> Result<Box<dyn MediaFrameSource>, ComputerError> {
+        Err(Self::refusal())
+    }
+
+    fn status(&self) -> ComputerStatus {
+        ComputerStatus { active: false, observe_only: false, controller: None }
     }
 }
 
@@ -498,7 +654,7 @@ impl ComputerSessions for ComputerSessionPool {
 /// calls use.
 impl ComputerSecretHosts for ComputerSessionPool {
     fn secret_host(&self, thread: &ThreadId) -> Option<Arc<dyn ComputerSecretHost>> {
-        Some(self.entry_for(thread.as_str()).0)
+        Some(self.entry_for(thread.as_str())?.0)
     }
 }
 
@@ -509,7 +665,6 @@ mod tests {
 
     use mixdog_core_api::state::SectionChange;
     use mixdog_core_api::domain::computer::ComputerAction;
-    use mixdog_core_api::domain::computer::ComputerError;
     use mixdog_core_api::domain::computer::ComputerRequest;
     use serde_json::json;
     use tokio_util::sync::CancellationToken;
@@ -586,6 +741,20 @@ mod tests {
         assert_eq!(paths(&[("MIXDOG_COMPUTER_BIN", "")], &all, None).resolve(tool).await, Some(bundled(tool)), "an empty value is unset");
     }
 
+    /// The helper is the file cargo writes, which `prepare-runtime.mjs` stages under the same name
+    /// (`computerNativeFileName`): `native-tools/mixdog-computer.exe` in the Windows package and
+    /// `target/release/mixdog-computer.exe` in a Windows dev build, extensionless elsewhere. The
+    /// other platform's name is not the helper.
+    #[tokio::test]
+    async fn the_computer_helper_carries_the_platforms_executable_name() {
+        let tool = NativeTool::Computer;
+        let (name, other) = if cfg!(windows) { ("mixdog-computer.exe", "mixdog-computer") } else { ("mixdog-computer", "mixdog-computer.exe") };
+        let (package, build) = (PathBuf::from("/pkg/native-tools"), PathBuf::from("/pkg/native/mixdog-computer/target/release"));
+        assert_eq!(paths(&[], &[package.join(name), build.join(name)], None).resolve(tool).await, Some(package.join(name)));
+        assert_eq!(paths(&[], &[build.join(name)], None).resolve(tool).await, Some(build.join(name)));
+        assert_eq!(paths(&[], &[package.join(other), build.join(other)], None).resolve(tool).await, None, "the other platform's file name is not the helper");
+    }
+
     fn manager() -> Arc<dyn ProcessManager> {
         let tokens = mixdog_rt::testing::tokens();
         Arc::new(mixdog_spawn::LocalProcessManager::new(tokens.spawn_io, mixdog_spawn::ProcessConfig::default()))
@@ -593,11 +762,6 @@ mod tests {
 
     fn plain() -> WrapBackend {
         Arc::new(|_: &str, inner: Arc<dyn ComputerBackend>| inner)
-    }
-
-    /// "Observation only" off.
-    fn input_allowed() -> ObserveOnlySetting {
-        Arc::new(|| false)
     }
 
     /// Every `computer` publication, in order.
@@ -612,6 +776,16 @@ mod tests {
 
     fn quiet() -> Arc<dyn StatePublisher> {
         Arc::new(Published::default())
+    }
+
+    /// A data folder for the helpers these tests start: each one makes its ledger folder there.
+    fn data_dir() -> PathBuf {
+        std::env::temp_dir().join("mixdog-computer-sessions-test")
+    }
+
+    /// Observation only off.
+    fn settings() -> ComputerSettings {
+        ComputerSettings { data_dir: data_dir(), observe_only: Arc::new(|| false) }
     }
 
     fn computer_values(published: &Published) -> Vec<mixdog_protocol::ComputerSection> {
@@ -634,7 +808,7 @@ mod tests {
     #[tokio::test]
     async fn the_computer_section_follows_the_open_executions() {
         let published = Arc::new(Published::default());
-        let pool = paths(&[("MIXDOG_COMPUTER_BIN", "/x/c")], &[], None).computer_sessions(manager(), plain(), published.clone(), input_allowed()).await.expect("helper");
+        let pool = paths(&[("MIXDOG_COMPUTER_BIN", "/x/c")], &[], None).computer_sessions(manager(), plain(), published.clone(), settings()).await.expect("helper");
         let read = || ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"read"}) };
         // `open` is every session with an open execution, oldest first; the section's own fields name the last.
         let section = |open: &[&str]| mixdog_protocol::ComputerSection {
@@ -646,6 +820,8 @@ mod tests {
                 .map(|session| ComputerSessionSection { session_thread_id: ThreadId::from(*session), observe_only: false })
                 .collect(),
             session_thread_id: open.last().map(|session| ThreadId::from(*session)),
+            user_control: None,
+            lane: None,
         };
 
         assert!(pool.backend("a").run(read(), CancellationToken::new()).await.is_err());
@@ -661,28 +837,110 @@ mod tests {
         );
     }
 
+    /// At most `MAX_RESIDENT_HELPERS` helper processes are live: a new session is refused in Node's words, however
+    /// recently the others settled, until one has sat idle past the pressure limit and is reclaimed, and its process has ended.
+    /// The fake helper path never starts a process, so the live ones are held by the test.
+    #[tokio::test]
+    async fn the_ninth_session_is_refused_until_an_idle_one_is_reclaimed() {
+        let pool = paths(&[("MIXDOG_COMPUTER_BIN", "/x/c")], &[], None).computer_sessions(manager(), plain(), quiet(), settings()).await.expect("helper");
+        let read = || ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"read"}) };
+        for n in 0..MAX_RESIDENT_HELPERS {
+            let _ = pool.backend(&format!("s{n}")).run(read(), CancellationToken::new()).await;
+        }
+        let mut live: Vec<_> = (0..MAX_RESIDENT_HELPERS).map(|_| pool.shared.live.hold()).collect();
+        let refused = pool.backend("late").run(read(), CancellationToken::new()).await;
+        assert!(
+            matches!(&refused, Err(ComputerError::Failed { code, message }) if code == "computer_capacity_exhausted"
+                && message == "computer_capacity_exhausted: 8 workers are still live; release an idle session before retrying"),
+            "{refused:?}"
+        );
+        assert!(pool.end_execution("s3").await);
+        assert!(pool.backend("late").run(read(), CancellationToken::new()).await.is_err());
+        assert!(!pool.entries().contains_key("late"), "a session that settled a moment ago keeps its helper");
+        pool.entries().get_mut("s3").expect("resident").used = Instant::now() - IDLE_PRESSURE * 2;
+        let _ = pool.backend("late").run(read(), CancellationToken::new()).await;
+        assert!(!pool.entries().contains_key("s3"), "the idle session was reclaimed");
+        assert!(!pool.entries().contains_key("late"), "its process has not ended yet, so there is still no slot");
+        // The reclaimed session's cleanup run (a process of the fake path that cannot start) has ended before its slot is looked at.
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        live.pop();
+        let _ = pool.backend("late").run(read(), CancellationToken::new()).await;
+        assert!(pool.entries().contains_key("late"), "the ended process made room");
+        drop(live);
+    }
+
+    /// Below the pressure count an idle session is kept for five minutes, then reclaimed by the next request of any session;
+    /// one with a pending command is not.
+    #[tokio::test]
+    async fn an_idle_session_is_reclaimed_after_five_minutes() {
+        let pool = paths(&[("MIXDOG_COMPUTER_BIN", "/x/c")], &[], None).computer_sessions(manager(), plain(), quiet(), settings()).await.expect("helper");
+        let read = || ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"read"}) };
+        let _live = pool.shared.live.hold();
+        for id in ["old", "busy", "fresh"] {
+            let _ = pool.backend(id).run(read(), CancellationToken::new()).await;
+        }
+        for id in ["old", "busy", "fresh"] {
+            assert!(pool.end_execution(id).await);
+        }
+        let _pending = pool.shared.budget.acquire("busy").expect("a slot");
+        for id in ["old", "busy"] {
+            pool.entries().get_mut(id).expect("resident").used = Instant::now() - IDLE_STALE * 2;
+        }
+        pool.entries().get_mut("fresh").expect("resident").used = Instant::now() - IDLE_PRESSURE * 2;
+        let _ = pool.backend("other").run(read(), CancellationToken::new()).await;
+        let entries = pool.entries();
+        assert!(entries.contains_key("busy") && entries.contains_key("fresh"), "a pending command and a recent use are kept");
+        assert!(!entries.contains_key("old"), "five idle minutes reclaim it");
+    }
+
+    /// The sessions read the observation-only setting on every call: turned on between two executions, the second opens
+    /// observing only, and the section says so.
+    #[tokio::test]
+    async fn the_observation_only_setting_is_read_on_every_call() {
+        use std::sync::atomic::AtomicBool;
+        use std::sync::atomic::Ordering;
+
+        let published = Arc::new(Published::default());
+        let on = Arc::new(AtomicBool::new(false));
+        let setting = on.clone();
+        let settings = ComputerSettings { data_dir: data_dir(), observe_only: Arc::new(move || setting.load(Ordering::SeqCst)) };
+        let pool = paths(&[("MIXDOG_COMPUTER_BIN", "/x/c")], &[], None).computer_sessions(manager(), plain(), published.clone(), settings).await.expect("helper");
+        let read = || ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"read"}) };
+
+        assert!(pool.backend("a").run(read(), CancellationToken::new()).await.is_err());
+        assert!(!pool.backend("a").status().observe_only);
+        assert!(pool.end_execution("a").await);
+        on.store(true, Ordering::SeqCst);
+        assert!(pool.backend("a").run(read(), CancellationToken::new()).await.is_err());
+        assert!(pool.backend("a").status().observe_only);
+        let observing: Vec<(bool, Vec<bool>)> = computer_values(&published)
+            .into_iter()
+            .map(|section| (section.observe_only, section.sessions.iter().map(|session| session.observe_only).collect()))
+            .collect();
+        assert_eq!(observing, [(false, vec![false]), (false, vec![]), (true, vec![true])], "opened, ended, opened observing only");
+    }
+
+    /// The desktop's "Observation only" reaches every session's backend: while it is on, an input is refused in Node's words and a
+    /// read still goes to the helper (which cannot start here).
+    #[tokio::test]
+    async fn the_sessions_refuse_input_while_observation_only_is_on() {
+        let settings = ComputerSettings { data_dir: data_dir(), observe_only: Arc::new(|| true) };
+        let pool = paths(&[("MIXDOG_COMPUTER_BIN", "/x/c")], &[], None).computer_sessions(manager(), plain(), quiet(), settings).await.expect("helper");
+        let write = ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"write","text":"x"}) };
+        let refused = pool.backend("a").run(write, CancellationToken::new()).await;
+        assert!(matches!(refused, Err(ComputerError::Failed { ref code, .. }) if code == "observation_only"), "{refused:?}");
+        let read = ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"read"}) };
+        let read = pool.backend("a").run(read, CancellationToken::new()).await;
+        assert!(!matches!(read, Err(ComputerError::Failed { ref code, .. }) if code == "observation_only"), "a read is admitted: {read:?}");
+    }
+
     /// The sessions exist exactly when the helper does, wherever Node's order finds it.
     #[tokio::test]
     async fn the_computer_sessions_are_built_only_where_the_helper_is() {
         let tool = NativeTool::Computer;
-        assert!(paths(&[], &[bundled(tool)], None).computer_sessions(manager(), plain(), quiet(), input_allowed()).await.is_some());
-        assert!(paths(&[("MIXDOG_COMPUTER_BIN", "/x/c")], &[PathBuf::from("/x/c")], None).computer_sessions(manager(), plain(), quiet(), input_allowed()).await.is_some());
-        assert!(paths(&[], &[], None).computer_sessions(manager(), plain(), quiet(), input_allowed()).await.is_none());
-    }
-
-    /// The desktop's "Observation only" reaches every session's backend: while it is on, an input is refused before it opens an
-    /// execution (no pill), and a read still goes to the helper.
-    #[tokio::test]
-    async fn the_sessions_refuse_input_while_observation_only_is_on() {
-        let published = Arc::new(Published::default());
-        let pool = paths(&[("MIXDOG_COMPUTER_BIN", "/x/c")], &[], None).computer_sessions(manager(), plain(), published.clone(), Arc::new(|| true)).await.expect("helper");
-        let write = ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"write","text":"x"}) };
-        let refused = pool.backend("a").run(write, CancellationToken::new()).await;
-        assert!(matches!(refused, Err(ComputerError::Failed { ref code, .. }) if code == "observation_only"));
-        assert!(computer_values(&published).is_empty(), "a refused input opens no execution");
-        let read = ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"read"}) };
-        assert!(pool.backend("a").run(read, CancellationToken::new()).await.is_err(), "the read reaches the helper, which cannot start here");
-        assert_eq!(computer_values(&published).len(), 1, "the read opened the execution");
+        assert!(paths(&[], &[bundled(tool)], None).computer_sessions(manager(), plain(), quiet(), settings()).await.is_some());
+        assert!(paths(&[("MIXDOG_COMPUTER_BIN", "/x/c")], &[PathBuf::from("/x/c")], None).computer_sessions(manager(), plain(), quiet(), settings()).await.is_some());
+        assert!(paths(&[], &[], None).computer_sessions(manager(), plain(), quiet(), settings()).await.is_none());
     }
 
     struct Shells(Mutex<Vec<String>>);
@@ -697,7 +955,7 @@ mod tests {
     /// teardown stops both under one gate; another session keeps its state.
     #[tokio::test]
     async fn closing_a_session_releases_its_computer_state_with_its_shells() {
-        let pool = paths(&[("MIXDOG_COMPUTER_BIN", "/x/c")], &[], None).computer_sessions(manager(), plain(), quiet(), input_allowed()).await.expect("helper");
+        let pool = paths(&[("MIXDOG_COMPUTER_BIN", "/x/c")], &[], None).computer_sessions(manager(), plain(), quiet(), settings()).await.expect("helper");
         let _ = (pool.backend("closing"), pool.backend("other"));
         let shells = Arc::new(Shells(Mutex::default()));
         let reaping = ReapingShells::new(shells.clone(), pool.clone());
@@ -722,7 +980,7 @@ mod tests {
     /// session that never did owns nothing there.
     #[tokio::test]
     async fn a_settled_turn_arms_the_idle_release_of_a_session_that_reached_the_helper() {
-        let pool = paths(&[("MIXDOG_COMPUTER_BIN", "/x/c")], &[], None).computer_sessions(manager(), plain(), quiet(), input_allowed()).await.expect("helper");
+        let pool = paths(&[("MIXDOG_COMPUTER_BIN", "/x/c")], &[], None).computer_sessions(manager(), plain(), quiet(), settings()).await.expect("helper");
         let backend = pool.backend("used");
         // The helper cannot start, but the action reached it: the session is bound.
         let read = ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"read"}) };
@@ -742,7 +1000,7 @@ mod tests {
     /// a released session starts over with fresh state.
     #[tokio::test]
     async fn two_threads_get_separate_helper_state() {
-        let pool = paths(&[("MIXDOG_COMPUTER_BIN", "/x/c")], &[], None).computer_sessions(manager(), plain(), quiet(), input_allowed()).await.expect("helper");
+        let pool = paths(&[("MIXDOG_COMPUTER_BIN", "/x/c")], &[], None).computer_sessions(manager(), plain(), quiet(), settings()).await.expect("helper");
         let (a, b) = (pool.backend("thread-a"), pool.backend("thread-b"));
         assert!(!Arc::ptr_eq(&a, &b), "separate threads, separate state");
         assert!(Arc::ptr_eq(&a, &pool.backend("thread-a")), "a thread keeps its state");
@@ -800,7 +1058,7 @@ mod tests {
 
         let _held = HeldClock::hold();
         let stuck = Arc::new(Stuck(tokio::sync::Notify::new()));
-        let pool = paths(&[("MIXDOG_COMPUTER_BIN", "/x/c")], &[], None).computer_sessions(stuck.clone(), plain(), quiet(), input_allowed()).await.expect("helper");
+        let pool = paths(&[("MIXDOG_COMPUTER_BIN", "/x/c")], &[], None).computer_sessions(stuck.clone(), plain(), quiet(), settings()).await.expect("helper");
         let backend = pool.backend("stuck");
         let read = ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"read"}) };
         let mut call = tokio::spawn(async move { backend.run(read, CancellationToken::new()).await });
