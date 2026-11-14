@@ -2336,8 +2336,8 @@
           "type": "string"
         },
         "resetAt": {
-          "format": "int64",
-          "type": "integer"
+          "description": "Epoch milliseconds as the provider's error gave them, fractional or whole (a JS number).",
+          "type": "number"
         },
         "state": {
           "description": "Always `waiting`.",

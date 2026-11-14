@@ -304,7 +304,8 @@ impl CtlClient {
         self.request("GET", "status", None, PROBE).await
     }
 
-    /// `hold{on}`: new turn starts are deferred, not refused (LR §5.1 step 1).
+    /// `hold{on}`: a client's `turn/start` and `turn/retryFailed` are refused and an in-core start waits, until the hold is released or its
+    /// default TTL lapses; a core with running work does not take the hold (the status says `hold: false`).
     pub async fn hold(&self, on: bool) -> Result<CoreStatus, CtlError> {
         self.post("hold", &HoldBody { on }).await
     }

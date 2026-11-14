@@ -124,17 +124,14 @@ impl WorktreeMaintenance {
     /// (`MaintenanceSchedule::start`) and carry the "no session is mid-turn" idle probe.
     pub fn start(self: &Arc<Self>, schedule: &Arc<MaintenanceSchedule>, clock: &Clock, log: ErrorSink, cancel: CancellationToken) -> TaskRegistration {
         let (reconcile, log_reconcile) = (self.clone(), log.clone());
-        let reconcile_cancel = cancel.clone();
         drop(mixdog_rt::spawn("worktree.reconcile", TaskClass::Work, async move {
-            match reconcile.reconcile_at_startup(&reconcile_cancel).await {
+            // Node's reconcile takes no signal and runs to its end: the core's stop does not cancel it.
+            match reconcile.reconcile_at_startup(&CancellationToken::new()).await {
                 Ok(report) => {
                     if let Some(line) = startup_summary(&report) {
                         log_reconcile(&line);
                     }
                 }
-                // Node's reconcile takes no signal and runs to its end; here the core's stop cancels it, which is not a failure to report
-                // (every quit within the reconcile's run logged "worktree reconcile failed: This operation was aborted").
-                Err(_) if reconcile_cancel.is_cancelled() => {}
                 Err(error) => log_reconcile(&format!("worktree reconcile failed: {error}")),
             }
         }));

@@ -271,10 +271,29 @@ const fn secs(s: u64) -> Duration {
     Duration::from_secs(s)
 }
 
+/// The recovery ladder: 15, 30 and 60 s, or the steps of `MIXDOG_RECOVERY_RETRY_BACKOFF_MS` (comma-separated
+/// milliseconds, Node's `retryLadderFromEnv`: a step that is no non-negative number is dropped, and a value with no
+/// step left is ignored). A longer wait is opt-in (B-11).
+fn recovery_steps() -> Vec<Duration> {
+    recovery_steps_from(std::env::var("MIXDOG_RECOVERY_RETRY_BACKOFF_MS").ok().as_deref())
+}
+
+fn recovery_steps_from(raw: Option<&str>) -> Vec<Duration> {
+    let given: Vec<Duration> = raw
+        .map(|raw| {
+            raw.split(',')
+                .filter_map(|step| step.trim().parse::<f64>().ok())
+                .filter_map(|ms| Duration::try_from_secs_f64(ms / 1000.0).ok())
+                .collect()
+        })
+        .unwrap_or_default();
+    if given.is_empty() { vec![secs(15), secs(30), secs(60)] } else { given }
+}
+
 impl RetryPolicy {
     /// Defaults for a provider without a profile: Codex request/stream rows
     /// (4 and 5 retries, exponential 200 ms, ±10 %) and today's session
-    /// ladders (PW §4.2) as the transport, connection and recovery rows;
+    /// ladders (PW §4.2) as the transport, connection and recovery rows (recovery is 15, 30, 60 s: B-11);
     /// every row waits advice in full.
     pub fn codex_default() -> Self {
         let exp = |max_retries| {
@@ -302,13 +321,7 @@ impl RetryPolicy {
             midstream: exp(5),
             transport: ladder(vec![secs(5), secs(15), secs(30)]),
             connection: ladder(connection),
-            recovery: Some(ladder(vec![
-                secs(15),
-                secs(30),
-                secs(60),
-                secs(60),
-                secs(60),
-            ])),
+            recovery: Some(ladder(recovery_steps())),
             status: StatusRules {
                 retry_429: true,
                 retry_529: true,
@@ -479,4 +492,21 @@ pub trait RetryDecider: Send + Sync {
         policy: &RetryPolicy,
         samples: JitterSamples,
     ) -> Decision;
+}
+
+#[cfg(test)]
+mod recovery_ladder_tests {
+    use super::*;
+
+    #[test]
+    fn the_recovery_ladder_is_15_30_60_seconds_and_an_override_replaces_it() {
+        let default = vec![secs(15), secs(30), secs(60)];
+        assert_eq!(recovery_steps_from(None), default);
+        assert_eq!(recovery_steps_from(Some("  ")), default);
+        assert_eq!(recovery_steps_from(Some("x,-5")), default);
+        assert_eq!(
+            recovery_steps_from(Some("0, 1000,x,-5,2500")),
+            vec![Duration::ZERO, secs(1), Duration::from_millis(2500)]
+        );
+    }
 }

@@ -185,6 +185,7 @@ flate2 = "1.1.8"
 futures = { version = "0.3", default-features = false }
 gix = { version = "0.89.0", default-features = false, features = ["sha1"] }
 globset = "0.4"
+nucleo-matcher = "0.3.1" # find: the fuzzy path ranking mixdog-graph's search server uses (same version)
 hkdf = "0.12.4" # not in Codex (WP-REMOTE)
 jsonschema = { version = "0.60", default-features = false } # not in Codex (WP-AI-COMPAT: tool input schema acceptance, 2020-12 meta-schema + $ref resolution)
 x25519-dalek = { version = "2", features = ["static_secrets"] } # not in Codex (WP-AI-COMPAT: MiMo login payload key agreement)

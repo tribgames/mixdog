@@ -239,6 +239,10 @@ impl RefreshEffects for CachesWithSetup {
         self.inner.warm_provider_model_cache();
     }
 
+    fn disable_provider(&self, id: &str) {
+        self.inner.disable_provider(id);
+    }
+
     fn reset_admission_cooldowns(&self) {
         self.inner.reset_admission_cooldowns();
     }

@@ -330,6 +330,10 @@ impl DeleteSeams for SessionDeletion {
         self.mcp_scopes.release(session_id);
     }
 
+    fn unload_mcp_scope(&self, session_id: &str) {
+        self.mcp_scopes.release_unloaded(session_id);
+    }
+
     async fn release_session_work(&self, session_id: &str, reason: &str) {
         self.shells.cancel_owned(&ThreadId::from(session_id));
         let cancel = CancelAll {

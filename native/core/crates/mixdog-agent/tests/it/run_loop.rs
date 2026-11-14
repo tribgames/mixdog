@@ -457,6 +457,10 @@ struct Compactor100 {
     session_reading: Option<u64>,
     /// The session's header carries `contextPressureUnanchoredAfterRestart`, whatever the run sends.
     session_unanchored: bool,
+    /// The session's header carries `compaction.singleShotConsumed`.
+    session_single_shot_consumed: bool,
+    /// The session's last actual prompt size and the transcript length its anchor covers.
+    session_last_reading: Option<(u64, usize)>,
 }
 #[async_trait]
 impl Compactor for Compactor100 {
@@ -464,7 +468,13 @@ impl Compactor for Compactor100 {
         messages.len() as u64 * 100
     }
     async fn session_pressure(&self, _: &[AgentMessage], _: &[mixdog_core_api::domain::provider::ToolDefinition]) -> SessionPressure {
-        SessionPressure { tokens: self.session_reading, unanchored: self.session_unanchored }
+        SessionPressure {
+            tokens: self.session_reading,
+            unanchored: self.session_unanchored,
+            single_shot_consumed: self.session_single_shot_consumed,
+            reading: self.session_last_reading.map(|(tokens, _)| tokens),
+            reading_count: self.session_last_reading.map(|(_, count)| count),
+        }
     }
     async fn preflight_attachments(&self, messages: &[AgentMessage]) -> Option<mixdog_agent::compact::fresh::Preflight> {
         let attached = Content::Text("attached".into());
@@ -507,6 +517,7 @@ impl Compactor for Compactor100 {
             skipped: self.skip,
             pipeline_ms: 0.0,
             summary_ms: self.summary_ms,
+            summary_route: None,
         })
     }
 }
@@ -977,6 +988,7 @@ struct Harness {
     mcp: Option<Arc<dyn mixdog_agent::env::McpCatalog>>,
     failures: Option<Arc<dyn mixdog_agent::env::ToolFailureLog>>,
     artifacts: Option<Arc<dyn mixdog_agent::offload::ArtifactStore>>,
+    hooks: Option<Arc<dyn ToolHooks>>,
     cancel: CancellationToken,
     clock: Arc<FixedClock>,
     /// A working directory and the file service holding it, where a test runs a real file tool over files.
@@ -1018,6 +1030,7 @@ impl Harness {
             mcp: None,
             failures: None,
             artifacts: None,
+            hooks: None,
             cancel: CancellationToken::new(),
             clock: Arc::new(FixedClock(AtomicI64::new(1_000))),
             sandbox: None,
@@ -1057,7 +1070,7 @@ impl Harness {
             compactor: self.compactor.clone().map(|c| c as Arc<dyn Compactor>).or_else(|| self.real_compactor.clone()),
             route: self.route.clone(),
             skills: None,
-            hooks: None,
+            hooks: self.hooks.clone(),
             reuse: self.reuse.clone(),
             reactions: None,
             tail: self.tail.clone(),
@@ -1182,6 +1195,70 @@ async fn tool_round_then_final_text() {
     assert_eq!(wire_dump(second), ["User:go", "Assistant:looking", "Tool:echo:{\"a\":1}"]);
     // the assistant turn with calls and each result reached the sink in order
     assert_eq!(h.sink.committed.lock().unwrap().len(), 2);
+}
+
+/// A Stop hook that blocks the stop `blocks` times, asked with each `stop_hook_active`.
+struct StopHook {
+    blocks: usize,
+    reason: &'static str,
+    asked: Mutex<Vec<bool>>,
+}
+
+#[async_trait]
+impl ToolHooks for StopHook {
+    async fn on_stop(&self, stop_hook_active: bool) -> StopVerdict {
+        let mut asked = self.asked.lock().unwrap();
+        asked.push(stop_hook_active);
+        if asked.len() <= self.blocks { StopVerdict::Continue(self.reason.to_owned()) } else { StopVerdict::Proceed }
+    }
+}
+
+/// A Stop hook's block continues the turn (owner-approved difference from Node, B-5): the answer is kept, the reason
+/// reaches the model as a hook note, and the next ask says `stop_hook_active`.
+#[tokio::test]
+async fn a_stop_block_continues_the_turn_with_its_reason() {
+    let mut h = Harness::new(vec![
+        turn(vec![text("first"), done(StopReason::EndTurn)]),
+        turn(vec![text("second"), done(StopReason::EndTurn)]),
+    ]);
+    let hook = Arc::new(StopHook { blocks: 1, reason: "run the tests", asked: Mutex::new(Vec::new()) });
+    h.hooks = Some(hook.clone());
+    let output = finish(h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")])).await;
+    assert_eq!(output.iterations, 2);
+    assert_eq!(*hook.asked.lock().unwrap(), [false, true]);
+    let second = wire_dump(&h.provider.requests()[1]);
+    assert_eq!(second[..2], ["User:go", "Assistant:first"]);
+    assert!(second[2].contains("Stop hook: run the tests"), "{second:?}");
+}
+
+/// A hook that never stops blocking is cut off after eight continuations, with a warning.
+#[tokio::test]
+async fn stop_continuations_are_capped_per_turn() {
+    let mut h = Harness::new((0..10).map(|n| turn(vec![text(&format!("t{n}")), done(StopReason::EndTurn)])).collect());
+    let hook = Arc::new(StopHook { blocks: usize::MAX, reason: "again", asked: Mutex::new(Vec::new()) });
+    h.hooks = Some(hook.clone());
+    let output = finish(h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")])).await;
+    assert_eq!(output.iterations, 9);
+    assert_eq!(hook.asked.lock().unwrap().len(), 9);
+    let warned = h.observer.events().iter().any(|e| matches!(e, RunEvent::Stage(Stage::Notice { tone: Tone::Warn, message }) if message.contains("Stop hook")));
+    assert!(warned);
+}
+
+/// A turn that ends where it cannot go on (here a second refusal) still asks the Stop hooks once;
+/// their block is ignored with a warning and the turn ends (B-5: every completed turn fires Stop).
+#[tokio::test]
+async fn a_turn_ending_on_a_refusal_asks_the_stop_hooks_once_and_ignores_a_block() {
+    let mut h = Harness::new(vec![
+        turn(vec![text("no"), done(StopReason::Refusal)]),
+        turn(vec![text("still no"), done(StopReason::Refusal)]),
+    ]);
+    let hook = Arc::new(StopHook { blocks: usize::MAX, reason: "go on", asked: Mutex::new(Vec::new()) });
+    h.hooks = Some(hook.clone());
+    let output = finish(h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")])).await;
+    assert_eq!(output.iterations, 2);
+    assert_eq!(*hook.asked.lock().unwrap(), [false]);
+    let warned = h.observer.events().iter().any(|e| matches!(e, RunEvent::Stage(Stage::Notice { tone: Tone::Warn, message }) if message.contains("cannot go on")));
+    assert!(warned);
 }
 
 /// The host's request hook runs before every provider attempt of the turn, once per request.
@@ -2072,6 +2149,33 @@ async fn an_unanchored_sessions_pressure_arms_no_proactive_pass() {
         if let Some(reading) = reading {
             assert_eq!(send_pressures(&h), [reading]);
         }
+    }
+}
+
+/// `shouldCompactForSession`: a one-shot policy (a reserve at the trigger) that already took its pass arms no more.
+#[tokio::test]
+async fn a_consumed_single_shot_policy_arms_no_proactive_pass() {
+    for consumed in [false, true] {
+        let mut h = Harness::new(vec![turn(vec![text("ok"), done(StopReason::EndTurn)])]);
+        h.compactor = Some(Arc::new(Compactor100 { session_single_shot_consumed: consumed, ..Default::default() }));
+        let mut cfg = config();
+        cfg.compact = Some(CompactSettings { configured_reserve_tokens: 2_000, ..compact_settings() });
+        finish(h.run(cfg, vec![], eleven_messages())).await;
+        assert_eq!(compact_marker(&h).is_empty(), consumed, "{consumed}");
+    }
+}
+
+/// `providerReadingBelowTrigger`: a transcript the provider measured under the trigger and nothing was appended to is not
+/// compacted on the estimate (11 × 100) of the same transcript; one message more is.
+#[tokio::test]
+async fn a_provider_reading_below_the_trigger_outranks_the_estimate_of_the_same_transcript() {
+    for count in [11, 10] {
+        let mut h = Harness::new(vec![turn(vec![text("ok"), done(StopReason::EndTurn)])]);
+        h.compactor = Some(Arc::new(Compactor100 { session_last_reading: Some((500, count)), ..Default::default() }));
+        let mut cfg = config();
+        cfg.compact = Some(compact_settings());
+        finish(h.run(cfg, vec![], eleven_messages())).await;
+        assert_eq!(compact_marker(&h).is_empty(), count == 11, "{count}");
     }
 }
 
@@ -5435,6 +5539,32 @@ fn content_filtered() -> Attempt {
 fn judged(script: Vec<Attempt>, policy: RetryPolicy) -> (Harness, Arc<Scripted>) {
     let provider = Scripted::with_policy(script, policy);
     (Harness::with_adapter(provider.clone()), provider)
+}
+
+/// B-11 (a decided difference from Node): a server that stays unavailable is sent to once on the request row's ladder
+/// (4 retries), then once per recovery lap on 15, 30 and 60 s, and the stages count the whole run as one n/N.
+#[tokio::test]
+async fn a_persistent_5xx_sends_once_per_recovery_lap_and_counts_one_run() {
+    let mut error = ProviderError::new(ErrorKind::Transient, DeliveryState::NotSent);
+    error.status = Some(503);
+    error.message = "unavailable".into();
+    let h = Harness::with_policy((0..8).map(|_| Attempt::Reject(error.clone())).collect(), RetryPolicy::codex_default());
+    let failure = h.run(config(), vec![], vec![AgentMessage::user("go")]).run().await.expect_err("the outage surfaces");
+    assert!(matches!(&failure.error, AgentError::Provider(e) if e.status == Some(503)), "{}", failure.error);
+    assert_eq!(h.provider.requests().len(), 8, "1 send + 4 retries + 3 recovery laps of one send");
+    let waits = h.waiter.0.lock().unwrap().clone();
+    assert_eq!(waits.len(), 7);
+    assert_eq!(waits[4..], [Duration::from_secs(15), Duration::from_secs(30), Duration::from_secs(60)]);
+    let stages: Vec<(u32, u32)> = h
+        .observer
+        .events()
+        .into_iter()
+        .filter_map(|e| match e {
+            RunEvent::Stage(Stage::Reconnecting { attempt, max, .. }) => Some((attempt, max)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(stages, (1..=7).map(|n| (n, 7)).collect::<Vec<_>>());
 }
 
 /// `isReplayableContentFilter` + `contentFilterNotice` (`send-with-recovery.mjs:352-366, 464-475`): on a provider that

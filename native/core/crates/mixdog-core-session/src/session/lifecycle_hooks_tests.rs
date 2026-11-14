@@ -197,3 +197,19 @@ async fn a_closing_runtime_fires_session_end_with_nodes_reason() {
     directory.shutdown().await;
     assert_eq!(fired.of("SessionEnd", &live.id), ["/ws:exit"]);
 }
+
+/// The exit's `SessionEnd` is the runtime's own session's (`dispatchSessionEnd` in `close(reason)`): a worker session
+/// the exit's `agentTool.closeAll` detaches ends none, and its shutdown is not held for a hook.
+#[tokio::test(start_paused = true)]
+async fn a_worker_session_fires_no_session_end_at_the_core_exit() {
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let fired = Arc::new(Fired::default());
+    let directory = sessions(&rig, &fired);
+    let header = json!({ "owner": "agent", "agent": "worker" }).as_object().cloned().expect("header");
+    let id = ThreadId::from("sess_worker");
+    directory.create_with_id(id.clone(), header, json!({})).await.expect("worker");
+    directory.open_handle(&id, &mixdog_core_api::call::CallContext::internal("test")).await.expect("open");
+    directory.shutdown().await;
+    assert!(fired.of("SessionEnd", &id).is_empty(), "a worker's close fires no SessionEnd");
+}

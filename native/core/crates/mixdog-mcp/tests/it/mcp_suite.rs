@@ -117,7 +117,7 @@ async fn progress_resets_the_idle_timeout_and_silence_cancels_the_request() {
     // 500 ms in total but never 300 ms without progress.
     assert_eq!(call(&server, "slow", json!({})).await.unwrap(), "slow done");
     match call(&server, "hang", json!({})).await {
-        Err(CallError::Rpc(RpcError::IdleTimeout)) => {}
+        Err(CallError::TimedOut(text)) => assert_eq!(text, "MCP tool call timed out after 300ms without progress (server=\"mock\", tool=\"hang\")"),
         other => panic!("{other:?}"),
     }
     assert_eq!(call(&server, "cancels", json!({})).await.unwrap(), "1", "server saw notifications/cancelled");

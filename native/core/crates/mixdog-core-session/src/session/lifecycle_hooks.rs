@@ -44,8 +44,6 @@ pub trait LifecycleHooks: Send + Sync {
     async fn prompt_submit(&self, _thread: &ThreadId, _header: &Header, _prompt: &Value) -> PromptVerdict {
         PromptVerdict::default()
     }
-    /// `Stop`: awaited by the turn, whatever the handlers answer.
-    async fn stop(&self, _thread: &ThreadId, _header: &Header) {}
     /// `StopFailure` with the failure's class (`stopFailureType`).
     async fn stop_failure(&self, _thread: &ThreadId, _header: &Header, _error_type: &str) {}
     /// `SessionEnd` with Node's reason (`clear`, `exit`, `other`).

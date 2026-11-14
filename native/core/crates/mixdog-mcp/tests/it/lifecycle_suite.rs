@@ -176,11 +176,14 @@ async fn user_prompt_submit_sends_the_prompt_and_returns_context_or_a_block() {
 async fn stop_stop_failure_and_session_end_send_what_node_does() {
     let dir = tempfile::tempdir().unwrap();
     let cwd = dir.path().join("work");
-    // A `Stop` handler's block changes nothing: the emitter answers nothing.
+    // A `Stop` handler's block is the answer (the loop continues the turn on it); the payload says whether a block already
+    // continued this turn (owner-approved difference from Node, B-5).
     let (bus, hub) = wired(dir.path(), "Stop", None, &[json!(json!({"decision": "block", "reason": "go on"}).to_string())]).await;
     assert!(bus.bind_transcripts(Arc::new(Exported)).is_ok());
-    bus.stop("s1", &cwd, &common()).await;
-    assert_eq!(received(&hub).await, json!([payload("Stop", &cwd, json!({}))]));
+    let answer = bus.stop("s1", &cwd, &common(), false).await;
+    assert!(answer.blocked);
+    assert_eq!(answer.reason.as_deref(), Some("go on"));
+    assert_eq!(received(&hub).await, json!([payload("Stop", &cwd, json!({"stop_hook_active": false}))]));
     hub.close_all().await;
 
     let dir = tempfile::tempdir().unwrap();

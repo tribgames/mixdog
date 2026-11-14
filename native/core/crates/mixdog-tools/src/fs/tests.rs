@@ -411,7 +411,13 @@ async fn replay_fs_search(scenario: &str) {
             Some(thrown) => (thrown.as_str().unwrap(), true),
             None => (call["text"].as_str().unwrap(), call["isError"] == true),
         };
-        if text != want || is_error != want_error {
+        // B-1: Node refused a notebook read that named no window (its guard's injected limit read as a range); the core reads it.
+        let unwindowed = ["offset", "limit", "line"].iter().all(|key| call["input"].get(key).is_none());
+        if tool == "read" && unwindowed && want.contains(super::read::IPYNB_RANGE_REFUSAL) {
+            if text.contains(super::read::IPYNB_RANGE_REFUSAL) {
+                failures.push(format!("#{index} {tool} {}: a notebook named without a window is refused: {text:?}", call["input"]));
+            }
+        } else if text != want || is_error != want_error {
             failures.push(format!("#{index} {tool} {}:\n  want ({want_error}) {want:?}\n  got  ({is_error}) {text:?}", call["input"]));
         }
         // A call Node made while this one's stuck search was being given up: answered by the next search, unscripted.
@@ -1090,6 +1096,23 @@ async fn read_extracts_an_ooxml_file_within_the_read_budget_as_node_does() {
     assert!(batch.parts.iter().any(|part| matches!(part, ToolPart::Text(text) if text.contains(&budget))), "{batch:?}");
 }
 
+/// `readMediaFile` records a read snapshot for an OOXML file and none for a PDF.
+#[tokio::test]
+async fn read_records_a_snapshot_for_an_ooxml_file_and_none_for_a_pdf_as_node_does() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = AbsPath::new(dir.path().join("ws")).unwrap();
+    let seeds = vec![("mixed.pdf".to_owned(), b"%PDF-1.7 scripted".to_vec()), ("report.docx".to_owned(), b"PK[Content_Types].xml".to_vec())];
+    let ctx = context_seeded(&root, Arc::new(mixdog_workspace::localfs::LocalFileService::new()), seeds).await;
+    let state = Arc::new(ReadState::new(None));
+    let pdf = ReadTool::new(Some(Arc::new(ScriptedPdfHost) as Arc<dyn ExtPool>), None).with_state(Arc::clone(&state));
+    let ooxml = ReadTool::new(Some(Arc::new(ScriptedOoxmlHost) as Arc<dyn ExtPool>), None).with_state(Arc::clone(&state));
+    read_pdf(&pdf, &ctx, serde_json::json!("1")).await.unwrap();
+    ooxml.call(&ctx, serde_json::json!({ "file_path": "report.docx" })).await.unwrap();
+    let snapshot = |name: &str| state.snapshot(Some("t"), &read_state_key(&root.as_path().join(name)));
+    assert!(snapshot("mixed.pdf").is_none(), "a PDF read records no snapshot");
+    assert!(snapshot("report.docx").is_some(), "an OOXML read records one");
+}
+
 /// A file is a document by its name, as `readMediaFile` tells it: a PDF by `.pdf`, or by its signature only on a path with
 /// no extension; an OOXML file by its extension. A text file that starts like a PDF reads as text, and an OOXML package
 /// under any other name is a binary file.
@@ -1733,6 +1756,56 @@ async fn edit_refuses_the_write_targets_node_refuses() {
     assert_eq!(std::fs::read_to_string(root.as_path().join("keep.txt")).unwrap(), "keep me\n");
     let names: Vec<_> = std::fs::read_dir(root.as_path()).unwrap().map(|e| e.unwrap().file_name()).collect();
     assert_eq!(names, ["keep.txt"]);
+}
+
+/// B-1: the public guard's default limit is not a range, so a notebook named without a window reads; one named with a
+/// window is still refused.
+#[tokio::test]
+async fn a_notebook_read_without_a_window_is_not_refused() {
+    let (_dir, root) = small_dir();
+    let nb = r##"{"cells":[{"cell_type":"markdown","source":["# Title"]}],"metadata":{},"nbformat":4,"nbformat_minor":5}"##;
+    std::fs::write(root.as_path().join("nb.ipynb"), nb).unwrap();
+    let ctx = context_seeded(&root, local_ctx_files(), Vec::new()).await;
+    let read = ReadTool::new(None, None);
+    let (is_error, text) = text_of(read.call(&ctx, serde_json::json!({ "file_path": "nb.ipynb" })).await);
+    assert!(!is_error && text.contains("# Title"), "{text}");
+    let (is_error, text) = text_of(read.call(&ctx, serde_json::json!({ "file_path": "nb.ipynb", "limit": 5 })).await);
+    assert!(is_error && text.contains("range args (offset/limit/line) are not supported"), "{text}");
+}
+
+/// A-46: an edit target that is a URL is refused as one, in Node's words, not as a trailing-dot or stream path.
+#[tokio::test]
+async fn an_edit_of_a_url_names_web_fetch() {
+    let (_dir, root) = small_dir();
+    let ctx = context_seeded(&root, local_ctx_files(), Vec::new()).await;
+    for target in ["https://example.com/a.txt", "  HTTP://example.com/a.txt"] {
+        let args = serde_json::json!({ "file_path": target, "old_string": "", "new_string": "x\n" });
+        assert_eq!(text_of(EditTool::new().call(&ctx, args).await), (true, "Error: this is a URL; use web_fetch".to_owned()), "{target}");
+    }
+}
+
+/// A-46 (`assertPathsReachable`): a target whose stat never answers (a dead mount) is refused once the 15 s bound passes,
+/// as Node words it; no other filesystem call has been made on it.
+#[tokio::test]
+async fn an_edit_of_a_path_that_never_answers_is_refused_as_unreachable() {
+    let root = AbsPath::new(std::env::temp_dir().join("mixdog-edit-hang").join("ws")).unwrap();
+    let control = Arc::new(StatControl::default());
+    let ctx = context_seeded(&root, Arc::new(StatFails(Arc::new(MockFileService::default()), &[], &["hang.txt"], control.clone())), Vec::new()).await;
+    tokio::time::pause();
+    let tool = EditTool::new();
+    let mut call = Box::pin(tool.call(&ctx, serde_json::json!({ "file_path": "hang.txt", "old_string": "", "new_string": "x\n" })));
+    tokio::select! {
+        biased;
+        () = control.hung.notified() => {}
+        out = &mut call => panic!("answered before the never-answering stat started: {out:?}"),
+    }
+    assert!(futures::poll!(&mut call).is_pending());
+    tokio::time::advance(std::time::Duration::from_millis(14_999)).await;
+    assert!(futures::poll!(&mut call).is_pending());
+    tokio::time::advance(std::time::Duration::from_millis(2)).await;
+    let std::task::Poll::Ready(outcome) = futures::poll!(&mut call) else { panic!("no answer past the bound") };
+    let (is_error, text) = text_of(outcome);
+    assert!(is_error && text.starts_with("Error: path unreachable: stat exceeded 15000ms (possible dead mount / hung filesystem): ") && text.ends_with("hang.txt"), "{text}");
 }
 
 /// A file another handle holds open without sharing still stats (as libuv's stat does), so `read`
@@ -2849,6 +2922,20 @@ async fn glob_and_find_see_files_past_fifty_thousand_entries() {
     assert_eq!(find, "zz/last-one.txt");
     let walked = super::search::walk_entries_pruned(&ctx, &root, false, |_| true, Vec::new(), Some(super::search::GLOB_ACCUM_CAP), None).await.unwrap();
     assert!(walked.capped && walked.entries.len() == 50_000);
+}
+
+/// find ranks with the matcher of Node's native search server (nucleo): an equal score is ordered by path,
+/// not by length, and every whitespace-separated fragment has to match the path.
+#[tokio::test]
+async fn find_ranks_with_nucleo_and_breaks_ties_by_path() {
+    let root = AbsPath::new(std::env::temp_dir().join("mixdog-fs-fuzzy").join("ws")).unwrap();
+    let seeds = vec![("b/zz.rs".to_owned(), Vec::new()), ("aaa/zz.rs".to_owned(), Vec::new()), ("aaa/other.rs".to_owned(), Vec::new())];
+    let ctx = context_seeded(&root, Arc::new(MockFileService::default()), seeds).await;
+    let (_, find) = text_of(FindTool::new().call(&ctx, serde_json::json!({ "query": "zz" })).await);
+    assert_eq!(find, "aaa/zz.rs
+b/zz.rs");
+    let (_, both) = text_of(FindTool::new().call(&ctx, serde_json::json!({ "query": "zz aaa" })).await);
+    assert_eq!(both, "aaa/zz.rs");
 }
 
 /// A recorded sequence without a test, or a test without a recorded sequence, fails here.

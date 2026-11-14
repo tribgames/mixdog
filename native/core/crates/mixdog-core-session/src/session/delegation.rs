@@ -367,6 +367,13 @@ pub struct ApprovalSurface {
     pub chain: Vec<String>,
 }
 
+/// Where a session's own requests are shown when it is a room seat: the room's log, which carries the member's `toolApproval`
+/// (`agent-room-turn.ts:278`). `None` for any other session, which is its own surface.
+pub fn room_log_surface(session: &str) -> Option<mixdog_core_api::ids::ThreadId> {
+    let member = mixdog_core_base::rooms::ids::room_member_of_session(session)?;
+    mixdog_core_base::rooms::ids::room_session_id(&member.room_id).map(mixdog_core_api::ids::ThreadId::from)
+}
+
 /// `approvalSurface(sessionId)` (`human-gate/gate.mjs:155`) over `delegationOf`: the delegation's root, named by its bot
 /// (a home chat or room seat reached `via: 'bot'`) or `Lead`, then each agent on its path. `None` for a top-level session, one
 /// with no record, or one with a parent link and no derivable root.
@@ -488,5 +495,15 @@ mod tests {
         for top in ["lead", "sess_home_mailer", "unknown"] {
             assert_eq!(approval_surface(top, &records, &Names).await, None, "{top}");
         }
+    }
+
+    /// A room seat's requests show in the room's log, any other session is its own surface.
+    #[test]
+    fn a_room_seat_surfaces_in_its_rooms_log() {
+        let room = "ab12cd";
+        let seat = mixdog_core_base::rooms::ids::room_member_session_id(room, "mailer").expect("seat id");
+        let log = mixdog_core_base::rooms::ids::room_session_id(room).expect("log id");
+        assert_eq!(room_log_surface(&seat).map(|id| id.as_str().to_owned()), Some(log));
+        assert_eq!(room_log_surface("lead"), None);
     }
 }

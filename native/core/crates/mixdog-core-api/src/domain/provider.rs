@@ -1071,13 +1071,16 @@ pub enum TransportFault {
 }
 
 impl TransportFault {
-    /// The errno name Node gives the socket error of this fault (`error.code`): `ECONNRESET` for a reset,
+    /// The code Node gives the error of this fault (`error.code`, or its `cause`'s): `ECONNRESET` for a reset,
+    /// `UND_ERR_SOCKET` for a peer that closed (undici's `SocketError`: "other side closed"), `ENOTFOUND` for a failed lookup,
     /// and for a connect or I/O failure the name of its OS error: `ECONNREFUSED`, `ETIMEDOUT` or `EPIPE`.
     /// The OS error is read through the platform's own mapping, so a Windows or a Unix number names the same code.
     pub fn errno_name(&self) -> Option<&'static str> {
         use std::io::ErrorKind as K;
         match self {
             Self::Reset => Some("ECONNRESET"),
+            Self::Closed => Some("UND_ERR_SOCKET"),
+            Self::Dns => Some("ENOTFOUND"),
             Self::Connect { os_code: Some(code) } | Self::Io { os_code: Some(code) } => match std::io::Error::from_raw_os_error(*code).kind() {
                 K::ConnectionRefused => Some("ECONNREFUSED"),
                 K::TimedOut => Some("ETIMEDOUT"),

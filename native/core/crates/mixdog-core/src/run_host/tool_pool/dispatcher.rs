@@ -118,7 +118,7 @@ impl ToolDispatcher for PipelineDispatcher {
             cwd: ctx.cwd.as_path().to_path_buf(),
             cancel: ctx.cancel.clone(),
         });
-        let hooks = SessionToolHooks::new(ctx.thread_id.as_str(), ctx.cwd.as_path(), self.post_tool.clone());
+        let hooks = SessionToolHooks::new(ctx.thread_id.as_str(), ctx.cwd.as_path(), self.post_tool.clone(), true);
         let hooks: Arc<dyn ToolHooks> = Arc::new(hooks);
         let mcp = self.mcp.clone().map(|settings| Arc::new(SettingsMcp { settings, thread: ctx.thread_id.clone() }) as Arc<dyn McpCatalog>);
         let pipeline = Pipeline { gate: Arc::new(gate), hooks: Some(hooks), observer, guards, mcp };

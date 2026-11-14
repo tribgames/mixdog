@@ -764,6 +764,10 @@ pub trait NewThreadRoute: Send + Sync + 'static {
     /// `createRuntime({ provider, model, … })`) before it is composed, and a stored thread opened for use (a resume's
     /// `setRoute(resumedRoute)`). A route set on the thread in this process stands; an owner with no live route boots nothing.
     fn boot(&self, _thread: &ThreadId, _header: &Header) {}
+
+    /// A thread opened for use takes the effort fields its booted route lacks (`resume`'s `routePreparation`, which Node's
+    /// desktop runs after the resume answers): not awaited by the open.
+    async fn prepare(&self, _thread: &ThreadId) {}
 }
 
 /// The new task's draft workflow and orchestration mode (`configureDraft`, session-host-lifecycle.ts:765-778): the host calls

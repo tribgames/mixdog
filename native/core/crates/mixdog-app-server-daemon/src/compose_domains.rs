@@ -228,6 +228,9 @@ pub struct PluginSeams {
 
 pub struct DomainInputs {
     pub tokens: LaneTokens,
+    /// The stored-secret change marker the daemon's other parts share: the config watch follows it, so another process saving or
+    /// forgetting a key reaches this one (`ensureConfigWatcher` watches the marker beside the file).
+    pub secrets: Arc<mixdog_core_config::config::SecretChanges>,
     pub paths: DomainPaths,
     /// The raw `voice-runtime-manifest.json`, read once by the root: the voice service parses it here and the voice installer
     /// (`InstallerParts.manifest`, built before this stage as a `LocalSeams` input) takes the same value.
@@ -324,7 +327,7 @@ pub async fn compose_domains_pre(inputs: &DomainInputs) -> Result<PreDomains, Co
     // sections they follow.
     let app = state.app.clone();
     config.announce_to(Arc::new(move |method, params| app.notify(method, &params)));
-    let watcher = ConfigWatcher::start(config.clone()).map_err(ComposeDomainsError::Watch)?;
+    let watcher = ConfigWatcher::start_with_secrets(config.clone(), inputs.secrets.clone()).map_err(ComposeDomainsError::Watch)?;
     let local = local::build(inputs, &config).await?;
     let tool_modules = ToolModules::new(config.clone(), local.tool_modules_host.clone(), state.publisher.clone(), inputs.cancel.clone());
     let settings = Settings::new(config.clone(), inputs.seams.settings_effects.clone(), inputs.env.clone()).with_data_dir(inputs.paths.data_dir.clone());

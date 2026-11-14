@@ -303,6 +303,7 @@ struct NoRefresh;
 
 impl mixdog_core_domains::domains::ai_account::collaborators::AuthRefresh for NoRefresh {
     fn after_credential_change(&self) {}
+    fn custom_provider_removed(&self, _: &str) {}
     fn adopt_credentials(&self) {}
     fn after_usage_auth_change(&self) {}
     fn release_admission_cooldowns(&self) {}

@@ -53,10 +53,15 @@ pub(crate) fn takeover_hold<'a>(asks: impl Iterator<Item = &'a ApprovalAsk>) -> 
     hold
 }
 
-/// `takeoverStep` (`takeover-gate.ts`) of a screen takeover: its target, else its instructions, on
-/// one line and cut to 160 characters. Node names a sign-in's site instead, but a login takeover is
-/// always a browser one (`handoff_user purpose login is a browser takeover`).
+/// `takeoverStep` (`takeover-gate.ts`) of a screen takeover: a sign-in's site, else its target, else
+/// its instructions, on one line and cut to 160 characters.
 fn takeover_step(takeover: Option<&Value>) -> String {
+    let field = |key: &str| takeover.and_then(|takeover| takeover.get(key));
+    if field("purpose").and_then(Value::as_str) == Some("login") {
+        if let Some(url) = field("url").and_then(Value::as_str).and_then(|url| url::Url::parse(url).ok()) {
+            return format!("sign-in on {}", url.host_str().unwrap_or_default());
+        }
+    }
     let text = ["target", "instructions"]
         .into_iter()
         .filter_map(|key| takeover.and_then(|takeover| takeover.get(key)).and_then(Value::as_str))
@@ -220,8 +225,8 @@ mod tests {
         assert_eq!(takeover_hold(std::iter::empty()), TakeoverHold::default());
     }
 
-    /// A screen takeover is named as `takeoverStep` names it: its target, else its instructions, on one
-    /// line and cut to 160 characters.
+    /// A screen takeover is named as `takeoverStep` names it: a sign-in's site, else its target, else its
+    /// instructions, on one line and cut to 160 characters.
     #[test]
     fn a_screen_takeover_is_named_by_its_step() {
         let step = |takeover: Value| takeover_hold(std::iter::once(&ask(json!({ "kind": "takeover", "takeover": takeover })))).screen;
@@ -232,6 +237,8 @@ mod tests {
         assert_eq!(step(json!({ "surface": "computer", "target": "a".repeat(160) })), named(&"a".repeat(160)));
         assert_eq!(step(json!({ "surface": "computer", "target": 7 })), Some("a step only the user can do".to_owned()));
         assert_eq!(step(json!({ "surface": "browser", "target": "x" })), None);
+        assert_eq!(step(json!({ "surface": "computer", "purpose": "login", "url": "https://Accounts.Example.com:8443/x", "target": "t" })), Some("sign-in on accounts.example.com".to_owned()));
+        assert_eq!(step(json!({ "surface": "computer", "purpose": "login", "url": "not a url", "target": "t" })), named("t"));
     }
 
     /// The recorded expiry scenario ("a takeover nobody finishes frees the session and the screen at

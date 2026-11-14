@@ -94,7 +94,9 @@ impl Runner<'_> {
 
     pub async fn run_in(&self, cwd: &Path, global_args: &[String], argv: &[String], read_only: bool) -> GitRun {
         let mut spec = ExecSpec::new("git", cwd);
-        spec.args = global_args.iter().chain(argv).cloned().collect();
+        // File names print as they are, not as quoted octal escapes (`core.quotepath=false`); a `-c` of the command's own comes after
+        // and wins.
+        spec.args = ["-c", "core.quotepath=false"].into_iter().map(str::to_owned).chain(global_args.iter().chain(argv).cloned()).collect();
         spec.env_set = vec![
             ("GIT_TERMINAL_PROMPT".into(), "0".into()),
             ("GIT_PAGER".into(), "cat".into()),

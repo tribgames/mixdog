@@ -25,10 +25,11 @@ use serde_json::{Map, Value};
 const DEFAULT_PORT: u16 = 3333;
 const IDENTITY_FILE: &str = "relay-hook-device.json";
 
-/// `CHANNELS_DEFAULTS.webhook` filled under what the file stores, in Node's key order.
+/// `CHANNELS_DEFAULTS.webhook` filled under what the file stores, in Node's key order; `enabled` defaults to off here
+/// (owner-approved difference from Node).
 fn effective_webhook(channels: &Map<String, Value>) -> Map<String, Value> {
     let mut webhook = Map::new();
-    webhook.insert("enabled".into(), Value::Bool(true));
+    webhook.insert("enabled".into(), Value::Bool(false));
     webhook.insert("port".into(), Value::from(DEFAULT_PORT));
     if let Some(stored) = channels.get("webhook").and_then(Value::as_object) {
         for (key, value) in stored {
@@ -118,7 +119,7 @@ impl ChannelSettings for ConfigChannelSettings {
                 }
                 *slot.lock().unwrap_or_else(PoisonError::into_inner) = Some(settings_of(&webhook));
                 // withoutDefaults
-                if webhook.get("enabled") == Some(&Value::Bool(true)) {
+                if webhook.get("enabled") == Some(&Value::Bool(false)) {
                     webhook.shift_remove("enabled");
                 }
                 if webhook.get("port") == Some(&Value::from(DEFAULT_PORT)) {

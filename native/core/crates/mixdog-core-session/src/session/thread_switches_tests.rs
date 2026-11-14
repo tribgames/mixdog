@@ -353,7 +353,9 @@ async fn a_running_turn_holds_the_choice_for_the_next_one() {
     // A choice of what the session already runs cancels the held one.
     world.switches.switch_workflow("sess_b", "alpha").await.expect("staged");
     assert!(!world.stored("sess_b").await.contains_key("pendingWorkflowId"));
+    assert!(!world.stored("sess_b").await.contains_key("pendingWorkflow"), "the meta leaves with the cancelled id");
     world.switches.switch_workflow("sess_b", "beta").await.expect("staged");
+    assert_eq!(world.stored("sess_b").await["pendingWorkflow"], deferred["workflow"], "the staged meta is kept with its id, so a restart shows it");
     // The held choices show at once, marked pending (`routeState`: the staged workflow's meta, `pendingOrchestrationMode`).
     let held = json!({ "workflow": deferred["workflow"], "orchestrationMode": "swarm", "pendingWorkflowSwitch": true, "pendingOrchestrationModeSwitch": true });
     world.shows_workflow("sess_b", held).await;
@@ -376,7 +378,7 @@ async fn a_running_turn_holds_the_choice_for_the_next_one() {
     assert_eq!(applied["workflowSwitch"]["toId"], "beta");
     let stored = world.stored("sess_b").await;
     assert_eq!((stored["workflow"]["id"].clone(), stored["orchestrationMode"].clone()), (json!("beta"), json!("swarm")));
-    assert!(!stored.contains_key("pendingWorkflowId") && !stored.contains_key("pendingOrchestrationMode"));
+    assert!(!stored.contains_key("pendingWorkflowId") && !stored.contains_key("pendingOrchestrationMode") && !stored.contains_key("pendingWorkflow"));
     let applied_state = json!({ "workflow": stored["workflow"], "orchestrationMode": "swarm", "pendingWorkflowSwitch": false, "pendingOrchestrationModeSwitch": false });
     world.shows_workflow("sess_b", applied_state).await;
     assert_eq!(world.switches.apply_pending_switches(&ThreadId::from("sess_b")).await, Ok(None));

@@ -140,11 +140,12 @@ fn stop_and_abort_run_the_one_procedure_over_the_wire() {
 fn cancel_drain_and_hold_over_the_wire() {
     let fx = fixture();
     fx.lifecycle.set_serving().unwrap();
-    let _work = fx.lifecycle.begin_activity(turn());
     let (server, token) = start(&fx);
     let port = server.port();
     let (_, reply) = mgmt(port, &token, "POST", "/mgmt/hold", Some(json!({"on": true})));
     assert_eq!(reply["hold"], true);
+    // Node's `hold` is taken only while idle: the work the drain waits for starts after it.
+    let _work = fx.lifecycle.begin_activity(turn());
     // A replacement that does not name its build is refused: Node's text (`daemon.mjs:589`) needs it.
     let (status, _) = mgmt(port, &token, "POST", "/mgmt/stop", Some(json!({"mode": "whenIdle", "reason": "update"})));
     assert_eq!(status, 400);

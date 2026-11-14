@@ -18,7 +18,6 @@ use mixdog_app_protocol::v2::thread::ThreadApprovals;
 use mixdog_app_protocol::v2::thread::ThreadContext;
 use mixdog_app_protocol::v2::thread::ThreadRoute;
 use mixdog_app_protocol::v2::thread::ThreadRuntime;
-use mixdog_app_protocol::v2::thread::ThreadWorkflow;
 use mixdog_protocol::QuotaResume;
 
 #[async_trait]
@@ -99,10 +98,6 @@ pub enum Section {
     QuotaResume(Option<QuotaResume>),
     Agents(ThreadAgents),
     ShellJobs(Value),
-    /// The meta (`workflow`) of a workflow staged for the next turn, whose id alone the header holds. The thread reads the
-    /// rest of its workflow section (the session's workflow, the orchestration mode, the pending flags) from the header, so
-    /// the other fields published here are ignored.
-    Workflow(ThreadWorkflow),
     Workspace(Option<Value>),
     /// `handoffQuestions`, and `toolApprovalResult` when the producer clears it.
     Approvals(ThreadApprovals),

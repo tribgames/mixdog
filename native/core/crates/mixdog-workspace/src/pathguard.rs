@@ -125,23 +125,86 @@ pub fn project_entry_path(root: &Path, rel: &str) -> WsResult<PathBuf> {
     if !is_within(&root, &target) {
         return Err(WsError::denied(OUTSIDE_PROJECT));
     }
-    let canonical_root = canonical(&root).map_err(|error| realpath_sync_error(&root, &error))?;
-    let canonical_target = canonical_through_existing(&target)?;
+    let canonical_root = node_realpath(&root).map_err(|error| error.node())?;
+    let canonical_target = node_realpath_through_existing(&target).map_err(|error| error.node())?;
     if !is_within(&canonical_root, &canonical_target) {
         return Err(WsError::denied(RESOLVES_OUTSIDE_PROJECT));
     }
     Ok(target)
 }
 
-/// Node's `realpathSync` failure on `path`: its walk `lstat`s each component (a link's target in place of the link) and throws
-/// for the first one that cannot be read.
-fn realpath_sync_error(path: &Path, error: &io::Error) -> WsError {
-    let resolved = canonical_through_existing(path).unwrap_or_else(|_| path.to_path_buf());
-    let first = resolved.ancestors().filter_map(|prefix| std::fs::symlink_metadata(prefix).err().map(|cause| (prefix, cause))).last();
-    match first {
-        Some((prefix, cause)) => crate::nodeerr::io_error(&cause, "lstat", prefix),
-        None => crate::nodeerr::io_error(error, "lstat", path),
+/// Node's `fs.realpathSync` (the JS walk, not `.native`) failing: the call that failed (`lstat`, or `stat` and `readlink` of a link), its cause, and
+/// the path it was made on, as the walk had built it.
+#[derive(Debug)]
+pub struct RealpathError {
+    pub cause: io::Error,
+    pub syscall: &'static str,
+    pub at: PathBuf,
+}
+
+impl RealpathError {
+    /// The error Node threw: its libuv name and `<name>: <description>, <syscall> '<path>'` text.
+    pub fn node(&self) -> WsError {
+        crate::nodeerr::io_error(&self.cause, self.syscall, &self.at)
     }
+}
+
+/// Node's `fs.realpathSync` (the JS walk, not `.native`): the path's components are taken one by one and a link is replaced by its target;
+/// nothing else is rewritten, so a mapped drive letter stays a drive letter and an 8.3 name stays as given (the OS's canonical form names
+/// the share, and spells the long name).
+pub fn node_realpath(path: &Path) -> Result<PathBuf, RealpathError> {
+    const MAX_LINKS: usize = 40;
+    let fail = |cause: io::Error, syscall: &'static str, at: &Path| RealpathError { cause, syscall, at: at.to_path_buf() };
+    let split = |full: &Path| {
+        let mut root = PathBuf::new();
+        let mut names = std::collections::VecDeque::new();
+        for component in full.components() {
+            match component {
+                Component::Prefix(_) | Component::RootDir => root.push(component.as_os_str()),
+                other => names.push_back(other.as_os_str().to_os_string()),
+            }
+        }
+        (root, names)
+    };
+    let (mut resolved, mut names) = split(&resolve(path));
+    if cfg!(windows) {
+        std::fs::symlink_metadata(&resolved).map_err(|cause| fail(cause, "lstat", &resolved))?;
+    }
+    let mut links = 0;
+    while let Some(name) = names.pop_front() {
+        let next = resolved.join(&name);
+        let meta = std::fs::symlink_metadata(&next).map_err(|cause| fail(cause, "lstat", &next))?;
+        if !meta.file_type().is_symlink() {
+            resolved = next;
+            continue;
+        }
+        links += 1;
+        if links > MAX_LINKS {
+            return Err(fail(io::Error::other("too many symbolic links"), "lstat", &next));
+        }
+        // Node `stat`s the link (following it) before it reads it, so a dangling link fails as that `stat`.
+        std::fs::metadata(&next).map_err(|cause| fail(cause, "stat", &next))?;
+        let target = strip_verbatim(std::fs::read_link(&next).map_err(|cause| fail(cause, "readlink", &next))?);
+        let (root, mut head) = split(&resolve(&resolved.join(target)));
+        head.extend(names);
+        (resolved, names) = (root, head);
+    }
+    Ok(resolved)
+}
+
+/// The real path of `path` through its nearest existing ancestor, as the guard reads it: `existsSync` of each ancestor, then
+/// `resolve(realpathSync(existing), ...missing)`.
+fn node_realpath_through_existing(path: &Path) -> Result<PathBuf, RealpathError> {
+    let mut existing = path;
+    let mut missing: Vec<&std::ffi::OsStr> = Vec::new();
+    while !existing.exists() {
+        let (Some(parent), Some(name)) = (existing.parent(), existing.file_name()) else { break };
+        missing.push(name);
+        existing = parent;
+    }
+    let mut real = node_realpath(existing)?;
+    real.extend(missing.into_iter().rev());
+    Ok(real)
 }
 
 pub const OUTSIDE_PROJECT: &str = "Path is outside the project.";
@@ -212,6 +275,31 @@ mod tests {
         }
         let err = project_entry_path(&root, "link/x.txt").unwrap_err();
         assert_eq!(err.message, "Path resolves outside the project.");
+    }
+
+    /// Node's `realpathSync` walk: a link's relative target is taken from the link's own folder, a component that is missing past it
+    /// fails as `lstat` of the path the walk had built (the link replaced by its target), not of the spelling given, and a dangling link
+    /// fails as the `stat` of the link itself.
+    #[test]
+    fn node_realpath_replaces_a_link_by_its_target_and_names_the_missing_component() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = canonical(dir.path()).unwrap();
+        std::fs::create_dir_all(root.join("a").join("real")).unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink("real", root.join("a").join("link")).unwrap();
+        #[cfg(windows)]
+        if std::os::windows::fs::symlink_dir("real", root.join("a").join("link")).is_err() {
+            return;
+        }
+        assert_eq!(node_realpath(&root.join("a").join("link")).unwrap(), root.join("a").join("real"));
+        let err = node_realpath(&root.join("a").join("link").join("gone")).unwrap_err();
+        assert_eq!((err.syscall, err.at), ("lstat", root.join("a").join("real").join("gone")));
+        #[cfg(unix)]
+        std::os::unix::fs::symlink("nowhere", root.join("a").join("dangling")).unwrap();
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_dir("nowhere", root.join("a").join("dangling")).unwrap();
+        let err = node_realpath(&root.join("a").join("dangling")).unwrap_err();
+        assert_eq!((err.syscall, err.at), ("stat", root.join("a").join("dangling")));
     }
 
     /// A root that is gone fails as Node's `realpathSync` did: `lstat` of its first missing component.

@@ -343,11 +343,7 @@ fn capture(store: &Arc<SideQuestionStore>, clock: &Arc<At>, thread: &str, captur
 }
 
 fn step_name(step: RouteStep) -> &'static str {
-    match step {
-        RouteStep::Session => "session",
-        RouteStep::Maintainer => "maintenance",
-        RouteStep::Lighter => "lighter",
-    }
+    step.name()
 }
 
 fn mode_name(mode: SummaryMode) -> &'static str {

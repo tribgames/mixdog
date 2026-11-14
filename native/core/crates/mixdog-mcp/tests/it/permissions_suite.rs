@@ -5,6 +5,7 @@
 #![allow(clippy::disallowed_methods, reason = "test fixtures write policy files directly")]
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use mixdog_mcp::McpServerConfig;
 use mixdog_mcp::permissions::ConnectorPolicy;
@@ -53,7 +54,8 @@ async fn the_connector_permissions_match_node_in_every_recorded_layout() {
             dir.path().to_path_buf(),
             PolicyIo { maintenance: tokens.maintenance_io, interactive: tokens.interactive_io, durability: tokens.durability_io },
         );
-        policy.set_servers(&configs);
+        let by_server: std::collections::HashMap<String, String> = configs.iter().filter_map(|c| Some((c.name.clone(), c.connector.clone()?))).collect();
+        policy.set_server_connectors(Arc::new(move |server| by_server.get(server).cloned()));
         policy.reload().await;
         for entry in scenario["agents"].as_array().unwrap() {
             let agent = entry["agent"].as_str().unwrap();
@@ -144,4 +146,23 @@ async fn a_policy_saved_after_the_start_load_is_read_at_the_next_refresh() {
     std::fs::write(dir.path().join("project-connectors.json"), json!({ "projects": projects }).to_string()).unwrap();
     policy.refresh("", Some(tool)).await;
     assert!(policy.project_disabled(&paths, tool), "the project switched the connector off");
+}
+
+/// Node reads `serverConnector` and the tool's server as the servers are when the call is judged: a catalog connector's
+/// high-risk tool asks once its server is connected, and a name the resolver tells back is judged by its server and tool.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_connector_of_a_server_and_a_cut_name_are_read_live() {
+    let tokens = mixdog_rt::testing::tokens();
+    let io = PolicyIo { maintenance: tokens.maintenance_io, interactive: tokens.interactive_io, durability: tokens.durability_io };
+    let dir = tempfile::tempdir().unwrap();
+    let policy = ConnectorPolicy::new(dir.path().to_path_buf(), io);
+    let connected = Arc::new(std::sync::Mutex::new(None::<String>));
+    let source = connected.clone();
+    policy.set_server_connectors(Arc::new(move |server| source.lock().unwrap().clone().filter(|_| server == "gmail")));
+    policy.set_resolver(Arc::new(|name| (name == "mcp__gmail__cut_1a2b3c").then(|| ("gmail".to_owned(), "send_email".to_owned()))));
+    assert_eq!(policy.permission("worker", "mcp__gmail__send_email").name(), "auto");
+    *connected.lock().unwrap() = Some("gmail".to_owned());
+    assert_eq!(policy.permission("worker", "mcp__gmail__send_email").name(), "needs_approval");
+    assert_eq!(policy.permission("worker", "mcp__gmail__cut_1a2b3c").name(), "needs_approval", "a cut name is told back to its tool");
+    assert_eq!(policy.permission("worker", "mcp__gmail__read_email").name(), "auto");
 }

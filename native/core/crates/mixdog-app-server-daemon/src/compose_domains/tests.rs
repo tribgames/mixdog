@@ -513,6 +513,7 @@ fn every_method_of_the_domains_built_here_has_a_real_service() {
         let local_provider = crate::compose_domains::build_local_provider(&dir, core.tidy_processes(), &config, &cancel).unwrap();
         let held = local_provider.clone();
         let inputs = DomainInputs {
+            secrets: mixdog_core_config::config::SecretChanges::open(config.clone()).await,
             tokens,
             voice_manifest: serde_json::from_str(include_str!("../../../../../../src/runtime/channels/data/voice-runtime-manifest.json")).unwrap(),
             paths: DomainPaths {

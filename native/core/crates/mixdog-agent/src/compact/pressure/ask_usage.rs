@@ -36,6 +36,9 @@ use super::provider_pressure;
 use super::provider_token_calibration;
 use super::record_provider_context_baseline;
 use super::terminal_usage;
+use super::baseline_message_count;
+use super::current_provider_reading;
+use super::single_shot_consumed;
 use super::unanchored_after_restart;
 use crate::compact::tool_schema::RequestTools;
 use crate::env::CompactPass;
@@ -162,6 +165,9 @@ pub fn send_pressure(header: &Header, messages: &[AgentMessage], tools: &[ToolDe
     SessionPressure {
         tokens: provider_pressure(&status_input(header, messages, tools, books)).map(|tokens| tokens as u64),
         unanchored: unanchored_after_restart(header),
+        single_shot_consumed: single_shot_consumed(header),
+        reading: current_provider_reading(header),
+        reading_count: baseline_message_count(header),
     }
 }
 

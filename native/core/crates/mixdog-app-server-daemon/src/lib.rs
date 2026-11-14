@@ -51,6 +51,7 @@ pub mod late_session;
 pub mod late_seams;
 pub mod late_tool_surface;
 pub mod os_probe;
+pub mod restart_sweep;
 pub mod control;
 pub mod crash_record;
 pub mod stale_temps;

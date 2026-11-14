@@ -55,12 +55,19 @@ enum Phase {
     Fenced(FenceReason),
 }
 
+/// Node's hold TTL: `HOLD_DEFAULT_MS`, the floor of `Math.max(1_000, ..)` and `HOLD_MAX_MS` (`daemon-work-gate.mjs`).
+const HOLD_DEFAULT: std::time::Duration = std::time::Duration::from_millis(120_000);
+const HOLD_MIN: std::time::Duration = std::time::Duration::from_millis(1_000);
+const HOLD_MAX: std::time::Duration = std::time::Duration::from_millis(5 * 60_000);
+
 pub struct Machine {
     instance_id: String,
     version: String,
     secret: [u8; 32],
     phase: Phase,
     hold: bool,
+    /// The generation of the armed hold TTL: a lapse of an older one (a release, a new hold, the drain commit) is stale.
+    hold_generation: u64,
     /// The drain commit dropped a hold (LR §5.1 step 2), or a confirmed abort closed the starts: they are refused with the drain's
     /// reason until the drain is cancelled (an aborted one cannot be). A hold released before the commit dropped nothing: what it let
     /// go starts.
@@ -107,6 +114,7 @@ impl Machine {
             secret: rand::random(),
             phase: Phase::Booting,
             hold: false,
+            hold_generation: 0,
             starts_closed: None,
             clients: 0,
             client_seen: false,
@@ -349,16 +357,33 @@ impl Machine {
 
     // ---- management commands (LR §6.1) ------------------------------------------------
 
-    pub fn hold(&mut self, on: bool) -> Result<(), CommandError> {
+    /// `hold(ttlMs)` of Node's work gate (`daemon-work-gate.mjs`): the running work is read in the same step, and busy leaves (or puts)
+    /// admission open while idle keeps it closed until a release, the drain commit, or `ttl` (default 120 s, at least 1 s, at most 5 minutes)
+    /// lapses ([`Machine::hold_expired`]). A hold taken again starts its TTL anew.
+    pub fn hold(&mut self, on: bool, ttl: Option<std::time::Duration>) -> Result<(), CommandError> {
         match self.phase {
             Phase::Booting | Phase::Blocked(_) | Phase::Migrating(_) | Phase::Serving => {}
             _ => return Err(self.refusal()),
         }
-        if self.hold != on {
-            self.hold = on;
+        self.hold_generation += 1;
+        if on && !self.activities.values().any(|a| a.kind.blocks_idle()) {
+            let delay = ttl.filter(|ttl| !ttl.is_zero()).unwrap_or(HOLD_DEFAULT).clamp(HOLD_MIN, HOLD_MAX);
+            self.hold = true;
             self.seq += 1;
+            self.effects.push(Effect::ArmHold { generation: self.hold_generation, delay });
+        } else if std::mem::take(&mut self.hold) {
+            self.seq += 1;
+            self.effects.push(Effect::CancelHold);
         }
         Ok(())
+    }
+
+    /// The TTL of the hold of generation `generation` lapsed: an installer that died or gave up never leaves the core refusing work.
+    pub fn hold_expired(&mut self, generation: u64) {
+        if self.hold && self.hold_generation == generation {
+            self.hold = false;
+            self.seq += 1;
+        }
     }
 
     /// `stop{mode, reason, confirmToken?}`. `whenIdle` commits a drain (or, in a drain, only
@@ -594,6 +619,8 @@ impl Machine {
         self.seq += 1;
         // Deferred starts are released into admission, which now refuses them (LR §5.1 step 2).
         if std::mem::take(&mut self.hold) {
+            self.hold_generation += 1;
+            self.effects.push(Effect::CancelHold);
             self.starts_closed = Some(reason.drain_reason());
         }
         let discovery = self.discovery();
@@ -964,21 +991,65 @@ mod tests {
     #[test]
     fn hold_is_dropped_by_the_drain_commit() {
         let mut m = machine();
-        m.hold(true).unwrap();
+        m.hold(true, None).unwrap();
         assert!(m.hold_on());
         let _a = m.begin_activity(work(ActivityKind::Turn));
         m.stop(StopMode::WhenIdle, StopReason::Update, None).unwrap();
         assert!(!m.hold_on());
         assert_eq!(m.starts_closed(), Some(mixdog_protocol::DrainReason::Update), "what it held is refused");
-        assert_eq!(m.hold(true), Err(CommandError::WindingDown));
+        assert_eq!(m.hold(true, None), Err(CommandError::WindingDown));
         let id = m.status().drain.unwrap().drain_id;
         m.cancel_drain(&id).unwrap();
         assert_eq!(m.starts_closed(), None, "a cancelled drain opens it again");
         // A hold released before the commit drops nothing: the starts it let go start.
-        m.hold(true).unwrap();
-        m.hold(false).unwrap();
+        m.hold(true, None).unwrap();
+        m.hold(false, None).unwrap();
         m.stop(StopMode::WhenIdle, StopReason::Update, None).unwrap();
         assert_eq!(m.starts_closed(), None);
+    }
+
+    fn hold_timers(effects: &[Effect]) -> Vec<(u64, std::time::Duration)> {
+        effects.iter().filter_map(|e| if let Effect::ArmHold { generation, delay } = e { Some((*generation, *delay)) } else { None }).collect()
+    }
+
+    /// `daemon-work-gate.mjs` `hold`: running work keeps admission open (and opens a hold already taken), an idle core holds it.
+    #[test]
+    fn a_hold_is_taken_only_when_nothing_runs() {
+        let mut m = machine();
+        let a = m.begin_activity(work(ActivityKind::Turn));
+        m.hold(true, None).unwrap();
+        assert!(!m.hold_on(), "busy leaves admission open");
+        assert!(hold_timers(&m.take_effects()).is_empty());
+        m.end_activity(a);
+        m.hold(true, None).unwrap();
+        assert!(m.hold_on());
+        let _b = m.begin_activity(work(ActivityKind::Turn));
+        m.take_effects();
+        m.hold(true, None).unwrap();
+        assert!(!m.hold_on(), "a hold asked for while work runs is released");
+        assert!(m.take_effects().contains(&Effect::CancelHold));
+    }
+
+    /// The TTL: 120 s by default, at least 1 s, at most 5 minutes; a lapse of a replaced or released hold is stale.
+    #[test]
+    fn a_hold_lapses_by_its_ttl() {
+        use std::time::Duration;
+        let mut m = machine();
+        m.hold(true, None).unwrap();
+        assert_eq!(hold_timers(&m.take_effects()), [(1, Duration::from_secs(120))]);
+        m.hold(true, Some(Duration::from_millis(5))).unwrap();
+        assert_eq!(hold_timers(&m.take_effects()), [(2, Duration::from_secs(1))]);
+        m.hold_expired(1);
+        assert!(m.hold_on(), "the first hold's timer is stale");
+        m.hold(true, Some(Duration::from_secs(3600))).unwrap();
+        assert_eq!(hold_timers(&m.take_effects()), [(3, Duration::from_secs(300))]);
+        m.hold_expired(3);
+        assert!(!m.hold_on(), "the TTL released the hold");
+        m.hold(true, None).unwrap();
+        m.hold(false, None).unwrap();
+        m.hold_expired(4);
+        assert!(!m.hold_on());
+        assert!(m.take_effects().contains(&Effect::CancelHold));
     }
 
     #[test]

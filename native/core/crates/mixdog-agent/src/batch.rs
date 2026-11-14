@@ -404,6 +404,7 @@ impl Run {
             return;
         }
         let gate_call = GateCall::new(name.clone(), exec.arguments.clone());
+        self.env.gate.refresh_policy(&gate_call).await;
         if self.env.gate.pre_dispatch_deny(&gate_call).is_some() || self.carry.repeat.could_fire(0) {
             return;
         }
@@ -557,6 +558,7 @@ impl Run {
             return Decision::Run;
         }
         let gate_call = GateCall::new(call.name.clone(), call.arguments.clone());
+        self.env.gate.refresh_policy(&gate_call).await;
         if let Some(text) = self.env.gate.pre_dispatch_deny(&gate_call) {
             return Decision::Skip(AgentMessage::tool_text(&call.id, text, ToolKind::Error));
         }

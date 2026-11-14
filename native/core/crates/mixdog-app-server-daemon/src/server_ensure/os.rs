@@ -272,7 +272,7 @@ impl CoreAccess for OsAccess {
     /// a daemon whose `/health` answered and leaves one that does not (`wait`) running; so the run fails here and
     /// nothing is stopped, signalled or launched.
     fn hold(&self, core: &ServerCore, on: bool) -> Result<(), EnsureError> {
-        self.call(core, HOLD_PATH, &HoldRequest { on }, ANSWER_IDLE)?.map(drop).ok_or_else(|| {
+        self.call(core, HOLD_PATH, &HoldRequest { on, ttl_ms: None }, ANSWER_IDLE)?.map(drop).ok_or_else(|| {
             EnsureError::Core(format!("the core (pid {}) accepted the hold request and sent nothing for {} ms", core.pid, ANSWER_IDLE.as_millis()))
         })
     }

@@ -334,7 +334,7 @@ pub(crate) async fn write_close(threads: &dyn ThreadState, thread: &ThreadId, re
 /// An agent worker's session (`owner: "agent"`, the lead check of `pool-list`: `owner !== 'agent'`). A runtime's own
 /// session is never one: the workers are closed by the runtime's `agentTool.closeAll` (`teardown.mjs:231`), which
 /// detaches each of them and which `OwnerTeardown` already ran.
-fn is_worker(header: &Map<String, Value>) -> bool {
+pub(super) fn is_worker(header: &Map<String, Value>) -> bool {
     header.get("owner").map(mixdog_js::value_to_string).is_some_and(|owner| mixdog_js::js_trim(&owner).eq_ignore_ascii_case("agent"))
 }
 

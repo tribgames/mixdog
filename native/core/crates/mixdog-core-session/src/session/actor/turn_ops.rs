@@ -9,7 +9,7 @@ type FireReply = oneshot::Sender<Result<super::super::quota_resume_scheduler::Fi
 use super::super::quota_lane::failure_text as error_text;
 
 /// Node's `HOLD_REFUSAL` (`daemon-work-gate.mjs`): what a session call the work gate does not allow while it holds is refused with.
-const HOLD_REFUSAL: &str = "daemon is holding new work for an update install";
+pub(super) const HOLD_REFUSAL: &str = "daemon is holding new work for an update install";
 
 /// A manual compaction's answer to its actor. A session closed, deleted or shut down under the compaction has no actor
 /// left to take it: the compaction's result (Node returns it after the close) goes straight to the request waiting for it.
@@ -132,9 +132,14 @@ impl SessionActor {
         let (trigger, require_reduction) = super::super::turn_ops::compact_trigger(options.as_ref());
         let recover = options.as_ref().and_then(|options| options.get("recoverAgent")) == Some(&Value::Bool(true));
         let (compaction, thread, jobs) = (self.deps.compaction.clone(), self.id.clone(), self.jobs_tx.clone());
-        let cancel = mixdog_agent::cancel::Cancel::new();
+        // The compaction is the busy session's running work, which a confirmed stop's abort cancels (Node's forced `shutdown` aborts every
+        // busy session, not only its turn): its cancel is the token the core's lifecycle holds.
+        let token = mixdog_rt::CancellationToken::new();
+        let core_abort = self.hold_core().run(&token);
+        let cancel = mixdog_agent::cancel::Cancel::from_token(&token);
         *self.cell.compaction_cancel.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(cancel.clone());
         tokio::spawn(async move {
+            let _core_abort = core_abort;
             let result = match compaction.compact(&thread, trigger, require_reduction, &cancel).await {
                 Ok(result) => result.unwrap_or(Value::Null),
                 Err(error) => {
@@ -347,14 +352,7 @@ impl SessionActor {
     /// `publicQuotaResume`'s shape ([`mixdog_core_base::quota_resume::Entry::public`]).
     pub(super) fn publish_quota_resume(&mut self) {
         let value = self.quota_entry().and_then(|entry| {
-            let mut public = entry.public();
-            // The wire's `resetAt` is whole milliseconds (`QuotaResume.reset_at`): a fractional reset is cut to its
-            // millisecond rather than leaving the waiting resume unpublished.
-            if entry.reset_at.as_i64().is_none()
-                && let Some(at) = entry.reset_at.as_f64()
-            {
-                public["resetAt"] = json!(at.trunc() as i64);
-            }
+            let public = entry.public();
             match serde_json::from_value::<mixdog_protocol::QuotaResume>(public) {
                 Ok(value) => Some(value),
                 Err(error) => {

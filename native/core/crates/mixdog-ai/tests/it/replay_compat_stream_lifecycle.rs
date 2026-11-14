@@ -46,6 +46,8 @@ async fn replay_requests(set: &CaseSet, id: &str, entry: &str, end: End) {
     let protocol = if entry == "sendCompatResponses" { "openai-responses" } else { "openai-chat" };
     let cfg = json!({
         "type": "custom",
+        "schemaVersion": 2,
+        "name": "Custom",
         "protocol": protocol,
         "baseURL": cfg.get("baseURL").as_str(),
         "apiKey": cfg.get("apiKey").as_str(),

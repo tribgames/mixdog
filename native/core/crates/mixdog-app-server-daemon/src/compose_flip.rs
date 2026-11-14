@@ -450,6 +450,16 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // The one `DesktopNotices` (the `notice` section): the sessions report turn ends and failed saves, the connector hub its sign-in problems (flip-gaps-ai-3).
     let desktop_notices = mixdog_core_domains::notify::desktop_notice::DesktopNotices::new(state.publisher.clone());
     hub.set_sign_in_notices(Arc::new(mixdog_core::run_host::desktop_notices::ConnectorDesktopNotices(desktop_notices.clone())));
+    // `serverConnector` and the tool-name resolver of the connector policy read the hub as it is when a call is judged: a catalog
+    // connector's high-risk tools ask, and a name cut with a hash suffix is told back to its server and tool.
+    connector_policy.set_server_connectors({
+        let hub = hub.clone();
+        Arc::new(move |server: &str| hub.connector_of(server))
+    });
+    connector_policy.set_resolver({
+        let hub = hub.clone();
+        Arc::new(move |name: &str| hub.resolve_any(name))
+    });
     let late = Arc::new(LateDirectory::default());
     hook_bus.bind_scopes(compose_parts::hook_scope(late.clone())).map_err(|_| ComposeError::AlreadyBound("hook scopes"))?;
     // `sessionProjectPaths`: a project's connector switches apply where a loaded thread runs, read off its live header.
@@ -1191,6 +1201,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
 
     // ---- 6. the config-side domains -----------------------------------------------------------
     let domain_inputs = DomainInputs {
+        secrets: secret_changes.clone(),
         voice_manifest,
         tokens: b.tokens.clone(),
         paths: DomainPaths {
@@ -1883,6 +1894,15 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         reap.clone(),
         clock.clone(),
     ));
+    // `sweepRestartFailures`: the recover call and every maintenance pass run it (the pass's timer is started below).
+    let restart_sweeper = Arc::new(crate::restart_sweep::RestartSweeper {
+        registry: Arc::downgrade(&agent_registry),
+        late: late.clone(),
+        reap: reap.clone(),
+        clock: clock.clone(),
+        board: job_board.clone(),
+    });
+    agent_registry.bind_sweeper(restart_sweeper.clone()).map_err(|_| ComposeError::AlreadyBound("agent restart sweep"))?;
     // flip-gaps-pool-3: the computer-use helper pool (`Services.computer` of the tool pool) and its two lifetime hooks. The shells compose hands out as `Arc<dyn OwnedShells>`
     // (`SessionDeletion.shells`, `SessionClose::new`, `AgentSessions::new`, the context-switch host) are the `ReapingShells` decorator, which releases the closing owner's computer
     // session; `SessionDeps.snapshots` is `SettlingSnapshots`, which ends the turn's computer execution and defers the release. Without a helper (`None`) both are the plain values.
@@ -2097,31 +2117,18 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             clock: clock_agent.clone(),
             recover: {
                 // `recoverAgentWorkers()` (`session-ops.mjs:28-31`): the dead-row settlement, the restart notices (unawaited) and the tag refresh, on a Work task, never inline.
-                let (late, agent_registry, reap, clock, board) = (late.clone(), agent_registry.clone(), reap.clone(), clock.clone(), job_board.clone());
+                let (late, agent_registry, restart_sweeper) = (late.clone(), agent_registry.clone(), restart_sweeper.clone());
                 Arc::new(move |thread: &mixdog_core_api::ids::ThreadId| {
                     let Some(directory) = late.directory() else { return };
                     let pid = mixdog_core_session::session::agent_registry::LiveSessions::header(&*directory, thread.as_str())
                         .and_then(|header| mixdog_agent::agent_tool::scope::positive_int(header.get("clientHostPid")))
                         .unwrap_or(u64::from(std::process::id()));
-                    let (agent_registry, reap, clock, board) = (agent_registry.clone(), reap.clone(), clock.clone(), board.clone());
+                    let (agent_registry, restart_sweeper) = (agent_registry.clone(), restart_sweeper.clone());
                     drop(mixdog_rt::spawn("agent-recover", mixdog_rt::TaskClass::Work, async move {
-                        let live = mixdog_core_session::session::agent_registry::restart::Liveness {
-                            probe: &crate::os_probe::OsProbe,
-                            own_pid: u64::from(std::process::id()),
-                            running: &|id| mixdog_core_session::session::agent_registry::LiveSessions::running(&*directory, id),
-                            reap: &*reap,
-                            now_ms: clock.now_ms(),
-                        };
-                        if let Err(error) = agent_registry.recover_stale_worker_rows(true, &live).await {
-                            tracing::warn!(%error, "[agent] restart settlement failed");
-                        }
+                        restart_sweeper.settle().await;
                         {
-                            let (agent_registry, directory, board, stamp) = (agent_registry.clone(), directory.clone(), board.clone(), mixdog_agent::agent_tool::stamp::iso_from_ms(clock.now_ms()));
-                            drop(mixdog_rt::spawn("agent-restart-notify", mixdog_rt::TaskClass::Work, async move {
-                                if let Err(error) = mixdog_core_session::session::agent_registry::restart::notify_restart_failures(&agent_registry, &*directory, &board, &stamp).await {
-                                    tracing::warn!(%error, "[agent] restart notices failed");
-                                }
-                            }));
+                            let restart_sweeper = restart_sweeper.clone();
+                            drop(mixdog_rt::spawn("agent-restart-notify", mixdog_rt::TaskClass::Work, async move { restart_sweeper.notify().await }));
                         }
                         mixdog_agent::agent_tool::host::Registry::refresh_tags_from_sessions(&*agent_registry, true, &mixdog_agent::agent_tool::scope::Scope { caller_session_id: None, host_pid: Some(pid) }).await;
                     }));
@@ -2763,7 +2770,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         Arc::new(crate::compose_domains::HeaderCwds(late_headers.clone())),
     );
     scm_service.watch_folders(core_watcher.clone(), &git_watch_sink); // each `git/watch` follows its work tree on the core's one watcher
-    builder.register(Arc::new(mixdog_scm::service::ScmHandle(scm_service)))?;
+    builder.register(Arc::new(mixdog_scm::service::ScmHandle(scm_service.clone())))?;
     builder.register(Arc::new(mixdog_core_domains::domains::remote_access::RemoteAccessService::new(
         built_remote.runtime.clone(),
         built_remote.registry.clone(),
@@ -3473,7 +3480,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // The five owners of per-connection state (run-host-36); `compose()` binds them into `ComposedCore::connection_owners()`, which `verify_bound` checks.
     let connection_owners = crate::connection_close::ConnectionOwnersCell::default();
     connection_owners
-        .bind(crate::connection_close::ConnectionOwners::new(terminal.clone(), screen.clone(), workspace.clone(), composed.system.clone(), built_remote.registry.clone(), live_view))
+        .bind(crate::connection_close::ConnectionOwners::new(terminal.clone(), screen.clone(), workspace.clone(), composed.system.clone(), built_remote.registry.clone(), live_view, scm_service.clone()))
         .map_err(|_| ComposeError::AlreadyBound("connection owners"))?;
     crate::compose::verify_bound(&[&*late_requests, &*bot_world, &*late_new_place, &*late_draft_settings,&connection_owners, &*late_agent_status, &*late_turn_admission, &*late_live_workspace,&*room_approvals, &*late, &crate::late_session::LateReadinessHook(readiness.clone()), &*late_room_summaries, &*late_computer_hosts, &*late_dispatcher, &*late_catalog, &*late_list_catalog, &*late_listing, &*late_send, &*late_attachments, &*late_bot_sources, &*late_skills, &*project_workspaces, &*bot_summaries, &*late_reactions, &*late_agent_port,&*late_cycle_llm, &*route_positions, &*live_route, &*agent_channels, &*chat_routes, &*routine_sessions, &mixdog_core::run_host::late_chats::LateAgentChats(late.clone()), &*late_setup_ui, &*late_workspaces, &*path.turn_settings, &*late_new_route, &*late_pending_route, &*late_route_session, &*extension_host, &crate::late_session::LateCallerSessions(late.clone()), &mixdog_core::run_host::compose_parts::LateHeaders(late.clone()), &mixdog_core::run_host::compose_parts::HookCommonCell(late.clone()), &crate::late_session::LateMediaProbe(provider_layer.clone()), &*setup_warmup, &crate::setup_host::ModelWarmupCell(model_warmup.clone()), &crate::setup_host::StatuslineWarmupCell(statusline_warmup.clone()), &*b.thread_gates, &*agent_evidence, &*session_facts, &*held_home, &*live_route, &*tool_surface])?;
     Ok(Real { defaults_separation, control_route_sync, late_lifecycle, connection_owners, local_dialer: late_dialer.clone(), remote: built_remote, directory, agent_dispatch, agent_host, code_graph_cache, exec: b.exec.clone(), maintenance_io: b.tokens.maintenance_io, domains, config, close_requested, resume_timer, goal_recovery, worktree_stop, maintenance_stop, worktree_task, maintenance_loop: std::sync::Mutex::new(maintenance_loop), ledgers: ledger_source, computer: computer_pool, terminal, room_host: room_host_registration, channels: channel_runtime, channel_calls, channel_config_follow, config_watch: composed.watcher, memory, log: b.log.clone(), publisher: state.publisher.clone(), gateway_routes: gateway_settle, model_proxy, event_pipeline, catalog_index: catalog_handle, heartbeat, heartbeat_run: Arc::default(), sub_agent_retention: Arc::default(), archive_stamps, core_state: b.core_state.clone(), skip_memory, gateway_usage, workers: workers.clone(), #[cfg(feature = "replay-controls")] replay_writers: crate::replay_stores_settled::WriteBehind { workers, read_state: read_state.clone() }, #[cfg(test)] turn_review, #[cfg(test)] tool_pool: kept_tool_pool, #[cfg(test)] mcp_glue: kept_mcp_glue })

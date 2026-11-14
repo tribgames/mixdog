@@ -2057,6 +2057,9 @@ impl super::delete::DeleteSeams for Deletes {
     fn release_mcp_scope(&self, session_id: &str) {
         lock(&self.2).push(session_id.to_owned());
     }
+    fn unload_mcp_scope(&self, session_id: &str) {
+        self.note(format!("unloadMcpScope:{session_id}"));
+    }
     fn forget_session_search(&self, session_id: &str) {
         self.note(format!("forgetSessionSearch:{session_id}"));
     }

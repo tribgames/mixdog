@@ -24,7 +24,8 @@ pub const EXIT2_BLOCK_EVENTS: [&str; 14] = [
     "ElicitationResult",
 ];
 
-pub const TOP_LEVEL_DECISION_EVENTS: [&str; 9] = [
+pub const TOP_LEVEL_DECISION_EVENTS: [&str; 10] = [
+    "PreToolUse",
     "UserPromptSubmit",
     "UserPromptExpansion",
     "PostToolUse",
@@ -104,6 +105,8 @@ pub fn handler_timeout(handler: &Value, event: &str) -> Duration {
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct Parsed {
     pub block: bool,
+    /// `continue: false`: the handler asked for the run to stop (a Stop hook's block then does not continue the turn).
+    pub prevent_continuation: bool,
     pub reason: Option<String>,
     pub updated_input: Option<Value>,
     pub updated_tool_name: Option<String>,
@@ -160,12 +163,22 @@ pub fn parse_handler_output(run: &HandlerRun, event: &str) -> Parsed {
     }
     if json.get("continue") == Some(&Value::Bool(false)) {
         out.block = true;
+        out.prevent_continuation = true;
         let text = non_empty(json.get("stopReason"))
             .or_else(|| non_empty(json.get("reason")))
             .unwrap_or_else(|| format!("stopped by {event} hook"));
         out.reason = Some(limit_text(text));
     }
-    if json.get("decision").and_then(Value::as_str) == Some("block") && TOP_LEVEL_DECISION_EVENTS.contains(&event) {
+    // A PreToolUse `permissionDecision` in `hookSpecificOutput` takes precedence over the top-level
+    // `decision` (Claude Code and Codex): the top-level block then does not apply.
+    let specific_permission = event == "PreToolUse"
+        && json
+            .get("hookSpecificOutput")
+            .filter(|h| h.is_object())
+            .filter(|h| h.get("hookEventName").is_none_or(|n| n.is_null() || n.as_str() == Some(event)))
+            .and_then(|h| h.get("permissionDecision"))
+            .is_some_and(|v| !v.is_null() && v.as_str() != Some(""));
+    if json.get("decision").and_then(Value::as_str) == Some("block") && TOP_LEVEL_DECISION_EVENTS.contains(&event) && !specific_permission {
         out.block = true;
         let text = non_empty(json.get("reason"))
             .or_else(|| out.reason.clone().filter(|r| !r.is_empty()))
@@ -244,6 +257,7 @@ fn js_string(value: &Value) -> String {
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct Aggregate {
     pub blocked: bool,
+    pub prevent_continuation: bool,
     pub reason: Option<String>,
     pub updated_input: Option<Value>,
     pub updated_tool_name: Option<String>,
@@ -263,6 +277,7 @@ impl Aggregate {
 
     /// First value wins for rewrites; a block or an ask is recorded once.
     pub fn fold(&mut self, parsed: Parsed) {
+        self.prevent_continuation |= parsed.prevent_continuation;
         if let Some(context) = parsed.additional_context.filter(|c| !c.is_empty()) {
             self.additional_context.push(context);
         }
@@ -344,8 +359,25 @@ mod tests {
         assert_eq!(parse_handler_output(&run(0, "hello", ""), "SessionStart").additional_context.as_deref(), Some("hello"));
         assert_eq!(parse_handler_output(&run(0, "hello", ""), "PreToolUse").additional_context, None);
         assert!(parse_handler_output(&run(0, r#"{"decision":"block","reason":"r"}"#, ""), "Stop").block);
-        assert!(!parse_handler_output(&run(0, r#"{"decision":"block"}"#, ""), "PreToolUse").block);
         assert!(parse_handler_output(&run(0, r#"{"continue":false}"#, ""), "PreToolUse").block);
+        let stopped = parse_handler_output(&run(0, r#"{"continue":false,"decision":"block","reason":"r"}"#, ""), "Stop");
+        assert!(stopped.block && stopped.prevent_continuation);
+        assert!(!parse_handler_output(&run(0, r#"{"decision":"block","reason":"r"}"#, ""), "Stop").prevent_continuation);
+    }
+
+    /// Deliberate difference from Node (owner-approved, B-3): a top-level `decision: "block"` blocks a
+    /// PreToolUse call, with a default reason when none is given; `hookSpecificOutput.permissionDecision`
+    /// wins over it.
+    #[test]
+    fn a_top_level_block_stops_a_pretool_call_unless_a_permission_decision_is_given() {
+        let with_reason = parse_handler_output(&run(0, r#"{"decision":"block","reason":"nope"}"#, ""), "PreToolUse");
+        assert!(with_reason.block);
+        assert_eq!(with_reason.reason.as_deref(), Some("nope"));
+        let bare = parse_handler_output(&run(0, r#"{"decision":"block"}"#, ""), "PreToolUse");
+        assert!(bare.block);
+        assert_eq!(bare.reason.as_deref(), Some("blocked by PreToolUse hook"));
+        let allowed = r#"{"decision":"block","reason":"x","hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"}}"#;
+        assert!(!parse_handler_output(&run(0, allowed, ""), "PreToolUse").block);
     }
 
     #[test]

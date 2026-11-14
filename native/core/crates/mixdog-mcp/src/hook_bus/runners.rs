@@ -28,6 +28,8 @@ use mixdog_core_api::domain::process::ProcessManager;
 use mixdog_core_api::domain::process::ProcessOwner;
 use mixdog_core_api::domain::process::SpawnRequest;
 use mixdog_protocol::ProcessHandle;
+use mixdog_tools::exec::codepage::decode_shell_bytes;
+use mixdog_tools::exec::codepage::host_oem;
 use mixdog_tools::exec::signal_name;
 use serde_json::Value;
 use url::Url;
@@ -200,7 +202,7 @@ impl CommandRunner {
         };
         guard.armed = false;
         let stdout = String::from_utf8_lossy(&stdout).into_owned();
-        let stderr_text = String::from_utf8_lossy(&stderr).into_owned();
+        let stderr_text = decode_shell_bytes(&stderr, host_oem());
         let Some(exit) = exit else { return HandlerRun::failed("hook process events ended without an exit", false) };
         if exit.killed == Some(KillReason::TimeLimit) {
             return HandlerRun {

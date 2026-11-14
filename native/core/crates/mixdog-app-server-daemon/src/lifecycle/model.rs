@@ -264,5 +264,9 @@ pub enum Effect {
     ArmGrace { generation: u64, delay: std::time::Duration },
     /// A client attached inside the grace: the pending timer is dropped.
     CancelGrace,
+    /// A hold was taken: [`super::Machine::hold_expired`] is called with `generation` after `delay`, the hold's TTL.
+    ArmHold { generation: u64, delay: std::time::Duration },
+    /// The hold ended before its TTL: the pending timer is dropped.
+    CancelHold,
     BeginRelease(ReleaseCause),
 }

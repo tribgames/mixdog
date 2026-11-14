@@ -127,6 +127,40 @@ async fn the_tail_ingest_matches_the_recorded_node_run() {
     assert!(reloaded.get_offset(&file).is_none());
 }
 
+/// A session whose own ingest (a close or a recall) and whose transcript both reach memory is stored once, in either order:
+/// the transcript line takes over the row the session's ingest stored, and the session's ingest skips what the transcript holds.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: needs Postgres (MIXDOG_PG_RUNTIME)"]
+async fn a_session_in_both_the_session_ingest_and_the_transcript_is_stored_once() {
+    let pg = TestPg::start().await;
+    let db = memory_db(&pg).await;
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("sess_both.jsonl");
+    let user = |text: &str| json!({"type": "user", "message": {"content": text}, "ts": 1_700_000_000});
+    let messages = json!([{"role": "user", "content": "the same question", "ts": 1_700_000_000}]);
+    let sessions = crate::memory::ingest::SessionIngest::new(
+        db.clone(),
+        Arc::new(crate::memory::ingest::embed_flush::RawEmbedFlush::new(db.clone(), None)),
+        None,
+        Arc::new(now_ms),
+        mixdog_rt::testing::tokens().durability_io,
+    );
+    let transcripts = TranscriptIngest::new(db.clone(), io(), Arc::new(now_ms));
+    let sources = || async { stored_rows(&db).await.iter().map(|row| row["sourceRef"].as_str().unwrap().to_owned()).collect::<Vec<_>>() };
+
+    // The session's ingest first: the transcript line takes its row over.
+    sessions.ingest_session(&json!({"sessionId": "sess_both", "cwd": dir.path(), "messages": messages})).await.unwrap();
+    assert!(sources().await[0].starts_with("session:"));
+    std::fs::write(&file, format!("{}\n", line(&user("the same question")))).unwrap();
+    assert_eq!(transcripts.ingest_transcript_file(&file, Some(dir.path())).await.unwrap(), 0);
+    assert_eq!(sources().await, vec!["transcript:sess_both#1".to_owned()]);
+
+    // The session's ingest again: the transcript holds the message, nothing is added.
+    sessions.ingest_session(&json!({"sessionId": "sess_both", "cwd": dir.path(), "messages": messages})).await.unwrap();
+    assert_eq!(sources().await, vec!["transcript:sess_both#1".to_owned()]);
+    sessions.settle().await;
+}
+
 /// `fixtures/session-transcript/restart.json`: the turn's transcript was written and the writing runtime was gone before
 /// any ingest ran (the kill between save and feed). Node's watcher ingest then stores every line once, across a start
 /// killed after its inserts but before its read position was persisted (the next start sends the same rows again, which

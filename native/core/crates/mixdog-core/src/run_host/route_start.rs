@@ -112,6 +112,12 @@ impl NewThreadRoute for LateNewRoute {
             route.boot(thread, header);
         }
     }
+
+    async fn prepare(&self, thread: &ThreadId) {
+        if let Some(route) = self.0.get() {
+            route.prepare(thread).await;
+        }
+    }
 }
 
 impl Bound for LateNewRoute {

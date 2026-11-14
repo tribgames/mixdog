@@ -399,14 +399,19 @@ pub(crate) mod tests {
 
     /// A loaded session answers Node's `contextStatusForSession` record for every golden case
     /// (the transcript read from its stored rows, the request tools made of its stored tools);
-    /// a thread that is not loaded answers `null`.
+    /// a thread that is not loaded answers `null`. Node's `session.messages` lead with the system prompt; the core keeps it in
+    /// the header (`promptBase`) and drops a stored leading system row on load, so each case states its prompt there.
     #[tokio::test]
     async fn live_session_status_equals_nodes() {
         let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/context-status/golden.json")).expect("golden");
         let mut compared = 0;
         for case in golden["cases"].as_array().expect("cases") {
             let name = case["name"].as_str().expect("name");
-            let host = LiveContextStatus::new(Arc::new(world(case)));
+            let mut case = case.clone();
+            if case["messages"][0]["role"] == "system" {
+                case["header"]["promptBase"] = case["messages"][0]["content"].clone();
+            }
+            let host = LiveContextStatus::new(Arc::new(world(&case)));
             let answer = host.context_status(Some(ThreadId::from(name.to_owned())), None).await.expect("status");
             assert_eq!(answer, case["status"], "{name}");
             compared += 1;

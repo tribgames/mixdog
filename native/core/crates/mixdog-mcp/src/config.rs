@@ -120,6 +120,9 @@ pub struct McpServerConfig {
     /// What the configuration could not resolve but connects with anyway (`missingEnvWarnings`: the unset variables of a
     /// server that is not strict about them, names only); logged at each connect.
     pub warnings: Vec<String>,
+    /// Why the server cannot connect: the plugin data folder it needs could not be made (`ensurePluginServerData`
+    /// throws before its connect). The connect fails with this text.
+    pub blocked: Option<String>,
 }
 
 /// `mcpLog` (mcp/client.mjs:147): the client's own log lines are dropped while `MIXDOG_QUIET_MCP_LOG` is set to
@@ -685,6 +688,7 @@ impl McpServerConfig {
             roots_follow_scope: entry.get("_mixdogRootsFollowScope").and_then(Value::as_bool) == Some(true),
             project_root,
             warnings,
+            blocked: None,
             shutdown_grace: DEFAULT_SHUTDOWN_GRACE,
             outbound_kinds: string_map(entry.get("outbound"))
                 .into_iter()

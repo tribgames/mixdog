@@ -15,6 +15,12 @@ use super::{Position, TranscriptIngest};
 use crate::memory::error::Result;
 use crate::memory::project::resolve_project_id;
 
+/// Gives the oldest `session:` row of the same session, role and text (stored by the session's own ingest) the transcript line's reference.
+/// A reference that is already stored is left alone: that line was stored before.
+const ADOPT_SESSION_ROW_SQL: &str = "UPDATE entries SET source_ref = $1
+     WHERE id = (SELECT id FROM entries WHERE session_id = $2 AND role = $3 AND content = $4 AND source_ref LIKE 'session:%' ORDER BY id LIMIT 1)
+       AND NOT EXISTS (SELECT 1 FROM entries WHERE source_ref = $1)";
+
 /// Bytes appended since `prev`; none when there is nothing new. A truncate or rewrite (size below
 /// the persisted offset) restarts at zero and bumps the generation: the rewritten lines would
 /// otherwise reuse the same `transcript:<uuid>#<index>` references and be dropped by
@@ -109,15 +115,24 @@ pub async fn ingest_transcript_tail(ingest: &TranscriptIngest, path: &Path, cwd:
                 break;
             }
             let (ts, turn) = (row.ts_ms as i64, index as i32);
-            let inserted = ingest
-                .db
-                .execute(
-                    "INSERT INTO entries(ts, role, content, source_ref, session_id, source_turn, project_id, time_source)
+            // A line the session's own ingest stored first (a `session:` row of the same message) is that row: it takes the line's
+            // reference instead of a second copy coming back from recall.
+            let adopted = ingest.db.execute(ADOPT_SESSION_ROW_SQL, &[&reference, &uuid, &row.role, &row.content]).await;
+            let inserted = match adopted {
+                Ok(0) => {
+                    ingest
+                        .db
+                        .execute(
+                            "INSERT INTO entries(ts, role, content, source_ref, session_id, source_turn, project_id, time_source)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
            ON CONFLICT DO NOTHING",
-                    &[&ts, &row.role, &row.content, &reference, &uuid, &turn, &project_id, &row.time_source],
-                )
-                .await;
+                            &[&ts, &row.role, &row.content, &reference, &uuid, &turn, &project_id, &row.time_source],
+                        )
+                        .await
+                }
+                Ok(_) => Ok(0),
+                Err(error) => Err(error),
+            };
             inserts += 1;
             // The kill-point matrix of a restart (`memory/tests/jobs.rs`): the process dies after its n-th insert
             // returned, before the position is saved. A no-op without the `kill-points` feature.

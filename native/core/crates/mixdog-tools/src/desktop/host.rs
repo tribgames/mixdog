@@ -163,7 +163,8 @@ impl HostCommands for ChannelHostCommands {
 /// command: the context names the thread, the action and the turn the command carries; `body` is the bridge's reply as
 /// far as the row reads it (`{ok: true, value: {timing}}` from a result, `{ok: false, timing}` from the host's error's
 /// `data.timing`). A command that ended with no answer to read (cancelled, or its host closed or replaced after it was
-/// sent) has no body, as Node's fetch that failed. No HTTP leg remains, so there is no `status`. `None` when no host held
+/// sent) has no body and no `status`, as Node's fetch that failed. Every answer the desktop's bridge gives a command, a
+/// refusal too, is HTTP 200 (`bridge-server.ts` `reply`), and that is the row's `http_status`. `None` when no host held
 /// the role (`capabilityUnavailable{noClaimant}`): nothing was sent, as Node sent nothing without a bridge in discovery.
 fn browser_timing_args(
     thread: &ThreadId,
@@ -189,6 +190,7 @@ fn browser_timing_args(
     args.insert("bridgeMs".to_owned(), serde_json::json!(elapsed_ms));
     if let Some(body) = body {
         args.insert("body".to_owned(), body);
+        args.insert("status".to_owned(), serde_json::json!(200));
     }
     Some(args)
 }
@@ -365,6 +367,7 @@ mod tests {
             .iter()
             .map(|row| {
                 assert!(row["bridgeMs"].as_f64().is_some_and(|ms| ms >= 0.0), "{row:?}");
+                assert_eq!(row.get("status").cloned(), row.get("body").map(|_| json!(200)), "an answered command is HTTP 200, one without an answer has no status");
                 (row["context"].clone(), row.get("body").cloned())
             })
             .collect();

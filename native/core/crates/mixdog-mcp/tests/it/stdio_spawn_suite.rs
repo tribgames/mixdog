@@ -119,13 +119,26 @@ async fn a_stdio_server_that_fails_reads_as_nodes_row() {
             connected.unwrap();
             case["status"]["error"].as_str().unwrap()
         } else {
-            assert_eq!(connected.unwrap_err().to_string(), case["failure"].as_str().unwrap(), "{name}");
+            same_as_node(&connected.unwrap_err().to_string(), case["failure"].as_str().unwrap(), name);
             case["failure"].as_str().unwrap()
         };
         let mut states = server.subscribe();
         let state = states.wait_for(|s| matches!(**s, ServerState::Failed { .. })).await.unwrap().clone();
         let ServerState::Failed { cause } = &*state else { unreachable!() };
-        assert_eq!(cause, published, "{name}");
+        same_as_node(cause, published, name);
         server.close().await;
+    }
+}
+
+/// `got` reads as Node's row `want`, except a server stderr Node decoded as UTF-8 from the console's OEM code page (its
+/// replacement characters): the core decodes it with that code page (B-9), so only the text before the stderr tail is Node's.
+fn same_as_node(got: &str, want: &str, name: &str) {
+    const TAIL: &str = "--- server stderr (tail) ---";
+    match want.split_once(TAIL) {
+        Some((head, _)) if want.contains('\u{FFFD}') => {
+            assert!(got.starts_with(&format!("{head}{TAIL}")), "{name}: {got:?}");
+            assert!(!got.contains('\u{FFFD}'), "{name}: the stderr tail is decoded with the OEM code page: {got:?}");
+        }
+        _ => assert_eq!(got, want, "{name}"),
     }
 }

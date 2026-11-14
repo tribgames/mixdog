@@ -452,6 +452,20 @@ impl McpHub {
         self.in_scope(scope).into_iter().find(|s| s.name() == name)
     }
 
+    /// `serverConnector(name)`: the catalog connector of the server `name` in whichever scope connects it.
+    pub fn connector_of(&self, name: &str) -> Option<String> {
+        self.servers.load().values().flatten().find(|server| server.name() == name).and_then(|server| server.config().connector.clone())
+    }
+
+    /// The server's name and its own name for the tool a qualified name was published for, in any scope: how a name cut with a
+    /// hash suffix is told back (what the connector policy judges a call by).
+    pub fn resolve_any(&self, qualified: &str) -> Option<(String, String)> {
+        self.servers.load().values().flatten().find_map(|server| {
+            let entry = server.catalog()?.entries.iter().find(|entry| entry.qualified == qualified)?.clone();
+            Some((server.name().to_owned(), entry.tool.clone()))
+        })
+    }
+
     /// The default scope's servers in insertion order.
     pub fn servers(&self) -> Vec<Arc<McpServer>> {
         self.servers_in(&self.default_scope())

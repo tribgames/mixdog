@@ -173,6 +173,15 @@ pub fn seed_changes(config: &Doc, changes: &[ConfigChange]) -> Vec<ConfigChange>
     }
 }
 
+/// `[...changes, ...seedChanges(adopted, changes)]` of `saveConfigAndAdopt`: the seeds join a patch that is not empty.
+pub fn with_seeds(after: &Doc, mut changes: Vec<ConfigChange>) -> Vec<ConfigChange> {
+    if !changes.is_empty() {
+        let seeds = seed_changes(after, &changes);
+        changes.extend(seeds);
+    }
+    changes
+}
+
 /// `canonicalizeShellStorage` (config-storage.mjs): the command under its one name (`command` ?? `path` ?? `executable` ?? `shell`,
 /// trimmed), no other alias, and an empty section is absent.
 fn canonical_shell(value: Option<&Value>) -> Option<Doc> {

@@ -21,6 +21,8 @@ use serde_json::json;
 use sha2::Digest;
 use sha2::Sha256;
 
+use mixdog_ai::providers::custom::config::normalize as normalize_custom;
+
 use super::route::clean;
 use super::route::validate_explicit_route;
 
@@ -42,6 +44,8 @@ pub struct BoundaryRequest<'a> {
     pub model: &'a str,
     pub effort: Option<&'a str>,
     pub fast: bool,
+    /// `--provider-config`: the file or JSON of the one custom provider entry the run may use.
+    pub provider_config: Option<&'a str>,
     pub host_env: &'a BTreeMap<String, String>,
     pub host_data_dir: &'a Path,
     pub temp_dir: &'a Path,
@@ -91,7 +95,7 @@ fn strings(value: &Value) -> Vec<String> {
     value.as_array().expect("a contract list").iter().map(|item| item.as_str().expect("a contract string").to_owned()).collect()
 }
 
-fn minimal_config(contract: &Value, provider: &str, model: &str, effort: &str, fast: bool) -> Value {
+fn minimal_config(contract: &Value, provider: &str, model: &str, effort: &str, fast: bool, custom: Option<&Value>) -> Value {
     let mut route = Map::new();
     route.insert("provider".into(), json!(provider));
     route.insert("model".into(), json!(model));
@@ -101,7 +105,7 @@ fn minimal_config(contract: &Value, provider: &str, model: &str, effort: &str, f
     if fast {
         route.insert("fast".into(), json!(true));
     }
-    let mut provider_config = Map::new();
+    let mut provider_config = custom.and_then(Value::as_object).cloned().unwrap_or_default();
     provider_config.insert("enabled".into(), json!(true));
     if provider == "openai-oauth" {
         provider_config.insert("websocket".into(), json!(true));
@@ -135,6 +139,31 @@ fn minimal_config(contract: &Value, provider: &str, model: &str, effort: &str, f
     json!({ "agent": Value::Object(agent) })
 }
 
+/// `--provider-config` (decision B-8, a deliberate difference from Node): the one custom provider entry the run
+/// may use, named by the `--provider` it defines (`{"custom-x": {...}}`, inline JSON or a file). It is validated as
+/// the settings validate a custom provider and holds no inline secret: the key is read from the environment
+/// variable it names. The default stays pristine; the host's config is never read.
+fn explicit_provider_entry(provider: &str, raw: &str) -> Result<Value, String> {
+    let raw = clean(Some(raw));
+    let text = if raw.starts_with('{') { raw.to_owned() } else { std::fs::read_to_string(raw).map_err(|err| format!("--provider-config {raw}: {err}"))? };
+    let document: Value = serde_json::from_str(&text).map_err(|err| format!("--provider-config is not valid JSON: {err}"))?;
+    let entry = document.as_object().filter(|map| map.len() == 1).and_then(|map| map.get(provider));
+    let Some(entry) = entry.filter(|_| provider.starts_with("custom-")) else {
+        return Err(format!("--provider-config must define exactly the custom provider named by --provider as {{\"{provider}\": {{...}}}}"));
+    };
+    if entry.get("apiKey").is_some() {
+        return Err("--provider-config must not hold an inline apiKey; name the environment variable in apiKeyEnv".into());
+    }
+    let normalized = normalize_custom(entry)?;
+    if normalized["enabled"] == json!(false) {
+        return Err("--provider-config defines a disabled provider".into());
+    }
+    if normalized["auth"] == json!("key") && normalized.get("apiKeyEnv").is_none() {
+        return Err("--provider-config must name the environment variable of the key in apiKeyEnv".into());
+    }
+    Ok(normalized)
+}
+
 fn audit_document(contract: &Value, request: &BoundaryRequest<'_>, effort: &str, config_bytes: &[u8], auth_mode: &str, catalogs: u32) -> Value {
     let mut personal = Map::new();
     personal.insert("hostConfigRead".into(), json!(false));
@@ -142,7 +171,7 @@ fn audit_document(contract: &Value, request: &BoundaryRequest<'_>, effort: &str,
         personal.insert(name, json!(0));
     }
     let features: Map<String, Value> = strings(&contract["disabledFeatures"]).into_iter().map(|name| (name, json!(false))).collect();
-    json!({
+    let mut audit = json!({
         "schemaVersion": contract["schemaVersion"],
         "mode": "headless-exec-pristine",
         "provider": clean(Some(request.provider)),
@@ -155,7 +184,11 @@ fn audit_document(contract: &Value, request: &BoundaryRequest<'_>, effort: &str,
         "injectedModelCatalogFileCount": catalogs,
         "personalState": Value::Object(personal),
         "featuresEnabled": Value::Object(features),
-    })
+    });
+    if request.provider_config.is_some() {
+        audit["providerConfigSource"] = json!("explicit");
+    }
+    audit
 }
 
 fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
@@ -180,7 +213,7 @@ fn create_private_dir(path: &Path) -> std::io::Result<()> {
 
 /// The environment the run sees: every `MIXDOG_*` and credential variable of the host removed, the
 /// root's own paths, the contract's operational controls inherited, the guard variables forced.
-fn scrubbed_env(contract: &Value, host_env: &BTreeMap<String, String>, root: &Path, data: &Path, runtime: &Path) -> BTreeMap<String, Option<String>> {
+fn scrubbed_env(contract: &Value, host_env: &BTreeMap<String, String>, root: &Path, data: &Path, runtime: &Path, key_env: Option<&str>) -> BTreeMap<String, Option<String>> {
     let mut env: BTreeMap<String, Option<String>> = BTreeMap::new();
     for name in host_env.keys().filter(|name| name.starts_with("MIXDOG_")) {
         env.insert(name.clone(), None);
@@ -190,6 +223,9 @@ fn scrubbed_env(contract: &Value, host_env: &BTreeMap<String, String>, root: &Pa
     }
     for name in contract["apiKeyProviders"].as_object().expect("apiKeyProviders").values() {
         env.insert(name.as_str().expect("an env name").to_owned(), None);
+    }
+    if let Some(name) = key_env {
+        env.insert(name.to_owned(), None);
     }
     for (_, aliases) in KEY_ALIASES {
         for alias in aliases {
@@ -238,11 +274,18 @@ impl Boundary {
         create_private_dir(&runtime_root).map_err(|err| err.to_string())?;
 
         let oauth = contract["oauthProviders"].get(provider);
-        let api_key_env = contract["apiKeyProviders"].get(provider).and_then(Value::as_str);
+        let custom = request.provider_config.map(|raw| explicit_provider_entry(provider, raw)).transpose()?;
+        if custom.is_none() && provider.starts_with("custom-") {
+            return Err(format!("{provider} is a custom provider with no endpoint in a pristine run; pass --provider-config <file-or-json> to define it"));
+        }
+        let api_key_env = contract["apiKeyProviders"].get(provider).and_then(Value::as_str).or_else(|| custom.as_ref().and_then(|entry| entry["apiKeyEnv"].as_str()));
         // Resolved before the environment is scrubbed: the selected provider may use any of its
         // standard names or its one keychain account, and nothing else is scanned.
-        let api_key = api_key_env.and_then(|_| request.credentials.api_key(provider)).map(|key| clean(Some(&key)).to_owned()).filter(|key| !key.is_empty());
-        let env = scrubbed_env(contract, request.host_env, root_dir, &data_dir, &runtime_root);
+        let api_key = match &custom {
+            Some(_) => api_key_env.and_then(|name| request.host_env.get(name)).map(|key| clean(Some(key)).to_owned()).filter(|key| !key.is_empty()),
+            None => api_key_env.and_then(|_| request.credentials.api_key(provider)).map(|key| clean(Some(&key)).to_owned()).filter(|key| !key.is_empty()),
+        };
+        let env = scrubbed_env(contract, request.host_env, root_dir, &data_dir, &runtime_root, custom.as_ref().and(api_key_env));
 
         let mut auth_mode = "provider-managed";
         let mut catalogs = 0;
@@ -278,12 +321,14 @@ impl Boundary {
             auth_mode = "in-process-api-key";
         }
 
-        let config = minimal_config(contract, provider, model, effort, request.fast);
+        let config = minimal_config(contract, provider, model, effort, request.fast, custom.as_ref());
         let config_bytes = format!("{}\n", serde_json::to_string_pretty(&config).expect("a config serializes"));
         write_private(&data_dir.join(contract["configFileName"].as_str().expect("configFileName")), config_bytes.as_bytes()).map_err(|err| err.to_string())?;
         let mut runtime_config = config["agent"].clone();
         let mut selected = runtime_config["providers"][provider].as_object().cloned().unwrap_or_default();
         selected.insert("enabled".into(), json!(true));
+        // The key is bound in memory: the variable that held it is gone from the run's environment.
+        selected.remove("apiKeyEnv");
         if let Some(key) = &api_key {
             selected.insert("apiKey".into(), json!(key));
         }

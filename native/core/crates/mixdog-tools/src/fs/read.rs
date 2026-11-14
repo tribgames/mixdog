@@ -44,7 +44,7 @@ const READ_SPEC: &str = include_str!("specs/read.json");
 const MAX_FILE_BYTES: u64 = 10 * 1024 * 1024;
 /// A notebook text output longer than this (UTF-16 units) is named by a `jq` hint instead (`IPYNB_OUTPUT_MAX_CHARS`).
 const IPYNB_OUTPUT_MAX_CHARS: usize = 10_000;
-const IPYNB_RANGE_REFUSAL: &str = "Error: range args (offset/limit/line) are not supported for .ipynb extraction — cells are not line-addressable; rename to .json or call read on a converted file for line-level access";
+pub(super) const IPYNB_RANGE_REFUSAL: &str = "Error: range args (offset/limit/line) are not supported for .ipynb extraction — cells are not line-addressable; rename to .json or call read on a converted file for line-level access";
 /// Node's inline-view cap, the refusal when there is no resizer (`MAX_IMAGE_BYTES`).
 const IMAGE_MAX_BYTES: usize = 3_750_000;
 /// The hard API ceiling on an inline image's base64 length (`API_IMAGE_MAX_BASE64_SIZE`).
@@ -117,6 +117,8 @@ struct Entry {
     offset: u64,
     limit: u64,
     ranged: bool,
+    /// The window is the guard's default, not one the caller named (`BEntry::injected`).
+    injected: bool,
     full: bool,
     base: u64,
 }
@@ -276,12 +278,16 @@ fn parse_public(args: &JsonValue) -> Result<Public, ToolError> {
             entries.push(BEntry { path: path.to_owned(), offset: Some(0.0), limit: Some(n as f64), tail: Some(n as u64), ..BEntry::default() });
             continue;
         }
+        let named = |own: Option<&JsonValue>, key: &str, unset: bool| {
+            own.or_else(|| args.get(key)).is_some_and(|v| !(unset && as_int(v) == Some(0)))
+        };
+        let injected = !named(offset, "offset", false) && !named(limit, "limit", true);
         let offset = window_value(offset, default_offset.expect("validated"), false);
         let limit = window_value(limit, default_limit.expect("validated"), true);
         let Some((offset, limit)) = valid_window(offset, limit) else {
             return Err(bad("offset", "range", format!("read target {} {WINDOW_RANGE_TEXT}", index + 1)));
         };
-        entries.push(BEntry { path: path.to_owned(), offset: Some(offset as f64), limit: Some(limit as f64), ..BEntry::default() });
+        entries.push(BEntry { path: path.to_owned(), offset: Some(offset as f64), limit: Some(limit as f64), injected, ..BEntry::default() });
     }
     // The cap counts distinct files, not windows; files past it are named to the caller.
     let mut kept: Vec<String> = Vec::new();
@@ -404,7 +410,7 @@ impl ReadTool {
             };
             return Err(invalid("args", "type", text));
         };
-        read_legacy::guard_read(&mut map).map_err(|text| invalid("path", "guard", text))?;
+        let injected = read_legacy::guard_read(&mut map).map_err(|text| invalid("path", "guard", text))?;
         if let Some(state) = &self.state {
             state.ensure_scope(&scope_of(ctx)).await;
         }
@@ -418,6 +424,7 @@ impl ReadTool {
                     limit: map.get("limit").and_then(JsonValue::as_f64),
                     full: map.get("full").and_then(JsonValue::as_bool),
                     tail: map.get("tail").and_then(js_tail),
+                    injected,
                     ..BEntry::default()
                 };
                 if be.tail.is_some() && !(has_glob_magic(&be.path) && !exists(ctx, &be.path).await) {
@@ -426,7 +433,7 @@ impl ReadTool {
                 }
                 self.run_top(ctx, be, 0, map.get("pages")).await
             }
-            Some(JsonValue::Array(items)) => self.legacy_batch(ctx, &map, &items).await,
+            Some(JsonValue::Array(items)) => self.legacy_batch(ctx, &map, &items, injected).await,
             other => {
                 let got = read_legacy::describe_type(&other.unwrap_or(JsonValue::Null));
                 Err(invalid("path", "type", format!("Error: read arg \"path\" must be string, string[], or object[] (got {got})")))
@@ -437,7 +444,7 @@ impl ReadTool {
     /// `executeBatchRead` over a `path` array. Region objects (`batchEntriesFromArgs` /
     /// `objectBatchEntry`) carry their own options and are merged and coalesced; a string, or an
     /// object met after a string, takes the call's.
-    async fn legacy_batch(&self, ctx: &ToolContext, map: &read_legacy::Obj, items: &[JsonValue]) -> ToolOutcome {
+    async fn legacy_batch(&self, ctx: &ToolContext, map: &read_legacy::Obj, items: &[JsonValue], injected: bool) -> ToolOutcome {
         let object = matches!(items.first(), Some(JsonValue::Object(_)));
         let mut entries = Vec::with_capacity(items.len());
         for item in items {
@@ -478,6 +485,7 @@ impl ReadTool {
                 limit,
                 full: pick("full").and_then(JsonValue::as_bool),
                 tail: if object { item.get("tail").and_then(js_tail) } else { None },
+                injected,
                 ..BEntry::default()
             };
             self.resolve_tail(ctx, &mut entry, raw_path).await;
@@ -969,9 +977,8 @@ impl ReadTool {
 
     /// The URL refusal, the window-beats-mode rule, a `path:line` coordinate, and the glance modes.
     async fn plan(&self, ctx: &ToolContext, be: &BEntry) -> Result<Plan, ToolError> {
-        static URL: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-        if URL.get_or_init(|| regex::Regex::new(r"(?i)^\s*https?://").expect("a fixed pattern")).is_match(&be.path) {
-            return Ok(Plan::Text("Error: this is a URL; use web_fetch".to_owned()));
+        if url_as_path(&be.path) {
+            return Ok(Plan::Text(URL_AS_PATH.to_owned()));
         }
         let path = normalize_input_path(&be.path);
         if path.is_empty() {
@@ -993,6 +1000,7 @@ impl ReadTool {
                 limit = Some((end.unwrap_or(*start) as f64 - *start as f64 + 1.0).max(1.0));
             }
         }
+        let injected = be.injected && coordinate.is_none();
         let path = coordinate.map_or(path, |c| c.0);
         if let Some(mode @ ("head" | "tail" | "count" | "summary" | "hex")) = mode {
             return Ok(Plan::Glance { path, mode: mode.to_owned(), n: be.n.clone(), offset });
@@ -1006,6 +1014,7 @@ impl ReadTool {
             },
             limit: limit_arg(limit, if full { u64::MAX } else { 2000 }),
             ranged: offset.is_some() || limit.is_some(),
+            injected,
             full,
             base: 0,
         }))
@@ -1074,6 +1083,8 @@ impl ReadTool {
                 offset: be.offset,
                 limit: Some(limit),
                 full: be.full,
+                // The survey's own limit is no window the caller named (B-1).
+                injected: be.injected || (be.offset.is_none() && be.limit.is_none()),
                 ..BEntry::default()
             })
             .collect();
@@ -1608,7 +1619,8 @@ impl ReadTool {
     }
 
     /// `readMediaFile` for a document: a PDF through `extractPdfText`, an OOXML file through `extractOoxmlText`. `bytes` are
-    /// the file's, or the head of one past the buffered cap. An answer that is not an error records the read.
+    /// the file's, or the head of one past the buffered cap. An OOXML answer that is not an error records the read; a PDF
+    /// read records none.
     #[allow(clippy::too_many_arguments)]
     async fn document(
         &self,
@@ -1621,7 +1633,8 @@ impl ReadTool {
         mode: Mode,
     ) -> Result<Body, ToolError> {
         let mut body = match document {
-            Document::Pdf => self.pdf(ctx, abs, bytes, stat.len, pages, matches!(mode, Mode::Child { .. })).await?,
+            // A PDF read records no snapshot (`readMediaFile` calls `_recordReadSnapshot` for OOXML and notebooks only).
+            Document::Pdf => return self.pdf(ctx, abs, bytes, stat.len, pages, matches!(mode, Mode::Child { .. })).await,
             Document::Ooxml => self.ooxml_text(ctx, abs).await?,
         };
         if let Some(v) = FileVersion::of(stat) {
@@ -1818,7 +1831,7 @@ impl ReadTool {
     /// batch (`text_only`). Every `Error:` answer is a failed call.
     async fn notebook(&self, ctx: &ToolContext, e: &Entry, abs: &AbsPath, size: u64, text_only: bool) -> Result<Body, ToolError> {
         let failed = |text: String| Ok(Body { error: true, ..Body::text(text) });
-        if e.ranged {
+        if e.ranged && !e.injected {
             return failed(IPYNB_RANGE_REFUSAL.to_owned());
         }
         if size > MAX_FILE_BYTES {

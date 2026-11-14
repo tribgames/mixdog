@@ -359,6 +359,10 @@ impl ChatDecoder {
                 && entry.name.is_empty()
             {
                 entry.name = name.to_owned();
+                // A call the provider names without an id still gets one, so the model is shown its result.
+                if entry.id.is_empty() {
+                    entry.id = leak::random_id("call_");
+                }
                 out.push(StreamEvent::ToolCallStart {
                     id: entry.id.clone(),
                     name: entry.name.clone(),

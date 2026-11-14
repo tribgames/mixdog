@@ -54,7 +54,7 @@ pub(crate) fn tool_error(server: &McpServer, error: CallError) -> ToolError {
             e.outcome_unknown = true;
             e
         }
-        CallError::Rpc(RpcError::IdleTimeout | RpcError::TotalTimeout) => {
+        CallError::TimedOut(_) | CallError::Rpc(RpcError::IdleTimeout | RpcError::TotalTimeout) => {
             let mut e = ToolError::new(ToolErrorCode::DeadlineExceeded { partial: false }, message);
             e.outcome_unknown = true;
             e
@@ -194,6 +194,17 @@ impl Feature {
             Self::ReadResource => "mixdog_read_resource",
             Self::ListPrompts => "mixdog_list_prompts",
             Self::GetPrompt => "mixdog_get_prompt",
+        }
+    }
+
+    /// Node's `operation` key (`MCP_FEATURE_REQUESTS`), which its timeout text names.
+    pub(crate) fn operation(self) -> &'static str {
+        match self {
+            Self::ListResources => "list-resources",
+            Self::ListResourceTemplates => "list-resource-templates",
+            Self::ReadResource => "read-resource",
+            Self::ListPrompts => "list-prompts",
+            Self::GetPrompt => "get-prompt",
         }
     }
 

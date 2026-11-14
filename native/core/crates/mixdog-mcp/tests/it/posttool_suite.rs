@@ -101,7 +101,7 @@ async fn the_post_tool_hooks_send_and_decide_what_node_does() {
         let decision = &case["decision"];
         match event {
             "PostToolUse" => {
-                let got = post.tool(&call).await;
+                let got = post.tool(&call).await.updated_tool_output;
                 let expected = case["updated"].get("value").cloned();
                 assert_eq!(got, expected, "{label}: the replacement");
             }

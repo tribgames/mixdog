@@ -108,6 +108,8 @@ pub struct BatchCall<'a> {
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct Dispatched {
     pub blocked: bool,
+    /// A handler answered `continue: false`.
+    pub prevent_continuation: bool,
     pub reason: Option<String>,
     pub additional_context: Vec<String>,
     pub updated_input: Option<Value>,
@@ -373,6 +375,7 @@ impl HookBus {
         let agg = self.run_event(event, &payload, &loaded).await;
         Dispatched {
             blocked: agg.blocked,
+            prevent_continuation: agg.prevent_continuation,
             reason: agg.reason.filter(|r| !r.is_empty()),
             additional_context: agg.additional_context,
             updated_input: agg.updated_input,
@@ -382,13 +385,16 @@ impl HookBus {
         }
     }
 
-    /// `PostToolUse`: `result` is the model-visible result of the call. Returns the result the
-    /// model sees instead when a hook replaced it (a legacy text envelope arrives as its text);
-    /// `None` keeps the result. Best-effort: a hook problem never changes the result.
-    pub async fn post_tool(&self, call: &ToolCall<'_>, result: &Value) -> Option<Value> {
+    /// `PostToolUse`: `result` is the model-visible result of the call. What the hooks decided: a
+    /// replacement result (`updated_tool_output`, a legacy text envelope arrives as its text), the
+    /// `additional_context` and, for a block, the `reason` for the model (the tool already ran and
+    /// is not undone; owner-approved difference from Node, which drops them). Best-effort: a hook
+    /// problem never changes the result.
+    pub async fn post_tool(&self, call: &ToolCall<'_>, result: &Value) -> Dispatched {
         let payload = build_payload("PostToolUse", call, Some(result));
-        let dispatched = self.dispatch("PostToolUse", payload, call.cwd).await;
-        dispatched.updated_tool_output.map(after::normalize_updated_tool_output)
+        let mut dispatched = self.dispatch("PostToolUse", payload, call.cwd).await;
+        dispatched.updated_tool_output = dispatched.updated_tool_output.map(after::normalize_updated_tool_output);
+        dispatched
     }
 
     /// `PostToolUseFailure`: the call failed; `error` is the text the model sees. Nothing it
@@ -470,12 +476,15 @@ impl HookBus {
         self.dispatch("UserPromptSubmit", Value::Object(payload), cwd).await
     }
 
-    /// `Stop` (`turn-settle.mjs` `completeTurn`, after the turn's final assistant text is
-    /// written). No matcher field. Node awaits the dispatch and reads nothing from it: what the
-    /// handlers decide changes nothing.
-    pub async fn stop(&self, session_id: &str, cwd: &Path, common: &HookCommon) {
-        let payload = base_payload("Stop", session_id, cwd, common);
-        self.dispatch("Stop", Value::Object(payload), cwd).await;
+    /// `Stop`, fired by the agent loop when the model ends its turn (Node fires it at settle, after
+    /// the final answer is written, and reads nothing; owner-approved difference, B-5). No matcher
+    /// field. `stop_hook_active` is `true` on every continuation a Stop block already made in this
+    /// turn. The caller reads `blocked` / `reason`: a block with a reason continues the turn, unless a
+    /// handler answered `continue: false` (`prevent_continuation`), which ends it.
+    pub async fn stop(&self, session_id: &str, cwd: &Path, common: &HookCommon, stop_hook_active: bool) -> Dispatched {
+        let mut payload = base_payload("Stop", session_id, cwd, common);
+        payload.insert("stop_hook_active".into(), json!(stop_hook_active));
+        self.dispatch("Stop", Value::Object(payload), cwd).await
     }
 
     /// `StopFailure` (`turn-settle.mjs` `reportTurnError`): the turn ended with an error;

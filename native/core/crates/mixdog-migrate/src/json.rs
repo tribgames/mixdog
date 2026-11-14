@@ -39,6 +39,21 @@ pub fn parse_source(text: &[u8]) -> Result<Parsed, String> {
     })
 }
 
+/// `JSON.parse(readFileSync(path, 'utf8'))` of a config file as Node reads it: a leading BOM skipped, invalid UTF-8 bytes read as U+FFFD,
+/// nesting unbounded, a number past the double range `null` (Infinity, which Node writes back as `null`). A lone surrogate escape
+/// becomes U+FFFD as in [`parse_source`].
+pub fn parse_config(bytes: &[u8]) -> Result<Parsed, String> {
+    let text = String::from_utf8_lossy(bytes);
+    let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
+    let (fixed, replaced_surrogates) = replace_lone_surrogates(text.as_bytes());
+    let fixed = std::str::from_utf8(&fixed).map_err(|e| e.to_string())?;
+    let value = mixdog_js::json_parse(fixed).map_err(|e| e.to_string())?;
+    Ok(Parsed {
+        value,
+        replaced_surrogates,
+    })
+}
+
 /// Whether the top-level object of `text` names one key twice (`hasUniqueTopLevelKeys`,
 /// `lifecycle-scan.mjs`): a parse keeps the last copy, where 1.4.5 found the record unreadable.
 /// Keys compare as JSON decodes them, in UTF-16 code units before any surrogate substitution:
@@ -165,6 +180,20 @@ mod tests {
         assert_eq!(value["b"], "\u{1f600}");
         assert_eq!(value["c"], "\u{fffd}");
         assert_eq!(value["d"], "\\ud800");
+    }
+
+    #[test]
+    fn a_config_reads_as_json_parse_reads_it() {
+        let deep = format!("{}{}", "[".repeat(300), "]".repeat(300));
+        let mut bytes = b"\xef\xbb\xbf{\"a\":\"\xff\",\"n\":1e400,\"s\":\"\\ud83d\",\"deep\":".to_vec();
+        bytes.extend_from_slice(deep.as_bytes());
+        bytes.push(b'}');
+        let parsed = parse_config(&bytes).unwrap();
+        assert_eq!(parsed.value["a"], "\u{fffd}");
+        assert_eq!(parsed.value["n"], Value::Null);
+        assert_eq!(parsed.value["s"], "\u{fffd}");
+        assert!(parsed.value["deep"].is_array());
+        assert!(parse_config(b"{\"a\":").is_err());
     }
 
     #[test]

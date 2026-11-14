@@ -24,7 +24,6 @@ use mixdog_rt::TaskClass;
 
 use clap::ArgGroup;
 use clap::Args;
-use clap::CommandFactory;
 use clap::Parser;
 use clap::Subcommand;
 
@@ -202,6 +201,12 @@ fn migrate(args: &MigrateArgs) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    // Node's first read of a config that does not parse keeps it aside and restores the newest backup, as the daemon's boot does before its migration.
+    if let Err(err) = mixdog_app_server_daemon::boot::recover_malformed_config(&roots.data, &tokens, &runtime) {
+        eprintln!("mixdogd migrate: {err}");
+        runtime.block_on(pool.close());
+        return ExitCode::FAILURE;
+    }
     let office = OfficeExtractor { docs: Arc::new(ExtDocumentText::new(pool.clone())), runtime: runtime.clone() };
     let status = mixdog_migrate::run::cli::main(roots, Arc::new(projector::StoreProjector), office);
     runtime.block_on(pool.close());
@@ -224,11 +229,10 @@ impl exec::Sink for StdSink {
     }
 }
 
-/// The exec's usage on stdout: Node's `help` kind (`printHelp`, exit 0).
+/// The usage on stdout: Node's `help` kind (`printHelp`, exit 0).
 fn exec_help() -> ExitCode {
-    let mut cli = Cli::command();
-    cli.build();
-    let _ = cli.find_subcommand_mut("exec").expect("exec is a subcommand").print_help();
+    use std::io::Write;
+    let _ = std::io::stdout().lock().write_all(exec::HELP_TEXT.as_bytes());
     ExitCode::SUCCESS
 }
 
@@ -236,6 +240,11 @@ fn exec_help() -> ExitCode {
 fn exec_command(args: exec::ExecArgs) -> ExitCode {
     let options = match args.into_invocation(std::env::var("MIXDOG_USAGE_LOG").ok()) {
         Ok(exec::Invocation::Help) => return exec_help(),
+        Ok(exec::Invocation::React) => {
+            eprint!("{}", exec::REACT_REMOVED);
+            return ExitCode::FAILURE;
+        }
+        Ok(exec::Invocation::Plain) => Err("--plain starts Node's readline REPL, which mixdogd exec does not have".to_owned()),
         Ok(exec::Invocation::Run(options)) => {
             exec::route::validate_explicit_route(options.provider.as_deref(), options.model.as_deref(), options.effort.as_deref()).map(|()| options)
         }
@@ -445,6 +454,8 @@ fn serve() -> ExitCode {
 
 #[cfg(test)]
 mod tests {
+    use clap::CommandFactory;
+
     use super::*;
 
     #[test]

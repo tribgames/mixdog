@@ -30,6 +30,9 @@ use super::cache::CacheFile;
 use super::cache::NodeCache;
 use super::cache::node_cache_key;
 use super::error::FetchError;
+use super::error::FetchKind;
+use super::extract::extract_document;
+use super::lanes;
 use super::format::FetchItem;
 use super::format::continuation;
 use super::format::format_fetch;
@@ -247,8 +250,19 @@ impl WebService {
     async fn local_fetch(&self, args: FetchArgs, cancel: &CancellationToken) -> ToolOutcome {
         self.bounded_batch(&args, cancel, |url| async move {
             let parsed = self.loopback.parse_url(&url)?;
-            let text = self.loopback.fetch_text(&parsed).await?;
-            let window = paginate(&text, args.start_index, args.max_length);
+            let (body, content_type) = self.loopback.fetch_text(&parsed).await?;
+            // A page converts to markdown as a public one does; an empty body answers empty, as Node's raw text does
+            // (`extract_document` refuses it as unreadable).
+            let content = if mixdog_js::js_trim(&body).is_empty() {
+                body
+            } else {
+                let page_url = parsed.clone();
+                lanes::run(self.loopback.lanes().extract, move |_| extract_document(&page_url, &body, &content_type))
+                    .await
+                    .map_err(|_| FetchError::new(FetchKind::Network, "content extraction failed"))??
+                    .content
+            };
+            let window = paginate(&content, args.start_index, args.max_length);
             Ok(vec![ToolPart::Text(format!("{url}\n\n{}{}", window.content, continuation(&window)))])
         })
         .await

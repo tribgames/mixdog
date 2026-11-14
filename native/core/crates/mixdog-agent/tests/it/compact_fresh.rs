@@ -71,7 +71,7 @@ impl mixdog_agent::compact::compactor::HandoffSource for FixedHandoff {
         _: &[mixdog_agent::message::AgentMessage],
         _: u64,
     ) -> Result<mixdog_agent::compact::compactor::Handoff, mixdog_agent::env::CompactError> {
-        Ok(mixdog_agent::compact::compactor::Handoff { text: self.0.clone(), usage: None, summary_ms: 0.0 })
+        Ok(mixdog_agent::compact::compactor::Handoff { text: self.0.clone(), usage: None, summary_ms: 0.0, route: None })
     }
 }
 
@@ -139,7 +139,7 @@ impl mixdog_agent::compact::compactor::HandoffSource for SlowHandoff {
         _: u64,
     ) -> Result<mixdog_agent::compact::compactor::Handoff, mixdog_agent::env::CompactError> {
         mixdog_rt::time::sleep(std::time::Duration::from_millis(40)).await;
-        Ok(mixdog_agent::compact::compactor::Handoff { text: "handoff".into(), usage: None, summary_ms: 33.0 })
+        Ok(mixdog_agent::compact::compactor::Handoff { text: "handoff".into(), usage: None, summary_ms: 33.0, route: None })
     }
 }
 

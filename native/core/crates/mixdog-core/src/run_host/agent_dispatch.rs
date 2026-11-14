@@ -461,7 +461,14 @@ pub type RunHold = Box<dyn Send + Sync>;
 /// The runs of the dispatch as the daemon counts them: Node's broker calls `onActivityChanged` as a dispatch enters and leaves its
 /// in-flight table (`agent-dispatch-broker.mjs:120-131`), and the daemon reads `snapshot().inFlight` as busy memory agents and
 /// rechecks its self-shutdown on each change (`daemon.mjs:449`, `:1064`).
+#[async_trait]
 pub trait RunWatch: Send + Sync {
+    /// `daemonWorkGate.deferring` around `dispatchAgent` (`daemon.mjs:1079`): a memory cycle that comes due during an update install's
+    /// hold waits for it, counted as running meanwhile, and is refused once the core stops; `cancel` ends the wait. Default: nothing
+    /// holds a run.
+    async fn admitted(&self, _cancel: &Cancel) -> Result<(), String> {
+        Ok(())
+    }
     /// A run entered the table; the hold is dropped when it left (after the table no longer lists it).
     fn started(&self) -> RunHold;
 }
@@ -510,6 +517,9 @@ impl InlineAgentDispatch {
             runs.insert(payload.dispatch_id.clone(), controller.clone());
             Registered { host: self, id: payload.dispatch_id.clone(), _hold: self.watch.started() }
         };
+        // Node's broker lists the dispatch in flight before `deferring` waits (`agent-dispatch-broker.mjs` `run`): one waiting out
+        // the hold is counted as running and is aborted with the others.
+        self.watch.admitted(&controller).await?;
         self.world.assert_open(Some(&controller))?;
         self.world.prepare_providers(&controller).await?;
         self.world.assert_open(Some(&controller))?;

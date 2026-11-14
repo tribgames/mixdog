@@ -1128,7 +1128,11 @@ impl CustomProviders for CustomAdmin {
     }
 
     async fn remove(&self, id: &str) -> Result<Value, Failure> {
-        self.refreshed(self.remove_inner(id).await)
+        let result = self.remove_inner(id).await;
+        if let Some(removed) = result.as_ref().ok().and_then(|answer| answer["provider"].as_str()) {
+            self.refresh.custom_provider_removed(removed);
+        }
+        self.refreshed(result)
     }
 
     async fn update_model(&self, id: &str, model_id: &str, patch: Option<Value>) -> Result<Value, Failure> {

@@ -162,12 +162,18 @@ pub struct RegisteredAdapter {
     groups: Groups,
 }
 
+/// The unprofiled compat rows without recovery: a local server that answers 5xx surfaces after the request
+/// row (about 15 s), not after minutes of recovery laps (B-11).
+fn local_policy() -> RetryPolicy {
+    RetryPolicy { recovery: None, ..crate::providers::compat::retry::unprofiled() }
+}
+
 impl RegisteredAdapter {
     pub fn new(http: Arc<dyn HttpSend>, runtime: Arc<dyn LocalRuntime>) -> Self {
         Self {
             id: ProviderId::from(PROVIDER_ID),
             codec: codec("http://127.0.0.1/v1"),
-            policy: crate::providers::compat::retry::unprofiled(),
+            policy: local_policy(),
             keepalive: KeepaliveSchedule::SPEC,
             http,
             listing: LocalListing::new(runtime.clone()),
@@ -420,6 +426,12 @@ mod tests {
             body["messages"],
             json!([{"role": "system", "content": "a\n\nb\n\nc"}, {"role": "user", "content": "hi"}])
         );
+    }
+
+    #[test]
+    fn a_local_server_has_no_recovery_laps() {
+        assert!(local_policy().recovery.is_none());
+        assert!(crate::providers::compat::retry::unprofiled().recovery.is_some());
     }
 
     #[test]

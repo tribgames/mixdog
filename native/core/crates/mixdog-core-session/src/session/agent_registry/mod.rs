@@ -204,6 +204,8 @@ pub struct AgentRegistry {
     /// `descriptor.status = 'cancelled'` (`agent-cancel.mjs` `closeRuntime`): the agents whose running turn a close
     /// stopped, until a turn starts on them. Of this process only, as Node's descriptors are.
     cancelled: Mutex<HashSet<String>>,
+    /// `sweepRestartFailures`, run by the maintenance pass ([`Self::keep_deadlines`]); unbound, the pass has no such step.
+    sweeper: std::sync::OnceLock<Arc<dyn restart::RestartSweep>>,
 }
 
 /// The loads of the index: one runs at a time, and the callers that arrive meanwhile wait for its end. Bookkeeping only:
@@ -393,10 +395,17 @@ fn released_at(map: &Row, now: f64) -> bool {
     at > 0.0 && at >= now - TAG_TOMBSTONE_TTL_MS
 }
 
+/// The key of a session's worker row that keeps a close's cancellation (`cancelledAt`, ms) across a restart, which Node's
+/// descriptor, in memory only, loses (a scan then builds the closed agent an open idle row again).
+const CANCELLED_KEY: &str = "cancelledAt";
+
 /// `agentDescriptor`: a session whose running turn a close stopped reads `cancelled`, its stage too (`closeRuntime`,
-/// `agent-cancel.mjs`), so a scan builds it no open idle row; a closed one keeps its own.
-fn described(cancelled: &HashSet<String>, mut session: Row) -> Row {
-    if !cancelled.is_empty() && session.get("closed") != Some(&Value::Bool(true)) && cancelled.contains(&clean(session.get("id"))) {
+/// `agent-cancel.mjs`), so a scan builds it no open idle row; a closed one keeps its own. The close is held by this
+/// process and by the session's worker row, until a turn starts on it.
+fn described(cancelled: &HashSet<String>, st: &State, mut session: Row) -> Row {
+    let id = clean(session.get("id"));
+    let marked = cancelled.contains(&id) || st.map(&id).is_some_and(|map| map.contains_key(CANCELLED_KEY));
+    if marked && session.get("closed") != Some(&Value::Bool(true)) {
         for key in ["status", "stage"] {
             session.insert(key.into(), Value::String("cancelled".into()));
         }
@@ -444,7 +453,7 @@ fn without_tombstone(map: &Row) -> Option<Row> {
 
 impl AgentRegistry {
     pub fn new(store: Arc<dyn WorkerStore>, live: Arc<dyn LiveSessions>, reap: Arc<dyn ReapWindow>, clock: Arc<dyn Clock>) -> Self {
-        Self { store, live, reap, clock, state: Mutex::new(State::default()), rearm: Arc::default(), loads: Mutex::default(), restart_notices: Mutex::default(), parked: Mutex::default(), cancelled: Mutex::default() }
+        Self { store, live, reap, clock, state: Mutex::new(State::default()), rearm: Arc::default(), loads: Mutex::default(), restart_notices: Mutex::default(), parked: Mutex::default(), cancelled: Mutex::default(), sweeper: std::sync::OnceLock::new() }
     }
 
     /// `nextStaleRowDeadline({}, since)`: the next moment after `since` a row of any owner comes due by its stamps alone
@@ -504,16 +513,34 @@ impl AgentRegistry {
             let (next, now) = (this.next_stale_row_deadline(since), this.now());
             if next <= now {
                 since = now;
+                // A pass starts with `sweepRestartFailures`, then the tags of every owner's rows.
+                if let Some(sweeper) = this.sweeper.get().cloned() {
+                    sweeper.sweep().await;
+                }
                 this.refresh_tags_from_sessions(false, &Scope::default()).await;
                 continue;
             }
+            let sweeper = this.sweeper.get().cloned();
             drop(this);
             let at = next.min(now + LONGEST_WAIT_MS).ceil() as i64;
-            tokio::select! {
-                () = clock.until_ms(at) => {}
-                () = &mut rearmed => {}
+            let woken = tokio::select! {
+                () = clock.until_ms(at) => false,
+                () = &mut rearmed => true,
+            };
+            // An event (an agent started, finished or was cancelled, a row written) asks for a pass: one after
+            // `MAINTENANCE_EVENT_DELAY_MS` however many events arrive meanwhile (`requestAgentMaintenance`). Its sweep is what tells
+            // an owner of a restart failure the rows' settlement has just made, and the pass's refresh, which wakes this
+            // timer again, is not an event of the sweep.
+            if woken && let Some(sweeper) = sweeper {
+                clock.until_ms(clock.now_ms() + 1_000).await;
+                sweeper.sweep().await;
             }
         }
+    }
+
+    /// Binds the host's `sweepRestartFailures`; a second bind is refused.
+    pub fn bind_sweeper(&self, sweeper: Arc<dyn restart::RestartSweep>) -> Result<(), Arc<dyn restart::RestartSweep>> {
+        self.sweeper.set(sweeper)
     }
 
     fn lock(&self) -> MutexGuard<'_, State> {
@@ -748,7 +775,7 @@ impl AgentRegistry {
             out.retain(|s| s.get("closed") != Some(&Value::Bool(true)));
         }
         let cancelled = self.cancelled.lock().unwrap_or_else(|p| p.into_inner());
-        out.into_iter().map(|session| described(&cancelled, session)).collect()
+        out.into_iter().map(|session| described(&cancelled, st, session)).collect()
     }
 
     fn loaded_session(&self, id: &str) -> Option<Row> {
@@ -770,7 +797,7 @@ impl AgentRegistry {
             work::note(|c| c.sessions_visited += 1);
             Some(st.sessions[at].clone())
         })?;
-        Some(described(&self.cancelled.lock().unwrap_or_else(|p| p.into_inner()), session))
+        Some(described(&self.cancelled.lock().unwrap_or_else(|p| p.into_inner()), st, session))
     }
 
     /// `mgr.getSession(id)` for a worker's turn (`sessionOf`).
@@ -835,16 +862,25 @@ impl AgentRegistry {
     }
 
     /// `descriptor.status = 'cancelled'` when `on` (`closeRuntime`: the close stopped a running turn), `'running'` when not
-    /// (`runAgentTurn`: a turn started on it).
+    /// (`runAgentTurn`: a turn started on it). The mark is also kept on the session's worker row, so a restart does not lose it.
     pub(crate) fn set_cancelled(&self, session: &str, on: bool) {
         let changed = {
             let mut cancelled = self.cancelled.lock().unwrap_or_else(|p| p.into_inner());
             if on { cancelled.insert(session.to_owned()) } else { cancelled.remove(session) }
         };
-        if changed {
+        let mut guard = self.lock();
+        let st = &mut *guard;
+        let kept = st.map(session).is_some_and(|map| map.contains_key(CANCELLED_KEY));
+        if kept != on && let Some(mut map) = st.map(session).cloned() {
+            if on {
+                map.insert(CANCELLED_KEY.into(), Value::from(self.clock.now_ms()));
+            } else {
+                map.shift_remove(CANCELLED_KEY);
+            }
+            self.persist(st, session, Some(map));
+        }
+        if changed || kept != on {
             // The session's tags read it again.
-            let mut guard = self.lock();
-            let st = &mut *guard;
             let views = st.views.get_mut();
             for tag in st.tags.of_session(session) {
                 views.facts.touch(&tag);

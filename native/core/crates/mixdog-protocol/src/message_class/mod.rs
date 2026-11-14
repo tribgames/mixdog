@@ -116,6 +116,17 @@ pub fn user_row(message: &Value, text: &mut UserText<'_>) -> Shown {
     }
 }
 
+/// `meta.source` of an automatic Goal turn's prompt.
+pub const GOAL_CONTINUATION_SOURCE: &str = "goal-continuation";
+/// `meta.source` of the prompt that closes a Goal which reached its duration.
+pub const GOAL_CLOSEOUT_SOURCE: &str = "goal-closeout";
+
+/// Whether a message is the prompt of a Goal entry's turn: the runtime's text, shown as no row of its own, but listed by history
+/// pages, where the failed end of a turn that stopped before any output is recorded on it.
+pub fn is_goal_prompt(message: &Value) -> bool {
+    matches!(message.pointer("/meta/source").and_then(Value::as_str), Some(GOAL_CONTINUATION_SOURCE | GOAL_CLOSEOUT_SOURCE))
+}
+
 /// The typed fact of a tool card row (`meta.taskCard`).
 pub const TASK_CARD: &str = "taskCard";
 /// The typed fact of an interrupted turn end (`meta.turnEnd`).
@@ -143,7 +154,8 @@ pub fn row_facts(message: &mut Value, text: &mut UserText<'_>) -> Option<RowFact
     }
     let mut facts = RowFacts { visible: true, prompt: None };
     match user_row(message, text) {
-        Shown::Nothing => facts.visible = false,
+        // A Goal entry's prompt shows nothing but stays listed (see [`is_goal_prompt`]), as the live writer lists it.
+        Shown::Nothing => facts.visible = is_goal_prompt(message),
         Shown::Notice => {}
         Shown::Card(card) => set_meta(message, TASK_CARD, card),
         Shown::TurnEnd => set_meta(message, TURN_END, serde_json::json!({ "status": "cancelled", "elapsedMs": 0 })),

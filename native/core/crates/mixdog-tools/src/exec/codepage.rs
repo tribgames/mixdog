@@ -48,6 +48,17 @@ pub fn detect_oem_codepage() -> u32 {
     unsafe { windows_sys::Win32::Globalization::GetOEMCP() }
 }
 
+/// The WHATWG label of the system OEM code page (CP949 -> `euc-kr`); `None` off Windows.
+#[cfg(windows)]
+pub fn host_oem() -> Option<Label> {
+    oem_label(detect_oem_codepage())
+}
+
+#[cfg(not(windows))]
+pub fn host_oem() -> Option<Label> {
+    None
+}
+
 fn is_dbcs_lead(label: &str, b: u8) -> Option<bool> {
     match label {
         "euc-kr" | "gbk" | "big5" => Some((0x81..=0xfe).contains(&b)),

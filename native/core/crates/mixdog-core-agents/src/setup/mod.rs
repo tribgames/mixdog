@@ -562,13 +562,22 @@ impl SetupService {
 
 }
 
+/// The `appliesTo` of a saved `lead` permission row: the row is Mixy's own policy (the gate reads it for her sessions and
+/// unattended runs and never for a coding Lead), so the receipt says where it is enforced and where it is not.
+const LEAD_PERMISSION_APPLIES_TO: &str = "Mixy's next action of the kind, in her sessions and her unattended runs; coding Lead sessions have no outbound rule here (they pass unless a hook asks)";
+
 fn receipt(action: &str, result: Value) -> String {
     let mut out = Map::new();
     if !BACKGROUND.contains(&action) {
         out.insert("saved".into(), Value::Bool(true));
     }
     out.insert("scope".into(), Value::String("installation".into()));
-    out.insert("appliesTo".into(), Value::String(applies_to(action).into()));
+    let applies = if action == "set_agent_permission" && result.get("agent").and_then(Value::as_str) == Some("lead") {
+        LEAD_PERMISSION_APPLIES_TO
+    } else {
+        applies_to(action)
+    };
+    out.insert("appliesTo".into(), Value::String(applies.into()));
     match result {
         Value::Object(fields) => out.extend(fields),
         Value::Null => {}

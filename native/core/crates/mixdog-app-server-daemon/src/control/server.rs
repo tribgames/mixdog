@@ -201,7 +201,7 @@ impl Shared {
         match (request.method.as_str(), request.path.as_str()) {
             ("GET", STATUS_PATH) => self.status_reply().write_to(out),
             ("POST", HOLD_PATH) => {
-                self.with_body(request, out, |lc, r: HoldRequest| lc.hold(r.on))
+                self.with_body(request, out, |lc, r: HoldRequest| lc.hold(r.on, r.ttl_ms.map(std::time::Duration::from_millis)))
             }
             ("POST", STOP_PATH) => self.stop(request, out),
             ("POST", CANCEL_DRAIN_PATH) => self

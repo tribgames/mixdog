@@ -106,6 +106,17 @@ pub enum RouteStep {
     Lighter,
 }
 
+impl RouteStep {
+    /// `summaryRoute` (`fresh-context.mjs`): the name the pass records for the step.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Session => "session",
+            Self::Maintainer => "maintenance",
+            Self::Lighter => "lighter",
+        }
+    }
+}
+
 pub struct SummaryRoute {
     pub step: RouteStep,
     pub provider_name: String,
@@ -169,6 +180,9 @@ pub struct Generated {
     pub shared_prefix_fallback: Option<&'static str>,
     /// `diagnostics.durationMs`: whole milliseconds from the start of the request that wrote the summary.
     pub duration_ms: f64,
+    /// The provider and model of the route that wrote it (set by [`summarize_on_plan`]).
+    pub provider_name: String,
+    pub model: String,
 }
 
 /// Whole milliseconds since `started` (a `Date.now()` difference).
@@ -382,6 +396,7 @@ pub async fn summarize_on_shared_prefix(
         mode: "shared-prefix",
         shared_prefix_fallback: None,
         duration_ms: elapsed_ms(started),
+        ..Generated::default()
     })
 }
 
@@ -482,7 +497,7 @@ pub async fn summarize_on_plan(cx: &SummarizeContext<'_>, steps: &[RouteStep]) -
             continue;
         }
         match summarize_on_route(cx, &route, warm).await {
-            Ok(done) => return Ok((route.step, done)),
+            Ok(done) => return Ok((route.step, Generated { provider_name: route.provider_name, model: route.model, ..done })),
             Err(error) if route.step != RouteStep::Session && matches!(error, SummaryFailure::NextRoute(_)) => {
                 failure = Some(on_route(error, &route));
             }

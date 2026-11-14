@@ -68,7 +68,7 @@ async fn every_patch_leaves_the_section_node_leaves() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_receivers_secret_and_opt_in_come_from_the_section() {
     let dir = tempfile::tempdir().unwrap();
-    let seed = json!({ "secret": "s", "allowUnsignedWebhooks": true, "endpoints": { "gh": { "parser": "github", "allowUnsigned": true } }, "webhook": { "port": 5000 } });
+    let seed = json!({ "secret": "s", "allowUnsignedWebhooks": true, "endpoints": { "gh": { "parser": "github", "allowUnsigned": true } }, "webhook": { "enabled": true, "port": 5000 } });
     let settings = ConfigChannelSettings::new(open(dir.path(), Some(&seed)).await);
     let config = settings.webhook_config().await.unwrap();
     assert_eq!(config.secret.as_deref(), Some("s"));
@@ -285,8 +285,9 @@ async fn a_delivery_during_a_config_edit_reload_is_answered_and_runs_once_as_nod
     let root = tempfile::tempdir().unwrap();
     let config = open(root.path(), None).await;
     let _file_watch = mixdog_core_config::config::ConfigWatcher::start(config.clone()).unwrap();
-    // `setWebhookConfigAsync({ port })`, as the recorder seeds the receiver's port.
-    ConfigChannelSettings::new(config.clone()).update_webhook(&WebhookPatch::from_params(&json!({ "port": port }))).await.unwrap();
+    // `setWebhookConfigAsync({ port })`, as the recorder seeds the receiver's port (and, the receiver being off by default
+    // here, switched on).
+    ConfigChannelSettings::new(config.clone()).update_webhook(&WebhookPatch::from_params(&json!({ "enabled": true, "port": port }))).await.unwrap();
     let Stack { admin, runtime, automation, host, .. } = channel_stack(root.path(), &config, wall, tz);
     let reloaded = automation.reloaded.clone();
     // The composition's follow, as compose_flip.rs starts it.

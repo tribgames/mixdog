@@ -40,17 +40,6 @@ use mixdog_tools::policy::exec::NodeCommandPolicy;
 use tokio::sync::mpsc;
 use tokio::sync::watch;
 
-/// The WHATWG label of the system OEM code page, read once at start; None off Windows.
-#[cfg(windows)]
-fn host_oem() -> Option<&'static str> {
-    mixdog_tools::exec::codepage::oem_label(mixdog_tools::exec::codepage::detect_oem_codepage())
-}
-
-#[cfg(not(windows))]
-fn host_oem() -> Option<&'static str> {
-    None
-}
-
 fn now_ms() -> u64 {
     mixdog_rt::wall_clock!().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
 }
@@ -218,7 +207,7 @@ pub fn build_exec(
         notifier: Some(Arc::new(ChannelNotifier(finished_tx))),
         survivors: Some(Arc::new(ProcessSurvivors::new(hosts.processes))),
         elevation: Arc::new(OsPromptElevation),
-        oem: host_oem(),
+        oem: mixdog_tools::exec::codepage::host_oem(),
         skill_runtime: Some(skill_runtime),
         shell: configured_shell.clone(),
         script_syntax: Arc::new(ExtSyntax::new(hosts.ext_pool)),

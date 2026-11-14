@@ -8,6 +8,7 @@ use std::sync::Arc;
 use serde_json::Value;
 
 use super::BatchCall;
+use super::Dispatched;
 use super::HookBus;
 use super::HookCommon;
 use super::ToolCall;
@@ -51,8 +52,8 @@ impl SessionPostTool {
         ToolCall { session_id: call.session_id, call_id: call.call_id, name: call.name, args: call.args, cwd: Path::new(call.cwd), common }
     }
 
-    /// `PostToolUse`: the result the model sees instead, when a hook replaced it.
-    pub async fn tool(&self, call: &PostCall<'_>) -> Option<Value> {
+    /// `PostToolUse`: what the hooks decided (see [`HookBus::post_tool`]).
+    pub async fn tool(&self, call: &PostCall<'_>) -> Dispatched {
         let common = (self.common)(call.session_id);
         self.bus.post_tool(&Self::call(call, &common), &Value::String(call.result.to_owned())).await
     }
@@ -68,5 +69,11 @@ impl SessionPostTool {
         let common = (self.common)(session_id);
         let dispatched = self.bus.post_batch_dispatched(&BatchCall { session_id, cwd: Path::new(cwd), common: &common, tool_count }).await?;
         Some(BatchOutcome { blocked: dispatched.blocked, reason: dispatched.reason })
+    }
+
+    /// `Stop` of a turn the model ended: the verdict, for the loop to continue on a block.
+    pub async fn stop(&self, session_id: &str, cwd: &str, stop_hook_active: bool) -> Dispatched {
+        let common = (self.common)(session_id);
+        self.bus.stop(session_id, Path::new(cwd), &common, stop_hook_active).await
     }
 }

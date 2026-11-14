@@ -528,9 +528,10 @@ async fn a_request_is_bound_to_the_desktop_that_bound_its_page() {
 }
 
 /// Each browser command of a secret request leaves its `browser_timing` row, as Node's bridge client traced its
-/// `secret_bind` and `secret_input` requests (`requestBridge`); the core's fill sends `secret_precheck`, then `secret_fill`.
-/// A row holds the action and the timing the desktop answered with, never the value. A pre-check the changed claim
-/// refused leaves a row with no answer; with no desktop at all nothing was sent and there is none.
+/// `secret_bind` and `secret_input` requests (`requestBridge`); the core's fill sends `secret_precheck`, then `secret_fill`,
+/// and leaves the one `secret_input` row Node does, with the answer that ended it. A row holds the action and the timing the
+/// desktop answered with, never the value. A pre-check the changed claim refused leaves a row with no answer; with no desktop
+/// at all nothing was sent and there is none.
 #[tokio::test]
 async fn each_browser_command_of_a_secret_request_leaves_its_timing_row() {
     let rows: Arc<Mutex<Vec<serde_json::Map<String, Value>>>> = Arc::default();
@@ -573,10 +574,9 @@ async fn each_browser_command_of_a_secret_request_leaves_its_timing_row() {
         seen,
         [
             answered("secret_bind", json!({ "commandMs": 3 })),
-            answered("secret_precheck", json!({ "commandMs": 1 })),
-            answered("secret_fill", json!({ "inputMs": 2 })),
+            answered("secret_input", json!({ "inputMs": 2 })),
             answered("secret_bind", json!({ "commandMs": 3 })),
-            (json!({ "sessionId": "S1", "action": "secret_precheck" }), None),
+            (json!({ "sessionId": "S1", "action": "secret_input" }), None),
         ]
     );
 }

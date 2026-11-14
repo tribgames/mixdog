@@ -86,6 +86,9 @@ struct Connectors {
     save_works: bool,
     /// The tools whose "always allow" was stored.
     stored: Arc<Mutex<Vec<String>>>,
+    /// Tools a policy saved since switched back on: off until the next `refresh` reads it.
+    saved_on: Vec<String>,
+    refreshed: Mutex<bool>,
 }
 
 #[async_trait]
@@ -94,7 +97,8 @@ impl ConnectorPermissions for Connectors {
         self.needs.iter().any(|n| n == tool)
     }
     fn disabled(&self, _agent: &str, tool: &str) -> bool {
-        self.disabled.iter().any(|n| n == tool)
+        let saved_on = *self.refreshed.lock().expect("refreshed") && self.saved_on.iter().any(|n| n == tool);
+        self.disabled.iter().any(|n| n == tool) && !saved_on
     }
     fn project_disabled(&self, _thread: &ThreadId, _tool: &str) -> bool {
         false
@@ -104,6 +108,9 @@ impl ConnectorPermissions for Connectors {
             self.stored.lock().expect("stored").push(tool.to_owned());
         }
         self.save_works
+    }
+    async fn refresh(&self, _agent: &str, _tool: Option<&str>) {
+        *self.refreshed.lock().expect("refreshed") = true;
     }
 }
 
@@ -266,6 +273,18 @@ async fn the_session_surface_refuses_before_dedup_and_at_the_gate_with_the_same_
     let off = "Error: tool \"mcp__a__b\" is not available to this agent.";
     assert_eq!(r.gate.pre_dispatch_deny(&call("mcp__a__b", json!({}))).as_deref(), Some(off));
     assert_eq!(r.gate.pre_dispatch_deny(&call("mcp__a__c", json!({}))), None);
+}
+
+/// Node reads the connector policy stat-checked at each pre-dispatch judgement (`cachedRead`): a connector switched back on
+/// since the turn began admits the next call once `refresh_policy` has read the saved policy.
+#[tokio::test]
+async fn a_connector_switched_back_on_is_admitted_after_the_policy_is_refreshed() {
+    let connectors = Connectors { disabled: vec!["mcp__a__b".into()], saved_on: vec!["mcp__a__b".into()], ..Connectors::default() };
+    let r = rig(connectors, SessionSurface::default(), false);
+    let tool = call("mcp__a__b", json!({}));
+    assert!(r.gate.pre_dispatch_deny(&tool).is_some(), "off as last read");
+    r.gate.refresh_policy(&tool).await;
+    assert_eq!(r.gate.pre_dispatch_deny(&tool), None);
 }
 
 /// Node judges a routed `web_fetch` (sent to `local_fetch`) under its schema name `web_fetch`:

@@ -193,6 +193,10 @@ pub trait McpScopes: Send + Sync {
     fn start(&self, scope: &str, owner: &str, cwd: &Path) -> Result<(), ScopeReleased>;
     /// Releases every scope `owner` holds, exactly once: its servers close. Not awaited.
     fn release(&self, owner: &str);
+    /// [`release`](Self::release) for an owner that only left memory: it may open a scope again when it comes back.
+    fn release_unloaded(&self, owner: &str) {
+        self.release(owner);
+    }
     /// The runtime scope (the one `rt.mcpScopeId` of the runtime the daemon's own callers act as,
     /// `begin.mjs:24`): opened once, for `cwd`, and returned once its first connect settled. The
     /// pre-session preview reads it, as Node's preview reads its serving runtime's scope
@@ -426,25 +430,30 @@ pub fn skill_roots(admin: Arc<PluginAdmin>, builtin_plugin_root: PathBuf) -> cra
     }
 
     /// `ensurePluginServerData` (`plugin-servers.mjs`) just before a connect (`connect.mjs`, `server-connection.mjs`):
-    /// `folders` exist, as one maintenance-lane job. A folder that cannot be made is logged, and the server connects all
-    /// the same.
-    async fn make_plugin_data_folders(&self, folders: Vec<PathBuf>) {
+    /// `folders` exist, as one maintenance-lane job. A folder that cannot be made is answered with why: its server fails
+    /// to connect, as Node's throwing `mkdirSync` fails it.
+    async fn make_plugin_data_folders(&self, folders: Vec<PathBuf>) -> Vec<(PathBuf, String)> {
         if folders.is_empty() {
-            return;
+            return Vec::new();
         }
+        let all = folders.clone();
         let job = move |lane: &mixdog_rt::InLane<MaintenanceIo>| {
-            for folder in &folders {
-                if let Err(error) = mixdog_statefile::create_dir_all(lane, folder) {
-                    tracing::warn!(%error, folder = %folder.display(), "[mcp] a plugin server's data folder could not be created");
-                }
-            }
+            folders
+                .iter()
+                .filter_map(|folder| {
+                    mixdog_statefile::create_dir_all(lane, folder)
+                        .err()
+                        .map(|error| (folder.clone(), format!("could not create the plugin data folder {}: {error}", folder.display())))
+                })
+                .collect::<Vec<_>>()
         };
         let ran = match self.maintenance.submit_wait(&CancellationToken::new(), job).await {
             Ok(handle) => handle.await.map_err(|e| e.to_string()),
             Err(error) => Err(error.to_string()),
         };
-        if let Err(error) = ran {
-            tracing::warn!(%error, "[mcp] the plugin servers' data folders could not be created");
+        match ran {
+            Ok(failed) => failed,
+            Err(error) => all.into_iter().map(|folder| (folder, format!("could not create the plugin data folder: {error}"))).collect(),
         }
     }
 
@@ -802,6 +811,10 @@ impl McpScopes for McpGlue {
         self.scopes.release(owner);
     }
 
+    fn release_unloaded(&self, owner: &str) {
+        self.scopes.release_unloaded(owner);
+    }
+
     async fn open_runtime(&self, cwd: &Path) -> Result<String, ScopeReleased> {
         self.scopes.open_runtime(&cwd.to_string_lossy()).await
     }
@@ -830,9 +843,10 @@ impl ScopeConfigs for GlueConfigs {
         Resolved { configs, targets, data_folders: McpGlue::plugin_data_folders(&catalog) }
     }
 
-    async fn make_data_folders(&self, folders: Vec<PathBuf>) {
-        if let Some(glue) = self.glue.upgrade() {
-            glue.make_plugin_data_folders(folders).await;
+    async fn make_data_folders(&self, folders: Vec<PathBuf>) -> Vec<(PathBuf, String)> {
+        match self.glue.upgrade() {
+            Some(glue) => glue.make_plugin_data_folders(folders).await,
+            None => Vec::new(),
         }
     }
 }

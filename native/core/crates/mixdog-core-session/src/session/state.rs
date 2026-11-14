@@ -503,7 +503,6 @@ impl SessionState {
             Section::QuotaResume(value) => s.quota_resume = value,
             Section::Agents(value) => s.agents = Some(value),
             Section::ShellJobs(value) => s.shell_jobs = Some(value),
-            Section::Workflow(value) => s.workflow = Some(value),
             Section::Workspace(value) => s.workspace = value,
             // The decision result is the actor's; a producer of `handoffQuestions` publishes only those.
             Section::Approvals(mut value) => {
@@ -584,23 +583,18 @@ impl SessionState {
 
     /// The workflow section as clients hold it (`routeState`, `tui/session/context-state.mjs`), read from the header the
     /// switches write: the session's workflow meta (`toSessionWorkflowMeta`: `id`, `name`, `description`, `source`,
-    /// `delegatesAgents`) and orchestration mode (`balanced` by default). A choice made while a turn runs shows at once,
-    /// marked pending until the next turn start applies it (`getOrchestrationMode`: `pendingOrchestrationMode ??` the
-    /// session's; `currentWorkflow` of `boot/facade.mjs` resolves the staged workflow, whose meta its switch publishes, as
-    /// the header holds its id only).
+    /// `delegatesAgents`) and orchestration mode (`sessionOrchestrationMode`: a record with none derives it from its
+    /// workflow). A choice made while a turn runs shows at once, marked pending until the next turn start applies it
+    /// (`getOrchestrationMode`: `pendingOrchestrationMode ??` the session's; `currentWorkflow` of `boot/facade.mjs` resolves the
+    /// staged workflow, whose meta the header keeps beside its id).
     pub fn workflow(&self) -> ThreadWorkflow {
         let staged_workflow = self.header.get("pendingWorkflowId");
         let staged_mode = self.header.get("pendingOrchestrationMode");
-        let published = self.sections.workflow.as_ref().and_then(|section| section.workflow.as_ref());
-        let staged_meta = published.filter(|meta| staged_workflow.is_some_and(|id| meta.get("id") == Some(id)));
+        let staged_meta = self.header.get("pendingWorkflow").filter(|meta| staged_workflow.is_some_and(|id| meta.get("id") == Some(id)));
+        let mode = staged_mode.cloned().unwrap_or_else(|| Value::String(super::thread_switches::current_mode(&self.header)));
         ThreadWorkflow {
             workflow: staged_meta.or_else(|| self.header.get("workflow").filter(|workflow| workflow.is_object())).cloned(),
-            orchestration_mode: Some(
-                staged_mode
-                    .or_else(|| self.header.get("orchestrationMode"))
-                    .and_then(|mode| serde_json::from_value(mode.clone()).ok())
-                    .unwrap_or(OrchestrationMode::Balanced),
-            ),
+            orchestration_mode: Some(serde_json::from_value(mode).unwrap_or(OrchestrationMode::Balanced)),
             pending_workflow_switch: Some(staged_workflow.is_some()),
             pending_orchestration_mode_switch: Some(staged_mode.is_some()),
         }

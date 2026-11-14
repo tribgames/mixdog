@@ -25,6 +25,8 @@ pub trait RefreshEffects: Send + Sync + 'static {
     fn reload_config(&self);
     /// `invalidateProviderCaches`.
     fn invalidate_provider_caches(&self);
+    /// `reg.disableProvider(id)`.
+    fn disable_provider(&self, id: &str);
     /// `warmProviderModelCache`.
     fn warm_provider_model_cache(&self);
     /// `resetProviderAdmissionCooldowns()`.
@@ -62,6 +64,10 @@ impl<E: RefreshEffects> AuthRefresh for AuthRefreshFlow<E> {
     fn after_credential_change(&self) {
         self.effects.apply_config_change();
         self.adopt_credentials();
+    }
+
+    fn custom_provider_removed(&self, id: &str) {
+        self.effects.disable_provider(id);
     }
 
     /// New credentials are live: drop everything keyed to the old ones.
@@ -140,6 +146,10 @@ impl RefreshEffects for ProviderEffects {
         self.models.warm_now();
     }
 
+    fn disable_provider(&self, id: &str) {
+        self.readiness.disable_provider(id);
+    }
+
     fn reset_admission_cooldowns(&self) {
         self.admission.reset_cooldowns(None);
     }
@@ -195,6 +205,10 @@ mod tests {
             self.note("warmProviderModelCache");
         }
 
+        fn disable_provider(&self, id: &str) {
+            self.note(&format!("disableProvider:{id}"));
+        }
+
         fn reset_admission_cooldowns(&self) {
             *self.cooldown.lock().unwrap() = false;
         }
@@ -237,6 +251,14 @@ mod tests {
             assert_eq!(effects.calls.lock().unwrap().clone(), strings(&scenario["calls"]), "{label}: calls settled");
             assert_eq!(*effects.cooldown.lock().unwrap(), scenario["blockedAfter"].is_string(), "{label}: cooldown");
         }
+    }
+
+    /// A removed custom provider leaves the registry before any refresh runs (`onCustomProviderRemoved`).
+    #[test]
+    fn a_removed_custom_provider_is_disabled_at_once() {
+        let effects = Arc::new(Recording { calls: Mutex::default(), cooldown: Mutex::new(true), refresh: "absent" });
+        AuthRefreshFlow::new(effects.clone()).custom_provider_removed("mine");
+        assert_eq!(*effects.calls.lock().unwrap(), ["disableProvider:mine"]);
     }
 
     /// The switch's own sequence (`accounts.mjs`): reload, drop the model caches, warm them.

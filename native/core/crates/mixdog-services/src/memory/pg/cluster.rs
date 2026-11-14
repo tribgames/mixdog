@@ -4,15 +4,15 @@
 //! directory, else makes the cluster when the directory holds none (in
 //! `pgdata.init`, renamed to `pgdata` once whole) and starts one. The core is the
 //! only process of its data dir, so there is no secondary-attach protocol.
-
 //!
 //! Every child but `pg_ctl start` (`initdb`, `pg_ctl status|reload|stop`) runs under the one process
 //! manager through [`Processes`], with Node's limits (`runtime/memory/lib/pg/process.mjs`): `status`
 //! 3 s, `reload` 5 s, `stop` its `-t` seconds plus one; `initdb` has none, as in Node, and is ended by
 //! the caller's cancel. `pg_ctl start` is spawned outside the manager and not waited for (the
-//! readiness poll, 30 s, is its bound), as Node spawns it: the manager holds each child's tree in a
-//! job that ends with this process, and the postmaster must outlive a killed core as Node's
-//! outlives a killed daemon, so the next core attaches to it.
+//! readiness poll, 30 s, is its bound), as Node spawns it. A quitting core stops it, and on Windows it is put in a
+//! kill-on-close job the core holds for its life (`OWNED_SERVERS`), so the server ends with the core even when the core
+//! is killed, unlike Node's postmaster, which outlives its daemon. A postmaster left by Node or by a killed core
+//! elsewhere is still attached to through `postmaster.pid`.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -493,6 +493,26 @@ async fn remove_dir_with_retry(lane: DurabilityIo, path: &Path, recursive: bool)
     }
 }
 
+/// A `data_dir` without `PG_VERSION` that holds something is renamed to `<data_dir>.broken-<unix seconds>` (never deleted) and the path is warned
+/// about; an empty one is removed and a missing one is left. Node's `initdb` refuses such a directory for good; the core makes the cluster anew.
+async fn quarantine_without_cluster(lane: DurabilityIo, data_dir: &Path) -> Result<()> {
+    match remove_dir_with_retry(lane, data_dir, false).await {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(_) => {
+            let seconds = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_secs());
+            let mut name = data_dir.file_name().unwrap_or_default().to_owned();
+            name.push(format!(".broken-{seconds}"));
+            let aside = data_dir.with_file_name(name);
+            fsio::rename(lane, data_dir, &aside).await.map_err(|error| {
+                MemoryError::Runtime(format!("{} holds no cluster (no PG_VERSION) and cannot be moved aside: {error}", data_dir.display()))
+            })?;
+            tracing::warn!(from = %data_dir.display(), to = %aside.display(), "[pg-process] a data directory without PG_VERSION was moved aside and a new cluster is made");
+            Ok(())
+        }
+    }
+}
+
 /// A Windows refusal that clears in moments: `ERROR_ACCESS_DENIED` (an entry pending deletion), `ERROR_SHARING_VIOLATION`, `ERROR_LOCK_VIOLATION`.
 fn refused_for_now(error: &std::io::Error) -> bool {
     cfg!(windows) && matches!(error.raw_os_error(), Some(5 | 32 | 33))
@@ -513,8 +533,8 @@ static OWNED_SERVERS: std::sync::Mutex<Vec<mixdog_exthost::Containment>> = std::
 /// spawns it and polls readiness), so this only reports an exit that came before readiness.
 type StartRun = tokio::task::JoinHandle<Result<()>>;
 
-/// `pg_ctl start` as Node's `startAndWaitReady` spawns it (`process.mjs:375-400`: `spawn` with piped output and `windowsHide`, never killed by its
-/// starter). In Node the postmaster belonged to no job of the daemon and outlived it (`process.mjs:378-385`). Here the server ends with the core: a
+/// `pg_ctl start` as Node's `startAndWaitReady` spawns it (`process.mjs:407-440`: `spawn` with piped output and `windowsHide`, never killed by its
+/// starter). In Node the postmaster belonged to no job of the daemon and outlived it (`process.mjs:409-416`). Here the server ends with the core: a
 /// quitting core stops it (`stop_for_quit`), and on Windows this child is created suspended and put in a kill-on-close job the core holds for its
 /// life ([`OWNED_SERVERS`]) before it runs, so the postmaster `pg_ctl` starts through `cmd`, and every backend, are in that job and end when a core
 /// that was killed lets go of it. PostgreSQL recovers from its log at the next start. The child is still not given to the process manager, whose
@@ -808,12 +828,9 @@ impl PgCluster {
     async fn init(lane: DurabilityIo, processes: &Processes, runtime: &PgRuntime, data_dir: &Path, cancel: &CancellationToken) -> Result<()> {
         let staging = data_dir.with_extension("init");
         // `data_dir` holds no cluster here (no `PG_VERSION`): an empty one, which earlier builds made before `initdb`, is removed, and one that holds
-        // anything is refused, as `initdb` refuses it. What an ended init left in `staging` is never a cluster.
-        if let Err(error) = remove_dir_with_retry(lane, data_dir, false).await
-            && error.kind() != std::io::ErrorKind::NotFound
-        {
-            return Err(MemoryError::Runtime(format!("{} holds no cluster (no PG_VERSION) and cannot be replaced by one: {error}", data_dir.display())));
-        }
+        // anything is renamed aside (kept, never deleted) and told to the user, where Node's `initdb` refuses it for good (a deliberate difference).
+        // What an ended init left in `staging` is never a cluster.
+        quarantine_without_cluster(lane, data_dir).await?;
         remove_dir_with_retry(lane, &staging, true).await?;
         let share = ShareDir::prepare(lane, processes, runtime).await?;
         let args = initdb_args(&staging, share.path(), mixdog_fsio::elide::syncs_elided());

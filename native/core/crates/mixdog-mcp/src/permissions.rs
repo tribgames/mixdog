@@ -32,7 +32,6 @@ use serde_json::Map;
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
-use crate::config::McpServerConfig;
 use crate::connectors;
 use crate::hook_bus::config::stamp;
 use crate::scopes::within_projects;
@@ -435,14 +434,17 @@ pub struct ConnectorPolicy {
     data_dir: PathBuf,
     io: PolicyIo,
     snapshot: ArcSwap<Snapshot>,
-    /// Server name → the catalog connector it connects.
-    connectors: ArcSwap<HashMap<String, String>>,
+    /// Reads, as each call is judged, the catalog connector a configured server connects (`serverConnector`).
+    servers: ArcSwap<Option<ServerConnector>>,
     /// Resolves a qualified tool name the model uses to its server and the server's own tool
     /// name (names cut with a hash suffix cannot be parsed back).
     resolver: ArcSwap<Option<Resolver>>,
     /// The project folders a thread runs in.
     thread_paths: ArcSwap<Option<ThreadPaths>>,
 }
+
+/// The catalog connector the configured server named connects, as the servers are now.
+pub type ServerConnector = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 
 /// Resolves a qualified tool name to its server and the server's own tool name.
 pub type Resolver = Arc<dyn Fn(&str) -> Option<(String, String)> + Send + Sync>;
@@ -469,7 +471,7 @@ impl ConnectorPolicy {
             data_dir,
             io,
             snapshot: ArcSwap::from_pointee(Snapshot::default()),
-            connectors: ArcSwap::from_pointee(HashMap::new()),
+            servers: ArcSwap::from_pointee(None),
             resolver: ArcSwap::from_pointee(None),
             thread_paths: ArcSwap::from_pointee(None),
         })
@@ -536,18 +538,15 @@ impl ConnectorPolicy {
         });
     }
 
-    /// Records which catalog connector each configured server connects.
-    pub fn set_servers(&self, configs: &[McpServerConfig]) {
-        let map = configs
-            .iter()
-            .filter_map(|c| Some((c.name.clone(), c.connector.clone()?)))
-            .collect();
-        self.connectors.store(Arc::new(map));
+    /// Where the catalog connector of a configured server is read from, live, so a server connected or changed after the policy
+    /// was built is judged as it now is.
+    pub fn set_server_connectors(&self, servers: ServerConnector) {
+        self.servers.store(Arc::new(Some(servers)));
     }
 
     /// `serverConnector(name)`: the catalog connector configured server `server` connects.
     pub fn connector_of(&self, server: &str) -> Option<String> {
-        self.connectors.load().get(server).cloned()
+        (**self.servers.load()).as_ref().and_then(|servers| servers(server))
     }
 
     pub fn set_resolver(&self, resolver: Resolver) {
@@ -568,8 +567,7 @@ impl ConnectorPolicy {
         let Some((server, tool)) = self.split(name) else { return Permission::Auto };
         let snapshot = self.snapshot.load();
         let loaded = if valid_agent_id(agent) { snapshot.agents.get(agent).map(|read| read.value.clone()).unwrap_or_default() } else { Loaded::Absent };
-        let connectors = self.connectors.load();
-        permission(&loaded, &server, &tool, connectors.get(&server).map(String::as_str))
+        permission(&loaded, &server, &tool, self.connector_of(&server).as_deref())
     }
 
     /// The model-visible refusal when `agent` may not use the tool, or `None`.

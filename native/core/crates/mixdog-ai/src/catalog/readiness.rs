@@ -172,6 +172,11 @@ impl ProviderReadiness {
         })
     }
 
+    /// `reg.disableProvider(id)`: the immediate form of a stored decision that a provider is gone or off.
+    pub fn disable_provider(&self, id: &str) {
+        self.registry.disable(id);
+    }
+
     fn refreshes(&self) -> MutexGuard<'_, Refreshes> {
         self.refreshes.lock().unwrap_or_else(PoisonError::into_inner)
     }

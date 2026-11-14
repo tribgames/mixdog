@@ -351,6 +351,9 @@ pub(crate) enum ProducerMsg {
     ContextRewound {
         turn: TurnId,
         replacement: Vec<(ItemId, Value)>,
+        /// The replacement is the context the provider last saw (a refused prompt leaves the rows it had): the lineage and the
+        /// provider continuation stay.
+        unchanged: bool,
         ack: oneshot::Sender<Result<(), RunError>>,
     },
     /// The pre-send compaction's Goal reminder (`markPendingGoalReminder(session, 'compaction')` and
@@ -837,7 +840,14 @@ impl RunPort {
 
     pub async fn context_rewound(&self, replacement: Vec<(ItemId, Value)>) -> Result<(), RunError> {
         let (ack, rx) = oneshot::channel();
-        self.call(ProducerMsg::ContextRewound { turn: self.turn.clone(), replacement, ack }, rx).await?
+        self.call(ProducerMsg::ContextRewound { turn: self.turn.clone(), replacement, unchanged: false, ack }, rx).await?
+    }
+
+    /// The model context restarts at the rows it held before the turn's prompt (a refused prompt, `turn-run.mjs` throws before
+    /// `askSession`): the context the provider last saw, so the lineage and the continuation stay.
+    pub async fn context_restored(&self, replacement: Vec<(ItemId, Value)>) -> Result<(), RunError> {
+        let (ack, rx) = oneshot::channel();
+        self.call(ProducerMsg::ContextRewound { turn: self.turn.clone(), replacement, unchanged: true, ack }, rx).await?
     }
 
     /// Appends the `compacted` record and resolves once it is durable (or failed).

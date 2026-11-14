@@ -187,9 +187,9 @@ fn session_cache_key(options: &RequestOptions) -> String {
     key.map(normalize_cache_key).unwrap_or_default()
 }
 
-/// Takes `object`'s entries from `key` on, in their order; none when it has no `key`.
-fn split_from(object: &mut Map<String, Value>, key: &str) -> Map<String, Value> {
-    let Some(at) = object.keys().position(|k| k == key) else {
+/// Takes `object`'s entries from the first of `keys` on, in their order; none when it has none of them.
+fn split_from(object: &mut Map<String, Value>, keys: &[&str]) -> Map<String, Value> {
+    let Some(at) = object.keys().position(|k| keys.contains(&k.as_str())) else {
         return Map::new();
     };
     let mut head: Vec<(String, Value)> = std::mem::take(object).into_iter().collect();
@@ -218,13 +218,18 @@ impl Rewriter for CustomRewriter {
             Protocol::OpenaiChat | Protocol::OpenaiResponses => self.reasoning.resolve(&self.wire, request).fields,
             Protocol::Anthropic => Map::new(),
         };
+        // The Responses `reasoning` is what the row resolves (`resolveReasoning`), placed where Node's builder places it. The
+        // effort projection (`customEffortProjection`) is not encoded on this wire: it waits for the compat port of
+        // `withEffortConfigurationFallback`, without which a gateway refusing the update would fail the turn.
+        let reasoned = self.wire == Protocol::OpenaiResponses;
+        let reasoning = if reasoned { own.shift_remove("reasoning") } else { None };
         // Every custom Responses route keys the prompt cache on the session (`supportsPromptCacheKey`).
         let session = if self.wire == Protocol::OpenaiResponses { session_cache_key(&request.options) } else { String::new() };
         if !session.is_empty() {
             own.insert("prompt_cache_key".to_owned(), Value::String(session.clone()));
         }
         let model_extras = self.config.model_body.get(model).and_then(Value::as_object);
-        if !own.is_empty() || !self.config.request_body.is_empty() || model_extras.is_some() {
+        if !own.is_empty() || !self.config.request_body.is_empty() || model_extras.is_some() || reasoned {
             let mut body: Value = serde_json::from_slice(&wire.body)
                 .map_err(|_| invalid("request body is not JSON".to_owned()))?;
             if let Some(object) = body.as_object_mut() {
@@ -232,9 +237,19 @@ impl Rewriter for CustomRewriter {
                 // follows `applyCustomRequestBody`); the Responses body names `stream` among its first keys and
                 // takes them last.
                 let stream_flags = match self.wire {
-                    Protocol::OpenaiChat | Protocol::Anthropic => split_from(object, "stream"),
+                    Protocol::OpenaiChat | Protocol::Anthropic => split_from(object, &["stream"]),
                     Protocol::OpenaiResponses => Map::new(),
                 };
+                if reasoned {
+                    // The codec's own `reasoning` followed the turn's effort as sent; the row decides, and a row that serves
+                    // none leaves the request without one.
+                    object.shift_remove("reasoning");
+                    if let Some(reasoning) = reasoning {
+                        let tail = split_from(object, &["instructions", "prompt_cache_key"]);
+                        object.insert("reasoning".to_owned(), reasoning);
+                        object.extend(tail);
+                    }
+                }
                 object.extend(own);
                 for layer in [Some(&self.config.request_body), model_extras].into_iter().flatten() {
                     for (key, value) in layer {

@@ -870,33 +870,64 @@ impl Worktrees {
         Ok(())
     }
 
-    /// The folder must be a registered git worktree inside the managed store, both compared
-    /// canonical (`isWithin`: a data dir spelled through a link or junction is the same store).
+    /// `assertManagedCheckoutPath` (manager.mjs): `WORKTREE_PATH_UNSAFE` unless the record's path is exactly the managed path of its id,
+    /// inside the managed root, and (when present) its `.git` file links back into this repository's worktree admin dir; all compared
+    /// canonical, so a data dir spelled through a link or junction is the same store. A checkout whose `.git` is already gone
+    /// passes only while empty or after a recorded attempt (a removal tried, a rollback begun); a folder that is gone passes.
     pub(crate) async fn assert_managed_path(&self, record: &WorktreeRecord, cancel: &CancellationToken) -> Result<(), ScmFailure> {
+        let unsafe_ = |reason: &str| errors::path_unsafe(record.id.clone(), record.path.clone(), Some(reason));
+        if names::name_error(&record.id).is_some() {
+            return Err(unsafe_("invalid-id"));
+        }
+        let common = Path::new(&record.repo_common_dir);
         let path = Path::new(&record.path);
-        let root = names::managed_root(&self.data_dir, Path::new(&record.repo_common_dir));
-        let [real_path, real_root]: [PathBuf; 2] = self
-            .canonical_paths(vec![path.to_path_buf(), root], cancel)
+        let [real_path, real_root, real_expected]: [PathBuf; 3] = self
+            .canonical_paths(
+                vec![path.to_path_buf(), names::managed_root(&self.data_dir, common), names::managed_path(&self.data_dir, common, &record.id)],
+                cancel,
+            )
             .await?
             .try_into()
-            .expect("two paths in, two out");
-        let inside = path_key(&real_path).starts_with(&format!("{}/", path_key(&real_root)));
-        let registered = self.registration_for(record, cancel).await.is_ok_and(|row| row.is_some());
-        // `assertManagedCheckoutPath`: a folder without its `.git` link (a checkout git never made,
-        // or one half removed) passes after a recorded attempt (a removal tried, a rollback begun)
-        // or while empty.
-        let unlinked = path.join(".git").symlink_metadata().is_err() && {
-            let truthy = |value: Option<&Value>| value.is_some_and(|v| !v.is_null() && v != &json!(false) && v != &json!(0) && v != &json!(""));
-            let attempted = truthy(record.extra.get("deleting").and_then(|deleting| deleting.get("lastAttemptAt")))
-                || truthy(record.extra.get("recovery").and_then(|recovery| recovery.get("remaining")))
-                || record.state == "recovery";
-            attempted || std::fs::read_dir(path).is_ok_and(|mut entries| entries.next().is_none())
-        };
-        if inside && (registered || !path.exists() || unlinked) {
-            Ok(())
-        } else {
-            Err(errors::path_unsafe(record.id.clone(), record.path.clone(), None))
+            .expect("three paths in, three out");
+        let (key, root) = (path_key(&real_path), path_key(&real_root));
+        if key != path_key(&real_expected) || key == root || !key.starts_with(&format!("{root}/")) {
+            return Err(unsafe_("outside-managed-root"));
         }
+        if crate::worktree::housekeeping::is_gone(path) {
+            return Ok(());
+        }
+        let dot_git = path.join(".git");
+        let info = match dot_git.symlink_metadata() {
+            Ok(info) => info,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                let truthy = |value: Option<&Value>| value.is_some_and(|v| !v.is_null() && v != &json!(false) && v != &json!(0) && v != &json!(""));
+                let attempted = truthy(record.extra.get("deleting").and_then(|deleting| deleting.get("lastAttemptAt")))
+                    || truthy(record.extra.get("recovery").and_then(|recovery| recovery.get("remaining")))
+                    || record.state == "recovery";
+                let empty = std::fs::read_dir(path).map_err(|_| unsafe_("no-back-link"))?.next().is_none();
+                return if attempted || empty { Ok(()) } else { Err(unsafe_("no-back-link")) };
+            }
+            Err(_) => return Err(unsafe_("unreadable")),
+        };
+        if !info.is_file() {
+            return Err(unsafe_("not-a-linked-checkout"));
+        }
+        let text = std::fs::read_to_string(&dot_git).map_err(|_| unsafe_("unreadable"))?;
+        let gitdir = text.lines().find_map(|line| line.strip_prefix("gitdir:")).map(str::trim).filter(|gitdir| !gitdir.is_empty());
+        let admin = common.join("worktrees");
+        let linked = match gitdir {
+            Some(gitdir) => {
+                let [real_gitdir, real_admin]: [PathBuf; 2] = self
+                    .canonical_paths(vec![PathBuf::from(gitdir), admin], cancel)
+                    .await?
+                    .try_into()
+                    .expect("two paths in, two out");
+                let (gitdir_key, admin_key) = (path_key(&real_gitdir), path_key(&real_admin));
+                gitdir_key != admin_key && gitdir_key.starts_with(&format!("{admin_key}/"))
+            }
+            None => false,
+        };
+        if linked { Ok(()) } else { Err(unsafe_("foreign-back-link")) }
     }
 
     /// `assertWorktreeRemovable`: the refusal a removal would raise, checked before anything

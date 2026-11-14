@@ -96,6 +96,23 @@ impl Scm {
         Ok(parse_status_paths(&output.stdout_text()))
     }
 
+    /// The project folder's changes as worktree creation counts them (`Worktrees::uncommitted_changes`): every untracked file but the
+    /// project's own untracked identity marker (`<project>/.mixdog/project.id`), which a registered project always has.
+    async fn project_changes(&self, cancel: &CancellationToken, cwd: &Path) -> Result<Vec<String>, ScmFailure> {
+        let prefix = self.outcome(cancel, cwd, &["rev-parse", "--show-prefix"]).await?;
+        let identity = crate::worktree::carry::identity_path(prefix.stdout_text().trim().trim_end_matches('/'));
+        let args = ["status", "--porcelain=v1", "-z", "--untracked-files=all"];
+        let output = self.outcome(cancel, cwd, &args).await?;
+        if !output.success() {
+            return Err(ScmFailure::git(format!("git status failed: {}", output.stderr_text().trim())));
+        }
+        Ok(parse_status_entries(&output.stdout_text())
+            .into_iter()
+            .filter(|(code, path)| !(code == "??" && *path == identity))
+            .map(|(_, path)| path)
+            .collect())
+    }
+
     pub async fn merge_branch_into_checkout(
         &self,
         cancel: &CancellationToken,
@@ -129,7 +146,7 @@ impl Scm {
         if let Some(operation) = operation_in_progress(&git_dir) {
             return Err(errors::merge_target_dirty(operation_verb(operation), Vec::new(), None));
         }
-        let dirty = self.uncommitted_paths(cancel, cwd).await?;
+        let dirty = self.project_changes(cancel, cwd).await?;
         if !dirty.is_empty() {
             return Err(errors::merge_target_dirty(
                 "",

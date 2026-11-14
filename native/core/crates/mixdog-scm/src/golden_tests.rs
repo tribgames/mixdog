@@ -1872,3 +1872,49 @@ fn a_review_revision_names_the_file_identity_or_deleted() {
     assert_eq!(revision.split(':').count(), 4);
     assert_eq!(crate::inspect::status::worktree_revision(dir.path(), "gone.txt"), "deleted");
 }
+
+/// Merging into a project folder whose only change is the untracked session identity marker is not refused `MERGE_TARGET_DIRTY`
+/// (creation leaves the marker out the same way); any other file under `.mixdog/` still is.
+#[tokio::test]
+async fn a_merge_target_with_only_the_identity_marker_untracked_is_clean() {
+    let (_guard, repo, _head) = fixture_repo();
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-q", "-m", "clean"]);
+    std::fs::create_dir_all(repo.join(".mixdog")).unwrap();
+    std::fs::write(repo.join(".mixdog/project.id"), "id\n").unwrap();
+    let scm = scm();
+    let cancel = CancellationToken::new();
+    let merged = scm.merge_branch_into_checkout(&cancel, &repo, "feature", Some("main"), true, None).await.unwrap();
+    assert!(merged.merged || merged.up_to_date);
+
+    std::fs::write(repo.join(".mixdog/other"), "x\n").unwrap();
+    let dirty = scm.merge_branch_into_checkout(&cancel, &repo, "feature", Some("main"), true, None).await.unwrap_err();
+    assert_eq!(dirty.code(), Some(crate::worktree::errors::MERGE_TARGET_DIRTY));
+}
+
+/// `assertManagedCheckoutPath`: the record's path is exactly the managed path of its id and its `.git` links back into this
+/// repository, whether or not the project folder is still there.
+#[tokio::test]
+async fn a_managed_worktree_path_is_exactly_the_managed_path_of_its_id_and_links_back() {
+    let (_guard, _data, worktrees, made, cancel) = two_worktrees().await;
+    let record = made[0].clone();
+    worktrees.assert_managed_path(&record, &cancel).await.unwrap();
+
+    let reason = |error: crate::error::ScmFailure| match error {
+        crate::error::ScmFailure::Coded { detail, .. } => format!("{detail:?}"),
+        other => format!("{other:?}"),
+    };
+    // Another managed folder of the store is not this id's path.
+    let mut other = record.clone();
+    other.path = made[1].path.clone();
+    let refused = worktrees.assert_managed_path(&other, &cancel).await.unwrap_err();
+    assert!(reason(refused).contains("outside-managed-root"));
+    // A folder inside the store whose `.git` links elsewhere is foreign.
+    let mut foreign = record.clone();
+    foreign.id = made[1].id.clone();
+    foreign.path = made[1].path.clone();
+    foreign.repo_common_dir = made[1].repo_common_dir.clone();
+    std::fs::write(Path::new(&foreign.path).join(".git"), "gitdir: /nowhere/.git/worktrees/x\n").unwrap();
+    let refused = worktrees.assert_managed_path(&foreign, &cancel).await.unwrap_err();
+    assert!(reason(refused).contains("foreign-back-link"));
+}

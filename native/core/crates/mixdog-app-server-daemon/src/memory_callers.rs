@@ -69,6 +69,23 @@ impl MemoryCallers for ThreadMemoryCallers {
             }
         }
     }
+
+    async fn runtime_owner(&self, thread: &ThreadId) -> String {
+        // Node creates a worker in the runtime that ran the delegating call, so a worker's worker is in that runtime too: the
+        // owner is the top of the `parentSessionId` chain (a chain that comes back to a session it passed ends there).
+        let mut owner = thread.as_str().to_owned();
+        let mut passed = std::collections::HashSet::new();
+        while passed.insert(owner.clone()) {
+            let parent = self.sessions.header(&ThreadId::from(owner.as_str())).await.and_then(|header| {
+                header.get("parentSessionId").and_then(Value::as_str).filter(|parent| !parent.is_empty()).map(str::to_owned)
+            });
+            match parent {
+                Some(parent) => owner = parent,
+                None => break,
+            }
+        }
+        owner
+    }
 }
 
 #[cfg(test)]
@@ -158,5 +175,34 @@ mod tests {
         assert_eq!(caller_of("t", child, scope(), None).await, json!({ "kind": "headless", "agentId": "" }));
         let plain = Some(json!({ "agent": "worker" }));
         assert_eq!(caller_of("t", plain, scope(), None).await, json!({ "kind": "headless", "agentId": "" }));
+    }
+
+    /// A delegated worker's memory call marks its owner's runtime as having loaded the module, so the owner is ingested at its close and
+    /// the worker is not; a worker's worker belongs to the same owner, and a thread without a parent is its own owner.
+    #[tokio::test]
+    async fn a_delegated_workers_memory_use_belongs_to_its_owner() {
+        struct Chain(Map<String, Value>);
+        #[async_trait]
+        impl CallerSessions for Chain {
+            async fn header(&self, thread: &ThreadId) -> Option<Map<String, Value>> {
+                self.0.get(thread.as_str()).and_then(Value::as_object).cloned()
+            }
+            async fn acting_agent(&self, _: &ThreadId) -> Result<String, CoreError> {
+                Ok(String::new())
+            }
+        }
+        let headers = json!({
+            "lead": { "parentSessionId": null },
+            "worker": { "parentSessionId": "lead" },
+            "nested": { "parentSessionId": "worker" },
+            "loop_a": { "parentSessionId": "loop_b" },
+            "loop_b": { "parentSessionId": "loop_a" },
+        });
+        let fixed = Arc::new(Fixed { header: None, scope: CallerScope::Headless, run: None });
+        let chain = Arc::new(Chain(headers.as_object().cloned().expect("object")));
+        let callers = ThreadMemoryCallers::new(chain, fixed.clone(), fixed);
+        for (thread, owner) in [("worker", "lead"), ("nested", "lead"), ("lead", "lead"), ("unknown", "unknown"), ("loop_a", "loop_a")] {
+            assert_eq!(callers.runtime_owner(&ThreadId::from(thread)).await, owner, "{thread}");
+        }
     }
 }

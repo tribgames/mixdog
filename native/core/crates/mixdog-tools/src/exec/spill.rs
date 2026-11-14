@@ -45,7 +45,7 @@ fn owner_path(out: &Path) -> Option<PathBuf> {
 fn record_body(shared: &Shared) -> Vec<u8> {
     let state = if shared.ended.load(Ordering::Acquire) { "finished" } else { "running" };
     let mut record = lock(&shared.fields).clone();
-    record.insert("pid".into(), std::process::id().into());
+    record.insert("clientHostPid".into(), std::process::id().into());
     record.insert("state".into(), state.into());
     serde_json::Value::Object(record).to_string().into_bytes()
 }

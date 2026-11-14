@@ -1673,17 +1673,16 @@ impl SessionActor {
 
     /// Node's `sessionTurnBusy` (`busy.mjs` `stateBusy`: `busy`, `commandBusy`, `queued`) as the core's lifecycle counts the session
     /// ([`SessionDeps::core_work`]): a turn runs, starts, settles or waits to start, a Goal continuation is decided or its entry
-    /// checked, a compaction runs, or queued input waits only for the previous turn to land (or the scheduled compaction to end).
-    /// Node's `stateBusy` counts any queued input (`queued.length > 0`); here input queued while nothing gates its start is not
-    /// counted: input the core's hold keeps queued (under Node's hold a client's submit is refused and nothing queues), and input
-    /// queued while a quota resume is pending (Node's `drain-enqueue.mjs` queues it under `flags.quotaResumePending`, and it keeps
-    /// Node's daemon up until the resume) or for a session that is not woken by it. That divergence is a follow-up.
+    /// checked, a compaction runs, or any input is queued (`queued.length > 0`: one waiting for the previous turn to land, for the
+    /// scheduled compaction to end or for a quota resume, which keeps Node's daemon up until the resume). The one input not counted
+    /// is what the core's own hold keeps queued once nothing but the hold keeps it from starting: under Node's hold a client's submit
+    /// is refused and nothing queues, and counting it would hold the core the drain waits to see idle.
     fn core_busy(&self) -> bool {
         self.turn_held()
             || self.goal_checking
             || self.goal_scheduled
             || self.compactions > 0
-            || (self.starts_gated() && !self.projected.queue.is_empty())
+            || ((self.starts_gated() || self.core_hold() == StartHold::Open) && !self.projected.queue.is_empty())
     }
 
     /// The session's hold on the core follows [`Self::core_busy`], after every step.
@@ -1814,19 +1813,25 @@ impl SessionActor {
             return;
         };
         // Left, or a subscriber came back and it stays: either way a close has its answer.
-        directory.unload(&self.id, &self.cell, self.close_work("other"));
+        if directory.unload(&self.id, &self.cell, self.close_work("other")) {
+            // The runtime's close disconnects the MCP scope (`runtime-stops.mjs:24`); a load takes a new one.
+            self.deps.deletion.unload_mcp_scope(self.id.as_str());
+        }
         self.answer_closes();
     }
 
     /// The closing runtime's own work (`close(reason)`, `lifecycle/teardown.mjs:185-195`): `dispatchSessionEnd`, waited for no
     /// longer than `withTeardownDeadline`'s 300 ms (a slower hook goes on by itself), then the memory ingest. `reason` is the
-    /// payload's (`sessionEndReason`): `exit` for the core's shutdown (`cli-exit`), `other` for an unload. A session its
+    /// payload's (`sessionEndReason`): `exit` for the core's shutdown (`cli-exit`), `other` for an unload; a worker session ends none at the exit. A session its
     /// close tombstoned or deleted has none left to end: `closeCanonicalSession` drops it before the runtime closes
     /// (`if (!session?.id) return`). Nor has one the core's exit already ended (`ExitClose`, which fires `SessionEnd` before it
     /// closes the session, as `close(reason)` dispatches it before `closeOwnSession`).
     fn close_work(&self, reason: &'static str) -> futures::future::BoxFuture<'static, ()> {
         let ingest = self.close_ingest();
-        if self.tombstoned || self.deleting || self.cell.session_ended.load(SeqCst) {
+        // A worker session is not the runtime's own: the exit's `agentTool.closeAll` detaches it and no `SessionEnd` is
+        // dispatched for it (`teardown.mjs:185-187` dispatches the runtime's own session's).
+        let worker_at_exit = reason == "exit" && super::close::is_worker(&self.acked.header);
+        if self.tombstoned || self.deleting || self.cell.session_ended.load(SeqCst) || worker_at_exit {
             return ingest;
         }
         let (hooks, thread, header) = (self.deps.lifecycle.clone(), self.id.clone(), self.acked.header.clone());
@@ -3018,14 +3023,9 @@ impl SessionActor {
                         // A workflow or orchestration-mode switch, applied or staged for the next turn, and the turn start that
                         // applies a staged one republish the workflow state (`publishRoute()` after `setWorkflow` /
                         // `setOrchestrationMode`, `tui/session/session-api/routes.mjs`, and after `applyPendingSessionSwitches`).
-                        // A workflow staged under an id whose meta the thread does not hold yet is shown by the meta its switch
-                        // publishes right after this record (`SessionSwitchAdapter::switch`; the header holds the id only): that
-                        // section sends the state, so the old workflow is not shown as the pending one first (Node's one
-                        // `publishRoute()` shows the staged summary).
-                        let staged = header.set.get("pendingWorkflowId").and_then(Value::as_str).filter(|id| !id.is_empty());
-                        let held_meta = self.acked.sections.workflow.as_ref().and_then(|section| section.workflow.as_ref());
-                        let meta_follows = staged.is_some_and(|id| held_meta.and_then(|meta| meta.get("id")).and_then(Value::as_str) != Some(id));
-                        if !meta_follows && WORKFLOW_KEYS.iter().any(|key| header.set.contains_key(*key) || header.unset.iter().any(|unset| unset.as_str() == *key)) {
+                        // A workflow staged mid-turn writes its meta (`pendingWorkflow`) in the same record as its id, so this one
+                        // frame shows the staged summary (Node's one `publishRoute()`).
+                        if WORKFLOW_KEYS.iter().any(|key| header.set.contains_key(*key) || header.unset.iter().any(|unset| unset.as_str() == *key)) {
                             notes.push(self.workflow_note());
                         }
                     }
@@ -3080,7 +3080,6 @@ impl SessionActor {
             Section::QuotaResume(v) => note("thread/quotaResume/updated", t, v),
             Section::Agents(v) => note("thread/agents/updated", t, v),
             Section::ShellJobs(v) => note("thread/shellJobs/updated", t, v),
-            Section::Workflow(_) => self.workflow_note(),
             Section::Workspace(v) => note("thread/workspace/updated", t, v),
             Section::Approvals(v) => note("thread/approvals/updated", t, v),
             Section::PromptRestore(v) => note("thread/promptRestore", t, v),
@@ -3726,6 +3725,11 @@ impl SessionActor {
                 if restored || !self.projected.queued_rows().is_empty() {
                     self.start_next_queued();
                 }
+                // The session boundary of the resume (`rearmGoalContinuationOnSessionBoundaries`): the continuation queued before it
+                // is dropped, the Goal is read again and its continuation decided once the boundary has settled.
+                self.cancel_goal_entries(None);
+                self.refresh_goal();
+                self.schedule_goal_continuation();
             }
             Ctl::Prioritize { queued } => {
                 self.prioritize(&queued);
@@ -4554,9 +4558,9 @@ impl SessionActor {
         self.turn_unsettled() || self.compaction_held()
     }
 
-    /// A queue drain may not dequeue now: starts are held ([`Self::starts_gated`]), or the core holds new turn starts (`hold{on}`,
-    /// LR §5.1 step 1: deferred, not refused) or its drain commit closed them (step 2: the queue stays for the next core, or for
-    /// this one once the drain is cancelled). The hold is read here, where the drain decides, and not again by the start: what it
+    /// A queue drain may not dequeue now: starts are held ([`Self::starts_gated`]), or the core holds new turn starts (`hold{on}`:
+    /// a client's send is refused meanwhile, so only input queued before the hold waits) or its drain commit closed them (the queue
+    /// stays for the next core, or for this one once the drain is cancelled). The hold is read here, where the drain decides, and not again by the start: what it
     /// dequeues (a prompt, a completion, a Goal entry checked later) starts whatever the hold reads next, so none is lost.
     fn drain_gated(&self) -> bool {
         self.starts_gated() || self.core_hold() != StartHold::Open
@@ -4610,12 +4614,23 @@ impl SessionActor {
         self.goal_checking = true;
         let (deps, thread) = (self.deps.clone(), self.id.clone());
         let closeout = super::goal_lane::is_closeout(&entry);
+        // The check is the busy session's running work, which a confirmed stop's abort cancels (Node's forced `shutdown` aborts every
+        // busy session): an aborted check reads as none, and its entry is dropped.
+        let token = mixdog_rt::CancellationToken::new();
+        let core_abort = self.hold_core().run(&token);
         self.goal_call(Box::pin(async move {
-            let seen = if closeout {
-                deps.goals.goal_status(&thread).await.ok().map(GoalCheck::Status)
-            } else {
-                let input = super::goal_lane::continuation_input(&*deps.todos, &*deps.work, &deps.cycles, &thread).await;
-                deps.goals.continuation(&thread, input).await.ok().map(GoalCheck::Decision)
+            let _core_abort = core_abort;
+            let check = async {
+                if closeout {
+                    deps.goals.goal_status(&thread).await.ok().map(GoalCheck::Status)
+                } else {
+                    let input = super::goal_lane::continuation_input(&*deps.todos, &*deps.work, &deps.cycles, &thread).await;
+                    deps.goals.continuation(&thread, input).await.ok().map(GoalCheck::Decision)
+                }
+            };
+            let seen = tokio::select! {
+                () = token.cancelled() => None,
+                seen = check => seen,
             };
             JobDone::GoalEntryChecked { entry, seen }
         }));
@@ -5040,15 +5055,17 @@ impl SessionActor {
                 }
                 self.outbox.end_unit();
             }
-            ProducerMsg::ContextRewound { turn, replacement, ack } => {
+            ProducerMsg::ContextRewound { turn, replacement, unchanged, ack } => {
                 if !self.active(&turn) {
                     let _ = ack.send(Err(RunError::NotApplied));
                     return;
                 }
-                self.transcript_rewritten = true;
-                // The provider continuation described the rows that left.
-                if let Some(reset) = self.provider_state_change(None) {
-                    self.accept_record(reset, Class::Normal, Display::None, Vec::new(), Vec::new());
+                if !unchanged {
+                    self.transcript_rewritten = true;
+                    // The provider continuation described the rows that left.
+                    if let Some(reset) = self.provider_state_change(None) {
+                        self.accept_record(reset, Class::Normal, Display::None, Vec::new(), Vec::new());
+                    }
                 }
                 // Nothing leaves the transcript (`dropped_count: 0`, no identities) and no divider
                 // is shown, live or restored (`silent`): only the model context restarts.
@@ -5664,8 +5681,16 @@ impl SessionActor {
                 return;
             }
         };
-        let request =
-            ApprovalBook::request(aid, &self.id, &self.lineage, ask, self.deps.clock.now_ms());
+        // A sub-agent's request is shown where Node's `approvalSurface` puts it, the delegation's root (its own surface, a room
+        // seat's log), however many of the ancestors between are loaded: `lineage` reaches only the loaded parents.
+        let lineage = match &surface {
+            Some(root) => Lineage {
+                surface: super::delegation::room_log_surface(&root.session_id).unwrap_or_else(|| ThreadId::from(root.session_id.as_str())),
+                chain: self.lineage.chain.clone(),
+            },
+            None => self.lineage.clone(),
+        };
+        let request = ApprovalBook::request(aid, &self.id, &lineage, ask, self.deps.clock.now_ms());
         let mut params = request_params(&request, &turn);
         // Node's card of the request (`state.toolApproval`, `normalizeToolApprovalRequest` of the hook request:
         // `room_approval.rs` `tool_approval`), which the phone shows as Node's did.
@@ -5679,7 +5704,7 @@ impl SessionActor {
             id: aid.request_id(),
             method,
             thread: self.id.clone(),
-            surface: self.lineage.surface.clone(),
+            surface: lineage.surface.clone(),
             order: aid.0,
             frame: request_frame(&request, params.clone()),
         };
@@ -6105,16 +6130,16 @@ impl SessionActor {
         if self.projected.header.get("retiredAt").and_then(Value::as_f64).is_some_and(|at| at > 0.0) {
             return Err(coded("session", SUBMIT_REFUSED, "This bot was deleted."));
         }
-        // The core holds new turn starts (`hold{on}`, LR §5.1 step 1): a client's prompt is queued below and answered at once, so
-        // its call keeps none of the thread's requests waiting behind it (Node refuses the send instead, `workGate.callRefusal`'s
-        // 503; LR defers it). An in-core start waited the hold out before it was admitted (`SessionHandle::turn_start`, Node's
-        // `daemonWorkGate.deferring`), so one the hold reached since starts, as Node's admitted start counts as running work.
-        // Once the drain commit dropped the hold, a start is refused as admission refuses one (step 2).
-        let hold = self.core_hold();
-        if let StartHold::Closed(drain_reason) = hold {
-            return Err(CoreError::ServerShuttingDown { drain_reason });
+        // The core holds new turn starts (`hold{on}`): Node's work gate refuses a client's send (`callRefusal`: `HOLD_ALLOWED_CALLS` lets
+        // only reads, stops and answers through; `routes.mjs:168-172`, 503), so nothing is queued under a hold. An in-core start waited
+        // the hold out before it was admitted (`SessionHandle::turn_start`, Node's `daemonWorkGate.deferring`), so one the hold
+        // reached since starts, as Node's admitted start counts as running work. Once the drain commit dropped the hold, a start is
+        // refused as admission refuses one.
+        match self.core_hold() {
+            StartHold::Closed(drain_reason) => return Err(CoreError::ServerShuttingDown { drain_reason }),
+            StartHold::Held if matches!(req.ctx.caller, Caller::Connection(_)) => return Err(mixdog_core_base::support::failed("session", turn_ops::HOLD_REFUSAL)),
+            StartHold::Held | StartHold::Open => {}
         }
-        let held = hold == StartHold::Held && matches!(req.ctx.caller, Caller::Connection(_));
         // The device that sent a user prompt rides it (`transcriptMeta.device`, stamped by the host in Node).
         let submitter = match req.ctx.caller {
             Caller::Connection(connection) => Some(Submitter {
@@ -6134,10 +6159,10 @@ impl SessionActor {
             });
             self.archive_goal_on_user_input();
         }
-        // A turn starting or still settling, the scheduled compaction's gate, or the core's hold on a client's start, holds the
+        // A turn starting or still settling, or the scheduled compaction's gate, holds the
         // next one back: it is queued and starts after. A previous turn that is not saved yet holds it too, but as a
         // start that waits for the save ([`Self::start_run_with`]), not as a queued prompt.
-        if !self.turn_busy() && !self.compaction_held() && !held {
+        if !self.turn_busy() && !self.compaction_held() {
             let value = json!({ "kind": "started" });
             let op_ref = self.op_ref(req, None)?;
             self.submitter = submitter;
@@ -6194,8 +6219,6 @@ impl SessionActor {
         let display = Display::Queued(self.deps.transcript.queued(&qid, &entry));
         // New input ends the running turn's passive `task wait` / shell hold, as today.
         self.deps.wakes.interrupt(&self.id, WakeReason::UserMessage, None);
-        // The hold's release drains what it queued ([`Self::pump`]).
-        self.drain_held |= held;
         Ok(Plan {
             kind: PlanKind::Records(vec![(record, Class::Normal, display, Vec::new())], Vec::new()),
             value,
@@ -7299,12 +7322,9 @@ impl SessionActor {
         // drain.mjs `renderBatchItems`), though the model's content reads blank.
         let shown = display_text(&input);
         let shown_blank = submitter.is_some() && !facts.visible && facts.prompt.is_none() && !shown.is_empty();
-        // A Goal entry's prompt shows no row of its own, but history pages list it: the failed end of a turn that stopped
-        // before any output is recorded on it, and a reload restores that end (`restoreTranscriptRange` runs
-        // `restoredFailedTurnItems` for every message). The rule is the live writer's, not `row_facts`' (`user_facts.rs`): a Goal
-        // prompt migrated from Node keeps `visible: false`, so a failed end recorded on one is not restored, and a live row and a
-        // migrated row of this one message differ. Moving it into `message_class::row_facts` would change the migration's output.
-        let listed = facts.visible || shown_blank || super::goal_lane::is_goal_prompt(&input_body);
+        // A Goal entry's prompt shows no row of its own, but history pages list it (`row_facts`, as the migration writes it): the
+        // failed end of a turn that stopped before any output is recorded on it, and a reload restores that end.
+        let listed = facts.visible || shown_blank;
         let input_row = ItemRecord {
             iid: id(input_iid.as_str()),
             turn: Some(id(turn.as_str())),

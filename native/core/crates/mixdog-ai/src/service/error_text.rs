@@ -111,7 +111,7 @@ fn kind_name(kind: ErrorKind) -> &'static str {
 }
 
 /// `error.code` as the provider error states it: its own code, else `TRUNCATED_STREAM` for a cut stream and the
-/// errno name of a socket fault (`ECONNRESET`, `EPIPE`, `ETIMEDOUT`, `ECONNREFUSED`: Node's sentence reads
+/// code of a socket fault (`ECONNRESET`, `UND_ERR_SOCKET`, `ENOTFOUND`, `EPIPE`, `ETIMEDOUT`, `ECONNREFUSED`: Node's sentence reads
 /// "(EPIPE)", here and in the persisted errorKind).
 pub fn sent_code(error: &ProviderError) -> String {
     let code = error.code.clone().unwrap_or_default();
@@ -1022,5 +1022,18 @@ mod tests {
         assert_eq!(present_error_text(&ErrorView::from(&error), &PresentOptions::default()), "Provider is rate-limited (retry in 4s).");
         let cut = ProviderError::transport(TransportFault::TruncatedStream, DeliveryState::Accepted);
         assert_eq!(present_error_text(&ErrorView::from(&cut), &PresentOptions::default()), "Connection to the provider was lost (TRUNCATED_STREAM).");
+    }
+
+    /// A peer that closed or a failed lookup carries the code Node's `cause` names, as a reset does.
+    #[test]
+    fn a_closed_socket_and_a_failed_lookup_name_their_node_codes() {
+        use mixdog_core_api::domain::provider::DeliveryState;
+        for (fault, text) in [
+            (TransportFault::Closed, "Connection to the provider was lost (UND_ERR_SOCKET)."),
+            (TransportFault::Dns, "Could not reach the provider (ENOTFOUND)."),
+        ] {
+            let error = ProviderError::transport(fault, DeliveryState::Ambiguous);
+            assert_eq!(present_error_text(&ErrorView::from(&error), &PresentOptions::default()), text);
+        }
     }
 }

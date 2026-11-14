@@ -10,8 +10,7 @@
 //!
 //! Not carried over from Node (see `decisions.md`, "manual compaction"): the staged working-folder
 //! re-root (`applyPendingWorkspaceReroot`) a changed pass applies, the write-ahead archive segment,
-//! the trace line, and the summary route's own facts (provider and model of a maintenance or
-//! lighter route): the session's route is reported.
+//! the trace line.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -406,11 +405,11 @@ impl HostManualCompaction {
             usage: usage.clone(),
             fresh_context: true,
             handoff_source: Some(if summarized { "session-local" } else { "rules" }.to_owned()),
-            summary_provider: summarized.then(|| snapshot.provider.clone()),
-            summary_model: summarized.then(|| snapshot.model.clone()),
+            summary_provider: output.summary_route.as_ref().map(|route| route.provider.clone()),
+            summary_model: output.summary_route.as_ref().map(|route| route.model.clone()),
             pipeline_mode: Some(if summarized { "conversation-summary" } else { "rules" }.to_owned()),
-            summary_route: summarized.then(|| "session".to_owned()),
-            forked: false,
+            summary_route: output.summary_route.as_ref().map(|route| route.step.to_owned()),
+            forked: output.summary_route.as_ref().is_some_and(|route| route.forked),
             generated_ms: output.summary_ms,
             total_ms: Some(output.pipeline_ms),
         };

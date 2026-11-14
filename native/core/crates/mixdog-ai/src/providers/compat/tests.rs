@@ -681,6 +681,26 @@ fn a_tool_call_streamed_in_two_argument_deltas_reaches_the_tool_whole() {
     }
 }
 
+/// A provider that omits the call's id: the call gets a minted one, so its result reaches the model.
+#[test]
+fn a_streamed_tool_call_without_an_id_gets_one() {
+    let codec = plain_codec();
+    let sse = "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"name\":\"lookup\",\"arguments\":\"{}\"}}]},\"finish_reason\":\"tool_calls\"}]}
+
+data: [DONE]
+
+";
+    let events = decode(&codec, sse.as_bytes(), 5);
+    let calls = tool_calls_of(&events);
+    assert_eq!(calls.len(), 1);
+    assert!(calls[0].id.starts_with("call_") && calls[0].id.len() > 5, "{}", calls[0].id);
+    let started = events.iter().find_map(|e| match e {
+        StreamEvent::ToolCallStart { id, .. } => Some(id.clone()),
+        _ => None,
+    });
+    assert_eq!(started.as_deref(), Some(calls[0].id.as_str()));
+}
+
 #[test]
 fn malformed_tool_arguments_ride_as_data_after_a_finish() {
     let codec = plain_codec();

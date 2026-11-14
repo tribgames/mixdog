@@ -205,14 +205,20 @@ pub(crate) async fn lock_patch_targets(ctx: &ToolContext, targets: &[AbsPath]) -
     Ok(WriteLocks { _advisory: advisory, _paths: paths })
 }
 
-/// Node `realpathNearestExisting`: the nearest existing ancestor of `full` (itself included) and
-/// its real path. `None` when nothing on the path exists or cannot be resolved.
+/// The nearest existing ancestor of `full` (itself included), as Node's `realpathNearestExisting` probes it.
 #[allow(clippy::disallowed_methods, reason = "runs only as an interactive-lane job body (real_target_on_lane, resolve_write_target)")]
-fn nearest_existing(full: &Path) -> Option<(&Path, PathBuf)> {
+fn existing_probe(full: &Path) -> Option<&Path> {
     let mut probe = full;
     while !probe.exists() {
         probe = probe.parent().filter(|p| *p != probe)?;
     }
+    Some(probe)
+}
+
+/// Node `realpathNearestExisting`: the nearest existing ancestor of `full` (itself included) and
+/// its real path. `None` when nothing on the path exists or cannot be resolved.
+fn nearest_existing(full: &Path) -> Option<(&Path, PathBuf)> {
+    let probe = existing_probe(full)?;
     // Node's `realpathSync` has no `\\?\` prefix, and the lock key must read like the other tools'.
     Some((probe, mixdog_workspace::pathguard::canonical(probe).ok()?))
 }
@@ -229,14 +235,13 @@ fn write_path_refusal(p: &str) -> Option<String> {
     super::read_paths::write_guard(p).map(|reason| format!("Error: {reason}: {}", super::patch_guard::normalize_output_path(p)))
 }
 
-/// Node `guardRealTarget`: when a link lies on the way to the target's nearest existing ancestor
-/// (the target itself when it exists), the real path it leads to meets `guardWritePath`; a special
-/// file is refused.
+/// Node `guardRealTarget`: when the nearest existing ancestor of the target (the target itself when it exists) is not
+/// its own real path (a link lies on the way), the real path meets `guardWritePath`; a special file is refused.
 #[allow(clippy::disallowed_methods, reason = "runs only as an interactive-lane job body (resolve_write_target)")]
 fn guard_real_target(full: &Path) -> Option<String> {
-    if let Some((probe, real)) = nearest_existing(full)
-        // Node's `realpathSync` follows links only: a mapped drive's share is no link's target.
-        && probe.ancestors().any(|p| std::fs::symlink_metadata(p).is_ok_and(|meta| meta.file_type().is_symlink()))
+    if let Some(probe) = existing_probe(full)
+        && let Ok(real) = mixdog_workspace::pathguard::node_realpath(probe)
+        && real != probe
         && let Some(refusal) = write_path_refusal(&real.to_string_lossy())
     {
         return Some(format!("{refusal} (symlink target of {})", super::patch_guard::normalize_output_path(&probe.to_string_lossy())));
@@ -256,6 +261,10 @@ fn guard_real_target(full: &Path) -> Option<String> {
 pub(crate) async fn resolve_write_target(ctx: &ToolContext, raw: &str) -> Result<AbsPath, ToolError> {
     // A refusal, not malformed arguments: Node's `_isToolArgShapeFailure` does not count it.
     let refuse = |text: String| crate::orch::util::refused("write-path-guard", text);
+    // `urlAsPathMessage`: a URL is no path, and the guards below would word it as a trailing-dot or stream refusal.
+    if url_as_path(raw) {
+        return Err(refuse(URL_AS_PATH.to_owned()));
+    }
     if let Some(text) = write_path_refusal(&super::normalize_input_path(raw)) {
         return Err(refuse(text));
     }
@@ -263,11 +272,41 @@ pub(crate) async fn resolve_write_target(ctx: &ToolContext, raw: &str) -> Result
     if let Some(text) = write_path_refusal(&abs.as_path().to_string_lossy()) {
         return Err(refuse(text));
     }
+    assert_reachable(ctx, &abs).await?;
     let full = abs.as_path().to_path_buf();
     let job = ctx.io.interactive.submit(&ctx.cancel, move |_| guard_real_target(&full)).map_err(|_| cancelled())?;
     match job.await.map_err(|_| cancelled())? {
         Some(text) => Err(refuse(text)),
         None => Ok(abs),
+    }
+}
+
+/// `urlAsPathMessage`'s answer, as the tool words it.
+pub(crate) const URL_AS_PATH: &str = "Error: this is a URL; use web_fetch";
+
+/// `urlAsPathMessage`: the text starts with `http://` or `https://` (after any white space).
+pub(crate) fn url_as_path(raw: &str) -> bool {
+    let text = mixdog_js::js_trim_start(raw).as_bytes();
+    [&b"http://"[..], b"https://"].iter().any(|scheme| text.len() >= scheme.len() && text[..scheme.len()].eq_ignore_ascii_case(scheme))
+}
+
+/// Node `FS_REACHABILITY_EXTENDED_MS`: how long a path's stat is awaited before the path is called unreachable.
+const REACHABILITY_DEADLINE: std::time::Duration = std::time::Duration::from_millis(15_000);
+
+/// Node `assertPathsReachable` of one path: the stat alone is awaited, and only a stat that never answers is refused
+/// (a missing or denied path answered, so the tool words its own error).
+pub(crate) async fn assert_reachable(ctx: &ToolContext, path: &AbsPath) -> Result<(), ToolError> {
+    let probe = ctx.files.stat(ctx.io.interactive, path.clone());
+    match guarded(ctx, "edit", mixdog_rt::time::timeout(REACHABILITY_DEADLINE, probe)).await? {
+        Ok(_) => Ok(()),
+        Err(_) => Err(fail(
+            ToolErrorCode::Io { os_code: None },
+            format!(
+                "Error: path unreachable: stat exceeded {}ms (possible dead mount / hung filesystem): {}",
+                REACHABILITY_DEADLINE.as_millis(),
+                path.as_path().display()
+            ),
+        )),
     }
 }
 

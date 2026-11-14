@@ -78,6 +78,8 @@ pub struct Lifecycle {
     timer: Arc<dyn GraceTimer>,
     /// The pending no-clients grace; dropping it cancels the timer.
     grace_timer: Mutex<Option<Box<dyn Send>>>,
+    /// The pending hold TTL; dropping it cancels the timer.
+    hold_timer: Mutex<Option<Box<dyn Send>>>,
 }
 
 fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -112,6 +114,7 @@ impl Lifecycle {
             trigger: Mutex::new(None),
             timer,
             grace_timer: Mutex::new(None),
+            hold_timer: Mutex::new(None),
         })
     }
 
@@ -133,8 +136,8 @@ impl Lifecycle {
         self.state_tx.subscribe()
     }
 
-    /// The hold on turn starts as the sessions read it: starts wait while it is held (LR §5.1 step 1: deferred, not refused), and once
-    /// the drain commit dropped it what it held is refused (step 2) until the drain is cancelled; a confirmed abort closes the starts
+    /// The hold on turn starts as the sessions read it: a client's start is refused and an in-core start waits while it is held (Node's work gate), and once
+    /// the drain commit dropped it what it held is refused until the drain is cancelled; a confirmed abort closes the starts
     /// too. Decided with each move, under the machine lock, so a reader that wakes once after several moves reads the last of them.
     pub fn hold_gate(&self) -> watch::Receiver<StartHold> {
         self.hold_tx.subscribe()
@@ -218,8 +221,8 @@ impl Lifecycle {
 
     // ---- management commands (LR §6.1) ------------------------------------------------
 
-    pub fn hold(self: &Arc<Self>, on: bool) -> Result<(), CommandError> {
-        self.apply(|m| m.hold(on))
+    pub fn hold(self: &Arc<Self>, on: bool, ttl: Option<std::time::Duration>) -> Result<(), CommandError> {
+        self.apply(|m| m.hold(on, ttl))
     }
 
     pub fn stop(
@@ -295,6 +298,11 @@ impl Lifecycle {
         };
         if let Err(error) = write_last_exit(&self.cfg.runtime_root, &record) {
             tracing::error!(%error, "last-exit.json was not written");
+        }
+        // A controlled exit, unlike a kill: the file does not keep naming a core that is gone. The file operation is made
+        // here, not through the discovery thread, which may be the stalled part.
+        if let Err(error) = crate::discovery::withdraw(&self.cfg.runtime_root, &self.cfg.instance_id) {
+            tracing::error!(%error, "discovery was not withdrawn");
         }
         acknowledge();
         self.ports.exiter.exit(0);
@@ -377,6 +385,19 @@ impl Lifecycle {
                 *locked(&self.grace_timer) = Some(pending);
             }
             Effect::CancelGrace => drop(locked(&self.grace_timer).take()),
+            Effect::ArmHold { generation, delay } => {
+                let lifecycle = Arc::downgrade(self);
+                let pending = self.timer.after(
+                    delay,
+                    Box::new(move || {
+                        if let Some(lifecycle) = lifecycle.upgrade() {
+                            lifecycle.apply(|m| m.hold_expired(generation));
+                        }
+                    }),
+                );
+                *locked(&self.hold_timer) = Some(pending);
+            }
+            Effect::CancelHold => drop(locked(&self.hold_timer).take()),
             Effect::BeginRelease(cause) => {
                 let lifecycle = Arc::clone(self);
                 std::thread::Builder::new()
