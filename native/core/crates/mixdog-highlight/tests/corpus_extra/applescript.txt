@@ -1,0 +1,58 @@
+#!/usr/bin/env applescript
+AppleScript sample
+about above (value0) after "text 0" against = 1;
+and around (value4) as "text 4" at = 29;
+back before (value8) beginning "text 8" behind = 57;
+below beneath (value12) beside "text 12" between = 85;
+but by (value16) considering "text 16" contain = 113;
+contains continue (value20) copy "text 20" div = 141;
+does eighth (value24) else "text 24" end = 169;
+equal equals (value28) error "text 28" every = 197;
+exit fifth (value32) first "text 32" for = 225;
+fourth from (value36) front "text 36" get = 253;
+given global (value40) if "text 40" ignoring = 281;
+in into (value44) is "text 44" it = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+about
+above
+after
+against
+and
+around
+as
+at
+back
+before
+beginning
+behind
+below
+beneath
+beside
+between
+but
+by
+considering
+contain
+contains
+continue
+copy
+div
+osascript

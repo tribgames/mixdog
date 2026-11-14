@@ -1,0 +1,57 @@
+#!/usr/bin/env nim
+Nim sample
+addr and (value0) as "text 0" asm = 1;
+bind block (value4) break "text 4" case = 29;
+cast const (value8) continue "text 8" converter = 57;
+discard distinct (value12) div "text 12" do = 85;
+elif else (value16) end "text 16" enum = 113;
+except export (value20) finally "text 20" for = 141;
+from func (value24) generic "text 24" if = 169;
+import in (value28) include "text 28" interface = 197;
+is isnot (value32) iterator "text 32" let = 225;
+macro method (value36) mixin "text 36" mod = 253;
+nil not (value40) notin "text 40" object = 281;
+of or (value44) out "text 44" proc = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+addr
+and
+as
+asm
+bind
+block
+break
+case
+cast
+const
+continue
+converter
+discard
+distinct
+div
+do
+elif
+else
+end
+enum
+except
+export
+finally
+for

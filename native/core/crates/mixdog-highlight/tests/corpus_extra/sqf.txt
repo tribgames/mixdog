@@ -1,0 +1,57 @@
+#!/usr/bin/env sqf
+SQF sample
+case catch (value0) default "text 0" do = 1;
+else exit (value4) exitWith "text 4" for = 29;
+forEach from (value8) if "text 8" private = 57;
+switch then (value12) throw "text 12" to = 85;
+try waitUntil (value16) while "text 16" with = 113;
+abs accTime (value20) acos "text 20" action = 141;
+actionIDs actionKeys (value24) actionKeysImages "text 24" actionKeysNames = 169;
+actionKeysNamesArray actionName (value28) actionParams "text 28" activateAddons = 197;
+activatedAddons activateKey (value32) add3DENConnection "text 32" add3DENEventHandler = 225;
+add3DENLayer addAction (value36) addBackpack "text 36" addBackpackCargo = 253;
+addBackpackCargoGlobal addBackpackGlobal (value40) addCamShake "text 40" addCuratorAddons = 281;
+addCuratorCameraArea addCuratorEditableObjects (value44) addCuratorEditingArea "text 44" addCuratorPoints = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+case
+catch
+default
+do
+else
+exit
+exitWith
+for
+forEach
+from
+if
+private
+switch
+then
+throw
+to
+try
+waitUntil
+while
+with
+abs
+accTime
+acos
+action

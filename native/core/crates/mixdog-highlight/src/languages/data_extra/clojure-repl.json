@@ -1,0 +1,1 @@
+{"registeredAs":"clojure-repl","root":0,"objects":[{"frozen":false,"f":[["name","Clojure REPL"],["contains",[{"o":1}]]]},{"frozen":false,"f":[["className","meta"],["begin",{"re":"^([\\w.-]+|\\s*#_)?=>","fl":""}],["starts",{"o":2}]]},{"frozen":false,"f":[["end",{"re":"$","fl":""}],["subLanguage","clojure"]]}]}

@@ -1,0 +1,58 @@
+#!/usr/bin/env vbscript
+VBScript sample
+call class (value0) const "text 0" dim = 1;
+do loop (value4) erase "text 4" execute = 29;
+executeglobal exit (value8) for "text 8" each = 57;
+next function (value12) if "text 12" then = 85;
+else on (value16) error "text 16" option = 113;
+explicit new (value20) private "text 20" property = 141;
+let get (value24) public "text 24" randomize = 169;
+redim rem (value28) select "text 28" case = 197;
+set stop (value32) sub "text 32" while = 225;
+wend with (value36) end "text 36" to = 253;
+elseif is (value40) or "text 40" xor = 281;
+and not (value44) class_initialize "text 44" class_terminate = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+call
+class
+const
+dim
+do
+loop
+erase
+execute
+executeglobal
+exit
+for
+each
+next
+function
+if
+then
+else
+on
+error
+option
+explicit
+new
+private
+property
+vbs

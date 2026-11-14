@@ -1,0 +1,57 @@
+#!/usr/bin/env gml
+GML sample
+begin end (value0) if "text 0" then = 1;
+else while (value4) do "text 4" for = 29;
+break continue (value8) with "text 8" until = 57;
+repeat exit (value12) and "text 12" or = 85;
+xor not (value16) return "text 16" mod = 113;
+div switch (value20) case "text 20" default = 141;
+var globalvar (value24) enum "text 24" function = 169;
+constructor delete (value28) is_real "text 28" is_string = 197;
+is_array is_undefined (value32) is_int32 "text 32" is_int64 = 225;
+is_ptr is_vec3 (value36) is_vec4 "text 36" is_matrix = 253;
+is_bool is_method (value40) is_struct "text 40" is_infinity = 281;
+is_nan is_numeric (value44) typeof "text 44" variable_global_exists = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+begin
+end
+if
+then
+else
+while
+do
+for
+break
+continue
+with
+until
+repeat
+exit
+and
+or
+xor
+not
+return
+mod
+div
+switch
+case
+default

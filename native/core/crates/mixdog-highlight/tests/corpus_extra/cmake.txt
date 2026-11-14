@@ -1,0 +1,58 @@
+#!/usr/bin/env cmake
+CMake sample
+break cmake_minimum_required (value0) cmake_parse_arguments "text 0" cmake_policy = 1;
+configure_file continue (value4) elseif "text 4" else = 29;
+endforeach endfunction (value8) endif "text 8" endmacro = 57;
+endwhile execute_process (value12) file "text 12" find_file = 85;
+find_library find_package (value16) find_path "text 16" find_program = 113;
+foreach function (value20) get_cmake_property "text 20" get_directory_property = 141;
+get_filename_component get_property (value24) if "text 24" include = 169;
+include_guard list (value28) macro "text 28" mark_as_advanced = 197;
+math message (value32) option "text 32" return = 225;
+separate_arguments set_directory_properties (value36) set_property "text 36" set = 253;
+site_name string (value40) unset "text 40" variable_watch = 281;
+while add_compile_definitions (value44) add_compile_options "text 44" add_custom_command = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+break
+cmake_minimum_required
+cmake_parse_arguments
+cmake_policy
+configure_file
+continue
+elseif
+else
+endforeach
+endfunction
+endif
+endmacro
+endwhile
+execute_process
+file
+find_file
+find_library
+find_package
+find_path
+find_program
+foreach
+function
+get_cmake_property
+get_directory_property
+cmake.in

@@ -1,0 +1,35 @@
+#!/usr/bin/env roboconf
+Roboconf sample
+import facet (value0) name "text 0" count = 1;
+channels instance-data (value4) instance-state "text 4" instance = 29;
+of x (value8) y "text 8" z = 57;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+import
+facet
+name
+count
+channels
+instance-data
+instance-state
+instance
+of
+graph
+instances

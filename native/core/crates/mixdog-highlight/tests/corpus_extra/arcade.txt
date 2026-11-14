@@ -1,0 +1,57 @@
+#!/usr/bin/env arcade
+ArcGIS Arcade sample
+if for (value0) while "text 0" var = 1;
+new function (value4) do "text 4" return = 29;
+void else (value8) break "text 8" BackSlash = 57;
+DoubleQuote false (value12) ForwardSlash "text 12" Infinity = 85;
+NaN NewLine (value16) null "text 16" PI = 113;
+SingleQuote Tab (value20) TextFormatting "text 20" true = 141;
+undefined Abs (value24) Acos "text 24" Angle = 169;
+Attachments Area (value28) AreaGeodetic "text 28" Asin = 197;
+Atan Atan2 (value32) Average "text 32" Bearing = 225;
+Boolean Buffer (value36) BufferGeodetic "text 36" Ceil = 253;
+Centroid Clip (value40) Console "text 40" Constrain = 281;
+Contains Cos (value44) Count "text 44" Crosses = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+if
+for
+while
+var
+new
+function
+do
+return
+void
+else
+break
+BackSlash
+DoubleQuote
+false
+ForwardSlash
+Infinity
+NaN
+NewLine
+null
+PI
+SingleQuote
+Tab
+TextFormatting
+true

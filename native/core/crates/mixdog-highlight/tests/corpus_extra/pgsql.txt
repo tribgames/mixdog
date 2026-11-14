@@ -1,0 +1,59 @@
+#!/usr/bin/env pgsql
+PostgreSQL sample
+ABORT ALTER (value0) ANALYZE "text 0" BEGIN = 1;
+CALL CLOSE (value4) CLUSTER "text 4" COMMENT = 29;
+COMMIT COPY (value8) CREATE "text 8" DEALLOCATE = 57;
+DECLARE DELETE (value12) DISCARD "text 12" DO = 85;
+DROP END (value16) EXECUTE "text 16" EXPLAIN = 113;
+FETCH GRANT (value20) IMPORT "text 20" INSERT = 141;
+LISTEN LOAD (value24) LOCK "text 24" MOVE = 169;
+NOTIFY PREPARE (value28) REFRESH "text 28" REINDEX = 197;
+RELEASE RESET (value32) REVOKE "text 32" ROLLBACK = 225;
+SAVEPOINT SECURITY (value36) SELECT "text 36" SET = 253;
+SHOW START (value40) TRUNCATE "text 40" UPDATE = 281;
+VALUES AGGREGATE (value44) COLLATION "text 44" DATABASE = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+ABORT
+ALTER
+ANALYZE
+BEGIN
+CALL
+CLOSE
+CLUSTER
+COMMENT
+COMMIT
+COPY
+CREATE
+DEALLOCATE
+DECLARE
+DELETE
+DISCARD
+DO
+DROP
+END
+EXECUTE
+EXPLAIN
+FETCH
+GRANT
+IMPORT
+INSERT
+postgres
+postgresql

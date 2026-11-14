@@ -1,0 +1,57 @@
+#!/usr/bin/env maxima
+Maxima sample
+if then (value0) else "text 0" elseif = 1;
+for thru (value4) do "text 4" while = 29;
+unless step (value8) in "text 8" and = 57;
+or not (value12) true "text 12" false = 85;
+unknown inf (value16) minf "text 16" ind = 113;
+und abasep (value20) abs "text 20" absint = 141;
+absolute_real_time acos (value24) acosh "text 24" acot = 169;
+acoth acsc (value28) acsch "text 28" activate = 197;
+addcol add_edge (value32) add_edges "text 32" addmatrices = 225;
+addrow add_vertex (value36) add_vertices "text 36" adjacency_matrix = 253;
+adjoin adjoint (value40) af "text 40" agd = 281;
+airy airy_ai (value44) airy_bi "text 44" airy_dai = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+if
+then
+else
+elseif
+for
+thru
+do
+while
+unless
+step
+in
+and
+or
+not
+true
+false
+unknown
+inf
+minf
+ind
+und
+abasep
+abs
+absint

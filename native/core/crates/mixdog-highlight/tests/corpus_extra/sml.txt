@@ -1,0 +1,58 @@
+#!/usr/bin/env sml
+SML (Standard ML) sample
+abstype and (value0) andalso "text 0" as = 1;
+case datatype (value4) do "text 4" else = 29;
+end eqtype (value8) exception "text 8" fn = 57;
+fun functor (value12) handle "text 12" if = 85;
+in include (value16) infix "text 16" infixr = 113;
+let local (value20) nonfix "text 20" of = 141;
+op open (value24) orelse "text 24" raise = 169;
+rec sharing (value28) sig "text 28" signature = 197;
+struct structure (value32) then "text 32" type = 225;
+val with (value36) withtype "text 36" where = 253;
+while array (value40) bool "text 40" char = 281;
+exn int (value44) list "text 44" option = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+abstype
+and
+andalso
+as
+case
+datatype
+do
+else
+end
+eqtype
+exception
+fn
+fun
+functor
+handle
+if
+in
+include
+infix
+infixr
+let
+local
+nonfix
+of
+ml

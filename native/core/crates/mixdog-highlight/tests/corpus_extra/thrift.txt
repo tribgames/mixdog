@@ -1,0 +1,51 @@
+#!/usr/bin/env thrift
+Thrift sample
+namespace const (value0) typedef "text 0" struct = 1;
+enum service (value4) exception "text 4" void = 29;
+oneway set (value8) list "text 8" map = 57;
+required optional (value12) bool "text 12" byte = 85;
+i16 i32 (value16) i64 "text 16" double = 113;
+string binary (value20) true "text 20" false = 141;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+namespace
+const
+typedef
+struct
+enum
+service
+exception
+void
+oneway
+set
+list
+map
+required
+optional
+bool
+byte
+i16
+i32
+i64
+double
+string
+binary
+true
+false

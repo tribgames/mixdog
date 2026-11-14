@@ -1,0 +1,57 @@
+#!/usr/bin/env tp
+TP sample
+ABORT ACC (value0) ADJUST "text 0" AND = 1;
+AP_LD BREAK (value4) CALL "text 4" CNT = 29;
+COL CONDITION (value8) CONFIG "text 8" DA = 57;
+DB DIV (value12) DETECT "text 12" ELSE = 85;
+END ENDFOR (value16) ERR_NUM "text 16" ERROR_PROG = 113;
+FINE FOR (value20) GP "text 20" GUARD = 141;
+INC IF (value24) JMP "text 24" LINEAR_MAX_SPEED = 169;
+LOCK MOD (value28) MONITOR "text 28" OFFSET = 197;
+Offset OR (value32) OVERRIDE "text 32" PAUSE = 225;
+PREG PTH (value36) RT_LD "text 36" RUN = 253;
+SELECT SKIP (value40) Skip "text 40" TA = 281;
+TB TO (value44) TOOL_OFFSET "text 44" Tool_Offset = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+ABORT
+ACC
+ADJUST
+AND
+AP_LD
+BREAK
+CALL
+CNT
+COL
+CONDITION
+CONFIG
+DA
+DB
+DIV
+DETECT
+ELSE
+END
+ENDFOR
+ERR_NUM
+ERROR_PROG
+FINE
+FOR
+GP
+GUARD

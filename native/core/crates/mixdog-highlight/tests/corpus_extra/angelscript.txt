@@ -1,0 +1,56 @@
+#!/usr/bin/env angelscript
+AngelScript sample
+for break (value0) continue "text 0" while = 1;
+return if (value4) else "text 4" case = 29;
+switch namespace (value8) is "text 8" cast = 57;
+or and (value12) xor "text 12" not = 85;
+in out (value16) override "text 16" private = 113;
+public const (value20) final "text 20" shared = 141;
+external enum (value24) typedef "text 24" funcdef = 169;
+this super (value28) import "text 28" from = 197;
+interface try (value32) catch "text 32" protected = 225;
+explicit property (value36) class "text 36" z = 253;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+for
+break
+continue
+while
+return
+if
+else
+case
+switch
+namespace
+is
+cast
+or
+and
+xor
+not
+in
+out
+override
+private
+public
+const
+final
+shared
+asc

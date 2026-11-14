@@ -1,0 +1,57 @@
+#!/usr/bin/env basic
+BASIC sample
+ABS ASC (value0) AND "text 0" ATN = 1;
+BEEP CALL (value4) CALLS "text 4" CDBL = 29;
+CHAIN CHDIR (value8) CINT "text 8" CIRCLE = 57;
+CLEAR CLOSE (value12) CLS "text 12" COLOR = 85;
+COM COMMON (value16) CONT "text 16" COS = 113;
+CSNG CSRLIN (value20) CVD "text 20" CVI = 141;
+CVS DATA (value24) DEFDBL "text 24" DEFINT = 169;
+DEFSNG DEFSTR (value28) SEG "text 28" USR = 197;
+DELETE DIM (value32) DRAW "text 32" EDIT = 225;
+END ENVIRON (value36) EOF "text 36" EQV = 253;
+ERASE ERDEV (value40) ERL "text 40" ERR = 281;
+ERROR EXP (value44) FIELD "text 44" FILES = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+ABS
+ASC
+AND
+ATN
+BEEP
+CALL
+CALLS
+CDBL
+CHAIN
+CHDIR
+CINT
+CIRCLE
+CLEAR
+CLOSE
+CLS
+COLOR
+COM
+COMMON
+CONT
+COS
+CSNG
+CSRLIN
+CVD
+CVI

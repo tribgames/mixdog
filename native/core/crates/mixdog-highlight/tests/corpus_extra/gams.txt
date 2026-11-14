@@ -1,0 +1,58 @@
+#!/usr/bin/env gams
+GAMS sample
+abort acronym (value0) acronyms "text 0" alias = 1;
+all and (value4) assign "text 4" binary = 29;
+card diag (value8) display "text 8" else = 57;
+eq file (value12) files "text 12" for = 85;
+free ge (value16) gt "text 16" if = 113;
+integer le (value20) loop "text 20" lt = 141;
+maximizing minimizing (value24) model "text 24" models = 169;
+ne negative (value28) no "text 28" not = 197;
+option options (value32) or "text 32" ord = 225;
+positive prod (value36) put "text 36" putpage = 253;
+puttl repeat (value40) sameas "text 40" semicont = 281;
+semiint smax (value44) smin "text 44" solve = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+abort
+acronym
+acronyms
+alias
+all
+and
+assign
+binary
+card
+diag
+display
+else
+eq
+file
+files
+for
+free
+ge
+gt
+if
+integer
+le
+loop
+lt
+gms

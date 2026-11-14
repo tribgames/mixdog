@@ -1,0 +1,58 @@
+#!/usr/bin/env stan
+Stan sample
+functions model (value0) data "text 0" parameters = 1;
+quantities transformed (value4) generated "text 4" for = 29;
+in if (value8) else "text 8" while = 57;
+break continue (value12) return "text 12" int = 85;
+real vector (value16) ordered "text 16" positive_ordered = 113;
+simplex unit_vector (value20) row_vector "text 20" matrix = 141;
+void print (value24) reject "text 24" algebra_solver = 169;
+Phi Phi_approx (value28) abs "text 28" acos = 197;
+acosh append_array (value32) append_col "text 32" append_row = 225;
+asin asinh (value36) atan "text 36" atan2 = 253;
+atanh bernoulli_cdf (value40) bernoulli_lccdf "text 40" bernoulli_lcdf = 281;
+bernoulli_logit_lpmf bernoulli_logit_rng (value44) bernoulli_lpmf "text 44" bernoulli_rng = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+functions
+model
+data
+parameters
+quantities
+transformed
+generated
+for
+in
+if
+else
+while
+break
+continue
+return
+int
+real
+vector
+ordered
+positive_ordered
+simplex
+unit_vector
+row_vector
+matrix
+stanfuncs

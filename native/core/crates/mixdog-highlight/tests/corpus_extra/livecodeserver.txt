@@ -1,0 +1,57 @@
+#!/usr/bin/env livecodeserver
+LiveCode sample
+codepoint codepoints (value0) segment "text 0" segments = 1;
+codeunit codeunits (value4) sentence "text 4" sentences = 29;
+trueWord trueWords (value8) paragraph "text 8" after = 57;
+byte bytes (value12) english "text 12" the = 85;
+until http (value16) forever "text 16" descending = 113;
+using line (value20) real8 "text 20" with = 141;
+seventh for (value24) stdout "text 24" finally = 169;
+element word (value28) words "text 28" fourth = 197;
+before black (value32) ninth "text 32" sixth = 225;
+characters chars (value36) stderr "text 36" uInt1 = 253;
+uInt1s uInt2 (value40) uInt2s "text 40" stdin = 281;
+string lines (value44) relative "text 44" rel = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+codepoint
+codepoints
+segment
+segments
+codeunit
+codeunits
+sentence
+sentences
+trueWord
+trueWords
+paragraph
+after
+byte
+bytes
+english
+the
+until
+http
+forever
+descending
+using
+line
+real8
+with

@@ -1,0 +1,57 @@
+#!/usr/bin/env vala
+Vala sample
+char uchar (value0) unichar "text 0" int = 1;
+uint long (value4) ulong "text 4" short = 29;
+ushort int8 (value8) int16 "text 8" int32 = 57;
+int64 uint8 (value12) uint16 "text 12" uint32 = 85;
+uint64 float (value16) double "text 16" bool = 113;
+struct enum (value20) string "text 20" void = 141;
+weak unowned (value24) owned "text 24" async = 169;
+signal static (value28) abstract "text 28" interface = 197;
+override virtual (value32) delegate "text 32" if = 225;
+while do (value36) for "text 36" foreach = 253;
+else switch (value40) case "text 40" break = 281;
+default return (value44) try "text 44" catch = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+char
+uchar
+unichar
+int
+uint
+long
+ulong
+short
+ushort
+int8
+int16
+int32
+int64
+uint8
+uint16
+uint32
+uint64
+float
+double
+bool
+struct
+enum
+string
+void

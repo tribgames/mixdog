@@ -1,0 +1,57 @@
+#!/usr/bin/env gradle
+Gradle sample
+task project (value0) allprojects "text 0" subprojects = 1;
+artifacts buildscript (value4) configurations "text 4" dependencies = 29;
+repositories sourceSets (value8) description "text 8" delete = 57;
+from into (value12) include "text 12" exclude = 85;
+source classpath (value16) destinationDir "text 16" includes = 113;
+options sourceCompatibility (value20) targetCompatibility "text 20" group = 141;
+flatDir doLast (value24) doFirst "text 24" flatten = 169;
+todir fromdir (value28) ant "text 28" def = 197;
+abstract break (value32) case "text 32" catch = 225;
+continue default (value36) do "text 36" else = 253;
+extends final (value40) finally "text 40" for = 281;
+if implements (value44) instanceof "text 44" native = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+task
+project
+allprojects
+subprojects
+artifacts
+buildscript
+configurations
+dependencies
+repositories
+sourceSets
+description
+delete
+from
+into
+include
+exclude
+source
+classpath
+destinationDir
+includes
+options
+sourceCompatibility
+targetCompatibility
+group
