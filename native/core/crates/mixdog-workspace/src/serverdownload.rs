@@ -137,9 +137,9 @@ pub fn server_read_range(value: &serde_json::Value, offset: u64, requested: u64)
 
 // ── Local names ─────────────────────────────────────────────────────────────
 
-/// JS `\s`.
+/// JS `\s`: Unicode White_Space without U+0085, plus U+FEFF.
 fn js_space(c: char) -> bool {
-    c.is_whitespace() || c == '\u{feff}'
+    (c.is_whitespace() && c != '\u{85}') || c == '\u{feff}'
 }
 
 fn trim_end_space_dots(text: &str) -> &str {
@@ -195,12 +195,14 @@ fn posix_basename(rel: &str) -> &str {
 
 // ── The machine ─────────────────────────────────────────────────────────────
 
+#[derive(Debug)]
 pub struct Begun {
     pub download_id: String,
     pub name: String,
     pub size: u64,
 }
 
+#[derive(Debug)]
 pub struct Stepped {
     pub received: u64,
     pub size: u64,
@@ -285,7 +287,7 @@ impl ServerDownloads {
         };
         let (me, id, idle) = (self.me.clone(), id.to_owned(), self.idle);
         drop(mixdog_rt::spawn("server-download-idle", mixdog_rt::TaskClass::Work, async move {
-            tokio::time::sleep(idle).await;
+            mixdog_rt::time::sleep(idle).await;
             let Some(this) = me.upgrade() else { return };
             let expired = {
                 let mut downloads = this.downloads.lock().expect("downloads");
@@ -447,6 +449,14 @@ impl ServerDownloads {
             }
         }));
         true
+    }
+
+    /// Discards every download still in progress with its part file (the window that owned them closed).
+    pub async fn dispose(&self) {
+        let pending: Vec<Download> = self.downloads.lock().expect("downloads").drain().map(|(_, download)| download).collect();
+        for download in pending {
+            self.discard(download).await;
+        }
     }
 
     /// Only a file this process downloaded may be handed to the OS.
@@ -637,6 +647,18 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    async fn dispose_removes_every_unfinished_part() {
+        let dir = tempfile::tempdir().unwrap();
+        let downloads = ServerDownloads::new(1 << 20, lanes());
+        let first = downloads.begin(Arc::new(Fake::of(b"0123")), dir.path(), "/srv", "x").await.unwrap();
+        downloads.begin(Arc::new(Fake::of(b"4567")), dir.path(), "/srv", "y").await.unwrap();
+        assert_eq!(parts(dir.path()).len(), 2);
+        downloads.dispose().await;
+        assert!(parts(dir.path()).is_empty());
+        assert!(downloads.step(&first.download_id).await.unwrap_err().message.contains("gone"));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
     async fn no_download_folder_is_refused() {
         let downloads = ServerDownloads::new(1 << 20, lanes());
         let error = downloads.begin(Arc::new(Fake::of(b"0")), Path::new(""), "/srv", "x").await.err().unwrap();
@@ -657,6 +679,8 @@ mod tests {
         assert_eq!(local_download_name("LPT\u{b2}"), "_LPT\u{b2}");
         assert_eq!(local_download_name("console.txt"), "console.txt");
         assert_eq!(local_download_name("com10"), "com10");
+        assert_eq!(local_download_name("a\u{85}"), "a\u{85}");
+        assert_eq!(local_download_name("a\u{feff}\u{a0}"), "a");
         assert_eq!(local_download_name(&"x".repeat(300)).len(), 200);
         assert_eq!(posix_basename("/a/b/c.txt"), "c.txt");
         assert_eq!(posix_basename("/a/b/"), "b");
