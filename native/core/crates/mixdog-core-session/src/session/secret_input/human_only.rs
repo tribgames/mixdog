@@ -129,11 +129,24 @@ impl HumanOnlyLock {
     /// A hold the desktop declares (`withHumanOnlyApproval`) in call `by`: new operations are refused
     /// from now until [`Self::end`] names the returned id for the same caller or `by`'s connection closes.
     pub(crate) fn hold(&self, label: &str, by: &CallContext) -> String {
+        self.hold_until(label, by.caller.clone(), by.cancel.clone())
+    }
+
+    /// A hold of `owner` that also ends when `until` fires: the core's own holds for the cards it raises
+    /// ([`super::CardHolds`]) end with the connection that has to answer them.
+    pub(crate) fn hold_until(&self, label: &str, owner: Caller, until: CancellationToken) -> String {
         let mut state = self.state();
         state.last += 1;
         let id = state.last.to_string();
-        state.holds.push(Hold { id: id.clone(), label: label.to_owned(), owner: by.caller.clone(), until: by.cancel.clone() });
+        state.holds.push(Hold { id: id.clone(), label: label.to_owned(), owner, until });
         id
+    }
+
+    /// Whether hold `id` still holds (not ended, its connection not closed).
+    pub(crate) fn holding(&self, id: &str) -> bool {
+        let mut state = self.state();
+        state.prune();
+        state.holds.iter().any(|hold| hold.id == id)
     }
 
     /// Ends hold `id` that `by` declared; false when it holds nothing for `by` (ended, its connection
