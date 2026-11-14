@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import { registerHooks } from 'node:module';
 import { test } from 'node:test';
 
@@ -11,6 +12,7 @@ import {
 import { normalizeRemoteTabUrl } from '../remote-browser-methods.ts';
 import { withHumanOnlyApproval } from '../human-only-approval.ts';
 import { createComputerPillSource } from './computer-pill.ts';
+import { createComputerPresence } from '../computer/presence/mirror.ts';
 import { toBrowserCommand } from './browser-command.ts';
 import { encodeMediaFrame } from './media-frame.ts';
 
@@ -134,21 +136,27 @@ function build(overrides = {}) {
       localPageUrl: async (root, rel, scope) => `http://127.0.0.1:1/t/${scope}/${rel}`,
     }),
     resolveProxy: async (url) => (url.includes('bad') ? Promise.reject(new Error('PAC http://u:p@pac/x')) : `PROXY ${url}`),
-    computer: () =>
-      calls.computerOff
-        ? null
-        : {
-            assertPublic: (command) => {
-              if (command?.action === 'launch') throw new Error('invalid_action: computer bridge action is not available');
+    computer: {
+      mirror: createComputerPresence({ notifyPointerReleased: () => {}, now: () => 1 }),
+      permissions: { read: () => ({}), request: () => undefined },
+      environment: { ready: new Promise(() => {}), sources: () => ({ power: new EventEmitter(), screen: new EventEmitter() }) },
+      desktopHostCommand: () => null,
+      desktopHostScreen: () =>
+        calls.computerOff
+          ? null
+          : {
+              assertPublic: (command) => {
+                if (command?.action === 'launch') throw new Error('invalid_action: computer bridge action is not available');
+              },
+              answer: async (command) => {
+                calls.captured.push(command);
+                return command.screen === 9
+                  ? { ok: false, error: 'screen must be an integer from 0 to 0' }
+                  : { ok: true, value: { text: '{"ok":true}', image: { mimeType: 'image/jpeg', data: 'AA==' } } };
+              },
+              displays: () => [{ index: 0, id: '1', primary: true, scale_factor: 1, width: 2, height: 2 }],
             },
-            answer: async (command) => {
-              calls.captured.push(command);
-              return command.screen === 9
-                ? { ok: false, error: 'screen must be an integer from 0 to 0' }
-                : { ok: true, value: { text: '{"ok":true}', image: { mimeType: 'image/jpeg', data: 'AA==' } } };
-            },
-            displays: () => [{ index: 0, id: '1', primary: true, scale_factor: 1, width: 2, height: 2 }],
-          },
+    },
     notifications: {
       createNotification: (content) => {
         const toast = { content, show() {}, on: (event, fn) => event === 'click' && clicks.push(fn) };
@@ -353,11 +361,7 @@ test('the core computer host handlers are always served: a core that does not dr
     'host/computer/permissions',
     'host/computer/command',
   ];
-  const { wire } = build({
-    computerAppInput: { showCursor: () => undefined },
-    computerPermissions: { read: () => ({}), request: () => undefined },
-    computerCommand: () => null,
-  });
+  const { wire } = build();
   const served = wire.connection.servedMethods();
   assert.deepEqual(served.filter((method) => coreComputerMethods.includes(method)), [...coreComputerMethods].sort());
   // The claim names them, so the core routes them here.

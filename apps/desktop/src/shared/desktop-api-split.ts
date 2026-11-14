@@ -16,6 +16,7 @@ import type {
   DesktopCapabilityRequest,
   DesktopCapabilityResult,
 } from './contract';
+import type { DesktopTerminalRunRequest } from './terminal-command';
 
 export const DIRECT_KEYS = {
   sessions: [
@@ -162,6 +163,9 @@ export interface DesktopHostExtras {
   observeSignIn(capability: string, args: unknown[], value: unknown): void;
   invokePcQuotaCapability(request: DesktopCapabilityRequest): Promise<DesktopCapabilityResult>;
   readPcQuotaCapabilities(requests: DesktopCapabilityReadRequest[]): Promise<DesktopCapabilityReadResult[]>;
+  /** The reveals main's own agent `terminal` bridge asks for (the loopback bridge lives in main, so the core never sees them);
+   *  the core's own terminal opens reach the window over its core link. `onTerminalRunRequested` listens to both. */
+  onHostTerminalRunRequested(listener: (request: DesktopTerminalRunRequest) => void): () => void;
 }
 
 /** What window.mixdogDesktopHost exposes: the HOST half of DesktopApi plus the extras. */

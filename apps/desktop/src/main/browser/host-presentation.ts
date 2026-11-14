@@ -16,7 +16,7 @@ import type { createBrowserDisplayTracking } from './display-tracking';
 import { browserSharedTextureRendering, type createBrowserGuestLifecycle } from './guest-lifecycle';
 import type { BrowserGuestStateStore } from './guest-state';
 import type { BrowserHostFoundation } from './host-foundation';
-import { browserViewportEmulation } from './host-policy';
+import type { BrowserEmulationOwner } from './host-policy';
 import { closePage, type createBrowserLeaveConfirmation } from './leave-confirmation';
 import { createBrowserLocalPrompts } from './local-prompts';
 import { browserPageGeometry } from './page-geometry';
@@ -159,6 +159,8 @@ export function createBrowserHostPresentation(options: {
   >;
   lifecycle: Lifecycle;
   tools: Pick<Toolkit, 'emulation' | 'dispatchInput' | 'dialogs' | 'refActions'>;
+  /** The one owner of a page's emulation (host-policy.ts): the pane preset goes through it. */
+  emulationOwner: Pick<BrowserEmulationOwner, 'applyPane'>;
   retainGuest: (guest: WebContents) => void;
   /** A tab the session strip created, with its page id and the request that asked. */
   onTabCreated?: (sessionId: string, pageId: string, requestId?: string) => void;
@@ -178,8 +180,9 @@ export function createBrowserHostPresentation(options: {
   const remoteDrive = createBrowserRemoteDrive({
     setGeometry: (guest, size, zoom) => pageSurface.setGeometry(guest, size, zoom),
     paneGeometry: (sessionId) => pageSurface.paneGeometry(sessionId),
+    // The owner remembers the pane's viewport, so an agent `emulation` with overrides: null returns to it.
     emulate: async (guest, config) => {
-      await tools.emulation.configureEmulation(guest, browserViewportEmulation(config));
+      await options.emulationOwner.applyPane(guest, config);
     },
     fitMetrics: (guest, viewport) => tools.emulation.fitMetrics(guest, viewport),
     unfitMetrics: (guest) => tools.emulation.unfitMetrics(guest),

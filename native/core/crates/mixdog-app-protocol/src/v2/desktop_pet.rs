@@ -197,7 +197,7 @@ pub struct PlacementPositionOn {
 }
 
 /// Params of `desktopPet/placement/resolve`: one of the rules that place the pet window, by `op`. Every answer is a plain
-/// document: `geometry` -> `{ window, sprite, coreWidth }`; `pinned`, `clamp`, `clampFree`, `herePosition`, `positionOn` ->
+/// document: `geometry` -> `{ window, sprite, coreWidth, pinInset }`; `pinned`, `clamp`, `clampFree`, `herePosition`, `positionOn` ->
 /// a point; `hereAnchor` -> the anchor; `displayFor` -> the display's id, or null for no display.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]

@@ -28,7 +28,7 @@ function harness({ dialog = null } = {}) {
     redactKnown: (_id, text) => text.replaceAll('hunter2hunter2', '[SECRET]'),
     isEngineMode: () => true,
   };
-  registerCdpSend(connection, ctx);
+  registerCdpSend(connection, ctx, { prepareVisualOutput: async () => async () => {} });
   const call = (params) => handlers.get('host/browser/cdp/send')(params, new AbortController().signal);
   return { call, sent, state };
 }
@@ -48,8 +48,6 @@ test('every method that is not on the list is -32015 and nothing is sent', async
     'Runtime.evaluate',
     'Runtime.callFunctionOn',
     'DOM.getOuterHTML',
-    'Network.getRequestPostData',
-    'Network.getResponseBody',
     'Network.getCookies',
     'Network.getAllCookies',
     'Storage.getCookies',
@@ -79,11 +77,14 @@ test('every method that is not on the list is -32015 and nothing is sent', async
   assert.equal([...CDP_SEND_ALLOWED].every((method) => cdpSendRefusal(method) === undefined), true);
 });
 
-test('the list holds no method that evaluates script, reads a body, a cookie or the markup', () => {
+test('the list holds no method that evaluates script, reads a cookie or the markup; the bodies are for the network detail', () => {
   for (const method of CDP_SEND_ALLOWED) {
     assert.doesNotMatch(method, /^(Runtime\.(evaluate|callFunctionOn|compileScript|runScript)|Input\.|Fetch\.|Target\.|Debugger\.|Browser\.|Emulation\.|Tracing\.|DOMSnapshot\.)/);
-    assert.doesNotMatch(method, /(Cookies|getResponseBody|getRequestPostData|getOuterHTML|getAllCookies)/);
+    assert.doesNotMatch(method, /(Cookies|getOuterHTML|getAllCookies)/);
   }
+  // `network <requestId>` shows a request's bodies (network-report.ts read them the same way); the registry masks every string.
+  assert.ok(CDP_SEND_ALLOWED.has('Network.getRequestPostData'));
+  assert.ok(CDP_SEND_ALLOWED.has('Network.getResponseBody'));
 });
 
 test('a session that is not attached, a stale expect and a blocking dialog are refused before the send', async () => {

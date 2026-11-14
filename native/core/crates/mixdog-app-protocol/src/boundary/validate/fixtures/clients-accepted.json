@@ -1435,13 +1435,30 @@
   },
   {
     "client": "desktop",
-    "method": "blob/put",
+    "method": "dev/computer/run",
     "params": {
-      "bytesB64": "bytesB64-1",
-      "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
-      "offset": 1
+      "command": {},
+      "sessionThreadId": "sessionThreadId-1"
     },
-    "source": "apps/desktop/src/main/computer/pixels/blob-upload.ts:blob/put",
+    "source": "apps/desktop/src/main/computer/harness/core-transport.ts:dev/computer/run",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "blob/read",
+    "params": {
+      "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "source": "apps/desktop/src/main/computer/harness/core-transport.ts:blob/read",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "computer/userControl",
+    "params": {
+      "action": "resume"
+    },
+    "source": "apps/desktop/src/main/computer/harness/core-transport.ts:computer/userControl",
     "case": "required fields"
   },
   {
@@ -1450,7 +1467,29 @@
     "params": {
       "sessionThreadId": "sessionThreadId-1"
     },
-    "source": "apps/desktop/src/main/computer/presence/mirror.ts:computer/pointerReleased",
+    "source": "apps/desktop/src/main/computer/harness/core-transport.ts:computer/pointerReleased",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "config/value/write",
+    "params": {
+      "opId": "0190f3c2-7a31-7c00-8000-000000000234",
+      "path": "path-1",
+      "value": {}
+    },
+    "source": "apps/desktop/src/main/computer/harness/scenarios-input.ts:config/value/write",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "blob/put",
+    "params": {
+      "bytesB64": "bytesB64-1",
+      "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "offset": 1
+    },
+    "source": "apps/desktop/src/main/computer/pixels/blob-upload.ts:blob/put",
     "case": "required fields"
   },
   {
@@ -1644,15 +1683,6 @@
   },
   {
     "client": "desktop",
-    "method": "computer/userControl",
-    "params": {
-      "action": "resume"
-    },
-    "source": "apps/desktop/src/main/host/computer-environment.ts:computer/userControl",
-    "case": "required fields"
-  },
-  {
-    "client": "desktop",
     "method": "host/claim",
     "params": {
       "hostId": "hostId-1"
@@ -1731,17 +1761,6 @@
     "method": "notify/state",
     "params": {},
     "source": "apps/desktop/src/main/ipc-notifications.ts:notify/state",
-    "case": "required fields"
-  },
-  {
-    "client": "desktop",
-    "method": "config/value/write",
-    "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000234",
-      "path": "path-1",
-      "value": {}
-    },
-    "source": "apps/desktop/src/main/ipc-notifications.ts:config/value/write",
     "case": "required fields"
   },
   {
@@ -2423,15 +2442,6 @@
     "method": "transfer/grant/mint",
     "params": {},
     "source": "apps/desktop/src/renderer/remote-protocol-attachments.ts:transfer/grant/mint",
-    "case": "required fields"
-  },
-  {
-    "client": "desktop",
-    "method": "blob/read",
-    "params": {
-      "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
-    },
-    "source": "apps/desktop/src/renderer/remote-protocol-attachments.ts:blob/read",
     "case": "required fields"
   },
   {
@@ -5277,11 +5287,34 @@
   },
   {
     "client": "desktop",
+    "method": "dev/computer/run",
+    "params": {
+      "command": {},
+      "sessionThreadId": "sessionThreadId-1",
+      "timeoutMs": 1
+    },
+    "source": "apps/desktop/src/main/computer/harness/core-transport.ts:dev/computer/run",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
+    "method": "computer/userControl",
+    "params": {
+      "action": "resume",
+      "reason": "desktop_unavailable",
+      "seconds": 1,
+      "sessionThreadId": "sessionThreadId-1"
+    },
+    "source": "apps/desktop/src/main/computer/harness/core-transport.ts:computer/userControl",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
     "method": "computer/pointerReleased",
     "params": {
       "sessionThreadId": "sessionThreadId-1"
     },
-    "source": "apps/desktop/src/main/computer/presence/mirror.ts:computer/pointerReleased",
+    "source": "apps/desktop/src/main/computer/harness/core-transport.ts:computer/pointerReleased",
     "case": "every optional field"
   },
   {
@@ -5545,18 +5578,6 @@
       "tabId": "tabId-1"
     },
     "source": "apps/desktop/src/main/host/browser-view.ts:host/browser/frame",
-    "case": "every optional field"
-  },
-  {
-    "client": "desktop",
-    "method": "computer/userControl",
-    "params": {
-      "action": "resume",
-      "reason": "desktop_unavailable",
-      "seconds": 1,
-      "sessionThreadId": "sessionThreadId-1"
-    },
-    "source": "apps/desktop/src/main/host/computer-environment.ts:computer/userControl",
     "case": "every optional field"
   },
   {

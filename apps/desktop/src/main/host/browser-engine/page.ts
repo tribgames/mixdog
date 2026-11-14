@@ -328,22 +328,13 @@ async function evaluate(host: PageHost, ctx: EngineContext, params: EngineParams
   } else if (frameId && !sessionId) {
     throw failed('eval in the main world of a frame needs the sessionId of the frame target; use world "utility" for a frame id');
   }
-  // A script that provably leaves the page alone keeps the refs the caller holds (the old evaluate action).
-  const keepsRefs = (params.expect === undefined || params.expect === null) && Boolean(page.state.refSet);
+  // A script that provably leaves the page alone keeps the refs the caller holds (the old evaluate action). The refs are the
+  // core engine's: it asks with `checkUnchanged` and invalidates them itself from the answer and from a failure.
+  const keepsRefs = params.checkUnchanged === true;
   const url = guest.getURL();
   const before = keepsRefs ? await settledRevision(host, guest, signal) : undefined;
-  let response: EvaluateResponse;
-  try {
-    response = await send<EvaluateResponse>('Runtime.evaluate', runtime, guardBeforeDispatch(page, params.expect));
-  } catch (error) {
-    // The script may have run: whatever refs the caller holds are stale.
-    if (!(error instanceof HostRpcError && error.code === ENGINE_ERROR.preconditionFailed)) {
-      host.store.invalidateInteraction(guest);
-    }
-    throw error;
-  }
+  const response = await send<EvaluateResponse>('Runtime.evaluate', runtime, guardBeforeDispatch(page, params.expect));
   if (response.exceptionDetails) {
-    host.store.invalidateInteraction(guest);
     const details = response.exceptionDetails;
     return {
       exception: {
@@ -361,8 +352,7 @@ async function evaluate(host: PageHost, ctx: EngineContext, params: EngineParams
     !page.state.pendingDialog &&
     !page.state.openedPopups.length &&
     before === (await settledRevision(host, guest, signal));
-  if (!unchanged) host.store.invalidateInteraction(guest);
-  return { value: remote && 'value' in remote ? remote.value : (remote?.description ?? null) };
+  return { value: remote && 'value' in remote ? remote.value : (remote?.description ?? null), ...(keepsRefs ? { unchanged } : {}) };
 }
 
 const TEXT_OF_FRAME = '(() => document.body?.innerText || "")()';

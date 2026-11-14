@@ -249,7 +249,7 @@ async fn resolve_command_targets(cx: &mut ActionContext<'_>, raw: &[Value]) -> R
         move || async move {
             let target = TargetContext { host, page_id: page_id_ref, expect: Some(expect_ref), cancel: cancel.token() };
             resolve_targets(&target, raw).await.map_err(|error| match error {
-                TargetError::Missing(message) => ProbeFailure::NotActionable(ActionabilityError::new(message, ActionabilityReason::Missing.as_str())),
+                TargetError::Missing(message) => ProbeFailure::NotActionable(ActionabilityError::new(message, ActionabilityReason::Missing)),
                 other => ProbeFailure::Other(other),
             })
         },
@@ -322,6 +322,7 @@ pub async fn visual_point(cx: &ActionContext<'_>, x: Option<&Value>, y: Option<&
         world: None,
         timeout_ms: u32::try_from(CDP_REQUEST_TIMEOUT.as_millis()).unwrap_or(u32::MAX),
         expect: Some(cx.page.precondition()),
+        check_unchanged: None,
     };
     let answer = cx.host.page_eval(params, cx.token()).await?;
     if let Some(exception) = answer.exception {

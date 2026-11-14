@@ -1,0 +1,50 @@
+# s4-engine-runner core wiring
+
+## 1. Cargo
+No dependency edge is added: runner/runner.rs uses only crates mixdog-browser-engine already depends on (mixdog-app-protocol,
+mixdog-core-api, mixdog-protocol, mixdog-rt, mixdog-browser-policy, mixdog-js, async-trait, serde_json; bytes in its tests).
+
+## 2. No module line, no SERVICE_PENDING change
+actions/registry.rs and runner/{runner,guard,task_pages,timing_rows}.rs fill the files the skeleton declared. This task registers no
+protocol service; the engine is a library the tool adapter (s4-tool-adapter) and the compose wiring build.
+
+## 3. What the wiring builds (compose_flip.rs real_core, by CORE-WIRE-G7)
+    let lane = Arc::new(HostLane::new(host_channel, blobs));              // lane::host_lane (s4-engine-lane), blobs: the one BlobStore
+    let hold = Arc::new(UserHold::new());
+    let engine = BrowserEngine::new(lane.clone(), EnginePorts {
+        mirror: lane.mirror().clone(),
+        hold: hold.clone(),
+        approvals,        // Arc<dyn ApprovalPort>: raises item/browser/requestApproval through the one core approval path (s4-tool-adapter);
+                          // per review-SINGLETONS-CORE it takes card holds (card_holds.hold_for_request_in / release, deferred-g3.md) for BrowserApproval only
+        takeover: takeover.clone(),                                         // the CoreTakeover already built there, as Arc<dyn TakeoverPort>
+        blobs, files,     // Arc<dyn BlobPort> (the BlobStore by digest), Arc<dyn FilePort> (stat: realpath + metadata; write_frame under frame_dir)
+        secrets,          // Arc<dyn SecretGuard>: redact = the session's filled-secret redaction of the core secret_input, remember = register a value
+        approval_policy: ActionPolicy::from_env(env MIXDOG_BROWSER_CONFIRM_ACTIONS, env MIXDOG_BROWSER_DENY_ACTIONS, env MIXDOG_BROWSER_CONFIRM_SUBMIT,
+                                                mixdog_browser_engine::actions::registry::is_action),
+        urls,             // UrlPolicy { allow_private_network, allowed_domains } of the browser settings
+        frame_dir,
+    });
+    // what the host pushes reaches the engine's facts memory first, then the lane's sink:
+    let sink = engine.sink(Arc::new(EngineSinkImpl::new(lane.mirror().clone(), hold)));
+    // register `sink` as the EngineSink of the claimed host (host/browser/events, page/facts, userInput, host gone);
+    // register `engine.clone()` as the TurnEvents of the session runtime (turn ended: an aborted turn's pages are closed).
+
+## 4. What the tool adapter (s4-tool-adapter) calls
+`BrowserEngine::run(thread, turn_id, action, input, cancel) -> Result<ToolReply, ToolError>` with `input` = the validated tool arguments
+(without `action`) plus the runtime-set fields `unattended_run`, `unattended_agent`, `session_life`, `mail_link`. `begin_turn` does not
+exist: a command's turn id is enough (a command with no turn id owns no page); `finish_turn(thread, turn, aborted)` closes an aborted
+turn's pages and refuses later commands of that turn; `forget_session(thread)` releases a session. The runtime-only bridge actions
+(`secret_precheck`, `secret_fill`, `saved_login_*`, `secret_bind`, `login_accounts`, `page_url`) are not engine actions.
+The turn id given to `run` and to `TurnEvents::turn_ended` must be the session's positive turn NUMBER, increasing per turn (the
+number `SavedLoginTurns::turn` answers), as a decimal string: the engine parses it as u64 and orders turns by it. A core `TurnId`
+(a UUIDv7 string) parses to 0, and then no command owns a page, an aborted turn closes nothing and `turn_ended` is ignored.
+
+## 5. What the engine does not carry (reasons, for the lead)
+- `fill` with `savedAccount`: no host request fills a stored login (the form handler's `fill_stored` answers "not available").
+- `network` with a `requestId`: needs the page's request ledger held across the CDP reads of the bodies; `Mirror::with_ledgers` lends it
+  only synchronously. Needs `diagnostics::network` split into a lookup and an async detail (s4-engine-actions-observe-nav) or a ledger
+  accessor that does not hold a lock across an await (s4-engine-lane).
+- The grounding's document revision is not asked of the page (a snapshot call retires the agent's refs); it is judged by age and page.
+- The auto sign-in and linked sign-in hooks of the old runner (`autoSignIn.afterCommand`, `linkedSignIn.beforeAction/replyLine`) belong to
+  the sign-in tasks; they are not called here.
+- `downloads` with `attach`: `ToolReply` carries no file part, so the reply names the saved path (the agent reads it with `read`).

@@ -78,20 +78,6 @@ struct CheckedReport {
     radio: bool,
 }
 
-/// The reason a refusal carried, from the word its wait recorded.
-fn reason_of(word: &str) -> ActionabilityReason {
-    [
-        ActionabilityReason::Covered,
-        ActionabilityReason::Hidden,
-        ActionabilityReason::Disabled,
-        ActionabilityReason::Moving,
-        ActionabilityReason::NotEditable,
-    ]
-    .into_iter()
-    .find(|reason| reason.as_str() == word)
-    .unwrap_or(ActionabilityReason::Missing)
-}
-
 impl RefActions {
     /// `listSelectOptions`: what a control offers, without choosing anything. A custom dropdown puts its options in the page
     /// once it is open, where a snapshot already sees them.
@@ -121,7 +107,7 @@ impl RefActions {
         let probe = move || async move {
             match ref_point(&*this.host, &this.target(ref_id), this.cancel.token()).await {
                 Ok(point) => Ok(point),
-                Err(RefError::Refused { reason, message }) => Err(ProbeFailure::NotActionable(ActionabilityError::new(message, reason.as_str()))),
+                Err(RefError::Refused { reason, message }) => Err(ProbeFailure::NotActionable(ActionabilityError::new(message, reason))),
                 Err(error) => Err(ProbeFailure::Other(error)),
             }
         };
@@ -129,7 +115,7 @@ impl RefActions {
             Ok(point) => return Ok(point),
             Err(ActionableError::Cancelled(_)) => return Err(crate::error::HostCallError::Cancelled.into()),
             Err(ActionableError::Failed(error)) => return Err(error),
-            Err(ActionableError::NotActionable(blocker)) => RefError::Refused { reason: reason_of(&blocker.reason), message: blocker.message },
+            Err(ActionableError::NotActionable(blocker)) => RefError::Refused { reason: blocker.reason, message: blocker.message },
         };
         Err(with_covered_guidance(&*self.host, &self.page_id, error, &*self.format_snapshot, self.cancel.token()).await)
     }
@@ -248,12 +234,5 @@ mod tests {
         let failed = Arc::new(FakeHost::scripted(vec![call(json!({"error": "transformed-frame"}))]));
         let error = actions(failed).resolve_ref_point(REF).await.expect_err("not retried");
         assert!(error.to_string().contains("transformed parent frame"));
-    }
-
-    #[test]
-    fn a_refusal_keeps_the_reason_its_wait_recorded() {
-        assert_eq!(reason_of("covered"), ActionabilityReason::Covered);
-        assert_eq!(reason_of("not-editable"), ActionabilityReason::NotEditable);
-        assert_eq!(reason_of("unheard of"), ActionabilityReason::Missing);
     }
 }

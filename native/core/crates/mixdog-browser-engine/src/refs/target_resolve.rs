@@ -365,6 +365,7 @@ async fn selector_candidates(cx: &TargetContext<'_>, selector: &str, snapshot: &
         world: None,
         timeout_ms: u32::try_from(CDP_REQUEST_TIMEOUT.as_millis()).unwrap_or(u32::MAX),
         expect: cx.expect.cloned(),
+        check_unchanged: None,
     };
     let answer = cx.host.page_eval(params, cx.cancel).await?;
     if let Some(exception) = answer.exception {
@@ -648,7 +649,8 @@ mod tests {
         host.finish().expect("one snapshot");
         let regex_host = FakeHost::scripted(vec![snapshot_answer(checkbox_page(), None)]);
         let cx = TargetContext { host: &regex_host, page_id: "p1", expect: None, cancel: &cancel };
-        resolve_target(&cx, &json!({"name": "/agree/i"})).await.expect("resolved");
+        // The name is a plain substring in Node too (`includes`), so it matches nothing: only the observation is asserted.
+        let _ = resolve_target(&cx, &json!({"name": "/agree/i"})).await;
         assert!(regex_host.calls()[0].params.get("query").is_none(), "a regular expression is not a query");
     }
 

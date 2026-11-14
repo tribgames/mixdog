@@ -297,8 +297,8 @@ mod tests {
             FileFacts { exists: true, is_file: name != DIR, size: 1, canonical: Some(path.to_path_buf()), modified: None }
         }
 
-        async fn write_frame(&self, _run_dir: &Path, _bytes: Bytes) -> PathBuf {
-            PathBuf::new()
+        async fn write_frame(&self, _run_dir: &Path, _bytes: Bytes, _mime_type: &str) -> std::io::Result<PathBuf> {
+            Ok(PathBuf::new())
         }
     }
 

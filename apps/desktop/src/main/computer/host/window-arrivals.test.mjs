@@ -326,7 +326,8 @@ test('a stop while the report reads app names refuses the reply instead of publi
   await assert.rejects(pending, /computer_session_aborted/);
 });
 
-// The pool's PowerShell workers exist on Windows only; elsewhere it drives the native backend.
+// The pool's workers are the native `mixdog-computer` helper, which the fake spawn below stands in for: the pool only names its binary.
+process.env.MIXDOG_COMPUTER_BIN ||= 'mixdog-computer';
 test('a slow arrivals read never sits in front of the next command request', {
   skip: process.platform !== 'win32' && 'Windows only',
 }, async (t) => {

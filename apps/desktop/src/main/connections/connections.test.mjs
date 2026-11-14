@@ -200,6 +200,8 @@ test('service events and snapshots reach only their connection windows', async (
       feed: { id: feedId },
     },
   });
+  // A window is sent the tabs it shows: its ensure of the tab names it (the fixture's service answers no session, which leaves the request standing).
+  await f.invoke(f.server.webContents, DESKTOP_IPC.termEnsure, 'term-1').catch(() => undefined);
   f.server.protocol.emit(output('process:relay', 'lane output'));
   f.server.protocol.emit(output('process:term-1', 'server output'));
   f.server.service.publishEvent('folder-changed', '/srv/repo');

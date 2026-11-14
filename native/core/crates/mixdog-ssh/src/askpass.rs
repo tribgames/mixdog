@@ -332,7 +332,7 @@ struct Reply<'a> {
 /// One helper connection: the request line in, the reply line out.
 async fn serve<S: AsyncRead + AsyncWrite + Send + Unpin>(inner: &Inner, stream: S) {
     // A connection that does not finish is dropped, the question's own wait excluded.
-    drop(mixdog_rt::time::timeout(inner.timings.timeout + CONNECTION_SLACK, serve_exchange(inner, stream)).await);
+    let _ = mixdog_rt::time::timeout(inner.timings.timeout + CONNECTION_SLACK, serve_exchange(inner, stream)).await;
 }
 
 async fn serve_exchange<S: AsyncRead + AsyncWrite + Send + Unpin>(inner: &Inner, stream: S) {
