@@ -23,8 +23,8 @@ pub struct TaskPages {
     touched: HashSet<String>,
 }
 
-/// `begin` after the turn was already finished.
-pub const TASK_FINISHED: &str = "Browser task has already finished.";
+/// `begin` after the turn was already finished: the words the model has always read (`BROWSER_TURN_FINISHED` of the browser client).
+pub const TASK_FINISHED: &str = "browser turn already finished; the command was not sent";
 
 impl TaskPages {
     /// The session's running turn: the one after the last that finished. The core never numbers the engine's turns, the engine
@@ -125,6 +125,7 @@ mod tests {
         assert!(!tasks.owns("p1"));
         tasks.finish("s1", 3, false, |_| true);
         assert_eq!(tasks.begin("s1", 3), Err(TASK_FINISHED.to_owned()));
+        assert_eq!(TASK_FINISHED, "browser turn already finished; the command was not sent");
         assert_eq!(tasks.begin("s1", 4), Ok(true));
         assert_eq!(tasks.begin("s2", 1), Ok(true));
     }

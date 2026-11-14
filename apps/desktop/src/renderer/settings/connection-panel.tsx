@@ -1,6 +1,7 @@
 import { ExternalLink, Monitor, Plus, Server, Terminal, Wifi } from 'lucide-react';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import type {
+  DesktopApi,
   DesktopRemoteAccessInfo,
   DesktopRemoteClientInfo,
   DesktopRemoteHost,
@@ -528,7 +529,7 @@ function ConnectionDialogs({
   );
 }
 
-export function ConnectionPanel({ api }: { api: CapabilityApi }) {
+export function ConnectionPanel({ api }: { api: CapabilityApi & Partial<Pick<DesktopApi, 'sshConnect'>> }) {
   const [info, setInfo] = useState<DesktopRemoteAccessInfo | null | undefined>(() => getCachedConnectionInfo(api));
   const [rotating, setRotating] = useState(false);
   const [revokingClient, setRevokingClient] = useState('');
@@ -707,10 +708,12 @@ export function ConnectionPanel({ api }: { api: CapabilityApi }) {
             {t('Open another PC')}
           </button>
         )}
-        <button type="button" className="conn-btn" onClick={() => setDialog({ kind: 'ssh', host: null })}>
-          <Terminal size={16} aria-hidden="true" />
-          {t('Connect SSH server')}
-        </button>
+        {api.sshConnect && (
+          <button type="button" className="conn-btn" onClick={() => setDialog({ kind: 'ssh', host: null })}>
+            <Terminal size={16} aria-hidden="true" />
+            {t('Connect SSH server')}
+          </button>
+        )}
         <button
           type="button"
           className="conn-btn conn-btn--primary conn-connect-device"

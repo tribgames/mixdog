@@ -3,16 +3,22 @@
 //! the core's browser policy (`item/browser/requestApproval`), not here.
 
 use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 
 use async_trait::async_trait;
+use mixdog_browser_engine::limits::MAX_CONCURRENT;
 use mixdog_core_api::domain::tool::Tool;
 use mixdog_core_api::domain::tool::ToolContext;
+use mixdog_core_api::domain::tool::ToolError;
+use mixdog_core_api::domain::tool::ToolErrorCode;
 use mixdog_core_api::domain::tool::ToolOutcome;
 use mixdog_core_api::domain::tool::ToolSpec;
 use mixdog_protocol::JsonValue;
 use serde_json::Map;
 use serde_json::Value;
 
+use super::browser_bridge_run::CAPACITY_REFUSAL;
 use super::host::BROWSER_UNAVAILABLE;
 use super::host::HostCommandError;
 use super::host::HostCommands;
@@ -636,10 +642,30 @@ fn rule_operation(action: &str, input: &Map<String, Value>) -> Result<(), String
     Ok(())
 }
 
+/// The browser commands of both tools running now, in this process: the allowance of `MAX_CONCURRENT_BROWSER_COMMANDS`.
+static RUNNING: AtomicUsize = AtomicUsize::new(0);
+
+/// A place among the commands running at once; given back when dropped.
+struct Slot(&'static AtomicUsize);
+
+impl Slot {
+    /// `None` when [`MAX_CONCURRENT`] commands already run.
+    fn take(running: &'static AtomicUsize) -> Option<Self> {
+        running.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |now| (now < MAX_CONCURRENT).then_some(now + 1)).ok().map(|_| Self(running))
+    }
+}
+
+impl Drop for Slot {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
 pub struct BrowserTool {
     spec: ToolSpec,
     host: Arc<dyn HostCommands>,
     schema_fields: Map<String, Value>,
+    running: &'static AtomicUsize,
 }
 
 impl BrowserTool {
@@ -654,7 +680,7 @@ impl BrowserTool {
     fn build(def: &'static str, host: Arc<dyn HostCommands>) -> Self {
         let spec = spec_from_def(def, false, &["browser"]);
         let schema_fields = spec.input_schema["properties"]["input"]["properties"].as_object().cloned().unwrap_or_default();
-        Self { spec, host, schema_fields }
+        Self { spec, host, schema_fields, running: &RUNNING }
     }
 }
 
@@ -679,6 +705,10 @@ impl Tool for BrowserTool {
         if input.to_string().len() > MAX_REQUEST_BYTES {
             return Err(invalid("input", format!("browser command exceeds {MAX_REQUEST_BYTES} bytes")));
         }
+        // The 33rd command at once is refused as the bridge refuses it (its 429), before anything is sent.
+        let Some(_slot) = Slot::take(self.running) else {
+            return Err(ToolError::new(ToolErrorCode::Failed { reason: CAPACITY_REFUSAL.to_owned() }, format!("Error: {CAPACITY_REFUSAL}")));
+        };
         // A Browser Use card the engine raises for this call asks through the call's own gate (s4-tool-adapter).
         let approvals = crate::orch::service::CallApprovals { gate: ctx.approvals.clone(), call_id: ctx.call_id.clone() };
         match crate::orch::service::with_call_approvals(approvals, self.host.browser(&ctx.thread_id, &call.action, input, &ctx.cancel)).await {
@@ -845,5 +875,208 @@ mod tests {
             }
         }
         assert_eq!(navigates, 7);
+    }
+
+    /// A host that holds every browser command until it is released, counting those that reached it.
+    #[derive(Default)]
+    struct Held {
+        reached: AtomicUsize,
+        release: tokio::sync::Notify,
+    }
+
+    #[async_trait]
+    impl HostCommands for Held {
+        async fn browser(&self, _: &mixdog_protocol::ThreadId, _: &str, _: JsonValue, _: &mixdog_rt::CancellationToken) -> Result<JsonValue, HostCommandError> {
+            // Create the waiter before publishing arrival, so notify_waiters cannot race past it.
+            let released = self.release.notified();
+            self.reached.fetch_add(1, Ordering::SeqCst);
+            released.await;
+            Ok(json!({ "text": "done" }))
+        }
+
+        async fn visualize(&self, _: &mixdog_protocol::ThreadId, _: &str, _: &str, _: JsonValue, _: &mixdog_rt::CancellationToken) -> Result<JsonValue, HostCommandError> {
+            unreachable!("a browser call")
+        }
+    }
+
+    /// The agent tool path holds at most `MAX_CONCURRENT` commands at once: the next is refused with the bridge's words and never
+    /// reaches the host, and a finished command gives its place back.
+    #[tokio::test]
+    async fn a_thirty_third_browser_command_is_refused_and_a_finished_one_frees_its_place() {
+        static COUNT: AtomicUsize = AtomicUsize::new(0);
+        let host = Arc::new(Held::default());
+        let mut tool = BrowserTool::browser(host.clone());
+        tool.running = &COUNT;
+        let tool = Arc::new(tool);
+        let mut running = Vec::new();
+        for _ in 0..MAX_CONCURRENT {
+            let tool = tool.clone();
+            running.push(tokio::spawn(async move { tool.call(&crate::orch::tests::ctx(), json!({ "action": "list_tabs" })).await }));
+        }
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while host.reached.load(Ordering::SeqCst) < MAX_CONCURRENT {
+                tokio::task::yield_now().await;
+            }
+        }).await.expect("all admitted commands reached the host");
+        let refused = tool.call(&crate::orch::tests::ctx(), json!({ "action": "list_tabs" })).await.expect_err("the 33rd is refused");
+        assert_eq!(refused.message_for_model, "Error: too many concurrent browser commands");
+        assert_eq!(host.reached.load(Ordering::SeqCst), MAX_CONCURRENT, "the refused command was not sent");
+        host.release.notify_waiters();
+        for task in running {
+            assert!(task.await.unwrap().is_ok());
+        }
+        assert_eq!(COUNT.load(Ordering::SeqCst), 0);
+        let again = tokio::spawn({
+            let tool = tool.clone();
+            async move { tool.call(&crate::orch::tests::ctx(), json!({ "action": "list_tabs" })).await }
+        });
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while host.reached.load(Ordering::SeqCst) <= MAX_CONCURRENT {
+                tokio::task::yield_now().await;
+            }
+        }).await.expect("the newly admitted command reached the host");
+        host.release.notify_waiters();
+        assert!(again.await.unwrap().is_ok(), "a place was free again");
+    }
+
+    #[tokio::test]
+    async fn an_aborted_browser_call_releases_its_admission_slot() {
+        static COUNT: AtomicUsize = AtomicUsize::new(0);
+        let host = Arc::new(Held::default());
+        let mut tool = BrowserTool::browser(host.clone());
+        tool.running = &COUNT;
+        let task = tokio::spawn(async move { tool.call(&crate::orch::tests::ctx(), json!({ "action": "list_tabs" })).await });
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while host.reached.load(Ordering::SeqCst) == 0 {
+                tokio::task::yield_now().await;
+            }
+        }).await.expect("the command reached the host");
+        assert_eq!(COUNT.load(Ordering::SeqCst), 1);
+        task.abort();
+        assert!(task.await.unwrap_err().is_cancelled());
+        assert_eq!(COUNT.load(Ordering::SeqCst), 0);
+    }
+
+    mod ceiling {
+        use std::path::Path;
+        use std::path::PathBuf;
+        use std::time::Duration;
+
+        use bytes::Bytes;
+        use mixdog_browser_engine::ApprovalPort;
+        use mixdog_browser_engine::BlobPort;
+        use mixdog_browser_engine::FilePort;
+        use mixdog_browser_engine::HostCallError;
+        use mixdog_browser_engine::HostWire;
+        use mixdog_browser_engine::TakeoverPort;
+        use mixdog_browser_engine::actions::registry::is_action;
+        use mixdog_browser_engine::approval::classify::ActionPolicy;
+        use mixdog_browser_engine::lane::mirror::Mirror;
+        use mixdog_browser_engine::limits::COMMAND_TIMEOUT;
+        use mixdog_browser_engine::queue::user_hold::UserHold;
+        use mixdog_browser_engine::runner::guard::SecretGuard;
+        use mixdog_browser_engine::runner::runner::BrowserEngine;
+        use mixdog_browser_engine::runner::runner::EnginePorts;
+        use mixdog_browser_engine::types::ApprovalAnswer;
+        use mixdog_browser_engine::types::BrowserApprovalPrompt;
+        use mixdog_browser_engine::types::FileFacts;
+        use mixdog_browser_engine::types::TakeoverGuard;
+        use mixdog_browser_policy::url_policy::UrlPolicy;
+
+        use super::*;
+
+        /// A desktop whose host lane never answers a request.
+        struct Silent;
+
+        #[async_trait]
+        impl HostWire for Silent {
+            async fn call(&self, _: &'static str, _: Value, _: &mixdog_rt::CancellationToken) -> Result<Value, HostCallError> {
+                std::future::pending().await
+            }
+
+            fn notify(&self, _: &'static str, _: Value) -> Result<(), HostCallError> {
+                Ok(())
+            }
+        }
+
+        struct Masks;
+
+        impl SecretGuard for Masks {
+            fn redact(&self, _: &str, text: &str) -> String {
+                text.to_owned()
+            }
+
+            fn remember(&self, _: &str, _: &str) {}
+        }
+
+        struct Denies;
+
+        #[async_trait]
+        impl ApprovalPort for Denies {
+            async fn ask(&self, _: BrowserApprovalPrompt) -> Result<ApprovalAnswer, ToolError> {
+                Ok(ApprovalAnswer::Deny { reason: String::new() })
+            }
+        }
+
+        struct Free;
+
+        impl TakeoverPort for Free {
+            fn begin(&self, _: &str) -> Result<TakeoverGuard, String> {
+                Ok(TakeoverGuard::new(mixdog_rt::CancellationToken::new(), None))
+            }
+        }
+
+        struct NoBlobs;
+
+        #[async_trait]
+        impl BlobPort for NoBlobs {
+            async fn read(&self, _: &str) -> Result<Bytes, String> {
+                Err("no blobs".to_owned())
+            }
+        }
+
+        struct NoFiles;
+
+        #[async_trait]
+        impl FilePort for NoFiles {
+            async fn stat(&self, _: &Path) -> FileFacts {
+                FileFacts::default()
+            }
+
+            async fn write_frame(&self, run_dir: &Path, _: Bytes, _: &str) -> std::io::Result<PathBuf> {
+                Ok(run_dir.to_path_buf())
+            }
+        }
+
+        /// A command of the engine's lane whose host never answers ends with the ceiling's own error inside the 42 seconds (the
+        /// old byte clock of the bridge client is gone; this ceiling is what bounds the command now).
+        #[tokio::test(start_paused = true)]
+        async fn a_host_that_never_answers_ends_an_engine_command_within_the_ceiling() {
+            assert_eq!(COMMAND_TIMEOUT, Duration::from_secs(42));
+            let engine = BrowserEngine::new(
+                Arc::new(Silent),
+                EnginePorts {
+                    mirror: Arc::new(Mirror::new()),
+                    hold: Arc::new(UserHold::new()),
+                    approvals: Arc::new(Denies),
+                    takeover: Arc::new(Free),
+                    blobs: Arc::new(NoBlobs),
+                    files: Arc::new(NoFiles),
+                    secrets: Arc::new(Masks),
+                    approval_policy: ActionPolicy::from_env(None, None, None, is_action),
+                    urls: UrlPolicy::default(),
+                    frame_dir: PathBuf::from("frames"),
+                },
+            );
+            let started = tokio::time::Instant::now();
+            let thread = mixdog_protocol::ThreadId::from("s1");
+            let input = Map::new();
+            let cancel = mixdog_rt::CancellationToken::new();
+            let command = engine.run(&thread, "snapshot", &input, &cancel);
+            let outcome = mixdog_rt::time::timeout(COMMAND_TIMEOUT + Duration::from_secs(1), command).await.expect("the command ended by itself");
+            let failure = outcome.err().expect("the command failed");
+            assert!(failure.error.message_for_model.contains("timed out after 42000ms"), "{}", failure.error.message_for_model);
+            assert!(started.elapsed() <= COMMAND_TIMEOUT + Duration::from_millis(500), "{:?}", started.elapsed());
+        }
     }
 }

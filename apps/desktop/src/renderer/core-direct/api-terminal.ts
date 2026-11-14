@@ -266,7 +266,12 @@ export function createTerminalApi(ctx: DirectContext): Pick<DesktopApi, DirectKe
     },
     claimTerminalRun: async (requestId: unknown): Promise<boolean> => {
       const claimed = { requestId: requiredString(requestId, 'terminal run request id', 128) };
-      connection.notify(TERMINAL_RUN_CLAIMED, claimed);
+      // No open link to the core: nothing is sent and the pane is told the claim did not go (the page ignores the answer).
+      try {
+        connection.notify(TERMINAL_RUN_CLAIMED, claimed);
+      } catch {
+        return false;
+      }
       return true;
     },
     subscribeTermData: (listener: (event: TerminalDataEvent) => void) => listen(dataListeners, listener),
