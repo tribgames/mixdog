@@ -8,33 +8,42 @@ mixdog_tools::desktop::reveal::RevealingTerminalHost::new now takes `Arc<dyn Rev
 Replace
     Arc::new(mixdog_core_session::session::terminal_host::AppFeedOpen::new(pre.state.app.clone(), b.presence.clone())),
 with
-    Arc::new(mixdog_core_session::session::terminal_host::AudienceReveal::new(b.app_audience.clone(), b.notifier.clone())),
-`b.notifier` already exists in that struct (`Arc<dyn ConnectionNotifier>`, the Outgoing). Add the field
-    pub app_audience: Arc<dyn mixdog_core_session::session::terminal_host::AppFeedAudience>,
-next to `presence`, and bind it to the same `Outgoing` that `presence` and `notifier` are (see below).
+    Arc::new(mixdog_core_session::session::terminal_host::AudienceReveal::new(Arc::new(OutgoingAudience(b.outgoing.clone())), b.notifier.clone())),
+`b.outgoing` (`Arc<mixdog_app_server::Outgoing>`) and `b.notifier` (the same Outgoing as `ConnectionNotifier`) already exist.
+Add at module level in compose_flip.rs (mixdog-app-server gets no dependency on mixdog-core-session):
 
-## mixdog-app-server/src/outgoing.rs (after `impl mixdog_core_api::DesktopPresence for Outgoing`)
+    /// The connection table as the terminal reveal's audience on the app feed.
+    struct OutgoingAudience(Arc<mixdog_app_server::Outgoing>);
 
-    impl mixdog_core_session::session::terminal_host::AppFeedAudience for Outgoing {
+    impl mixdog_core_session::session::terminal_host::AppFeedAudience for OutgoingAudience {
         fn audience(&self) -> Vec<mixdog_core_session::session::terminal_host::Audience> {
-            let app = FeedId::from(mixdog_app_protocol::v2::feed::APP_FEED_ID);
-            self.all_connections()
-                .iter()
-                .filter(|conn| conn.is_live_on(&app))
-                .filter_map(|conn| {
-                    let session = conn.session()?;
-                    Some(mixdog_core_session::session::terminal_host::Audience {
-                        id: conn.id,
-                        relay: session.origin == mixdog_protocol::Origin::Relay,
-                        window: conn.is_desktop_on(&app),
-                    })
-                })
+            self.0
+                .app_feed_audience()
+                .into_iter()
+                .map(|(id, relay, window)| mixdog_core_session::session::terminal_host::Audience { id, relay, window })
                 .collect()
         }
     }
-(mixdog-app-server needs the dependency edge `mixdog-core-session` only if it has none: if it does not, instead define
-`AppFeedAudience`/`Audience` use in the daemon crate as an adapter over `Outgoing` there; the trait lives in
-mixdog-core-session::session::terminal_host. `Connection::id` and `is_live_on` must be visible to that code.)
+
+## mixdog-app-server/src/outgoing.rs (inherent `impl Outgoing`, next to `desktop_attached_on`)
+
+    /// The connections live on the app feed, each with whether it is a paired phone (origin relay) and whether it is
+    /// a desktop window (`is_desktop_on`).
+    pub fn app_feed_audience(&self) -> Vec<(ConnectionId, bool, bool)> {
+        let app = FeedId::from(mixdog_app_protocol::v2::feed::APP_FEED_ID);
+        self.all_connections()
+            .iter()
+            .filter(|conn| conn.is_live_on(&app))
+            .filter_map(|conn| {
+                let session = conn.session()?;
+                Some((conn.id, session.origin == mixdog_protocol::Origin::Relay, conn.is_desktop_on(&app)))
+            })
+            .collect()
+    }
+
+## mixdog-app-server/src/connection.rs
+
+`fn is_live_on(&self, feed: &FeedId) -> bool` becomes `pub(crate) fn is_live_on` (outgoing.rs calls it).
 
 ## mixdog-app-server/src/server.rs, `on_notification`, after `let Some(spec) = CLIENT_NOTIFICATIONS...` and the `initialized` check
 
