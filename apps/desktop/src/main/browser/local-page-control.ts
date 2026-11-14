@@ -4,6 +4,7 @@
  */
 import { browserInputImmediate, browserInputPresentation } from '../../shared/browser-input-policy';
 import type { DesktopBrowserPageControl, DesktopBrowserTabControlResult } from '../../shared/contract';
+import { type Leases, userInputReason } from '../host/browser-engine/lease';
 import type { createBrowserGuestCdp } from './cdp';
 import { COMMAND_TIMEOUT_MS } from './command';
 import type { createBrowserCommandQueue } from './command-queue';
@@ -23,6 +24,9 @@ export function createBrowserLocalPageControl(options: {
   queue: Pick<CommandQueue, 'executeLocal' | 'interruptForLocal' | 'holdLocal'>;
   control: ReturnType<typeof createBrowserPageSurface>['control'];
   bounded: ReturnType<typeof createBrowserGuestCdp>['bounded'];
+  /** Present when the core drives the browser through the engine lane: the person's input is then served by the
+   *  page lease (host/browser-engine/lease.ts), not the session's command queue. */
+  engine?: { isEngineMode(): boolean; leases: Leases };
 }) {
   const { state, queue, control } = options;
   return (sessionId: string, input: DesktopBrowserPageControl): Promise<DesktopBrowserTabControlResult | void> => {
@@ -43,21 +47,32 @@ export function createBrowserLocalPageControl(options: {
     }
     // A selected support tab keeps its own queue. Local takeover must
     // cancel the agent using that page, not the session's primary page.
-    const command = { action: 'remote_control', session_id: owner, tab: state.pageId(guest) };
+    const engine = options.engine?.isEngineMode() ? options.engine.leases : undefined;
+    const pageId = state.pageId(guest);
+    const command = { action: 'remote_control', session_id: owner, tab: pageId };
     if (input.type !== 'resize' && !(input.type === 'pointer' && input.phase === 'mouseMoved' && input.buttons === 0))
       options.retainGuest(guest);
     if (browserInputImmediate(input)) {
       if (input.type === 'answer-dialog' || input.type === 'choose-files') {
-        const release = queue.holdLocal(command);
+        const release = engine ? engine.hold(pageId, userInputReason(input)) : queue.holdLocal(command);
         // Human file selection has no tool-command deadline. The exact
         // document/prompt is revalidated after the native picker returns.
         return control(owner, input).finally(release);
       }
-      if (!browserInputPresentation(input)) queue.interruptForLocal(command);
+      if (!browserInputPresentation(input)) {
+        if (engine) engine.onUserInput(pageId, userInputReason(input));
+        else queue.interruptForLocal(command);
+      }
       const signal = AbortSignal.timeout(COMMAND_TIMEOUT_MS);
       return options.bounded(control(owner, input, signal), COMMAND_TIMEOUT_MS, 'Browser recovery control', signal);
     }
     // Dispatch itself remains bounded.
+    if (engine) {
+      return engine.executeLocal(pageId, (signal) => control(owner, input, signal), {
+        ...browserLocalInputOptions(input),
+        reason: userInputReason(input),
+      });
+    }
     return queue.executeLocal(command, (signal) => control(owner, input, signal), browserLocalInputOptions(input));
   };
 }
