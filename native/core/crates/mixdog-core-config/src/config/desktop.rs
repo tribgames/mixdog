@@ -109,6 +109,30 @@ pub fn browser_cookie_auto_import(config: &Map<String, Value>) -> (bool, String)
     (stored.get("enabled") != Some(&Value::Bool(false)), profile.to_owned())
 }
 
+/// Which implementation serves the `computer` tool (`desktop.computerBackend`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ComputerBackendChoice {
+    /// The resident `mixdog-computer` helper.
+    Helper,
+    /// Every command forwarded to the desktop's own computer host (`host/computer/command`), the dual path kept until the
+    /// helper is signed off. Windows only.
+    DesktopHost,
+}
+
+/// The stored choice as it applies on a platform: `"desktopHost"` on Windows, the helper for every other value, a missing one
+/// and every other platform.
+fn choose_computer_backend(stored: Option<&Value>, windows: bool) -> ComputerBackendChoice {
+    match stored.and_then(Value::as_str) {
+        Some("desktopHost") if windows => ComputerBackendChoice::DesktopHost,
+        _ => ComputerBackendChoice::Helper,
+    }
+}
+
+/// `desktop.computerBackend`, read afresh from the config.
+pub fn computer_backend(config: &Map<String, Value>) -> ComputerBackendChoice {
+    choose_computer_backend(object(config, "desktop").unwrap_or(empty()).get("computerBackend"), cfg!(windows))
+}
+
 pub fn desktop_settings(config: &Map<String, Value>) -> DesktopSettings {
     let desktop = object(config, "desktop").unwrap_or(empty());
     let agent = object(config, "agent").unwrap_or(empty());
@@ -180,5 +204,34 @@ pub fn activity_rail_pins(stored: Option<&Value>) -> Option<ActivityRailPins> {
                 .collect(),
             revision,
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    fn config(desktop: Value) -> Map<String, Value> {
+        json!({ "desktop": desktop }).as_object().unwrap().clone()
+    }
+
+    #[test]
+    fn the_helper_is_the_default_and_desktop_host_is_windows_only() {
+        for stored in [None, Some(json!("helper")), Some(json!("other")), Some(json!(true)), Some(json!(null))] {
+            assert_eq!(choose_computer_backend(stored.as_ref(), true), ComputerBackendChoice::Helper);
+        }
+        let host = json!("desktopHost");
+        assert_eq!(choose_computer_backend(Some(&host), true), ComputerBackendChoice::DesktopHost);
+        assert_eq!(choose_computer_backend(Some(&host), false), ComputerBackendChoice::Helper);
+    }
+
+    #[test]
+    fn the_choice_is_read_from_the_desktop_section() {
+        assert_eq!(computer_backend(&Map::new()), ComputerBackendChoice::Helper);
+        assert_eq!(computer_backend(&config(json!({}))), ComputerBackendChoice::Helper);
+        let chosen = computer_backend(&config(json!({ "computerBackend": "desktopHost" })));
+        assert_eq!(chosen == ComputerBackendChoice::DesktopHost, cfg!(windows));
     }
 }
