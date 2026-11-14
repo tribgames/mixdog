@@ -1,0 +1,52 @@
+# nl-notify-2 follow-up: apply atomically with the desktop producer removal
+
+## compose_flip.rs (lead-owned)
+
+1. Before `TurnPath::new(turn_path_parts(&process, registry.clone(), early, ready, owed))`
+   moves `early`, retain `let notification_goals = early.goals.clone();`.
+2. Change `let session_notifier = ...SessionNotifier::start(...)` to `let mut session_notifier = ...`.
+   Immediately after its construction and before storing its input, call:
+   `session_notifier.follow_goals(notification_goals.clone());`
+   The producer owns the returned GoalRuntime Subscription; do not create and drop a local subscription.
+   Keep the existing `session_notifier` field in the composed daemon state for its whole lifetime.
+3. In `WaitTap::tell`, replace the full `input.session_state(SessionWait { ... })` call with:
+   `input.approval_state(session, approval, false);`
+   Goal changes now arrive separately through `follow_goals`. Both sources are serialized by the
+   same producer actor; approval changes preserve goals and goal changes preserve approval IDs.
+   Never send `blocked_goal: None` as a stand-in for an unknown goal from WaitTap.
+4. Retain the existing ThreadListService row feed, deletion feed, pool feed and host claim feed.
+   A deleted row now cancels all three delivery kinds, including asynchronous preparation and holds.
+5. Seed the initial catalog after binding the on_row hook and before serving requests. The hook
+   only sees announce() changes, so subscribing alone does not replay persisted idle sessions.
+   Use the existing `thread_list.catalog_page(cursor.as_deref(), 256).await` API to enumerate IDs
+   until its next cursor is None. For every row's string `id`, construct a ThreadId and call
+   `thread_list.summary(&id).await`; for each Some(summary), call `session_notifier.input().row(summary)`.
+   Do not call `announce` just to seed the notifier: that would publish redundant app events.
+   Propagate/log startup read errors explicitly rather than pretending the initial state is complete.
+   The new input.row path starts a GoalRuntime snapshot once per first-observed session. The subscription
+   is registered BEFORE the seed. Its per-session revision is incremented under the same lock as each
+   event publication; a snapshot completing after a change or deletion cannot overwrite that event.
+   Deleted/recreated sessions may seed again; transient snapshot failures log and retry on the next row.
+   A global goal list API does not exist. Do not use watch_session: it broadcasts an initial read to all
+   goal listeners and cannot itself order a returned stale snapshot against concurrent mutations.
+
+## Host delivery invariant (verified by reading)
+
+`mixdog-core-domains/src/notify/audience.rs::LiveAudience::audience` constructs zero or one
+synthetic HOST_CONNECTION, not a list of distinct hosts. `host_status` uses the same HostChannel
+and `mixdog-app-server/src/outgoing.rs::claimant` selects the latest eligible capability claimant.
+Consequently the producer's capability-based send is the existing intended route; no targeted-host
+API is introduced. A future multi-host AudienceSource must introduce addressed delivery together,
+not reuse this synthetic-host producer wiring. Existing audience and foreground producer tests
+cover the zero/one-host contract; root should run them with the composed integration tests.
+
+## Required validation (not run by this worker)
+
+Run the producer tests including independent approval/goal updates, clearing either during hold,
+same-key and same-approval-ID recurrence with distinct hold deadlines, completion deletion,
+delayed audience lookup followed by deletion, pending host-toast cancellation, initial goal seeding,
+and concurrent newer goal changes/deletion winning over a delayed seed. Add/run a composed-daemon case proving the live GoalRuntime subscription
+survives compose return and a blocked/cleared goal reaches the producer while an approval remains.
+Verify completion/error/question/approval once per eligible phone and host, held delivery cancellation,
+and real-phone tap-to-open. Apply the existing core/desktop g99 kept fragments in the same integration
+step (including i18n phrases); retain roster and agent subscriptions used by visualize and approvals.
