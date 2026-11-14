@@ -1,0 +1,25 @@
+[package]
+name = "mixdog-ssh"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+mixdog-rt = { workspace = true }
+mixdog-fsio = { workspace = true }
+mixdog-statefile = { workspace = true }
+mixdog-spawn = { workspace = true, features = ["core"] }
+mixdog-app-protocol = { workspace = true }
+mixdog-app-server-client = { workspace = true }
+async-trait = { workspace = true }
+base64 = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["rt", "sync", "macros", "time", "net", "io-util"] }
+zeroize = { workspace = true }
+mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }

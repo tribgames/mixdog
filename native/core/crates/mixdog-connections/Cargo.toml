@@ -1,0 +1,15 @@
+[package]
+name = "mixdog-connections"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+mixdog-ssh = { workspace = true }
+mixdog-core-api = { workspace = true }
+mixdog-protocol = { workspace = true }
+reqwest = { workspace = true }
+mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
