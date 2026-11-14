@@ -32,9 +32,11 @@ fn an_href_is_decoded_the_way_markdown_link_decodes_it_and_a_web_link_names_no_f
     assert_eq!(at("https://example.com/a/b.txt"), None);
     assert_eq!(at(""), None);
     // Locations: a range, a column, a drive letter never taken for a line, an invalid position dropped with its suffix.
-    assert_eq!(at("a.ts:12:4-9").as_deref(), Some("/work/project/a.ts"));
+    assert_eq!(at("src/a.ts:12:4-9").as_deref(), Some("/work/project/src/a.ts"));
     assert_eq!(at("a.ts#L12C4-L20").as_deref(), Some("/work/project/a.ts"));
-    assert_eq!(at("a.ts:0").as_deref(), Some("/work/project/a.ts"));
+    assert_eq!(at("src/a.ts:0").as_deref(), Some("/work/project/src/a.ts"));
+    // A bare `name.ext:line` reads as a URL scheme (`isLocalMarkdownLink`), so it names no file, as in the app.
+    assert_eq!(at("a.ts:12"), None);
     assert_eq!(at("mailto:x@y.z"), None);
     assert_eq!(at("#section"), None);
     assert_eq!(at("//server/share/a.pdf"), None);
