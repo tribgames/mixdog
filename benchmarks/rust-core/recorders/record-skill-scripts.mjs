@@ -468,13 +468,14 @@ function entry(name, argv, env) {
     if (env !== undefined) childEnv.MIXDOG_SKILL_ARGV = env;
     const result = spawnSync(process.execPath, [ENTRY, ...argv.map((arg) => arg.replaceAll('<root>', fixed))], { cwd: root, env: childEnv, encoding: 'utf8', windowsHide: true });
     if (result.error) throw result.error;
-    // A failure's text is a stack with Node's own frames: only that there is one is recorded.
+    // The probe's output is JSON: separators are left as they are, since a slash in place of a backslash would break
+    // its escapes. A failure's text is a stack with Node's own frames: only that there is one is recorded.
     const failed = result.status === 1 && !result.stdout;
     cases.entry.push({
       case: name,
       argv,
       env: env === undefined ? null : env,
-      observed: { stdout: slashes(result.stdout).split(slashes(root)).join('<root>'), stderr: failed ? '<failure text>' : result.stderr, status: result.status },
+      observed: { stdout: result.stdout.split(root).join('<root>').split(fixed).join('<root>'), stderr: failed ? '<failure text>' : result.stderr, status: result.status },
     });
   } finally {
     rmSync(root, { recursive: true, force: true });
