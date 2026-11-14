@@ -31183,7 +31183,7 @@
   "expected": "worktree.create requires a branch and must be a boolean."
  },
  {
-  "case": "draft checked before input",
+  "case": "prompt checked before draft (the host read prompt, options, draft in that order)",
   "method": "thread/start",
   "params": {
    "kind": "task",
@@ -31193,8 +31193,8 @@
     "prompt": ""
    }
   },
-  "path": "/draft",
-  "expected": "new task draft is invalid."
+  "path": "/initialInput/prompt",
+  "expected": "prompt is invalid."
  },
  {
   "case": "interrupt plain",

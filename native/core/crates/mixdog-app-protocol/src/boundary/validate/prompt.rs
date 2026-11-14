@@ -57,12 +57,13 @@ pub fn check(method: &str, params: Option<&Value>) -> Option<Result<(), ErrorDat
 
 fn check_params(method: &str, params: &Map<String, Value>) -> Checked {
     match method {
+        // The host read `submitNewTask(prompt, options, draft)` in that order.
         "thread/start" => {
-            if let Some(draft) = present(params, "draft") {
-                new_task_draft(draft, "/draft")?;
+            if let Some(input) = present(params, "initialInput") {
+                turn_input(input, "/initialInput")?;
             }
-            match present(params, "initialInput") {
-                Some(input) => turn_input(input, "/initialInput"),
+            match present(params, "draft") {
+                Some(draft) => new_task_draft(draft, "/draft"),
                 None => Ok(()),
             }
         }
