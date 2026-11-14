@@ -10,7 +10,8 @@
 //! - `desktop/attachment/resolve`: an attachment of a session by content hash, served only when THIS session's transcript
 //!   (the window it holds, else its whole stored conversation) names the id, and only when the stored bytes hash to the
 //!   id. The refusals carry the download reasons (`file-download:not-linked`, `:not-found`, `:changed`) that the paired
-//!   devices' download path reports. Answers the attachment's record and its verified byte count.
+//!   devices' download path reports. Answers the attachment's record, its verified byte count, its previewable
+//!   name and the bytes as a data URL (what the desktop's `readSessionAttachment` IPC answered).
 //! - `desktop/attachment/stage`: the same check, then the bytes written to `<temp>/mixdog-attachments/<id16>-<name>`.
 //! - `desktop/workflowConfig/read`: the object a JSONC file holds (`null` when it is missing, empty or NUL-filled).
 //! - `desktop/fonts/list`: the installed font families, listed once per process.
@@ -28,6 +29,7 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use base64::Engine;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::CoreRequest;
 use mixdog_core_api::Reply;
@@ -44,8 +46,14 @@ use mixdog_core_base::support::wrong_method;
 use mixdog_js::is_js_space;
 use mixdog_js::js_to_lowercase;
 use mixdog_js::js_trim;
+use mixdog_js::json_number;
+use mixdog_js::json_parse;
+use mixdog_js::locale_compare;
 use mixdog_js::slice_utf16;
+use mixdog_js::to_number_of;
 use mixdog_js::utf16_len;
+use mixdog_js::v8_json_parse_error;
+use mixdog_js::value_to_string;
 use mixdog_rt::DurabilityIo;
 use mixdog_rt::LaneTokens;
 use regex::Regex;
@@ -284,8 +292,7 @@ pub struct SessionAttachment {
 
 impl SessionAttachment {
     pub fn to_json(&self) -> Value {
-        let size = if self.size.fract() == 0.0 && self.size.abs() < 9e15 { json!(self.size as i64) } else { json!(self.size) };
-        json!({ "id": self.id, "name": self.name, "mimeType": self.mime_type, "kind": self.kind, "size": size })
+        json!({ "id": self.id, "name": self.name, "mimeType": self.mime_type, "kind": self.kind, "size": json_number(self.size) })
     }
 }
 
@@ -295,25 +302,17 @@ fn attachment_id_shape(id: &str) -> bool {
 
 /// JavaScript's `Number(value) || 0` for a JSON value.
 fn number_or_zero(value: Option<&Value>) -> f64 {
-    let number = match value {
-        Some(Value::Number(n)) => n.as_f64().unwrap_or(0.0),
-        Some(Value::String(s)) => {
-            let text = js_trim(s);
-            if text.is_empty() { 0.0 } else { text.parse::<f64>().unwrap_or(0.0) }
-        }
-        Some(Value::Bool(true)) => 1.0,
-        _ => 0.0,
-    };
-    if number.is_finite() { number } else { 0.0 }
+    let number = to_number_of(value);
+    if number.is_nan() { 0.0 } else { number }
 }
 
-/// JavaScript's `String(value || fallback)` for the text fields: a non-empty string, a non-zero number, else the fallback.
+/// JavaScript's `String(value || fallback)`: a truthy value's string form, else the fallback.
 fn text_or(value: Option<&Value>, fallback: &str) -> String {
     match value {
-        Some(Value::String(s)) if !s.is_empty() => s.clone(),
-        Some(Value::Number(n)) if n.as_f64().is_some_and(|f| f != 0.0) => n.to_string(),
-        Some(Value::Bool(true)) => "true".to_owned(),
-        _ => fallback.to_owned(),
+        None | Some(Value::Null | Value::Bool(false)) => fallback.to_owned(),
+        Some(Value::String(s)) if s.is_empty() => fallback.to_owned(),
+        Some(Value::Number(n)) if n.as_f64().is_none_or(|f| f == 0.0) => fallback.to_owned(),
+        Some(other) => value_to_string(other),
     }
 }
 
@@ -331,6 +330,9 @@ pub fn session_attachments(snapshot: &Value) -> Vec<SessionAttachment> {
         if found.iter().any(|known| known.id == id) {
             return;
         }
+        // `String(info.name || 'attachment')` again over the caller's text (an image's `[]` name prints as empty).
+        let name = if name.is_empty() { "attachment".to_owned() } else { name };
+        let mime_type = if mime_type.is_empty() { "application/octet-stream".to_owned() } else { mime_type };
         found.push(SessionAttachment { id: id.to_owned(), name: slice_utf16(&name, 200), mime_type: slice_utf16(&mime_type, 100), kind, size });
     };
     for item in objects(snapshot.get("items")) {
@@ -582,7 +584,8 @@ pub fn parse_jsonc(source: &str) -> Result<Value, String> {
     if utf16_len(source) > JSONC_MAX_UTF16 {
         return Err("JSON configuration is too large.".to_owned());
     }
-    serde_json::from_str(&strip_trailing_commas(&strip_json_comments(source))).map_err(|error| error.to_string())
+    let text = strip_trailing_commas(&strip_json_comments(source));
+    json_parse(&text).map_err(|error| v8_json_parse_error(&text).unwrap_or_else(|| error.to_string()))
 }
 
 /// `objectRecord`: the value when it is an object (not an array), else `None`.
@@ -645,8 +648,7 @@ fn listing_command(platform: &str) -> Option<(&'static str, Vec<&'static str>)> 
 }
 
 /// Family names from a listing: one per line (fontconfig joins a family's localized names with commas), trimmed, de-duplicated
-/// and sorted; hidden system faces (a leading dot) and names over 100 UTF-16 units are dropped. Sorting compares the names
-/// without regard to case first (the order `localeCompare` gives ordinary family names), then the exact text.
+/// and sorted by `localeCompare`; hidden system faces (a leading dot) and names over 100 UTF-16 units are dropped.
 pub fn parse_font_families(platform: &str, stdout: &str) -> Vec<String> {
     let mut names: Vec<String> = Vec::new();
     for line in stdout.split('\n').map(|line| line.strip_suffix('\r').unwrap_or(line)) {
@@ -657,7 +659,7 @@ pub fn parse_font_families(platform: &str, stdout: &str) -> Vec<String> {
             }
         }
     }
-    names.sort_by(|a, b| js_to_lowercase(a).cmp(&js_to_lowercase(b)).then_with(|| a.cmp(b)));
+    names.sort_by(|a, b| locale_compare(a, b));
     names
 }
 
@@ -720,7 +722,7 @@ pub fn list_system_fonts() -> &'static [String] {
 struct LinkParams {
     href: String,
     #[serde(default)]
-    cwd: String,
+    cwd: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -728,7 +730,7 @@ struct LinkParams {
 struct PathParams {
     path: String,
     #[serde(default)]
-    cwd: String,
+    cwd: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -787,16 +789,18 @@ impl DomainService for DesktopResidualService {
         match req.method.as_str() {
             "desktop/link/resolve" => {
                 let params: LinkParams = decode(&req)?;
-                reply(json!({ "path": requested_link_path(self.flavor, &params.href, &params.cwd) }))
+                reply(json!({ "path": requested_link_path(self.flavor, &params.href, params.cwd.as_deref().unwrap_or("")) }))
             }
             "desktop/link/resolvePath" => {
                 let params: PathParams = decode(&req)?;
-                reply(json!({ "path": resolve_linked_path(self.flavor, &params.path, &params.cwd) }))
+                reply(json!({ "path": resolve_linked_path(self.flavor, &params.path, params.cwd.as_deref().unwrap_or("")) }))
             }
             "desktop/attachment/resolve" => {
                 let params: AttachmentParams = decode(&req)?;
                 let (meta, bytes) = self.attachment(&params).await?;
-                reply(json!({ "attachment": meta.to_json(), "bytes": bytes.len() }))
+                // What the desktop's `readSessionAttachment` IPC answered: the previewable name and the bytes as a data URL.
+                let data_url = format!("data:{};base64,{}", meta.mime_type, base64::engine::general_purpose::STANDARD.encode(&bytes));
+                reply(json!({ "attachment": meta.to_json(), "bytes": bytes.len(), "viewName": attachment_view_name(&meta), "dataUrl": data_url }))
             }
             "desktop/attachment/stage" => {
                 let params: AttachmentParams = decode(&req)?;

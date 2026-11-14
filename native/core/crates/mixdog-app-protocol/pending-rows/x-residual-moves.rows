@@ -4,7 +4,8 @@
 # src/v2/desktop_residual.rs with the usual codegen derives, camelCase, deny_unknown_fields:
 #   DesktopLinkResolveParams { href: String, cwd: Option<String> }            (answer {path: string|null}: the absolute host path)
 #   DesktopLinkResolvePathParams { path: String, cwd: Option<String> }        (answer {path: string|null})
-#   DesktopAttachmentParams { session_id: String, attachment_id: String }     (resolve answers {attachment: {id,name,mimeType,kind,size}, bytes: number};
+#   DesktopAttachmentParams { session_id: String, attachment_id: String }     (resolve answers {attachment: {id,name,mimeType,kind,size}, bytes: number,
+#                                                                              viewName: string, dataUrl: string};
 #                                                                              stage answers {path: string, attachment: {...}})
 #   DesktopWorkflowConfigReadParams { path: String }                          (answer {config: object|null})
 #   DesktopFontsListParams {}                                                 (answer {families: string[]})
