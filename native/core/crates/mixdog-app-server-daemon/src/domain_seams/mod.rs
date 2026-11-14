@@ -12,6 +12,8 @@ pub mod hook_status;
 pub mod relay_files;
 pub mod media_status;
 pub mod notification_clicks;
+pub mod notify_producer;
+pub mod notify_sources;
 pub mod office_fonts;
 pub mod plugin_announce;
 pub mod profile_changes;

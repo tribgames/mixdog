@@ -114,6 +114,8 @@ pub struct Built {
 /// `compose()` registers `core.on_stop("session directory shutdown", real.session_shutdown_step(core.stop_reason()))` first among the stop steps: Node's
 /// `sessionService.stop` (daemon.mjs, right after the heartbeat) closes every runtime, and each close begins with `setCloseRequested(true)`.
 pub struct Real {
+    /// The producer of this PC's own session notifications; dropping it stops it.
+    pub session_notifier: crate::domain_seams::notify_producer::SessionNotifier,
     /// How this start's desktop defaults separation ended; the server's `initialize` reply carries it to the desktop.
     pub defaults_separation: mixdog_app_protocol::v1::DefaultsSeparation,
     /// The control route's follow of the config (`RouteService::follow_config`), kept for the core's life: dropping it ends the follow.
@@ -983,7 +985,10 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     };
     // What the claiming desktop says it holds for ssh (server cores, the askpass helper): set by each host/claim, cleared when it goes.
     let resource_claims: Arc<crate::compose_connections::ResourceClaims> = Arc::default();
-    b.outgoing.set_claim_hook(Arc::new(crate::compose_connections::ResourceClaimHook(resource_claims.clone()))).map_err(|_| ComposeError::AlreadyBound("host claim hook"))?;
+    // The session notification producer's input, filled once the producer starts (after the session directory): the catalog's rows, the agent pool and a
+    // desktop host's claim reach it through this cell.
+    let notifier_input: Arc<std::sync::OnceLock<crate::domain_seams::notify_producer::NotifierInput>> = Arc::default();
+    b.outgoing.set_claim_hook(Arc::new(HostClaimNotify { resources: crate::compose_connections::ResourceClaimHook(resource_claims.clone()), input: notifier_input.clone() })).map_err(|_| ComposeError::AlreadyBound("host claim hook"))?;
     let notify_engine = Arc::new(mixdog_core_domains::notify::engine::NotificationEngine::new(
         // flip-rooms-1: the volume is read at toast time (`ToastStyleReader`); `sound` follows it (`none` at 0).
         toast_style.clone(),
@@ -2417,7 +2422,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             });
             let live_workspace: Arc<dyn mixdog_core_session::session::worktree::LiveWorkspace> = late_live_workspace.clone();
             let context_status: Arc<dyn mixdog_core_session::session::thread_context::ContextStatusHost> = Arc::new(mixdog_core_session::session::thread_context::LiveContextStatus::new(context_world.clone()));
-            let (data_dir, tokens, clock, features, route_change, quota, session_search) = (b.data_dir.clone(), b.tokens.clone(), clock.clone(), (b.server_requests.clone(), built_remote.registry.clone()), route_change.clone(), quota, session_search.clone());
+            let (data_dir, tokens, clock, features, route_change, quota, session_search) = (b.data_dir.clone(), b.tokens.clone(), clock.clone(), (Arc::new(WaitTap::new(b.server_requests.clone(), notifier_input.clone())) as Arc<dyn mixdog_core_api::ServerRequestSink>, built_remote.registry.clone()), route_change.clone(), quota, session_search.clone());
             // The lifecycle's hold on turn starts (LR §5.1 step 1), through the late cell: `serving::attach` keeps it at the bound lifecycle's.
             let start_hold = late_lifecycle.start_hold();
             // A busy session is running work of the lifecycle (Node's `busySessions`), through the same cell.
@@ -2530,6 +2535,25 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let path = TurnPath::new(turn_path_parts(&process, registry.clone(), early, ready, owed)).map_err(ComposeError::TurnPath)?;
     let directory = path.directory.clone();
     late.bind(&directory);
+    // The producer of this PC's own session notifications (a turn that finished or failed, an approval or a question that waits, a blocked goal): it decides
+    // WHEN and hands each event to the notification engine, which decides who hears it (the host toast, the relay push of each paired device).
+    let session_notifier = crate::domain_seams::notify_producer::SessionNotifier::start(crate::domain_seams::notify_producer::ProducerEnv {
+        engine: notify_engine.clone(),
+        audience: audience.clone(),
+        host: b.host.clone(),
+        push: push_sink.clone(),
+        answers: Arc::new(crate::domain_seams::notify_sources::DirectoryFinalAnswers::new(directory.clone())),
+        names: agent_names.clone(),
+        owners: Arc::new(crate::domain_seams::notify_sources::HeldRunOwners(held_home.clone())),
+        texts: Arc::new(crate::domain_seams::notify_sources::CatalogProducerTexts(crate::compose_connections::UiLanguage::over_sections(b.sections.clone()))),
+        enabled: Arc::new({
+            let closing = close_requested.clone();
+            move || !closing.is_cancelled()
+        }),
+        now_ms: now_ms.clone(),
+        log: b.log.line_log(),
+    });
+    notifier_input.set(session_notifier.input()).map_err(|_| ComposeError::AlreadyBound("session notifier input"))?;
     // A config reload or a settings save moves the loaded sessions onto the saved compaction (`adoptFullConfig` -> `syncSessionCompaction`); the daemon's config is never injected.
     drop(mixdog_rt::spawn(
         "compaction-follow",
@@ -2808,7 +2832,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         )),
     ));
     // The `agentPool` section: the rows `agent/pool/list` answers, re-listed on every agent status signal (the pool is shared with `AgentHomeService`, whose idle stamps it keeps).
-    mixdog_core_agents::agents::pool_section::spawn_pool_section(agent_pool.clone(), activity.changed(), state.publisher.clone(), b.cancel.clone());
+    mixdog_core_agents::agents::pool_section::spawn_pool_section(agent_pool.clone(), activity.changed(), Arc::new(PoolTap { inner: state.publisher.clone(), pool: agent_pool.clone(), input: notifier_input.clone() }), b.cancel.clone());
     // ---- 10b. the post-directory domain stage: the two seams that read the directory ----
     let composed = compose_domains_post(
         &domain_inputs,
@@ -2882,8 +2906,13 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     ));
     thread_deletions
         .on_gone({
-            let workspace = workspace.clone();
-            Arc::new(move |session: &str| workspace.session_removed(session))
+            let (workspace, input) = (workspace.clone(), notifier_input.clone());
+            Arc::new(move |session: &str| {
+                workspace.session_removed(session);
+                if let Some(input) = input.get() {
+                    input.row_gone(session);
+                }
+            })
         })
         .map_err(|()| ComposeError::AlreadyBound("thread deletions"))?;
     workspace.set_host(b.host.clone());
@@ -3106,6 +3135,14 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // A session counts as seen when a published catalog lists it (Node's seenSessions); the downloads of one that leaves the catalog end in the
     // step its `thread/deleted` is published (`ThreadDeletions`).
     thread_list.observe(phone_grants.clone());
+    thread_list.on_row(Arc::new({
+        let input = notifier_input.clone();
+        move |row: &mixdog_protocol::ThreadSummary| {
+            if let Some(input) = input.get() {
+                input.row(row.clone());
+            }
+        }
+    }));
     let heartbeat = mixdog_core::run_host::heartbeat_parts::production_heartbeat(mixdog_core::run_host::heartbeat_parts::HeartbeatHolds {
         clock: channel_clock.clone(),
         store: heartbeat_store.clone(),
@@ -3758,7 +3795,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         .bind(crate::connection_close::ConnectionOwners::new(terminal.clone(), screen.clone(), workspace.clone(), composed.system.clone(), built_remote.registry.clone(), live_view, scm_service.clone(), browser_engine).with_owner(connections.service().clone()))
         .map_err(|_| ComposeError::AlreadyBound("connection owners"))?;
     crate::compose::verify_bound(&[&*late_requests, &*bot_world, &*late_new_place, &*late_draft_settings,&connection_owners, &*late_agent_status, &*late_turn_admission, &*late_live_workspace,&*room_approvals, &*late, &crate::late_session::LateReadinessHook(readiness.clone()), &*late_room_summaries, &*late_computer_hosts, &*late_dispatcher, &*late_catalog, &*late_list_catalog, &*late_listing, &*late_send, &*late_attachments, &*late_bot_sources, &*late_skills, &*project_workspaces, &*bot_summaries, &*late_reactions, &*late_agent_port,&*late_cycle_llm, &*route_positions, &*live_route, &*agent_channels, &*chat_routes, &*routine_sessions, &mixdog_core::run_host::late_chats::LateAgentChats(late.clone()), &*late_setup_ui, &*late_workspaces, &*path.turn_settings, &*late_new_route, &*late_pending_route, &*late_route_session, &*extension_host, &crate::late_session::LateCallerSessions(late.clone()), &mixdog_core::run_host::compose_parts::LateHeaders(late.clone()), &mixdog_core::run_host::compose_parts::HookCommonCell(late.clone()), &crate::late_session::LateMediaProbe(provider_layer.clone()), &*setup_warmup, &crate::setup_host::ModelWarmupCell(model_warmup.clone()), &crate::setup_host::StatuslineWarmupCell(statusline_warmup.clone()), &*b.thread_gates, &*agent_evidence, &*session_facts, &*held_home, &*live_route, &*tool_surface])?;
-    Ok(Real { screens, defaults_separation, control_route_sync, late_lifecycle, connection_owners, local_dialer: late_dialer.clone(), remote: built_remote, directory, agent_dispatch, agent_host, code_graph_cache, exec: b.exec.clone(), maintenance_io: b.tokens.maintenance_io, domains, config, close_requested, resume_timer, goal_recovery, worktree_stop, maintenance_stop, worktree_task, maintenance_loop: std::sync::Mutex::new(maintenance_loop), ledgers: ledger_source, computer: computer_pool, terminal, room_host: room_host_registration, channels: channel_runtime, channel_calls, channel_config_follow, config_watch: composed.watcher, memory, log: b.log.clone(), publisher: state.publisher.clone(), gateway_routes: gateway_settle, model_proxy, connections, event_pipeline, catalog_index: catalog_handle, heartbeat, heartbeat_run: Arc::default(), sub_agent_retention: Arc::default(), archive_stamps, core_state: b.core_state.clone(), skip_memory, gateway_usage, workers: workers.clone(), #[cfg(feature = "replay-controls")] replay_writers: crate::replay_stores_settled::WriteBehind { workers, read_state: read_state.clone() }, #[cfg(test)] turn_review, #[cfg(test)] tool_pool: kept_tool_pool, #[cfg(test)] mcp_glue: kept_mcp_glue })
+    Ok(Real { session_notifier, screens, defaults_separation, control_route_sync, late_lifecycle, connection_owners, local_dialer: late_dialer.clone(), remote: built_remote, directory, agent_dispatch, agent_host, code_graph_cache, exec: b.exec.clone(), maintenance_io: b.tokens.maintenance_io, domains, config, close_requested, resume_timer, goal_recovery, worktree_stop, maintenance_stop, worktree_task, maintenance_loop: std::sync::Mutex::new(maintenance_loop), ledgers: ledger_source, computer: computer_pool, terminal, room_host: room_host_registration, channels: channel_runtime, channel_calls, channel_config_follow, config_watch: composed.watcher, memory, log: b.log.clone(), publisher: state.publisher.clone(), gateway_routes: gateway_settle, model_proxy, connections, event_pipeline, catalog_index: catalog_handle, heartbeat, heartbeat_run: Arc::default(), sub_agent_retention: Arc::default(), archive_stamps, core_state: b.core_state.clone(), skip_memory, gateway_usage, workers: workers.clone(), #[cfg(feature = "replay-controls")] replay_writers: crate::replay_stores_settled::WriteBehind { workers, read_state: read_state.clone() }, #[cfg(test)] turn_review, #[cfg(test)] tool_pool: kept_tool_pool, #[cfg(test)] mcp_glue: kept_mcp_glue })
 }
 
 /// `promptConfigSlice(config)` (`prompt-settings.mjs:36`) over the whole in-memory config: `??` falls through on `null`/absent only.
@@ -3874,5 +3911,114 @@ mod tests {
             })
             .collect();
         assert_eq!(serde_json::Value::Array(delivered), step["delivered"]);
+    }
+}
+
+/// Tells the session notification producer a desktop host that shows notifications claimed the daemon (the toasts that waited for one are shown),
+/// after the claim's resources are recorded.
+struct HostClaimNotify {
+    resources: crate::compose_connections::ResourceClaimHook,
+    input: Arc<std::sync::OnceLock<crate::domain_seams::notify_producer::NotifierInput>>,
+}
+
+impl mixdog_app_server::ClaimHook for HostClaimNotify {
+    fn claimed(&self, serves: &[mixdog_core_api::host::HostCapability], resources: Option<&mixdog_app_protocol::v2::connections::HostClaimResources>) -> Option<Box<dyn std::any::Any + Send>> {
+        let guard = self.resources.claimed(serves, resources);
+        if serves.contains(&mixdog_core_api::host::HostCapability::Notifications) {
+            if let Some(input) = self.input.get() {
+                input.host_attached();
+            }
+        }
+        guard
+    }
+}
+
+/// The `agentPool` section's publisher with the producer listening: every publication of the pool's rows reaches it too (a stub, which carries no
+/// rows, is read from the pool).
+struct PoolTap {
+    inner: Arc<dyn mixdog_core_api::state::StatePublisher>,
+    pool: Arc<mixdog_core_agents::agents::AgentPool>,
+    input: Arc<std::sync::OnceLock<crate::domain_seams::notify_producer::NotifierInput>>,
+}
+
+impl mixdog_core_api::state::StatePublisher for PoolTap {
+    fn publish(&self, section: mixdog_protocol::SectionName, key: Option<String>, change: mixdog_core_api::state::SectionChange) {
+        if section == mixdog_protocol::SectionName::AgentPool {
+            if let Some(input) = self.input.get().cloned() {
+                match &change {
+                    mixdog_core_api::state::SectionChange::Set(bytes) => {
+                        if let Ok(rows) = serde_json::from_slice::<Vec<serde_json::Value>>(bytes) {
+                            input.agent_pool(rows);
+                        }
+                    }
+                    mixdog_core_api::state::SectionChange::Stub { .. } => {
+                        let pool = self.pool.clone();
+                        drop(mixdog_rt::spawn("notify-agent-pool", mixdog_rt::TaskClass::Work, async move {
+                            if let Ok(rows) = pool.list().await {
+                                input.agent_pool(rows);
+                            }
+                        }));
+                    }
+                    mixdog_core_api::state::SectionChange::Removed => {}
+                }
+            }
+        }
+        self.inner.publish(section, key, change);
+    }
+}
+
+/// The sessions' server-request sink with the producer listening: an approval or a question a session publishes is a wait it tells (its card is in the
+/// request frame's `params.card`), and the wait ends when its request is resolved.
+struct WaitTap {
+    inner: Arc<dyn mixdog_core_api::ServerRequestSink>,
+    input: Arc<std::sync::OnceLock<crate::domain_seams::notify_producer::NotifierInput>>,
+    /// The cards each session shows, oldest first, by request: the one shown is the newest still open.
+    open: std::sync::Mutex<std::collections::HashMap<String, Vec<(mixdog_core_api::ids::ServerRequestId, serde_json::Value)>>>,
+}
+
+impl WaitTap {
+    fn new(inner: Arc<dyn mixdog_core_api::ServerRequestSink>, input: Arc<std::sync::OnceLock<crate::domain_seams::notify_producer::NotifierInput>>) -> Self {
+        Self { inner, input, open: std::sync::Mutex::default() }
+    }
+
+    fn tell(&self, session: &str, approval: Option<serde_json::Value>) {
+        if let Some(input) = self.input.get() {
+            input.session_state(crate::domain_seams::notify_producer::SessionWait { session_id: session.to_owned(), approval, blocked_goal: None, replay: false });
+        }
+    }
+}
+
+impl mixdog_core_api::ServerRequestSink for WaitTap {
+    fn publish(&self, req: mixdog_core_api::server_request::PendingServerRequest) {
+        let card = serde_json::from_slice::<serde_json::Value>(&req.frame).ok().and_then(|frame| frame.pointer("/params/card").filter(|card| card.is_object()).cloned());
+        if let Some(card) = card {
+            self.open.lock().unwrap_or_else(std::sync::PoisonError::into_inner).entry(req.thread.as_str().to_owned()).or_default().push((req.id.clone(), card.clone()));
+            self.tell(req.thread.as_str(), Some(card));
+        }
+        self.inner.publish(req);
+    }
+
+    fn resolved(&self, id: &mixdog_core_api::ids::ServerRequestId, frame: bytes::Bytes) {
+        let ended = {
+            let mut open = self.open.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let session = open.iter().find(|(_, cards)| cards.iter().any(|(open_id, _)| open_id == id)).map(|(session, _)| session.clone());
+            session.map(|session| {
+                let cards = open.get_mut(&session).expect("found above");
+                cards.retain(|(open_id, _)| open_id != id);
+                let shown = cards.last().map(|(_, card)| card.clone());
+                if cards.is_empty() {
+                    open.remove(&session);
+                }
+                (session, shown)
+            })
+        };
+        if let Some((session, shown)) = ended {
+            self.tell(&session, shown);
+        }
+        self.inner.resolved(id, frame);
+    }
+
+    fn response_rejected(&self, to: mixdog_core_api::ids::ConnectionId, error: mixdog_core_api::CoreError) {
+        self.inner.response_rejected(to, error);
     }
 }
