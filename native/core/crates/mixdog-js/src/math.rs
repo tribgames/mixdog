@@ -6,6 +6,66 @@
 //! with the fdlibm algorithms (`base/ieee754.cc`); these are the same algorithms. `sqrt` is
 //! correctly rounded in both. `Math.hypot` is V8's scaled Kahan sum, not the C library's.
 
+mod inverse;
+mod reduction;
+mod trig;
+pub use inverse::{acos, asin, atan, atan2};
+pub use trig::{cos, sin, tan};
+
+/// `Math.abs`: clearing the sign also preserves a NaN's significand.
+pub fn abs(x: f64) -> f64 {
+    f64::from_bits(x.to_bits() & 0x7fff_ffff_ffff_ffff)
+}
+
+/// `Math.floor`: IEEE-754 integral rounding, including negative zero.
+pub fn floor(x: f64) -> f64 {
+    if x.to_bits() & 0x7ff0_0000_0000_0000 == 0x7ff0_0000_0000_0000 {
+        x
+    } else {
+        x.floor()
+    }
+}
+
+/// `Math.ceil`: IEEE-754 integral rounding, including negative zero.
+pub fn ceil(x: f64) -> f64 {
+    if x.to_bits() & 0x7ff0_0000_0000_0000 == 0x7ff0_0000_0000_0000 {
+        x
+    } else {
+        x.ceil()
+    }
+}
+
+/// `Math.sqrt`: correctly rounded hardware square root, not a transcendental libm approximation.
+pub fn sqrt(x: f64) -> f64 {
+    if x.is_nan() {
+        quiet_nan(x)
+    } else if x < 0.0 {
+        f64::from_bits(0xfff8_0000_0000_0000)
+    } else {
+        x.sqrt()
+    }
+}
+
+fn quiet_nan(x: f64) -> f64 {
+    f64::from_bits(x.to_bits() | 0x0008_0000_0000_0000)
+}
+
+// MSVC's signaling_NaN returned by the pinned Windows V8 fdlibm domain branches.
+fn domain_nan() -> f64 {
+    f64::from_bits(0x7ff0_0000_0000_0001)
+}
+
+/// A uniform sample on V8 12.4's 52-bit grid in [0, 1).
+/// The entropy and state are local to this process; V8's isolate seed/cache are not observable
+/// through Math.random and are not shared with a separate JavaScript process.
+pub fn random() -> f64 {
+    random_from_bits(rand::random::<u64>())
+}
+
+fn random_from_bits(bits: u64) -> f64 {
+    f64::from_bits((bits >> 12) | 0x3ff0_0000_0000_0000) - 1.0
+}
+
 const HUGE: f64 = 1.0e300;
 const TINY: f64 = 1.0e-300;
 const TWO54: f64 = 1.801_439_850_948_198_4e16;
@@ -123,7 +183,7 @@ pub fn ln(x: f64) -> f64 {
             return f64::NEG_INFINITY;
         }
         if hx < 0 {
-            return f64::NAN;
+            return domain_nan();
         }
         k -= 54;
         x *= TWO54;
@@ -671,7 +731,7 @@ pub fn hypot(values: &[f64]) -> f64 {
 /// `Math.max(a, b)`: `NaN` wins, and `+0` is larger than `-0`.
 pub fn max(a: f64, b: f64) -> f64 {
     if a.is_nan() || b.is_nan() {
-        f64::NAN
+        f64::from_bits(0xfff8_0000_0000_0000)
     } else if a == 0.0 && b == 0.0 {
         if a.is_sign_negative() { b } else { a }
     } else if a > b {
@@ -684,7 +744,7 @@ pub fn max(a: f64, b: f64) -> f64 {
 /// `Math.min(a, b)`: `NaN` wins, and `-0` is smaller than `+0`.
 pub fn min(a: f64, b: f64) -> f64 {
     if a.is_nan() || b.is_nan() {
-        f64::NAN
+        f64::from_bits(0xfff8_0000_0000_0000)
     } else if a == 0.0 && b == 0.0 {
         if a.is_sign_negative() { a } else { b }
     } else if a < b {
@@ -751,6 +811,22 @@ pub fn to_fixed(x: f64, digits: usize) -> String {
 mod tests {
     use super::*;
 
+    #[test]
+    fn random_bit_conversion_covers_v8_endpoints_without_rounding_to_one() {
+        assert_eq!(random_from_bits(0).to_bits(), 0);
+        assert_eq!(random_from_bits(0xfff).to_bits(), 0);
+        assert_eq!(random_from_bits(0x1000), 1.0 / 4_503_599_627_370_496.0);
+        assert_eq!(random_from_bits(u64::MAX).to_bits(), 0x3fef_ffff_ffff_fffe);
+        for mantissa in [1_u64, 0x1234_5678, 0x8000_0000_0000, 0xffff_ffff_fffff] {
+            let bits = mantissa << 12;
+            assert_eq!(random_from_bits(bits), random_from_bits(bits | 0xfff));
+            assert_eq!(
+                random_from_bits(bits) * 4_503_599_627_370_496.0,
+                mantissa as f64
+            );
+        }
+    }
+
     fn bits(hex: &str) -> f64 {
         f64::from_bits(u64::from_str_radix(hex, 16).expect("hex"))
     }
@@ -759,7 +835,8 @@ mod tests {
     #[test]
     fn equals_v8_bit_for_bit() {
         let cases: Vec<serde_json::Value> =
-            serde_json::from_str(mixdog_testkit::fixture!("testdata/math_v8.json")).expect("golden");
+            serde_json::from_str(mixdog_testkit::fixture!("testdata/math_v8.json"))
+                .expect("golden");
         assert!(cases.len() > 3000);
         for case in &cases {
             let name = case[0].as_str().expect("name");
