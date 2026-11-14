@@ -1,0 +1,406 @@
+[
+ {
+  "id": "edge/setext-h1",
+  "text": "Title\n=====\n\nbody\n"
+ },
+ {
+  "id": "edge/setext-h2",
+  "text": "Sub\n---\n\nbody\n"
+ },
+ {
+  "id": "edge/setext-multiline",
+  "text": "line one\nline two\n===\n"
+ },
+ {
+  "id": "edge/hr-vs-setext",
+  "text": "a\n\n---\n\nb\n***\n___\n"
+ },
+ {
+  "id": "edge/lazy-blockquote",
+  "text": "> quote line\ncontinued lazily\n\n> second\n>\n> third\n"
+ },
+ {
+  "id": "edge/nested-blockquote",
+  "text": "> a\n>> b\n>>> c\n> back\n"
+ },
+ {
+  "id": "edge/blockquote-list",
+  "text": "> - a\n> - b\n>   cont\n> 1. x\n"
+ },
+ {
+  "id": "edge/blockquote-code",
+  "text": "> ```\n> code\n> ```\n> after\n"
+ },
+ {
+  "id": "edge/tight-list",
+  "text": "- a\n- b\n- c\n"
+ },
+ {
+  "id": "edge/loose-list",
+  "text": "- a\n\n- b\n\n- c\n"
+ },
+ {
+  "id": "edge/loose-by-inner",
+  "text": "- a\n\n  para two\n- b\n"
+ },
+ {
+  "id": "edge/nested-list",
+  "text": "- a\n  - b\n    - c\n  - d\n- e\n"
+ },
+ {
+  "id": "edge/ordered-start",
+  "text": "3. three\n4. four\n5. five\n"
+ },
+ {
+  "id": "edge/ordered-paren",
+  "text": "1) one\n2) two\n"
+ },
+ {
+  "id": "edge/ordered-zero",
+  "text": "0. zero\n1. one\n"
+ },
+ {
+  "id": "edge/ordered-long",
+  "text": "123456789. nine digits\n10. ten\n"
+ },
+ {
+  "id": "edge/mixed-bullets",
+  "text": "- a\n* b\n+ c\n"
+ },
+ {
+  "id": "edge/task-list",
+  "text": "- [ ] open\n- [x] done\n- [X] DONE\n- [x]no space\n"
+ },
+ {
+  "id": "edge/list-code-item",
+  "text": "- a\n\n      indented code\n- b\n"
+ },
+ {
+  "id": "edge/list-fence-item",
+  "text": "- a\n  ```js\n  let x = 1;\n  ```\n- b\n"
+ },
+ {
+  "id": "edge/list-heading-break",
+  "text": "- a\n# H\n- b\n"
+ },
+ {
+  "id": "edge/list-tabs",
+  "text": "-\ttab item\n-\tanother\n\t- nested\n"
+ },
+ {
+  "id": "edge/empty-items",
+  "text": "-\n- a\n-\n"
+ },
+ {
+  "id": "edge/list-interrupt-paragraph",
+  "text": "para\n- item\n2. not interrupting\n"
+ },
+ {
+  "id": "edge/list-hr",
+  "text": "- a\n- - -\n- b\n"
+ },
+ {
+  "id": "edge/html-block",
+  "text": "<div>\n  <p>hi</p>\n</div>\n\nafter\n"
+ },
+ {
+  "id": "edge/html-comment",
+  "text": "<!-- c -->\n\ntext\n"
+ },
+ {
+  "id": "edge/html-pre",
+  "text": "<pre>\n  keep\n\n  blank\n</pre>\n\nx\n"
+ },
+ {
+  "id": "edge/html-script",
+  "text": "<script>\nalert(1)\n</script>\ntext\n"
+ },
+ {
+  "id": "edge/html-inline",
+  "text": "a <b>bold</b> and <span class=\"x\" data-y='z'>s</span> <br/> <!-- c --> done\n"
+ },
+ {
+  "id": "edge/html-code-raw",
+  "text": "x <code>a_b *c*</code> y <kbd>*k*</kbd>\n"
+ },
+ {
+  "id": "edge/html-anchor",
+  "text": "see <a href=\"http://a.b\">http://c.d</a> end\n"
+ },
+ {
+  "id": "edge/autolink",
+  "text": "go <https://example.com/a_b?x=1&y=2> now <foo@bar.com> <mailto:a@b.cd>\n"
+ },
+ {
+  "id": "edge/bare-urls",
+  "text": "http://a.b/c https://d.e/f?g=h. www.example.com/x, ftp://x.y/z; (https://p.q/r) end!\n"
+ },
+ {
+  "id": "edge/bare-url-underscore",
+  "text": "https://x.y/a_b_ and www.a.b/c~ and https://q.r/s*\n"
+ },
+ {
+  "id": "edge/bare-email",
+  "text": "mail me@host.com or a+b@c-d.org.\n"
+ },
+ {
+  "id": "edge/url-in-link",
+  "text": "[https://a.b](https://a.b) and [x](www.a.b)\n"
+ },
+ {
+  "id": "edge/inline-link",
+  "text": "[t](http://x \"title\") [t2](<http://y z> 't2') [t3](a(b)c) [t4]() [t5](#frag)\n"
+ },
+ {
+  "id": "edge/link-escapes",
+  "text": "[a\\]b](u\\)v) [a [b] c](d)\n"
+ },
+ {
+  "id": "edge/image",
+  "text": "![alt *t*](a.png \"t\") ![](b.png) ![a][ref]\n\n[ref]: http://r.s\n"
+ },
+ {
+  "id": "edge/ref-links",
+  "text": "a [full][Ref One] b [collapsed][] c [shortcut] d [unknown] e [x][nope]\n\n[ref one]: http://one \"T\"\n[collapsed]: <http://two>\n[shortcut]: http://three\n"
+ },
+ {
+  "id": "edge/ref-def-paragraph",
+  "text": "text\n[d]: http://x\nmore\n"
+ },
+ {
+  "id": "edge/ref-def-title-forms",
+  "text": "[a]: http://a \"dq\"\n[b]: http://b 'sq'\n[c]: http://c (paren)\n[d]:\n  http://d\n  \"next line\"\n"
+ },
+ {
+  "id": "edge/ref-dup",
+  "text": "[a]: http://first\n[A]: http://second\n\n[a]\n"
+ },
+ {
+  "id": "edge/ref-in-code",
+  "text": "`[a]` [a]\n\n[a]: http://x\n"
+ },
+ {
+  "id": "edge/emphasis-basic",
+  "text": "*a* _b_ **c** __d__ ***e*** ___f___ **_g_** *__h__*\n"
+ },
+ {
+  "id": "edge/emphasis-intraword",
+  "text": "snake_case_name foo*bar*baz a__b__c 2*3*4\n"
+ },
+ {
+  "id": "edge/emphasis-punct",
+  "text": "(*a*) \"**b**\" *a*, **b**. _c_! \"_d_\"\n"
+ },
+ {
+  "id": "edge/emphasis-punct-inside",
+  "text": "*(a)* **\"b\"** *a.* __ b __\n"
+ },
+ {
+  "id": "edge/emphasis-unbalanced",
+  "text": "*a **b* c** d *e _f* g_\n"
+ },
+ {
+  "id": "edge/emphasis-runs",
+  "text": "**a*** ***b** *c**\n"
+ },
+ {
+  "id": "edge/emphasis-escaped",
+  "text": "\\*not\\* \\_not\\_ \\\\*yes*\n"
+ },
+ {
+  "id": "edge/emphasis-link",
+  "text": "*[a](b)* **[c][d]** _`e`_ *a [b* c](d)*\n\n[d]: u\n"
+ },
+ {
+  "id": "edge/emphasis-code",
+  "text": "*a `*` b* `**`**x**\n"
+ },
+ {
+  "id": "edge/cjk-emphasis",
+  "text": "가**나**다 한글*강조*텍스트 **「引用」**です 「*a*」 ＊全角＊ **한글**입니다 *漢字*と\n"
+ },
+ {
+  "id": "edge/cjk-underscore",
+  "text": "한글_밑줄_텍스트 한글 _밑줄_ 텍스트\n"
+ },
+ {
+  "id": "edge/emoji",
+  "text": "🙂**a**🙂 **🙂** *😀*x _🙂_ 🙂_a_ \\🙂 a\\🙂b\n"
+ },
+ {
+  "id": "edge/strike",
+  "text": "~~gone~~ ~one~ ~~ no ~~ ~~a~~b ~~~c~~~ 1~2 ~100 to ~200 ~~**b**~~ ~~a ~~b~~ c~~\n"
+ },
+ {
+  "id": "edge/codespan",
+  "text": "`a` ``b ` c`` ` a ` `  ` `\\` `a\nb` ```x``` `` ` ``\n"
+ },
+ {
+  "id": "edge/codespan-escape",
+  "text": "`<a href=\"x\">&amp;</a>` `a & b`\n"
+ },
+ {
+  "id": "edge/br",
+  "text": "a  \nb\\\nc  \n\nd  \n"
+ },
+ {
+  "id": "edge/entities",
+  "text": "a &amp; b &copy; &#35; &#x1F; &bogus &  < > \" '\n"
+ },
+ {
+  "id": "edge/escapes",
+  "text": "\\# \\! \\\" \\$ \\% \\& \\( \\) \\+ \\, \\- \\. \\/ \\: \\; \\< \\= \\> \\? \\@ \\[ \\] \\^ \\_ \\` \\{ \\| \\} \\~ \\a\n"
+ },
+ {
+  "id": "edge/table-basic",
+  "text": "| a | b |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |\n"
+ },
+ {
+  "id": "edge/table-align",
+  "text": "| l | c | r | n |\n|:--|:-:|--:|---|\n| 1 | 2 | 3 | 4 |\n"
+ },
+ {
+  "id": "edge/table-escaped-pipe",
+  "text": "| a \\| b | `c\\|d` |\n|---|---|\n| x \\| y | z |\n"
+ },
+ {
+  "id": "edge/table-ragged",
+  "text": "| a | b | c |\n|---|---|---|\n| 1 |\n| 1 | 2 | 3 | 4 |\n"
+ },
+ {
+  "id": "edge/table-no-outer-pipes",
+  "text": "a | b\n--|--\n1 | 2\n"
+ },
+ {
+  "id": "edge/table-inline",
+  "text": "| *a* | [l](u) |\n|---|---|\n| `c` | **b** ~~s~~ |\n"
+ },
+ {
+  "id": "edge/table-interrupted",
+  "text": "| a | b |\n|---|---|\n| 1 | 2 |\ntext after\n\n> q\n"
+ },
+ {
+  "id": "edge/table-vs-setext",
+  "text": "a | b\n---\n"
+ },
+ {
+  "id": "edge/table-header-mismatch",
+  "text": "| a | b |\n|---|\n| 1 | 2 |\n"
+ },
+ {
+  "id": "edge/table-after-paragraph",
+  "text": "para\n| a | b |\n|---|---|\n| 1 | 2 |\n"
+ },
+ {
+  "id": "edge/fence-info",
+  "text": "```js title=\"a.js\" {1,3}\nlet x = 1;\n```\n~~~python\nprint(1)\n~~~\n"
+ },
+ {
+  "id": "edge/fence-unclosed",
+  "text": "```rust\nfn main() {\n    println!(\"x\");\n}\n"
+ },
+ {
+  "id": "edge/fence-unclosed-nested",
+  "text": "- a\n  ```\n  code\n- b\n"
+ },
+ {
+  "id": "edge/fence-longer",
+  "text": "````md\n```js\nx\n```\n````\n"
+ },
+ {
+  "id": "edge/fence-mismatch",
+  "text": "```\na\n~~~\nb\n```\n"
+ },
+ {
+  "id": "edge/fence-indented",
+  "text": "  ```js\n  a\n   b\n  ```\n"
+ },
+ {
+  "id": "edge/fence-empty",
+  "text": "```\n```\n``` \n\n"
+ },
+ {
+  "id": "edge/fence-backtick-info",
+  "text": "``` a`b\nx\n```\n"
+ },
+ {
+  "id": "edge/fence-escaped-info",
+  "text": "```c\\+\\+\nx\n```\n"
+ },
+ {
+  "id": "edge/fence-trailing-partial",
+  "text": "text\n\n```js\nlet a;\n``\n"
+ },
+ {
+  "id": "edge/indented-code",
+  "text": "    a\n    b\n\n    c\n\nafter\n"
+ },
+ {
+  "id": "edge/indented-tab",
+  "text": "\ta\n\t\tb\n"
+ },
+ {
+  "id": "edge/indented-after-para",
+  "text": "para\n    still para\n"
+ },
+ {
+  "id": "edge/heading-levels",
+  "text": "# 1\n## 2\n### 3\n#### 4\n##### 5\n###### 6\n####### 7\n"
+ },
+ {
+  "id": "edge/heading-closing",
+  "text": "# a #\n## b ##   \n### c#\n#### \\#\n# \n#nospace\n"
+ },
+ {
+  "id": "edge/heading-inline",
+  "text": "# *a* `b` [c](d)\n"
+ },
+ {
+  "id": "edge/paragraph-interrupts",
+  "text": "a\n# h\nb\n> q\nc\n```\nx\n```\nd\n- l\ne\n"
+ },
+ {
+  "id": "edge/paragraph-html-interrupt",
+  "text": "a\n<div>\nb\n</div>\n"
+ },
+ {
+  "id": "edge/multi-blank",
+  "text": "a\n\n\n\nb\n\n   \n\nc\n"
+ },
+ {
+  "id": "edge/trailing-spaces",
+  "text": "a   \n  \n b\n"
+ },
+ {
+  "id": "edge/crlf",
+  "text": "a\r\nb\r\n\r\nc\r- d\r\n"
+ },
+ {
+  "id": "edge/tab-indent",
+  "text": "\tcode\n\n- a\n\n\tb\n"
+ },
+ {
+  "id": "edge/nbsp",
+  "text": "a b *c* d\n"
+ },
+ {
+  "id": "edge/mixed-everything",
+  "text": "# T\n\nintro *x* with `c` and [l](u).\n\n- a\n  1. b\n  2. c\n- d\n\n> q\n> - r\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n```js\nx\n```\n\n---\n\nend\n"
+ },
+ {
+  "id": "edge/empty",
+  "text": ""
+ },
+ {
+  "id": "edge/only-newline",
+  "text": "\n"
+ },
+ {
+  "id": "edge/only-spaces",
+  "text": "   "
+ },
+ {
+  "id": "edge/long-line",
+  "text": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word \n"
+ }
+]
