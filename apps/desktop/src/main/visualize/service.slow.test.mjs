@@ -21,7 +21,7 @@ import test from 'node:test';
 import { filePreviewServable, registerFilePreview, resolveFilePreview } from '../file-preview.ts';
 import { panePreviewUrl } from './host-pane-preview.ts';
 import { createCoreLocalPages, setCoreLocalPages } from '../core-local-pages.ts';
-import { localPageUrl, localVirtualPageUrl, pageAssetType } from '../local-page-server.ts';
+import { localPageUrl, pageAssetType } from './test-fixtures/page-server-stand-in.ts';
 import { VisualizeBridgeServer } from './bridge-server.ts';
 import { createDesktopVisualize, REMOTE_ONLY_ANNOTATE } from './host.ts';
 import { createVisualizeService } from './service.ts';
@@ -42,19 +42,15 @@ import {
 import { visualizeOverlayScript } from './overlay-script.ts';
 import { remoteLabelOf } from './tab-state.ts';
 
-// The core page server stands behind coreLocalPages(); here the in-process page server answers the same call.
+// The core page server stands behind coreLocalPages(); here the visualize tests' stand-in answers the same calls.
 setCoreLocalPages(
   createCoreLocalPages(async (name, args) => {
     if (name === 'localPageUrlIn') {
-      const [root, rel, , ownerId] = args;
-      return localPageUrl(root, rel, { scope: 'project', owner: { ownerId }, authorize: async () => {} });
+      const [root, rel] = args;
+      return localPageUrl(root, rel);
     }
     if (name === 'localPageAssetType') return pageAssetType(...args);
-    if (name === 'localPageVirtualIn') {
-      const [list, ownerId] = args;
-      const files = Object.fromEntries(list.map((file) => [file.path, { body: Buffer.from(file.dataBase64, 'base64'), type: file.type }]));
-      return localVirtualPageUrl(files, { owner: { ownerId }, authorize: async () => {} });
-    }
+    if (name === 'localPageVirtualIn') return localPageUrl('', 'index.html');
     throw new Error(`unexpected core call ${name}`);
   })
 );

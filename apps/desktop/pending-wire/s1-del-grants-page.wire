@@ -1,0 +1,12 @@
+# s1-del-grants-page desktop wiring (apply with the wave)
+
+1. apps/desktop/src/main/index.ts, symbol `files: () => ({ ... })` (createHost options, about line 1075): delete the `localPageUrl: (root, rel) => { ... }`
+   property and its comment line. host/files.ts FilesControl no longer has it (`host/localPage/url` is no longer served by the window process: the core
+   leases pages from its own page server). Then remove `coreLocalPages`/`windowIdFor` from that spot only if nothing else in index.ts uses them there.
+2. apps/desktop/src/main/host/connection.ts, comment above `HOST_CAPABILITIES.visualize` (line ~66): the text names `host/localPage/url` (files.ts); change to
+   "`host/visualize/command` (visualize.ts), `host/capture/fileSnapshot` and `host/files/trashItem` (files.ts), `host/update/command` (lifecycle.ts)."
+3. packages/protocol/src/index.ts: `HostLocalPageUrlParams` (and the scope type it uses) has no consumer once the Rust row below is removed; delete it.
+4. apps/desktop/src/main/project-files.ts (owned by s1-del-files, same wave) imports `comparablePath` from './opened-file-authorization', which this task deletes:
+   s1-del-files deletes project-files.ts; if it is kept for any reason import `comparablePath` from './project-entry-path' instead.
+   apps/desktop/src/main/chat-file-ipc.test.mjs imports project-files, so it follows that decision (this task already made it independent of the deleted grant
+   store and page server: it carries a small grant stand-in and no longer fetches a served page).

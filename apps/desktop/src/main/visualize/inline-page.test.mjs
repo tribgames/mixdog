@@ -1,26 +1,8 @@
 import assert from 'node:assert/strict';
-import { request } from 'node:http';
 import test from 'node:test';
 
 import { chartPageDocument, INLINE_CHART_RENDERED, withHtmlThemePrelude } from '../../shared/visualize-inline-page.ts';
-import { localVirtualPageUrl, revokeLocalPagesFor } from '../local-page-server.ts';
-import { withSandboxStorageShim } from '../../shared/sandbox-storage-shim.ts';
 import { inlinePageFiles } from './inline-page.ts';
-
-function get(url) {
-  const { hostname, port, pathname } = new URL(url);
-  return new Promise((resolve, reject) => {
-    request({ hostname, port, path: pathname }, (response) => {
-      const chunks = [];
-      response.on('data', (chunk) => chunks.push(chunk));
-      response.on('end', () =>
-        resolve({ status: response.statusCode, headers: response.headers, body: Buffer.concat(chunks).toString() })
-      );
-    })
-      .on('error', reject)
-      .end();
-  });
-}
 
 test('a chart page carries its option as data and the bundled library by file', async () => {
   const files = await inlinePageFiles(
@@ -134,40 +116,4 @@ test('the remote form inlines the library, and is gated like any page that runs 
   const page = chartPageDocument('{}', { inline: 'var echarts={};</script><i>' });
   assert.equal(page.includes('</script><i>'), false);
   assert.match(page, /<script\b/i);
-});
-
-test('a virtual page lease serves exactly its files in an opaque origin and dies with its owner', async () => {
-  const owner = {};
-  const url = await localVirtualPageUrl(
-    {
-      'index.html': { type: 'text/html; charset=utf-8', body: Buffer.from('<p>mem</p>') },
-      'echarts.js': { type: 'text/javascript; charset=utf-8', body: Buffer.from('var a=1') },
-    },
-    { owner, authorize: async () => {} }
-  );
-  const page = await get(url);
-  assert.equal(page.status, 200);
-  // The opaque-origin page document carries the storage shim; assets do not.
-  assert.equal(page.body, withSandboxStorageShim('<p>mem</p>'));
-  assert.equal(page.headers['content-security-policy'], 'sandbox allow-scripts');
-  assert.equal(page.headers['content-type'], 'text/html; charset=utf-8');
-  const script = await get(url.replace('index.html', 'echarts.js'));
-  assert.equal(script.body, 'var a=1');
-  assert.equal((await get(url.replace('index.html', 'secret.txt'))).status, 404);
-  assert.equal((await get(url.replace('index.html', '..%2Findex.html'))).status, 404);
-  // Another lease's token is another page.
-  const other = await localVirtualPageUrl(
-    { 'index.html': { type: 'text/html', body: Buffer.from('other') } },
-    { authorize: async () => {} }
-  );
-  assert.equal((await get(other)).body, withSandboxStorageShim('other'));
-  assert.notEqual(new URL(other).pathname.split('/')[1], new URL(url).pathname.split('/')[1]);
-
-  revokeLocalPagesFor(owner);
-  assert.equal((await get(url)).status, 404);
-  assert.equal((await get(other)).status, 200);
-  await assert.rejects(
-    localVirtualPageUrl({ 'a.html': { type: 'text/html', body: Buffer.alloc(0) } }, { authorize: async () => {} }),
-    /index\.html/
-  );
 });

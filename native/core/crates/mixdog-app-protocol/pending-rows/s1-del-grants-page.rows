@@ -1,0 +1,7 @@
+# s1-del-grants-page: the desktop no longer answers `host/localPage/url` (the core page server leases pages itself).
+[remove]
+server_requests: HostLocalPageUrl => "host/localPage/url"  (params HostLocalPageUrlParams in v2/host.rs; schema/server_request*.json, method_table.json, free_text_fields.json rows of it)
+inventory_rule.rs (mixdog-app-server/src/tests/inventory_rule.rs): drop the `| "host/localPage/url"` arm beside "host/capture/fileSnapshot" => HostCapability::Files.
+# Not a hot file but needs the same wave: mixdog-workspace/src/service.rs `projectFs/localPageUrl` falls back to host method "host/localPage/url" when page_server is
+# unset; delete that fallback arm of `host_method` (answer Unsupported "The local page server is not available." as page_server() does), and the doc line at
+# methods.rs ProjectFsLocalPageUrl ("URL of the desktop host's local page server (`host/localPage/url`)") -> "URL of a page leased by the core page server".

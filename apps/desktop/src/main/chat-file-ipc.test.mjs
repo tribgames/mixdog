@@ -1,23 +1,47 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, realpath, rm, stat, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { DESKTOP_IPC } from '../shared/contract';
 import { ipcErrorFromEnvelope } from '../shared/coded-error';
 import { registerDesktopIpc } from './ipc';
 import * as projectFiles from './project-files';
-import { createCoreLocalPages, setCoreLocalPages } from './core-local-pages';
-import { localPageUrl } from './local-page-server';
-import { SelectedFileAccess } from './selected-file-access';
+import { LocalAccessDeniedError } from './local-access-denied';
+import { SELECTED_FILE_GRANT_UNAVAILABLE } from '../shared/file-error-codes';
 
-// The core stands behind these two clients; here the in-process twins answer the same calls.
-setCoreLocalPages(
-  createCoreLocalPages(async (name, [root, rel, , ownerId]) => {
-    if (name === 'localPageUrlIn') return localPageUrl(root, rel, { scope: 'project', owner: { ownerId }, authorize: async () => {} });
-    throw new Error(`unexpected core call ${name}`);
-  })
-);
+// The core's grant store (grantDescribe / grantRedeem) is answered here by a minimal stand-in: a file outside every
+// Project described with grant gets a token; a chat link (grant false) gets none.
+function fakeGrants() {
+  const granted = new Map();
+  return {
+    async describe(paths, grant) {
+      const rows = [];
+      for (const path of paths) {
+        const absolutePath = resolve(path);
+        const info = await stat(absolutePath);
+        const row = { absolutePath, name: basename(absolutePath), dir: info.isDirectory(), size: Number(info.size) || 0 };
+        if (!row.dir) {
+          row.projectPath = dirname(absolutePath);
+          row.relPath = basename(absolutePath);
+          if (grant) {
+            row.accessToken = randomUUID();
+            granted.set(row.accessToken, absolutePath);
+          }
+        }
+        rows.push(row);
+      }
+      return rows;
+    },
+    async requireGrant(token, projectPath, relPath) {
+      const file = granted.get(token);
+      if (!file) throw new LocalAccessDeniedError('The selected-file permission is unavailable.', SELECTED_FILE_GRANT_UNAVAILABLE);
+      if (resolve(projectPath, relPath) !== file) throw new LocalAccessDeniedError('The selected-file permission does not match this path.');
+      return { root: dirname(file), rel: basename(file), absolute: file };
+    },
+  };
+}
 
 async function fixture(t) {
   const directory = await mkdtemp(join(tmpdir(), 'mixdog-file-links-'));
@@ -30,8 +54,7 @@ async function fixture(t) {
   const opened = [];
   const revealed = [];
   const trashed = [];
-  // The core's grant store (grantDescribe / grantRedeem), answered by the in-process twin.
-  const grants = new SelectedFileAccess({ storePath: '', listProjects: async () => [] });
+  const grants = fakeGrants();
   const remove = registerDesktopIpc(
     { webContents, isDestroyed: () => false },
     {
@@ -205,21 +228,6 @@ test('a folder outside every Project is a Project-like root for every tree opera
     async () => invoke(DESKTOP_IPC.listProjectDir, join(f.directory, 'missing'), ''),
     /not available/
   );
-});
-
-test('an outside HTML page loads its relative assets like a Project page', async (t) => {
-  const f = await fixture(t);
-  const folder = join(f.directory, 'site');
-  await mkdir(folder);
-  await writeFile(join(folder, 'index.html'), '<link rel="stylesheet" href="app.css">');
-  await writeFile(join(folder, 'app.css'), 'p{}');
-  const invoke = (channel, ...args) => f.handlers.get(channel)(f.event, ...args);
-  const [entry] = await invoke(DESKTOP_IPC.resolveLocalPaths, [join(folder, 'index.html')], 's1', { chatLink: true });
-  assert.equal(entry.accessToken, undefined);
-  const url = await invoke(DESKTOP_IPC.localPageUrl, entry.projectPath, entry.relPath);
-  const status = (name) => fetch(new URL(name, url)).then((response) => response.status);
-  assert.equal(await status('index.html'), 200);
-  assert.equal(await status('app.css'), 200);
 });
 
 test('chat links to any number of outside files take no grant and nothing is persisted', async (t) => {
