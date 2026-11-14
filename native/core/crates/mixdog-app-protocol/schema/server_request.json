@@ -68,6 +68,322 @@
       ],
       "type": "object"
     },
+    "BrowserClipRect": {
+      "properties": {
+        "height": {
+          "format": "double",
+          "type": "number"
+        },
+        "width": {
+          "format": "double",
+          "type": "number"
+        },
+        "x": {
+          "format": "double",
+          "type": "number"
+        },
+        "y": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "height",
+        "width",
+        "x",
+        "y"
+      ],
+      "type": "object"
+    },
+    "BrowserClipRef": {
+      "properties": {
+        "ref": {
+          "type": "string"
+        },
+        "snapshotId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "ref",
+        "snapshotId"
+      ],
+      "type": "object"
+    },
+    "BrowserCookiesOp": {
+      "enum": [
+        "get",
+        "set",
+        "delete",
+        "clear"
+      ],
+      "type": "string"
+    },
+    "BrowserDownloadsOp": {
+      "enum": [
+        "list",
+        "take"
+      ],
+      "type": "string"
+    },
+    "BrowserEvalWorld": {
+      "enum": [
+        "main",
+        "utility"
+      ],
+      "type": "string"
+    },
+    "BrowserHitGuard": {
+      "properties": {
+        "ref": {
+          "type": "string"
+        },
+        "snapshotId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "ref",
+        "snapshotId"
+      ],
+      "type": "object"
+    },
+    "BrowserImageFormat": {
+      "enum": [
+        "png",
+        "jpeg"
+      ],
+      "type": "string"
+    },
+    "BrowserInterceptOp": {
+      "enum": [
+        "add",
+        "remove",
+        "list",
+        "clear"
+      ],
+      "type": "string"
+    },
+    "BrowserLeaseSpec": {
+      "properties": {
+        "commandId": {
+          "type": "string"
+        },
+        "ttlMs": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "commandId",
+        "ttlMs"
+      ],
+      "type": "object"
+    },
+    "BrowserListOp": {
+      "enum": [
+        "add",
+        "remove",
+        "list"
+      ],
+      "type": "string"
+    },
+    "BrowserMailLink": {
+      "properties": {
+        "expiresAt": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "expiresAt",
+        "url"
+      ],
+      "type": "object"
+    },
+    "BrowserNavigateKind": {
+      "enum": [
+        "url",
+        "reload",
+        "back",
+        "forward"
+      ],
+      "type": "string"
+    },
+    "BrowserOpenSpec": {
+      "properties": {
+        "reveal": {
+          "type": "boolean"
+        },
+        "url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "reveal"
+      ],
+      "type": "object"
+    },
+    "BrowserPageCloseReason": {
+      "enum": [
+        "agent",
+        "turnEnd",
+        "idle"
+      ],
+      "type": "string"
+    },
+    "BrowserPageReadKind": {
+      "enum": [
+        "text",
+        "documents",
+        "frames"
+      ],
+      "type": "string"
+    },
+    "BrowserPageReadOptions": {
+      "properties": {
+        "frame": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/FrameRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "includeHidden": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "maxChars": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "selector": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "BrowserPerformanceOp": {
+      "enum": [
+        "start",
+        "stop",
+        "metrics"
+      ],
+      "type": "string"
+    },
+    "BrowserPointerButton": {
+      "enum": [
+        "left",
+        "right",
+        "middle"
+      ],
+      "type": "string"
+    },
+    "BrowserPointerKind": {
+      "enum": [
+        "move",
+        "click",
+        "dblclick",
+        "hover",
+        "down",
+        "up",
+        "wheel",
+        "tap",
+        "dragTo"
+      ],
+      "type": "string"
+    },
+    "BrowserScreenshotClip": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/BrowserClipRef"
+        },
+        {
+          "$ref": "#/definitions/BrowserClipRect"
+        }
+      ],
+      "description": "The region a screenshot is cut to: an element a snapshot ref names, or a rectangle in CSS pixels."
+    },
+    "BrowserSnapshotMode": {
+      "enum": [
+        "full",
+        "interactive",
+        "query",
+        "viewport"
+      ],
+      "type": "string"
+    },
+    "BrowserStorageArea": {
+      "enum": [
+        "local",
+        "session"
+      ],
+      "type": "string"
+    },
+    "BrowserStorageOp": {
+      "enum": [
+        "get",
+        "set",
+        "remove",
+        "clear"
+      ],
+      "type": "string"
+    },
+    "BrowserSurfaceOp": {
+      "enum": [
+        "reveal",
+        "hide",
+        "handoff"
+      ],
+      "type": "string"
+    },
+    "BrowserTabSelector": {
+      "properties": {
+        "index": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "pageId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "BrowserUploadRoute": {
+      "enum": [
+        "fileInput",
+        "chooser",
+        "drop",
+        "pickerClick"
+      ],
+      "type": "string"
+    },
     "ComputerApprovalRequestParams": {
       "description": "Fields every approval request carries.",
       "properties": {
@@ -130,6 +446,360 @@
       ],
       "type": "object"
     },
+    "EmulationSpec": {
+      "description": "The overrides of the `emulate` command (`browser/emulation-validation.ts`); the host merges them with the pane viewport.",
+      "properties": {
+        "accuracy": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "colorScheme": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "cpuThrottlingRate": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "deviceScaleFactor": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "height": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "latitude": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "locale": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "longitude": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "mobile": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "networkProfile": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "orientation": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reducedMotion": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "timezone": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "touch": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "userAgent": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "width": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "FrameRef": {
+      "description": "A frame of a page: a child session and/or a frame id; absent means the main frame.",
+      "properties": {
+        "frameId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sessionId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "HostBrowserCdpSendParams": {
+      "description": "`host/browser/cdp/send`: refused with -32015 for the methods in `BROWSER_ENGINE_CDP_REFUSED`.",
+      "properties": {
+        "expect": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Precondition"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "method": {
+          "type": "string"
+        },
+        "pageId": {
+          "type": "string"
+        },
+        "params": true,
+        "sessionId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timeoutMs": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "method",
+        "pageId"
+      ],
+      "type": "object"
+    },
+    "HostBrowserCookiesParams": {
+      "description": "`host/browser/cookies`.",
+      "properties": {
+        "cookie": true,
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "op": {
+          "$ref": "#/definitions/BrowserCookiesOp"
+        },
+        "pageId": {
+          "type": "string"
+        },
+        "urls": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "op",
+        "pageId"
+      ],
+      "type": "object"
+    },
+    "HostBrowserDownloadsParams": {
+      "description": "`host/browser/downloads`.",
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "op": {
+          "$ref": "#/definitions/BrowserDownloadsOp"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "since": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "op",
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "HostBrowserEmulationParams": {
+      "description": "`host/browser/emulation`: `overrides: null` clears them.",
+      "properties": {
+        "overrides": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/EmulationSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "pageId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "pageId"
+      ],
+      "type": "object"
+    },
+    "HostBrowserInitScriptsParams": {
+      "description": "`host/browser/initScripts`.",
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "op": {
+          "$ref": "#/definitions/BrowserListOp"
+        },
+        "pageId": {
+          "type": "string"
+        },
+        "source": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "op",
+        "pageId"
+      ],
+      "type": "object"
+    },
+    "HostBrowserInputBatchParams": {
+      "description": "`host/browser/input/batch`: the steps run in order; the batch stops at a dialog.",
+      "properties": {
+        "expect": {
+          "$ref": "#/definitions/Precondition"
+        },
+        "pageId": {
+          "type": "string"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/definitions/InputStep"
+          },
+          "type": "array"
+        },
+        "stopOnDialog": {
+          "type": "boolean"
+        },
+        "timeoutMs": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "expect",
+        "pageId",
+        "steps",
+        "stopOnDialog",
+        "timeoutMs"
+      ],
+      "type": "object"
+    },
+    "HostBrowserInterceptParams": {
+      "description": "`host/browser/intercept`.",
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "op": {
+          "$ref": "#/definitions/BrowserInterceptOp"
+        },
+        "pageId": {
+          "type": "string"
+        },
+        "rule": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/InterceptRule"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "op",
+        "pageId"
+      ],
+      "type": "object"
+    },
     "HostBrowserLiveControlParams": {
       "description": "Params of `host/browser/liveControl` (core → host): a live-view control that is not page input. The page input itself goes as `host/browser/command{action:\"input\"}`. The result is null; a failure is a JSON-RPC error.",
       "properties": {
@@ -145,6 +815,583 @@
         "kind",
         "request",
         "sessionId"
+      ],
+      "type": "object"
+    },
+    "HostBrowserPageDialogAnswerParams": {
+      "description": "`host/browser/page/dialog/answer`.",
+      "properties": {
+        "accept": {
+          "type": "boolean"
+        },
+        "expect": {
+          "$ref": "#/definitions/Precondition"
+        },
+        "pageId": {
+          "type": "string"
+        },
+        "promptText": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "accept",
+        "expect",
+        "pageId"
+      ],
+      "type": "object"
+    },
+    "HostBrowserPageDomQuietParams": {
+      "description": "`host/browser/page/domQuiet`.",
+      "properties": {
+        "pageId": {
+          "type": "string"
+        },
+        "quietMs": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "timeoutMs": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "pageId",
+        "quietMs",
+        "timeoutMs"
+      ],
+      "type": "object"
+    },
+    "HostBrowserPageEvalParams": {
+      "description": "`host/browser/page/eval`.",
+      "properties": {
+        "awaitPromise": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "expect": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Precondition"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "expression": {
+          "type": "string"
+        },
+        "frame": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/FrameRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pageId": {
+          "type": "string"
+        },
+        "returnByValue": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "timeoutMs": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "world": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/BrowserEvalWorld"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "expression",
+        "pageId",
+        "timeoutMs"
+      ],
+      "type": "object"
+    },
+    "HostBrowserPageNavigateParams": {
+      "description": "`host/browser/page/navigate`.",
+      "properties": {
+        "expect": {
+          "$ref": "#/definitions/Precondition"
+        },
+        "kind": {
+          "$ref": "#/definitions/BrowserNavigateKind"
+        },
+        "mailLink": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/BrowserMailLink"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pageId": {
+          "type": "string"
+        },
+        "url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "expect",
+        "kind",
+        "pageId"
+      ],
+      "type": "object"
+    },
+    "HostBrowserPageReadParams": {
+      "description": "`host/browser/page/read`.",
+      "properties": {
+        "kind": {
+          "$ref": "#/definitions/BrowserPageReadKind"
+        },
+        "options": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/BrowserPageReadOptions"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pageId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "pageId"
+      ],
+      "type": "object"
+    },
+    "HostBrowserPageRenderCheckpointParams": {
+      "description": "`host/browser/page/renderCheckpoint`.",
+      "properties": {
+        "pageId": {
+          "type": "string"
+        },
+        "timeoutMs": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "pageId",
+        "timeoutMs"
+      ],
+      "type": "object"
+    },
+    "HostBrowserPageStopParams": {
+      "description": "`host/browser/page/stop`.",
+      "properties": {
+        "pageId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "pageId"
+      ],
+      "type": "object"
+    },
+    "HostBrowserPageSyncParams": {
+      "description": "`host/browser/page/sync`: resync after a seq gap.",
+      "properties": {
+        "pageId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "pageId"
+      ],
+      "type": "object"
+    },
+    "HostBrowserPagesCloseParams": {
+      "description": "`host/browser/pages/close`.",
+      "properties": {
+        "pageId": {
+          "type": "string"
+        },
+        "reason": {
+          "$ref": "#/definitions/BrowserPageCloseReason"
+        }
+      },
+      "required": [
+        "pageId",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "HostBrowserPagesListParams": {
+      "description": "`host/browser/pages/list`.",
+      "properties": {
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "HostBrowserPagesResolveParams": {
+      "description": "`host/browser/pages/resolve` (core to host): the page a session's command works on, opened or adopted when needed.",
+      "properties": {
+        "adopt": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "background": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "lease": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/BrowserLeaseSpec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "open": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/BrowserOpenSpec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "tab": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/BrowserTabSelector"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "HostBrowserPagesSurfaceParams": {
+      "description": "`host/browser/pages/surface`: show, hide or hand off the pane (the host also sends `host/browser/surface`).",
+      "properties": {
+        "op": {
+          "$ref": "#/definitions/BrowserSurfaceOp"
+        },
+        "pageId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "HostBrowserPerformanceParams": {
+      "description": "`host/browser/performance`.",
+      "properties": {
+        "categories": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "exportPath": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "op": {
+          "$ref": "#/definitions/BrowserPerformanceOp"
+        },
+        "pageId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "pageId"
+      ],
+      "type": "object"
+    },
+    "HostBrowserRefCallParams": {
+      "description": "`host/browser/ref/call`: a function called on the element a snapshot ref names.",
+      "properties": {
+        "args": {
+          "items": true,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "expect": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Precondition"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "functionDeclaration": {
+          "type": "string"
+        },
+        "pageId": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        },
+        "returnByValue": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "snapshotId": {
+          "type": "string"
+        },
+        "timeoutMs": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "functionDeclaration",
+        "pageId",
+        "ref",
+        "snapshotId"
+      ],
+      "type": "object"
+    },
+    "HostBrowserScreenshotParams": {
+      "description": "`host/browser/screenshot`.",
+      "properties": {
+        "background": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "clip": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/BrowserScreenshotClip"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "format": {
+          "$ref": "#/definitions/BrowserImageFormat"
+        },
+        "fullPage": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "pageId": {
+          "type": "string"
+        },
+        "quality": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "format",
+        "pageId"
+      ],
+      "type": "object"
+    },
+    "HostBrowserSnapshotParams": {
+      "description": "`host/browser/snapshot`.",
+      "properties": {
+        "frame": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/FrameRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "maxElements": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "mode": {
+          "$ref": "#/definitions/BrowserSnapshotMode"
+        },
+        "pageId": {
+          "type": "string"
+        },
+        "query": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "textChars": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "mode",
+        "pageId"
+      ],
+      "type": "object"
+    },
+    "HostBrowserStorageParams": {
+      "description": "`host/browser/storage`.",
+      "properties": {
+        "area": {
+          "$ref": "#/definitions/BrowserStorageArea"
+        },
+        "key": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "op": {
+          "$ref": "#/definitions/BrowserStorageOp"
+        },
+        "pageId": {
+          "type": "string"
+        },
+        "value": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "area",
+        "op",
+        "pageId"
+      ],
+      "type": "object"
+    },
+    "HostBrowserUploadParams": {
+      "description": "`host/browser/upload`.",
+      "properties": {
+        "expect": {
+          "$ref": "#/definitions/Precondition"
+        },
+        "files": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "pageId": {
+          "type": "string"
+        },
+        "receiverKey": {
+          "type": "string"
+        },
+        "ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "route": {
+          "$ref": "#/definitions/BrowserUploadRoute"
+        },
+        "snapshotId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "expect",
+        "files",
+        "pageId",
+        "receiverKey",
+        "route"
       ],
       "type": "object"
     },
@@ -180,6 +1427,89 @@
     "HostComputerDisplaysParams": {
       "additionalProperties": false,
       "description": "Params of `host/computer/displays` (core → host): none.",
+      "type": "object"
+    },
+    "HostComputerForegroundLeaseParams": {
+      "description": "Params of `host/computer/foregroundLease` (core → host): one foreground-lock request of a Computer Use helper. Windows lets only a process that may set the foreground take the lock, which while the user works in a Mixdog window is the desktop, so the core relays the request there (`foreground-lock-host.ts` `handle`). A number the op does not use is 0.",
+      "properties": {
+        "action": {
+          "description": "The helper's request in flight that asks, 1..2^31-1.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "answerBy": {
+          "description": "`acquire`: when the helper stops waiting for the answer, in ms on QueryPerformanceCounter.",
+          "format": "double",
+          "type": "number"
+        },
+        "holdMs": {
+          "description": "`acquire`: the longest the lock may be held, 1..1000 ms.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "instance": {
+          "description": "The helper that asks: the core's id for it, never reused (`LeaseWorker.instance`).",
+          "type": "string"
+        },
+        "lease": {
+          "description": "`release`: the lease it ends; 0 when the helper was told none.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "op": {
+          "$ref": "#/definitions/HostComputerLeaseOp"
+        },
+        "seq": {
+          "description": "The ask's number within that request, 1..2^31-1.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "action",
+        "answerBy",
+        "holdMs",
+        "instance",
+        "lease",
+        "op",
+        "seq"
+      ],
+      "type": "object"
+    },
+    "HostComputerInternalWindowsParams": {
+      "additionalProperties": false,
+      "description": "Params of `host/computer/internalWindows` (core → host): none.",
+      "type": "object"
+    },
+    "HostComputerLeaseOp": {
+      "description": "What a `host/computer/foregroundLease` request does (`foreground-lock-host.ts` `LeaseThreadRequest`): `acquire` and `release` relay a helper's `@@MIXDOG_FGLOCK@@` line; `gone` says the helper exited, so a lease it holds ends now (`workerGone`).",
+      "enum": [
+        "acquire",
+        "release",
+        "gone"
+      ],
+      "type": "string"
+    },
+    "HostComputerPointerFeedbackParams": {
+      "description": "Params of `host/computer/pointerFeedback` (core → host): a helper's pointer progress, which the overlay draws as the agent's arrow. Each event is a `@@MIXDOG_POINTER@@` line the core checked against the request it belongs to (`worker-pool.ts` `reportPointerProgress`). The host answers `null`.",
+      "properties": {
+        "events": {
+          "description": "In the helper's order, each with what `publishPointerProgress` takes: `x`, `y`, `held`, `phase`, `mode` and `windowId`.",
+          "items": true,
+          "type": "array"
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "events",
+        "sessionId"
+      ],
       "type": "object"
     },
     "HostFileSnapshotParams": {
@@ -298,6 +1628,272 @@
       ],
       "type": "object"
     },
+    "HostWindowCloseParams": {
+      "description": "`host/window/close`.",
+      "properties": {
+        "connectionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "connectionId"
+      ],
+      "type": "object"
+    },
+    "HostWindowFocusParams": {
+      "description": "`host/window/focus`; `connectionId` `local` is the main window.",
+      "properties": {
+        "connectionId": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "connectionId"
+      ],
+      "type": "object"
+    },
+    "HostWindowKind": {
+      "enum": [
+        "ssh"
+      ],
+      "type": "string"
+    },
+    "HostWindowOpenParams": {
+      "description": "`host/window/open`: opens (or focuses) the window of a server.",
+      "properties": {
+        "connectionId": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/definitions/HostWindowKind"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "connectionId",
+        "kind",
+        "name"
+      ],
+      "type": "object"
+    },
+    "InputStep": {
+      "description": "One step of `host/browser/input/batch`, by `op`.",
+      "oneOf": [
+        {
+          "properties": {
+            "delayMs": {
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "op": {
+              "enum": [
+                "type"
+              ],
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "text"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "op": {
+              "enum": [
+                "insertText"
+              ],
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "text"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "key": {
+              "type": "string"
+            },
+            "modifiers": {
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            },
+            "op": {
+              "enum": [
+                "press"
+              ],
+              "type": "string"
+            },
+            "repeat": {
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "key",
+            "op"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "button": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/BrowserPointerButton"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "deltaX": {
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "deltaY": {
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "hitGuard": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/BrowserHitGuard"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "kind": {
+              "$ref": "#/definitions/BrowserPointerKind"
+            },
+            "modifiers": {
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            },
+            "op": {
+              "enum": [
+                "pointer"
+              ],
+              "type": "string"
+            },
+            "toX": {
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "toY": {
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "x": {
+              "format": "double",
+              "type": "number"
+            },
+            "y": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "kind",
+            "op",
+            "x",
+            "y"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "InterceptRule": {
+      "description": "One intercept rule (`browser/intercept.ts` `BrowserInterceptRule`); `id` and `hits` are the host's, absent on an `add`.",
+      "properties": {
+        "abort": {
+          "default": false,
+          "type": "boolean"
+        },
+        "body": {
+          "default": "",
+          "type": "string"
+        },
+        "hits": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "pattern": {
+          "type": "string"
+        },
+        "resourceTypes": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "pattern"
+      ],
+      "type": "object"
+    },
     "LiveControlKind": {
       "description": "What `host/browser/liveControl` carries to the viewed page.",
       "oneOf": [
@@ -402,6 +1998,51 @@
         "requestedAt",
         "scopes",
         "threadId"
+      ],
+      "type": "object"
+    },
+    "Precondition": {
+      "description": "The page state a mutating call was decided against; the host checks it synchronously right before the CDP send and refuses with -32010 when it no longer holds.",
+      "properties": {
+        "childSessions": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "documentId": {
+          "type": "string"
+        },
+        "origin": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "receiverKey": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "snapshotId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "documentId"
       ],
       "type": "object"
     },
@@ -1667,6 +3308,581 @@
       "type": "object"
     },
     {
+      "description": "The page a session's command works on, opened or adopted when needed.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "host/browser/pages/resolve"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostBrowserPagesResolveParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "The pages of a session.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "host/browser/pages/list"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostBrowserPagesListParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Close a page.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "host/browser/pages/close"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostBrowserPagesCloseParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Show, hide or hand off the pane of a session.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "host/browser/pages/surface"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostBrowserPagesSurfaceParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Navigate a page (url, reload, back, forward).",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "host/browser/page/navigate"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostBrowserPageNavigateParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Stop a page's loading.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "host/browser/page/stop"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostBrowserPageStopParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Evaluate an expression in a page or frame.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "host/browser/page/eval"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostBrowserPageEvalParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Read a page's text, documents or frames.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "host/browser/page/read"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostBrowserPageReadParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Wait for a page's next render.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "host/browser/page/renderCheckpoint"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostBrowserPageRenderCheckpointParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Wait until a page's DOM stopped changing.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "host/browser/page/domQuiet"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostBrowserPageDomQuietParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Answer the dialog a page is blocked on.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "host/browser/page/dialog/answer"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostBrowserPageDialogAnswerParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Resync a page's facts and console floor after a seq gap.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "host/browser/page/sync"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostBrowserPageSyncParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "The accessibility snapshot of a page.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "host/browser/snapshot"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostBrowserSnapshotParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Call a function on the element a snapshot ref names.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "host/browser/ref/call"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostBrowserRefCallParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Dispatch a batch of keyboard and pointer steps.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "host/browser/input/batch"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostBrowserInputBatchParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Capture a page.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "host/browser/screenshot"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostBrowserScreenshotParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Send an allowlisted CDP command through the host's fenced executor.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "host/browser/cdp/send"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostBrowserCdpSendParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Read or change a page's cookies.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "host/browser/cookies"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostBrowserCookiesParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Read or change a page's local or session storage.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "host/browser/storage"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostBrowserStorageParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Add, remove or list scripts run on every new document.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "host/browser/initScripts"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostBrowserInitScriptsParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Add, remove or list request intercept rules.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "host/browser/intercept"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostBrowserInterceptParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Start or stop a performance trace, or read metrics.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "host/browser/performance"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostBrowserPerformanceParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Set or clear a page's emulation overrides (the host owns the Emulation domain).",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "host/browser/emulation"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostBrowserEmulationParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "List or take a session's downloads.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "host/browser/downloads"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostBrowserDownloadsParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Put files into a file input, chooser, drop target or picker.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "host/browser/upload"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostBrowserUploadParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
       "description": "The displays of this PC's screen, for the phone's remote-screen picker.",
       "properties": {
         "id": {
@@ -1726,6 +3942,75 @@
         },
         "params": {
           "$ref": "#/definitions/HostComputerDisplaysParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A Computer Use helper's foreground-lock request, relayed to the desktop that owns the lease.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "host/computer/foregroundLease"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostComputerForegroundLeaseParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "The desktop's own Computer Use windows, which the core leaves out of every window list.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "host/computer/internalWindows"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostComputerInternalWindowsParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A Computer Use helper's pointer progress, for the overlay's arrow.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "host/computer/pointerFeedback"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostComputerPointerFeedbackParams"
         }
       },
       "required": [
@@ -1882,6 +4167,75 @@
         },
         "params": {
           "$ref": "#/definitions/HostFilesTrashItemParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Opens (or focuses) the window of a server (`showConnectionWindow`); `opened` is false when the window could not be made.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "host/window/open"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostWindowOpenParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Closes the window of a server.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "host/window/close"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostWindowCloseParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Shows and focuses a window, and with `sessionId` the session in it; `local` is the main window.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "host/window/focus"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostWindowFocusParams"
         }
       },
       "required": [

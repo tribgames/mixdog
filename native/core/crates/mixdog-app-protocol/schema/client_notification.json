@@ -1,6 +1,151 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "definitions": {
+    "BrowserChildSession": {
+      "properties": {
+        "frameId": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "frameId",
+        "sessionId",
+        "url"
+      ],
+      "type": "object"
+    },
+    "BrowserDismissedDialog": {
+      "description": "The last dialog the host dismissed by itself.",
+      "properties": {
+        "at": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "message": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "at",
+        "message",
+        "type"
+      ],
+      "type": "object"
+    },
+    "BrowserEngineEvent": {
+      "description": "One CDP event of the allowlist (`BROWSER_ENGINE_EVENT_METHODS`), or a synthetic `Mixdog.*` one.",
+      "properties": {
+        "method": {
+          "type": "string"
+        },
+        "params": true,
+        "sessionId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "t": {
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "method",
+        "params",
+        "t"
+      ],
+      "type": "object"
+    },
+    "BrowserPageActor": {
+      "enum": [
+        "agent",
+        "person"
+      ],
+      "type": "string"
+    },
+    "BrowserPendingDialog": {
+      "description": "A JavaScript dialog the page is blocked on.",
+      "properties": {
+        "bridge": {
+          "description": "The dialog belongs to the bridge's own page, not the person's.",
+          "type": "boolean"
+        },
+        "defaultPrompt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "openedAt": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "sessionId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "bridge",
+        "message",
+        "openedAt",
+        "type"
+      ],
+      "type": "object"
+    },
+    "BrowserPendingFileChooser": {
+      "properties": {
+        "mode": {
+          "type": "string"
+        },
+        "openedAt": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "receiverKey": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "mode",
+        "openedAt",
+        "receiverKey"
+      ],
+      "type": "object"
+    },
+    "BrowserRefusedRequest": {
+      "properties": {
+        "reason": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason",
+        "url"
+      ],
+      "type": "object"
+    },
     "BrowserStreamAckParams": {
       "description": "`browser/streamAck` (phone → core notification, Node's `browserRemoteStreamAck([sessionId, seq])`): the phone painted the `browser/frame` of `seq`, so its next (newest) frame of the session may go out.",
       "properties": {
@@ -17,6 +162,16 @@
         "sessionId"
       ],
       "type": "object"
+    },
+    "BrowserUserInputReason": {
+      "enum": [
+        "pointer",
+        "key",
+        "dialog",
+        "takeover",
+        "filePicker"
+      ],
+      "type": "string"
     },
     "ClientActivityParams": {
       "description": "`client/activity`: sent on user input, at most once per 60 s (client-side rate).",
@@ -42,6 +197,31 @@
       ],
       "type": "object"
     },
+    "HostBrowserEventsParams": {
+      "description": "`host/browser/events` (host to core notification): ordered with the page's other notifications on the same writer; a batch stays under 200 KiB serialized.",
+      "properties": {
+        "events": {
+          "items": {
+            "$ref": "#/definitions/BrowserEngineEvent"
+          },
+          "type": "array"
+        },
+        "pageId": {
+          "type": "string"
+        },
+        "seq": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "events",
+        "pageId",
+        "seq"
+      ],
+      "type": "object"
+    },
     "HostBrowserFrameParams": {
       "description": "`host/browser/frame` (host → core notification, Node's `browserRemoteFrame` desktop operation): a frame of a viewed session (`DesktopRemoteBrowserStreamFrame`) without its picture bytes. When `frame.image` is present (`{mimeType: \"image/jpeg\"}`, no `data`), the picture is the next X17 frame of the session's stream on the same connection, and the core sends the frame once it has the picture; a frame without `image` carries facts only.",
       "properties": {
@@ -54,6 +234,28 @@
       "required": [
         "frame",
         "tabId"
+      ],
+      "type": "object"
+    },
+    "HostBrowserPageFactsParams": {
+      "description": "`host/browser/page/facts` (host to core notification).",
+      "properties": {
+        "facts": {
+          "$ref": "#/definitions/PageFacts"
+        },
+        "pageId": {
+          "type": "string"
+        },
+        "seq": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "facts",
+        "pageId",
+        "seq"
       ],
       "type": "object"
     },
@@ -127,8 +329,48 @@
       ],
       "type": "object"
     },
+    "HostBrowserUserInputParams": {
+      "description": "`host/browser/userInput` (host to core notification): the person holds the page, or lets go.",
+      "properties": {
+        "held": {
+          "type": "boolean"
+        },
+        "pageId": {
+          "type": "string"
+        },
+        "reason": {
+          "$ref": "#/definitions/BrowserUserInputReason"
+        },
+        "seq": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "until": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "held",
+        "pageId",
+        "reason",
+        "seq"
+      ],
+      "type": "object"
+    },
     "HostNotificationClickedParams": {
       "properties": {
+        "connectionId": {
+          "description": "The server connection the clicked notification was for.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "threadId": {
           "type": "string"
         }
@@ -156,6 +398,22 @@
       },
       "required": [
         "state"
+      ],
+      "type": "object"
+    },
+    "HostWindowClosedParams": {
+      "description": "`host/window/closed`, host to core: a window the core asked for is gone; `byUser` unless the app is quitting.",
+      "properties": {
+        "byUser": {
+          "type": "boolean"
+        },
+        "connectionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "byUser",
+        "connectionId"
       ],
       "type": "object"
     },
@@ -199,6 +457,142 @@
       },
       "required": [
         "runId"
+      ],
+      "type": "object"
+    },
+    "PageFacts": {
+      "description": "Everything the core needs to know about a page's state; `seq` rises with every change the host reports, so a gap is a lost event.",
+      "properties": {
+        "actor": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/BrowserPageActor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "alive": {
+          "type": "boolean"
+        },
+        "background": {
+          "type": "boolean"
+        },
+        "childSessions": {
+          "items": {
+            "$ref": "#/definitions/BrowserChildSession"
+          },
+          "type": "array"
+        },
+        "crashed": {
+          "type": "boolean"
+        },
+        "dismissedDialog": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/BrowserDismissedDialog"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "documentId": {
+          "type": "string"
+        },
+        "fault": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "loading": {
+          "type": "boolean"
+        },
+        "mainFrameLoading": {
+          "type": "boolean"
+        },
+        "openedPopups": {
+          "description": "The page ids of popups this page opened.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "pageId": {
+          "type": "string"
+        },
+        "pendingDialog": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/BrowserPendingDialog"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pendingFileChooser": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/BrowserPendingFileChooser"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "refusedRequests": {
+          "items": {
+            "$ref": "#/definitions/BrowserRefusedRequest"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "seq": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "title": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "userInputAt": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "visible": {
+          "type": "boolean"
+        },
+        "zoom": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "alive",
+        "background",
+        "childSessions",
+        "crashed",
+        "documentId",
+        "loading",
+        "mainFrameLoading",
+        "openedPopups",
+        "pageId",
+        "seq",
+        "title",
+        "url",
+        "visible",
+        "zoom"
       ],
       "type": "object"
     },
@@ -1477,6 +1871,63 @@
       "type": "object"
     },
     {
+      "description": "Ordered CDP events of a page (allowlisted); the host flushes a page's queued events before any response about that page.",
+      "properties": {
+        "method": {
+          "enum": [
+            "host/browser/events"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostBrowserEventsParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A page's facts changed.",
+      "properties": {
+        "method": {
+          "enum": [
+            "host/browser/page/facts"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostBrowserPageFactsParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "The person took hold of a page, or let go.",
+      "properties": {
+        "method": {
+          "enum": [
+            "host/browser/userInput"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostBrowserUserInputParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
       "description": "The phone painted a JPEG-view frame (`browser/frame`): its next one may go out.",
       "properties": {
         "method": {
@@ -1505,6 +1956,25 @@
         },
         "params": {
           "$ref": "#/definitions/HostNotificationClickedParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A window the core asked for with `host/window/open` is gone; `byUser` unless the app is quitting.",
+      "properties": {
+        "method": {
+          "enum": [
+            "host/window/closed"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostWindowClosedParams"
         }
       },
       "required": [
