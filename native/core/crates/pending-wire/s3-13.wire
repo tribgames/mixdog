@@ -30,4 +30,10 @@ add: }
 # `b.env` is the Fn(&str)->Option<String> the pool's NativeToolPaths already takes (`b.env.clone()`); adapt the deref to its real type.
 # The last argument is the helper-pid lookup. The pool does not expose its helper's process id today (ProcessComputerBackend keeps the
 # ProcessHandle, not the pid); s3-19 passes `|_| None` unless a pool accessor `helper_pid(&self, session)` is added in mixdog-core native_tools.rs.
-# SERVICE_PENDING: nothing to remove (dev/computer/run is a new method, absent from a build without the feature).
+# SERVICE_PENDING: nothing to remove. But the protocol row is in the method table of every build, and the service is registered only
+# by a test-hooks build started with MIXDOGD_TEST_HOOKS=1 and a computer pool: everywhere else `builder.unclaimed()` lists it and
+# compose fails with ComposeError::Unclaimed (every composed test of this crate too: its dev build has the feature, not the env).
+file: native/core/crates/mixdog-app-server-daemon/src/compose_flip.rs   (s3-19 or the CORE-WIRE task)
+place: fn real_core, right after `unclaimed.retain(|method| *method != "host/claim");`
+add: // dev/computer/run: a test hook, registered only by a `test-hooks` build started with MIXDOGD_TEST_HOOKS=1 (dev_computer.rs); unclaimed otherwise.
+add: unclaimed.retain(|method| *method != "dev/computer/run");
