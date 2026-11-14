@@ -113,7 +113,7 @@ No other line below is NOT COVERED.
 | Observable state after native actions | input-semantic.ps1 | H:host/semantic/observable.rs |
 | ExpandCollapse leaf invoke rule, focusable text surfaces, access key | input-semantic.ps1, observation.ps1 | H:host/semantic/invoke.rs, H:uia/snapshot.rs |
 | window_predicates for verify, accessibility_probe | input-window.ps1, observation.ps1 | H:host/semantic/predicates.rs, H:uia/reads.rs, C:computer_verify.rs |
-| MSAA-first menu path, UIA menu walk with protection, Win32 menu (GetMenu, WM_INITMENUPOPUP, WM_COMMAND) | input-menu.ps1 | H:platform/windows/uia/menu.rs, H:msaa.rs `menu_candidates` |
+| MSAA-first menu path, UIA menu walk with protection, Win32 menu (GetMenu, WM_INITMENUPOPUP, WM_COMMAND) | input-menu.ps1 | H:platform/windows/uia/menu.rs `menu`, `msaa_candidate`, `menu_candidates`, `classic_menu`; H:platform/windows/msaa.rs `menu_snapshot` |
 | Element marks (element, to_element, ocr marks) | session/element-aliases.ts | H:host/marks.rs, C:computer_marks_draw.rs |
 | Capture-level accessibility fold (budget, stalled-provider cache, clipping) | observation/capture-accessibility.ts | C:computer_capture.rs, H:platform/windows/capture_budget.rs |
 
@@ -143,6 +143,8 @@ No other line below is NOT COVERED.
 | Wait with quiet:true (200 ms samples, 3 equal) | quiet-wait.ps1, input-pointer.ps1 | H:host/input/quiet.rs |
 | Key chord normalisation, destructive chord and shell-payload guards | input/keyboard.ts, guards.ts | C:computer_keys.rs, computer_policy.rs |
 | Frame-bound coordinates, allowed_window_ids, app to exact window | host/input-target.ts | C:computer_targets.rs, H:host/targets.rs |
+| Ref point (element centre, "no clickable bounds", occlusion guard), raw x/y to the window at the point, owned popups via allowed_window_ids | input-target.ps1 Get-ElPoint, Get-PointArg, Get-TopWindow | H:host/input/mod.rs `el_point`, `point_arg`; H:platform/windows/uia/element.rs `top_window`; H:host/input/pointer.rs (target_mismatch after focus) |
+| Assert-InputTarget (last focus must still be the foreground) | input-target.ps1 | no caller in the old code (dead); nothing to port |
 
 ### Ledger, abort cleanup, worker lifecycle (worker-ledgers.ts, inactive-ledger-registry.ts, worker-pool.ts, worker-requests.ts, lifecycle-abort.ts, resident-workers.ts)
 | Old behaviour | Old place | Rust |
