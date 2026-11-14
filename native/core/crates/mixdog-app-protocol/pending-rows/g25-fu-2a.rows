@@ -23,7 +23,7 @@ replace the field
     pub tokens: i64,
 with
     /// `null` is the automatic context size (the old main process accepted it: boundary/validate/capability_settings.rs
-    /// refuses only a size below 16384); an absent field is the same.
+    /// refuses only a size below 16384; boundary/validate/capability.rs still requires the field to be present).
     #[cfg_attr(feature = "codegen", ts(type = "number | null"))]
     pub tokens: Option<i64>,
 Regenerate schema/*.json and packages/protocol/src/index.ts. No other crate reads the field (grep: none).
