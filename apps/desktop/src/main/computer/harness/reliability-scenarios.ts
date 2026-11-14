@@ -131,31 +131,31 @@ export async function excelIsolatedWorkbookInput(ctx: ReliabilityContext): Promi
 }
 
 export async function nativeObservationSoak(ctx: ReliabilityContext): Promise<ScenarioOutcome> {
-  const { host, command } = ctx;
-  const target = (await host.authorizationWindows()).find((window) => window.pid === process.pid);
+  const { authorizationWindows, command } = ctx;
+  const target = (await authorizationWindows()).find((window) => window.pid === process.pid);
   assert.ok(target);
   const capture = () => command({ action: 'capture', window_id: target.id, include_ocr: false, max_elements: 40 });
   await capture();
-  await capture();
-  const expectedWorkers = host.residentWorkerPids().length;
+  const expectedHelper = (await capture()).helperPid;
+  assert.ok(typeof expectedHelper === 'number', 'no helper serves the session');
   const durationMs = Math.max(10_000, Math.min(600_000, Number(process.env.MIXDOG_RELIABILITY_SOAK_MS) || 300_000));
   const started = performance.now();
-  const samples: Array<{ seconds: number; privateKiB: number; workers: number }> = [];
+  const samples: Array<{ seconds: number; privateKiB: number; helperPid: number }> = [];
   let commands = 0;
   let nextSample = 0;
   while (performance.now() - started < durationMs) {
-    const observed = payload(await capture());
+    const reply = await capture();
+    const observed = payload(reply);
     assert.equal(observed.ok, true);
     assert.equal(observed.window_id, target.id);
-    // A leak grows the pool; a worker this loop never uses may still be
-    // reclaimed once it has idled past the reclaim interval.
-    const workers = host.residentWorkerPids().length;
-    assert.ok(workers <= expectedWorkers, `resident workers grew from ${expectedWorkers} to ${workers}`);
+    // A helper that died or was replaced under a steady load is a failure the
+    // soak exists to find: the session keeps the one helper it started with.
+    assert.equal(reply.helperPid, expectedHelper, `the session's helper changed from ${expectedHelper} to ${reply.helperPid}`);
     commands++;
     const elapsed = performance.now() - started;
     if (elapsed >= nextSample) {
       const memory = await process.getProcessMemoryInfo();
-      samples.push({ seconds: Math.round(elapsed / 1000), privateKiB: memory.private, workers });
+      samples.push({ seconds: Math.round(elapsed / 1000), privateKiB: memory.private, helperPid: expectedHelper });
       nextSample += 15_000;
     }
     await sleep(250);
@@ -334,11 +334,11 @@ export async function explorerRename(ctx: ReliabilityContext): Promise<void> {
 }
 
 export async function authorizationLiveDispatch(ctx: ReliabilityContext): Promise<void> {
-  const { sentinel, host, command } = ctx;
+  const { sentinel, authorizationWindows, updateAuthorization, failureBundles, command } = ctx;
   const previousValue = await sentinel.webContents.executeJavaScript('document.querySelector("input").value');
-  const target = (await host.authorizationWindows()).find((window) => window.pid === process.pid);
+  const target = (await authorizationWindows()).find((window) => window.pid === process.pid);
   assert.ok(target);
-  await host.updateAuthorization({
+  await updateAuthorization({
     version: 1,
     actions: ['capture'],
     windows: [{ id: target.id, pid: target.pid }],
@@ -349,5 +349,6 @@ export async function authorizationLiveDispatch(ctx: ReliabilityContext): Promis
   await command({ action: 'capture', window_id: target.id, include_ocr: false });
   await assert.rejects(command({ action: 'type', window_id: target.id, text: 'DENIED' }), /computer_policy_denied/);
   assert.equal(await sentinel.webContents.executeJavaScript('document.querySelector("input").value'), previousValue);
-  assert.ok(host.readFailureDiagnostics().length > 0);
+  // The denied command is a failure the core keeps as a bundle with its records.
+  assert.ok(failureBundles().some((bundle) => bundle.records.length > 0), 'the core wrote no failure bundle');
 }
