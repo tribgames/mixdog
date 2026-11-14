@@ -1,12 +1,15 @@
 //! Mixdog's own overlay, pill and indicator windows kept out of window lists (`overlay/internal-windows.ts`
 //! `filterComputerUseInternalWindows`, `filterComputerUseWindowListText`). The desktop owns them and names them
 //! (`host/computer/internalWindows`); the ids are kept for a short while so a burst of reads asks once. Every read the core
-//! makes goes through `exchange`, so the lists the settle, the transition and the arrivals work from are filtered too.
+//! makes goes through `exchange`, so the lists the settle, the transition and the arrivals work from are filtered too. The
+//! desktop's other list, the windows that take input through its renderer (`host/computer/appWindows`, `computer_app_owned`), is
+//! read in the same step, so a window list and the routing of the input that follows it come from one look.
 
 use std::collections::HashSet;
 use std::sync::Mutex;
 use std::time::Duration;
 
+use futures::future::join;
 use mixdog_js::js_to_lowercase;
 use mixdog_js::js_trim;
 use mixdog_rt::time::Instant;
@@ -15,6 +18,8 @@ use serde_json::Value;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
+use super::computer_app_owned::APP_OWNED;
+use super::computer_app_owned::WINDOWS_METHOD as APP_WINDOWS_METHOD;
 use super::computer_backend::ProcessComputerBackend;
 
 const METHOD: &str = "host/computer/internalWindows";
@@ -53,7 +58,7 @@ impl IdCache {
 static CACHE: IdCache = IdCache::new();
 
 /// `normalizedWindowId`.
-fn normalized(id: &str) -> String {
+pub(super) fn normalized(id: &str) -> String {
     js_to_lowercase(js_trim(id))
 }
 
@@ -66,7 +71,11 @@ fn ids_of(answer: &Value) -> Option<HashSet<String>> {
 /// Drops the internal windows from a `list_windows` or `window_snapshot` result. A list text is rebuilt over the windows that
 /// stay (`filterComputerUseWindowListText`); a result with none of them is left as the helper wrote it.
 pub(super) async fn filter(backend: &ProcessComputerBackend, result: &mut Map<String, Value>, cancel: &CancellationToken) {
-    let internal = CACHE.ids(|| async { backend.ask_desktop(METHOD, json!({}), cancel).await.ok().and_then(|answer| ids_of(&answer)) }).await;
+    let (internal, ()) = join(
+        CACHE.ids(|| async { backend.ask_desktop(METHOD, json!({}), cancel).await.ok().and_then(|answer| ids_of(&answer)) }),
+        APP_OWNED.refresh_with(|| backend.ask_desktop(APP_WINDOWS_METHOD, json!({}), cancel)),
+    )
+    .await;
     drop_windows(&internal, result);
 }
 
