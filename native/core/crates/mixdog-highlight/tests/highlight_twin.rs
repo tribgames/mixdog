@@ -87,7 +87,7 @@ fn the_golden_records_the_pinned_versions() {
 }
 
 #[test]
-fn every_carried_language_is_listed_in_registration_order() {
+fn every_core_language_is_listed_in_registration_order() {
     let g = golden();
     let expected: Vec<&str> = g["languages"]
         .as_array()
@@ -95,8 +95,14 @@ fn every_carried_language_is_listed_in_registration_order() {
         .iter()
         .filter_map(Value::as_str)
         .collect();
+    // The core set is carried in registration order among the other languages (`highlight_all_twin.rs`).
     let got = list_languages();
-    assert_eq!(got.iter().map(String::as_str).collect::<Vec<_>>(), expected);
+    let carried_core: Vec<&str> = got
+        .iter()
+        .map(String::as_str)
+        .filter(|name| expected.contains(name))
+        .collect();
+    assert_eq!(carried_core, expected);
 }
 
 #[test]
@@ -217,11 +223,10 @@ fn language_names_and_aliases_resolve_as_in_node() {
     for entry in g["resolve"].as_array().expect("resolve") {
         let name = entry[0].as_str().expect("name");
         let node_supports = entry[1].as_bool().expect("supports");
-        let carried = entry[2].as_str();
-        // A language Node supports and this crate does not carry is reported as unsupported.
+        // The golden marks a language outside the core set as not carried; the crate carries every registered one.
         assert_eq!(
             supports_language(name),
-            node_supports && carried.is_some(),
+            node_supports,
             "supportsLanguage({name:?})"
         );
     }

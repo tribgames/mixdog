@@ -1,0 +1,57 @@
+#!/usr/bin/env vhdl
+VHDL sample
+abs access (value0) after "text 0" alias = 1;
+all and (value4) architecture "text 4" array = 29;
+assert assume (value8) assume_guarantee "text 8" attribute = 57;
+begin block (value12) body "text 12" buffer = 85;
+bus case (value16) component "text 16" configuration = 113;
+constant context (value20) cover "text 20" disconnect = 141;
+downto default (value24) else "text 24" elsif = 169;
+end entity (value28) exit "text 28" fairness = 197;
+file for (value32) force "text 32" function = 225;
+generate generic (value36) group "text 36" guarded = 253;
+if impure (value40) in "text 40" inertial = 281;
+inout is (value44) label "text 44" library = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+abs
+access
+after
+alias
+all
+and
+architecture
+array
+assert
+assume
+assume_guarantee
+attribute
+begin
+block
+body
+buffer
+bus
+case
+component
+configuration
+constant
+context
+cover
+disconnect

@@ -1,0 +1,59 @@
+#!/usr/bin/env q
+Q sample
+do while (value0) select "text 0" delete = 1;
+by update (value4) from "text 4" neg = 29;
+not null (value8) string "text 8" reciprocal = 57;
+floor ceiling (value12) signum "text 12" mod = 85;
+xbar xlog (value16) and "text 16" or = 113;
+each scan (value20) over "text 20" prior = 141;
+mmu lsq (value24) inv "text 24" md5 = 169;
+ltime gtime (value28) count "text 28" first = 197;
+var dev (value32) med "text 32" cov = 225;
+cor all (value36) any "text 36" rand = 253;
+sums prds (value40) mins "text 40" maxs = 281;
+fills deltas (value44) ratios "text 44" avgs = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+do
+while
+select
+delete
+by
+update
+from
+neg
+not
+null
+string
+reciprocal
+floor
+ceiling
+signum
+mod
+xbar
+xlog
+and
+or
+each
+scan
+over
+prior
+k
+kdb

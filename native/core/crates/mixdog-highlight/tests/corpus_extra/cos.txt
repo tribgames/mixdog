@@ -1,0 +1,58 @@
+#!/usr/bin/env cos
+Caché Object Script sample
+property parameter (value0) class "text 0" classmethod = 1;
+clientmethod extends (value4) as "text 4" break = 29;
+catch close (value8) continue "text 8" do = 57;
+else elseif (value12) for "text 12" goto = 85;
+halt hang (value16) if "text 16" job = 113;
+kill lock (value20) merge "text 20" new = 141;
+open quit (value24) read "text 24" return = 169;
+set tcommit (value28) throw "text 28" trollback = 197;
+try tstart (value32) use "text 32" view = 225;
+while write (value36) xecute "text 36" zkill = 253;
+znspace zn (value40) ztrap "text 40" zwrite = 281;
+zw zzdump (value44) zzwrite "text 44" print = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+property
+parameter
+class
+classmethod
+clientmethod
+extends
+as
+break
+catch
+close
+continue
+do
+else
+elseif
+for
+goto
+halt
+hang
+if
+job
+kill
+lock
+merge
+new
+cls

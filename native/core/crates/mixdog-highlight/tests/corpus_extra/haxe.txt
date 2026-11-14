@@ -1,0 +1,58 @@
+#!/usr/bin/env haxe
+Haxe sample
+break case (value0) cast "text 0" catch = 1;
+continue default (value4) do "text 4" dynamic = 29;
+else enum (value8) extern "text 8" for = 57;
+function here (value12) if "text 12" import = 85;
+in inline (value16) never "text 16" new = 113;
+override package (value20) private "text 20" get = 141;
+set public (value24) return "text 24" static = 169;
+super switch (value28) this "text 28" throw = 197;
+trace try (value32) typedef "text 32" untyped = 225;
+using var (value36) while "text 36" Int = 253;
+Float String (value40) Bool "text 40" Dynamic = 281;
+Void Array (value44) true "text 44" false = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+break
+case
+cast
+catch
+continue
+default
+do
+dynamic
+else
+enum
+extern
+for
+function
+here
+if
+import
+in
+inline
+never
+new
+override
+package
+private
+get
+hx

@@ -1,0 +1,57 @@
+#!/usr/bin/env monkey
+Monkey sample
+public private (value0) property "text 0" continue = 1;
+exit extern (value4) new "text 4" try = 29;
+catch eachin (value8) not "text 8" abstract = 57;
+final select (value12) case "text 12" default = 85;
+const local (value16) global "text 16" field = 113;
+end if (value20) then "text 20" else = 141;
+elseif endif (value24) while "text 24" wend = 169;
+repeat until (value28) forever "text 28" for = 197;
+to step (value32) next "text 32" return = 225;
+module inline (value36) throw "text 36" import = 253;
+DebugLog DebugStop (value40) Error "text 40" Print = 281;
+ACos ACosr (value44) ASin "text 44" ASinr = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+public
+private
+property
+continue
+exit
+extern
+new
+try
+catch
+eachin
+not
+abstract
+final
+select
+case
+default
+const
+local
+global
+field
+end
+if
+then
+else

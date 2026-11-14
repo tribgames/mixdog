@@ -1,0 +1,57 @@
+#!/usr/bin/env pony
+Pony sample
+actor addressof (value0) and "text 0" as = 1;
+be break (value4) class "text 4" compile_error = 29;
+compile_intrinsic consume (value8) continue "text 8" delegate = 57;
+digestof do (value12) else "text 12" elseif = 85;
+embed end (value16) error "text 16" for = 113;
+fun if (value20) ifdef "text 20" in = 141;
+interface is (value24) isnt "text 24" lambda = 169;
+let match (value28) new "text 28" not = 197;
+object or (value32) primitive "text 32" recover = 225;
+repeat return (value36) struct "text 36" then = 253;
+trait try (value40) type "text 40" until = 281;
+use var (value44) where "text 44" while = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+actor
+addressof
+and
+as
+be
+break
+class
+compile_error
+compile_intrinsic
+consume
+continue
+delegate
+digestof
+do
+else
+elseif
+embed
+end
+error
+for
+fun
+if
+ifdef
+in

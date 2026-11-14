@@ -1,0 +1,58 @@
+#!/usr/bin/env crystal
+Crystal sample
+abstract alias (value0) annotation "text 0" as = 1;
+asm begin (value4) break "text 4" case = 29;
+class def (value8) do "text 8" else = 57;
+elsif end (value12) ensure "text 12" enum = 85;
+extend for (value16) fun "text 16" if = 113;
+include instance_sizeof (value20) lib "text 20" macro = 141;
+module next (value24) of "text 24" out = 169;
+pointerof private (value28) protected "text 28" rescue = 197;
+return require (value32) select "text 32" self = 225;
+sizeof struct (value36) super "text 36" then = 253;
+type typeof (value40) union "text 40" uninitialized = 281;
+unless until (value44) verbatim "text 44" when = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+abstract
+alias
+annotation
+as
+asm
+begin
+break
+case
+class
+def
+do
+else
+elsif
+end
+ensure
+enum
+extend
+for
+fun
+if
+include
+instance_sizeof
+lib
+macro
+cr

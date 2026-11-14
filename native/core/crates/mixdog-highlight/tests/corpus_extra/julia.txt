@@ -1,0 +1,57 @@
+#!/usr/bin/env julia
+Julia sample
+baremodule begin (value0) break "text 0" catch = 1;
+ccall const (value4) continue "text 4" do = 29;
+else elseif (value8) end "text 8" export = 57;
+false finally (value12) for "text 12" function = 85;
+global if (value16) import "text 16" in = 113;
+isa let (value20) local "text 20" macro = 141;
+module quote (value24) return "text 24" true = 169;
+try using (value28) where "text 28" while = 197;
+ARGS C_NULL (value32) DEPOT_PATH "text 32" ENDIAN_BOM = 225;
+ENV Inf (value36) Inf16 "text 36" Inf32 = 253;
+Inf64 InsertionSort (value40) LOAD_PATH "text 40" MergeSort = 281;
+NaN NaN16 (value44) NaN32 "text 44" NaN64 = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+baremodule
+begin
+break
+catch
+ccall
+const
+continue
+do
+else
+elseif
+end
+export
+false
+finally
+for
+function
+global
+if
+import
+in
+isa
+let
+local
+macro

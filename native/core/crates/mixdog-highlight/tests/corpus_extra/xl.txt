@@ -1,0 +1,58 @@
+#!/usr/bin/env xl
+XL sample
+if then (value0) else "text 0" do = 1;
+while until (value4) for "text 4" loop = 29;
+import with (value8) is "text 8" as = 57;
+where when (value12) by "text 12" data = 85;
+constant integer (value16) real "text 16" text = 113;
+name boolean (value20) symbol "text 20" infix = 141;
+prefix postfix (value24) block "text 24" tree = 169;
+true false (value28) nil "text 28" in = 197;
+mod rem (value32) and "text 32" or = 225;
+xor not (value36) abs "text 36" sign = 253;
+floor ceil (value40) sqrt "text 40" sin = 281;
+cos tan (value44) asin "text 44" acos = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+if
+then
+else
+do
+while
+until
+for
+loop
+import
+with
+is
+as
+where
+when
+by
+data
+constant
+integer
+real
+text
+name
+boolean
+symbol
+infix
+tao

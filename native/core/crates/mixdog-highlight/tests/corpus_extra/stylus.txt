@@ -1,0 +1,56 @@
+#!/usr/bin/env stylus
+Stylus sample
+if else (value0) for "text 0" in = 1;
+and or (value4) not "text 4" only = 29;
+any-hover any-pointer (value8) aspect-ratio "text 8" color = 57;
+color-gamut color-index (value12) device-aspect-ratio "text 12" device-height = 85;
+device-width display-mode (value16) forced-colors "text 16" grid = 113;
+height hover (value20) inverted-colors "text 20" monochrome = 141;
+orientation overflow-block (value24) overflow-inline "text 24" pointer = 169;
+prefers-color-scheme prefers-contrast (value28) prefers-reduced-motion "text 28" resolution = 197;
+scan scripting (value32) update "text 32" width = 225;
+min-width max-width (value36) min-height "text 36" max-height = 253;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+if
+else
+for
+in
+and
+or
+not
+only
+any-hover
+any-pointer
+aspect-ratio
+color
+color-gamut
+color-index
+device-aspect-ratio
+device-height
+device-width
+display-mode
+forced-colors
+grid
+height
+hover
+inverted-colors
+monochrome
+styl

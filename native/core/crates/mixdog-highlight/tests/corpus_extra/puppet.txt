@@ -1,0 +1,58 @@
+#!/usr/bin/env puppet
+Puppet sample
+class define (value0) and "text 0" case = 1;
+default else (value4) elsif "text 4" false = 29;
+if in (value8) import "text 8" enherits = 57;
+node or (value12) true "text 12" undef = 85;
+unless main (value16) settings "text 16" alias = 113;
+audit before (value20) loglevel "text 20" noop = 141;
+require subscribe (value24) tag "text 24" owner = 169;
+ensure group (value28) mode "text 28" changes = 197;
+context force (value32) incl "text 32" lens = 225;
+load_path onlyif (value36) provider "text 36" returns = 253;
+root show_diff (value40) type_check "text 40" en_address = 281;
+ip_address realname (value44) command "text 44" environment = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+class
+define
+and
+case
+default
+else
+elsif
+false
+if
+in
+import
+enherits
+node
+or
+true
+undef
+unless
+main
+settings
+alias
+audit
+before
+loglevel
+noop
+pp

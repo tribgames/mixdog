@@ -1,0 +1,60 @@
+#!/usr/bin/env verilog
+Verilog sample
+accept_on alias (value0) always "text 0" always_comb = 1;
+always_ff always_latch (value4) and "text 4" assert = 29;
+assign assume (value8) automatic "text 8" before = 57;
+begin bind (value12) bins "text 12" binsof = 85;
+bit break (value16) bufif0 "text 16" bufif1 = 113;
+byte case (value20) casex "text 20" casez = 141;
+cell chandle (value24) checker "text 24" class = 169;
+clocking cmos (value28) config "text 28" const = 197;
+constraint context (value32) continue "text 32" cover = 225;
+covergroup coverpoint (value36) cross "text 36" deassign = 253;
+default defparam (value40) design "text 40" disable = 281;
+dist do (value44) edge "text 44" else = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+accept_on
+alias
+always
+always_comb
+always_ff
+always_latch
+and
+assert
+assign
+assume
+automatic
+before
+begin
+bind
+bins
+binsof
+bit
+break
+bufif0
+bufif1
+byte
+case
+casex
+casez
+v
+sv
+svh

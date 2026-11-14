@@ -1,0 +1,57 @@
+#!/usr/bin/env mizar
+Mizar sample
+environ vocabularies (value0) notations "text 0" constructors = 1;
+definitions registrations (value4) theorems "text 4" schemes = 29;
+requirements begin (value8) end "text 8" definition = 57;
+registration cluster (value12) existence "text 12" pred = 85;
+func defpred (value16) deffunc "text 16" theorem = 113;
+proof let (value20) take "text 20" assume = 141;
+then thus (value24) hence "text 24" ex = 169;
+for st (value28) holds "text 28" consider = 197;
+reconsider such (value32) that "text 32" and = 225;
+in provided (value36) of "text 36" as = 253;
+from be (value40) being "text 40" by = 281;
+means equals (value44) implies "text 44" iff = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+environ
+vocabularies
+notations
+constructors
+definitions
+registrations
+theorems
+schemes
+requirements
+begin
+end
+definition
+registration
+cluster
+existence
+pred
+func
+defpred
+deffunc
+theorem
+proof
+let
+take
+assume

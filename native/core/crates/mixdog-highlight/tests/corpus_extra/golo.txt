@@ -1,0 +1,57 @@
+#!/usr/bin/env golo
+Golo sample
+println readln (value0) print "text 0" import = 1;
+module function (value4) local "text 4" return = 29;
+let var (value8) while "text 8" for = 57;
+foreach times (value12) in "text 12" case = 85;
+when match (value16) with "text 16" break = 113;
+continue augment (value20) augmentation "text 20" each = 141;
+find filter (value24) reduce "text 24" if = 169;
+then else (value28) otherwise "text 28" try = 197;
+catch finally (value32) raise "text 32" throw = 225;
+orIfNull DynamicVariable (value36) struct "text 36" Observable = 253;
+map set (value40) vector "text 40" list = 281;
+array true (value44) false "text 44" null = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+println
+readln
+print
+import
+module
+function
+local
+return
+let
+var
+while
+for
+foreach
+times
+in
+case
+when
+match
+with
+break
+continue
+augment
+augmentation
+each

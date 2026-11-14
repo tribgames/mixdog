@@ -1,9 +1,11 @@
 // Serialises the uncompiled mode graph of highlight.js 10.7.3 language definitions to JSON.
 //
-//   node dump-hljs-languages.mjs --tree <repo with node_modules/highlight.js> --out <dir>     writes the data files
-//   node dump-hljs-languages.mjs --tree <repo> --check <dir>                                   fails when <dir> differs
-//   add --all to dump every language (default: the core set of format-token's FAMILY_TO_HLJS plus the
-//   languages they reach through subLanguage).
+//   node dump-hljs-languages.mjs --tree <repo with node_modules/highlight.js> --out <dir> --extra <dir>     writes the data files
+//   node dump-hljs-languages.mjs --tree <repo> --check <dir> --extra <dir>                                  fails when a dir differs
+//
+// Every language highlight.js registers is dumped. The core set (format-token's FAMILY_TO_HLJS plus the languages
+// they reach through subLanguage) goes to --out/--check; the others go to --extra, with the data the hook table
+// of the extra languages needs (the system symbols of mathematica).
 //
 // The graph is read from the registry of `highlight.js/lib/index.js`, so it is the object graph Node compiles
 // on its first highlight. Object identity is kept (a shared mode or keyword table is one entry), because
@@ -22,9 +24,9 @@ const opt = (name) => {
 const tree = opt('--tree');
 const outDir = opt('--out');
 const checkDir = opt('--check');
-const all = args.includes('--all');
-if (!tree || (!outDir && !checkDir)) {
-  console.error('usage: dump-hljs-languages.mjs --tree <repo> (--out <dir> | --check <dir>) [--all]');
+const extraDir = opt('--extra');
+if (!tree || (!outDir && !checkDir) || !extraDir) {
+  console.error('usage: dump-hljs-languages.mjs --tree <repo> (--out <dir> | --check <dir>) --extra <dir>');
   process.exit(2);
 }
 
@@ -77,6 +79,22 @@ registerCallback('shebang', hljs.SHEBANG()['on:begin']);
   const tag = found.filter((f) => f.toString().includes('nextChar'));
   if (tag.length !== 1) throw new Error(`expected one javascript JSX on:begin callback, found ${tag.length}`);
   registerCallback('isTrulyOpeningTag', tag[0]);
+}
+
+// mathematica's `on:begin`: a symbol is a builtin symbol only when it is in the system symbol set.
+{
+  const found = [];
+  (function walk(o, seen) {
+    if (!o || typeof o !== 'object' || seen.has(o)) return;
+    seen.add(o);
+    for (const k of Object.keys(o)) {
+      const v = o[k];
+      if (typeof v === 'function' && k === 'on:begin') found.push(v);
+      else walk(v, seen);
+    }
+  })(hljs.getLanguage('mathematica'), new Set());
+  if (found.length !== 1) throw new Error(`expected one mathematica on:begin callback, found ${found.length}`);
+  registerCallback('mathematicaBuiltinSymbol', found[0]);
 }
 
 // The only compiler extension 10.7.3 ships: r.js's `beforeMatch`.
@@ -155,21 +173,33 @@ function closureOf(names) {
   return registered.map((r) => r.name).filter((n) => want.has(n));
 }
 
-const wanted = all ? registered.map((r) => r.name) : closureOf(CORE);
+const wanted = registered.map((r) => r.name);
+const core = new Set(closureOf(CORE));
 
+// registered name -> dumped graph, split into the core directory and the extra one
 const files = new Map();
-const fileFor = (name) => `${name}.json`;
+const extraFiles = new Map();
 for (const name of wanted) {
   const lang = hljs.getLanguage(name);
   const dumped = dumpLanguage(lang);
   const out = { registeredAs: name, root: dumped.root, objects: dumped.objects };
-  files.set(fileFor(name), `${JSON.stringify(out)}\n`);
+  (core.has(name) ? files : extraFiles).set(`${name}.json`, `${JSON.stringify(out)}\n`);
 }
 
 if (unexpected.size) throw new Error(`unexpected keys:\n${[...unexpected].join('\n')}`);
 
-// The registry facts every lookup needs, for all registered languages: the order, the final alias table
-// (a later registration overrides an earlier one) and whether auto-detection is allowed.
+// mathematica's system symbols: the array literal at the top of its definition, one symbol per line.
+{
+  const source = fs.readFileSync(require.resolve('highlight.js/lib/languages/mathematica.js'), 'utf8');
+  const literal = /^const SYSTEM_SYMBOLS = (\[[\s\S]*?\n\]);/m.exec(source);
+  if (!literal) throw new Error('SYSTEM_SYMBOLS not found in mathematica.js');
+  const symbols = JSON.parse(literal[1]);
+  if (symbols.length < 1000 || symbols.some((x) => typeof x !== 'string' || /\s/.test(x))) throw new Error('SYSTEM_SYMBOLS is not a list of names');
+  extraFiles.set('mathematica-symbols.txt', `${symbols.join('\n')}\n`);
+}
+
+// The registry facts every lookup needs, for all registered languages: the order and the final alias table
+// (a later registration overrides an earlier one). `included` is the core set.
 const aliasTable = new Map();
 for (const r of registered) {
   const lang = hljs.getLanguage(r.name);
@@ -180,7 +210,7 @@ files.set(
   `${JSON.stringify({
     order: registered.map((r) => r.name),
     aliases: [...aliasTable.entries()],
-    included: wanted,
+    included: wanted.filter((n) => core.has(n)),
   })}\n`,
 );
 
@@ -190,29 +220,35 @@ const indexLines = [
   '',
   '/// `(registered name, dumped mode graph)` of every language compiled into the crate, in registration order.',
   'pub(super) const LANGUAGES: &[(&str, &str)] = &[',
-  ...wanted.map((n) => `    ("${n}", include_str!("data/${n}.json")),`),
+  ...wanted.map((n) => `    ("${n}", include_str!("${core.has(n) ? 'data' : 'data_extra'}/${n}.json")),`),
   '];',
   '',
-  '/// Registration order of every highlight.js language, the final alias table and the dumped names.',
+  '/// Registration order of every highlight.js language, the final alias table and the core names.',
   'pub(super) const REGISTRY: &str = include_str!("data/_registry.json");',
   '',
 ];
 files.set('../generated_index.rs', indexLines.join('\n'));
 
+const isGenerated = (f) => f.endsWith('.json') || f === 'mathematica-symbols.txt';
 if (outDir) {
-  fs.mkdirSync(outDir, { recursive: true });
-  for (const f of fs.readdirSync(outDir)) if (f.endsWith('.json') && !files.has(f)) fs.rmSync(path.join(outDir, f));
-  for (const [f, text] of files) fs.writeFileSync(path.join(outDir, f), text);
-  console.log(`wrote ${files.size} files (${wanted.length} languages) to ${outDir}`);
-} else {
-  const have = new Set([...fs.readdirSync(checkDir).filter((f) => f.endsWith('.json')), '../generated_index.rs']);
-  let bad = 0;
-  for (const [f, text] of files) {
-    if (!have.has(f)) { console.error(`missing ${f}`); bad++; continue; }
-    if (fs.readFileSync(path.join(checkDir, f), 'utf8') !== text) { console.error(`differs ${f}`); bad++; }
-    have.delete(f);
+  for (const [dir, set] of [[outDir, files], [extraDir, extraFiles]]) {
+    fs.mkdirSync(dir, { recursive: true });
+    for (const f of fs.readdirSync(dir)) if (isGenerated(f) && !set.has(f)) fs.rmSync(path.join(dir, f));
+    for (const [f, text] of set) fs.writeFileSync(path.join(dir, f), text);
   }
-  for (const f of have) { console.error(`extra ${f}`); bad++; }
+  console.log(`wrote ${files.size + extraFiles.size} files (${wanted.length} languages, ${core.size} core) to ${outDir} and ${extraDir}`);
+} else {
+  let bad = 0;
+  for (const [dir, set] of [[checkDir, files], [extraDir, extraFiles]]) {
+    const have = new Set(fs.readdirSync(dir).filter(isGenerated));
+    if (set === files) have.add('../generated_index.rs');
+    for (const [f, text] of set) {
+      if (!have.has(f)) { console.error(`missing ${f}`); bad++; continue; }
+      if (fs.readFileSync(path.join(dir, f), 'utf8') !== text) { console.error(`differs ${f}`); bad++; }
+      have.delete(f);
+    }
+    for (const f of have) { console.error(`extra ${f}`); bad++; }
+  }
   if (bad) process.exit(1);
-  console.log(`ok: ${files.size} files match`);
+  console.log(`ok: ${files.size + extraFiles.size} files match`);
 }

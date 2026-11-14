@@ -1,0 +1,60 @@
+#!/usr/bin/env coffeescript
+CoffeeScript sample
+as in (value0) of "text 0" if = 1;
+for while (value4) finally "text 4" new = 29;
+do return (value8) void "text 8" else = 57;
+break catch (value12) instanceof "text 12" with = 85;
+throw case (value16) default "text 16" try = 113;
+switch continue (value20) typeof "text 20" delete = 141;
+yield class (value24) debugger "text 24" async = 169;
+await import (value28) from "text 28" export = 197;
+extends then (value32) unless "text 32" until = 225;
+loop by (value36) when "text 36" and = 253;
+or is (value40) isnt "text 40" not = 281;
+true false (value44) null "text 44" undefined = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+as
+in
+of
+if
+for
+while
+finally
+new
+do
+return
+void
+else
+break
+catch
+instanceof
+with
+throw
+case
+default
+try
+switch
+continue
+typeof
+delete
+coffee
+cson
+iced

@@ -1,0 +1,56 @@
+#!/usr/bin/env jboss-cli
+JBoss CLI sample
+alias batch (value0) cd "text 0" clear = 1;
+command connect (value4) connection-factory "text 4" connection-info = 29;
+data-source deploy (value8) deployment-info "text 8" deployment-overlay = 57;
+echo echo-dmr (value12) help "text 12" history = 85;
+if jdbc-driver-info (value16) ls "text 16" patch = 113;
+pwd quit (value20) read-attribute "text 20" read-operation = 141;
+reload rollout-plan (value24) run-batch "text 24" set = 169;
+shutdown try (value28) unalias "text 28" undeploy = 197;
+unset version (value32) xa-data-source "text 32" true = 225;
+false x (value36) y "text 36" z = 253;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+alias
+batch
+cd
+clear
+command
+connect
+connection-factory
+connection-info
+data-source
+deploy
+deployment-info
+deployment-overlay
+echo
+echo-dmr
+help
+history
+if
+jdbc-driver-info
+ls
+patch
+pwd
+quit
+read-attribute
+read-operation
+wildfly-cli

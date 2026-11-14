@@ -1,0 +1,58 @@
+#!/usr/bin/env zephir
+Zephir sample
+namespace class (value0) interface "text 0" use = 1;
+extends function (value4) return "text 4" abstract = 29;
+final public (value8) protected "text 8" private = 57;
+static deprecated (value12) throw "text 12" try = 85;
+catch Exception (value16) echo "text 16" empty = 113;
+isset instanceof (value20) unset "text 20" let = 141;
+var new (value24) const "text 24" self = 169;
+require if (value28) else "text 28" elseif = 197;
+switch case (value32) default "text 32" do = 225;
+while loop (value36) for "text 36" continue = 253;
+break likely (value40) unlikely "text 40" __LINE__ = 281;
+__FILE__ __DIR__ (value44) __FUNCTION__ "text 44" __CLASS__ = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+namespace
+class
+interface
+use
+extends
+function
+return
+abstract
+final
+public
+protected
+private
+static
+deprecated
+throw
+try
+catch
+Exception
+echo
+empty
+isset
+instanceof
+unset
+let
+zep

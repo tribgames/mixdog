@@ -1,0 +1,58 @@
+#!/usr/bin/env hy
+Hy sample
+abs accumulate (value0) all "text 0" and = 1;
+any ap-compose (value4) ap-dotimes "text 4" ap-each = 29;
+ap-each-while ap-filter (value8) ap-first "text 8" ap-if = 57;
+ap-last ap-map (value12) ap-map-when "text 12" ap-pipe = 85;
+ap-reduce ap-reject (value16) apply "text 16" ascii = 113;
+assert assoc (value20) bin "text 20" break = 141;
+butlast callable (value24) calling-module-name "text 24" car = 169;
+case cdr (value28) chain "text 28" chr = 197;
+combinations compile (value32) compress "text 32" cond = 225;
+cons continue (value36) count "text 36" curry = 253;
+cut cycle (value40) dec "text 40" def = 281;
+default-method defclass (value44) defmacro "text 44" defmacro-alias = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+abs
+accumulate
+all
+and
+any
+ap-compose
+ap-dotimes
+ap-each
+ap-each-while
+ap-filter
+ap-first
+ap-if
+ap-last
+ap-map
+ap-map-when
+ap-pipe
+ap-reduce
+ap-reject
+apply
+ascii
+assert
+assoc
+bin
+break
+hylang

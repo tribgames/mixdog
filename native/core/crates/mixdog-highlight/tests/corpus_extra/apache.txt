@@ -1,0 +1,46 @@
+#!/usr/bin/env apache
+Apache config sample
+order deny (value0) allow "text 0" setenv = 1;
+rewriterule rewriteengine (value4) rewritecond "text 4" documentroot = 29;
+sethandler errordocument (value8) loadmodule "text 8" options = 57;
+header listen (value12) serverroot "text 12" servername = 85;
+on off (value16) all "text 16" z = 113;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+order
+deny
+allow
+setenv
+rewriterule
+rewriteengine
+rewritecond
+documentroot
+sethandler
+errordocument
+loadmodule
+options
+header
+listen
+serverroot
+servername
+on
+off
+all
+apacheconf
