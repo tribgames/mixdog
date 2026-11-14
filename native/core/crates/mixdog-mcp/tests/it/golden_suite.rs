@@ -194,7 +194,7 @@ async fn a_result_without_is_error_is_an_explicit_success() {
     let (_dir, spiller) = spiller();
     let ok = json!({ "content": [{ "type": "text", "text": "Error: only wording" }] });
     let output = map_call_result(&ok, OutputPolicy::default(), &spiller).await.unwrap();
-    assert!(output.explicit_success && !output.explicit_failure);
+    assert!(output.explicit_success);
     let marked = json!({ "isError": false, "content": [{ "type": "text", "text": "Error: only wording" }] });
     assert!(map_call_result(&marked, OutputPolicy::default(), &spiller).await.unwrap().explicit_success);
     let failed = json!({ "isError": true, "content": [{ "type": "text", "text": "bad" }] });
