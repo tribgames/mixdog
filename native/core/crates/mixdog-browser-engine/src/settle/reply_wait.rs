@@ -33,8 +33,11 @@ use super::settle::try_join3;
 use crate::error::HostCallError;
 use crate::limits::POSTCONDITION_POLL;
 
-/// The most text one read returns over the wire (`READ_MAX_CHARS_WIRE` of the host): a phrase past it cannot be found.
+/// The most text one read returns over the wire (`READ_MAX_CHARS_WIRE` of the host): a longer text is read in parts of this size.
 const POSTCONDITION_READ_CHARS: u32 = 120_000;
+/// The most parts one text is read in: the host refuses a page text past a million characters (the observation limit), so a
+/// read that has not ended by then is not going to.
+const POSTCONDITION_READ_PARTS: usize = 10;
 
 /// What the caller asked of the wait besides the command's own `expect` and `settleMs` (`BrowserSnapshotResultOptions`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -108,23 +111,45 @@ pub async fn postcondition_matches_page(page: &Page<'_>, expected: &Postconditio
     if expected.text.is_empty() && expected.text_gone.is_empty() {
         return Ok(true);
     }
-    let params = HostBrowserPageReadParams {
-        page_id: page.id.to_string(),
-        kind: BrowserPageReadKind::Text,
-        options: Some(BrowserPageReadOptions { max_chars: Some(POSTCONDITION_READ_CHARS), frame: None, selector: None, include_hidden: None }),
-    };
-    let read = page.host.page_read(params, cancel.token()).await;
-    throw_if_cancelled(cancel)?;
-    if matches!(read, Err(HostCallError::Cancelled)) {
-        return Err(super::settle::cancelled(cancel));
+    let Some(text) = read_page_text(page, cancel).await? else { return Ok(false) };
+    Ok(page.probe.state().url == url && matches(expected.expected(), PageSample { text: Some(&text), url: &url }))
+}
+
+/// The whole text of the page, read in parts when it is longer than one read returns; `None` when it could not be read through
+/// (a failed read, or a text the host refuses), which a postcondition takes as "not yet": a part of a text proves nothing about
+/// a phrase being gone.
+async fn read_page_text(page: &Page<'_>, cancel: &CancelView) -> Result<Option<String>, Cancelled> {
+    let mut text = String::new();
+    // How much has been read, in the UTF-16 units the host counts in.
+    let mut taken: u64 = 0;
+    for _ in 0..POSTCONDITION_READ_PARTS {
+        let offset = (taken > 0).then(|| u32::try_from(taken).unwrap_or(u32::MAX));
+        let params = HostBrowserPageReadParams {
+            page_id: page.id.to_string(),
+            kind: BrowserPageReadKind::Text,
+            options: Some(BrowserPageReadOptions { max_chars: Some(POSTCONDITION_READ_CHARS), frame: None, selector: None, include_hidden: None, offset }),
+        };
+        let read = page.host.page_read(params, cancel.token()).await;
+        throw_if_cancelled(cancel)?;
+        if matches!(read, Err(HostCallError::Cancelled)) {
+            return Err(super::settle::cancelled(cancel));
+        }
+        let Ok(read) = read else { return Ok(None) };
+        let Some(part) = read.payload.get("text").and_then(Value::as_str) else { return Ok(None) };
+        taken += mixdog_js::utf16_len(part) as u64;
+        text.push_str(part);
+        let finished = match read.payload.get("total").and_then(Value::as_u64) {
+            Some(total) => taken >= total,
+            None => !read.truncated,
+        };
+        if finished {
+            return Ok(Some(text));
+        }
+        if part.is_empty() {
+            return Ok(None);
+        }
     }
-    let Ok(read) = read else { return Ok(false) };
-    // The rest of a cut text was not observed: it cannot prove that a phrase is gone.
-    if read.truncated && !expected.text_gone.is_empty() {
-        return Ok(false);
-    }
-    let Some(text) = read.payload.get("text").and_then(Value::as_str) else { return Ok(false) };
-    Ok(page.probe.state().url == url && matches(expected.expected(), PageSample { text: Some(text), url: &url }))
+    Ok(None)
 }
 
 /// Polls until the postcondition holds or its budget ends; `announce` is cancelled the moment it holds so the settle can stop
@@ -317,12 +342,24 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_cut_text_finds_a_phrase_in_its_first_part_but_never_proves_one_gone() {
-        let (probe, host) = rig("Saved");
-        *host.read_truncated.lock().expect("lock") = true;
+    async fn a_text_longer_than_one_read_is_read_in_parts_so_a_late_phrase_is_found_and_a_missing_one_proved_gone() {
+        let long = format!("{}Saved", "x".repeat(250_000));
+        let (probe, host) = rig(&long);
         let present = normalize(Some(&json!({"text": "Saved"}))).expect("valid").expect("some");
         assert!(postcondition_matches_page(&page(&host, &probe), &present, &live()).await.expect("read"));
+        assert_eq!(host.count("read"), 3, "250,005 characters in parts of 120,000");
+        let gone = normalize(Some(&json!({"textGone": "Loading"}))).expect("valid").expect("some");
+        assert!(postcondition_matches_page(&page(&host, &probe), &gone, &live()).await.expect("read"));
+        let still_there = normalize(Some(&json!({"textGone": "Saved"}))).expect("valid").expect("some");
+        assert!(!postcondition_matches_page(&page(&host, &probe), &still_there, &live()).await.expect("read"));
+    }
+
+    #[tokio::test]
+    async fn a_text_the_host_never_finishes_giving_is_not_yet() {
+        let (probe, host) = rig("Saved");
+        *host.read_endless.lock().expect("lock") = true;
         let gone = normalize(Some(&json!({"textGone": "Loading"}))).expect("valid").expect("some");
         assert!(!postcondition_matches_page(&page(&host, &probe), &gone, &live()).await.expect("read"));
+        assert_eq!(host.count("read"), 10, "the parts are bounded");
     }
 }

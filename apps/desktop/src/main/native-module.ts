@@ -39,6 +39,13 @@ export function nativeModulePath(spec: Pick<NativeModuleSpec<unknown>, 'crate' |
   return join(process.env.CARGO_TARGET_DIR ?? join(root, 'native', spec.crate, 'target'), 'release', spec.builtFile(process.platform));
 }
 
+/** Loads a Node-API module from any file name (a dev build keeps cargo's library name): the one dlopen of the desktop's Rust modules. */
+export function dlopenNativeModule<Exports>(library: string): Exports {
+  const module = { exports: {} as Exports };
+  process.dlopen(module as NodeJS.Module, library);
+  return module.exports;
+}
+
 const loaded = new WeakMap<object, unknown>();
 
 /** The module's exports, loaded on the first call and kept; a module that cannot be loaded throws, naming the file. */
@@ -47,11 +54,10 @@ export function loadNativeModule<Exports>(spec: NativeModuleSpec<Exports>): Expo
   if (kept) return kept as Exports;
   const library = nativeModulePath(spec);
   try {
-    const module = { exports: {} as Exports };
-    process.dlopen(module as NodeJS.Module, library);
-    spec.check(module.exports);
-    loaded.set(spec, module.exports);
-    return module.exports;
+    const exports = dlopenNativeModule<Exports>(library);
+    spec.check(exports);
+    loaded.set(spec, exports);
+    return exports;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`[mixdog-native] The native module ${spec.packagedFile} could not be loaded from ${library}: ${message}.`);

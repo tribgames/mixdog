@@ -302,7 +302,7 @@ mod tests {
         let key = lane("foreground", Some("p1"));
         queue.hold().on_user_input(input("p1", true));
         assert_eq!(queue.run(&key, Kind::Read, &deadline(), &CancelSource::new(), |_| async {}).await, Err(QueueError::LocalInput));
-        queue.hold().release(&key);
+        queue.hold().release_page("p1");
         assert_eq!(queue.run(&key, Kind::Read, &deadline(), &CancelSource::new(), |_| async { 5 }).await, Ok(5));
     }
 

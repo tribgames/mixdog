@@ -1,0 +1,29 @@
+# g45-fu-rest desktop wiring
+
+## 1. ipc.ts (hot): hand the two window handlers the core connection they now call
+registerSessionIpc({ ..., core: protocol })            // readSessionAttachment -> desktop/attachment/resolve (the window's own core: the session lives there)
+registerWindowSettingsIpc({ ..., localCore: <this PC's protocol link> })   // listSystemFonts -> desktop/fonts/list: the installed fonts are THIS computer's,
+                                                        // so a server window passes this PC's link, not the server's. In index.ts registerDesktopIpc's options gain
+                                                        // `localProtocol: () => localConnection.protocol` (already used elsewhere in index.ts) and ipc.ts forwards it.
+Until this is applied both handlers answer "The core connection is not available." (the same behaviour as a window with no link).
+x-residual-moves-client.wire is applied by this task except these two lines: delete that file (the callers are switched in ipc-sessions.ts, ipc-window-settings.ts,
+model-bootstrap.ts; session-attachments.ts, transcript-file-links.ts, workflow-config.ts, system-fonts.ts and their tests are deleted; every parity line of that
+fragment names an existing Rust test).
+DesktopService `readSessionHistory` / `readSessionTranscript?` (desktop-service-contract.ts, desktop-service-client.ts) keep their members: the service RPC list
+still carries them (session-history-boundary.test.mjs lists those two files); drop them with the SERVICE_OPERATION list when nothing else calls them.
+
+## 2. Engine registration (s4-wire-desktop / DESKTOP-WIRE-G7)
+Beside registerRefCall(connection, engineCtx, ...):
+    import { registerRefMint } from './browser-engine/ref-mint';
+    registerRefMint(connection, engineCtx);           // no host object: it uses engineCtx.cdp and the page's ref table
+and delete the 'host/browser/ref/mint' entry from PENDING in host/host-coverage.test.mjs when it is served. registerRefCall now answers `frameOffset` for a ref in a
+cross-origin frame (it builds its own resolver from engineCtx.cdp and the page's sessions: no new dependency). registerSnapshot answers `observation`; registerPage's
+text read takes `options.offset`. These need the protocol types of pending-rows/g45-fu-rest.rows (tsc is clean without them: the new fields are added through spreads).
+
+## 3. s1-page-virtual-client.wire: items 4 and 5 are APPLIED by this task (visualize/service.slow.test.mjs and versions.test.mjs); delete those two items.
+Items 1, 2, 3 and 6 stay for the wiring.
+
+## 4. index.ts: x-rs-desktop-pet-client.wire (prefsPath -> call/reportError) and x-desktop-adopt.wire stay as written; this task did not touch index.ts.
+
+## 5. Tests: the package's pretest scripts run scripts/build-test-native.mjs (cargo build --release of native/mixdog-main-native when its library is older than its
+sources); the browser modules the tests import load that module. No test starts cargo.

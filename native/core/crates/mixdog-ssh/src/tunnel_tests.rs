@@ -267,6 +267,52 @@ async fn same_port_after_restart() {
 }
 
 #[tokio::test]
+async fn the_tunnel_writes_its_starts_readiness_and_exits_into_the_servers_log() {
+    let (_listener, port) = open_port().await;
+    let spawner = Spawner::new(false);
+    let env = env_of(spawner.clone());
+    let diagnostics = env.diagnostics.clone();
+    let ctx = AttemptContext { diagnostics_key: Some("tunnel-log".to_owned()), ..AttemptContext::default() };
+    let tunnel = SshTunnel::start_with(env, Some(ctx), spec(Some(port), vec![forward(41001)]), timing());
+    state_is(&tunnel, |state| *state == TunnelState::Up).await;
+    spawner.probe(0).finish(255, "client_loop: send disconnect: Connection reset\n").await;
+    until(|| spawner.count() == 2).await;
+    tunnel.stop().await;
+    let lines: Vec<String> = diagnostics
+        .entries("tunnel-log")
+        .into_iter()
+        .filter(|entry| entry.kind == crate::diagnostics::DiagnosticKind::Log)
+        .map(|entry| entry.text)
+        .collect();
+    assert!(lines[0].starts_with(&format!("ssh tunnel starting 127.0.0.1:{port} -> ")), "{lines:?}");
+    assert_eq!(lines[1], format!("ssh tunnel ready on 127.0.0.1:{port}"));
+    assert!(lines[2].starts_with("ssh tunnel exited (ssh exited with status 255); restarting in "), "{lines:?}");
+    assert!(lines[2].ends_with("client_loop: send disconnect: Connection reset"), "{lines:?}");
+}
+
+#[tokio::test]
+async fn ready_waits_through_a_restart_for_the_forward_and_reports_a_terminal_failure_or_the_deadline() {
+    let (_listener, port) = open_port().await;
+    let spawner = Spawner::new(false);
+    let tunnel = SshTunnel::start_with(env_of(spawner.clone()), None, spec(Some(port), vec![forward(41001)]), timing());
+    assert_eq!(tunnel.ready(Duration::from_secs(5)).await, Ok(port));
+    assert_eq!(tunnel.ready(Duration::from_millis(1)).await, Ok(port), "an up forward answers at once");
+    tunnel.stop().await;
+    let closed = tunnel.ready(Duration::from_secs(1)).await.unwrap_err();
+    assert_eq!((closed.kind, closed.message.as_str()), (FailureClass::Terminal, "The ssh tunnel is closed."));
+
+    let (_listener, port) = open_port().await;
+    let spawner = Spawner::new(false);
+    let tunnel = SshTunnel::start_with(env_of(spawner.clone()), None, spec(Some(port), vec![forward(41001)]), timing());
+    until(|| spawner.count() == 1).await;
+    spawner.probe(0).finish(255, "@    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @\nHost key verification failed.\n").await;
+    let failure = tunnel.ready(Duration::from_secs(5)).await.unwrap_err();
+    assert_eq!(failure.kind, FailureClass::Terminal);
+    assert!(failure.message.contains("REMOTE HOST IDENTIFICATION HAS CHANGED"), "{}", failure.message);
+    tunnel.stop().await;
+}
+
+#[tokio::test]
 async fn backoff_schedule() {
     let port = free_local_port().unwrap();
     let spawner = Spawner::new(false);

@@ -322,6 +322,11 @@ pub(crate) struct Remote<'a> {
 }
 
 impl Remote<'_> {
+    /// A line of this attempt's account of itself, into the server's diagnostics ring.
+    fn log(self, text: &str) {
+        self.env.diagnostics.log(self.context.diagnostics_key.as_deref(), text);
+    }
+
     /// One server program run over ssh: its raw `MIXDOG_RESULT` object and the server's platform.
     pub(crate) async fn run(
         self,
@@ -361,6 +366,7 @@ impl Remote<'_> {
         timeout: Duration,
     ) -> Result<Map<String, Value>, ConnectError> {
         let binary = payloads.binary(platform)?;
+        self.log(&format!("uploading server runtime {} platform={} bytes={}", args.install_id, platform.key(), binary.archive.len()));
         let mut with_upload = args.clone();
         with_upload.upload = true;
         with_upload.sha256 = Some(binary.sha256);
@@ -444,6 +450,14 @@ pub async fn bootstrap(
     }
     let (probed, platform) = remote.run(&base, REMOTE_PROBE_TIMEOUT, None).await?;
     let probe = report_of(&probed);
+    let core = probe.discovery.as_ref().map_or_else(|| "none".to_owned(), |found| format!("{}/{}", found.version, found.build));
+    remote.log(&format!(
+        "remote probe platform={} install={} installed={} core={core} current={}",
+        platform.key(),
+        base.install_id,
+        probe.installed,
+        probe.core_current
+    ));
     (options.progress)(BootstrapPhase::Check { detail: platform.key() });
     if probe.installed && probe.core_current {
         return ready(probe);
@@ -465,5 +479,13 @@ pub async fn bootstrap(
             return Err(error);
         }
     };
-    ready(report_of(&ensured))
+    let report = report_of(&ensured);
+    if let Some(replaced) = &report.replaced {
+        let version = if replaced.version.is_empty() { "unknown" } else { &replaced.version };
+        remote.log(&format!("replaced remote core pid={} mixdog={version} graceful={}", replaced.pid, replaced.graceful));
+    }
+    if !report.gc_removed.is_empty() {
+        remote.log(&format!("remote gc removed {}", report.gc_removed.join(", ")));
+    }
+    ready(report)
 }
