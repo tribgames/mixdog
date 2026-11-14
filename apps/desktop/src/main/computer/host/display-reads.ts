@@ -13,6 +13,7 @@ export function readDisplays() {
     index,
     id: String(display.id),
     primary: display.id === primaryId,
+    label: display.label,
     scale_factor: display.scaleFactor,
     width: display.size.width,
     height: display.size.height,

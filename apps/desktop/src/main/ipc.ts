@@ -53,7 +53,7 @@ import {
   requiredVisualizePanelSize,
   requiredVisualizeTabCommand,
 } from './ipc-validation';
-import { createServerFiles, uploadServerBytes } from './server-file-access';
+import { createServerFiles, serverCoreInvoke, uploadServerBytes } from './server-file-access';
 import type { DesktopVisualize } from './visualize/host';
 import type { VisualizeService } from './visualize/service';
 
@@ -205,6 +205,8 @@ interface DesktopIpcDependencies {
   /** The kind of daemon connection `host` is: a server (`ssh`) window refuses
    *  every feature that acts on this PC (see connections/feature-gates). */
   connectionKind?: ConnectionKind;
+  /** The window's connection id (a server window's: the id of this PC's link to the server, which its downloads go through). */
+  serverId?: string;
   /** Where the connection's daemon keeps user data (editor backups, editor
    *  settings); this PC's userData unless given. */
   serviceUserDataPath?: () => string;
@@ -245,6 +247,7 @@ export function registerDesktopIpc(
     remoteHosts,
     visualize,
     connectionKind = 'local',
+    serverId,
     serviceUserDataPath,
     pcHost,
     paneLayoutFile,
@@ -306,6 +309,8 @@ export function registerDesktopIpc(
     connectionKind === 'ssh'
       ? createServerFiles({
           invoke: invokeDesktopOperation,
+          core: serverCoreInvoke(pcCore ?? protocol),
+          serverId: serverId ?? '',
           listProjects: () => host.listProjects(),
           session: () => window.webContents.session,
           downloadsDir,

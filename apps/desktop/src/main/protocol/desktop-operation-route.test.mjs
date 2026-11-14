@@ -261,6 +261,11 @@ const CASES = [
   ],
   ['serverUploadCommit', ['tr1'], 'transfer/commit', { transferId: 'tr1' }],
   ['serverUploadAbort', ['tr1'], 'transfer/abort', { transferId: 'tr1' }],
+  ['serverDownloadBegin', ['s1', '/dl', '/srv/p', 'a.bin'], 'transfer/serverDownload/begin', { serverId: 's1', downloadsDir: '/dl', root: '/srv/p', rel: 'a.bin' }],
+  ['serverDownloadStep', ['d1'], 'transfer/serverDownload/step', { downloadId: 'd1' }],
+  ['serverDownloadFinish', ['d1'], 'transfer/serverDownload/finish', { downloadId: 'd1' }],
+  ['serverDownloadAbort', ['d1'], 'transfer/serverDownload/abort', { downloadId: 'd1' }],
+  ['serverDownloadCheck', ['/dl/a.bin'], 'transfer/serverDownload/check', { path: '/dl/a.bin' }],
   ['serverTrashInfo', ['/srv/p'], 'transfer/trash/info', { path: '/srv/p' }],
 
   // the operations whose Rust params carry what Node used (desktop-ops-gaps)
@@ -443,7 +448,7 @@ test('the routed operations are the spec map targets with params the Rust schema
       row.target.kind === 'method' ? [row.target.target] : row.target.kind === 'methods' ? row.target.target : null,
     ])
   );
-  assert.equal(operations.length, 166);
+  assert.equal(operations.length, 171);
   // Two operations have a core method the desktop never sends: `visualizeRemoteViewing` is read from a section, and
   // `browserRemoteWebrtcSignal` was the relay's own call into the desktop service (Node `main/index.ts`
   // `invokeDesktopOperation('browserRemoteWebrtcSignal', [clientId, signal])`); the phone now sends
