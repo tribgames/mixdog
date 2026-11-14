@@ -28,6 +28,7 @@ mod preserve;
 mod session_metadata;
 mod source;
 mod state_tables;
+pub mod supplement;
 mod title;
 
 #[cfg(test)]

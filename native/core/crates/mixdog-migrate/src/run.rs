@@ -44,6 +44,7 @@ use mixdog_store::schema::migration::StagedEntry;
 use mixdog_store::schema::migration::VerifiedEntry;
 use mixdog_store::schema::bounded::Text;
 
+use crate::desktop_profile::supplement;
 use crate::durable;
 use crate::error::Blocked;
 use crate::error::Result;
@@ -376,17 +377,44 @@ impl Migrator {
         // A publication a kill cut leaves its tmp file here (the main and the late pass publish into this directory); it goes before the marker is read, and the run publishes the name again under a new tmp.
         durable::sweep_tmp(&data.join(MANIFEST_PATH).parent().expect("the migration dir"))?;
         let Some(bytes) = durable::read_optional(&data.join(COMPLETE_PATH))? else {
+            self.supplement(self.roots.profile.clone())?;
             return self.begin(self.roots.clone(), Pass::First);
         };
         let complete: Complete = serde_json::from_slice(&bytes)
             .map_err(|e| Blocked::journal(format!("complete.json: {e}")))?;
         match self.late_profile(&complete)? {
-            Some(profile) => self.begin(MigrationRoots { profile: Some(profile), ..self.roots.clone() }, Pass::Late(complete.kinds.data)),
+            Some(profile) => {
+                self.supplement(Some(profile.clone()))?;
+                self.begin(MigrationRoots { profile: Some(profile), ..self.roots.clone() }, Pass::Late(complete.kinds.data))
+            }
             None => {
+                // Generation 2: the profile files the first pass did not list, for the profile the migration completed with.
+                if self.roots.profile.is_some() {
+                    self.supplement(self.completed_profile()?)?;
+                }
                 durable::remove_dir_all(&data.join(STAGE_DIR))?;
                 Ok(Front::Complete(complete))
             }
         }
+    }
+
+    /// Brings `profile` to generation 2 of the profile move (a no-op when none is named or the marker is current).
+    fn supplement(&self, profile: Option<PathBuf>) -> Result<()> {
+        let Some(profile) = profile else { return Ok(()) };
+        let roots = MigrationRoots { profile: Some(profile), ..self.roots.clone() };
+        supplement::run_with(&roots, &|point| self.fault(point)).map(drop)
+    }
+
+    /// The profile a completed migration moved: the late manifest's when a late pass ran, else the first manifest's.
+    fn completed_profile(&self) -> Result<Option<PathBuf>> {
+        let data = &self.roots.data;
+        let bytes = match durable::read_optional(&data.join(LATE_MANIFEST_PATH))? {
+            Some(bytes) => bytes,
+            None => durable::read(&data.join(MANIFEST_PATH))?,
+        };
+        let manifest: Manifest = serde_json::from_slice(&bytes)
+            .map_err(|e| Blocked::journal(format!("manifest: {e}")))?;
+        Ok(manifest.roots.profile.map(PathBuf::from))
     }
 
     fn begin(&self, roots: MigrationRoots, pass: Pass) -> Result<Front> {
