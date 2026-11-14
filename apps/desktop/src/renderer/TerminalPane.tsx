@@ -232,6 +232,11 @@ function releaseWebglRenderer(view: TerminalView): void {
   }
 }
 
+/** Main's flow control: output parsed into xterm is acknowledged by its char count. */
+function acknowledgeTerminalOutput(id: string, charCount: number): void {
+  window.mixdogDesktop.termAcknowledge?.(id, charCount);
+}
+
 function terminalView(key: string): TerminalView {
   const existing = terminalViews.get(key);
   if (existing) return existing;
@@ -249,7 +254,7 @@ function terminalView(key: string): TerminalView {
   term.loadAddon(fit);
   const writer = new TerminalWritePump(
     (data, complete) => term.write(data, complete),
-    (id, charCount) => window.mixdogDesktop.termAcknowledge?.(id, charCount)
+    acknowledgeTerminalOutput
   );
   // Relay-served browsers pay a full round trip per echoed keystroke; the
   // predictor paints validated keystrokes immediately (user: RTT 때문에
@@ -370,7 +375,7 @@ export function prewarmTerminal(terminalId: string): Promise<boolean> {
     } else {
       clearTerminalViewState(terminalId);
     }
-    attachTerminalOutput(view, window.mixdogDesktop.subscribeTermData);
+    attachTerminalOutput(view, window.mixdogDesktop.subscribeTermData, acknowledgeTerminalOutput);
     view.warmed = true;
     await replayWrite;
     return true;
@@ -663,7 +668,7 @@ export default function TerminalPane({
       }
       // A retry after a failed attempt must not stack a second subscription
       // or key handler onto the same view.
-      attachTerminalOutput(view, window.mixdogDesktop.subscribeTermData);
+      attachTerminalOutput(view, window.mixdogDesktop.subscribeTermData, acknowledgeTerminalOutput);
       const sendToPty = (rawData: string) => {
         if (!view.id) return;
         // Armed phone Ctrl/Alt apply to the next input, typed or from the bar.
