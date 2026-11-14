@@ -16,12 +16,12 @@ notification-open and desktop-notice listeners and a second browser texture brid
 Consumer note for s2a-ts-api-capabilities (G4): DesktopHostExtras types the PC quota results as non-null, but main
 answers null for a call that is not the PC's quota; null means "send to the window's own host".
 
-## Not applied: depends on t-s2b-packaging (not merged, its review said do not merge)
+## Unblocked in G2.5: the claim's askpass `resources` (DESKTOP-WIRE, next desktop wiring)
 
-Nothing in the G2 desktop fragments depends on it. Its own desktop packaging (stage-core.mjs staging mixdog-askpass beside
-mixdogd, the stage-mixdogd action, linux-build-core-old-glibc.sh, dev-update-windows.ps1 / dev-update-mac.sh) is not in
-the tree; the claim's `resources` (askpass helper path) is therefore not sent by this desktop. Unblocked when s2b-packaging
-is reworked and merged (G2 rework or the next packaging slot).
+t-s2b-packaging and t-g25-fu-pkg are merged: stage-core.mjs stages mixdog-askpass beside mixdogd, and the stage-mixdogd action,
+linux-build-core-old-glibc.sh, dev-update-windows.ps1 and dev-update-mac.sh build and carry it. The claim's `resources`
+(askpass helper path) is still not sent by this desktop; no G2.5 fragment carried that line, so it stays with the next
+DESKTOP-WIRE task.
 
 ## Not applied: s3-15.wire (core fragment), its desktop section (unblocked by DESKTOP-WIRE-G4, G4)
 
