@@ -142,11 +142,15 @@ test('production desktop starts the packaged mixdogd and tells it where its reso
   assert.doesNotMatch(main, /daemon\.cjs|MIXDOG_SUPERVISOR_BIN/);
 });
 
-test('FastDirect staging ships the PTY package unpacked beside the archive', async () => {
-  assert.match(
-    await text('../../scripts/dev-fast-direct.mjs'),
-    /const ptyPackageSegments = \['node_modules', '@homebridge', 'node-pty-prebuilt-multiarch'\];/
-  );
+test('the desktop package ships no node-pty: terminals run in the core', async () => {
+  const sources = [
+    '../../electron-builder.yml',
+    '../../package.json',
+    '../../package-lock.json',
+    '../../scripts/prepare-runtime.mjs',
+    '../../scripts/dev-fast-direct.mjs',
+  ];
+  for (const source of sources) assert.doesNotMatch(await text(source), /node-pty/, source);
 });
 
 test('Windows installer is one-click, per-user, and registers the mixdog deep link', async () => {
@@ -164,7 +168,6 @@ test('the capture harness stays out of the production entry and the package', as
 test('runtime preparation reads back the architecture of every native artifact it packages', async () => {
   const preparation = await text('../../scripts/prepare-runtime.mjs');
   assert.match(preparation, /assertTargetArchitecture\(destination,\s*`Native tool \$\{kind\}`\)/);
-  assert.match(preparation, /assertTreeTargetArchitecture\(\s*await desktopPtyNativeRoot\(\)/);
   assert.match(preparation, /assertTargetArchitecture\(source,\s*`Runtime addon \$\{entry\}`\)/);
 });
 

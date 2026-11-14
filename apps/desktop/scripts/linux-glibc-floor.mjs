@@ -8,8 +8,8 @@
 //   - an ELF that links glibc (NEEDED libc.so.6 ...) yields no GLIBC_ symbol,
 //   - a --require path is not a scanned ELF of the package architecture,
 //   - no GLIBC symbols were found at all, or the floor exceeds [maxAllowed].
-// ELF files built for another architecture (e.g. node-pty's linux-arm
-// prebuilds) cannot load on this package and are counted, not parsed.
+// ELF files built for another architecture (e.g. a bundled linux-arm
+// prebuild) cannot load on this package and are counted, not parsed.
 import { execFileSync } from 'node:child_process';
 import { closeSync, openSync, readSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
