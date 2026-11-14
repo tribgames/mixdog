@@ -11,9 +11,10 @@ implementations are pinned to the same table. File `parity/<name>.json`:
 - `input` is whatever the implementation under test takes; `expect` is the JSON value it must produce
   (compared structurally; object key order does not matter, array order does).
 - Rust: `mixdog_testkit::parity::cases(name)` returns `Vec<Case { id, input, expect }>`;
-  `assert_case(&case, &actual)` panics naming the file and the case id when `actual != case.expect`.
+  `assert_case(&case, &actual)` panics naming the case id when `actual != case.expect`.
 - Node: `import { loadCases, assertCase } from '<repo>/scripts/parity/cases.mjs'`; `loadCases(name)` returns
-  `[{ id, input, expect }]`; `assertCase(case, actual)` throws an `AssertionError` naming the file and id.
+  `[{ id, input, expect }]`; `assertCase(case, actual, name?)` throws an `AssertionError` naming the case id (and the file when `name`
+  is given).
 
 A test loops over the cases and calls the assert for each, so a mismatch reports the id of the failing case.
 Put NaN, infinities and values JSON cannot hold in the input as strings and decode them in the test.
