@@ -427,7 +427,7 @@ mod tests {
             (session == "s1").then_some(4242)
         }
         async fn helper(&self, session: &str, command: Map<String, Value>) -> Result<Map<String, Value>, String> {
-            let refused = command.get("action") == Some(&json!("close_window")).then_some("computer_policy_denied: not authorized".to_owned());
+            let refused = (command.get("action") == Some(&json!("close_window"))).then_some("computer_policy_denied: not authorized".to_owned());
             self.helper.lock().unwrap().push((session.to_owned(), command));
             match refused {
                 Some(message) => Err(message),
