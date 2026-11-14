@@ -1360,7 +1360,10 @@ mod tests {
         // Force rename itself to fail after a slot is reserved, as an interrupted
         // or obstructed move would. No file from the record may move separately.
         let failure = |_: &Path, target: &Path| {
-            fs::write(target, "obstruction")?;
+            // Windows may replace a file with a directory; a nonempty directory
+            // is an obstruction to directory rename on every supported platform.
+            fs::create_dir(target)?;
+            fs::write(target.join("obstruction"), "keep")?;
             Ok(())
         };
         assert!(adopt_units(&from, &to, &archive, true, &failure).is_err());
@@ -1371,7 +1374,7 @@ mod tests {
         assert_eq!(fs::read_to_string(to.join(id).join("manifest.json")).unwrap(), "current manifest");
         assert!(!to.join(id).join("0.before").exists());
         let preserved = fs::read_dir(&archive).unwrap().map(|slot| slot.unwrap().path().join(id))
-            .find(|path| path.is_dir()).unwrap();
+            .find(|path| path.join("manifest.json").is_file()).unwrap();
         assert_eq!(fs::read_to_string(preserved.join("manifest.json")).unwrap(), "old manifest");
         assert_eq!(fs::read_to_string(preserved.join("0.before")).unwrap(), "old payload");
         fs::remove_dir_all(to.join(id)).unwrap();
