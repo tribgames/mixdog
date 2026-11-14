@@ -12,8 +12,11 @@
 //! `computer_frames`, `computer_reply`, `computer_settle`, `computer_verify`, `computer_zoom`,
 //! `computer_ocr`, `computer_internal_windows`, `computer_lane` (the desktop's one keyboard and
 //! pointer), `computer_user_control`, `computer_lease` and `computer_feedback` (the helper's side
-//! lines) and `computer_abort`. The ones not ported yet keep this backend's earlier behaviour:
-//! the actions they serve report `Unavailable`.
+//! lines) and `computer_abort`; and what the host kept of a session: `computer_history` (the run history and the failure
+//! bundles of every command), `computer_delta` (the observation delta and the baseline of a capture), `computer_pixels` (the
+//! pixels of a display), `computer_image_output`, `computer_marks_draw`, `computer_pointer` (the arrow readied before a pointer
+//! step and the pointer held between a session's commands) and `computer_app_owned` (the desktop's own windows). The actions
+//! still served by the desktop's secret store (`saved_login`) report `Unavailable` here.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -79,18 +82,30 @@ use super::computer_budget::InFlight;
 use super::computer_budget::LiveProcess;
 use super::computer_budget::LiveProcesses;
 use super::computer_budget::Tally;
+use super::computer_capture;
 use super::computer_command::host_command;
 use super::computer_command::text;
 use super::computer_command::validate;
+use super::computer_delta::DeltaStore;
 use super::computer_env;
 use super::computer_env::EnvInputs;
 use super::computer_feedback;
 use super::computer_frames::FrameStore;
+use super::computer_history::FailureBundles;
+use super::computer_history::RunLog;
+use super::computer_history::RunReply;
+use super::computer_history::history_limit;
+use super::computer_history::log_error;
+use super::computer_history::run_record;
+use super::computer_image_output::ImageOutput;
 use super::computer_internal_windows;
 use super::computer_lane;
 use super::computer_lane::Lane;
 use super::computer_lease;
 use super::computer_linux;
+use super::computer_pixels::ComputerBlobs;
+use super::computer_pixels::DisplayOcr;
+use super::computer_pointer::PointerHold;
 use super::computer_policy;
 use super::computer_recovery::lead_code as error_code;
 use super::computer_reply;
@@ -131,6 +146,8 @@ fn node_spawn_message(binary: &Path, error: &ProcessError) -> Option<String> {
 
 /// Per-command ceiling for one helper round trip (Node `COMMAND_TIMEOUT_MS`).
 pub(super) const COMMAND_TIMEOUT: Duration = Duration::from_millis(45_000);
+/// The budget of a recognition of display pixels (`capture-ocr.ts`: `callPowerShell(..., 5_000)`).
+const OCR_IMAGE_TIMEOUT: Duration = Duration::from_millis(5_000);
 const MAX_REQUEST_BYTES: usize = 256 * 1024;
 const MAX_RESPONSE_BYTES: usize = 32 * 1024 * 1024;
 const MAX_TEXT_CHARS: usize = 1_000_000;
@@ -196,12 +213,30 @@ pub struct ComputerShared {
     pub live: Arc<LiveProcesses>,
     /// The helper requests in flight across the sessions (32 at most).
     pub in_flight: Arc<InFlight>,
+    /// The observation lists the sessions hold and the baselines their captures are compared with (`observationDeltaBySession`,
+    /// `lastCaptureBySession`).
+    pub delta: Arc<DeltaStore>,
+    /// The pointer holds of the sessions' foreground commands; `None` where no overlay shows the agent's arrow.
+    pub pointer_hold: Option<Arc<PointerHold>>,
+    /// The core's blob store, which the pixels of a display are read from; `None` where none is attached, and a capture of a screen
+    /// answers that it is unavailable.
+    pub blobs: Option<Arc<dyn ComputerBlobs>>,
 }
 
 impl Default for ComputerShared {
     /// A lane, a control and a budget of its own, observation only off.
     fn default() -> Self {
-        Self { lane: Arc::default(), user_control: Arc::default(), observe_only: Arc::new(|| false), budget: Arc::default(), live: Arc::default(), in_flight: Arc::default() }
+        Self {
+            lane: Arc::default(),
+            user_control: Arc::default(),
+            observe_only: Arc::new(|| false),
+            budget: Arc::default(),
+            live: Arc::default(),
+            in_flight: Arc::default(),
+            delta: Arc::default(),
+            pointer_hold: None,
+            blobs: None,
+        }
     }
 }
 
@@ -438,6 +473,27 @@ pub struct ProcessComputerBackend {
     cleaning: Arc<std::sync::atomic::AtomicUsize>,
     /// The windows this session has been told about, which the next command names the newcomers to.
     pub(super) arrivals: computer_settle::Arrivals,
+    /// The run history, failure bundles and frame files under the data directory; `None` without one.
+    pub(super) files: Option<DataFiles>,
+}
+
+/// What a backend keeps of its commands under the data directory: the run history, the failure bundles and the frames
+/// `image_output: "file"` moves out of the conversation.
+pub(super) struct DataFiles {
+    runs: RunLog,
+    failures: FailureBundles,
+    pub(super) images: ImageOutput,
+}
+
+impl DataFiles {
+    fn under(data_dir: &Path) -> Self {
+        Self { runs: RunLog::new(data_dir), failures: FailureBundles::new(data_dir), images: ImageOutput::new(data_dir) }
+    }
+
+    /// One diagnostic row of the session's failure bundle (`recordDiagnostic`).
+    pub(super) fn diagnose(&self, session: &str, row: &Map<String, Value>) {
+        self.failures.record(session, row);
+    }
 }
 
 /// The environment the Linux preflight reads, taken afresh for each action.
@@ -510,6 +566,7 @@ impl ProcessComputerBackend {
     pub fn new(config: ComputerConfig, manager: Arc<dyn ProcessManager>) -> Self {
         Self {
             observer: None,
+            files: config.data_dir.as_deref().map(DataFiles::under),
             config,
             manager,
             host: Mutex::new(None),
@@ -605,6 +662,7 @@ impl ProcessComputerBackend {
         self.shared.lane.forget(&self.config.session_id);
         self.arrivals.forget();
         self.frames.forget_delivered();
+        self.shared.delta.forget_session(&self.config.session_id);
         let confirmed = self.retire().await;
         if confirmed {
             self.bound.store(false, Ordering::SeqCst);
@@ -618,6 +676,10 @@ impl ProcessComputerBackend {
     pub(super) fn pause_unless(&self, confirmed: bool) -> bool {
         if !confirmed {
             self.shared.user_control.cleanup_unconfirmed(&self.config.session_id);
+            // The user's hold of the desktop began: the pointer holds end without a release, the helpers restore the cursor.
+            if let Some(hold) = &self.shared.pointer_hold {
+                hold.paused();
+            }
         }
         confirmed
     }
@@ -650,7 +712,12 @@ impl ProcessComputerBackend {
         let _lane = self.shared.lane.enter(computer_lane::Kind::Release, &CancellationToken::new()).await.ok();
         let mut command = Map::new();
         command.insert("action".into(), json!("release_held_input"));
-        match self.call(command, &CancellationToken::new()).await {
+        let released = self.call(command, &CancellationToken::new()).await;
+        // The turn is over: a held pointer is the user's again at once.
+        if let Some(hold) = &self.shared.pointer_hold {
+            hold.turn_ended(&self.config.session_id).await;
+        }
+        match released {
             Ok(_) => true,
             Err(_) => self.abort_session().await,
         }
@@ -717,11 +784,20 @@ impl ProcessComputerBackend {
 
     /// The resident helper, which reads requests from stdin. The ledger's folder is made first (`newPath` in
     /// `worker-ledgers.ts`): the helper opens the ledger without creating folders, and holds nothing it cannot record.
-    fn resident(&self) -> Result<SpawnRequest, ComputerError> {
+    fn resident(&self, bounds: Option<(String, String)>) -> Result<SpawnRequest, ComputerError> {
         if let Some(folder) = self.config.data_dir.as_deref().map(computer_env::ledger_folder) {
             let _ = std::fs::create_dir_all(folder);
         }
-        self.request(Vec::new(), true, Vec::new())
+        self.request(Vec::new(), true, bounds.into_iter().collect())
+    }
+
+    /// `desktopBoundsEnvironment`: where a Linux compositor cannot report its outputs the helper's input device spans the displays
+    /// the desktop reports. None elsewhere, and where the desktop does not answer.
+    async fn desktop_bounds(&self) -> Option<(String, String)> {
+        self.linux.as_ref()?;
+        let desktop = self.desktop().ok()?;
+        let displays = super::computer_pixels::read_displays(desktop.as_ref(), &CancellationToken::new()).await.ok()?;
+        computer_env::desktop_bounds_env(&displays)
     }
 
     /// `--abort-cleanup`: a fresh process that releases what the helper held and restores the session's restore points.
@@ -737,7 +813,7 @@ impl ProcessComputerBackend {
         self.sweep_leftover_ledgers().await;
         // A new process is refused while the cap of live ones is reached (`assertComputerWorkerCapacity`, `worker-pool.ts:182`).
         self.shared.live.assert_room()?;
-        let request = self.resident()?;
+        let request = self.resident(self.desktop_bounds().await)?;
         let handle = request.handle.clone();
         let live = self.shared.live.hold();
         let spawned = self.manager.spawn(request).await.map_err(|error| match node_spawn_message(&self.config.binary, &error) {
@@ -1032,7 +1108,7 @@ impl ProcessComputerBackend {
     }
 
     /// The desktop that serves the computer host's reads, or Node's refusal when none does (`client.mjs` `BRIDGE_UNAVAILABLE_MESSAGE`).
-    fn desktop(&self) -> Result<&Arc<dyn HostChannel>, ComputerError> {
+    pub(super) fn desktop(&self) -> Result<&Arc<dyn HostChannel>, ComputerError> {
         match &self.desktop {
             Some(desktop) if desktop.serves(HostCapability::Computer) => Ok(desktop),
             _ => Err(bridge_unavailable()),
@@ -1112,6 +1188,16 @@ fn bridge_unavailable() -> ComputerError {
 
 fn host_exited() -> ComputerError {
     ComputerError::Failed { code: "computer_host_exited".into(), message: "the computer host stopped".into() }
+}
+
+/// The words of an error as the model reads them.
+pub(super) fn error_text(error: &ComputerError) -> String {
+    match error {
+        ComputerError::Failed { message, .. } => message.clone(),
+        ComputerError::Unavailable { reason } | ComputerError::InvalidInput { reason } => reason.clone(),
+        ComputerError::Denied => "denied".to_owned(),
+        ComputerError::Cancelled => "cancelled".to_owned(),
+    }
 }
 
 pub(super) fn unsupported(reason: &str) -> ComputerError {
@@ -1248,66 +1334,12 @@ impl ComputerBackend for ProcessComputerBackend {
                 return Err(ComputerError::Failed { code: refusal.code.into(), message: refusal.message });
             }
         }
-        // `trackComputerSession` (`client.mjs:366-371`) runs for each command sent.
-        self.bound.store(true, Ordering::SeqCst);
-        self.shared.lane.claim(&self.config.session_id);
-        let observe_only = self.observe_only();
-        if !self.executing.swap(true, Ordering::SeqCst) {
-            if let Some(observer) = &self.observer {
-                observer.began(observe_only);
-            }
-        }
-        // The host's admission (`command-admission.ts` `assertCommandPreconditions`) checks the live setting first.
-        computer_policy::admit(&command, observe_only, &self.frames)?;
-        let name = text(&command, "action").to_string();
-        // While a typed secret's field may hold focus no capture leaves the host: a read is
-        // refused, and the next action (which moves on) lifts the hold.
-        if self.secret_focus.load(Ordering::SeqCst) {
-            if HOST_READ_ACTIONS.contains(&name.as_str()) {
-                return Err(ComputerError::Failed {
-                    code: "capture_withheld".into(),
-                    message: "capture_withheld: a secret field may be focused; move focus (Tab or a click elsewhere) first".into(),
-                });
-            }
-            self.secret_focus.store(false, Ordering::SeqCst);
-        }
-        // Every command of the host starts with a look at the windows that opened since the session's last one.
-        let arrived = computer_settle::arrived_before(self, &name, &cancel).await?;
-        computer_targets::resolve(self, &mut command, &cancel).await?;
-        // The person's pause parks a request outside the lane (`command-queue.ts`), so the other sessions are not queued behind it.
-        let control = &self.shared.user_control;
-        if let Some(held) = control.park_before_lane(self, &command, &cancel).await? {
-            return Ok(held);
-        }
-        let _lane = self.shared.lane.enter(computer_lane::Kind::of(&command), &cancel).await?;
-        // The person's hold on the desktop: a takeover refuses the command, a yield answers it, before anything is dispatched.
-        if let Some(held) = control.admit(self, &command, &cancel).await? {
-            return Ok(held);
-        }
-        let issued = command.clone();
-        let result = match name.as_str() {
-            "sequence" => self.act(command, &cancel).await,
-            "capture" => self.capture(command, asked_mode, &cancel).await,
-            "zoom" => computer_zoom::zoom(self, command, &cancel).await,
-            "list_history" => Err(unsupported("list kind=\"history\" needs the desktop host's action ledger")),
-            "wait_for_user" => control.wait_for_user(self, &command, &cancel).await,
-            "fill_saved_login" => Err(unsupported("saved_login needs the desktop host's secret store")),
-            "verify" => computer_verify::run(self, command, &cancel).await,
-            "diagnose" => self.diagnose(&command, &cancel).await,
-            _ => self.single(&name, command, &cancel).await,
-        };
-        // The person's input that interrupted the command yields its session, a takeover code hands the desktop back.
-        let result = control.settle(self, &issued, result).await;
-        // The arrivals report reads the window list for app names: it runs after the lane is given back, as TS reported after
-        // runForegroundExclusive returned (`command-attempt.ts`).
-        drop(_lane);
-        // The fallback's note follows a result that is not an error.
-        let mut parts = result?;
-        computer_settle::report_arrived(self, &name, arrived, &mut parts, &cancel).await?;
-        if let Some(note) = note {
-            parts.push(ToolPart::Text(note.into()));
-        }
-        Ok(parts)
+        // Every command that reaches the host leaves its line in the run history, and a failed one its bundle (`command-attempt.ts`).
+        let logged = command.clone();
+        let started = Instant::now();
+        let outcome = self.run_command(command, asked_mode, note, &cancel).await;
+        self.keep_record(&logged, started, &outcome);
+        outcome
     }
 
     fn inject(&self, input: ScreenInput) -> Result<InputOutcome, ComputerError> {
@@ -1336,6 +1368,185 @@ impl ComputerBackend for ProcessComputerBackend {
         ComputerStatus { active, observe_only: self.observe_only(), controller: None }
     }
 }
+
+impl ProcessComputerBackend {
+    /// The command from the person's session through the lane to the reply: the part of `run` whose outcome is logged.
+    async fn run_command(&self, mut command: Map<String, Value>, asked_mode: &str, note: Option<&'static str>, cancel: &CancellationToken) -> Result<Vec<ToolPart>, ComputerError> {
+        // `trackComputerSession` (`client.mjs:366-371`) runs for each command sent.
+        self.bound.store(true, Ordering::SeqCst);
+        self.shared.lane.claim(&self.config.session_id);
+        let observe_only = self.observe_only();
+        if !self.executing.swap(true, Ordering::SeqCst) {
+            if let Some(observer) = &self.observer {
+                observer.began(observe_only);
+            }
+        }
+        // The host's admission (`command-admission.ts` `assertCommandPreconditions`) checks the live setting first.
+        computer_policy::admit(&command, observe_only, &self.frames)?;
+        let name = text(&command, "action").to_string();
+        // While a typed secret's field may hold focus no capture leaves the host: a read is
+        // refused, and the next action (which moves on) lifts the hold.
+        if self.secret_focus.load(Ordering::SeqCst) {
+            if HOST_READ_ACTIONS.contains(&name.as_str()) {
+                return Err(ComputerError::Failed {
+                    code: "capture_withheld".into(),
+                    message: "capture_withheld: a secret field may be focused; move focus (Tab or a click elsewhere) first".into(),
+                });
+            }
+            self.secret_focus.store(false, Ordering::SeqCst);
+        }
+        // Every command of the host starts with a look at the windows that opened since the session's last one.
+        let arrived = computer_settle::arrived_before(self, &name, cancel).await?;
+        computer_targets::resolve(self, &mut command, cancel).await?;
+        // The person's pause parks a request outside the lane (`command-queue.ts`), so the other sessions are not queued behind it.
+        let control = &self.shared.user_control;
+        if let Some(held) = control.park_before_lane(self, &command, cancel).await? {
+            return Ok(held);
+        }
+        let kind = computer_lane::Kind::of(&command);
+        let _lane = self.shared.lane.enter(kind, cancel).await?;
+        // The person's hold on the desktop: a takeover refuses the command, a yield answers it, before anything is dispatched.
+        if let Some(held) = control.admit(self, &command, cancel).await? {
+            return Ok(held);
+        }
+        let issued = command.clone();
+        // One physical pointer: another session's blanked cursor ends before this one's foreground command (`pointerHold.claim`).
+        let hold = self.shared.pointer_hold.as_ref().filter(|_| kind == computer_lane::Kind::Command);
+        if let Some(hold) = hold {
+            hold.other_session(&self.config.session_id).await;
+        }
+        let result = match name.as_str() {
+            "sequence" => self.act(command, cancel).await,
+            "capture" => self.capture(command, asked_mode, cancel).await,
+            "zoom" => self.zoom(command, cancel).await,
+            "list_history" => Ok(vec![ToolPart::Text(self.history(&issued).to_string())]),
+            "wait_for_user" => control.wait_for_user(self, &command, cancel).await,
+            "fill_saved_login" => Err(unsupported("saved_login needs the desktop host's secret store")),
+            "verify" => computer_verify::run(self, command, cancel).await,
+            "diagnose" => self.diagnose(&command, cancel).await,
+            _ => self.single(&name, command, cancel).await,
+        };
+        // However the command ended, its pointer is held for the grace (`pointerHold.arm`).
+        if let Some(hold) = hold {
+            hold.command_ended(&self.config.session_id);
+        }
+        // The person's input that interrupted the command yields its session, a takeover code hands the desktop back.
+        let result = control.settle(self, &issued, result).await;
+        // The arrivals report reads the window list for app names: it runs after the lane is given back, as TS reported after
+        // runForegroundExclusive returned (`command-attempt.ts`).
+        drop(_lane);
+        // The fallback's note follows a result that is not an error.
+        let mut parts = result?;
+        computer_settle::report_arrived(self, &name, arrived, &mut parts, cancel).await?;
+        if let Some(note) = note {
+            parts.push(ToolPart::Text(note.into()));
+        }
+        Ok(parts)
+    }
+
+    /// `list kind="history"`: the session's most recent run records, newest last (`readComputerRunRecords`); a backend with no data
+    /// directory keeps none.
+    fn history(&self, command: &Map<String, Value>) -> Value {
+        match &self.files {
+            Some(files) => files.runs.history(&self.config.session_id, history_limit(command.get("limit"))),
+            None => json!({ "history": [], "returned": 0 }),
+        }
+    }
+
+    /// The line a finished command leaves in the run history and the row it adds to the session's failure bundle
+    /// (`appendComputerRunRecord`, `recordDiagnostic` of `command-attempt.ts`). Neither ever decides the command's outcome.
+    fn keep_record(&self, command: &Map<String, Value>, started: Instant, outcome: &Result<Vec<ToolPart>, ComputerError>) {
+        let Some(files) = &self.files else { return };
+        let session = &self.config.session_id;
+        let elapsed_ms = started.elapsed().as_secs_f64() * 1000.0;
+        let (record, stage) = match outcome {
+            Ok(parts) => {
+                let reply = parts.iter().find_map(|part| if let ToolPart::Text(text) = part { Some(text.as_str()) } else { None }).unwrap_or_default();
+                (run_record(command, elapsed_ms, Some(&RunReply { text: reply, capture_attempts: None })), "completed")
+            }
+            Err(error) => {
+                let mut record = run_record(command, elapsed_ms, None);
+                record.insert("ok".into(), json!(false));
+                record.insert("error".into(), json!(log_error(&error_text(error))));
+                (record, "execution")
+            }
+        };
+        files.runs.append(session, record.clone());
+        let mut row = record;
+        row.insert("stage".into(), json!(stage));
+        files.diagnose(session, &row);
+    }
+
+    /// `zoom`: a region of the latest frame, cut from the display the frame was taken of (read through the desktop) or from the
+    /// window's own surface (the helper).
+    async fn zoom(&self, command: Map<String, Value>, cancel: &CancellationToken) -> Result<Vec<ToolPart>, ComputerError> {
+        let mut parts = if self.frames.display_of(text(&command, "frame_id")).is_some() {
+            let desktop = self.desktop()?;
+            let blobs = self.display_blobs()?;
+            computer_zoom::zoom_display(desktop.as_ref(), blobs.as_ref(), &self.frames, Some(self), command.clone(), cancel).await?
+        } else {
+            computer_zoom::zoom(self, command.clone(), cancel).await?
+        };
+        self.keep_image(&command, &mut parts);
+        Ok(parts)
+    }
+
+    /// The blob store the pixels of a display are read from.
+    pub(super) fn display_blobs(&self) -> Result<&Arc<dyn ComputerBlobs>, ComputerError> {
+        self.shared.blobs.as_ref().ok_or_else(|| ComputerError::Unavailable { reason: "display pixels need the core's blob store, which is not attached".into() })
+    }
+
+    /// `image_output: "file"` (`persistCaptureImage`, `frameReply`): the frame's pixels move to a file the host names beside the
+    /// run, and the reply says where. A frame that cannot be written stays in the reply.
+    pub(super) fn keep_image(&self, command: &Map<String, Value>, parts: &mut Vec<ToolPart>) {
+        if text(command, "image_output") != "file" {
+            return;
+        }
+        let Some(files) = &self.files else { return };
+        let Some(at) = parts.iter().position(|part| matches!(part, ToolPart::Image { data: ImageData::Bytes(_), .. })) else { return };
+        let ToolPart::Image { mime, data: ImageData::Bytes(bytes), .. } = &parts[at] else { return };
+        let Some(frame_id) = parts.iter().find_map(|part| if let ToolPart::Text(shown) = part { frame_id_of(shown) } else { None }) else { return };
+        let Ok(path) = files.images.write(&self.config.session_id, &frame_id, bytes, mime) else { return };
+        let (mime, size) = (mime.clone(), bytes.len());
+        parts.remove(at);
+        for part in parts.iter_mut() {
+            let ToolPart::Text(shown) = part else { continue };
+            if frame_id_of(shown).as_deref() != Some(frame_id.as_str()) {
+                continue;
+            }
+            *shown = match serde_json::from_str::<Value>(shown) {
+                Ok(Value::Object(mut payload)) => {
+                    payload.insert("image_file".into(), json!({ "path": path.to_string_lossy(), "bytes": size, "mime_type": mime }));
+                    Value::Object(payload).to_string()
+                }
+                _ => format!("{shown}; frame written to {} ({size} bytes)", path.display()),
+            };
+            break;
+        }
+    }
+}
+
+/// The frame a reply text names: its `frame_id` field, or the `frame_id=<id>` its description carries.
+fn frame_id_of(text: &str) -> Option<String> {
+    if let Ok(Value::Object(payload)) = serde_json::from_str::<Value>(text) {
+        return payload.get("frame_id").and_then(Value::as_str).map(str::to_owned);
+    }
+    let rest = text.split("frame_id=").nth(1)?;
+    rest.split(|c: char| c.is_whitespace() || c == ';').next().filter(|id| !id.is_empty()).map(str::to_owned)
+}
+
+/// The text a display's pixels are recognized with is the helper's (`ocr_image`), as the window captures' own is.
+#[async_trait]
+impl DisplayOcr for ProcessComputerBackend {
+    async fn recognize(&self, image: &[u8], language: Option<&str>, limit: i64, cancel: &CancellationToken) -> Result<Map<String, Value>, ComputerError> {
+        let mut command = computer_capture::read_command("ocr_image");
+        command.insert("image_base64".into(), json!(base64::engine::general_purpose::STANDARD.encode(image)));
+        command.insert("ocr_language".into(), json!(language));
+        command.insert("max_ocr_words".into(), json!(limit));
+        self.call_with(command, OCR_IMAGE_TIMEOUT, cancel).await
+    }
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -2018,6 +2229,165 @@ mod tests {
                 (json!("release_held_input"), None)
             ]
         );
+    }
+
+
+    fn text_of_first(parts: &[ToolPart]) -> String {
+        let Some(ToolPart::Text(text)) = parts.first() else { panic!("a text part") };
+        text.clone()
+    }
+
+    fn list_history(limit: u64) -> ComputerRequest {
+        ComputerRequest { action: ComputerAction::List, input: json!({"kind": "history", "limit": limit}) }
+    }
+
+    /// Every command that reaches the host leaves its line in the run history; `list kind="history"` reads the session's lines back,
+    /// newest last, without what was typed or pasted; a command that failed also leaves the bundle of its session.
+    #[tokio::test]
+    async fn the_run_history_is_kept_and_listed() {
+        let data = tempfile::tempdir().unwrap();
+        let config = ComputerConfig { data_dir: Some(data.path().to_path_buf()), ..ComputerConfig::new("helper", "history-1") };
+        let backend = ProcessComputerBackend::new(config, Arc::new(Answering::default()));
+        let clipboard = |input: Value| ComputerRequest { action: ComputerAction::Clipboard, input };
+        backend.run(clipboard(json!({"operation": "read"})), CancellationToken::new()).await.unwrap();
+        backend.run(clipboard(json!({"operation": "write", "text": "secret words"})), CancellationToken::new()).await.unwrap();
+        let failure = ComputerError::Failed { code: "stale_frame".into(), message: "stale_frame: the frame is gone".into() };
+        backend.keep_record(&input(json!({"action": "click", "window_id": "hwnd:0x2"})), Instant::now(), &Err(failure));
+
+        let listed = backend.run(list_history(10), CancellationToken::new()).await.unwrap();
+        let text = text_of_first(&listed);
+        let history: Value = serde_json::from_str(&text).unwrap();
+        let actions: Vec<&str> = history["history"].as_array().unwrap().iter().map(|row| row["action"].as_str().unwrap()).collect();
+        assert_eq!((actions, history["returned"].clone()), (vec!["clipboard_read", "clipboard_write", "click"], json!(3)));
+        let last = &history["history"][2];
+        assert_eq!((last["ok"].clone(), last["error"].clone(), last["session"].clone()), (json!(false), json!("stale_frame"), json!("history-1")));
+        assert!(!text.contains("secret words"), "what was typed never reaches the history: {text}");
+
+        // The listing itself is a command of the session, and the limit bounds what comes back.
+        let again = backend.run(list_history(2), CancellationToken::new()).await.unwrap();
+        let again: Value = serde_json::from_str(&text_of_first(&again)).unwrap();
+        assert_eq!(again["history"].as_array().unwrap().len(), 2);
+        assert_eq!(again["history"][1]["action"], "list_history");
+
+        let bundles: Vec<String> = std::fs::read_dir(data.path().join("computer-failures")).unwrap().map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned()).collect();
+        assert!(bundles.iter().any(|name| name.starts_with("failure-")), "{bundles:?}");
+    }
+
+    /// A backend with no data directory keeps no history: the listing is empty, not an error.
+    #[tokio::test]
+    async fn without_a_data_directory_the_history_is_empty() {
+        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "history-2"), Arc::new(Answering::default()));
+        let listed = backend.run(list_history(5), CancellationToken::new()).await.unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&text_of_first(&listed)).unwrap(), json!({"history": [], "returned": 0}));
+    }
+
+    /// What a pointer hold gives up, and for which session.
+    #[derive(Default)]
+    struct Pointers {
+        released: Mutex<Vec<String>>,
+    }
+
+    #[async_trait]
+    impl crate::desktop::computer_pointer::PointerHost for Pointers {
+        fn release_pointer(&self, session: &str) {
+            locked(&self.released).push(session.to_owned());
+        }
+
+        fn is_running(&self, _: &str) -> bool {
+            false
+        }
+
+        async fn release_cursor_theme(&self, _: &str) {}
+    }
+
+    /// A foreground command arms its session's pointer hold when it ends; another session's foreground command gives it up first, and
+    /// the end of a turn gives up the one that is left.
+    #[tokio::test]
+    async fn a_foreground_command_holds_the_pointer_until_another_session_or_the_turn_takes_it() {
+        let pointers = Arc::new(Pointers::default());
+        let shared = ComputerShared { pointer_hold: Some(Arc::new(PointerHold::new(pointers.clone()))), ..ComputerShared::default() };
+        let write = || ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation": "write", "text": "x"}) };
+        let first = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), Arc::new(Answering::default())).with_shared(shared.clone());
+        let second = ProcessComputerBackend::new(ComputerConfig::new("helper", "s2"), Arc::new(Answering::default())).with_shared(shared);
+        first.run(write(), CancellationToken::new()).await.unwrap();
+        assert!(locked(&pointers.released).is_empty(), "the hold outlives the command");
+
+        second.run(write(), CancellationToken::new()).await.unwrap();
+        assert_eq!(*locked(&pointers.released), ["s1"], "the other session's command took the one pointer");
+
+        assert!(second.end_execution().await);
+        assert_eq!(*locked(&pointers.released), ["s1", "s2"], "the turn's end gives the pointer back at once");
+    }
+
+    /// A read-only command is no foreground one: it neither arms a hold nor ends another's.
+    #[tokio::test]
+    async fn a_read_holds_no_pointer() {
+        let pointers = Arc::new(Pointers::default());
+        let shared = ComputerShared { pointer_hold: Some(Arc::new(PointerHold::new(pointers.clone()))), ..ComputerShared::default() };
+        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), Arc::new(Answering::default())).with_shared(shared);
+        backend.run(ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation": "read"}) }, CancellationToken::new()).await.unwrap();
+        assert!(backend.end_execution().await);
+        assert!(locked(&pointers.released).is_empty());
+    }
+
+    /// The helper a Linux session starts is told the span of the displays the desktop reports (`desktopBoundsEnvironment`).
+    #[tokio::test]
+    async fn a_linux_helper_is_started_with_the_span_of_the_displays() {
+        use super::super::computer_pixels::fakes::Desktop;
+        let displays = json!([
+            {"index": 0, "id": "11", "primary": true, "scale_factor": 1.0, "width": 1920, "height": 1080, "x": 0, "y": 0},
+            {"index": 1, "id": "12", "primary": false, "scale_factor": 1.0, "width": 1280, "height": 1024, "x": -1280, "y": -100},
+        ]);
+        let manager = Arc::new(Answering::default());
+        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager.clone())
+            .with_linux_session(computer_linux::Env::new())
+            .with_desktop(Arc::new(Desktop::new(displays, json!({}))));
+        backend.call(input(json!({"action": "clipboard_read"})), &CancellationToken::new()).await.unwrap();
+        let spawned = locked(&manager.spawned).clone();
+        let bounds = spawned[0].env.set.iter().find(|(name, _)| name == "MIXDOG_COMPUTER_DESKTOP_BOUNDS").map(|(_, value)| value.clone());
+        assert_eq!(bounds.as_deref(), Some("-1280,-100,3200,1180"));
+    }
+
+    /// A zoom of a display's frame is cut from the display through the desktop, never from a window by the helper; a frame of a window
+    /// still goes to the helper.
+    #[tokio::test]
+    async fn a_zoom_of_a_display_frame_is_read_from_the_desktop() {
+        use super::super::computer_frames::DisplaySource;
+        use super::super::computer_frames::Frame;
+        use super::super::computer_pixels::fakes::Blobs;
+        use super::super::computer_pixels::fakes::Desktop;
+        let displays = json!([{"index": 0, "id": "12", "primary": true, "scale_factor": 1.0, "width": 1920, "height": 1080, "x": -1920, "y": -200}]);
+        let reply = json!({
+            "blob": {"digest": "sha256:aaaa", "byteLength": 4, "mimeType": "image/jpeg"},
+            "captureWidth": 480, "captureHeight": 270,
+            "source": {"x": -1920, "y": -200, "width": 960, "height": 540, "scaleFactor": 1.0, "displayId": "12", "windowId": null},
+            "backend": "screen", "capturedAt": 1.0, "attempts": [],
+        });
+        let desktop = Arc::new(Desktop::new(displays, reply));
+        let blobs: Arc<dyn ComputerBlobs> = Arc::new(Blobs([("sha256:aaaa".to_owned(), b"jpeg".to_vec())].into()));
+        let manager = Arc::new(Answering::default());
+        let shared = ComputerShared { blobs: Some(blobs), ..ComputerShared::default() };
+        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager.clone()).with_shared(shared).with_desktop(desktop.clone());
+        let frame = Frame {
+            id: "frame-d".into(),
+            window_id: None,
+            related_window_ids: None,
+            origin_x: -1920,
+            origin_y: -200,
+            physical_width: 1920,
+            physical_height: 1080,
+            capture_width: 960,
+            capture_height: 540,
+            idle: None,
+        };
+        backend.frames.remember_display(frame, DisplaySource { display_id: "12".into(), x: -1920, y: -200, width: 1920, height: 1080, scale_factor: 1.0 });
+
+        let zoom = input(json!({"action": "zoom", "frame_id": "frame-d", "region": [0, 0, 480, 270]}));
+        let parts = backend.zoom(zoom, &CancellationToken::new()).await.unwrap();
+        assert!(text_of_first(&parts).starts_with("Zoom of frame-d region (0,0)-(480,270)"), "{parts:?}");
+        let asked = locked(&desktop.asked).clone();
+        assert!(asked.iter().any(|(method, params)| method == "host/computer/pixels" && params["region"]["width"] == 960), "{asked:?}");
+        assert!(locked(&manager.lines).iter().all(|line| line["action"] != "window_capture"), "the helper was not asked for a window");
     }
 
     #[cfg(unix)]

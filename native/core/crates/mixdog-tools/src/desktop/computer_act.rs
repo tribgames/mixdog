@@ -12,11 +12,17 @@ use serde_json::Value;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
+use super::computer_app_owned::APP_OWNED;
+use super::computer_app_owned::app_input;
+use super::computer_app_owned::falls_back;
 use super::computer_backend::HelperFailure;
 use super::computer_backend::ProcessComputerBackend;
+use super::computer_backend::error_text;
 use super::computer_command::DEFAULT_DELIVERY;
 use super::computer_command::text;
 use super::computer_frames;
+use super::computer_pixels::read_displays;
+use super::computer_pointer::prepare_cursor;
 use super::computer_policy;
 use super::computer_recovery::lead_code;
 use super::computer_reply;
@@ -30,6 +36,12 @@ const PREFLIGHT_TIMEOUT: Duration = Duration::from_millis(2_000);
 /// `TAKEOVER_CODES` (`shared/takeover-codes.ts`): a step that ends with one hands the desktop back to the user instead of
 /// ending as a failed row.
 const TAKEOVER_CODES: &[&str] = &["input_cleanup_unconfirmed"];
+
+/// `POINTER_ACTIONS` (`command-router.ts`): the actions that move or draw the agent's arrow, which the overlay readies first.
+const POINTER_ACTIONS: &[&str] = &[
+    "invoke", "click", "double_click", "right_click", "middle_click", "triple_click", "mouse_down", "mouse_up", "mouse_move", "drag", "scroll", "type", "key", "key_down",
+    "key_up",
+];
 
 // `FIRST_STEP_ACTIONS`, `CONTINUATION_STEP_ACTIONS` and `CONTINUATION_REF_STEP_ACTIONS`.
 const FIRST_STEP_ACTIONS: &[&str] = &[
@@ -113,15 +125,6 @@ fn assert_step(step: &Value, index: usize) -> Result<&Map<String, Value>, String
 /// The host's refusal of a plain message, with the code it leads with.
 fn refusal(message: impl Into<String>) -> ComputerError {
     HelperFailure { text: message.into(), result: None }.into_error()
-}
-
-fn error_text(error: &ComputerError) -> String {
-    match error {
-        ComputerError::Failed { message, .. } => message.clone(),
-        ComputerError::Unavailable { reason } | ComputerError::InvalidInput { reason } => reason.clone(),
-        ComputerError::Denied => "denied".into(),
-        ComputerError::Cancelled => "cancelled".into(),
-    }
 }
 
 fn object(value: Value) -> Map<String, Value> {
@@ -258,6 +261,9 @@ impl ProcessComputerBackend {
         }
         let delivery = command.get("delivery").and_then(Value::as_str).unwrap_or(DEFAULT_DELIVERY).to_owned();
         let planned = plan(&steps, &window_id, &delivery, &self.config.session_id)?;
+        if delivery != "foreground" {
+            self.refresh_app_windows(cancel).await;
+        }
         if delivery != "foreground"
             && let Some(refused) = self.preflight(&planned, &window_id, cancel).await?
         {
@@ -355,6 +361,8 @@ impl ProcessComputerBackend {
         let native: Vec<Value> = planned
             .iter()
             .filter(|step| matches!(text(step, "action"), "key" | "type"))
+            // A step the desktop delivers into its own window never reaches the helper's background route.
+            .filter(|step| APP_OWNED.route(step, window_id).is_none())
             .map(|step| {
                 let mut row = Map::new();
                 for key in ["action", "ref", "keys"] {
@@ -447,7 +455,17 @@ impl ProcessComputerBackend {
         // Node admits each step again right before its input transport (`input-dispatch.ts`): observation-only mode turned on
         // mid-sequence refuses the step in the host's words, a failed row that stops the steps left.
         computer_policy::admit(&step, self.observe_only(), &self.frames)?;
+        self.assert_display_unchanged(&step, cancel).await?;
         computer_frames::map_step(&self.frames, &mut step)?;
+        let action = text(&step, "action").to_owned();
+        if POINTER_ACTIONS.contains(&action.as_str()) {
+            self.prepare_pointer(&step, &action, window_id, cancel).await?;
+        }
+        if text(&step, "delivery") != "foreground"
+            && let Some(result) = self.app_owned_input(&step, window_id, cancel).await?
+        {
+            return Ok(result);
+        }
         if delivery != "background" {
             let action = text(&step, "action").to_owned();
             let before = computer_settle::before(self, &action, &step, cancel).await?;
@@ -465,6 +483,62 @@ impl ProcessComputerBackend {
         request.insert("step".into(), Value::Object(step));
         let reply = self.call(request, cancel).await?;
         Ok(computer_settle::sequence_step_result(self, window_id, &reply))
+    }
+
+    /// `assertDisplayUnchanged` (`frame-validity.ts`): a step that names a display's frame is refused when the layout the frame was
+    /// cut from has changed.
+    async fn assert_display_unchanged(&self, step: &Map<String, Value>, cancel: &CancellationToken) -> Result<(), ComputerError> {
+        let named = step.get("frame_id").and_then(Value::as_str).filter(|id| !id.is_empty()).map(str::to_owned);
+        let pointed = ["x", "y", "to_x", "to_y"].iter().any(|key| step.get(*key).is_some_and(|value| !value.is_null()));
+        let frame = match named {
+            Some(id) => Some(id),
+            None if pointed => self.frames.lookup(None, std::time::Instant::now())?.map(|frame| frame.id),
+            None => None,
+        };
+        if frame.is_none_or(|id| self.frames.display_of(&id).is_none()) {
+            return Ok(());
+        }
+        let desktop = self.desktop()?;
+        let displays = read_displays(desktop.as_ref(), cancel).await?;
+        self.frames.assert_display_unchanged(&displays)
+    }
+
+    /// `recordCursorFeedback` (`input-run-prepare.ts`): the overlay readies the agent's arrow before a pointer action. The action goes
+    /// on whatever the answer is; the answer is a row of the session's failure bundle.
+    async fn prepare_pointer(&self, step: &Map<String, Value>, action: &str, window_id: &str, cancel: &CancellationToken) -> Result<(), ComputerError> {
+        let number = |key: &str| step.get(key).and_then(Value::as_f64).unwrap_or(0.0);
+        let window = Some(window_id).filter(|id| !id.is_empty());
+        let prepared = prepare_cursor(self.desktop().ok(), &self.config.session_id, window, number("x"), number("y"), cancel).await;
+        if let Some(files) = &self.files {
+            let mut row = Map::new();
+            row.insert("action".into(), json!(action));
+            row.insert("stage".into(), json!("cursor_preparation"));
+            row.insert("code".into(), json!(prepared.code()));
+            row.insert("ok".into(), json!(prepared.code() == "ready"));
+            files.diagnose(&self.config.session_id, &row);
+        }
+        if cancel.is_cancelled() { Err(ComputerError::Cancelled) } else { Ok(()) }
+    }
+
+    /// `refresh` of the desktop's own windows (`host/computer/appWindows`), before a step is routed by them.
+    async fn refresh_app_windows(&self, cancel: &CancellationToken) {
+        if let Ok(desktop) = self.desktop() {
+            APP_OWNED.refresh(desktop.as_ref(), cancel).await;
+        }
+    }
+
+    /// `canUseAppOwnedInput` + `dispatchElectronInput`: a `key`, `type` or `scroll` step into a window the desktop owns goes through its
+    /// renderer's own input channel, so the window is never raised. `None` sends the step to the helper: any other window or step, a
+    /// desktop that does not serve the methods or does not own the window.
+    async fn app_owned_input(&self, step: &Map<String, Value>, window_id: &str, cancel: &CancellationToken) -> Result<Option<Map<String, Value>>, ComputerError> {
+        let Some((_, op)) = APP_OWNED.route(step, window_id) else { return Ok(None) };
+        let desktop = self.desktop()?;
+        match app_input(desktop.as_ref(), &self.config.session_id, window_id, op, cancel).await {
+            Ok(Value::Object(result)) => Ok(Some(result)),
+            Ok(_) => Ok(None),
+            Err(error) if falls_back(&error) => Ok(None),
+            Err(error) => Err(error),
+        }
     }
 
     /// `releaseSequenceHolds`: ends the no-activate holds the helper kept across the steps. `Some(message)` when it did not
@@ -498,9 +572,8 @@ impl ProcessComputerBackend {
         if let Some(mode) = command.get("capture_after_mode") {
             capture.insert("mode".into(), mode.clone());
         }
-        if full {
-            capture.insert("observation_delta".into(), json!(false));
-        }
+        // `captureAfterAction`: the capture that follows an action sends what changed, unless the whole observation is owed.
+        capture.insert("observation_delta".into(), json!(!full));
         match self.capture(capture, "", cancel).await {
             Ok(mut parts) => {
                 let metadata = match parts.first() {
@@ -736,5 +809,164 @@ mod tests {
         assert_eq!(refused(json!({ "action": "key", "keys": "a", "text": "a" }), 1), "sequence step 2 does not accept field(s): text");
         assert!(assert_step(&json!({ "action": "click", "x": 1, "y": 2, "frame_id": "f" }), 0).is_ok());
         assert!(assert_step(&json!({ "action": "drag", "x": 1, "y": 2, "to_x": 3, "to_y": 4, "button": "right", "frame_id": "f" }), 0).is_ok());
+    }
+
+    /// A desktop that keeps what it is asked and answers the methods an `act` meets: the readiness of the arrow, the windows it owns,
+    /// the displays and the input into its own window.
+    #[derive(Default)]
+    struct Desk {
+        asked: std::sync::Mutex<Vec<(String, Value)>>,
+        displays: std::sync::Mutex<Value>,
+    }
+
+    #[async_trait::async_trait]
+    impl mixdog_core_api::HostChannel for Desk {
+        async fn request(&self, _: mixdog_core_api::HostCapability, method: mixdog_core_api::ids::Method, params: Value) -> Result<Value, mixdog_core_api::HostError> {
+            self.asked.lock().unwrap().push((method.0.to_owned(), params));
+            Ok(match method.0 {
+                "host/computer/cursorPrepare" => json!({"state": "ready"}),
+                "host/computer/appInput" => json!({"delivered": true, "effect": "delivered", "presses": 1}),
+                "host/computer/displays" => self.displays.lock().unwrap().clone(),
+                other => panic!("the act asked the desktop for {other}"),
+            })
+        }
+
+        fn notify(&self, _: mixdog_core_api::HostCapability, _: mixdog_core_api::ids::Method, _: Value) -> Result<(), mixdog_core_api::CoreError> {
+            Ok(())
+        }
+    }
+
+    fn asked(desk: &Desk) -> Vec<String> {
+        desk.asked.lock().unwrap().iter().map(|(method, _)| method.clone()).collect()
+    }
+
+    /// A key step into a window the desktop owns goes through the desktop's renderer, and is left out of the helper's background
+    /// preflight; any other window, and a run with no desktop, keep the helper.
+    #[tokio::test]
+    async fn a_key_step_into_the_desktops_own_window_goes_through_its_renderer() {
+        let desk = Arc::new(Desk::default());
+        let own = json!({"windows": [{"windowId": "hwnd:0x777", "kind": "main", "title": "Mixdog", "bounds": {"x": 0, "y": 0, "width": 800, "height": 600}, "scaleFactor": 1.0, "displayId": "1", "focused": true}]});
+        // The list is the process's, read again only when it is stale: wait out a read another test made.
+        for _ in 0..30 {
+            APP_OWNED.refresh_with(|| async { Ok(own.clone()) }).await;
+            if APP_OWNED.window("hwnd:0x777").is_some() {
+                break;
+            }
+            mixdog_rt::time::sleep(Duration::from_millis(100)).await;
+        }
+        let manager = helper(|_| None);
+        let with_desk = backend(&manager).with_desktop(desk.clone());
+        let step = object(json!({"action": "key", "keys": "^a", "delivery": "background"}));
+
+        let routed = with_desk.app_owned_input(&step, "hwnd:0x777", &CancellationToken::new()).await.unwrap().expect("the renderer took the step");
+        assert_eq!((routed["path"].clone(), routed["delivery"].clone()), (json!("electron_key_event"), json!("background")));
+        let sent = desk.asked.lock().unwrap().clone();
+        assert!(sent.iter().any(|(method, params)| method == "host/computer/appInput" && params["op"] == "key" && params["windowId"] == "hwnd:0x777"), "{sent:?}");
+
+        assert!(with_desk.app_owned_input(&step, "hwnd:0x2", &CancellationToken::new()).await.unwrap().is_none(), "a native window is the helper's");
+        assert!(backend(&manager).app_owned_input(&step, "hwnd:0x777", &CancellationToken::new()).await.unwrap().is_none(), "no desktop, no renderer");
+        let foreground = object(json!({"action": "key", "keys": "^a", "delivery": "foreground"}));
+        assert!(with_desk.app_owned_input(&foreground, "hwnd:0x777", &CancellationToken::new()).await.unwrap().is_none(), "foreground delivery is the helper's");
+
+        let planned = plan(&[json!({"action": "key", "keys": "^a"})], "hwnd:0x777", "background", "s1").unwrap();
+        assert!(with_desk.preflight(&planned, "hwnd:0x777", &CancellationToken::new()).await.unwrap().is_none());
+        assert!(sent(&manager, "validate_background_input").is_empty(), "the helper was not asked about a step it never sees");
+    }
+
+    /// The overlay readies the agent's arrow before a pointer action, with the point the step names and the window it is for; the answer
+    /// is a row of the session's failure bundle only when it is not "ready".
+    #[tokio::test]
+    async fn the_arrow_is_readied_before_a_pointer_step() {
+        let desk = Arc::new(Desk::default());
+        let manager = helper(|_| None);
+        let data = tempfile::tempdir().unwrap();
+        let config = ComputerConfig { data_dir: Some(data.path().to_path_buf()), ..ComputerConfig::new("helper", "arrow-1") };
+        let with_desk = ProcessComputerBackend::new(config, manager.clone()).with_desktop(desk.clone());
+        let click = object(json!({"action": "click", "ref": "e1", "delivery": "background"}));
+        with_desk.send_step(click, "hwnd:0x2", "background", &CancellationToken::new()).await.unwrap();
+        let sent = desk.asked.lock().unwrap().clone();
+        let prepare = sent.iter().find(|(method, _)| method == "host/computer/cursorPrepare").expect("the arrow was readied");
+        assert_eq!((prepare.1["sessionThreadId"].clone(), prepare.1["windowId"].clone()), (json!("arrow-1"), json!("hwnd:0x2")));
+        assert!(!data.path().join("computer-failures").exists(), "a ready arrow leaves no failure row");
+
+        // A step that is no pointer action asks nothing; a run with no overlay readies nothing and leaves the row.
+        let wait = object(json!({"action": "wait", "duration": 0, "delivery": "background"}));
+        let before = asked(&desk).len();
+        with_desk.send_step(wait, "hwnd:0x2", "background", &CancellationToken::new()).await.unwrap();
+        assert_eq!(asked(&desk).len(), before);
+        let config = ComputerConfig { data_dir: Some(data.path().to_path_buf()), ..ComputerConfig::new("helper", "arrow-2") };
+        let bare = ProcessComputerBackend::new(config, manager.clone());
+        bare.send_step(object(json!({"action": "click", "ref": "e1", "delivery": "background"})), "hwnd:0x2", "background", &CancellationToken::new()).await.unwrap();
+        assert!(data.path().join("computer-failures").is_dir(), "an arrow that was not readied is a diagnostic row");
+    }
+
+    /// A step that names a display's frame is refused when the display layout changed since the frame was taken; a step with no frame
+    /// never asks for the layout.
+    #[tokio::test]
+    async fn a_step_on_a_display_frame_is_refused_when_the_layout_changed() {
+        use super::super::computer_frames::DisplaySource;
+        use super::super::computer_frames::Frame;
+        let desk = Arc::new(Desk::default());
+        let display = |width: u32| json!([{"index": 0, "id": "7", "primary": true, "scale_factor": 2.0, "width": width, "height": 750, "x": -3000, "y": 0}]);
+        *desk.displays.lock().unwrap() = display(1600);
+        let manager = helper(|_| None);
+        let with_desk = backend(&manager).with_desktop(desk.clone());
+        let shown = Frame {
+            id: "frame-d".into(),
+            window_id: None,
+            related_window_ids: None,
+            origin_x: -3000,
+            origin_y: 0,
+            physical_width: 3000,
+            physical_height: 1500,
+            capture_width: 1500,
+            capture_height: 750,
+            idle: None,
+        };
+        with_desk.frames.remember_display(shown, DisplaySource { display_id: "7".into(), x: -3000, y: 0, width: 3000, height: 1500, scale_factor: 2.0 });
+
+        let click = object(json!({"action": "click", "x": 10, "y": 10, "frame_id": "frame-d", "delivery": "background"}));
+        let error = with_desk.send_step(click, "hwnd:0x2", "background", &CancellationToken::new()).await.unwrap_err();
+        assert_eq!(error, ComputerError::Failed { code: "stale_frame".into(), message: "stale_frame: display layout changed (frame-d)".into() });
+        assert_eq!(asked(&desk), ["host/computer/displays"]);
+
+        let before = asked(&desk).len();
+        let wait = object(json!({"action": "wait", "duration": 0, "delivery": "background"}));
+        with_desk.send_step(wait, "hwnd:0x2", "background", &CancellationToken::new()).await.unwrap();
+        assert_eq!(asked(&desk).len(), before, "a step with no frame leaves the layout alone");
+    }
+
+    /// The capture that follows an action asks for the delta: the second `act` on the same window names the rows that did not change.
+    #[tokio::test]
+    async fn the_capture_after_an_action_is_a_delta_against_the_last_observation() {
+        let generation = std::sync::atomic::AtomicUsize::new(0);
+        let manager = Scripted::new(move |request| {
+            Ok(match request["action"].as_str() {
+                Some("sequence_step") => quiet_step(request),
+                Some("input_idle_state") => json!({"observer_ready": true, "monitor": "m1", "sequence": 4, "target_sequence": 4}),
+                Some("snapshot") => {
+                    let generation = generation.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+                    let rows: Vec<Value> = (0..8)
+                        .map(|n| json!({"mark": n + 1, "ref": format!("s{generation}:e{n}"), "role": "Button", "name": format!("Item {n}"), "value": "", "state": "",
+                                        "enabled": true, "x": 10, "y": 10 + n * 30, "width": 80, "height": 20, "actions": ["click"]}))
+                        .collect();
+                    let lines: Vec<String> = rows.iter().map(|row| format!("[{}] Button \"{}\" @50,50", row["ref"].as_str().unwrap(), row["name"].as_str().unwrap())).collect();
+                    json!({"text": format!("Window: T [hwnd:0x2]\nElements: total=8 generation={generation}\n{}", lines.join("\n")), "window_id": "hwnd:0x2",
+                           "generation": generation, "total_elements": 8, "elements": rows})
+                }
+                _ => json!({"text": "ok"}),
+            })
+        });
+        let backend = backend(&manager);
+        let ask = || ComputerRequest { action: ComputerAction::Act, input: json!({"window_id": "hwnd:0x2", "actions": [{"type": "key", "keys": "a"}], "observe": "ax"}) };
+        let text_at = |parts: &[ToolPart], at: usize| match &parts[at] {
+            ToolPart::Text(text) => text.clone(),
+            other => panic!("a text part, got {other:?}"),
+        };
+        let first = backend.run(ask(), CancellationToken::new()).await.unwrap();
+        assert!(text_at(&first, 1).contains("[s1:e0] Button \"Item 0\"") && !text_at(&first, 1).contains("Elements delta"), "{first:?}");
+        let second = backend.run(ask(), CancellationToken::new()).await.unwrap();
+        let shown = text_at(&second, 1);
+        assert!(shown.contains("Elements delta: ") && !shown.contains("[s2:e0] Button \"Item 0\""), "the rows that did not change are named, not listed: {shown}");
     }
 }

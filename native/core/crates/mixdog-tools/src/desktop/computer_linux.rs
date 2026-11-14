@@ -778,7 +778,9 @@ mod tests {
     use crate::desktop::computer::request;
     use crate::desktop::computer_backend::ComputerConfig;
     use crate::desktop::computer_backend::ProcessComputerBackend;
+    use crate::desktop::computer_backend::ComputerShared;
     use crate::desktop::computer_backend::RESPONSE_MARKER;
+    use crate::desktop::computer_pixels::ComputerBlobs;
     use mixdog_core_api::CoreError;
     use mixdog_core_api::HostCapability;
     use mixdog_core_api::HostChannel;
@@ -1025,9 +1027,6 @@ mod tests {
     struct Seen {
         refused: usize,
         diagnosed: usize,
-        frames: usize,
-        hosted: usize,
-        pixel_failures: usize,
         errors: usize,
         refused_without_desktop: usize,
     }
@@ -1061,14 +1060,10 @@ mod tests {
             .collect()
     }
 
-    /// The desktop the recorder ran: it answers `host/computer/capture` with the bridge answer the recorder saw for the one command it was
-    /// sent, and `host/computer/displays` with the `readDisplays()` the recorder took in the same world. It keeps what it was asked.
+    /// The desktop the recorder ran: it answers `host/computer/displays` with the `readDisplays()` the recorder took in the same world.
     struct Desktop {
         serving: bool,
         displays: Value,
-        /// The recorded bridge answer (`{ ok, value }` or `{ ok, error }`) to the capture, when the recording has one.
-        answer: Option<Value>,
-        asked: Mutex<Vec<Value>>,
     }
 
     #[async_trait]
@@ -1089,15 +1084,6 @@ mod tests {
                 // The recordings predate the internal-window filter: the desktop shows no window of its own.
                 "host/computer/internalWindows" => Ok(json!({ "windowIds": [] })),
                 "host/computer/appWindows" => Ok(json!({ "windows": [] })),
-                "host/computer/capture" => {
-                    let answer = self.answer.as_ref().expect("the recording has no capture of a screen for this call");
-                    self.asked.lock().unwrap().push(params["command"].clone());
-                    if answer["ok"] == true {
-                        Ok(answer["value"].clone())
-                    } else {
-                        Err(HostError::Rpc { code: -32000, message: answer["error"].as_str().expect("the host's message").to_owned(), data: None })
-                    }
-                }
                 other => panic!("the core asked the desktop for {other}"),
             }
         }
@@ -1109,11 +1095,15 @@ mod tests {
 
     /// One recorded call through `ProcessComputerBackend::run` on a fresh backend and a fresh machine of the recorded world, compared whole
     /// with what Node's tool returned: the error flag, every content block, the gdbus / gsettings invocations and helper requests in order, and
-    /// the command a capture of a screen sent to the desktop. `attached`: the recorder ran with the desktop host (not the no-desktop case).
+    /// the display list a diagnose reported. `attached`: the recorder ran with the desktop host (not the no-desktop case). A capture of a
+    /// screen the recorder's desktop host answered (`host`) is not replayed: the pixels of a display are read from the core's blob store now.
     async fn replay(world: World, displays: &Value, attached: bool, session: &str, args: &Value, node: &Value, label: &str, seen: &mut Seen) {
+        if node.get("host").is_some() {
+            return;
+        }
         let world = Arc::new(world);
         let log = Arc::new(Log::default());
-        let desktop = Arc::new(Desktop { serving: attached, displays: displays.clone(), answer: node.get("host").map(|host| host["answer"].clone()), asked: Mutex::default() });
+        let desktop = Arc::new(Desktop { serving: attached, displays: displays.clone() });
         let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", session), Machine::new(&world, &log))
             .with_linux_session(world.env.clone())
             .with_desktop(desktop.clone());
@@ -1123,7 +1113,6 @@ mod tests {
         let is_error = match got {
             Ok(parts) => {
                 assert_eq!(blocks_of(&parts), want, "{label}: the content the tool returned");
-                seen.frames += usize::from(want.iter().any(|block| block["type"] == "image"));
                 false
             }
             Err(ComputerError::Failed { code, message }) => {
@@ -1132,7 +1121,6 @@ mod tests {
                     seen.refused += 1;
                 }
                 assert_eq!(vec![json!({"type": "text", "text": failure_text(&code, &message, args)})], want, "{label}: the error text the tool returns");
-                seen.pixel_failures += usize::from(code == "computer_reported");
                 seen.refused_without_desktop += usize::from(!attached);
                 true
             }
@@ -1141,9 +1129,6 @@ mod tests {
         assert_eq!(is_error, result["isError"] == true, "{label}: the error flag");
         seen.errors += usize::from(is_error);
         seen.diagnosed += usize::from(args["action"] == "diagnose");
-        let sent: Vec<Value> = node.get("host").map(|host| vec![host["command"].clone()]).unwrap_or_default();
-        seen.hosted += sent.len();
-        assert_eq!(*desktop.asked.lock().unwrap(), sent, "{label}: the command the desktop was sent");
         assert_eq!(Value::Array(log.events()), node["events"], "{label}: the gdbus/gsettings invocations and helper requests, in order");
     }
 
@@ -1164,61 +1149,30 @@ mod tests {
             sessions += 1;
         }
         assert!(
-            sessions >= 30 && seen.refused > 100 && seen.diagnosed >= 30 && seen.frames >= 3 && seen.hosted >= 60 && seen.pixel_failures >= 4 && seen.errors > 100,
-            "{sessions} sessions, {} refused, {} diagnosed, {} frames, {} sent to the desktop, {} pixel failures, {} errors",
+            sessions >= 30 && seen.refused > 100 && seen.diagnosed >= 30 && seen.errors > 100,
+            "{sessions} sessions, {} refused, {} diagnosed, {} errors",
             seen.refused,
             seen.diagnosed,
-            seen.frames,
-            seen.hosted,
-            seen.pixel_failures,
             seen.errors
         );
     }
 
-    /// The display list is the host's own: a diagnose on one display and on two reports what `readDisplays()` answered, and each display's
-    /// capture is the command the client sent, answered by the host.
+    /// The display list is the host's own: a diagnose on one display and on two reports what `readDisplays()` answered.
     #[tokio::test(start_paused = true)]
     #[allow(clippy::await_holding_lock)]
-    async fn the_display_list_and_each_displays_capture_are_the_hosts() {
+    async fn the_display_list_is_the_hosts() {
         let _serial = serial();
         let one = case("session gnome-everything")["observed"].clone();
         let two = case("session gnome-two-displays")["observed"].clone();
         assert_eq!((one["hostDisplays"].as_array().map(Vec::len), two["hostDisplays"].as_array().map(Vec::len)), (Some(1), Some(2)));
         let mut seen = Seen::default();
         for observed in [&one, &two] {
-            let calls = observed["calls"].as_array().expect("calls");
-            let mut screens = Vec::new();
-            for node in calls {
-                let wanted = node["args"]["action"] == "diagnose" || node["args"]["input"]["screen"].is_number();
-                if !wanted {
-                    continue;
-                }
+            for node in observed["calls"].as_array().expect("calls").iter().filter(|node| node["args"]["action"] == "diagnose") {
                 reset_probe();
                 replay(World::of(&observed["world"]), &observed["hostDisplays"], true, "default", &node["args"], node, &format!("displays {}", node["args"]), &mut seen).await;
-                if node["args"]["input"]["screen"].is_number() {
-                    screens.push((node["args"]["input"]["screen"].as_i64().expect("screen"), node["result"]["isError"] == true));
-                }
             }
-            let count = observed["hostDisplays"].as_array().expect("displays").len() as i64;
-            // A screen that is on the list is captured; one past it is the host's refusal.
-            assert_eq!(screens, vec![(0, false), (1, count < 2)]);
         }
-        assert!(seen.diagnosed >= 2 && seen.frames >= 3, "{} diagnosed, {} frames", seen.diagnosed, seen.frames);
-    }
-
-    /// The host's own `isError` flag makes the result an error on its own, whatever the text says (`computerToolResult`).
-    #[tokio::test(start_paused = true)]
-    #[allow(clippy::await_holding_lock)]
-    async fn a_host_reply_flagged_as_an_error_is_an_error_result_whatever_its_text_says() {
-        let _serial = serial();
-        let recorded = case("a host reply flagged as an error is an error result whatever its text says")["observed"].clone();
-        let mut seen = Seen::default();
-        let calls = recorded["calls"].as_array().expect("calls");
-        for node in calls {
-            reset_probe();
-            replay(World::of(&recorded["world"]), &recorded["hostDisplays"], true, "default", &node["args"], node, &format!("flagged / {}", node["host"]["answer"]), &mut seen).await;
-        }
-        assert_eq!((calls.len(), seen.errors, seen.hosted), (3, 2, 3));
+        assert!(seen.diagnosed >= 2, "{} diagnosed", seen.diagnosed);
     }
 
     /// With no desktop attached Node refuses a call before it probes or dispatches anything; so does the core, for the calls it sends to the desktop.
@@ -1252,7 +1206,15 @@ mod tests {
                 }
             }
             let machine = Machine::new(&Arc::new(World::of(&case("session gnome-everything")["observed"]["world"])), &Arc::new(Log::default()));
-            let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "default"), machine).with_desktop(Arc::new(Slow(timed_out)));
+            struct NoBlobs;
+            #[async_trait]
+            impl ComputerBlobs for NoBlobs {
+                async fn read(&self, _: &str) -> Result<Vec<u8>, ComputerError> {
+                    Err(ComputerError::Unavailable { reason: "no blob".into() })
+                }
+            }
+            let shared = ComputerShared { blobs: Some(Arc::new(NoBlobs)), ..ComputerShared::default() };
+            let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "default"), machine).with_shared(shared).with_desktop(Arc::new(Slow(timed_out)));
             backend.run(request(&json!({"action": "capture", "input": {"mode": "vision", "screen": 0}})).unwrap(), CancellationToken::new()).await
         });
         assert!(matches!(&err, Err(ComputerError::Failed { code, message }) if code == "computer_reported" && message == "Error: computer bridge timed out"), "{err:?}");
