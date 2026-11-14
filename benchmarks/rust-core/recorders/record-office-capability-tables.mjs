@@ -9,28 +9,24 @@
 //   native/core/fixtures/office-capability-tables/golden.json the operation registry the contract engine builds from
 //                                                             them (what the typed lookups must answer) and the digests
 //   native/core/fixtures/office-capability-tables/MANIFEST.json
-// The product tree is the one holding src/runtime/office/{capabilities-catalog,capabilities-signatures,
-// capabilities-aliases,tool-defs}.mjs; it is only read.
-import { createHash } from 'node:crypto';
+// The product tree is an export of NODE_COMMIT (the last commit holding src/runtime/office/tool-defs.mjs, which the K1
+// cut removed) with src, apps and package.json; it is only read, and the recorder refuses a tree that is not exactly
+// that commit.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { FIXTURES_ROOT, REPO_ROOT, exactProductIdentity, importFrom, parseArgs, resolveTree, sha256, writeSetManifest } from './lib/common.mjs';
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-const repo = path.resolve(here, '..', '..', '..');
-const treeArg = process.argv.indexOf('--tree');
-if (treeArg < 0 || !process.argv[treeArg + 1]) {
-  console.error('usage: record-office-capability-tables.mjs --tree <product tree>');
-  process.exit(2);
-}
-const tree = path.resolve(process.argv[treeArg + 1]);
-const load = (name) => import(pathToFileURL(path.join(tree, 'src', 'runtime', 'office', name)).href);
+const NODE_COMMIT = 'f6ac6584899028446d6f7a1fb51ffb8384f0194a';
+const RECORDER = 'benchmarks/rust-core/recorders/record-office-capability-tables.mjs';
+const tree = resolveTree(parseArgs());
+const identity = exactProductIdentity(tree, NODE_COMMIT);
+const load = (name) => importFrom(tree, `src/runtime/office/${name}`);
 
 const catalogModule = await load('capabilities-catalog.mjs');
 const signatures = await load('capabilities-signatures.mjs');
 const aliases = await load('capabilities-aliases.mjs');
 const toolDefs = await load('tool-defs.mjs');
-const contract = await import(pathToFileURL(path.join(tree, 'src', 'runtime', 'office', 'portable', 'xlsx-contract.mjs')).href);
+const contract = await load('portable/xlsx-contract.mjs');
 
 const { OFFICE_ACTIONS, COMMON, CATALOG, BACKENDS, VIRTUAL_OPERATIONS } = catalogModule;
 const { COMMON_SIGNATURES, FORMAT_SIGNATURES } = signatures;
@@ -96,35 +92,24 @@ for (const [format, catalog] of Object.entries(CATALOG)) {
 if (missing.length) throw new Error(`Office operation registry is missing a signature for ${missing.join(', ')}`);
 
 const text = (value) => `${JSON.stringify(value, null, 2)}\n`;
-const sha = (value) => createHash('sha256').update(value).digest('hex');
 const capabilitiesText = text(capabilities);
 const toolsText = text(tools);
 const golden = {
   note: 'Recorded from the Node office capability modules; tests/twin_capability_tables.rs replays it.',
-  capabilitiesSha256: sha(capabilitiesText),
-  toolDefsSha256: sha(toolsText),
+  capabilitiesSha256: sha256(capabilitiesText),
+  toolDefsSha256: sha256(toolsText),
   formats: Object.keys(CATALOG),
   registry,
   operationsByBackend: byBackend,
 };
 const goldenText = text(golden);
 
-const crate = path.join(repo, 'native', 'core', 'crates', 'mixdog-office');
-const fixtures = path.join(repo, 'native', 'core', 'fixtures', 'office-capability-tables');
+const crate = path.join(REPO_ROOT, 'native', 'core', 'crates', 'mixdog-office');
+const fixtures = path.join(FIXTURES_ROOT, 'office-capability-tables');
 mkdirSync(path.join(crate, 'data'), { recursive: true });
 mkdirSync(fixtures, { recursive: true });
 writeFileSync(path.join(crate, 'data', 'capabilities.json'), capabilitiesText);
 writeFileSync(path.join(crate, 'data', 'tool-defs.json'), toolsText);
 writeFileSync(path.join(fixtures, 'golden.json'), goldenText);
-writeFileSync(
-  path.join(fixtures, 'MANIFEST.json'),
-  text({
-    command: 'node benchmarks/rust-core/recorders/record-office-capability-tables.mjs --tree <tree>',
-    fileCount: 1,
-    files: [{ bytes: Buffer.byteLength(goldenText), path: 'golden.json', sha256: sha(goldenText) }],
-    recorder: 'benchmarks/rust-core/recorders/record-office-capability-tables.mjs',
-    set: 'office-capability-tables',
-    totalBytes: Buffer.byteLength(goldenText),
-  })
-);
+writeSetManifest(fixtures, { set: 'office-capability-tables', recorder: RECORDER, command: `node ${RECORDER} --tree <tree>`, identity });
 console.log(`capabilities.json ${capabilitiesText.length} bytes, tool-defs.json ${toolsText.length} bytes, golden.json ${goldenText.length} bytes`);
