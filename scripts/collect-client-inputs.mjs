@@ -221,6 +221,24 @@ const OVERRIDE_ARGS = {
   setRoute: [{ provider: 'p', model: 'm' }],
 };
 
+/** Argument values a client sends where the schema says only "string" or "integer" and the core (like the desktop's
+ *  ipc-validation.ts before it) takes a fixed vocabulary or range: a placeholder there is an input no client sends. */
+const SAMPLE_ARGS = {
+  setInstructionFiles: { mode: 'all' },
+  setHeartbeatInterval: { minutes: 30 },
+  setAutoEffortBase: { level: 'medium' },
+  setBuiltinToolEnabled: { name: 'git' },
+  installBuiltinFeature: { name: 'tidy', options: { engines: ['ruff'] } },
+  setNetworkProxy: { patch: { mode: 'system' } },
+  setMediaAssetBoard: { boardId: 'board-1' },
+  saveProviderApiKey: { providerId: 'vertex-ai', options: { authMode: 'api-key' } },
+  saveCustomProviderKey: { providerId: 'custom-0190f3c2-7a31-7c00-8000-000000000001' },
+  startLocalProviderInstallation: { phase: 'model' },
+  discardLocalProviderInstallation: { phase: 'model' },
+  setLocalProviderContext: { tokens: 16384 },
+  startLocalProviderModelMaintenance: { operation: 'verify' },
+};
+
 async function sessionActionRows() {
   const { SESSION_ACTIONS, resolveAction } = await import(pathToFileURL(path.join(ROOT, ACTION_ROUTE, 'action-route.mjs')).href);
   const { ACTION_OVERRIDES } = await import(pathToFileURL(path.join(ROOT, ACTION_ROUTE, 'action-overrides.mjs')).href);
@@ -245,6 +263,7 @@ async function sessionActionRows() {
       }
       const props = deref(m.defs, m.params).properties ?? {};
       args = spec.args.map((a) => {
+        if (SAMPLE_ARGS[action] && a in SAMPLE_ARGS[action]) return SAMPLE_ARGS[action][a];
         const v = props[a] ? example(m.defs, props[a], true, a) : undefined;
         return v === CYCLE ? undefined : v;
       });

@@ -405,7 +405,12 @@ mod tests {
         assert!(request_detail(&request, &text, &options()).contains("Response body:\nhello"));
         let long = FetchedBodies { post_data: None, response: Some(ResponseBody { body: "QUFB".repeat(5_000), base64_encoded: true }) };
         let clipped = request_detail(&request, &long, &DetailOptions { max_chars: Some(10.0), ..options() });
-        assert!(clipped.contains("[base64 response truncated before decoding; 15000 bytes total]"), "{}", &clipped[clipped.len().saturating_sub(200)..]);
+        // Decoding stops at the encoded limit (4096 characters here) and the note goes after the decoded text; the body budget then
+        // cuts both, so the note is not shown, as in network-report.ts (`truncateNetworkBody(responseBody, maxChars)`).
+        assert!(clipped.contains("[truncated: at least "), "{}", &clipped[clipped.len().saturating_sub(200)..]);
+        assert!(!clipped.contains("truncated before decoding"));
+        let roomy = request_detail(&request, &long, &DetailOptions { max_chars: Some(30_000.0), ..options() });
+        assert!(!roomy.contains("truncated before decoding"), "15000 bytes fit the 30000-character budget's encoded limit");
     }
 
     #[test]
