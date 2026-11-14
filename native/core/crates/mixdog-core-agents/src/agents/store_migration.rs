@@ -876,4 +876,180 @@ mod tests {
         let again = run_on(move |lane| stamp_agent_kinds(lane, &dir, &with, &|_| unreachable!("it ran already"))).await;
         assert!(again.skipped);
     }
+
+    const BOT_BODY: &str = "Hi\n- Help the user in a natural, friendly conversation, in the language they write in.\n- Ask a short question when a request is unclear, and say plainly when something is outside what you do.\n- Keep replies as short or as detailed as the moment needs.\n";
+
+    #[allow(clippy::disallowed_methods, reason = "test setup writes a profile")]
+    fn write(file: &Path, text: &str) {
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(file, text).unwrap();
+    }
+
+    fn buddy_facts(data: &Path) -> Facts {
+        let mut facts = Facts { shipped: data.join("shipped"), ..Default::default() };
+        facts.routes.insert("buddy".into(), serde_json::json!({ "provider": "p", "model": "m" }));
+        facts
+    }
+
+    /// What the profile looked like at each backup: whether `bots/buddy` and the manifest existed.
+    type Seen = std::sync::Arc<std::sync::Mutex<Vec<(bool, bool)>>>;
+
+    async fn split(data: &Path, facts: &Facts, seen: &Seen) -> SplitReport {
+        let (dir, with, seen) = (data.to_path_buf(), facts.clone(), seen.clone());
+        run_on(move |lane| {
+            migrate_bots_to_own_store(lane, &dir, &with, TEST_NOW, &|_| {
+                seen.lock().unwrap().push((dir.join("bots/buddy").exists(), dir.join("bots/migration.json").exists()));
+            })
+        })
+        .await
+    }
+
+    fn no_leftovers(bots: &Path) {
+        let stray: Vec<String> = sub_dirs(bots).into_iter().filter(|name| name.starts_with('.')).collect();
+        assert!(stray.is_empty(), "{stray:?}");
+    }
+
+    #[test]
+    fn a_crash_leftover_is_swept_by_what_it_is() {
+        let data = tempfile::tempdir().unwrap();
+        let bots = data.path().join("bots");
+        // A staging folder goes; an `.old` the manifest names is a committed swap's rest and goes.
+        write(&bots.join(".a.1-2.staging/f.txt"), "partial");
+        write(&bots.join(".b.3-4.old/f.txt"), "committed rest");
+        // Any other `.old` is the bot as it was: it is put back where nothing is, and over a new copy no commit named.
+        write(&bots.join(".c.5-6.old/f.txt"), "c as it was");
+        write(&bots.join(".d.7-8.old/f.txt"), "d as it was");
+        write(&bots.join("d/f.txt"), "d half written");
+        let retired: HashSet<String> = [".b.3-4.old".to_owned()].into();
+        sweep_leftovers(&bots, &retired).unwrap();
+        assert!(!bots.join(".a.1-2.staging").exists());
+        assert!(!bots.join(".b.3-4.old").exists());
+        assert_eq!(read_text(&bots.join("c/f.txt")), "c as it was");
+        assert_eq!(read_text(&bots.join("d/f.txt")), "d as it was");
+        no_leftovers(&bots);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_run_killed_before_its_commit_leaves_the_bot_as_it_was() {
+        let data = tempfile::tempdir().unwrap();
+        let path = data.path().to_path_buf();
+        agent(&path, "buddy", &format!("---\nname: buddy\n---\n{BOT_BODY}"), "{\"avatar\":{\"x\":1}}");
+        // The killed run had set the bot aside and left its staging folder; no manifest was written.
+        write(&path.join("bots/.buddy.9-1.old/AGENT.md"), "the bot as it was");
+        write(&path.join("bots/.buddy.9-1.staging/AGENT.md"), "half a copy");
+        let seen = Seen::default();
+        let report = split(&path, &buddy_facts(&path), &seen).await;
+        assert_eq!(report.bots, ["buddy"]);
+        assert_eq!(read_text(&path.join("bots/buddy/AGENT.md")), "the bot as it was", "the set-aside copy is back, not a second copy");
+        assert!(seen.lock().unwrap().is_empty(), "nothing was copied, so nothing is backed up");
+        assert!(path.join("bots/migration.json").exists());
+        no_leftovers(&path.join("bots"));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_backup_is_made_once_before_bots_and_the_manifest_are_touched() {
+        let data = tempfile::tempdir().unwrap();
+        let path = data.path().to_path_buf();
+        agent(&path, "buddy", &format!("---\nname: buddy\n---\n{BOT_BODY}"), "{\"avatar\":{\"x\":1}}");
+        let seen = Seen::default();
+        split(&path, &buddy_facts(&path), &seen).await;
+        assert_eq!(*seen.lock().unwrap(), [(false, false)], "once, with neither the copy nor the manifest on disk");
+        // The bot is edited in agents/ later: the re-sync backs up the profile with the old copy and the manifest in it.
+        std::thread::sleep(Duration::from_millis(60));
+        write(&path.join("agents/buddy/AGENT.md"), &format!("---\nname: buddy2\n---\n{BOT_BODY}"));
+        let again = split(&path, &buddy_facts(&path), &seen).await;
+        assert_eq!(again.changed, ["buddy"]);
+        assert_eq!(seen.lock().unwrap().len(), 2);
+        assert_eq!(seen.lock().unwrap()[1], (true, true));
+        assert!(read_text(&path.join("bots/buddy/AGENT.md")).contains("buddy2"));
+        assert_eq!(read_json(&path.join("bots/buddy/agent.json")).unwrap()["route"]["model"], "m", "the bot's own route survives the re-sync");
+        no_leftovers(&path.join("bots"));
+        // Edited in both places: the bots/ copy is kept and nothing is backed up.
+        std::thread::sleep(Duration::from_millis(60));
+        write(&path.join("agents/buddy/AGENT.md"), &format!("---\nname: buddy3\n---\n{BOT_BODY}"));
+        write(&path.join("bots/buddy/AGENT.md"), &format!("---\nname: mine\n---\n{BOT_BODY}"));
+        let kept = split(&path, &buddy_facts(&path), &seen).await;
+        assert!(kept.skipped);
+        assert_eq!(seen.lock().unwrap().len(), 2);
+        assert!(read_text(&path.join("bots/buddy/AGENT.md")).contains("name: mine"));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn two_runtimes_starting_together_copy_once_and_agree() {
+        let data = tempfile::tempdir().unwrap();
+        let path = data.path().to_path_buf();
+        agent(&path, "buddy", &format!("---\nname: buddy\n---\n{BOT_BODY}"), "{\"avatar\":{\"x\":1}}");
+        let (seen, facts) = (Seen::default(), buddy_facts(&path));
+        let (first, second) = tokio::join!(split(&path, &facts, &seen), split(&path, &facts, &seen));
+        assert_eq!(first.bots, ["buddy"]);
+        assert_eq!(second.bots, ["buddy"]);
+        assert!(!first.failed && !second.failed && !first.busy && !second.busy);
+        assert_eq!([first.skipped, second.skipped].iter().filter(|skipped| **skipped).count(), 1, "the one that waited reads the finished split");
+        assert_eq!(seen.lock().unwrap().len(), 1, "one backup for the two");
+        assert_eq!(read_json(&path.join("bots/migration.json")).unwrap()["bots"], serde_json::json!(["buddy"]));
+        no_leftovers(&path.join("bots"));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn two_runtimes_stamping_together_stamp_once() {
+        let data = tempfile::tempdir().unwrap();
+        let path = data.path().to_path_buf();
+        agent(&path, "measurer", "---\nname: m\n---\nMeasure.\n", "{}");
+        let backups = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let stamp = |path: PathBuf, backups: std::sync::Arc<std::sync::atomic::AtomicUsize>| {
+            run_on(move |lane| {
+                let facts = Facts { shipped: path.join("shipped"), ..Default::default() };
+                let stage = stamp_agent_kinds(lane, &path, &facts, &|_| {
+                    backups.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                });
+                if stage.skipped {
+                    return KindReport { skipped: true, ..Default::default() };
+                }
+                finish_kind_stamp(lane, &path, &stage, TEST_NOW)
+            })
+        };
+        let (first, second) = tokio::join!(stamp(path.clone(), backups.clone()), stamp(path.clone(), backups.clone()));
+        assert!(!first.failed && !second.failed);
+        let mut stamped: Vec<String> = first.stamped.into_iter().chain(second.stamped).collect();
+        stamped.sort();
+        assert_eq!(stamped, ["measurer"]);
+        assert_eq!(read_text(&path.join("agents/measurer/AGENT.md")).matches("kind: agent").count(), 1);
+        assert_eq!(backups.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert_eq!(read_json(&path.join(KIND_RECORD)).unwrap()["version"], 1);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_restore_the_last_run_stopped_in_the_middle_of_is_finished() {
+        let data = tempfile::tempdir().unwrap();
+        let path = data.path().to_path_buf();
+        // The split took `delegate` for a bot; a Lead delegated work to it. The earlier run had copied it back and
+        // stamped agents/delegate, then stopped before bots/delegate was deleted.
+        agent(&path, "delegate", "---\nname: d\nkind: agent\n---\nWork.\n", "{}");
+        write(&path.join("bots/delegate/AGENT.md"), "---\nname: d\n---\nWork.\n");
+        write(&path.join("bots/delegate/agent.json"), "{\"route\":{\"provider\":\"p\",\"model\":\"m\"},\"homeSessionId\":\"s\"}");
+        write(&path.join("bots/migration.json"), "{\"version\":1,\"bots\":[\"delegate\",\"other\"],\"copies\":{\"delegate\":{},\"other\":{}}}");
+        write(&path.join("agent-workers.json"), "{\"workers\":[{\"agent\":\"delegate\",\"ownerSessionId\":\"sess_abc\"}]}");
+        let backups = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let (dir, counted) = (path.clone(), backups.clone());
+        let (stage, report) = run_on(move |lane| {
+            let facts = Facts { shipped: dir.join("shipped"), ..Default::default() };
+            let stage = stamp_agent_kinds(lane, &dir, &facts, &|_| {
+                counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            });
+            let report = finish_kind_stamp(lane, &dir, &stage, TEST_NOW);
+            (stage, report)
+        })
+        .await;
+        assert_eq!(stage.restore, [("delegate".to_owned(), Some(serde_json::json!({ "provider": "p", "model": "m" })))]);
+        assert_eq!(report.restored, ["delegate"]);
+        assert_eq!(backups.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert!(!path.join("bots/delegate").exists(), "deleting the bot copy is what ends the restore");
+        let manifest = read_json(&path.join("bots/migration.json")).unwrap();
+        assert_eq!(manifest["bots"], serde_json::json!(["other"]));
+        assert!(manifest["copies"].get("delegate").is_none());
+        assert_eq!(read_text(&path.join("agents/delegate/AGENT.md")).matches("kind: agent").count(), 1);
+        let kept = read_json(&path.join("agents/delegate/agent.json")).unwrap();
+        assert!(kept.get("route").is_none() && kept.get("homeSessionId").is_none(), "the store-only keys do not go back to agents/");
+        assert_eq!(read_json(&path.join(KIND_RECORD)).unwrap()["restored"], serde_json::json!(["delegate"]));
+    }
 }
