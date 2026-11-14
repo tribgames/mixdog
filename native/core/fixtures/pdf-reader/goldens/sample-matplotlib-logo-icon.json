@@ -1,0 +1,46 @@
+{
+  "bytes": 22852,
+  "file": "samples/matplotlib-logo-icon.pdf",
+  "group": "samples",
+  "name": "sample-matplotlib-logo-icon",
+  "outcome": {
+    "numPages": 1,
+    "ok": true,
+    "pages": [
+      {
+        "number": 1,
+        "rotate": 0,
+        "text": {
+          "items": [],
+          "styles": {}
+        },
+        "userUnit": 1,
+        "view": [
+          0,
+          0,
+          72,
+          72
+        ],
+        "viewport": {
+          "height": 72,
+          "offsetX": 0,
+          "offsetY": 0,
+          "rotation": 0,
+          "transform": [
+            1,
+            0,
+            0,
+            -1,
+            0,
+            72
+          ],
+          "width": 72
+        }
+      }
+    ]
+  },
+  "sha256": "0644947fedb1a228fe7977e9576b7bcb5245286d730f582d57a6808375e2ff01",
+  "withReadableDataUrls": {
+    "sameAsReference": true
+  }
+}

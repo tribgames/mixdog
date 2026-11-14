@@ -1,0 +1,2350 @@
+{
+  "bytes": 66126,
+  "file": "files/html-latin.pdf",
+  "group": "printed-html",
+  "name": "html-latin",
+  "outcome": {
+    "numPages": 2,
+    "ok": true,
+    "pages": [
+      {
+        "number": 1,
+        "rotate": 0,
+        "text": {
+          "items": [
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f1",
+              "hasEOL": false,
+              "height": 19.4999991875,
+              "str": "Quarterly operations report",
+              "transform": [
+                19.4999991875,
+                0,
+                0,
+                19.4999991875,
+                17.99999925,
+                805.9199815000001
+              ],
+              "width": 253.55711741511968
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                778.919982625
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Night shift throughput rose twelve percent over the previous quarter. Ligatures: office, fifty, waffle, affluent.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                778.919982625
+              ],
+              "width": 455.07456806855873
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f1",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                757.9199835000001
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f1",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Bold",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                757.9199835000001
+              ],
+              "width": 21.66137597744263
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": ",",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                39.66796709716797,
+                757.9199835000001
+              ],
+              "width": 2.7088621796307377
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 0,
+              "str": " ",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                42.37682927679871,
+                757.9199835000001
+              ],
+              "width": 3.6225586099999916
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f3",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "italic",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                45.093748121093746,
+                757.9199835000001
+              ],
+              "width": 19.504759917301634
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f3",
+              "hasEOL": false,
+              "height": 0,
+              "str": " ",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                64.59850803839538,
+                757.9199835000001
+              ],
+              "width": 3.621093750000007
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "and",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                67.3143282377362,
+                757.9199835000001
+              ],
+              "width": 16.267455267189337
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 0,
+              "str": " ",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                83.58178350492555,
+                757.9199835000001
+              ],
+              "width": 3.6201173499999726
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f4",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "monospace",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                86.29687140429687,
+                757.9199835000001
+              ],
+              "width": 46.87499804687502
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f4",
+              "hasEOL": false,
+              "height": 0,
+              "str": " ",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                133.17186945117186,
+                757.9199835000001
+              ],
+              "width": 4.111816390000018
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "text;",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                136.2557316151776,
+                757.9199835000001
+              ],
+              "width": 18.424071424830327
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 0,
+              "str": " ",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                154.67980304000793,
+                757.9199835000001
+              ],
+              "width": 3.6196340199999857
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "a link",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                157.39452844189435,
+                757.9199835000001
+              ],
+              "width": 22.761107389120504
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": ".",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                180.16405499316406,
+                757.9199835000001
+              ],
+              "width": 2.7088621796307377
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                47.999998,
+                736.919984375
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "First item",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                47.999998,
+                736.919984375
+              ],
+              "width": 40.08068667247133
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                47.999998,
+                725.6699848437501
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Second item with more words",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                47.999998,
+                725.6699848437501
+              ],
+              "width": 127.88305084903932
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                704.66998571875
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                704.66998571875
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                683.6699865937501
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                683.6699865937501
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                662.66998746875
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                662.66998746875
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                641.66998834375
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                641.66998834375
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                620.6699892187501
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                620.6699892187501
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                599.66999009375
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                599.66999009375
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                578.66999096875
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                578.66999096875
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                557.66999184375
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                557.66999184375
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                536.66999271875
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                536.66999271875
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                515.66999359375
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                515.66999359375
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                494.66999446875
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                494.66999446875
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                473.66999534375003
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                473.66999534375003
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                452.66999621875004
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                452.66999621875004
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                431.66999709375006
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                431.66999709375006
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                410.66999796875
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                410.66999796875
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                389.66999884375
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                389.66999884375
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                368.66999971875003
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                368.66999971875003
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                347.67000059375005
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                347.67000059375005
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                326.67000146875
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                326.67000146875
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                305.67000234375007
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                305.67000234375007
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                284.67000321875
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                284.67000321875
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                263.67000409375
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                263.67000409375
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                242.67000496875005
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                242.67000496875005
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                221.67000584375
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                221.67000584375
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                200.67000671875007
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                200.67000671875007
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                179.67000759375003
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                179.67000759375003
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                158.67000846874998
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                158.67000846874998
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                137.67000934375005
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                137.67000934375005
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                116.67001021875001
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                116.67001021875001
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                95.67001109375008
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                95.67001109375008
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                74.67001196875003
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                74.67001196875003
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                53.67001284374999
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                53.67001284374999
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                32.670013718750056
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                32.670013718750056
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                11.670014593750011
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                11.670014593750011
+              ],
+              "width": 237.35631236515323
+            }
+          ],
+          "styles": {
+            "g_d#_f1": {
+              "ascent": 0.9052734375,
+              "descent": -0.2119140625,
+              "fontFamily": "sans-serif",
+              "vertical": false
+            },
+            "g_d#_f2": {
+              "ascent": 0.9052734375,
+              "descent": -0.2119140625,
+              "fontFamily": "sans-serif",
+              "vertical": false
+            },
+            "g_d#_f3": {
+              "ascent": 0.9052734375,
+              "descent": -0.2119140625,
+              "fontFamily": "sans-serif",
+              "vertical": false
+            },
+            "g_d#_f4": {
+              "ascent": 0.8583984375,
+              "descent": -0.1416015625,
+              "fontFamily": "sans-serif",
+              "vertical": false
+            }
+          }
+        },
+        "userUnit": 1,
+        "view": [
+          0,
+          0,
+          595.91998,
+          841.91998
+        ],
+        "viewport": {
+          "height": 841.91998,
+          "offsetX": 0,
+          "offsetY": 0,
+          "rotation": 0,
+          "transform": [
+            1,
+            0,
+            0,
+            -1,
+            0,
+            841.91998
+          ],
+          "width": 595.91998
+        }
+      },
+      {
+        "number": 2,
+        "rotate": 0,
+        "text": {
+          "items": [
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                832.9199803749999
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                811.9199812499999
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                811.9199812499999
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                790.9199821249999
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                790.9199821249999
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                769.9199829999999
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                769.9199829999999
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                748.9199838749998
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                748.9199838749998
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                727.9199847499999
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                727.9199847499999
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                706.9199856249999
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                706.9199856249999
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                685.9199864999999
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                685.9199864999999
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                664.9199873749999
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                664.9199873749999
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                643.91998825
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                643.91998825
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                622.9199891249998
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                622.9199891249998
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                601.9199899999999
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                601.9199899999999
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                580.9199908749999
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                580.9199908749999
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                559.9199917499998
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                559.9199917499998
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                538.9199926249998
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                538.9199926249998
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                517.9199934999999
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                517.9199934999999
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                496.919994375
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                496.919994375
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                475.91999524999983
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                475.91999524999983
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                454.9199961249999
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                454.9199961249999
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                433.91999699999997
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                433.91999699999997
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                412.9199978749998
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                412.9199978749998
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                391.9199987499999
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                391.9199987499999
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                370.91999962499995
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                370.91999962499995
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                349.9200004999998
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                349.9200004999998
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                328.92000137499986
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                328.92000137499986
+              ],
+              "width": 237.35631236515323
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                307.9200022499999
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 9.74999959375,
+              "str": "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+              "transform": [
+                9.74999959375,
+                0,
+                0,
+                9.74999959375,
+                17.99999925,
+                307.9200022499999
+              ],
+              "width": 237.35631236515323
+            }
+          ],
+          "styles": {
+            "g_d#_f2": {
+              "ascent": 0.9052734375,
+              "descent": -0.2119140625,
+              "fontFamily": "sans-serif",
+              "vertical": false
+            }
+          }
+        },
+        "userUnit": 1,
+        "view": [
+          0,
+          0,
+          595.91998,
+          841.91998
+        ],
+        "viewport": {
+          "height": 841.91998,
+          "offsetX": 0,
+          "offsetY": 0,
+          "rotation": 0,
+          "transform": [
+            1,
+            0,
+            0,
+            -1,
+            0,
+            841.91998
+          ],
+          "width": 595.91998
+        }
+      }
+    ]
+  },
+  "sha256": "ebf4e27193ec50af0768e5be20626095c1164ac35015022080c8d67324f4b013",
+  "withReadableDataUrls": {
+    "sameAsReference": true
+  }
+}

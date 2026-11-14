@@ -1,0 +1,46 @@
+{
+  "bytes": 2496,
+  "file": "samples/reportlab-scan-no-text.pdf",
+  "group": "samples",
+  "name": "sample-reportlab-scan-no-text",
+  "outcome": {
+    "numPages": 1,
+    "ok": true,
+    "pages": [
+      {
+        "number": 1,
+        "rotate": 0,
+        "text": {
+          "items": [],
+          "styles": {}
+        },
+        "userUnit": 1,
+        "view": [
+          0,
+          0,
+          419.5276,
+          595.2756
+        ],
+        "viewport": {
+          "height": 595.2756,
+          "offsetX": 0,
+          "offsetY": 0,
+          "rotation": 0,
+          "transform": [
+            1,
+            0,
+            0,
+            -1,
+            0,
+            595.2756
+          ],
+          "width": 419.5276
+        }
+      }
+    ]
+  },
+  "sha256": "65d7ab1e5dd431e02591efcf0fc7bbcaa34cee6dcd41615340868ab3a0d46481",
+  "withReadableDataUrls": {
+    "sameAsReference": true
+  }
+}

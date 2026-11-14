@@ -1,0 +1,18 @@
+{
+  "bytes": 131,
+  "file": "files/html-named-pdf.pdf",
+  "group": "assembled",
+  "name": "html-named-pdf",
+  "outcome": {
+    "error": {
+      "code": null,
+      "message": "Invalid PDF structure.",
+      "name": "InvalidPDFException"
+    },
+    "ok": false
+  },
+  "sha256": "a1a15d081ab5d36575b2fe7412f2b55485d051bf8f8da3fef18c764bc346ddfa",
+  "withReadableDataUrls": {
+    "sameAsReference": true
+  }
+}

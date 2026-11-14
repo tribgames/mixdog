@@ -1,0 +1,81 @@
+%PDF-1.7
+%ÅÅÅÅ
+
+1 0 obj
+<<
+/Type /Pages
+/Kids [ 4 0 R ]
+/Count 1
+>>
+endobj
+
+2 0 obj
+<<
+/Type /Catalog
+/Pages 1 0 R
+>>
+endobj
+
+3 0 obj
+<<
+/Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica
+/Encoding /WinAnsiEncoding
+>>
+endobj
+
+4 0 obj
+<<
+/Type /Page
+/Parent 1 0 R
+/Resources <<
+/Font <<
+/F1 3 0 R
+>>
+/XObject <<
+>>
+/ExtGState <<
+>>
+>>
+/MediaBox [ 0 0 612 792 ]
+/Annots [ ]
+/Contents 5 0 R
+>>
+endobj
+
+5 0 obj
+<<
+/Filter /RL
+/Length 525
+>>
+stream
+BT /F1 12 Tf 40 760 Td (Codec check line one: the quick brown fox) Tj ET
+BT /F1 12 Tf 40 746 Td (Line two 0123456789 \(parenthes
+es\) and a ˇ\ backslash) Tj ET
+BT /F1 12 Tf 40 732 Td (Third line ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz) Tj ET
+BT /F1 12 Tf 40 718 Td (Fourth line with repeated words words words words words words) Tj ET
+BT /F1 12 Tf 40 704 Td (Fifth line: sequence 1 2 3 4 5 6 7 8 9 10 ˇ1e 12 13 14 15 16 17 18) Tj ET
+BT /F1 12 Tf 40 690 Td (Sixth and last line of the short document) Tj ET
+Ä
+endstream
+endobj
+
+xref
+0 6
+0000000000 65535 f 
+0000000016 00000 n 
+0000000076 00000 n 
+0000000126 00000 n 
+0000000224 00000 n 
+0000000397 00000 n 
+
+trailer
+<<
+/Size 6
+/Root 2 0 R
+>>
+
+startxref
+986
+%%EOF

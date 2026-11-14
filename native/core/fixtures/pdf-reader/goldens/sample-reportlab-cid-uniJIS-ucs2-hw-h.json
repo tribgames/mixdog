@@ -1,0 +1,138 @@
+{
+  "bytes": 2346,
+  "file": "samples/reportlab-cid-uniJIS-ucs2-hw-h.pdf",
+  "group": "samples",
+  "name": "sample-reportlab-cid-uniJIS-ucs2-hw-h",
+  "outcome": {
+    "numPages": 1,
+    "ok": true,
+    "pages": [
+      {
+        "number": 1,
+        "rotate": 0,
+        "text": {
+          "items": [],
+          "styles": {}
+        },
+        "userUnit": 1,
+        "view": [
+          0,
+          0,
+          419.5276,
+          595.2756
+        ],
+        "viewport": {
+          "height": 595.2756,
+          "offsetX": 0,
+          "offsetY": 0,
+          "rotation": 0,
+          "transform": [
+            1,
+            0,
+            0,
+            -1,
+            0,
+            595.2756
+          ],
+          "width": 419.5276
+        }
+      }
+    ]
+  },
+  "sha256": "ebcf523941a7684a3710aefa07109e859f1ae5e8362c764ab163730c22cba64a",
+  "withReadableDataUrls": {
+    "outcome": {
+      "numPages": 1,
+      "ok": true,
+      "pages": [
+        {
+          "number": 1,
+          "rotate": 0,
+          "text": {
+            "items": [
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f3",
+                "hasEOL": false,
+                "height": 16,
+                "str": "日本語ゴシック体の見本",
+                "transform": [
+                  16,
+                  0,
+                  0,
+                  16,
+                  40,
+                  380
+                ],
+                "width": 176
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f3",
+                "hasEOL": true,
+                "height": 0,
+                "str": "",
+                "transform": [
+                  10,
+                  0,
+                  0,
+                  10,
+                  40,
+                  350
+                ],
+                "width": 0
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f3",
+                "hasEOL": false,
+                "height": 10,
+                "str": "日本語ゴシック体の見本日本語ゴシック体の見本",
+                "transform": [
+                  10,
+                  0,
+                  0,
+                  10,
+                  40,
+                  350
+                ],
+                "width": 220
+              }
+            ],
+            "styles": {
+              "g_d#_f3": {
+                "ascent": 0.752,
+                "descent": -0.221,
+                "fontFamily": "sans-serif",
+                "vertical": false
+              }
+            }
+          },
+          "userUnit": 1,
+          "view": [
+            0,
+            0,
+            419.5276,
+            595.2756
+          ],
+          "viewport": {
+            "height": 595.2756,
+            "offsetX": 0,
+            "offsetY": 0,
+            "rotation": 0,
+            "transform": [
+              1,
+              0,
+              0,
+              -1,
+              0,
+              595.2756
+            ],
+            "width": 419.5276
+          }
+        }
+      ]
+    },
+    "sameAsReference": false
+  }
+}

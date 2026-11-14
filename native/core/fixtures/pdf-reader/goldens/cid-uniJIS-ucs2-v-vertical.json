@@ -1,0 +1,106 @@
+{
+  "bytes": 1126,
+  "file": "files/cid-uniJIS-ucs2-v-vertical.pdf",
+  "group": "assembled",
+  "name": "cid-uniJIS-ucs2-v-vertical",
+  "outcome": {
+    "numPages": 1,
+    "ok": true,
+    "pages": [
+      {
+        "number": 1,
+        "rotate": 0,
+        "text": {
+          "items": [],
+          "styles": {}
+        },
+        "userUnit": 1,
+        "view": [
+          0,
+          0,
+          612,
+          792
+        ],
+        "viewport": {
+          "height": 792,
+          "offsetX": 0,
+          "offsetY": 0,
+          "rotation": 0,
+          "transform": [
+            1,
+            0,
+            0,
+            -1,
+            0,
+            792
+          ],
+          "width": 612
+        }
+      }
+    ]
+  },
+  "sha256": "322a2c151962360fb9e1e6c6137ecdba46c71a17016946a481f9bbb9b8dd847e",
+  "withReadableDataUrls": {
+    "outcome": {
+      "numPages": 1,
+      "ok": true,
+      "pages": [
+        {
+          "number": 1,
+          "rotate": 0,
+          "text": {
+            "items": [
+              {
+                "dir": "ttb",
+                "fontName": "g_d#_f1",
+                "hasEOL": false,
+                "height": 120,
+                "str": "縦書きの文章",
+                "transform": [
+                  20,
+                  0,
+                  0,
+                  20,
+                  60,
+                  700
+                ],
+                "width": 20
+              }
+            ],
+            "styles": {
+              "g_d#_f1": {
+                "ascent": 0.88,
+                "descent": -0.12,
+                "fontFamily": "monospace",
+                "vertical": true
+              }
+            }
+          },
+          "userUnit": 1,
+          "view": [
+            0,
+            0,
+            612,
+            792
+          ],
+          "viewport": {
+            "height": 792,
+            "offsetX": 0,
+            "offsetY": 0,
+            "rotation": 0,
+            "transform": [
+              1,
+              0,
+              0,
+              -1,
+              0,
+              792
+            ],
+            "width": 612
+          }
+        }
+      ]
+    },
+    "sameAsReference": false
+  }
+}

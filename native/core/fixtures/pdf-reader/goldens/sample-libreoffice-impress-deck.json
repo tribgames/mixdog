@@ -1,0 +1,156 @@
+{
+  "bytes": 34194,
+  "file": "samples/libreoffice-impress-deck.pdf",
+  "group": "samples",
+  "name": "sample-libreoffice-impress-deck",
+  "outcome": {
+    "numPages": 2,
+    "ok": true,
+    "pages": [
+      {
+        "number": 1,
+        "rotate": 0,
+        "text": {
+          "items": [
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 18,
+              "str": "Hub overview",
+              "transform": [
+                18,
+                0,
+                0,
+                18,
+                63.78,
+                366.661
+              ],
+              "width": 112.824
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                18,
+                0,
+                0,
+                18,
+                63.78,
+                253.275
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 18,
+              "str": "Throughput up, latency down",
+              "transform": [
+                18,
+                0,
+                0,
+                18,
+                63.78,
+                253.275
+              ],
+              "width": 242.5320000000001
+            }
+          ],
+          "styles": {
+            "g_d#_f2": {
+              "ascent": 1.08837890625,
+              "descent": -0.24169921875,
+              "fontFamily": "sans-serif",
+              "vertical": false
+            }
+          }
+        },
+        "userUnit": 1,
+        "view": [
+          0,
+          0,
+          793.700787401575,
+          446.456692913386
+        ],
+        "viewport": {
+          "height": 446.456692913386,
+          "offsetX": 0,
+          "offsetY": 0,
+          "rotation": 0,
+          "transform": [
+            1,
+            0,
+            0,
+            -1,
+            0,
+            446.456692913386
+          ],
+          "width": 793.700787401575
+        }
+      },
+      {
+        "number": 2,
+        "rotate": 0,
+        "text": {
+          "items": [
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 18,
+              "str": "次のステップ / 다음 단계",
+              "transform": [
+                18,
+                0,
+                0,
+                18,
+                63.78,
+                366.661
+              ],
+              "width": 206.103
+            }
+          ],
+          "styles": {
+            "g_d#_f2": {
+              "ascent": 1.08837890625,
+              "descent": -0.24169921875,
+              "fontFamily": "sans-serif",
+              "vertical": false
+            }
+          }
+        },
+        "userUnit": 1,
+        "view": [
+          0,
+          0,
+          793.700787401575,
+          446.456692913386
+        ],
+        "viewport": {
+          "height": 446.456692913386,
+          "offsetX": 0,
+          "offsetY": 0,
+          "rotation": 0,
+          "transform": [
+            1,
+            0,
+            0,
+            -1,
+            0,
+            446.456692913386
+          ],
+          "width": 793.700787401575
+        }
+      }
+    ]
+  },
+  "sha256": "c0e6fed294657d718a3dda7ec4611a3015e2c8635251ab0b9031c55c115072ad",
+  "withReadableDataUrls": {
+    "sameAsReference": true
+  }
+}

@@ -1,0 +1,86 @@
+{
+  "bytes": 857,
+  "file": "files/form-xobject-text.pdf",
+  "group": "assembled",
+  "name": "form-xobject-text",
+  "outcome": {
+    "numPages": 1,
+    "ok": true,
+    "pages": [
+      {
+        "number": 1,
+        "rotate": 0,
+        "text": {
+          "items": [
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f1",
+              "hasEOL": false,
+              "height": 12,
+              "str": "outside the form",
+              "transform": [
+                12,
+                0,
+                0,
+                12,
+                20,
+                170
+              ],
+              "width": 86.03999999999998
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f1",
+              "hasEOL": false,
+              "height": 12,
+              "str": "inside the form",
+              "transform": [
+                12,
+                0,
+                0,
+                12,
+                25,
+                130
+              ],
+              "width": 78.696
+            }
+          ],
+          "styles": {
+            "g_d#_f1": {
+              "ascent": 0.718,
+              "descent": -0.207,
+              "fontFamily": "sans-serif",
+              "vertical": false
+            }
+          }
+        },
+        "userUnit": 1,
+        "view": [
+          0,
+          0,
+          300,
+          200
+        ],
+        "viewport": {
+          "height": 200,
+          "offsetX": 0,
+          "offsetY": 0,
+          "rotation": 0,
+          "transform": [
+            1,
+            0,
+            0,
+            -1,
+            0,
+            200
+          ],
+          "width": 300
+        }
+      }
+    ]
+  },
+  "sha256": "9c354d738cdfa2420efe51d6c2caeb766fdfb9546cc3558130b25493dcd5156a",
+  "withReadableDataUrls": {
+    "sameAsReference": true
+  }
+}
