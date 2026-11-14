@@ -4,12 +4,8 @@ Every other line of the eleven G1 desktop fragments was applied (see the DESKTOP
 
 ## s2a-ts-host-extras (preload mirror)
 
-The four channels are in DESKTOP_IPC (enableAllowAllActions, observeSignIn, pcQuotaInvoke, pcQuotaRead),
-HOST_EXTRAS_IPC uses them, and ipc.ts registers registerHostExtrasIpc per window. The preload half waits for
-DESKTOP-WIRE-G5 (G5, "preload host API"): these members are not DesktopApi members but DesktopHostExtras of
-`window.mixdogDesktopHost` (shared/desktop-api-split.ts); adding them to DesktopApi breaks DESKTOP_API_COMPLETE.
-G5 must map them onto the channels, whose shapes differ from DesktopHostExtras: observeSignIn is sent as
-(request, value), and the PC quota channels answer null for a call that is not the PC's quota.
+Moved to deferred-g2.md (the channel mapping now exists in preload/host-api.ts; the preload exposure stays with
+DESKTOP-WIRE-G5).
 
 ## Notes for later tasks (not fragment lines)
 
