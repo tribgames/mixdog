@@ -101,6 +101,8 @@ export class PixelsError extends Error {
 }
 
 const GONE = "window_gone";
+/** Ceiling for one GNOME Shell screenshot: above the helper's own 10 s gdbus call timeout, so its error surfaces first. */
+const GNOME_SHELL_CAPTURE_TIMEOUT_MS = 12_000;
 const PERMISSION_WORDS =
   /permission|not authori[sz]ed|not allowed|denied|screen recording/i;
 
@@ -331,6 +333,12 @@ export async function electronPixelSources(): Promise<PixelSources> {
     await import("../observation/gnome-shell-capture");
   const { electronWindowForNativeId } =
     await import("../observation/window-handles");
+  const gnomeShot: typeof captureGnomeShellSource = (source, size) =>
+    withTimeout(
+      captureGnomeShellSource(source, size),
+      GNOME_SHELL_CAPTURE_TIMEOUT_MS,
+      "capture_timeout: GNOME shell capture",
+    );
 
   // Native coordinates are physical pixels on Windows and Linux but points on macOS, where a display holds scaleFactor
   // pixels per point and a capture asks for the backing pixels.
@@ -380,7 +388,7 @@ export async function electronPixelSources(): Promise<PixelSources> {
     },
     async displayPixels(display, size) {
       if (usesGnomeHelper())
-        return captureGnomeShellSource(
+        return gnomeShot(
           { kind: "screen", displayId: display.id },
           size,
         );
@@ -406,7 +414,7 @@ export async function electronPixelSources(): Promise<PixelSources> {
           throw new Error(
             "capture_source_unavailable: exact window source is unavailable",
           );
-        return captureGnomeShellSource({ kind: "window", handle }, size);
+        return gnomeShot({ kind: "window", handle }, size);
       }
       const found = await withTimeout(
         desktopCapturer.getSources({ types: ["window"], thumbnailSize: size }),
