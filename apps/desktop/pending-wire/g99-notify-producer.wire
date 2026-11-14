@@ -1,0 +1,16 @@
+# g99-notify-producer -> DELETE-HOT (apps/desktop/src/main/index.ts) -- apply in the same step as native/core/crates/pending-wire/g99-notify-producer.wire,
+# or every turn would notify twice.
+
+The core decides and shows this PC's session notifications (host/notification/show) and sends the phone pushes. The TypeScript producer is removed.
+
+## apps/desktop/src/main/index.ts
+1. Delete `import { createDesktopTurnNotifier } from './desktop-turn-notifier';` and the whole `const turnNotifier = createDesktopTurnNotifier({ ... });`
+   (with `nativeSessionTitleLabels` if nothing else reads it).
+2. Delete `turnNotifier.dispose();` (shutdown), `turnNotifier.onSessions(sessions);`, `turnNotifier.onAgentPool(agents);` and the
+   `unsubscribeTurnWaits = localService.subscribeSessionStates(... turnNotifier.onSessionState ...)` subscription with its unsubscribe in `unsubscribeTurnNotifier`.
+3. `localService.readSessionFinalAnswer` loses its only caller here (check other callers, else delete it).
+4. The host/notification/show handler already exists (notification-center.ts): the desktop's `isSessionOnScreen` / desktopPet check is answered by the host's
+   foreground-thread report to the core (the audience's `host.foreground_thread`).
+
+## Files deleted afterwards by the deletion task (not by this one)
+desktop-turn-notifier.ts(+test), final-answer-watcher.ts(+test), push-turn-events.ts(+test), session-final-answer.ts(+test) once nothing imports them.

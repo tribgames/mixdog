@@ -163,46 +163,47 @@ impl NotificationEngine {
         }
     }
 
-    pub fn on_event(&self, event: &ThreadEvent, audience: &Audience) -> Plan {
+    /// The host toasts of one event: one for every attached host that does not show the thread, when this PC's decision is to
+    /// notify. With no host attached the toast waits for the next one (`host_attached`); a toast shown now makes an older one
+    /// for the thread no longer owed.
+    pub fn toasts_of(&self, event: &ThreadEvent, audience: &Audience) -> Vec<(String, HostToast)> {
         let body = notification_preview(&event.body_markdown);
         let clock = LocalClock::at(event.now_ms);
-        let mut plan = Plan::default();
-        let decide_for = |view: &PreferencesView, foreground: bool, desktop_active: bool| {
+        let decide_for = |foreground: bool| {
             decide(&DecisionInput {
                 event: event.event,
                 conversation: &event.conversation,
-                view,
+                view: &audience.pc,
                 now_ms: event.now_ms,
                 clock,
                 foreground,
-                desktop_active,
+                desktop_active: false,
             })
         };
-        let is_foreground = |shown: &Option<String>| shown.as_deref() == Some(event.thread_id.as_str());
-
+        let mut toasts = Vec::new();
         if audience.hosts.is_empty() {
             // No UI attached: the PC's decision is kept for the next host that attaches.
-            if decide_for(&audience.pc, false, false) == Decision::Notify {
+            if decide_for(false) == Decision::Notify {
                 let toast = self.toast(&event.thread_id, &event.title, &body);
                 self.pending.lock().unwrap_or_else(|e| e.into_inner()).insert(event.thread_id.clone(), toast);
             }
         } else {
             for host in &audience.hosts {
-                if decide_for(&audience.pc, is_foreground(&host.foreground_thread), false) == Decision::Notify {
-                    plan.toasts.push((
-                        host.connection_id.clone(),
-                        self.toast(&event.thread_id, &event.title, &body),
-                    ));
+                if decide_for(host.foreground_thread.as_deref() == Some(event.thread_id.as_str())) == Decision::Notify {
+                    toasts.push((host.connection_id.clone(), self.toast(&event.thread_id, &event.title, &body)));
                 }
             }
             // The thread was shown now; nothing older is owed to a later attach.
-            if !plan.toasts.is_empty() {
+            if !toasts.is_empty() {
                 self.pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&event.thread_id);
             }
         }
+        toasts
+    }
 
-        plan.pushes = device_pushes(event, &body, audience);
-        plan
+    /// The relay pushes of one event: each paired device decides for itself (`sendPush` through `deliveryGate`).
+    pub fn pushes_of(&self, event: &ThreadEvent, audience: &Audience) -> Vec<PushRequest> {
+        device_pushes(event, &notification_preview(&event.body_markdown), audience)
     }
 
     /// A held request of an unattended run (push-notifier.ts `onHeldRequest`): the phones are
@@ -373,12 +374,15 @@ mod tests {
     fn engine() -> NotificationEngine {
         NotificationEngine::new(std::sync::Arc::new(|| ToastStyle::for_volume(50)))
     }
+    fn plan_of(engine: &NotificationEngine, event: &ThreadEvent, audience: &Audience) -> Plan {
+        Plan { toasts: engine.toasts_of(event, audience), pushes: engine.pushes_of(event, audience) }
+    }
 
     #[test]
     fn toast_goes_to_every_host_not_showing_the_thread() {
         let mut a = audience(&["c1", "c2"], vec![]);
         a.hosts[1].foreground_thread = Some("t1".into());
-        let plan = engine().on_event(&event(), &a);
+        let plan = plan_of(&engine(), &event(), &a);
         assert_eq!(plan.toasts.len(), 1);
         assert_eq!(plan.toasts[0].0, "c1");
         assert_eq!(plan.toasts[0].1.body, "Done now");
@@ -391,10 +395,10 @@ mod tests {
         let read = percent.clone();
         let e = NotificationEngine::new(std::sync::Arc::new(move || ToastStyle::for_volume(read.load(std::sync::atomic::Ordering::SeqCst))));
         let a = audience(&["c1"], vec![]);
-        let loud = e.on_event(&event(), &a).toasts.remove(0).1;
+        let loud = plan_of(&e, &event(), &a).toasts.remove(0).1;
         assert_eq!((loud.sound.as_deref(), loud.volume), (Some("soft-rise"), 100.0));
         percent.store(0, std::sync::atomic::Ordering::SeqCst);
-        let muted = e.on_event(&event(), &a).toasts.remove(0).1;
+        let muted = plan_of(&e, &event(), &a).toasts.remove(0).1;
         assert_eq!((muted.sound.as_deref(), muted.volume), (Some("none"), 0.0));
         let wire = serde_json::to_value(&muted).unwrap();
         assert_eq!(wire["sound"], "none");
@@ -404,7 +408,7 @@ mod tests {
     #[test]
     fn toast_without_a_host_is_delivered_once_on_attach() {
         let e = engine();
-        let plan = e.on_event(&event(), &audience(&[], vec![]));
+        let plan = plan_of(&e, &event(), &audience(&[], vec![]));
         assert!(plan.toasts.is_empty());
         let first = e.host_attached();
         assert_eq!(first.len(), 1);
@@ -415,7 +419,7 @@ mod tests {
     #[test]
     fn a_read_thread_owes_nothing_on_attach() {
         let e = engine();
-        e.on_event(&event(), &audience(&[], vec![]));
+        plan_of(&e, &event(), &audience(&[], vec![]));
         e.thread_read("t1");
         assert!(e.host_attached().is_empty());
     }
@@ -425,7 +429,7 @@ mod tests {
         let e = engine();
         let mut a = audience(&[], vec![]);
         a.pc = view(DevicePreferences { scope: Scope::Off, ..Default::default() });
-        e.on_event(&event(), &a);
+        plan_of(&e, &event(), &a);
         assert!(e.host_attached().is_empty());
     }
 
@@ -439,12 +443,12 @@ mod tests {
             ],
         );
         let e = engine();
-        let plan = e.on_event(&event(), &a);
+        let plan = plan_of(&e, &event(), &a);
         assert_eq!(plan.pushes.len(), 1);
         assert_eq!(plan.pushes[0].device_id, "phone");
         assert_eq!(plan.pushes[0].schedule, PushSchedule::Now);
         a.desktop_active = true;
-        let held = e.on_event(&event(), &a);
+        let held = plan_of(&e, &event(), &a);
         assert_eq!(held.pushes[0].schedule, PushSchedule::HoldUntil(1_700_000_060_000));
     }
 
@@ -475,13 +479,13 @@ mod tests {
             approval: Some(PushApproval { id: long, allow_once: true }),
             ..event()
         };
-        let plan = engine().on_event(&waiting, &a);
+        let plan = plan_of(&engine(), &waiting, &a);
         let approval = plan.pushes[0].approval.clone().expect("approval push");
         // 119 units + the emoji's high surrogate: `slice(0, 120)` cuts the pair.
         assert_eq!(mixdog_js::utf16_len(&approval.id), 120);
         assert!(approval.allow_once);
         let finished = ThreadEvent { approval: Some(PushApproval { id: "x".into(), allow_once: true }), ..event() };
-        assert_eq!(engine().on_event(&finished, &a).pushes[0].approval, None);
+        assert_eq!(plan_of(&engine(), &finished, &a).pushes[0].approval, None);
     }
 
     #[test]
