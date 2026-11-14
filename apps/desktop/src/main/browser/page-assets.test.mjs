@@ -131,10 +131,14 @@ test('ref-point-probe asset equals the probe function of ref-point-probe.ts', ()
 });
 
 test('every asset parses as page JavaScript once its placeholders are filled', () => {
-  const filled = (text) => text.replace(/__MIXDOG_[A-Z_]+__/g, '(function() {})');
+  // custom-control.js is the statement head open-custom.js and pick-custom.js share (the engine
+  // splices it in at __MIXDOG_CUSTOM_CONTROL__): it parses as part of those two, not by itself.
+  const head = asset('custom-control.js');
+  const filled = (text) =>
+    text.replace(/__MIXDOG_CUSTOM_CONTROL__/g, () => head).replace(/__MIXDOG_[A-Z_]+__/g, '(function() {})');
   const files = fs.readdirSync(ASSETS).filter((name) => name.endsWith('.js'));
   assert.equal(files.length, 18);
-  for (const name of files) {
+  for (const name of files.filter((file) => file !== 'custom-control.js')) {
     const bodies = asset(name).includes('//@@ ') ? Object.values(sections(name)) : [asset(name)];
     for (const body of bodies) {
       assert.doesNotThrow(() => new vm.Script(`(async () => (${filled(body)}))`), `${name} parses`);
