@@ -35,7 +35,6 @@ export {
 } from './connection-link';
 export { createPortForwardStore, type PortForwardStore } from './port-forward-store';
 export { createServerPortForwards, type ServerPortForwards } from './server-port-forwards';
-export { registerServerPortsIpc } from './ports-ipc';
 export { createReattachReport } from './reattach-report';
 export { createServerNotifier, type ServerNotifier } from './server-notifier';
 export { createServerWindowRestore, type ServerWindowRestore } from './window-restore';

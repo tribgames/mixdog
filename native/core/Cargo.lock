@@ -4002,6 +4002,7 @@ dependencies = [
  "mixdog-app-server-transport",
  "mixdog-browser-engine",
  "mixdog-browser-policy",
+ "mixdog-connections",
  "mixdog-core",
  "mixdog-core-agents",
  "mixdog-core-api",

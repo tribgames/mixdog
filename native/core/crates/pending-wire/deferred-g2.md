@@ -35,7 +35,7 @@ CORE-WIRE-G9 add them, deferred-g1.md), so none of this code or its tests has be
   with `ComputerHostPresence`).
 - s2a-core-blob-refs -> s2a-core-server-wiring: applied by CORE-WIRE-G3 (`crate::server::install_param_refs` in compose_domains/rows.rs).
 - s1-page-http -> s1-ws-wire: applied by CORE-WIRE-G3 (`compose_desktop_files` after `workspace.set_phone_grants`).
-- s2b-model-proxy-relay -> s2b-service (wave 9): the relay composition.
+- s2b-model-proxy-relay -> s2b-service (wave 9): the relay composition. Done by g9-compose-connections: `ServiceProxy` over the `ModelProxyService` of `modelProxy/run` is the pool's local proxy (compose_connections.rs).
 - s3-03, s3-05, s3-09, s3-10, s3-12 -> s3-18 / s3-19: consumer notes, carried out by those tasks; no line.
 - s3-15: packaging of the extension payload (packaging task) and the desktop removal (s3-26). The compose loop is applied.
 
