@@ -30,8 +30,8 @@ pub(super) type Lane = InLane<InteractiveIo>;
 
 /// `AGENT_DELETED_MARKER`: the tombstone a deleted agent leaves in its user folder.
 pub const DELETED_MARKER: &str = ".deleted";
-const BOTS_DIR: &str = "bots";
-const MIXY_BOT_ID: &str = "mixy";
+pub(super) const BOTS_DIR: &str = "bots";
+pub(super) const MIXY_BOT_ID: &str = "mixy";
 
 /// `FIXED_AGENT_SLOTS`: id, label and description of the built-in services.
 pub const FIXED_SLOTS: [(&str, &str, &str, &str); 2] = [
@@ -142,14 +142,14 @@ pub(super) fn manifest_of(dir: &Path) -> Map<String, Value> {
 }
 
 /// `explicitKind`: the frontmatter `kind`, lower-cased, `None` when blank or not a string.
-fn explicit_kind(value: Option<&Value>) -> Option<String> {
+pub(super) fn explicit_kind(value: Option<&Value>) -> Option<String> {
     let text = value?.as_str()?;
     let kind = mixdog_js::js_trim(text).to_lowercase();
     (!kind.is_empty()).then_some(kind)
 }
 
 /// `isDialogDefaultBody`: the body ends with the bot dialog's three closing lines.
-fn is_dialog_default_body(body: &str) -> bool {
+pub(super) fn is_dialog_default_body(body: &str) -> bool {
     let lines: Vec<&str> = mixdog_js::js_trim(body).split('\n').map(|l| l.strip_suffix('\r').unwrap_or(l)).collect();
     let [.., first, second, third] = lines.as_slice() else {
         return false;

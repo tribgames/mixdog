@@ -61,6 +61,23 @@ impl UserCwd {
         .await
     }
 
+    /// `captureOriginalUserCwd()`: the explicit cwd, then `MIXDOG_PROJECT_DIR` when it names a
+    /// live directory, then the process cwd (the home directory when that is the install root).
+    /// It is for relative-path resolution; project classification uses [`Self::explicit_cwd`].
+    pub async fn captured_cwd(&self, scoped: Option<&str>) -> Result<Option<String>, CoreError> {
+        if let Some(dir) = self.explicit_cwd(scoped).await? {
+            return Ok(Some(dir));
+        }
+        let project = std::env::var("MIXDOG_PROJECT_DIR").ok().filter(|raw| !raw.is_empty());
+        self.on_lane(move |lane| {
+            project.and_then(|raw| existing_directory(lane, &raw)).or_else(|| {
+                let home = std::env::var(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).ok().filter(|raw| !raw.is_empty());
+                safe_process_cwd(std::env::current_dir().ok()?, std::env::var("MIXDOG_ROOT").ok(), home)
+            })
+        })
+        .await
+    }
+
     /// `readLastSessionCwd(keyPid)`: this terminal's last `cwd set`, when it is still a
     /// directory. `Ok(None)` is Node's `null`.
     pub async fn last_cwd(&self, key_pid: Option<&str>) -> Result<Option<String>, CoreError> {
@@ -112,6 +129,16 @@ fn existing_directory(_lane: &InLane<InteractiveIo>, raw: &str) -> Option<String
     let normalized = normalize_platform_cwd(raw).filter(|cwd| !cwd.is_empty())?;
     let meta = std::fs::metadata(&normalized).ok()?;
     meta.is_dir().then_some(normalized)
+}
+
+/// `_safeProcessCwd()`: the process cwd, except that the install root (`MIXDOG_ROOT`) is no
+/// session signal and gives the home directory.
+fn safe_process_cwd(cwd: PathBuf, root: Option<String>, home: Option<String>) -> Option<String> {
+    let cwd = node_resolve(&cwd.to_string_lossy());
+    if root.filter(|root| !root.is_empty()).is_some_and(|root| node_resolve(&root) == cwd) {
+        return home;
+    }
+    Some(cwd)
 }
 
 /// `_normalizePlatformCwd(p)`: on Windows the MSYS, Cygwin and WSL drive prefixes become
@@ -201,6 +228,25 @@ mod tests {
         // A non-numeric key falls back to `solo`.
         cwd.write_last_cwd(&dir, Some("abc")).await;
         assert!(data.path().join("session-cwd-solo.txt").exists());
+    }
+
+    #[test]
+    fn the_process_cwd_is_no_cwd_when_it_is_the_install_root() {
+        let here = std::env::current_dir().unwrap();
+        let text = here.to_string_lossy().into_owned();
+        assert_eq!(safe_process_cwd(here.clone(), None, Some("/home".into())), Some(node_resolve(&text)));
+        assert_eq!(safe_process_cwd(here.clone(), Some(text.clone()), Some("/home".into())), Some("/home".into()));
+        assert_eq!(safe_process_cwd(here, Some(String::new()), None), Some(node_resolve(&text)));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_captured_cwd_falls_back_to_a_cwd_when_no_explicit_one_exists() {
+        let data = tempfile::tempdir().expect("data");
+        let cwd = user_cwd(data.path());
+        assert_eq!(cwd.captured_cwd(Some("/scoped")).await.unwrap(), normalize_platform_cwd("/scoped"));
+        if std::env::var("MIXDOG_SESSION_CWD").is_err() {
+            assert!(cwd.captured_cwd(None).await.unwrap().is_some(), "the process cwd answers when nothing is explicit");
+        }
     }
 
     #[cfg(windows)]

@@ -405,11 +405,11 @@ impl Tool for ListTool {
             return Ok(text_output(empty_message(ctx, &abs, raw, offset, total, hidden).await));
         }
         let text = lines.join("\n");
-        if text.len() > LOCATOR_MAX_BYTES {
-            let (kept, dropped) = cap_lines(&text, LOCATOR_MAX_BYTES);
+        if text.len() > locator_max_bytes() {
+            let (kept, dropped) = cap_lines(&text, locator_max_bytes());
             let shown = lines.len() - dropped;
             let marker = cap_marker(
-                &format_cap_size(LOCATOR_MAX_BYTES),
+                &format_cap_size(locator_max_bytes()),
                 &format!("{shown} rows shown"),
                 Some((offset + shown) as u64),
                 "",

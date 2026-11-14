@@ -22,12 +22,23 @@ use mixdog_core_api::domain::tool::ToolPart;
 use mixdog_protocol::JsonValue;
 use mixdog_rt::LaneToken;
 
-/// Model-facing byte cap of one tool result.
-pub(crate) const OUTPUT_MAX_BYTES: usize = 50 * 1024;
-/// Model-facing byte cap of locator tools (find, glob, list).
-pub(crate) const LOCATOR_MAX_BYTES: usize = 20 * 1024;
-/// Model-facing byte cap of grep.
-pub(crate) const GREP_MAX_BYTES: usize = 5 * 1024;
+/// Model-facing byte cap of one tool result (`TOOL_OUTPUT_MAX_BYTES`, `MIXDOG_TOOL_OUTPUT_MAX_BYTES`).
+pub(crate) fn output_max_bytes() -> usize {
+    static MAX: std::sync::LazyLock<usize> = std::sync::LazyLock::new(|| crate::github::positive_env_int(std::env::var("MIXDOG_TOOL_OUTPUT_MAX_BYTES").ok().as_deref(), 50 * 1024));
+    *MAX
+}
+
+/// Model-facing byte cap of locator tools: find, glob, list (`LOCATOR_OUTPUT_MAX_BYTES`, `MIXDOG_LOCATOR_OUTPUT_MAX_BYTES`).
+pub(crate) fn locator_max_bytes() -> usize {
+    static MAX: std::sync::LazyLock<usize> = std::sync::LazyLock::new(|| crate::github::positive_env_int(std::env::var("MIXDOG_LOCATOR_OUTPUT_MAX_BYTES").ok().as_deref(), 20 * 1024));
+    *MAX
+}
+
+/// Model-facing byte cap of grep (`GREP_OUTPUT_MAX_BYTES`, `MIXDOG_GREP_OUTPUT_MAX_BYTES`).
+pub(crate) fn grep_max_bytes() -> usize {
+    static MAX: std::sync::LazyLock<usize> = std::sync::LazyLock::new(|| crate::github::positive_env_int(std::env::var("MIXDOG_GREP_OUTPUT_MAX_BYTES").ok().as_deref(), 5 * 1024));
+    *MAX
+}
 
 /// Directory names pruned unless `include_noise` is set.
 pub(crate) const NOISE_DIRS: &[&str] = &[

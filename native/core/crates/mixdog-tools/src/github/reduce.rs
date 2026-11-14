@@ -19,7 +19,7 @@ pub fn output_max_bytes() -> usize {
 
 /// `positiveEnvInt`: `parseInt(value, 10)` when it is finite and above 0, else `fallback`. `parseInt` reads the leading
 /// (optionally signed) digits after leading white space; a value past the double range is Infinity, not finite.
-pub(crate) fn positive_env_int(value: Option<&str>, fallback: usize) -> usize {
+pub fn positive_env_int(value: Option<&str>, fallback: usize) -> usize {
     let Some(value) = value else { return fallback };
     let text = mixdog_js::js_trim_start(value);
     let (negative, digits) = match text.strip_prefix('-') {
