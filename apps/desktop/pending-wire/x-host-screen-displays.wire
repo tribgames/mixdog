@@ -1,0 +1,10 @@
+# apps/desktop pending wire: x-host-screen-displays
+# host/connection.ts, HOST_METHOD: add the row (after humanOnlyEnd)
+  screenDisplays: 'host/screen/displays',
+# host/index.ts (createDesktopHost): import and call once with the claimed connection; `screenDisplays`
+# is the session's createElectronScreenDisplays() instance (remote-screen/screen-electron.ts), refreshed
+# before listing (its list() reads capture ids that refresh() fills):
+import { registerScreenDisplaysHost } from './screen-displays';
+registerScreenDisplaysHost(connection, () => ({ list: async () => { await screenDisplays.refresh(); return screenDisplays.list(); } }));
+# Routing stays host.browser (server_requests.rs:55-59), not host.computer.
+# After wiring, HOST_SCREEN_DISPLAYS in screen-displays.ts may be replaced by HOST_METHOD.screenDisplays.
