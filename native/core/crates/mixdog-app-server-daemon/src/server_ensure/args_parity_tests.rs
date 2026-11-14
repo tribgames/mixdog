@@ -104,9 +104,19 @@ fn every_error_code_the_server_prints_is_a_bootstrap_code() {
 
 #[test]
 fn the_drain_the_server_prints_is_the_drain_the_desktop_reads() {
-    let drain = DrainReport { drain_id: "d1".into(), running: Vec::new(), confirm_token: "tok".into() };
+    let running = vec![mixdog_app_protocol::mgmt::RunningWork {
+        kind: mixdog_app_protocol::mgmt::ActivityKind::Turn,
+        thread_id: Some("th".into()),
+        turn_id: None,
+        title: "Fix the build".into(),
+    }];
+    let drain = DrainReport { drain_id: "d1".into(), running, confirm_token: "tok".into() };
     let line = serde_json::to_string(&drain).expect("drains serialize");
     let read: wire::RemoteDrain = serde_json::from_str(&line).expect("the desktop reads a drain");
     assert_eq!((read.drain_id.as_str(), read.confirm_token.as_str()), ("d1", "tok"));
-    assert!(read.running.is_empty());
+    assert_eq!(read.running.len(), 1);
+    assert_eq!(
+        (read.running[0].kind.as_str(), read.running[0].thread_id.as_deref(), read.running[0].title.as_str()),
+        ("turn", Some("th"), "Fix the build")
+    );
 }

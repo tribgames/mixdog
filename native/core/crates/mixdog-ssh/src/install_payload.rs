@@ -57,19 +57,18 @@ impl InstallPayload {
     }
 
     /// The payload of `platform` from the release staged in `server_cores_dir`: its manifest is
-    /// read and checked, and the bundle must match the digest the manifest holds for it.
+    /// read and checked. The bundle itself is not touched: only an install uploads it, through
+    /// [`InstallPayload::read_archive`].
     pub fn load<P: mixdog_fsio::ReadProof>(
         proof: &P,
         server_cores_dir: &Path,
         platform: ServerPlatform,
     ) -> Result<Self, RemoteBootstrapError> {
         let manifest = ServerManifest::load(proof, server_cores_dir)?;
-        let payload = Self::resolve(server_cores_dir, &manifest, platform)?;
-        payload.read_archive(proof)?;
-        Ok(payload)
+        Self::resolve(server_cores_dir, &manifest, platform)
     }
 
-    /// The bundle's bytes, checked against `bundle_sha256`.
+    /// The bundle's bytes (read on demand, for an upload), checked against `bundle_sha256`.
     pub fn read_archive<P: mixdog_fsio::ReadProof>(&self, proof: &P) -> Result<Vec<u8>, RemoteBootstrapError> {
         let data = mixdog_fsio::read(proof, &self.bundle).map_err(|e| {
             RemoteBootstrapError::new(

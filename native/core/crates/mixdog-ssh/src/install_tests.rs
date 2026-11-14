@@ -84,6 +84,7 @@ fn reads_the_probe_line_and_the_windows_shell_failure() {
     assert_eq!(parse_platform_line("nothing"), None);
     assert!(is_windows_shell_failure("'sh' is not recognized as an internal or external command"));
     assert!(is_windows_shell_failure("The term 'sh' is not recognized as the name of a cmdlet"));
+    assert!(is_windows_shell_failure("The term sh is not recognized as the name of a cmdlet"));
     assert!(is_windows_shell_failure("CommandNotFoundException"));
     assert!(!is_windows_shell_failure("Permission denied"));
     assert_eq!(windows_server_error().code, "unsupported-platform");
