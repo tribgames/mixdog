@@ -1400,6 +1400,18 @@
       ],
       "type": "object"
     },
+    "HostBrowserRevisionParams": {
+      "description": "`host/browser/revision`.",
+      "properties": {
+        "pageId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "pageId"
+      ],
+      "type": "object"
+    },
     "HostBrowserScreenshotParams": {
       "description": "`host/browser/screenshot`.",
       "properties": {
@@ -4203,6 +4215,29 @@
         },
         "params": {
           "$ref": "#/definitions/HostBrowserSnapshotParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "The observation revision of a page now (the DOM-change counter summed over its frames), read without a snapshot.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "host/browser/revision"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostBrowserRevisionParams"
         }
       },
       "required": [

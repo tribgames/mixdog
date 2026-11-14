@@ -132,6 +132,12 @@ crate::server_request_definitions! {
         result: HostBrowserSnapshotResult,
         requires: Some("host.browserEngine"),
     },
+    /// The observation revision of a page now (the DOM-change counter summed over its frames), read without a snapshot.
+    HostBrowserRevision => "host/browser/revision" {
+        params: HostBrowserRevisionParams,
+        result: HostBrowserRevisionResult,
+        requires: Some("host.browserEngine"),
+    },
     /// Call a function on the element a snapshot ref names.
     HostBrowserRefCall => "host/browser/ref/call" {
         params: HostBrowserRefCallParams,

@@ -3891,6 +3891,9 @@ impl SessionActor {
         self.steered_meta.clear();
         // `settleTurn`'s `releaseWorkspace()`: every settled turn, whatever its outcome, starts
         // the removal of the snapshots it made, without waiting for it.
+        if !matches!(outcome, RunOutcome::Completed(_)) {
+            self.deps.snapshots.turn_aborted(&self.id);
+        }
         self.deps.snapshots.turn_settled(&self.id);
         // `completeTurn`'s `setSession(mgr.getSession(...))` (`turn-settle.mjs:38`) re-installs the session through
         // `adoptSession`, whose `syncSessionCompaction` drops the resolved buffer the pre-send checks wrote and

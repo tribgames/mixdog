@@ -79,7 +79,7 @@ mod tests {
                 "connections/ssh/openEphemeral", "computer/userControl", "desktop/workflowConfig/read", "migrate/profile/status",
                 "projectFs/localPage/virtual", "computer/bridge/run", "computer/bridge/abort", "desktop/launchVersion/record",
                 "desktop/modelBootstrap/read", "desktop/nativeToolCache/gc",
-                "browser/bridge/run", "browser/bridge/turn", "browser/bridge/abort", "transfer/serverDownload/begin", "transfer/serverDownload/step",
+                "browser/bridge/run", "browser/bridge/turn", "browser/bridge/abort", "remoteHosts/touch", "transfer/serverDownload/begin", "transfer/serverDownload/step",
                 "transfer/serverDownload/finish", "transfer/serverDownload/abort", "transfer/serverDownload/check"].contains(&method), "{method} is not a host-role method");
         }
         assert!(allows_initialize(&params(r#"{"clientInfo":{"name":"w","version":"1","kind":"desktop"},"capabilities":{"host":{}}}"#)).is_err());

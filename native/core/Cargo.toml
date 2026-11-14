@@ -223,7 +223,7 @@ regex = "1.12.3"
 ring ="0.17.14" # RS256 signing of the Vertex AI service-account JWT (already in the rustls graph)
 trash = "5.2" # not in Codex: OS recycle bin for projectFs/trash (WP-WS), as Node's shell.trashItem
 regress = "0.10" # not in Codex: ECMAScript-syntax regex engine for user-facing text search (WP-WS)
-reqwest = { version = "0.12", default-features = false, features = ["charset", "cookies", "http2", "macos-system-configuration", "rustls-tls-native-roots"] }
+reqwest = { version = "0.12", default-features = false, features = ["charset", "cookies", "http2", "macos-system-configuration", "rustls-tls-native-roots", "rustls-tls-webpki-roots"] }
 rusqlite = { version = "0.41.1", features = ["bundled"] } # not in Codex (it uses sqlx)
 rustls = { version = "0.23.46", default-features = false }
 rustls-native-certs = "0.8"

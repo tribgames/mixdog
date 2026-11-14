@@ -25716,6 +25716,29 @@
       "type": "object"
     },
     {
+      "description": "A window for a saved remote PC finished loading: its last-connected time is now (`remote-host-windows.ts` touch). An id no longer saved changes nothing. Caller: H.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "remoteHosts/touch"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ConnectionsIdParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
       "description": "Which of the saved hosts' desktops are connected to their relay right now. Caller: H.",
       "properties": {
         "id": {

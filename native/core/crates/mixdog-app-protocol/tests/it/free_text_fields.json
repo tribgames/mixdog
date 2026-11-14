@@ -4451,6 +4451,7 @@
     "request remoteHosts/forget /id",
     "request remoteHosts/presence /ids/*",
     "request remoteHosts/rename /id",
+    "request remoteHosts/touch /id",
     "request review/diff/get /checkpointId",
     "request review/diff/get /cursor",
     "request review/diff/get /known",
@@ -5134,7 +5135,12 @@
     "answer host/browser/credentials/fill /facts/title",
     "answer host/browser/signIn /note",
     "answer host/browser/signIn /line",
-    "answer host/browser/credentials/fill /reason"
+    "answer host/browser/credentials/fill /reason",
+    "answer host/browser/revision /facts/dismissedDialog/message",
+    "answer host/browser/revision /facts/fault",
+    "answer host/browser/revision /facts/pendingDialog/defaultPrompt",
+    "answer host/browser/revision /facts/pendingDialog/message",
+    "answer host/browser/revision /facts/title"
    ]
   },
   {
@@ -5367,7 +5373,16 @@
     "answer host/browser/credentials/fill /facts/openedPopups/*",
     "answer host/browser/credentials/fill /facts/pageId",
     "answer host/browser/credentials/fill /facts/pendingDialog/sessionId",
-    "answer host/browser/credentials/fill /facts/pendingFileChooser/receiverKey"
+    "answer host/browser/credentials/fill /facts/pendingFileChooser/receiverKey",
+    "answer host/browser/revision /facts/childSessions/*/frameId",
+    "answer host/browser/revision /facts/childSessions/*/sessionId",
+    "answer host/browser/revision /facts/documentId",
+    "answer host/browser/revision /facts/loadId",
+    "answer host/browser/revision /facts/openedPopups/*",
+    "answer host/browser/revision /facts/pageId",
+    "answer host/browser/revision /facts/pendingDialog/sessionId",
+    "answer host/browser/revision /facts/pendingFileChooser/receiverKey",
+    "answer host/browser/revision /observation"
    ]
   },
   {
@@ -5455,7 +5470,10 @@
     "answer host/browser/signIn /facts/url",
     "answer host/browser/credentials/fill /facts/childSessions/*/url",
     "answer host/browser/credentials/fill /facts/refusedRequests/*/url",
-    "answer host/browser/credentials/fill /facts/url"
+    "answer host/browser/credentials/fill /facts/url",
+    "answer host/browser/revision /facts/childSessions/*/url",
+    "answer host/browser/revision /facts/refusedRequests/*/url",
+    "answer host/browser/revision /facts/url"
    ]
   },
   {
@@ -5636,7 +5654,13 @@
     "answer host/browser/credentials/fill /facts/dismissedDialog/reason",
     "answer host/browser/credentials/fill /facts/pendingDialog/type",
     "answer host/browser/credentials/fill /facts/pendingFileChooser/mode",
-    "answer host/browser/credentials/fill /facts/refusedRequests/*/reason"
+    "answer host/browser/credentials/fill /facts/refusedRequests/*/reason",
+    "answer host/browser/revision /facts/actor",
+    "answer host/browser/revision /facts/dismissedDialog/type",
+    "answer host/browser/revision /facts/dismissedDialog/reason",
+    "answer host/browser/revision /facts/pendingDialog/type",
+    "answer host/browser/revision /facts/pendingFileChooser/mode",
+    "answer host/browser/revision /facts/refusedRequests/*/reason"
    ]
   },
   {
