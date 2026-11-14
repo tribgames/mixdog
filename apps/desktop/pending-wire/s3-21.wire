@@ -5,10 +5,25 @@ import { registerComputerAppInput, type ComputerAppInputDeps } from './computer-
 import { registerComputerAppWindows } from './computer-app-windows';
   registerComputerAppWindows(connection);
   registerComputerAppInput(connection, appInput);
-# registerComputerHost gains a third parameter `appInput: ComputerAppInputDeps`; its caller (host/index.ts, from main/index.ts)
-# passes { showCursor: (sessionId, x, y, action) => <presence overlay's showCursor> }. Until s3-20's presence mirror exists that is
-#   (sessionId, x, y, action) => computerUseCoordinator.showCursor({ sessionId, x, y, action, effect: action as ComputerUseCursorEffect, mode: 'background' })
-# (x, y are native physical pixels; action is type | scroll | click | move; the window id is not passed, the arrow follows the session).
+# registerComputerHost gains a third parameter `appInput: ComputerAppInputDeps`:
+#   export function registerComputerHost(connection: HostConnection, source: ComputerControlSource, appInput: ComputerAppInputDeps): void {
+
+## apps/desktop/src/main/host/index.ts (hot file)
+# import: `import type { ComputerAppInputDeps } from './computer-app-input';`
+# in the host options interface, after `computer: ComputerControlSource;`:
+  /** Shows the agent's arrow for input `host/computer/appInput` delivered into the desktop's own windows. */
+  computerAppInput: ComputerAppInputDeps;
+# the registration line becomes:
+  registerComputerHost(connection, options.computer, options.computerAppInput);
+
+## apps/desktop/src/main/index.ts (hot file; in the host options object, after the `computer: () => { ... },` entry)
+  computerAppInput: {
+    showCursor: (sessionId, x, y, action) =>
+      computerUseCoordinator.showCursor({ sessionId, x, y, action, effect: action as ComputerUseCursorEffect, mode: 'background' }),
+  },
+# (type-import ComputerUseCursorEffect from './computer/session/coordinator'; replace with s3-20's presence overlay showCursor once
+# it exists. x, y are native physical pixels; action is type | scroll | click | move; the window id is not passed, the arrow
+# follows the session.)
 
 ## apps/desktop/src/main/host/connection.ts
 # HOST_METHOD needs no row: the method names live in HOST_COMPUTER_APP_WINDOWS / HOST_COMPUTER_APP_INPUT, as for the
