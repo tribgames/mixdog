@@ -19,10 +19,10 @@ test('a core behind the generation is told the profile and reports what moved', 
     'migrate/profile/status': () => ({ generation: 1, profile: null, completedWithProfile: false }),
     'migrate/profile/adopt': () => ({ generation: 2, moved: ['ssh-hosts.json'] }),
   });
-  assert.deepEqual(await adoptProfileIfBehind(client, 'C:\profile'), { adopted: true, moved: ['ssh-hosts.json'] });
+  assert.deepEqual(await adoptProfileIfBehind(client, 'C:\\profile'), { adopted: true, moved: ['ssh-hosts.json'] });
   assert.deepEqual(client.calls, [
     ['migrate/profile/status', {}],
-    ['migrate/profile/adopt', { userData: 'C:\profile' }],
+    ['migrate/profile/adopt', { userData: 'C:\\profile' }],
   ]);
 });
 
