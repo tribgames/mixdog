@@ -15,13 +15,18 @@ No new dependency edge, workspace member or lockfile entry: the file uses only c
 
 ## Compose / service registration
 None here. s3-19 (compose_computer) selects the backend:
-  if mixdog_core_config::computer_backend(&config) == ComputerBackendChoice::DesktopHost
+  if mixdog_core_config::config::computer_backend(&config) == mixdog_core_config::config::ComputerBackendChoice::DesktopHost
       => Arc::new(DesktopHostBackend::new(host_channel, blobs, session_id, observe_only))
   where `blobs: Arc<dyn ComputerBlobs>` is implemented over the core blob store, and the section reports
   `DesktopHostBackend::backend_name()` ("desktopHost") as ComputerSection.backend.
   The wrapper GatedComputerBackend goes around it as around the helper backend.
   Session lifecycle: `DesktopHostBackend::session_control("execution_end" | "session_release" | "turn_settle", extra, timeout)`
   is the client's sendComputerSessionControl for the turn settlement and the idle release of the session.
+  Not in this backend, left to the selecting pool (review s3-12): the client's per-session bookkeeping around those
+  controls (execution_end only for a session with an active execution, the 2-minute deferred release and its hold while a
+  command runs, new input refused until a pending release is confirmed, release of every host-bound session at shutdown),
+  the saved-login fill's turn_id/runtime_id and owner attachment, and computerSecretBind/computerSecretInput
+  (ComputerSecretHost) over host/computer/command.
 
 ## SERVICE_PENDING (compose_flip.rs)
 No name is removed: host/computer/command is a core -> host request, not a protocol method the core serves.
