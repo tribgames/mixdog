@@ -1,15 +1,24 @@
 //! Observation-only mode (`host/observation-policy.ts`): the live `desktop.computerObserveOnly` setting, checked when a call is
-//! admitted and on every request the helper is sent. Also the one part of the execution policy (`host/execution-policy.ts`) the
-//! core has a source for: whether input may ask for elevation.
+//! admitted and on every request the helper is sent. Also the execution policy (`host/execution-policy.ts`): the launch policy the
+//! host names in `MIXDOG_COMPUTER_POLICY_FILE` (`computer_launch_policy`), which with no file refuses nothing and leaves every
+//! request as it was.
 
 use mixdog_core_api::domain::computer::ComputerError;
 use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
+use std::sync::OnceLock;
+use std::time::SystemTime;
+use std::time::UNIX_EPOCH;
 
 use super::computer_backend::HelperFailure;
 use super::computer_command::text;
 use super::computer_env::RETAIN_REF_ACTIONS;
+use super::computer_launch_policy::AuthorizationSettings;
+use super::computer_launch_policy::LaunchPolicy;
+use super::computer_launch_policy::LIFECYCLE_ACTIONS;
+use super::computer_launch_policy::STEP_ACTIONS;
+use super::computer_launch_policy::WindowFacts;
 
 /// `OBSERVE_ONLY_ALLOWED_ACTIONS` (`computerActionsWith('observeOnly')`, `computer-bridge/actions.mjs`): every read of the
 /// helper and of the host, `diagnose`, and the lifecycle controls. Anything else could change the desktop.
@@ -47,35 +56,71 @@ const OBSERVE_ONLY_ALLOWED_ACTIONS: [&str; 31] = [
     "turn_settle",
 ];
 
-/// `createComputerExecutionPolicy()` with no policy file (`execution-policy.ts:23`): input to a window of higher integrity may
-/// ask for elevation. The core has no source for a restricting policy, so this is the value every request carries.
-const ALLOW_ELEVATED_INPUT: bool = true;
+/// The launch policy and the narrowing the harness sets on it, read once from the environment the core was started with. The harness
+/// narrows it through `authorization()`; nothing a tool call carries can reach it.
+pub(super) fn authorization() -> &'static AuthorizationSettings {
+    static SETTINGS: OnceLock<AuthorizationSettings> = OnceLock::new();
+    SETTINGS.get_or_init(|| AuthorizationSettings::new(LaunchPolicy::load(&|name| std::env::var(name).ok())))
+}
 
-/// `assertObservationInputAllowed` at admission, on the helper command a call became, before anything is spawned or sent: while
-/// observation-only mode is on, a command that is not a read is refused in the desktop host's words.
+/// The wall clock the policy's expiry is read against, in milliseconds since the epoch.
+pub(super) fn now_ms() -> f64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0.0, |elapsed| elapsed.as_millis() as f64)
+}
+
+/// The host's admission of the helper command a call became, before anything is spawned or sent: `assertObservationInputAllowed`
+/// first (while observation-only mode is on, a command that is not a read is refused in the desktop host's words), then the launch
+/// policy (`assertPolicyAdmits`), which with no policy file admits everything.
 pub(super) fn admit(command: &Map<String, Value>, observe_only: bool) -> Result<(), ComputerError> {
     let action = text(command, "action");
-    if !observe_only || OBSERVE_ONLY_ALLOWED_ACTIONS.contains(&action) {
+    if observe_only && !OBSERVE_ONLY_ALLOWED_ACTIONS.contains(&action) {
+        let refusal = format!(
+            "observation_only: Computer Use is observing only, so '{action}' input is blocked. Turn off \"Observation only\" in Settings to allow input."
+        );
+        return Err(HelperFailure { text: refusal, result: None }.into_error());
+    }
+    admit_launch(authorization(), command, now_ms())
+}
+
+/// `assertAction` and `assertWindow` for the helper command a call became: refused when the launch policy (and its narrowing) does
+/// not admit its action, its window or its launch target. A step of a sequence carries no window of its own: the sequence it
+/// belongs to was admitted with its window.
+fn admit_launch(settings: &AuthorizationSettings, command: &Map<String, Value>, now_ms: f64) -> Result<(), ComputerError> {
+    if !settings.restricted() {
         return Ok(());
     }
-    let refusal = format!(
-        "observation_only: Computer Use is observing only, so '{action}' input is blocked. Turn off \"Observation only\" in Settings to allow input."
-    );
-    Err(HelperFailure { text: refusal, result: None }.into_error())
+    let action = text(command, "action");
+    let window_id = text(command, "window_id");
+    if window_id.is_empty() && STEP_ACTIONS.contains(&action) {
+        return settings.admit_step(action, now_ms);
+    }
+    let window = (!window_id.is_empty()).then(|| WindowFacts { id: window_id.to_owned(), pid: None });
+    settings.admit(action, window.as_ref(), (action == "launch").then(|| text(command, "app")), now_ms)
 }
 
 /// What the policy adds to a helper request. While observation-only mode is on it is marked read-only, so the helper refuses
 /// any mutation in it; a request that hands input back (`release_held_input`, `release_session`, ...) goes as it is: the desktop
 /// host sends those with `read_only: false` (`session-lifecycle.ts:100`, `lifecycle-abort.ts:185,297`, `worker-control.ts:26`),
 /// so observing only never leaves a key or button down. Every request says whether its input may ask for elevation
-/// (`assertElevated`, `execution-policy.ts:118-121`), which the helper checks before it opens a UAC prompt.
+/// (`assertElevated`, `execution-policy.ts:118-121`), which the helper checks before it opens a UAC prompt. Under a launch policy the
+/// request also carries what the helper enforces at the moment of input: when the authorization ends, and the one window and process
+/// the input may reach (`dispatchAuthority`).
 pub(super) fn decorate(command: &mut Map<String, Value>, observe_only: bool, windows_helper: bool) {
+    decorate_with(authorization(), command, observe_only, windows_helper);
+}
+
+fn decorate_with(settings: &AuthorizationSettings, command: &mut Map<String, Value>, observe_only: bool, windows_helper: bool) {
     let hands_back = command.get("action").and_then(Value::as_str).is_some_and(|action| RETAIN_REF_ACTIONS.contains(&action));
     if observe_only && !hands_back {
         command.insert("read_only".into(), json!(true));
     }
     if windows_helper {
-        command.insert("allow_elevated_input".into(), json!(ALLOW_ELEVATED_INPUT));
+        command.insert("allow_elevated_input".into(), json!(settings.allows_elevated_input()));
+    }
+    if settings.restricted() && !LIFECYCLE_ACTIONS.contains(&text(command, "action")) {
+        let window_id = text(command, "window_id");
+        let authority = settings.dispatch_authority((!window_id.is_empty()).then_some(window_id));
+        command.extend(authority);
     }
 }
 
@@ -153,6 +198,63 @@ mod tests {
         assert_eq!(decorated("click", false), json!({"action":"click","allow_elevated_input":true}));
         assert_eq!(decorated("click", true), json!({"action":"click","read_only":true,"allow_elevated_input":true}));
         assert_eq!(decorated("release_held_input", true), json!({"action":"release_held_input","allow_elevated_input":true}));
+    }
+
+    fn restricted(extra: Value) -> AuthorizationSettings {
+        let mut policy = json!({
+            "version": 1,
+            "actions": ["capture", "act"],
+            "windows": [{"id": "hwnd:0x1", "pid": 42}],
+            "expiresAt": "2100-01-01T00:00:00Z",
+        });
+        policy.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        AuthorizationSettings::new(Some(LaunchPolicy::parse(&policy).unwrap()))
+    }
+
+    fn on_window(action: &str, window_id: &str) -> Map<String, Value> {
+        json!({"action": action, "window_id": window_id}).as_object().cloned().unwrap_or_default()
+    }
+
+    fn refused_with(result: Result<(), ComputerError>, code: &str) {
+        assert!(matches!(&result, Err(ComputerError::Failed { code: got, .. }) if got == code), "{result:?}");
+    }
+
+    /// With no launch policy nothing is refused and a request carries nothing more; with one, only what it names is admitted.
+    #[test]
+    fn a_launch_policy_admits_what_it_names() {
+        let open = AuthorizationSettings::new(None);
+        assert_eq!(admit_launch(&open, &on_window("focus_window", "hwnd:0x9"), 0.0), Ok(()));
+        let mut plain = command("click");
+        decorate_with(&open, &mut plain, false, true);
+        assert_eq!(Value::Object(plain), json!({"action":"click","allow_elevated_input":true}));
+
+        let settings = restricted(json!({}));
+        let now = 1.0;
+        assert_eq!(admit_launch(&settings, &on_window("sequence", "hwnd:0x1"), now), Ok(()));
+        assert_eq!(admit_launch(&settings, &on_window("zoom", "hwnd:0x1"), now), Ok(()));
+        assert_eq!(admit_launch(&settings, &command("click"), now), Ok(()), "a step has no window of its own");
+        assert_eq!(admit_launch(&settings, &command("execution_end"), now), Ok(()));
+        refused_with(admit_launch(&settings, &on_window("sequence", "hwnd:0x2"), now), "computer_policy_denied");
+        refused_with(admit_launch(&settings, &command("sequence"), now), "computer_policy_denied");
+        refused_with(admit_launch(&settings, &command("list_windows"), now), "computer_policy_denied");
+        refused_with(admit_launch(&settings, &command("launch"), now), "computer_policy_denied");
+        refused_with(admit_launch(&settings, &on_window("sequence", "hwnd:0x1"), 5e12), "computer_policy_expired");
+    }
+
+    /// The request names the window and process the helper may reach, and says elevation is not authorized.
+    #[test]
+    fn a_launch_policy_decorates_the_request() {
+        let settings = restricted(json!({}));
+        let mut request = on_window("click", "hwnd:0x1");
+        decorate_with(&settings, &mut request, false, true);
+        let request = Value::Object(request);
+        assert_eq!(request["allow_elevated_input"], json!(false));
+        assert_eq!(request["authorization_window_id"], json!("hwnd:0x1"));
+        assert_eq!(request["authorization_pid"], json!(42));
+        assert!(request["authorization_expires_at"].is_i64());
+        let mut lifecycle = command("session_release");
+        decorate_with(&settings, &mut lifecycle, false, true);
+        assert_eq!(Value::Object(lifecycle), json!({"action":"session_release","allow_elevated_input":false}));
     }
 
     #[test]
