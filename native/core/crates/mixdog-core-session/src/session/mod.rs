@@ -169,6 +169,7 @@ pub mod turn_snapshots;
 #[cfg(test)]
 mod turn_snapshots_tests;
 pub mod user_text;
+pub mod node_hidden;
 pub mod user_cwd;
 pub mod user_facts;
 pub mod agent_route;

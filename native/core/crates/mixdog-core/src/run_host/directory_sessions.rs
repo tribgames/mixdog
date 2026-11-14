@@ -84,6 +84,20 @@ impl DirectorySessions {
         }
     }
 
+    /// Imports the sessions the Node daemon hid (`<data>/session-hidden.json`) once, as the archive mark of their headers
+    /// (a session the file names that is gone, or already archived, is left as it is). Returns how many the file named.
+    pub async fn import_node_hidden(&self, data_dir: std::path::PathBuf, io: mixdog_rt::InteractiveIo) -> Result<usize, CoreError> {
+        mixdog_core_session::session::node_hidden::import_node_hidden(data_dir, io, |row| async move {
+            let Ok(Some(header)) = self.header(&row.id).await else { return };
+            if header.get("archivedAt").and_then(Value::as_f64).is_some_and(|at| at > 0.0) {
+                return;
+            }
+            let at = row.at_ms.unwrap_or_else(|| self.directory.deps().clock.now_ms());
+            let _ = self.patch(&row.id, Map::from_iter([("archivedAt".to_owned(), json!(at))])).await;
+        })
+        .await
+    }
+
     async fn patch(&self, session_id: &str, set: Map<String, Value>) -> Result<(), RoomError> {
         self.patch_unset(session_id, set, vec![]).await
     }
