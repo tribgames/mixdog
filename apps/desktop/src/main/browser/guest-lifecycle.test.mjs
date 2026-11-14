@@ -156,6 +156,11 @@ function harness(overrides = {}) {
   const guests = [];
   const popups = [];
   const surfaceRequests = [];
+  const sendToShell = shell.webContents.send.bind(shell.webContents);
+  shell.webContents.send = (channel, ...args) => {
+    if (channel === DESKTOP_IPC.browserOpenRequested) surfaceRequests.push(args[0]);
+    return sendToShell(channel, ...args);
+  };
   const settles = [];
   const lifecycle = createBrowserGuestLifecycle({
     window: shell,
@@ -167,7 +172,6 @@ function harness(overrides = {}) {
     isBackgroundBusy: () => false,
     onGuest: (guest) => guests.push(guest),
     onPopup: (opener, popup, selected) => popups.push([opener.id, popup.id, selected]),
-    onSurfaceRequest: (request) => surfaceRequests.push(request),
     waitForLoadSettle: (guest, timeoutMs) => {
       settles.push([guest.id, timeoutMs]);
       return overrides.settleFailure ? Promise.reject(new Error(overrides.settleFailure)) : Promise.resolve();
@@ -214,7 +218,7 @@ test('a primary page is wired, in order, before its debugger comes up', async ()
   ]);
   assert.equal(typeof guest.openHandler, 'function');
   assert.deepEqual(h.cdpCalls, [['guestDebugger', guest.id]]);
-  // Revealing is the default: the shell and paired clients both hear it.
+  // Revealing is the default: the shell hears it.
   assert.deepEqual(log, [['send', DESKTOP_IPC.browserOpenRequested, { sessionId: 's1', reveal: true }]]);
   assert.deepEqual(h.surfaceRequests, [{ sessionId: 's1', reveal: true }]);
   assert.equal(await h.lifecycle.ensureGuest('s1', { reveal: false }), guest);
@@ -295,6 +299,24 @@ test('a popup past the session capacity is destroyed and reported on its opener'
   assert.equal(h.state.for(opener).networkFailures.length, 1);
   assert.match(h.state.for(opener).networkFailures[0], /^Blocked popup creation: /);
   assert.throws(() => h.lifecycle.ensureOffscreen('s1', 'one-more'));
+});
+
+test('a page joining, changing kind in, or leaving the background pages changes its facts', () => {
+  const h = harness();
+  const changes = [];
+  h.state.onChange((guest, event) => {
+    if (event.kind === 'changed') changes.push([guest.id, event.reason]);
+  });
+  const page = h.lifecycle.ensureOffscreen('s1', 'research');
+  assert.deepEqual(changes, [[page.guest.id, 'background']]);
+  page.kind = 'user';
+  assert.deepEqual(changes.at(-1), [page.guest.id, 'background']);
+  assert.equal(page.kind, 'user');
+  const count = changes.length;
+  page.kind = 'user';
+  assert.equal(changes.length, count, 'the same kind is no change');
+  h.lifecycle.destroyBackgroundPage('s1', 'research', page);
+  assert.deepEqual(changes.at(-1), [page.guest.id, 'background']);
 });
 
 test('ensureOffscreen reuses a live named page and replaces a closed one', () => {

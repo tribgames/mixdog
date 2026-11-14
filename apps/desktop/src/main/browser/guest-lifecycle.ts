@@ -6,7 +6,6 @@
 import type { BrowserWindow, WebContents } from 'electron';
 import { app, screen } from 'electron';
 
-import type { DesktopBrowserOpenRequest } from '../../shared/contract';
 import type { BrowserGuestCdp } from './cdp';
 import { BROWSER_PARTITION, NAVIGATE_SETTLE_TIMEOUT_MS, OFFSCREEN_VIEWPORT } from './command';
 import { createBrowserBackgroundPages } from './guest-background-pages';
@@ -36,8 +35,6 @@ interface BrowserGuestLifecycleHost {
   /** `selected`: a person's gesture opened it, and it is now their selected tab. */
   onPopup?(opener: WebContents, popup: WebContents, selected: boolean): void;
   onGuest?(guest: WebContents): void;
-  /** The display client was asked to reveal or hide the session's surface. */
-  onSurfaceRequest?(request: DesktopBrowserOpenRequest): void;
   waitForLoadSettle(guest: WebContents, timeoutMs: number, signal?: AbortSignal): Promise<unknown>;
   /** True once a panel (or native view) on this PC shows the page; false
    *  when none does within `timeoutMs` (display-tracking). */

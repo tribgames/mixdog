@@ -5,7 +5,7 @@
  */
 import type { BrowserWindow, WebContents } from 'electron';
 
-import { DESKTOP_IPC, type DesktopBrowserOpenRequest } from '../../shared/contract';
+import { DESKTOP_IPC } from '../../shared/contract';
 import type { BrowserCommand } from './command';
 import type { createBrowserDisplayTextures } from './display-textures';
 import type { createBrowserDisplayTracking } from './display-tracking';
@@ -90,7 +90,6 @@ export function createBrowserHostPages(options: {
     | 'sendToRenderer'
     | 'linkedSignIns'
   >;
-  onSurfaceRequest?: (request: DesktopBrowserOpenRequest) => void;
   onGuest?: (guest: WebContents) => void;
   /** Cancel the agent on a page a person took over natively. */
   interruptForLocal: (command: BrowserCommand) => void;
@@ -128,10 +127,6 @@ export function createBrowserHostPages(options: {
         linkedSignIns: base.linkedSignIns,
       });
       options.onGuest?.(guest);
-    },
-    onSurfaceRequest: (request) => {
-      // A failed open reveals nothing, so paired clients are not told.
-      if (request.hide || (request.reveal === true && !request.error)) options.onSurfaceRequest?.(request);
     },
     nativeView: base.nativeView,
   });
