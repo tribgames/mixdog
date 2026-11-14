@@ -886,8 +886,6 @@ mod tests {
         assert_eq!(next[49], "new");
     }
 
-    /// Reads after the first come from memory; an append replaces the held list; the least recently used cwd leaves
-    /// once more than the limit are held (a limit under 8 is 8).
     /// `Math.max(8, Number(raw) || 128)`: an infinite value keeps every cwd, a fraction is floored by the comparison.
     #[test]
     fn an_infinite_cache_limit_keeps_every_cwd() {
@@ -898,6 +896,8 @@ mod tests {
         assert_eq!(cache.lists.len(), 300);
     }
 
+    /// Reads after the first come from memory; an append replaces the held list; the least recently used cwd leaves
+    /// once more than the limit are held (a limit under 8 is 8).
     #[test]
     fn the_cwd_cache_is_bounded_and_least_recently_used_first() {
         let mut cache = CwdCache::new(2);
