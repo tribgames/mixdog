@@ -2,6 +2,7 @@
 //! category (the leading code token of its text) names the next action (`capture`, `list`, `diagnose`, `wait_for_user`, `user`,
 //! `handoff_user`) and a guidance sentence that keeps it from replaying input that may have been delivered.
 
+use mixdog_core_api::domain::tool::ToolPart;
 use serde_json::Value;
 
 /// The next step a failed computer action calls for.
@@ -51,6 +52,32 @@ fn error_code(message: &str) -> String {
         return "stale_frame".to_owned();
     }
     String::new()
+}
+
+/// `COMPUTER_OBSERVATION_ACTIONS`: the tool actions that only read, so a stale target costs them nothing to refuse.
+pub(super) const OBSERVATION_ACTIONS: [&str; 5] = ["list", "diagnose", "capture", "verify", "wait_for_user"];
+/// The refusals that happen before any input is dispatched and end in "capture the exact window again".
+pub(super) const RECAPTURE_CODES: [&str; 2] = ["stale_target", "stale_frame"];
+
+/// The window a refusal of the host is to be answered with a fresh capture of (`refusalWithRecapture`): the `window_id` of an input
+/// action the host refused for a stale target or frame. A read, an action with no window, or any other refusal has none.
+pub(super) fn recapture_window(action: &str, input: &Value, message: &str) -> Option<String> {
+    let id = input.get("window_id").filter(|id| mixdog_js_truthy(id))?;
+    (!OBSERVATION_ACTIONS.contains(&action) && RECAPTURE_CODES.contains(&lead_code(message).as_str())).then(|| mixdog_js::value_to_string(id))
+}
+
+/// The refusal with the exact window captured again below it: what the model reads when no input was sent.
+pub(super) fn refusal_with_capture(message: &str, window: &str, capture: &[ToolPart]) -> String {
+    let mut out = format!("Error: {message}
+Recovery: no input was sent; window {window} was captured again below. Act only on its fresh refs, OCR marks, or frame_id.");
+    for part in capture {
+        if let ToolPart::Text(text) = part {
+            out.push('
+');
+            out.push_str(text);
+        }
+    }
+    out
 }
 
 fn target_label(args: &Value) -> String {
@@ -156,6 +183,27 @@ mod tests {
     use super::*;
 
     const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../../fixtures/computer-error-recovery/golden.json");
+
+    #[test]
+    fn a_stale_refusal_of_an_input_on_a_window_is_answered_with_a_recapture_of_it() {
+        let input = json!({ "window_id": "w-7" });
+        assert_eq!(recapture_window("act", &input, "stale_target: the window moved").as_deref(), Some("w-7"));
+        assert_eq!(recapture_window("click", &input, "Error: Stale_Frame: unknown frame_id f1").as_deref(), Some("w-7"));
+        // A read sends no input; another refusal is not stale; no window means no exact target to capture.
+        assert_eq!(recapture_window("capture", &input, "stale_target: x"), None);
+        assert_eq!(recapture_window("act", &input, "computer_target_in_use: x"), None);
+        assert_eq!(recapture_window("act", &json!({ "app": "Notepad" }), "stale_target: x"), None);
+        assert_eq!(recapture_window("act", &json!({ "window_id": "" }), "stale_target: x"), None);
+    }
+
+    #[test]
+    fn the_recapture_is_attached_to_the_refusal_as_text() {
+        let capture = [ToolPart::Text("{\"frame_id\":\"f2\"}".into()), ToolPart::Image { mime: "image/png".into(), data: mixdog_core_api::domain::tool::ImageData::Bytes(vec![1]), width: None, height: None }];
+        let out = refusal_with_capture("stale_target: gone", "w-7", &capture);
+        assert_eq!(out, "Error: stale_target: gone
+Recovery: no input was sent; window w-7 was captured again below. Act only on its fresh refs, OCR marks, or frame_id.
+{\"frame_id\":\"f2\"}");
+    }
 
     fn cases() -> Vec<Value> {
         let golden: Value = serde_json::from_str(&GOLDEN).expect("golden");
