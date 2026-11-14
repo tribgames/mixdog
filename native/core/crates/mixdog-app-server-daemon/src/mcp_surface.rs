@@ -1,6 +1,6 @@
 //! The production [`BridgeFeatures`] and [`McpSurface`] of the MCP composition (`compose_mcp`).
 //!
-//! [`BridgeFiles`] is `bridgePresent` of `builtin-features.mjs` over `readBridgeDiscovery`
+//! [`ToolBridges`] is the composition's feature fact (host claims and the computer gate); [`BridgeFiles`] is `bridgePresent` of `builtin-features.mjs` over `readBridgeDiscovery`
 //! (`runtime/bridge-discovery.mjs`): the desktop publishes `<id>-bridge.json` while the bridge is
 //! up, and the file counts only while it is fresh, well-formed and its writer is alive.
 //! [`DaemonMcpSurface`] answers what the session layer answers the MCP side in Node.
@@ -33,6 +33,10 @@ use serde_json::Value;
 use crate::compose_domains::ConfigExtensions;
 use crate::compose_domains::EnvReader;
 use crate::compose_mcp::BridgeFeatures;
+use crate::computer_gate::HostPresence;
+use crate::computer_gate::computer_feature_present;
+use mixdog_core_api::HostCapability;
+use mixdog_core_config::config::DesktopSettings;
 
 /// `DISCOVERY_MAX_AGE_MS`: the bridge heartbeat touches the file every 60 s; anything older is a
 /// crash leftover.
@@ -360,16 +364,50 @@ impl BridgeFeatures for SharedBridgeFiles {
     }
 }
 
-/// The composition's one bridge fact: the [`SharedBridgeFiles`], and which bridge tools this core registered. Node registers
-/// every one; here `computer` exists only over a helper pool, so without one Computer Use is never reported on.
+/// The composition's one bridge fact, decided here for the skill gate, the setup status, the doctor and the feature probes: what the
+/// core itself knows, not a file the desktop wrote. `terminal` exists whenever the core composed its terminal (it always does);
+/// `browser` and `visualize` exist while a connection holds the host claim that declared the capability; `computer` exists while
+/// `desktop.computerControl` is on and a claimed host or a resolved helper can serve it (`computer_gate`). The `<id>-bridge.json`
+/// files ([`BridgeFiles`]) are not read for these facts.
 pub struct ToolBridges {
-    pub files: SharedBridgeFiles,
+    /// The host channel: which capabilities a claimant serves now.
+    pub host: Arc<dyn mixdog_core_api::HostChannel>,
+    /// `desktop.computerControl`, read on every call so a change in Settings applies at once.
+    pub desktop: Arc<dyn Fn() -> DesktopSettings + Send + Sync>,
     pub computer: Arc<crate::late_session::LateComputerHosts>,
+}
+
+/// [`HostPresence`] over the host claims and the helper pool.
+struct Presence {
+    claimed: bool,
+    helper: bool,
+}
+
+impl HostPresence for Presence {
+    fn computer_claimed(&self) -> bool {
+        self.claimed
+    }
+
+    fn tui_helper_resolvable(&self) -> bool {
+        self.helper
+    }
+}
+
+/// The one decision of whether a bridge-gated feature exists: `serves` says whether a claimant serves a host capability,
+/// `helper` whether the computer helper pool was built (the helper binary resolved).
+fn feature_up(feature: &str, serves: &dyn Fn(HostCapability) -> bool, desktop: &DesktopSettings, helper: bool) -> bool {
+    match feature {
+        "terminal" => true,
+        "browser" => serves(HostCapability::Browser),
+        "visualize" => serves(HostCapability::Visualize),
+        "computer" => computer_feature_present(desktop, &Presence { claimed: serves(HostCapability::Computer), helper }),
+        _ => false,
+    }
 }
 
 impl BridgeFeatures for ToolBridges {
     fn present(&self, feature: &str) -> bool {
-        self.files.present(feature)
+        feature_up(feature, &|capability| self.host.serves(capability), &(self.desktop)(), self.computer.registered())
     }
 
     fn registered(&self, feature: &str) -> bool {
@@ -681,5 +719,34 @@ mod tests {
         let wsl = candidates("it's", false, false, true, "");
         assert_eq!(wsl.iter().map(|c| c.0.as_str()).collect::<Vec<_>>(), ["wslview", "powershell.exe"]);
         assert_eq!(wsl[1].1[3], "Start-Process -FilePath 'it''s'");
+    }
+
+    fn desktop(computer_control: bool) -> DesktopSettings {
+        let doc = serde_json::json!({ "desktop": { "computerControl": computer_control } });
+        mixdog_core_config::config::desktop_settings(doc.as_object().unwrap())
+    }
+
+    /// Terminal needs no bridge file and no claim; browser and visualize follow the claim that declared them, each its own.
+    #[test]
+    fn terminal_is_present_and_browser_follows_its_claim() {
+        let none = |_: HostCapability| false;
+        let browser_only = |capability: HostCapability| capability == HostCapability::Browser;
+        assert!(feature_up("terminal", &none, &desktop(false), false));
+        assert!(!feature_up("browser", &none, &desktop(true), true));
+        assert!(feature_up("browser", &browser_only, &desktop(false), false));
+        assert!(!feature_up("visualize", &browser_only, &desktop(true), true));
+        assert!(feature_up("visualize", &|capability| capability == HostCapability::Visualize, &desktop(false), false));
+        assert!(!feature_up("unknown", &|_| true, &desktop(true), true));
+    }
+
+    /// Computer: the switch and a claim or a resolved helper; a claim for another capability does not count.
+    #[test]
+    fn computer_needs_the_switch_and_a_claim_or_helper() {
+        let claims = |capability: HostCapability| capability == HostCapability::Computer;
+        let others = |capability: HostCapability| capability == HostCapability::Browser;
+        assert!(feature_up("computer", &claims, &desktop(true), false));
+        assert!(feature_up("computer", &others, &desktop(true), true));
+        assert!(!feature_up("computer", &others, &desktop(true), false));
+        assert!(!feature_up("computer", &claims, &desktop(false), true));
     }
 }
