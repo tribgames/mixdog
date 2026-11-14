@@ -239,3 +239,15 @@ async fn the_new_methods_are_unsupported_until_the_desktop_files_are_enabled() {
     let refused = local(&env, "projectFs/localPage/origin", json!({})).await;
     assert!(matches!(&refused, Err(CoreError::DomainError { code, .. }) if code.as_deref() == Some("unsupported")), "{refused:?}");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_page_asset_type_is_the_page_servers_mime_and_empty_where_it_would_not_serve() {
+    let env = env(true);
+    let asset = |file: std::path::PathBuf| json!({ "root": env.root.to_string_lossy(), "file": file.to_string_lossy() });
+    let css = local(&env, "projectFs/localPage/assetType", asset(env.root.join("style.css"))).await.unwrap();
+    assert_eq!(css["type"], "text/css");
+    for file in [env.root.join(".cache").join("x.js"), env.base.join("outside.css"), env.root.join("blob.unknownext")] {
+        let answer = local(&env, "projectFs/localPage/assetType", asset(file.clone())).await.unwrap();
+        assert_eq!(answer["type"], "", "{}", file.display());
+    }
+}
