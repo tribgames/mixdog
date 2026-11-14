@@ -24,6 +24,7 @@ use tokio_util::sync::CancellationToken;
 use super::computer_backend::HOST_READ_ACTIONS;
 use super::computer_backend::ProcessComputerBackend;
 use super::computer_gnome::ARRIVALS_SESSION_ID;
+use super::computer_policy;
 
 /// `DEFAULT_CAPTURE_AFTER_DELAY_MS` and `MAX_CAPTURE_AFTER_DELAY_MS` (`shared/common.ts`).
 const DEFAULT_SETTLE_MS: u64 = 150;
@@ -710,7 +711,7 @@ pub(super) async fn after(backend: &ProcessComputerBackend, action: &str, before
     let opened: Vec<String> = settled.transition.iter().flat_map(|transition| transition.opened.iter().map(|window| window.id.clone())).collect();
     backend.arrivals.note_settled(before.windows.as_deref(), &opened);
     if let Some(transition) = &settled.transition {
-        result.insert("window_transition".into(), transition.to_json());
+        result.insert("window_transition".into(), computer_policy::narrow_transition(&backend.config.session_id, transition.to_json()));
     }
     result.insert("settle_delay_ms".into(), json!(u64::try_from(settled.delay.as_millis()).unwrap_or(u64::MAX)));
     Ok(())
@@ -728,7 +729,7 @@ pub(super) fn sequence_step_result(backend: &ProcessComputerBackend, window_id: 
     // The reply names these, so the session's next command does not again.
     let opened: Vec<String> = transition.opened.iter().map(|window| window.id.clone()).collect();
     backend.arrivals.note_settled(Some(before.as_slice()), &opened);
-    result.insert("window_transition".into(), transition.to_json());
+    result.insert("window_transition".into(), computer_policy::narrow_transition(&backend.config.session_id, transition.to_json()));
     if let Some(delay) = reply.get("settle_delay_ms").filter(|delay| delay.is_number()) {
         result.insert("settle_delay_ms".into(), delay.clone());
     }

@@ -25,8 +25,13 @@ use super::computer_frames::Frame;
 use super::computer_frames::FrameStore;
 use super::computer_pixels::ComputerBlobs;
 use super::computer_pixels::check_shape;
+use super::computer_pixels::DisplayOcr;
 use super::computer_pixels::fetch;
+use super::computer_pixels::recognize;
 use super::computer_pixels::read_displays;
+
+/// `DEFAULT_OCR_MAX_WORDS`: the words a zoom's recognition asks for.
+const DEFAULT_OCR_MAX_WORDS: i64 = 300;
 
 /// The smallest edge of a zoom region, in frame pixels (`zoomGeometry`).
 const MIN_REGION_EDGE: i64 = 8;
@@ -216,13 +221,14 @@ pub(super) async fn zoom(backend: &ProcessComputerBackend, command: Map<String, 
 
 /// `captureZoom` over a display frame: the region of the display the frame was cut from, asked of the desktop at full resolution
 /// (`host/computer/pixels` with the region in physical pixels) and cut out there; the crop is the store's new frame, of the same display.
-/// A display whose layout changed since the frame was issued is a stale frame (`assertDisplayUnchanged`). The desktop's pixels carry no
-/// text recognition, so `include_ocr` says so in the reply, as a recognition that failed does.
+/// A display whose layout changed since the frame was issued is a stale frame (`assertDisplayUnchanged`). `include_ocr` recognizes the
+/// crop with `ocr` (`recognizeZoomText`); with no recognizer attached the reply says the display's pixels carry no recognition.
 #[cfg_attr(not(test), expect(dead_code, reason = "the capture of a zoom (the wiring of computer_pixels) routes a display frame here"))]
 pub(super) async fn zoom_display(
     desktop: &dyn HostChannel,
     blobs: &dyn ComputerBlobs,
     frames: &FrameStore,
+    ocr: Option<&dyn DisplayOcr>,
     command: Map<String, Value>,
     cancel: &CancellationToken,
 ) -> Result<Vec<ToolPart>, ComputerError> {
@@ -249,7 +255,15 @@ pub(super) async fn zoom_display(
     // The crop is the session's only frame from here (`framesBySession.clear()`, `rememberFrame`).
     let zoom_id = format!("frame-{}", uuid::Uuid::new_v4().simple());
     let [x0, y0, x1, y1] = region;
-    let recognized = if wants_ocr(&command) { "\nOCR unavailable: the display's pixels carry no text recognition" } else { "" };
+    // `recognizeZoomText`: the crop the desktop delivered is what the recognizer reads, so its boxes are the zoom frame's pixels.
+    let recognized = if !wants_ocr(&command) {
+        String::new()
+    } else if ocr.is_none() {
+        "\nOCR unavailable: the display's pixels carry no text recognition".to_owned()
+    } else {
+        let language = command.get("ocr_language").and_then(Value::as_str);
+        recognized_text(&recognize(ocr, &pixels.bytes, language, DEFAULT_OCR_MAX_WORDS, cancel).await?)
+    };
     let encoding = if pixels.mime == "image/jpeg" { format!("JPEG quality {quality}") } else { "PNG".to_string() };
     let description = format!(
         "Zoom of {} region ({x0},{y0})-({x1},{y1}) ({}x{}, {} bytes, {encoding}); frame_id={zoom_id}; coordinates are pixels in this frame{recognized}",
@@ -403,7 +417,7 @@ mod tests {
     #[test]
     fn a_display_frame_zooms_into_a_display_frame_of_its_own() {
         let (desktop, blobs, frames) = display_world();
-        let parts = run(zoom_display(&desktop, &blobs, &frames, object(json!({"frame_id":"frame-d","region":[100,50,300,150],"include_ocr":true})), &CancellationToken::new())).unwrap();
+        let parts = run(zoom_display(&desktop, &blobs, &frames, None, object(json!({"frame_id":"frame-d","region":[100,50,300,150],"include_ocr":true})), &CancellationToken::new())).unwrap();
         let ToolPart::Text(text) = &parts[0] else { panic!("text first") };
         assert!(text.starts_with("Zoom of frame-d region (100,50)-(300,150) (400x200, 3 bytes, JPEG quality 55); frame_id=frame-"), "{text}");
         assert!(text.ends_with("\nOCR unavailable: the display's pixels carry no text recognition"), "{text}");
@@ -422,11 +436,33 @@ mod tests {
         assert_eq!((click["x"].clone(), click["y"].clone()), (json!(-2600), json!(200)));
     }
 
+    struct Reads(Map<String, Value>);
+
+    #[async_trait::async_trait]
+    impl DisplayOcr for Reads {
+        async fn recognize(&self, image: &[u8], _: Option<&str>, limit: i64, _: &CancellationToken) -> Result<Map<String, Value>, ComputerError> {
+            assert_eq!((image, limit), (&b"abc"[..], 300));
+            Ok(self.0.clone())
+        }
+    }
+
+    /// `include_ocr` on a display zoom lists the crop's text lines, whose boxes are the zoom frame's pixels.
+    #[test]
+    fn a_display_zoom_recognizes_its_crop() {
+        let (desktop, blobs, frames) = display_world();
+        let reads = Reads(object(json!({"language": "en-US", "words": [], "lines": [{"text": "Hello", "x": 1, "y": 2, "width": 30, "height": 9}]})));
+        let parts = run(zoom_display(&desktop, &blobs, &frames, Some(&reads), object(json!({"frame_id":"frame-d","region":[100,50,300,150],"include_ocr":true})), &CancellationToken::new())).unwrap();
+        let ToolPart::Text(text) = &parts[0] else { panic!("text first") };
+        assert!(text.ends_with("
+OCR 1 lines, language en-US; boxes are pixels in this frame:
+[1,2 30x9] Hello"), "{text}");
+    }
+
     #[test]
     fn a_zoom_of_a_display_frame_after_the_layout_changed_is_stale() {
         let (desktop, blobs, frames) = display_world();
         *desktop.displays.lock().unwrap() = json!([{"index": 0, "id": "7", "primary": true, "scale_factor": 2.0, "width": 1280, "height": 720, "x": 0, "y": 0}]);
-        let error = run(zoom_display(&desktop, &blobs, &frames, object(json!({"frame_id":"frame-d","region":[100,50,300,150]})), &CancellationToken::new())).unwrap_err();
+        let error = run(zoom_display(&desktop, &blobs, &frames, None, object(json!({"frame_id":"frame-d","region":[100,50,300,150]})), &CancellationToken::new())).unwrap_err();
         assert_eq!(error, ComputerError::Failed { code: "stale_frame".into(), message: "stale_frame: display layout changed (frame-d)".into() });
         assert!(desktop.asked.lock().unwrap().iter().all(|(method, _)| method != "host/computer/pixels"));
     }
@@ -435,12 +471,12 @@ mod tests {
     fn a_display_zoom_of_another_rectangle_is_refused() {
         let (desktop, blobs, frames) = display_world();
         desktop.pixels.lock().unwrap().as_mut().unwrap()["source"]["x"] = json!(-3000);
-        let error = run(zoom_display(&desktop, &blobs, &frames, object(json!({"frame_id":"frame-d","region":[100,50,300,150]})), &CancellationToken::new())).unwrap_err();
+        let error = run(zoom_display(&desktop, &blobs, &frames, None, object(json!({"frame_id":"frame-d","region":[100,50,300,150]})), &CancellationToken::new())).unwrap_err();
         assert!(reason(error).starts_with("stale_frame: native capture did not cut the requested region"));
         // A frame that is no display frame has no display to ask.
         let window = FrameStore::default();
         window.remember(frame());
-        let error = run(zoom_display(&desktop, &blobs, &window, object(json!({"frame_id":"frame-a","region":[0,0,50,50]})), &CancellationToken::new())).unwrap_err();
+        let error = run(zoom_display(&desktop, &blobs, &window, None, object(json!({"frame_id":"frame-a","region":[0,0,50,50]})), &CancellationToken::new())).unwrap_err();
         assert!(reason(error).starts_with("stale_frame: exact capture source is unavailable"));
     }
 }
