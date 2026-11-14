@@ -99,6 +99,8 @@ pub(super) async fn build(
 
     let blobs = BlobStore::new(&inputs.paths.data_dir);
     services.push(BlobService::new(blobs.clone(), tokens, &inputs.limits));
+    // `$blobRef` params are expanded by the server from the same store, before precheck and the validators.
+    crate::server::install_param_refs(blobs.clone(), tokens, &inputs.limits);
     transfer_sources.push(AttachmentSource::new(blobs, session_attachments, tokens));
 
     let current_version = package_version(&inputs.paths.package_root, inputs.tokens.interactive_io).await?;
