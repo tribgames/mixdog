@@ -498,20 +498,14 @@ mod tests {
         let cancel = CancellationToken::new();
         let facts = facts_with(None);
         let by_ref = FakeHost::scripted(vec![
-            receiver_answer("S1
-F1
-L1
-https://pay.example/embed", "https://pay.example/embed")
+            receiver_answer("S1\nF1\nL1\nhttps://pay.example/embed", "https://pay.example/embed")
                 .with_params(json!({"pageId": "p1", "snapshotId": "p1-s2", "ref": "r"})),
             receiver_answer("", "https://pay.example/embed"),
             Expect::err("host/browser/upload/receiver", HostCallError::Failed { message: UNIDENTIFIED_RECEIVER.into() }),
         ]);
         assert_eq!(
             receiver(&by_ref, &target(Some("r")), &facts, &cancel).await,
-            Ok(Receiver { key: "S1
-F1
-L1
-https://pay.example/embed".into(), url: "https://pay.example/embed".into() })
+            Ok(Receiver { key: "S1\nF1\nL1\nhttps://pay.example/embed".into(), url: "https://pay.example/embed".into() })
         );
         assert_eq!(receiver(&by_ref, &target(Some("r")), &facts, &cancel).await, Err(UploadError::Failed(UNIDENTIFIED_RECEIVER.into())));
         assert_eq!(receiver(&by_ref, &target(Some("r")), &facts, &cancel).await, Err(UploadError::Failed(UNIDENTIFIED_RECEIVER.into())));
