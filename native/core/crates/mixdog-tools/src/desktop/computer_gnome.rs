@@ -178,16 +178,21 @@ fn input_report(probe: &Probe) -> Map<String, Value> {
     report
 }
 
-/// `linuxComputerPermissions`: the string fields summarize the probed capabilities.
+/// `linuxComputerPermissions`: the string fields summarize the probed capabilities; `gnome_extension` is what the last apply of the
+/// GNOME Shell extension left (absent until Computer Use has been applied on a GNOME session).
 pub fn linux_permissions(readiness: &Readiness) -> Value {
     let caps = &readiness.capabilities;
     let input = [&caps.pointer, &caps.keyboard].into_iter().find(|cap| cap.state != State::Ready).unwrap_or(&caps.pointer);
-    json!({
+    let mut permissions = json!({
         "screen_capture": caps.capture.state,
         "accessibility": caps.accessibility.state,
         "input": input.state,
         "linux": readiness,
-    })
+    });
+    if let Some(extension) = super::computer_gnome_extension::last_state() {
+        permissions["gnome_extension"] = json!(extension);
+    }
+    permissions
 }
 
 /// `diagnoseReport` (what the model reads from `diagnose`; the timings Node's canonical text drops are not here).
