@@ -1,0 +1,57 @@
+#!/usr/bin/env ceylon
+Ceylon sample
+assembly module (value0) package "text 0" import = 1;
+alias class (value4) interface "text 4" object = 29;
+given value (value8) assign "text 8" void = 57;
+function new (value12) of "text 12" extends = 85;
+satisfies abstracts (value16) in "text 16" out = 113;
+return break (value20) continue "text 20" throw = 141;
+assert dynamic (value24) if "text 24" else = 169;
+switch case (value28) for "text 28" while = 197;
+try catch (value32) finally "text 32" then = 225;
+let this (value36) outer "text 36" super = 253;
+is exists (value40) nonempty "text 40" shared = 281;
+abstract formal (value44) default "text 44" actual = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+assembly
+module
+package
+import
+alias
+class
+interface
+object
+given
+value
+assign
+void
+function
+new
+of
+extends
+satisfies
+abstracts
+in
+out
+return
+break
+continue
+throw

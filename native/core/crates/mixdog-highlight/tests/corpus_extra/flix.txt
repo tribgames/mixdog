@@ -1,0 +1,48 @@
+#!/usr/bin/env flix
+Flix sample
+true false (value0) case "text 0" class = 1;
+def else (value4) enum "text 4" if = 29;
+impl import (value8) in "text 8" lat = 57;
+rel index (value12) let "text 12" match = 85;
+namespace switch (value16) type "text 16" yield = 113;
+with x (value20) y "text 20" z = 141;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+true
+false
+case
+class
+def
+else
+enum
+if
+impl
+import
+in
+lat
+rel
+index
+let
+match
+namespace
+switch
+type
+yield
+with

@@ -1,0 +1,1 @@
+{"registeredAs":"julia-repl","root":0,"objects":[{"frozen":false,"f":[["name","Julia REPL"],["contains",[{"o":1}]]]},{"frozen":false,"f":[["className","meta"],["begin",{"re":"^julia>","fl":""}],["relevance",10],["starts",{"o":2}],["aliases",["jldoctest"]]]},{"frozen":false,"f":[["end",{"re":"^(?![ ]{6})","fl":""}],["subLanguage","julia"]]}]}

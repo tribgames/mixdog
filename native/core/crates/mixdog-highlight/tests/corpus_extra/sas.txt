@@ -1,0 +1,57 @@
+#!/usr/bin/env sas
+SAS sample
+null missing (value0) _all_ "text 0" _automatic_ = 1;
+_character_ _infile_ (value4) _n_ "text 4" _name_ = 29;
+_null_ _numeric_ (value8) _user_ "text 8" _webout_ = 57;
+do if (value12) then "text 12" else = 85;
+end until (value16) while "text 16" abort = 113;
+array attrib (value20) by "text 20" call = 141;
+cards cards4 (value24) catname "text 24" continue = 169;
+datalines datalines4 (value28) delete "text 28" delim = 197;
+delimiter display (value32) dm "text 32" drop = 225;
+endsas error (value36) file "text 36" filename = 253;
+footnote format (value40) goto "text 40" in = 281;
+infile informat (value44) input "text 44" keep = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+null
+missing
+_all_
+_automatic_
+_character_
+_infile_
+_n_
+_name_
+_null_
+_numeric_
+_user_
+_webout_
+do
+if
+then
+else
+end
+until
+while
+abort
+array
+attrib
+by
+call

@@ -1,0 +1,58 @@
+#!/usr/bin/env axapta
+X++ sample
+abstract as (value0) asc "text 0" avg = 1;
+break breakpoint (value4) by "text 4" byref = 29;
+case catch (value8) changecompany "text 8" class = 57;
+client common (value12) const "text 12" continue = 85;
+count crosscompany (value16) delegate "text 16" delete_from = 113;
+desc display (value20) div "text 20" do = 141;
+edit else (value24) eventhandler "text 24" exists = 169;
+extends final (value28) finally "text 28" firstfast = 197;
+firstonly firstonly1 (value32) firstonly10 "text 32" firstonly100 = 225;
+firstonly1000 flush (value36) for "text 36" forceliterals = 253;
+forcenestedloop forceplaceholders (value40) forceselectorder "text 40" forupdate = 281;
+from generateonly (value44) group "text 44" hint = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+abstract
+as
+asc
+avg
+break
+breakpoint
+by
+byref
+case
+catch
+changecompany
+class
+client
+common
+const
+continue
+count
+crosscompany
+delegate
+delete_from
+desc
+display
+div
+do
+x++

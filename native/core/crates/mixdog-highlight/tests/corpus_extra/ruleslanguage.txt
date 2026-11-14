@@ -1,0 +1,57 @@
+#!/usr/bin/env ruleslanguage
+Oracle Rules Language sample
+BILL_PERIOD BILL_START (value0) BILL_STOP "text 0" RS_EFFECTIVE_START = 1;
+RS_EFFECTIVE_STOP RS_JURIS_CODE (value4) RS_OPCO_CODE "text 4" STDEV = 29;
+IF FOR (value8) NEXT "text 8" DONE = 57;
+SELECT END (value12) CALL "text 12" ABORT = 85;
+CLEAR CHANNEL (value16) FACTOR "text 16" LIST = 113;
+NUMBER OVERRIDE (value20) SET "text 20" WEEK = 141;
+DISTRIBUTIONNODE ELSE (value24) WHEN "text 24" THEN = 169;
+OTHERWISE IENUM (value28) CSV "text 28" INCLUDE = 197;
+LEAVE RIDER (value32) SAVE "text 32" DELETE = 225;
+NOVALUE SECTION (value36) WARN "text 36" SAVE_UPDATE = 253;
+DETERMINANT LABEL (value40) REPORT "text 40" REVENUE = 281;
+EACH IN (value44) FROM "text 44" TOTAL = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+BILL_PERIOD
+BILL_START
+BILL_STOP
+RS_EFFECTIVE_START
+RS_EFFECTIVE_STOP
+RS_JURIS_CODE
+RS_OPCO_CODE
+STDEV
+IF
+FOR
+NEXT
+DONE
+SELECT
+END
+CALL
+ABORT
+CLEAR
+CHANNEL
+FACTOR
+LIST
+NUMBER
+OVERRIDE
+SET
+WEEK

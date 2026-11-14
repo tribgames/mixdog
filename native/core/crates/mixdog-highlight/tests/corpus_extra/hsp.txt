@@ -1,0 +1,57 @@
+#!/usr/bin/env hsp
+HSP sample
+goto gosub (value0) return "text 0" break = 1;
+repeat loop (value4) continue "text 4" wait = 29;
+await dim (value8) sdim "text 8" foreach = 57;
+dimtype dup (value12) dupptr "text 12" end = 85;
+stop newmod (value16) delmod "text 16" mref = 113;
+run exgoto (value20) on "text 20" mcall = 141;
+assert logmes (value24) newlab "text 24" resume = 169;
+yield onexit (value28) onerror "text 28" onkey = 197;
+onclick oncmd (value32) exist "text 32" delete = 225;
+mkdir chdir (value36) dirlist "text 36" bload = 253;
+bsave bcopy (value40) memfile "text 40" if = 281;
+else poke (value44) wpoke "text 44" lpoke = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+goto
+gosub
+return
+break
+repeat
+loop
+continue
+wait
+await
+dim
+sdim
+foreach
+dimtype
+dup
+dupptr
+end
+stop
+newmod
+delmod
+mref
+run
+exgoto
+on
+mcall

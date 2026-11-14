@@ -1,0 +1,57 @@
+#!/usr/bin/env n1ql
+N1QL sample
+build create (value0) index "text 0" delete = 1;
+drop explain (value4) insert "text 4" merge = 29;
+prepare select (value8) update "text 8" all = 57;
+alter analyze (value12) and "text 12" any = 85;
+array as (value16) asc "text 16" begin = 113;
+between binary (value20) boolean "text 20" break = 141;
+bucket by (value24) call "text 24" case = 169;
+cast cluster (value28) collate "text 28" collection = 197;
+commit connect (value32) continue "text 32" correlate = 225;
+cover database (value36) dataset "text 36" datastore = 253;
+declare decrement (value40) derived "text 40" desc = 281;
+describe distinct (value44) do "text 44" each = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+build
+create
+index
+delete
+drop
+explain
+insert
+merge
+prepare
+select
+update
+all
+alter
+analyze
+and
+any
+array
+as
+asc
+begin
+between
+binary
+boolean
+break

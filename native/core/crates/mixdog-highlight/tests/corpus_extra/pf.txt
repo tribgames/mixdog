@@ -1,0 +1,58 @@
+#!/usr/bin/env pf
+Packet Filter config sample
+block match (value0) pass "text 0" load = 1;
+set table (value4) in "text 4" out = 29;
+log quick (value8) on "text 8" rdomain = 57;
+inet inet6 (value12) proto "text 12" from = 85;
+port os (value16) to "text 16" route = 113;
+allow-opts divert-packet (value20) divert-reply "text 20" divert-to = 141;
+flags group (value24) icmp-type "text 24" icmp6-type = 169;
+label once (value28) probability "text 28" recieved-on = 197;
+rtable prio (value32) queue "text 32" tos = 225;
+tag tagged (value36) user "text 36" keep = 253;
+fragment for (value40) drop "text 40" bitmask = 281;
+least-stats random (value44) round-robin "text 44" source-hash = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+block
+match
+pass
+load
+set
+table
+in
+out
+log
+quick
+on
+rdomain
+inet
+inet6
+proto
+from
+port
+os
+to
+route
+allow-opts
+divert-packet
+divert-reply
+divert-to
+pf.conf

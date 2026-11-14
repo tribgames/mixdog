@@ -1,0 +1,57 @@
+#!/usr/bin/env x86asm
+Intel x86 Assembly sample
+lock rep (value0) repe "text 0" repz = 1;
+repne repnz (value4) xaquire "text 4" xrelease = 29;
+bnd nobnd (value8) aaa "text 8" aad = 57;
+aam aas (value12) adc "text 12" add = 85;
+and arpl (value16) bb0_reset "text 16" bb1_reset = 113;
+bound bsf (value20) bsr "text 20" bswap = 141;
+bt btc (value24) btr "text 24" bts = 169;
+call cbw (value28) cdq "text 28" cdqe = 197;
+clc cld (value32) cli "text 32" clts = 225;
+cmc cmp (value36) cmpsb "text 36" cmpsd = 253;
+cmpsq cmpsw (value40) cmpxchg "text 40" cmpxchg486 = 281;
+cmpxchg8b cmpxchg16b (value44) cpuid "text 44" cpu_read = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+lock
+rep
+repe
+repz
+repne
+repnz
+xaquire
+xrelease
+bnd
+nobnd
+aaa
+aad
+aam
+aas
+adc
+add
+and
+arpl
+bb0_reset
+bb1_reset
+bound
+bsf
+bsr
+bswap

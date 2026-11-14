@@ -1,0 +1,54 @@
+#!/usr/bin/env autohotkey
+AutoHotkey sample
+Break Continue (value0) Critical "text 0" Exit = 1;
+ExitApp Gosub (value4) Goto "text 4" New = 29;
+OnExit Pause (value8) return "text 8" SetBatchLines = 57;
+SetTimer Suspend (value12) Thread "text 12" Throw = 85;
+Until ahk_id (value16) ahk_class "text 16" ahk_pid = 113;
+ahk_exe ahk_group (value20) true "text 20" false = 141;
+NOT AND (value24) OR "text 24" ComSpec = 169;
+Clipboard ClipboardAll (value28) ErrorLevel "text 28" z = 197;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+Break
+Continue
+Critical
+Exit
+ExitApp
+Gosub
+Goto
+New
+OnExit
+Pause
+return
+SetBatchLines
+SetTimer
+Suspend
+Thread
+Throw
+Until
+ahk_id
+ahk_class
+ahk_pid
+ahk_exe
+ahk_group
+true
+false
+ahk

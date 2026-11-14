@@ -1,0 +1,53 @@
+#!/usr/bin/env erlang
+Erlang sample
+after and (value0) band "text 0" begin = 1;
+bnot bor (value4) bsl "text 4" bzr = 29;
+bxor case (value8) catch "text 8" cond = 57;
+div end (value12) fun "text 12" if = 85;
+let not (value16) of "text 16" query = 113;
+receive rem (value20) try "text 20" when = 141;
+xor false (value24) true "text 24" z = 169;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+after
+and
+band
+begin
+bnot
+bor
+bsl
+bzr
+bxor
+case
+catch
+cond
+div
+end
+fun
+if
+let
+not
+of
+query
+receive
+rem
+try
+when
+erl

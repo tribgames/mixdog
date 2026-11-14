@@ -1,0 +1,58 @@
+#!/usr/bin/env qml
+QML sample
+in of (value0) on "text 0" if = 1;
+for while (value4) finally "text 4" var = 29;
+new function (value8) do "text 8" return = 57;
+void else (value12) break "text 12" catch = 85;
+instanceof with (value16) throw "text 16" case = 113;
+default try (value20) this "text 20" switch = 141;
+continue typeof (value24) delete "text 24" let = 169;
+yield const (value28) export "text 28" super = 197;
+debugger as (value32) async "text 32" await = 225;
+import true (value36) false "text 36" null = 253;
+undefined NaN (value40) Infinity "text 40" eval = 281;
+isFinite isNaN (value44) parseFloat "text 44" parseInt = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+in
+of
+on
+if
+for
+while
+finally
+var
+new
+function
+do
+return
+void
+else
+break
+catch
+instanceof
+with
+throw
+case
+default
+try
+this
+switch
+qt

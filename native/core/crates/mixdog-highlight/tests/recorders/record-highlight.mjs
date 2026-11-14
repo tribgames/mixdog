@@ -4,6 +4,9 @@
 //   node record-highlight.mjs --tree <repo> --check <golden.json>                        fails when it differs
 //   node record-highlight.mjs --tree <repo> --collect-docs                               refreshes tests/corpus/*.docs.txt
 //                                                                                        from the fenced blocks of the docs
+//   add --all to record the languages the core set does not carry (all 191 are listed): the corpus is
+//   tests/corpus_extra, the golden is tests/goldens/highlight-all.json, and every name and alias is resolved.
+//   add --format-token <file> when <repo> has no src/tui/markdown/format-token.mjs (the class map is read from it).
 //
 // Per (language, snippet): the HTML `highlight(code, {language, ignoreIllegals: true}).value` (compared with the
 // engine's HTML), the same with ignoreIllegals false (value, illegal, relevance), and cli-highlight's ANSI with
@@ -25,16 +28,21 @@ const tree = opt('--tree');
 const outFile = opt('--out');
 const checkFile = opt('--check');
 const collectDocs = args.includes('--collect-docs');
+const all = args.includes('--all');
+const formatTokenFile = opt('--format-token');
 if (!tree || (!outFile && !checkFile && !collectDocs)) {
   console.error('usage: record-highlight.mjs --tree <repo> (--out <file> | --check <file> | --collect-docs)');
   process.exit(2);
 }
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const corpusDir = path.join(here, '..', 'corpus');
+const corpusDir = path.join(here, '..', all ? 'corpus_extra' : 'corpus');
 const dataDir = path.join(here, '..', '..', 'src', 'languages', 'data');
 const registry = JSON.parse(fs.readFileSync(path.join(dataDir, '_registry.json'), 'utf8'));
-const included = registry.included;
+// The languages of the golden: the core set, or with --all every registered language, of which the corpus holds
+// the ones the core set does not.
+const included = all ? registry.order : registry.included;
+const recordedLanguages = all ? registry.order.filter((n) => !registry.included.includes(n)) : registry.included;
 
 const require = createRequire(path.join(path.resolve(tree), 'package.json'));
 const hljs = require('highlight.js');
@@ -107,7 +115,7 @@ if (collectDocs) {
 }
 
 // ── themes: the class map of format-token.mjs buildCliHighlightTheme ────────
-const formatToken = fs.readFileSync(path.join(path.resolve(tree), 'src', 'tui', 'markdown', 'format-token.mjs'), 'utf8');
+const formatToken = fs.readFileSync(formatTokenFile ?? path.join(path.resolve(tree), 'src', 'tui', 'markdown', 'format-token.mjs'), 'utf8');
 const themeBody = /function buildCliHighlightTheme\(c\) \{[\s\S]*?return \{([\s\S]*?)\n  \};\n\}/.exec(formatToken);
 if (!themeBody) throw new Error('buildCliHighlightTheme not found in format-token.mjs');
 const classSlots = {};
@@ -159,7 +167,7 @@ const nodeThemes = Object.fromEntries(THEME_NAMES.map((n) => [n, nodeTheme(n)]))
 function corpus() {
   const out = [];
   for (const file of fs.readdirSync(corpusDir).sort()) {
-    const m = /^([a-z0-9]+)(\.docs)?\.txt$/.exec(file);
+    const m = /^([a-z0-9_-]+)(\.docs)?\.txt$/.exec(file);
     if (!m) continue;
     const snippets = fs.readFileSync(path.join(corpusDir, file), 'utf8').replace(/\r\n/g, '\n').replace(/\n$/, '').split(SEPARATOR);
     snippets.forEach((code, i) => out.push({ lang: m[1], source: `${file}#${i}`, code }));
@@ -180,14 +188,14 @@ function mulberry32(seed) {
 
 const PUNCT = ['{', '}', '(', ')', '[', ']', ';', ',', '.', ':', "'", '"', '`', '/', '*', '#', '<', '>', '=', '+', '-', '!', '&', '|', '\\', '$', '@', '%', '^', '~', '?', '\n', '\n', ' ', ' ', '  ', '\t', '//', '/*', '*/', '<!--', '-->', '${', '"""', "'''", '<<EOF', '=>', '::', '#!', '\r\n'];
 
-function soups(entries, perLanguage = 50) {
+function soups(entries, perLanguage = all ? 20 : 50) {
   const out = [];
   const byLang = new Map();
   for (const e of entries) {
     if (!byLang.has(e.lang)) byLang.set(e.lang, []);
     byLang.get(e.lang).push(e.code);
   }
-  for (const lang of included) {
+  for (const lang of recordedLanguages) {
     const words = new Set();
     for (const code of byLang.get(lang) || []) for (const w of code.match(/[A-Za-z_][A-Za-z0-9_]*|\d[0-9a-fA-FxX._]*/g) || []) words.add(w);
     const pool = [...words].sort();
@@ -235,7 +243,9 @@ function recordCase(entry, themeCount) {
 }
 
 function autoCases(entries) {
-  const subsets = [null, ['json', 'javascript'], ['xml', 'css', 'javascript'], ['python', 'ruby', 'perl'], ['cpp', 'java', 'csharp'], ['bash', 'powershell']];
+  const subsets = all
+    ? [null, null, ['mathematica', 'matlab', 'maxima'], ['ocaml', 'fsharp', 'sml', 'reasonml'], ['erlang', 'prolog', 'lisp', 'scheme'], ['vbnet', 'vbscript', 'delphi'], ['x86asm', 'armasm', 'mipsasm', 'avrasm'], ['scss', 'less', 'stylus']]
+    : [null, ['json', 'javascript'], ['xml', 'css', 'javascript'], ['python', 'ruby', 'perl'], ['cpp', 'java', 'csharp'], ['bash', 'powershell']];
   const out = [];
   entries
     .filter((e) => e.source.endsWith('#0') && !e.source.includes('docs') && !e.source.startsWith('soup'))
@@ -249,7 +259,7 @@ function autoCases(entries) {
 }
 
 function resolveCases() {
-  const names = [
+  const edge = [
     'javascript', 'JavaScript', 'js', 'jsx', 'mjs', 'cjs', 'typescript', 'ts', 'tsx', 'json', 'bash', 'sh', 'shell', 'zsh', 'python', 'py',
     'css', 'scss', 'less', 'html', 'xml', 'svg', 'md', 'markdown', 'go', 'golang', 'rust', 'rs', 'java', 'c', 'cpp', 'c++', 'cc', 'h', 'hpp',
     'ruby', 'rb', 'sql', 'yaml', 'yml', 'toml', 'ini', 'kotlin', 'kt', 'kts', 'swift', 'php', 'csharp', 'cs', 'c#', 'dockerfile', 'docker',
@@ -257,15 +267,17 @@ function resolveCases() {
     'powershell', 'ps1', 'ps', 'pwsh', 'makefile', 'make', 'nginx', 'vim', 'haskell', 'hs', 'elixir', 'ex', 'exs', 'clojure', 'clj',
     'handlebars', 'hbs', 'mojolicious', 'plaintext', 'text', 'txt', 'diff', 'patch', 'no-highlight', '', 'constructor', 'toString', '__proto__', 'Ｊavascript',
   ];
+  // With --all every registered name and every alias, in lower and upper case, is asked too.
+  const names = all ? [...new Set([...edge, ...registry.order, ...registry.aliases.map((a) => a[0]), ...registry.order.map((n) => n.toUpperCase()), ...registry.aliases.map((a) => a[0].toUpperCase())])] : edge;
   return names.map((name) => {
     const lang = hljs.getLanguage(name);
     const registered = lang ? hljs.listLanguages().find((n) => hljs.getLanguage(n) === lang) : null;
-    return [name, !!lang, registered && included.includes(registered) ? registered : null];
+    return [name, !!lang, registered && (all || included.includes(registered)) ? registered : null];
   });
 }
 
 function benchSource() {
-  const code = fs.readFileSync(path.join(corpusDir, 'javascript.txt'), 'utf8').split(SEPARATOR).join('\n');
+  const code = fs.readFileSync(path.join(here, '..', 'corpus', 'javascript.txt'), 'utf8').split(SEPARATOR).join('\n');
   const lines = [];
   while (lines.length < 5000) for (const l of code.split('\n')) lines.push(l);
   return lines.slice(0, 5000).join('\n');
@@ -287,6 +299,20 @@ function record() {
     times.push(performance.now() - t0);
   }
   times.sort((a, b) => a - b);
+  // With --all: the time of highlighting every case once more, warmed up (the Rust live test compares itself to it).
+  let allBench = null;
+  if (all) {
+    const pass = () => { for (const e of entries) hljs.highlight(e.code, { language: e.lang, ignoreIllegals: true }); };
+    pass();
+    const passTimes = [];
+    for (let i = 0; i < 5; i++) {
+      const t0 = performance.now();
+      pass();
+      passTimes.push(performance.now() - t0);
+    }
+    passTimes.sort((a, b) => a - b);
+    allBench = { cases: entries.length, nodeMs: Math.round(passTimes[2] * 10) / 10 };
+  }
   return {
     format: 1,
     versions: { highlightjs: hljs.versionString, cliHighlight: JSON.parse(fs.readFileSync(require.resolve('cli-highlight/package.json'), 'utf8')).version },
@@ -295,6 +321,7 @@ function record() {
     resolve: resolveCases(),
     cases,
     auto: autoCases(entries),
+    ...(allBench ? { allBench } : {}),
     bench: { lines: 5000, bytes: bench.length, htmlLength: value.length, htmlSha256: createHash('sha256').update(value).digest('hex'), nodeMs: Math.round(times[3] * 10) / 10 },
   };
 }
@@ -303,10 +330,10 @@ const recorded = record();
 if (outFile) {
   fs.mkdirSync(path.dirname(outFile), { recursive: true });
   fs.writeFileSync(outFile, `${JSON.stringify(recorded)}\n`);
-  console.log(`wrote ${recorded.cases.length} cases, ${recorded.auto.length} auto cases to ${outFile} (bench ${recorded.bench.nodeMs} ms)`);
+  console.log(`wrote ${recorded.cases.length} cases, ${recorded.auto.length} auto cases to ${outFile} (bench ${recorded.bench.nodeMs} ms${recorded.allBench ? `, all cases ${recorded.allBench.nodeMs} ms` : ''})`);
 } else {
   const golden = JSON.parse(fs.readFileSync(checkFile, 'utf8'));
-  const strip = (g) => ({ ...g, bench: { ...g.bench, nodeMs: 0 } });
+  const strip = (g) => ({ ...g, bench: { ...g.bench, nodeMs: 0 }, ...(g.allBench ? { allBench: { ...g.allBench, nodeMs: 0 } } : {}) });
   const a = JSON.stringify(strip(golden));
   const b = JSON.stringify(strip(recorded));
   if (a !== b) {

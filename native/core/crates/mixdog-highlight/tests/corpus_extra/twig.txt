@@ -1,0 +1,58 @@
+#!/usr/bin/env twig
+Twig sample
+apply autoescape (value0) block "text 0" deprecated = 1;
+do embed (value4) extends "text 4" filter = 29;
+flush for (value8) from "text 8" if = 57;
+import include (value12) macro "text 12" sandbox = 85;
+set use (value16) verbatim "text 16" with = 113;
+endapply endautoescape (value20) endblock "text 20" enddeprecated = 141;
+enddo endembed (value24) endextends "text 24" endfilter = 169;
+endflush endfor (value28) endfrom "text 28" endif = 197;
+endimport endinclude (value32) endmacro "text 32" endsandbox = 225;
+endset enduse (value36) endverbatim "text 36" endwith = 253;
+abs batch (value40) capitalize "text 40" column = 281;
+convert_encoding date (value44) date_modify "text 44" default = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+apply
+autoescape
+block
+deprecated
+do
+embed
+extends
+filter
+flush
+for
+from
+if
+import
+include
+macro
+sandbox
+set
+use
+verbatim
+with
+endapply
+endautoescape
+endblock
+enddeprecated
+craftcms

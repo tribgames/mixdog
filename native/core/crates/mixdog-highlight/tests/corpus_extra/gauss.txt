@@ -1,0 +1,58 @@
+#!/usr/bin/env gauss
+GAUSS sample
+bool break (value0) call "text 0" callexe = 1;
+checkinterrupt clear (value4) clearg "text 4" closeall = 29;
+cls comlog (value8) compile "text 8" continue = 57;
+create debug (value12) declare "text 12" delete = 85;
+disable dlibrary (value16) dllcall "text 16" do = 113;
+dos ed (value20) edit "text 20" else = 141;
+elseif enable (value24) end "text 24" endfor = 169;
+endif endp (value28) endo "text 28" errorlog = 197;
+errorlogat expr (value32) external "text 32" fn = 225;
+for format (value36) goto "text 36" gosub = 253;
+graph if (value40) keyword "text 40" let = 281;
+lib library (value44) line "text 44" load = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+bool
+break
+call
+callexe
+checkinterrupt
+clear
+clearg
+closeall
+cls
+comlog
+compile
+continue
+create
+debug
+declare
+delete
+disable
+dlibrary
+dllcall
+do
+dos
+ed
+edit
+else
+gss

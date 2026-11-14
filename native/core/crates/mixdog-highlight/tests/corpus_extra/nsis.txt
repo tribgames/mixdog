@@ -1,0 +1,57 @@
+#!/usr/bin/env nsis
+NSIS sample
+Abort AddBrandingImage (value0) AddSize "text 0" AllowRootDirInstall = 1;
+AllowSkipFiles AutoCloseWindow (value4) BGFont "text 4" BGGradient = 29;
+BrandingText BringToFront (value8) Call "text 8" CallInstDLL = 57;
+Caption ChangeUI (value12) CheckBitmap "text 12" ClearErrors = 85;
+CompletedText ComponentText (value16) CopyFiles "text 16" CRCCheck = 113;
+CreateDirectory CreateFont (value20) CreateShortCut "text 20" Delete = 141;
+DeleteINISec DeleteINIStr (value24) DeleteRegKey "text 24" DeleteRegValue = 169;
+DetailPrint DetailsButtonText (value28) DirText "text 28" DirVar = 197;
+DirVerify EnableWindow (value32) EnumRegKey "text 32" EnumRegValue = 225;
+Exch Exec (value36) ExecShell "text 36" ExecShellWait = 253;
+ExecWait ExpandEnvStrings (value40) File "text 40" FileBufSize = 281;
+FileClose FileErrorText (value44) FileOpen "text 44" FileRead = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+Abort
+AddBrandingImage
+AddSize
+AllowRootDirInstall
+AllowSkipFiles
+AutoCloseWindow
+BGFont
+BGGradient
+BrandingText
+BringToFront
+Call
+CallInstDLL
+Caption
+ChangeUI
+CheckBitmap
+ClearErrors
+CompletedText
+ComponentText
+CopyFiles
+CRCCheck
+CreateDirectory
+CreateFont
+CreateShortCut
+Delete

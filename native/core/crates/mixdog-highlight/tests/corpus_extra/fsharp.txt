@@ -1,0 +1,58 @@
+#!/usr/bin/env fsharp
+F# sample
+abstract and (value0) as "text 0" assert = 1;
+base begin (value4) class "text 4" default = 29;
+delegate do (value8) done "text 8" downcast = 57;
+downto elif (value12) else "text 12" end = 85;
+exception extern (value16) false "text 16" finally = 113;
+for fun (value20) function "text 20" global = 141;
+if in (value24) inherit "text 24" inline = 169;
+interface internal (value28) lazy "text 28" let = 197;
+match member (value32) module "text 32" mutable = 225;
+namespace new (value36) null "text 36" of = 253;
+open or (value40) override "text 40" private = 281;
+public rec (value44) return "text 44" sig = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+abstract
+and
+as
+assert
+base
+begin
+class
+default
+delegate
+do
+done
+downcast
+downto
+elif
+else
+end
+exception
+extern
+false
+finally
+for
+fun
+function
+global
+fs

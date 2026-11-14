@@ -1,0 +1,57 @@
+#!/usr/bin/env llvm
+LLVM IR sample
+begin end (value0) true "text 0" false = 1;
+declare define (value4) global "text 4" constant = 29;
+private linker_private (value8) internal "text 8" available_externally = 57;
+linkonce linkonce_odr (value12) weak "text 12" weak_odr = 85;
+appending dllimport (value16) dllexport "text 16" common = 113;
+default hidden (value20) protected "text 20" extern_weak = 141;
+external thread_local (value24) zeroinitializer "text 24" undef = 169;
+null to (value28) tail "text 28" target = 197;
+triple datalayout (value32) volatile "text 32" nuw = 225;
+nsw nnan (value36) ninf "text 36" nsz = 253;
+arcp fast (value40) exact "text 40" inbounds = 281;
+align addrspace (value44) section "text 44" alias = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+begin
+end
+true
+false
+declare
+define
+global
+constant
+private
+linker_private
+internal
+available_externally
+linkonce
+linkonce_odr
+weak
+weak_odr
+appending
+dllimport
+dllexport
+common
+default
+hidden
+protected
+extern_weak

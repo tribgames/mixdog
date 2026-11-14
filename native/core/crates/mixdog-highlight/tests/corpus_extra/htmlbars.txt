@@ -1,0 +1,58 @@
+#!/usr/bin/env htmlbars
+HTMLbars sample
+action bindattr (value0) collection "text 0" component = 1;
+concat debugger (value4) each "text 4" each-in = 29;
+get hash (value8) if "text 8" in = 57;
+input link-to (value12) loc "text 12" log = 85;
+lookup mut (value16) outlet "text 16" partial = 113;
+query-params render (value20) template "text 20" textarea = 141;
+unbound unless (value24) view "text 24" with = 169;
+yield as (value28) true "text 28" false = 197;
+undefined null (value32) else "text 32" z = 225;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+action
+bindattr
+collection
+component
+concat
+debugger
+each
+each-in
+get
+hash
+if
+in
+input
+link-to
+loc
+log
+lookup
+mut
+outlet
+partial
+query-params
+render
+template
+textarea
+hbs
+html.hbs
+html.handlebars
+htmlbars

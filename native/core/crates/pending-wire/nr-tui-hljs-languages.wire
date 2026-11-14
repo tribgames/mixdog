@@ -1,0 +1,19 @@
+# nr-tui-hljs-languages: the remaining 153 highlight.js 10.7.3 languages and the mathematica hook, inside mixdog-highlight.
+# Nothing here needs a hot file.
+
+[native/core/Cargo.toml]
+nothing: no dependency or member is added (mixdog-highlight already exists from nr-tui-hljs-engine).
+
+[native/core/Cargo.lock]
+nothing: no new package or dependency edge.
+
+[native/core/crates/mixdog-app-server-daemon/src/compose_flip.rs]
+nothing: no protocol method.
+
+[notes for the lead]
+- Verify with the recorder against a tree that has src/tui/markdown/format-token.mjs (C:/Project/mixdog); a tree without it needs
+  `--format-token <file>`:
+    node native/core/crates/mixdog-highlight/tests/recorders/record-highlight.mjs --tree C:/Project/mixdog --check native/core/crates/mixdog-highlight/tests/goldens/highlight-core.json
+    node native/core/crates/mixdog-highlight/tests/recorders/record-highlight.mjs --tree C:/Project/mixdog --all --check native/core/crates/mixdog-highlight/tests/goldens/highlight-all.json
+    node native/core/crates/mixdog-highlight/tests/recorders/dump-hljs-languages.mjs --tree C:/Project/mixdog --check native/core/crates/mixdog-highlight/src/languages/data --extra native/core/crates/mixdog-highlight/src/languages/data_extra
+- The dumper now always dumps every registered language (core set to data/, the others to data_extra/) and takes --extra; --all is gone from it.

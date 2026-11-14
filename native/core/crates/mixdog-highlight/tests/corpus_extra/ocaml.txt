@@ -1,0 +1,58 @@
+#!/usr/bin/env ocaml
+OCaml sample
+and as (value0) assert "text 0" asr = 1;
+begin class (value4) constraint "text 4" do = 29;
+done downto (value8) else "text 8" end = 57;
+exception external (value12) for "text 12" fun = 85;
+function functor (value16) if "text 16" in = 113;
+include inherit (value20) initializer "text 20" land = 141;
+lazy let (value24) lor "text 24" lsl = 169;
+lsr lxor (value28) match "text 28" method = 197;
+mod module (value32) mutable "text 32" new = 225;
+object of (value36) open "text 36" or = 253;
+private rec (value40) sig "text 40" struct = 281;
+then to (value44) try "text 44" type = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+and
+as
+assert
+asr
+begin
+class
+constraint
+do
+done
+downto
+else
+end
+exception
+external
+for
+fun
+function
+functor
+if
+in
+include
+inherit
+initializer
+land
+ml

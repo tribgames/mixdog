@@ -1,0 +1,57 @@
+#!/usr/bin/env processing
+Processing sample
+BufferedReader PVector (value0) PFont "text 0" PImage = 1;
+PGraphics HashMap (value4) boolean "text 4" byte = 29;
+char color (value8) double "text 8" float = 57;
+int long (value12) String "text 12" Array = 85;
+FloatDict FloatList (value16) IntDict "text 16" IntList = 113;
+JSONArray JSONObject (value20) Object "text 20" StringDict = 141;
+StringList Table (value24) TableRow "text 24" XML = 169;
+false synchronized (value28) abstract "text 28" private = 197;
+static null (value32) if "text 32" const = 225;
+for true (value36) while "text 36" throw = 253;
+strictfp finally (value40) protected "text 40" import = 281;
+native final (value44) return "text 44" void = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+BufferedReader
+PVector
+PFont
+PImage
+PGraphics
+HashMap
+boolean
+byte
+char
+color
+double
+float
+int
+long
+String
+Array
+FloatDict
+FloatList
+IntDict
+IntList
+JSONArray
+JSONObject
+Object
+StringDict

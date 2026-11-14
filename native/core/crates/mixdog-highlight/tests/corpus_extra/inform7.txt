@@ -1,0 +1,51 @@
+#!/usr/bin/env inform7
+Inform 7 sample
+thing room (value0) person "text 0" man = 1;
+woman animal (value4) container "text 4" supporter = 29;
+backdrop door (value8) scenery "text 8" open = 57;
+closed locked (value12) inside "text 12" gender = 85;
+is are (value16) say "text 16" understand = 113;
+kind of (value20) rule "text 20" z = 141;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+thing
+room
+person
+man
+woman
+animal
+container
+supporter
+backdrop
+door
+scenery
+open
+closed
+locked
+inside
+gender
+is
+are
+say
+understand
+kind
+of
+rule
+i7

@@ -1,0 +1,59 @@
+#!/usr/bin/env sql_more
+SQL (more) sample
+begin end (value0) start "text 0" commit = 1;
+rollback savepoint (value4) lock "text 4" alter = 29;
+create drop (value8) rename "text 8" call = 57;
+delete do (value12) handler "text 12" insert = 85;
+load replace (value16) select "text 16" truncate = 113;
+update set (value20) show "text 20" pragma = 141;
+grant merge (value24) describe "text 24" use = 169;
+explain help (value28) declare "text 28" prepare = 197;
+execute deallocate (value32) release "text 32" unlock = 225;
+purge reset (value36) change "text 36" stop = 253;
+analyze cache (value40) flush "text 40" optimize = 281;
+repair kill (value44) install "text 44" uninstall = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+begin
+end
+start
+commit
+rollback
+savepoint
+lock
+alter
+create
+drop
+rename
+call
+delete
+do
+handler
+insert
+load
+replace
+select
+truncate
+update
+set
+show
+pragma
+mysql
+oracle

@@ -1,0 +1,59 @@
+#!/usr/bin/env dos
+Batch file (DOS) sample
+if else (value0) goto "text 0" for = 1;
+in do (value4) call "text 4" exit = 29;
+not exist (value8) errorlevel "text 8" defined = 57;
+equ neq (value12) lss "text 12" leq = 85;
+gtr geq (value16) prn "text 16" nul = 113;
+lpt3 lpt2 (value20) lpt1 "text 20" con = 141;
+com4 com3 (value24) com2 "text 24" com1 = 169;
+aux shift (value28) cd "text 28" dir = 197;
+echo setlocal (value32) endlocal "text 32" set = 225;
+pause copy (value36) append "text 36" assoc = 253;
+at attrib (value40) break "text 40" cacls = 281;
+chcp chdir (value44) chkdsk "text 44" chkntfs = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+if
+else
+goto
+for
+in
+do
+call
+exit
+not
+exist
+errorlevel
+defined
+equ
+neq
+lss
+leq
+gtr
+geq
+prn
+nul
+lpt3
+lpt2
+lpt1
+con
+bat
+cmd

@@ -1,0 +1,58 @@
+#!/usr/bin/env arduino
+Arduino sample
+int float (value0) while "text 0" private = 1;
+char char8_t (value4) char16_t "text 4" char32_t = 29;
+catch import (value8) module "text 8" export = 57;
+virtual operator (value12) sizeof "text 12" typedef = 85;
+const for (value16) union "text 16" namespace = 113;
+unsigned long (value20) volatile "text 20" static = 141;
+protected bool (value24) template "text 24" mutable = 169;
+if public (value28) friend "text 28" do = 197;
+goto auto (value32) void "text 32" enum = 225;
+else break (value36) extern "text 36" using = 253;
+asm case (value40) typeid "text 40" wchar_t = 281;
+short default (value44) double "text 44" register = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+int
+float
+while
+private
+char
+char8_t
+char16_t
+char32_t
+catch
+import
+module
+export
+virtual
+operator
+sizeof
+typedef
+const
+for
+union
+namespace
+unsigned
+long
+volatile
+static
+ino

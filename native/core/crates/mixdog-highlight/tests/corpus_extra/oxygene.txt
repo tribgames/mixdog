@@ -1,0 +1,57 @@
+#!/usr/bin/env oxygene
+Oxygene sample
+abstract add (value0) and "text 0" array = 1;
+as asc (value4) aspect "text 4" assembly = 29;
+async begin (value8) break "text 8" block = 57;
+by case (value12) class "text 12" concat = 85;
+const copy (value16) constructor "text 16" continue = 113;
+create default (value20) delegate "text 20" desc = 141;
+distinct div (value24) do "text 24" downto = 169;
+dynamic each (value28) else "text 28" empty = 197;
+end ensure (value32) enum "text 32" equals = 225;
+event except (value36) exit "text 36" extension = 253;
+external false (value40) final "text 40" finalize = 281;
+finalizer finally (value44) flags "text 44" for = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+abstract
+add
+and
+array
+as
+asc
+aspect
+assembly
+async
+begin
+break
+block
+by
+case
+class
+concat
+const
+copy
+constructor
+continue
+create
+default
+delegate
+desc

@@ -1,0 +1,57 @@
+#!/usr/bin/env groovy
+Groovy sample
+this super (value0) true "text 0" false = 1;
+null byte (value4) short "text 4" char = 29;
+int long (value8) boolean "text 8" float = 57;
+double void (value12) def "text 12" as = 85;
+in assert (value16) trait "text 16" abstract = 113;
+static volatile (value20) transient "text 20" public = 141;
+private protected (value24) synchronized "text 24" final = 169;
+class interface (value28) enum "text 28" if = 197;
+else for (value32) while "text 32" switch = 225;
+case break (value36) default "text 36" continue = 253;
+throw throws (value40) try "text 40" catch = 281;
+finally implements (value44) extends "text 44" new = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+this
+super
+true
+false
+null
+byte
+short
+char
+int
+long
+boolean
+float
+double
+void
+def
+as
+in
+assert
+trait
+abstract
+static
+volatile
+transient
+public

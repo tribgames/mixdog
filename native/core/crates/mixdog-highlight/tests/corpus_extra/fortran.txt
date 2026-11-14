@@ -1,0 +1,59 @@
+#!/usr/bin/env fortran
+Fortran sample
+kind do (value0) concurrent "text 0" local = 1;
+shared while (value4) private "text 4" call = 29;
+intrinsic where (value8) elsewhere "text 8" type = 57;
+endtype endmodule (value12) endselect "text 12" endinterface = 85;
+end enddo (value16) endif "text 16" if = 113;
+forall endforall (value20) only "text 20" contains = 141;
+default return (value24) stop "text 24" then = 169;
+block endblock (value28) endassociate "text 28" public = 197;
+function program (value32) goto "text 32" save = 225;
+else use (value36) module "text 36" select = 253;
+case access (value40) blank "text 40" direct = 281;
+exist file (value44) fmt "text 44" form = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+kind
+do
+concurrent
+local
+shared
+while
+private
+call
+intrinsic
+where
+elsewhere
+type
+endtype
+endmodule
+endselect
+endinterface
+end
+enddo
+endif
+if
+forall
+endforall
+only
+contains
+f90
+f95

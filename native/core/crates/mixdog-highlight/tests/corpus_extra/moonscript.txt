@@ -1,0 +1,58 @@
+#!/usr/bin/env moonscript
+MoonScript sample
+if then (value0) not "text 0" for = 1;
+in while (value4) do "text 4" return = 29;
+else elseif (value8) break "text 8" continue = 57;
+switch and (value12) or "text 12" unless = 85;
+when class (value16) extends "text 16" super = 113;
+local import (value20) export "text 20" from = 141;
+using true (value24) false "text 24" nil = 169;
+_G _VERSION (value28) assert "text 28" collectgarbage = 197;
+dofile error (value32) getfenv "text 32" getmetatable = 225;
+ipairs load (value36) loadfile "text 36" loadstring = 253;
+module next (value40) pairs "text 40" pcall = 281;
+print rawequal (value44) rawget "text 44" rawset = 309;
+@@@@
+// line comment
+# hash comment
+-- dash comment
+; semicolon comment
+% percent comment
+' tick comment
+/* block comment */
+(* ml comment *)
+{- brace comment -}
+"double string" 'single string' `back tick` """triple"""
+x = 42 + 3.14 * 0xFF - 1e10 / 07 + .5 + 1_000 + 0b101
+name(arg1, arg2) { [1, 2, 3] }
+<tag attr="value">text</tag> <!-- html comment -->
+$var @attr %hash &ref #define :symbol ::scope a.b.c a->b a=>b a<=b
+if (a && b || !c) { return true } else { return null }
+"unterminated string
+'it''s' "say \"hi\""
+@@@@
+if
+then
+not
+for
+in
+while
+do
+return
+else
+elseif
+break
+continue
+switch
+and
+or
+unless
+when
+class
+extends
+super
+local
+import
+export
+from
+moon
