@@ -32,8 +32,8 @@ fn identity(role: &str, name: &str, href: &str) -> String {
     serde_json::json!([role, name, href]).to_string()
 }
 
-/// What changed in `elements` against the refs of the earlier observation.
-pub fn snapshot_diff(elements: &[BrowserSnapshotElement], previous: &RefSet) -> SnapshotDiff {
+/// What changed in `elements` (the new observation) against the refs of the earlier observation `previous`.
+pub fn snapshot_diff(previous: &RefSet, elements: &[BrowserSnapshotElement]) -> SnapshotDiff {
     let mut remaining: HashMap<String, usize> = HashMap::new();
     // Identities in the order the earlier observation first named them, with how many of each are still unmatched.
     let mut order: Vec<(String, String, String)> = Vec::new();
@@ -111,7 +111,7 @@ mod tests {
             stated("new2", "button", "Save", None, &["focused"]),
             stated("new3", "textbox", "Name", Some("after"), &[]),
         ];
-        let diff = snapshot_diff(&next, &set);
+        let diff = snapshot_diff(&set, &next);
         assert_eq!(diff, SnapshotDiff { changed: vec![next[1].clone(), next[2].clone()], unseen: vec![], unchanged: 1, gone: vec![] });
     }
 
@@ -123,7 +123,7 @@ mod tests {
             stated("old3", "button", "Removed", None, &[]),
         ]);
         let next = vec![stated("new1", "button", "Item", None, &[]), element("new2", "button", "Added")];
-        let diff = snapshot_diff(&next, &set);
+        let diff = snapshot_diff(&set, &next);
         assert_eq!(diff.changed, vec![next[1].clone()]);
         assert_eq!(diff.unseen, vec![next[1].clone()]);
         assert_eq!(diff.unchanged, 1);
