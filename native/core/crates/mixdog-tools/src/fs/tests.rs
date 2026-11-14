@@ -1141,6 +1141,24 @@ async fn read_tells_a_document_by_its_name_as_node_does() {
     assert!(text.starts_with("[PDF "), "{text}");
 }
 
+/// `countTextStatsStreaming`: `mode=count` of a text file past the buffered range size counts the invalid UTF-8 bytes as U+FFFD, while a
+/// small one, and every other mode, still reports the invalid encoding.
+#[tokio::test]
+async fn count_of_a_streaming_size_file_with_invalid_utf8_decodes_it_lossily() {
+    let root = AbsPath::new(std::env::temp_dir().join("mixdog-fs-count-lossy").join("ws")).unwrap();
+    let mut big = b"alpha \xff beta\n".to_vec();
+    big.resize(130 * 1024, b'x');
+    let seeds = vec![("big.txt".to_owned(), big.clone()), ("small.txt".to_owned(), b"alpha \xff beta\n".to_vec())];
+    let ctx = context_seeded(&root, Arc::new(MockFileService::default()), seeds).await;
+    let read = ReadTool::new(None, None);
+    let counted = text_of(read.call(&ctx, serde_json::json!({ "file_path": "big.txt", "mode": "count" })).await).1;
+    assert_eq!(counted, format!("lines\t2\twords\t4\tbytes\t{}", big.len()));
+    let head = text_of(read.call(&ctx, serde_json::json!({ "file_path": "big.txt", "mode": "head" })).await).1;
+    assert!(head.starts_with("Error: invalid UTF-8 in text file"), "{head}");
+    let small = text_of(read.call(&ctx, serde_json::json!({ "file_path": "small.txt", "mode": "count" })).await).1;
+    assert!(small.starts_with("Error: invalid UTF-8 in text file"), "{small}");
+}
+
 /// A missing `list` / `grep` path carries Node's recovery hints.
 #[tokio::test]
 async fn list_and_grep_answer_a_missing_path_as_node_does() {

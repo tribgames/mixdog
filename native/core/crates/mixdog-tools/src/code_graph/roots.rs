@@ -24,8 +24,19 @@ pub(super) const SENTINELS: [&str; 11] = [
     "Package.swift",
 ];
 
-/// Discovered child projects a sentinel-free parent fans out over.
-pub(super) const FEDERATION_CAP: usize = 8;
+/// `CODE_GRAPH_DISCOVERED_FEDERATION_CAP` (`aggregate-roots.mjs`): the discovered child projects a sentinel-free parent fans out
+/// over, 8 unless `MIXDOG_CODE_GRAPH_FEDERATION_CAP` names a positive integer (`parseInt`: its leading digits), read once.
+pub(super) fn federation_cap() -> usize {
+    static CAP: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *CAP.get_or_init(|| federation_cap_of(std::env::var("MIXDOG_CODE_GRAPH_FEDERATION_CAP").ok().as_deref()))
+}
+
+fn federation_cap_of(raw: Option<&str>) -> usize {
+    let text = raw.unwrap_or("").trim_start();
+    let text = text.strip_prefix('+').unwrap_or(text);
+    let digits: String = text.chars().take_while(char::is_ascii_digit).collect();
+    digits.parse::<usize>().ok().filter(|n| *n > 0).unwrap_or(8)
+}
 
 /// `input` against `base`, with `.`/`..` folded lexically.
 pub(super) fn abs_from(base: &Path, input: &str) -> PathBuf {
@@ -374,4 +385,18 @@ pub(super) fn resolve_directory_root(name: &str, cwd: &Path) -> Result<PathBuf, 
             ))
             .unwrap_or_default()
     ))
+}
+
+#[cfg(test)]
+mod federation_cap_tests {
+    use super::federation_cap_of;
+
+    /// `parseInt(process.env.MIXDOG_CODE_GRAPH_FEDERATION_CAP ?? '', 10)`: its leading digits when positive, else 8.
+    #[test]
+    fn the_federation_cap_reads_the_leading_integer_of_the_variable() {
+        let cap = |raw: &str| federation_cap_of(Some(raw));
+        assert_eq!(federation_cap_of(None), 8);
+        assert_eq!([cap(""), cap("abc"), cap("0"), cap("-3"), cap("2.9")], [8, 8, 8, 8, 2]);
+        assert_eq!([cap("12"), cap("  5x"), cap("+4")], [12, 5, 4]);
+    }
 }

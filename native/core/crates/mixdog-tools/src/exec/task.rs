@@ -101,6 +101,13 @@ async fn list(runtime: &ExecRuntime, ctx: &ToolContext) -> ToolOutcome {
     if !recovered.is_empty() {
         out.push(format!("[recovered shell tasks]\n{}", recovered.join("\n")));
     }
+    // `otherSessionShellHolders`: counts of the shell work other sessions of this runtime hold, which only they can cancel.
+    let (foreground, background) = runtime.other_owner_shell_work(&ctx.thread_id);
+    if foreground + background > 0 {
+        out.push(format!(
+            "[other sessions in this runtime] {foreground} foreground shell lease(s), {background} background shell job(s) — read-only; only their owner sessions can cancel them."
+        ));
+    }
     ok(out.join("\n"))
 }
 
