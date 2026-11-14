@@ -461,7 +461,7 @@ async fn the_copied_text_names_the_app_ssh_and_what_ssh_resolves_without_the_ser
     rig.machine.diagnostics.record(Some(key("dev@build.example").as_str()), DiagnosticKind::Stderr, "login to build.internal as deploy failed via bastion.example", 1_000);
     let text = rig.ops.copy(&Asker::ThisPc, "dev@build.example", "1.4.2").await.expect("a report");
     assert!(text.starts_with("Mixdog SSH diagnostics\nApp: 1.4.2\nOS: win32 10.0.26100 (x64)\nssh: OpenSSH_9.5p1\nConfig:\n"), "{text}");
-    assert!(text.contains("  HostName <server>\n  User <server>\n  Port 2200\n  ProxyJump <server>@<server>:2222\n  ProxyCommand (set)\n"), "{text}");
+    assert!(text.contains("  HostName <server>\n  User <server>\n  Port 2200\n  ProxyJump <server>\n  ProxyCommand (set)\n"), "{text}");
     assert!(text.contains("Log (last 100 lines):"));
     for name in ["build.example", "build.internal", "deploy", "bastion.example"] {
         assert!(!text.contains(name), "{name} in {text}");
