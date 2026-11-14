@@ -38,6 +38,7 @@ use tokio_util::sync::CancellationToken;
 use crate::connection::AcceptedConnection;
 use crate::connection::ConnectionOrigin;
 use crate::connection::Transport;
+use crate::connection::WindowRole;
 use crate::hub::ConnectionHub;
 use crate::hub::Pending;
 use crate::socket::Incoming;
@@ -48,6 +49,34 @@ use crate::socket::SocketWrite;
 /// The header a bridge sets on the SSH listener to say which paired phone the socket carries
 /// (`remote::bridge`); the connection is then a `Relay { peer_id }` connection.
 pub const RELAY_PEER_HEADER: &str = "Mixdog-Relay-Peer";
+
+/// The header a desktop window sets to name itself; the connection is then a
+/// `ConnectionOrigin::Window` one. Valid on both listeners.
+pub const WINDOW_HEADER: &str = "Mixdog-Window";
+
+/// The header that says what a window's socket is for: `main` or `server:<connectionId>`.
+/// Valid only together with [`WINDOW_HEADER`]; without it the role is `main`.
+pub const WINDOW_ROLE_HEADER: &str = "Mixdog-Window-Role";
+
+/// `^[A-Za-z0-9._:-]{1,128}$`, the shape of a window id and of a server connection id.
+fn is_window_token(value: &str) -> bool {
+    (1..=128).contains(&value.len())
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b':' | b'-'))
+}
+
+/// The single value of header `name`: `Ok(None)` when absent, `Err` when repeated or not text.
+fn single_header<'a>(request: &'a Request, name: &str) -> Result<Option<&'a str>, ()> {
+    let mut values = request.headers().get_all(name).iter();
+    let Some(first) = values.next() else {
+        return Ok(None);
+    };
+    match (first.to_str(), values.next()) {
+        (Ok(value), None) => Ok(Some(value)),
+        _ => Err(()),
+    }
+}
 
 /// `^[0-9a-f-]{8,64}$`, the shape of a relay routing id.
 fn is_routing_id(value: &str) -> bool {
@@ -254,7 +283,7 @@ async fn upgrade(
     }
 }
 
-/// The upgrade rules of P §4.1, in order: path, `Origin`, Bearer token, connection limit.
+/// The upgrade rules of P §4.1, in order: path, `Origin`, Bearer token, connection limit, then the narrowing headers.
 fn screen_upgrade(
     context: &Context,
     pending: &Pending,
@@ -277,6 +306,38 @@ fn screen_upgrade(
     }
     if pending.over_limit() {
         return Err(refusal(StatusCode::SERVICE_UNAVAILABLE, "connectionLimit"));
+    }
+    // A window names itself on either listener. It is judged before the relay header: a socket
+    // is one phone or one window, never both, and a bad value is refused, not ignored.
+    let window = match single_header(request, WINDOW_HEADER) {
+        Ok(value) => value,
+        Err(()) => return Err(refusal(StatusCode::BAD_REQUEST, "invalidWindow")),
+    };
+    let role = match single_header(request, WINDOW_ROLE_HEADER) {
+        Ok(value) => value,
+        Err(()) => return Err(refusal(StatusCode::BAD_REQUEST, "invalidWindowRole")),
+    };
+    if let Some(window) = window {
+        if !is_window_token(window) {
+            return Err(refusal(StatusCode::BAD_REQUEST, "invalidWindow"));
+        }
+        let role = match role {
+            None | Some("main") => WindowRole::Main,
+            Some(role) => match role.strip_prefix("server:").filter(|id| is_window_token(id)) {
+                Some(id) => WindowRole::Server {
+                    connection_id: id.to_owned(),
+                },
+                None => return Err(refusal(StatusCode::BAD_REQUEST, "invalidWindowRole")),
+            },
+        };
+        if request.headers().contains_key(RELAY_PEER_HEADER) {
+            return Err(refusal(StatusCode::BAD_REQUEST, "conflictingNarrowing"));
+        }
+        pending.narrow_to_window(window.to_owned(), role);
+        return Ok(response);
+    }
+    if role.is_some() {
+        return Err(refusal(StatusCode::BAD_REQUEST, "invalidWindowRole"));
     }
     // Only the SSH listener is where a bridge brings phones; on the loopback listener the
     // header means nothing. A header that is present but not a single routing id is refused,
