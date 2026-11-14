@@ -41,6 +41,13 @@ export function readJson(url) {
   return value;
 }
 
+/** The phrases the Rust core translates itself, through the native catalogs, in the language the desktop publishes
+ *  (`host/state/set` `displayPreferences`): the pair-code errors and the fixed texts of a server's notifications. No `nativeT`
+ *  literal names them in source, so they are listed here. */
+export function coreNativeKeys() {
+  return readJson(new URL('core-native-keys.json', import.meta.url));
+}
+
 /** Untranslatable terms ({ terms, localeExceptions }); every entry must carry a reason. */
 export function neutralAllowlist() {
   const list = readJson(new URL('ui-untranslated-allowlist.json', rendererUrl));
@@ -132,7 +139,7 @@ export function catalogState() {
     catalogs,
     sources,
     keys,
-    nativeKeys: [...nativeSources.keys()].sort(),
+    nativeKeys: [...new Set([...nativeSources.keys(), ...coreNativeKeys()])].sort(),
     bootKeys: [...bootSources.keys()].sort(),
   };
 }
