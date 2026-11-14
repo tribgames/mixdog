@@ -312,6 +312,34 @@ async fn server_feed_marks_the_approvals_it_found_held_as_replays_and_the_ones_t
 }
 
 #[tokio::test]
+async fn server_feed_marks_a_request_the_server_delivers_again_after_a_drop_as_a_replay() {
+    let client = stub(vec![("thread/list", vec![Reply::Value(json!({ "data": [] }))])]);
+    let feed = ServerFeed::attach(client.clone());
+    let mut approvals = feed.pending_approvals();
+    let live = approval("live", "t1", "item/tool/requestApproval");
+    client.held.lock().unwrap().push(live.clone());
+    client.events.send(ClientEvent::ServerRequest(live.clone())).unwrap();
+    approvals.wait_for(|rows| rows.len() == 1 && !rows[0].replay).await.unwrap();
+
+    // The link drops: the client lets go of what it held, and the list empties.
+    client.held.lock().unwrap().clear();
+    client.events.send(ClientEvent::Status(ConnectionStatus::Reconnecting { attempt: 1 })).unwrap();
+    approvals.wait_for(|rows| rows.is_empty()).await.unwrap();
+    // The server delivers the held request again after the reconnect, as a request that arrives: it is not news.
+    client.held.lock().unwrap().push(live.clone());
+    client.events.send(ClientEvent::ServerRequest(live)).unwrap();
+    approvals.wait_for(|rows| rows.len() == 1).await.unwrap();
+    assert!(approvals.borrow()[0].replay);
+    // A request asked for the first time after the reconnect is live.
+    let fresh = approval("fresh", "t2", "item/tool/requestApproval");
+    client.held.lock().unwrap().push(fresh.clone());
+    client.events.send(ClientEvent::ServerRequest(fresh)).unwrap();
+    approvals.wait_for(|rows| rows.len() == 2).await.unwrap();
+    let rows = approvals.borrow().clone();
+    assert!(!rows.iter().find(|row| row.request_id == RequestId::String("fresh".into())).expect("fresh").replay);
+}
+
+#[tokio::test]
 async fn server_feed_final_answer_read() {
     let client = stub(vec![
         ("thread/list", vec![Reply::Value(json!({ "data": [] }))]),

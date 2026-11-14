@@ -271,6 +271,9 @@ struct Shared {
     sessions: watch::Sender<Vec<SessionSummaryLite>>,
     pool: watch::Sender<Vec<AgentRowLite>>,
     approvals: watch::Sender<Vec<PendingApproval>>,
+    /// The requests held when the link last dropped: the server delivers them again after the reconnect as requests that arrive,
+    /// and they are replays, not news. Replaced at the next drop that finds requests held.
+    dropped: Mutex<Vec<RequestId>>,
     states: broadcast::Sender<SessionStateChange>,
 }
 
@@ -546,14 +549,16 @@ impl Shared {
     /// in it is marked a replay. A row keeps the mark it was first given.
     fn refresh_approvals(&self, arriving: Option<&ServerRequest>, resolved: Option<&RequestId>, held: bool) {
         let known = self.approvals.borrow().clone();
-        let mut rows: Vec<PendingApproval> = self
-            .client
-            .pending_server_requests()
-            .iter()
-            .filter_map(approval_of)
-            .map(|row| PendingApproval { replay: known.iter().find(|seen| seen.request_id == row.request_id).map_or(held, |seen| seen.replay), ..row })
-            .collect();
-        if let Some(row) = arriving.and_then(approval_of) {
+        let dropped = self.dropped.lock().unwrap().clone();
+        let mark = |row: PendingApproval| PendingApproval {
+            replay: known
+                .iter()
+                .find(|seen| seen.request_id == row.request_id)
+                .map_or_else(|| held || dropped.contains(&row.request_id), |seen| seen.replay),
+            ..row
+        };
+        let mut rows: Vec<PendingApproval> = self.client.pending_server_requests().iter().filter_map(approval_of).map(mark).collect();
+        if let Some(row) = arriving.and_then(approval_of).map(mark) {
             if !rows.iter().any(|held| held.request_id == row.request_id) {
                 rows.push(row);
             }
@@ -610,6 +615,10 @@ async fn run(shared: Arc<Shared>, mut events: broadcast::Receiver<ClientEvent>, 
                 }
                 Ok(ClientEvent::Status(_)) => {
                     shared.roster.lock().unwrap().known = false;
+                    let held: Vec<RequestId> = shared.approvals.borrow().iter().map(|row| row.request_id.clone()).collect();
+                    if !held.is_empty() {
+                        *shared.dropped.lock().unwrap() = held;
+                    }
                     shared.refresh_approvals(None, None, false);
                 }
                 Ok(_) => {}
@@ -662,6 +671,7 @@ impl ServerFeed {
             sessions: watch::channel(Vec::new()).0,
             pool: watch::channel(Vec::new()).0,
             approvals: watch::channel(Vec::new()).0,
+            dropped: Mutex::new(Vec::new()),
             states: broadcast::channel(STATE_CHANNEL_CAPACITY).0,
         });
         // The requests a client that is already connected holds.
