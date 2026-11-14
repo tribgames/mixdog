@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 
-import { installMicaActiveAppearance, MICA_LIBRARY_FILE, nativeMica } from './window-mica.ts';
+import { installMicaActiveAppearance, MICA_BUILD_FILE, MICA_LIBRARY_FILE, nativeMica } from './window-mica.ts';
 
 function fakeWindow(hwnd, { visible = true, minimized = false } = {}) {
   const window = new EventEmitter();
@@ -56,21 +56,43 @@ test('with the native window procedure, deactivation is not hooked and closing r
   ]);
 });
 
-test('a missing native library is reported and the window falls back to the deferred repaint', {
-  skip: process.platform !== 'win32',
-}, async () => {
+test('a missing native module is reported and the window falls back to the deferred repaint', async () => {
   const reports = [];
   const library = join(import.meta.dirname, 'missing', MICA_LIBRARY_FILE);
   const native = nativeMica(library, (event, details) => reports.push({ event, ...details }));
   assert.equal(reports.length, 1);
-  assert.equal(reports[0].event, 'mica-native-load-failed');
+  assert.equal(reports[0].event, 'mica-native-unavailable');
   assert.equal(reports[0].library, library);
   assert.ok(reports[0].message);
   assert.equal(native.keepActive(0x123456789n), false);
+  native.activate(0x123456789n);
+  native.release(0x123456789n);
   const { window, hooks } = fakeWindow(0x123456789n, { visible: false });
   installMicaActiveAppearance(window, native);
   assert.ok(hooks.has(0x0086));
   window.emit('closed');
+});
+
+test('the bindings forward to the module and report a refused install', () => {
+  const calls = [];
+  const reports = [];
+  let accept = true;
+  const module = {
+    install: (hwnd) => calls.push(['install', hwnd]) > 0 && accept,
+    uninstall: (hwnd) => calls.push(['uninstall', hwnd]) > 0,
+    activate: (hwnd) => calls.push(['activate', hwnd]),
+  };
+  const native = nativeMica('lib', (event, details) => reports.push({ event, ...details }), (library) => {
+    assert.equal(library, 'lib');
+    return module;
+  });
+  assert.equal(native.keepActive(7n), true);
+  native.activate(7n);
+  native.release(7n);
+  accept = false;
+  assert.equal(native.keepActive(8n), false);
+  assert.deepEqual(calls, [['install', 7n], ['activate', 7n], ['uninstall', 7n], ['install', 8n]]);
+  assert.deepEqual(reports, [{ event: 'mica-native-install-failed', library: 'lib' }]);
 });
 
 test('a visible Mica window gets an active appearance with its full native handle', async () => {
@@ -141,17 +163,19 @@ test('a window destroyed before its queued update never touches its stale HWND',
 });
 
 // Issue #325: a window procedure written in JavaScript forwards every message
-// through a koffi call, so dragging the window by its title bar ran Chromium's
-// move loop on koffi's stack, and a garbage collection there aborted the app.
-// The procedure that keeps the frame active is native: installing it
-// registers no koffi callback, yet a deactivation no longer reaches the frame.
+// through a foreign call, so dragging the window by its title bar ran
+// Chromium's move loop on that stack, and a garbage collection there aborted
+// the app. The procedure that keeps the frame active is native: installing it
+// registers no callback, yet a deactivation no longer reaches the frame. The
+// probe windows are made through koffi (a test-only dependency until it is
+// removed); the module under test uses none.
 test('real Mica windows keep a native window procedure that answers deactivation as activation', {
   skip: process.platform !== 'win32',
 }, async () => {
   const crate = join(import.meta.dirname, '..', '..', '..', '..', 'native', 'mixdog-window');
   // The crate's own linker setup (.cargo/config.toml) applies from its directory.
   execFileSync('cargo', ['build', '--locked', '--release'], { cwd: crate, stdio: 'ignore', windowsHide: true });
-  const library = join(process.env.CARGO_TARGET_DIR || join(crate, 'target'), 'release', MICA_LIBRARY_FILE);
+  const library = join(process.env.CARGO_TARGET_DIR || join(crate, 'target'), 'release', MICA_BUILD_FILE);
 
   const koffi = createRequire(import.meta.url)('koffi');
   const user32 = koffi.load('user32.dll');

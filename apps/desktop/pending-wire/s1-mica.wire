@@ -1,0 +1,51 @@
+# s1-mica: mixdog-window becomes a Node-API module (mixdog_window.node).
+# Files below are not owned by s1-mica; the lead applies them after the wave.
+
+[native/mixdog-window/Cargo.toml]
+# [dependencies] (new), napi crates already in the offline registry cache:
+#   napi = { version = "=3.12.2", default-features = false, features = ["napi4", "dyn-symbols"] }
+#   napi-derive = "=3.6.3"
+# [build-dependencies] (new):
+#   napi-build = "=2.4.1"
+# Update the comment above [lib]: "Loaded by window-mica.ts as a Node-API module".
+# The "# no_std has no unwinding runtime." comment on [profile.dev] becomes
+#   "# A panic must not unwind across the Node-API boundary."  (panic = "abort" stays)
+# Regenerate Cargo.lock with: cargo generate-lockfile --offline (in native/mixdog-window), then check it with cargo build --locked.
+
+[native/mixdog-window/build.rs]
+# new file, whole content:
+#   fn main() {
+#       napi_build::setup();
+#   }
+
+[native/mixdog-window/.cargo/config.toml]
+# Delete the "-C link-arg=/NODEFAULTLIB" rustflags lines (std needs the C
+# runtime now; keep or drop linker = "rust-lld" only if the cargo build still
+# links for x64 and arm64 without the MSVC tools; otherwise delete the file).
+# Rewrite the header comment: the library imports comctl32 and user32 as raw-dylib.
+
+[native/mixdog-window/build.ps1]
+# $library = ... 'mixdog_window.dll' stays (cargo's output name).
+# Copy-Item -Destination becomes (Join-Path $OutputDirectory 'mixdog_window.node')
+# and the final Write-Host / error text say "Node-API module".
+
+[apps/desktop/scripts/prepare-runtime.mjs]
+# const windowLibraryFileNames = ['mixdog_window.dll'];  ->  ['mixdog_window.node'];
+# (schemaVersion 1 -> 2 in prepareWindowLibrarySource so a cached dll is not reused)
+
+[apps/desktop/electron-builder.yml]
+# line ~90:  - mixdog_window.dll  ->  - mixdog_window.node
+
+[.github/workflows/desktop-package.yml]
+# line ~447: native-tools/mixdog_window.dll  ->  native-tools/mixdog_window.node
+# (the window-library cache key v1 -> v2)
+
+[apps/desktop/scripts/dev-profile.mjs]
+# buildWindowLibrary: unchanged. window-mica.ts loads the dev build from
+# native/mixdog-window/target/release/mixdog_window.dll (MICA_BUILD_FILE) with
+# process.dlopen, so no copy step is needed in dev. The comment above it may
+# say "Node-API module" instead of "library".
+
+[apps/desktop/package.json]
+# Nothing for s1-mica: koffi is still used by the real-window probe in
+# window-mica.test.mjs and by other main-process files until s3-31 removes it.
