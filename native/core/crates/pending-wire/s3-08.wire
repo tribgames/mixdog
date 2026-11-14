@@ -7,12 +7,10 @@ After `mod computer_lease;` (alphabetical, before `pub mod computer_linux;`) add
 `computer_feedback.rs` already calls `super::computer_pointer::mark_ready`; without this line mixdog-tools does not compile.
 
 ## native/core/crates/mixdog-app-server-daemon/src/lib.rs
-Next to `mod computer_control;` add:
-    mod computer_pointer_service;
-and next to the `pub use computer_control::...` line (or where ComputerUserControlService is exported, if it is) add:
-    pub use computer_pointer_service::ComputerPointerService;
+After `pub mod computer_control;` add (the same form as computer_control, whose service is not re-exported either):
+    pub mod computer_pointer_service;
 
-## compose call (compose_computer.rs of s3-19 / CORE-WIRE-G3, beside the ComputerUserControlService registration)
+## compose call (where s3-19 / CORE-WIRE-G3 builds the pool's services; today ComputerUserControlService is registered in compose_flip.rs, beside it)
     builder.register(Arc::new(crate::computer_pointer_service::ComputerPointerService::new(pointer_hold.clone())))?;
 where `pointer_hold: Option<Arc<mixdog_tools::desktop::computer_pointer::PointerHold>>` is built where the computer sessions' pool is
 (None where no computer helper is installed) from an `Arc<dyn PointerHost>` over the pool: `release_pointer` = the presence
@@ -22,9 +20,9 @@ existing helper only (never start one; swallow errors). The same hold is called 
 foreground command, `command_ended` after it, `turn_ended` at a turn's end, `paused` when UserControlState latches a pause.
 
 ## SERVICE_PENDING (compose_flip.rs)
-`computer/pointerReleased` is not in SERVICE_PENDING today; the PROTO-WIRE row (s3-02 `[notifications]`) makes it a protocol method, so
-the wiring that applies the row must also register this service in the same wave, or list "computer/pointerReleased" in
-SERVICE_PENDING until the compose call above lands, and the task that registers it removes the name.
+`computer/pointerReleased` is not in SERVICE_PENDING today; the PROTO-WIRE row (s3-02 `[notifications]`) makes it a protocol method
+while the compose call above needs the pool's PointerHost (a later wave). So the wiring of this wave adds "computer/pointerReleased"
+to SERVICE_PENDING, and the task that lands the compose call removes it in its own .wire.
 
 ## Cargo
 No new dependency edge: mixdog-tools already has async-trait, futures, tokio, tokio-util, serde_json, mixdog-rt; the daemon already
