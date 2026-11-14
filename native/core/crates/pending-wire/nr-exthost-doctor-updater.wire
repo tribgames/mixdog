@@ -14,6 +14,10 @@ Remove the three fields `package_root: b.package_root.clone(),`, `interpreter: .
 adds `mixdog-jsrt = { workspace = true }` to mixdog-app-server-daemon/Cargo.toml.) If those two consts are not `&str`,
 convert with `.to_string()`.
 
+ORDER (review): mixdog-jsrt is not in the tree (nr-exthost-jsrt-engine is held for the rquickjs download). This branch
+does not compile without this wire, and this wire does not compile without mixdog-jsrt: merge the branch and apply the
+wire together, only once mixdog-jsrt is a workspace member.
+
 ## compose_flip.rs, DomainPaths (near `paths: DomainPaths {`)
 
 Delete the two lines `node: b.js_runtime.program.clone(),` and `electron: b.js_runtime.electron,`.
