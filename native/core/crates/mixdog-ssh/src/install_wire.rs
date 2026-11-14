@@ -17,6 +17,7 @@ use std::io;
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
+use mixdog_app_server_client::ctl::RunningWork;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -233,16 +234,6 @@ pub const TERMINAL_BOOTSTRAP_CODES: &[BootstrapCode] = &[
     BootstrapCode::LocalPayload,
 ];
 
-/// A work item an older core is still running (`MIXDOG_DRAIN`).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RemoteRunningWork {
-    pub kind: String,
-    pub thread_id: Option<String>,
-    pub turn_id: Option<String>,
-    pub title: String,
-}
-
 /// An older core winding down for a replace (`core/drain`, LR §5.1): what the user is shown and
 /// the token that authorizes aborting exactly that work.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -250,7 +241,7 @@ pub struct RemoteRunningWork {
 pub struct RemoteDrain {
     pub drain_id: String,
     pub confirm_token: String,
-    pub running: Vec<RemoteRunningWork>,
+    pub running: Vec<RunningWork>,
 }
 
 /// A bootstrap or install step on the server failed with a contract `code` (the server
@@ -352,8 +343,9 @@ const UNSUPPORTED_HINT: &str = "Mixdog servers need Linux (x64 or arm64, glibc) 
 pub fn is_windows_shell_failure(stderr: &str) -> bool {
     let lower = stderr.to_lowercase();
     lower.contains("is not recognized as an internal or external command")
-        || lower.contains("the term 'sh' is not recognized")
-        || lower.contains("the term sh is not recognized")
+        || ["'sh'", "sh", "'sh", "sh'"]
+            .iter()
+            .any(|sh| lower.contains(&format!("the term {sh} is not recognized")))
         || lower.contains("commandnotfoundexception")
 }
 
