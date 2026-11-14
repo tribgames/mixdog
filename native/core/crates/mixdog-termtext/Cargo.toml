@@ -9,6 +9,7 @@ workspace = true
 
 [dependencies]
 mixdog-js = { workspace = true }
+unicode-normalization = { workspace = true }
 unicode-segmentation = { workspace = true }
 
 [dev-dependencies]
