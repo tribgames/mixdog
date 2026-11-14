@@ -101,10 +101,29 @@ fn bytes_field(value: Option<u64>) -> i64 {
     value.and_then(|n| i64::try_from(n).ok()).unwrap_or(-1)
 }
 
+/// Why a line was written: `reason=` of `formatDaemonTelemetry`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reason {
+    /// Once when the daemon is ready, whatever its activity.
+    Boot,
+    /// At the end of a window with activity.
+    Periodic,
+}
+
+impl Reason {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Boot => "boot",
+            Self::Periodic => "periodic",
+        }
+    }
+}
+
 /// `formatDaemonTelemetry`: one line, counters only.
-pub fn format_line(at_ms: i64, pid: u32, memory: MemoryUsage, work: WorkCounts) -> String {
+pub fn format_line(reason: Reason, at_ms: i64, pid: u32, memory: MemoryUsage, work: WorkCounts) -> String {
     format!(
-        "daemon-telemetry reason=periodic ts={} pid={pid} rssBytes={} heapUsedBytes={} activeCalls={} queuedCalls={} busySessions={} busyMemoryAgents={}",
+        "daemon-telemetry reason={} ts={} pid={pid} rssBytes={} heapUsedBytes={} activeCalls={} queuedCalls={} busySessions={} busyMemoryAgents={}",
+        reason.as_str(),
         iso_from_ms(at_ms),
         bytes_field(memory.rss_bytes),
         bytes_field(memory.heap_bytes),
@@ -328,6 +347,13 @@ impl Telemetry {
         Arc::new(Self { seams, activity: AtomicBool::new(false), sampler })
     }
 
+    /// `emit('boot')`: the line written once when the daemon is ready, with or without activity. It leaves the activity of
+    /// the first window as it is.
+    pub fn boot(&self) {
+        let work = (self.seams.work)();
+        (self.seams.log)(&format_line(Reason::Boot, (self.seams.now_ms)(), self.seams.pid, (self.seams.memory)(), work));
+    }
+
     /// The daemon did work: the next window writes its memory and work line.
     pub fn note_activity(&self) {
         self.activity.store(true, Ordering::Release);
@@ -339,7 +365,7 @@ impl Telemetry {
         let work = (self.seams.work)();
         let at_ms = (self.seams.now_ms)();
         if self.activity.swap(false, Ordering::AcqRel) {
-            (self.seams.log)(&format_line(at_ms, self.seams.pid, (self.seams.memory)(), work));
+            (self.seams.log)(&format_line(Reason::Periodic, at_ms, self.seams.pid, (self.seams.memory)(), work));
         }
         if lag.p99_ms >= LAG_LOG_P99_MS {
             (self.seams.log)(&format!("event-loop lag p95={}ms p99={}ms max={}ms", lag.p95_ms, lag.p99_ms, lag.max_ms));
@@ -353,11 +379,16 @@ impl Telemetry {
         self.sampler.window(at_ms, lag, work, Arc::clone(&self.seams.log)).await
     }
 
-    /// The loop: every [`LAG_PROBE`] the lateness of the timer is recorded, every [`INTERVAL`] the window is closed. Ends when
-    /// `cancel` is cancelled.
+    /// The loop: a sampler pass at once (`onStart`: with the flag there, the sampler says it is on from the start), then every
+    /// [`LAG_PROBE`] the lateness of the timer is recorded and every [`INTERVAL`] the window is closed. Its timer is unrefed, as
+    /// Node's was. Ends when `cancel` is cancelled.
     pub async fn run(self: Arc<Self>, cancel: CancellationToken) {
+        let this = Arc::clone(&self);
+        let work = (self.seams.work)();
+        let at_ms = (self.seams.now_ms)();
+        tokio::spawn(async move { this.sample(at_ms, LagWindow::default(), work).await });
         let start = Instant::now();
-        let mut probe = mixdog_rt::time::interval_at(start + LAG_PROBE, LAG_PROBE);
+        let mut probe = mixdog_rt::time::interval_at_unrefed(start + LAG_PROBE, LAG_PROBE);
         probe.set_missed_tick_behavior(MissedTickBehavior::Delay);
         let mut next_window = start + INTERVAL;
         let mut late_ms: Vec<u64> = Vec::new();
@@ -455,6 +486,18 @@ mod tests {
             lines(&f),
             ["daemon-telemetry reason=periodic ts=2026-11-06T00:32:19.716Z pid=77 rssBytes=1000 heapUsedBytes=-1 activeCalls=2 queuedCalls=1 busySessions=3 busyMemoryAgents=4"]
         );
+    }
+
+    #[tokio::test]
+    async fn the_boot_line_is_written_without_activity_and_leaves_the_window_silent() {
+        let f = fixture();
+        f.telemetry.boot();
+        assert_eq!(
+            lines(&f),
+            ["daemon-telemetry reason=boot ts=2026-11-06T00:32:19.716Z pid=77 rssBytes=1000 heapUsedBytes=-1 activeCalls=2 queuedCalls=1 busySessions=3 busyMemoryAgents=4"]
+        );
+        f.telemetry.tick(LagWindow::default());
+        assert_eq!(lines(&f).len(), 1, "the boot line is not activity");
     }
 
     #[tokio::test]
