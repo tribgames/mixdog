@@ -19,6 +19,10 @@ export const HOST_METHOD = {
   remoteTargetSet: 'host/remoteTarget/set',
   humanOnlyBegin: 'host/humanOnly/begin',
   humanOnlyEnd: 'host/humanOnly/end',
+  hostWindowOpen: 'host/window/open',
+  hostWindowClose: 'host/window/close',
+  hostWindowFocus: 'host/window/focus',
+  hostWindowClosed: 'host/window/closed',
 } as const;
 
 /** What the connection offers a host module. `request` rejects with `HostRpcError`. */
@@ -54,6 +58,10 @@ export const HOST_COMMAND_FAILED = -32000;
 /** JSON-RPC invalid params. */
 export const HOST_INVALID_PARAMS = -32602;
 
+/** The core opens, closes and focuses this desktop's server windows (`host/window/*`) only with
+ *  MIXDOG_CORE_WINDOWS=1, until the server windows come from the core (G9). */
+export const CORE_WINDOWS = process.env.MIXDOG_CORE_WINDOWS === '1';
+
 /** `capabilities.host` declared at `initialize` (DS §12.2). */
 export const HOST_CAPABILITIES = {
   browser: true,
@@ -69,8 +77,8 @@ export const HOST_CAPABILITIES = {
   // `host/computer/*`: capture and displays (computer.ts), foregroundLease, internalWindows and pointerFeedback
   // (computer-lease.ts, computer-internal-windows.ts, computer-pointer.ts).
   computer: true,
-  // `host/window/open|close|focus` (s2b): not served by this desktop until the connections host handlers land.
-  windows: false,
+  // `host/window/open|close|focus` (connections/window-host.ts).
+  windows: CORE_WINDOWS,
 } as const satisfies HostCapabilities;
 
 /** The fields of a generated protocol params type, each still to be checked (a wire value is unknown). */

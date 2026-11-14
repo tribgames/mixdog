@@ -29,7 +29,7 @@ function pair() {
     sendBinary: (frame) => sent.binary.push(frame),
     handleRequest: (method, handler) => requests.set(method, handler),
     handleNotification: (method, handler) => notifications.set(method, handler),
-    servedMethods: () => [],
+    servedMethods: () => [...requests.keys(), ...notifications.keys()].sort(),
     onClose: (listener) => closers.push(listener),
   };
   return {
@@ -171,7 +171,9 @@ test('a failing command is an error with the message redacted', async () => {
 test('an abandoned command aborts and a closed claimed connection stops the browser', async () => {
   const { wire, host, calls } = build();
   await host.claim();
-  assert.deepEqual(wire.sent.requests[0], ['host/claim', { hostId: 'host-1' }]);
+  // The claim names every host/* method this desktop serves.
+  assert.deepEqual(wire.sent.requests[0], ['host/claim', { hostId: 'host-1', serves: wire.connection.servedMethods() }]);
+  assert.ok(wire.sent.requests[0][1].serves.includes('host/browser/command'));
   assert.deepEqual(calls.lifecycle, ['begin', 'ready', 'watch:true']);
   assert.deepEqual(wire.sent.requests[1], [
     'host/state/set',

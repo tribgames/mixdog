@@ -12,7 +12,8 @@ import { createBrowserPageReporter, type StreamedPage } from './browser-page-rep
 import { type BrowserSurfaceSource, registerBrowserSurfaceReport } from './browser-surface-report';
 import { type BrowserTabsControl, createBrowserTabsReporter } from './browser-tabs';
 import { type BrowserViewControl, createBrowserView } from './browser-view';
-import { HOST_METHOD, type HostConnection } from './connection';
+import { registerWindowHost, WINDOW_HOST_METHOD, type WindowHostDeps } from '../connections/window-host';
+import { CORE_WINDOWS, HOST_METHOD, type HostConnection } from './connection';
 import { type FilesControl, registerFilesHost } from './files';
 import { createHostReports, type HostUpdater } from './lifecycle';
 import { createVisualizeHost, type VisualizeControl } from './visualize';
@@ -54,6 +55,8 @@ export interface DesktopHostOptions {
   updater?: HostUpdater;
   /** An install that failed after `host/update/command` was answered: report it (diagnostics). */
   onUpdaterInstallFailed: (error: unknown) => void;
+  /** The server windows the core opens, closes and focuses (`host/window/*`); served only with CORE_WINDOWS. */
+  windows?: Omit<WindowHostDeps, 'report'>;
 }
 
 export function createDesktopHost(options: DesktopHostOptions) {
@@ -98,6 +101,17 @@ export function createDesktopHost(options: DesktopHostOptions) {
   }));
   const humanOnly = registerHumanOnlyHolds(connection);
   registerNotificationHost(connection, options.notifications);
+  // host/state/set is a request, host/window/closed a notification.
+  const windowHost =
+    CORE_WINDOWS && options.windows
+      ? registerWindowHost(connection, {
+          ...options.windows,
+          report: (method, params) => {
+            if (method === WINDOW_HOST_METHOD.stateSet) void connection.request(method, params).catch(() => {});
+            else connection.notify(method, params);
+          },
+        })
+      : null;
   const reports = createHostReports(connection, options.updater, options.onUpdaterInstallFailed);
   let claimed = false;
   connection.onClose(() => {
@@ -110,12 +124,18 @@ export function createDesktopHost(options: DesktopHostOptions) {
 
   return {
     reports,
+    /** `host/window/closed` and the windowFocus report; null unless CORE_WINDOWS (MIXDOG_CORE_WINDOWS=1) until G9. */
+    windowHost,
     /** Claims the host role; commands are served from here on. */
     async claim(): Promise<void> {
       // Each reconnect claims again: a human-only dialog still open holds the core again first (a hold does not
       // need the claim, so it holds even when the claim is refused).
       humanOnly.redeclare();
-      await connection.request(HOST_METHOD.claim, { hostId: options.hostId } satisfies HostClaimParams);
+      // `serves`: the host/* methods this desktop answers, so the core routes only those here.
+      await connection.request(HOST_METHOD.claim, {
+        hostId: options.hostId,
+        serves: connection.servedMethods(),
+      } satisfies HostClaimParams);
       claimed = true;
       commands.start();
       tabs.start();
