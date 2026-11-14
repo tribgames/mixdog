@@ -5,12 +5,12 @@
   "formulajsVersion": "4.6.1",
   "sourceSha256": "4d3b65138fcbe8c4f6e8cca02725f392f489e6e63f9336b965437a3b7b9f257e",
   "fileCount": 1,
-  "totalBytes": 941536,
+  "totalBytes": 942613,
   "files": [
     {
       "path": "golden.json",
-      "bytes": 941536,
-      "sha256": "c8fa2d8b10f145839dea74a3aa5a0bb589fd22d8a565c45528c9f01f9777d39d"
+      "bytes": 942613,
+      "sha256": "a96291c36d633d05e8f6c71016286ccaeea8fcf1e16f2a7f94b070ebf7aa0246"
     }
   ]
 }
