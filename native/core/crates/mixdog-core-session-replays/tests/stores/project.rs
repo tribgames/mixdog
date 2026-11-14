@@ -18,10 +18,16 @@ use std::sync::Mutex;
 
 use async_trait::async_trait;
 use mixdog_core_api::CoreError;
+use mixdog_core_api::CoreRequest;
 use mixdog_core_api::Reply;
+use mixdog_core_api::call::CallContext;
+use mixdog_core_api::call::WindowRole;
+use mixdog_core_api::call::WindowScope;
+use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::service::DomainService;
 use mixdog_core_base::support::testing;
 use mixdog_mcp::permissions::PolicyIo;
+use mixdog_protocol::Origin;
 use mixdog_rt::CancellationToken;
 use mixdog_scm::error::ScmFailure;
 use mixdog_scm::worktree::maintenance::SessionActivity;
@@ -548,4 +554,57 @@ async fn every_recorded_step_equals_nodes_over_real_state() {
     r.step("connectors: unreadable file is never overwritten", set, switch(&repo, "gmail", json!(false), false), true).await;
 
     r.finish();
+}
+
+/// A connector switch as `origin` (and, for a window, its scope) sends it: the same call `testing::request` builds, with the context of that connection.
+fn switch_as(ops: &mut u64, origin: Origin, window: Option<WindowScope>, repo: &str, connector: &str, enabled: bool) -> CoreRequest {
+    *ops += 1;
+    let params = testing::with_op(json!({ "projectPath": repo, "connectorId": connector, "enabled": enabled }), *ops);
+    let mut request = testing::request("project/setProjectConnectorEnabled", params, Some(*ops));
+    request.ctx = CallContext::connection(ConnectionId(1), origin, CancellationToken::new()).with_window(window);
+    request
+}
+
+async fn switched(service: &ProjectService, request: CoreRequest) -> Value {
+    answer(match service.call(request).await {
+        Ok(Reply::Value(value)) => Ok(value),
+        Ok(_) => panic!("never subscribes"),
+        Err(error) => Err(error),
+    })
+}
+
+/// Widening what the bot may do (switching a connector on that is off) answers a desktop window as it answers a connection with no
+/// window: Node's main process made the call without `noWiden`, and the window took its place. Only a relay origin is refused.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_window_widens_a_project_connector_as_main_does() {
+    let rig = rig();
+    let repo = rig.repo.to_string_lossy().into_owned();
+    let dir = tempfile::tempdir().unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let io = PolicyIo { maintenance: tokens.maintenance_io, interactive: tokens.interactive_io, durability: tokens.durability_io };
+    let registry = Arc::new(One(repo.clone()));
+    let connector_data = dir.path().join("connector-data");
+    std::fs::create_dir_all(&connector_data).unwrap();
+    let connectors = ProjectConnectors::new(registry.clone(), Arc::new(Installed), &connector_data, io);
+    let ops = testing::scopes(dir.path(), "project").await;
+    let live: LiveSessions = Arc::new(HashSet::new);
+    let service = ProjectService::new(registry, rig.worktrees.clone(), rig.ws.clone(), Arc::new(Sessions::default()), live, connectors, ops);
+    let window = || Some(WindowScope { id: Arc::from("w-1"), role: WindowRole::Main });
+    let mut n = 0;
+
+    // Each connection kind widens from the same state: the connector off, then switched on.
+    let mut answers = Vec::new();
+    for (origin, scope) in [(Origin::Local, None), (Origin::Local, window())] {
+        let off = switched(&service, switch_as(&mut n, Origin::Local, None, &repo, "gmail", false)).await;
+        assert!(off.get("ok").is_some(), "switching off: {off}");
+        let on = switched(&service, switch_as(&mut n, origin, scope, &repo, "gmail", true)).await;
+        assert!(on.get("ok").is_some(), "a local connection widens: {on}");
+        answers.push(on);
+    }
+    assert_eq!(answers[1], answers[0], "the window's answer is the answer of a connection with no window");
+
+    let off = switched(&service, switch_as(&mut n, Origin::Local, None, &repo, "gmail", false)).await;
+    assert!(off.get("ok").is_some(), "{off}");
+    let relayed = switched(&service, switch_as(&mut n, Origin::Relay, None, &repo, "gmail", true)).await;
+    assert!(relayed.get("error").is_some(), "a relay origin cannot widen: {relayed}");
 }
