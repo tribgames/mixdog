@@ -1935,6 +1935,17 @@
       }
      }
     }
+   },
+   "dev/computer/run": {
+    "/command": {
+     "source": "native/core/crates/mixdog-app-server-daemon/src/dev_computer.rs (the harness's computer command: a tool action or a bridge command)",
+     "open": {
+      "": {
+       "class": "free",
+       "reason": "the harness's Computer Use command: its text and keys are what the model typed"
+      }
+     }
+    }
    }
   },
   "notification": {
@@ -2199,6 +2210,17 @@
       "": {
        "class": "free",
        "reason": "a performance summary the model reads: page data, never compared"
+      }
+     }
+    }
+   },
+   "host/computer/permissions": {
+    "/linux": {
+     "source": "apps/desktop/src/main/computer/host/permission-reads.ts (the Linux readiness probe)",
+     "open": {
+      "": {
+       "class": "refused",
+       "reason": "the desktop's readiness probe (capability states and detail words), never typed text"
       }
      }
     }
@@ -2514,12 +2536,16 @@
   },
   {
    "class": "free",
-   "reason": "What the desktop publishes as text: a web page's title (a page may set one holding a lone unit), an import's or the updater's error message, a monitor's name, the text of a Computer Use reply (the model reads it as the tool's result), what a human-only hold is for (the model reads it in Computer Use's refusal).",
+   "reason": "What the desktop publishes as text: a web page's title (a page may set one holding a lone unit), an import's or the updater's error message, a monitor's name, the text of a Computer Use reply (the model reads it as the tool's result), what a human-only hold is for (the model reads it in Computer Use's refusal), an app window's title and a bridge reply (the model reads them as the tool's result), a Computer Use command the live harness sends (its text and keys are what the model typed).",
    "fields": [
+    "answer host/computer/appWindows /windows/*/title",
     "answer host/computer/capture /text",
+    "answer host/computer/command /error",
+    "answer host/computer/command /text",
     "answer host/screen/displays /*/label",
     "answer host/update/command /message",
     "notification host/update/report /state/message",
+    "request dev/computer/run /command/**",
     "request host/humanOnly/begin /label",
     "request host/state/set /value/*/title",
     "request host/state/set /value/error",
@@ -2648,9 +2674,19 @@
    "class": "refused",
    "reason": "a kind, mode, scope, phase, sort, state or other word from a fixed vocabulary the reader matches, written by the client app, never typed text",
    "fields": [
+    "answer host/computer/appInput /effect",
+    "answer host/computer/appInput /evidence/focusedRole",
+    "answer host/computer/appWindows /windows/*/kind",
+    "answer host/computer/cursorPrepare /state",
     "answer host/computer/foregroundLease /answer",
     "answer host/computer/foregroundLease /kind",
     "answer host/computer/foregroundLease /outcome",
+    "answer host/computer/permissions /accessibility",
+    "answer host/computer/permissions /input",
+    "answer host/computer/permissions /screenCapture",
+    "answer host/computer/pixels /attempts/*/backend",
+    "answer host/computer/pixels /attempts/*/reason",
+    "answer host/computer/pixels /backend",
     "answer host/localPage/url ",
     "answer host/systemProxy/resolve /rules",
     "answer host/update/command /status",
@@ -2762,6 +2798,7 @@
     "request channel/saveWebhook /entry/owner",
     "request channel/saveWebhook /entry/parser",
     "request computer/userControl /action",
+    "request computer/userControl /reason",
     "request config/batchWrite /edits/*/mode",
     "request config/claimSetupRequest /owner",
     "request config/completeOnboarding /payload/visited/*",
@@ -3266,6 +3303,7 @@
     "request memory/memoryControl /args/project_paths/*",
     "request memory/memoryControl /args/target_cwd",
     "request memory/recall /args/cwd",
+    "request migrate/profile/adopt /userData",
     "request process/spawn /argv/*",
     "request process/spawn /cwd",
     "request process/spawn /shell",
@@ -3625,8 +3663,14 @@
    "class": "refused",
    "reason": "an id, cursor, revision or digest the core, a client or a service generated: matched against its record, never typed text",
    "fields": [
+    "answer host/computer/appWindows /windows/*/displayId",
+    "answer host/computer/appWindows /windows/*/windowId",
+    "answer host/computer/command /imageBlob/digest",
     "answer host/computer/displays /*/id",
     "answer host/computer/internalWindows /windowIds/*",
+    "answer host/computer/pixels /blob/digest",
+    "answer host/computer/pixels /source/displayId",
+    "answer host/computer/pixels /source/windowId",
     "answer host/screen/displays /*/screenId",
     "answer item/browser/requestApproval /answers/*/selected/*",
     "answer item/computer/requestApproval /answers/*/selected/*",
@@ -3638,6 +3682,7 @@
     "answer model/proxy/execute /result/models/*/picker/serviceTiers/*/id",
     "answer model/proxy/execute /result/route/profileId",
     "notification browser/streamAck /sessionId",
+    "notification computer/pointerReleased /sessionThreadId",
     "notification host/browser/frame /tabId",
     "notification host/browser/page /documentId",
     "notification host/browser/page /tabId",
@@ -3980,6 +4025,7 @@
     "request connector/addConnectorAccount /threadId",
     "request connector/listConnectorTools /connectorId",
     "request connector/listConnectorTools /threadId",
+    "request dev/computer/run /sessionThreadId",
     "request diagnostics/runDoctor /opId",
     "request diagnostics/runDoctor /threadId",
     "request document/installLibreOffice /opId",
@@ -4037,6 +4083,7 @@
     "request github/request /opId",
     "request github/star /opId",
     "request host/claim /hostId",
+    "request host/claim /serves/*",
     "request host/humanOnly/end /holdId",
     "request host/remoteTarget/set /token",
     "request host/state/set /key",
@@ -4600,6 +4647,8 @@
    "fields": [
     "answer host/computer/capture /image/data",
     "answer host/computer/capture /image/mimeType",
+    "answer host/computer/command /imageBlob/mimeType",
+    "answer host/computer/pixels /blob/mimeType",
     "answer host/visualize/command /thumbnail",
     "notification host/browser/frame /frame/image/data",
     "notification process/input /bytesB64",
@@ -5352,6 +5401,13 @@
    "reason": "encoded bytes or a media type (base64, data URL, SDP), decoded, not text (a screenshot's base64 data)",
    "fields": [
     "answer host/browser/screenshot /data"
+   ]
+  },
+  {
+   "class": "refused",
+   "reason": "the desktop's readiness probe (capability states and detail words), never typed text",
+   "fields": [
+    "answer host/computer/permissions /linux/**"
    ]
   }
  ]

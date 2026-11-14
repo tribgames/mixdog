@@ -360,6 +360,10 @@ pub enum ClientNotification {
     #[serde(rename = "host/window/closed")]
     #[cfg_attr(feature = "codegen", ts(rename = "host/window/closed"))]
     HostWindowClosed(crate::v2::connections::HostWindowClosedParams),
+    /// The user moved the real pointer over an agent arrow: the core ends that session's pointer hold.
+    #[serde(rename = "computer/pointerReleased")]
+    #[cfg_attr(feature = "codegen", ts(rename = "computer/pointerReleased"))]
+    ComputerPointerReleased(crate::v2::computer_host::ComputerPointerReleasedParams),
     /// One streamed event of a `model/proxy/execute` request.
     #[serde(rename = "model/proxy/event")]
     #[cfg_attr(feature = "codegen", ts(rename = "model/proxy/event"))]
@@ -474,6 +478,11 @@ pub static CLIENT_NOTIFICATIONS: &[crate::common::NotificationSpec] = &[
     crate::common::NotificationSpec {
         method: "host/window/closed",
         params: "HostWindowClosedParams",
+        delivery: None,
+    },
+    crate::common::NotificationSpec {
+        method: "computer/pointerReleased",
+        params: "ComputerPointerReleasedParams",
         delivery: None,
     },
     crate::common::NotificationSpec {

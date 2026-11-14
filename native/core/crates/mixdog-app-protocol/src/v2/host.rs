@@ -19,6 +19,10 @@ pub struct HostClaimParams {
     /// Where the desktop keeps the server cores and the askpass helper the core launches.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resources: Option<crate::v2::connections::HostClaimResources>,
+    /// The `host/*` methods this claimant serves. Absent: every method of the capabilities declared in `capabilities.host`
+    /// (the boolean routing); present: a request for a method not listed is not sent to this claimant (`unsupportedMethod`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub serves: Option<Vec<String>>,
 }
 
 /// Publishes desktop-owned state into section `hostState`: `{key, value}`, the value's shape
@@ -451,6 +455,12 @@ pub struct HostComputerDisplay {
     pub scale_factor: f64,
     pub width: u32,
     pub height: u32,
+    /// The display's origin in native desktop coordinates (`nativeDisplayGeometry`, physical pixels on Windows and Linux).
+    /// Absent from an older desktop's list: a display at 0,0.
+    #[serde(default)]
+    pub x: i32,
+    #[serde(default)]
+    pub y: i32,
 }
 
 /// What a `host/computer/foregroundLease` request does (`foreground-lock-host.ts` `LeaseThreadRequest`): `acquire` and
@@ -566,6 +576,10 @@ pub enum ComputerUserControlAction {
     // The pause the pill takes when its control renderer dies (`takeOver('user_pause')`): a hold that only Resume ends and that
     // never tells a waiting model it was cancelled. A plain comment, so the schema stays a bare enum.
     Pause,
+    // The user's hold taken for `reason` (Node's `takeOver(reason)`): a hold only Resume ends.
+    Takeover,
+    // Sets how long the user must be idle before a hold ends by itself (`params.seconds`, 0 = only Resume ends it).
+    ConfigureIdleResume,
 }
 
 /// Params of `computer/userControl` (desktop → core): the pill's Resume or Stop of the user's hold on the desktop.
@@ -578,6 +592,12 @@ pub struct ComputerUserControlParams {
     /// The session the pill acts for; absent: every session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_thread_id: Option<ThreadId>,
+    /// `takeover` only: why the hold is taken. Checked by `ComputerUserControlParams::validate` (computer_host.rs).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<crate::v2::computer_host::ComputerTakeoverReason>,
+    /// `configureIdleResume` only, 0..=60.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seconds: Option<u32>,
 }
 
 /// Result of `computer/userControl`: whether the user's hold changed.

@@ -4661,6 +4661,24 @@ crate::client_request_definitions! {
         mutation: none,
         origins: [Local],
     },
+    /// The desktop-profile move's state: its generation, and the profile directory the core has recorded (Local only).
+    MigrateProfileStatus => "migrate/profile/status" {
+        params: v2::migrate_profile::MigrateProfileStatusParams,
+        result: v2::migrate_profile::MigrateProfileStatus,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Adopts the Electron profile for a core started without it: moves the profile files of generation 2 into the data dir (idempotent; only the profile recorded already may be named again). Local only.
+    MigrateProfileAdopt => "migrate/profile/adopt" {
+        params: v2::migrate_profile::MigrateProfileAdoptParams,
+        result: v2::migrate_profile::MigrateProfileAdopted,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
     /// UI-originated in-app browser control; forwarded as `host/browser/command`.
     BrowserCommand => "browser/command" {
         params: BrowserCommandParams,
@@ -4687,6 +4705,15 @@ crate::client_request_definitions! {
         class: C2,
         mutation: none,
         origins: [Local, Ssh],
+    },
+    /// One Computer Use command through the live helper pool outside a model turn (test hook: served only by a `test-hooks` build started with MIXDOGD_TEST_HOOKS=1; the handler calls DevComputerRunParams::validate).
+    DevComputerRun => "dev/computer/run" {
+        params: v2::computer_host::DevComputerRunParams,
+        result: v2::computer_host::DevComputerRunResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
     },
     /// Today's `sendTestNotification`.
     NotifyTest => "notify/test" {

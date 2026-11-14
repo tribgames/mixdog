@@ -212,6 +212,15 @@ pub struct RemotePairCode {
 pub struct ComputerSessionSection {
     pub session_thread_id: crate::ThreadId,
     pub observe_only: bool,
+    /// Windows with an active command of this session (the overlay and the user-input report read them).
+    #[serde(default)]
+    pub window_ids: Vec<String>,
+    /// How the active command reaches the screen; `null` while none runs.
+    #[serde(default)]
+    pub mode: Option<ComputerSessionMode>,
+    /// The active command's phase word; `null` while none runs.
+    #[serde(default)]
+    pub phase: Option<String>,
 }
 
 /// Section value of `computer` (SPEC R40).
@@ -232,6 +241,13 @@ pub struct ComputerSection {
     /// The foreground lane every session's foreground input takes in turn; `null` while it is free.
     #[serde(default)]
     pub lane: Option<ComputerLaneSection>,
+    #[serde(default)]
+    pub backend: ComputerBackendSection,
+    #[serde(default)]
+    pub cleanup_state: ComputerCleanupState,
+    /// Seconds of user idleness after which a hold ends by itself; 0 = only Resume ends it.
+    #[serde(default = "default_idle_resume_seconds")]
+    pub idle_resume_seconds: u32,
 }
 
 /// How a hold of the user's on the desktop ends (`host/user-input-refusal.ts` `resume_mode`): `idle` once the user has
@@ -244,6 +260,41 @@ pub enum ComputerResumeMode {
     Manual,
 }
 
+/// How a session's active command reaches the screen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub enum ComputerSessionMode {
+    Foreground,
+    Background,
+}
+
+/// Which stack runs Computer Use: the Rust helper, or (Windows, until the owner signs off) the desktop's legacy host.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub enum ComputerBackendSection {
+    #[default]
+    Helper,
+    DesktopHost,
+}
+
+/// Whether the end-of-run cleanup (held keys and buttons released) is done.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub enum ComputerCleanupState {
+    #[default]
+    Ready,
+    Pending,
+    Failed,
+}
+
+/// Node's coordinator default for the idle-resume interval.
+fn default_idle_resume_seconds() -> u32 {
+    5
+}
+
 /// The user's hold on the desktop in `computer` (Node's coordinator `userControlActive` and `takeoverReason`,
 /// `session/coordinator.ts`): while it is active, automation waits.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -252,7 +303,8 @@ pub enum ComputerResumeMode {
 pub struct ComputerUserControlSection {
     pub active: bool,
     /// Why the user holds the desktop (Node's `pauseForUser` reasons: `user_takeover`, `user_stop`, `user_input_active`,
-    /// `input_cleanup_unconfirmed`, `authorization_changed`).
+    /// `input_cleanup_unconfirmed`, `authorization_changed`; `user_pause`, `desktop_unavailable` and `display_changed` from
+    /// `computer/userControl` pause and takeover).
     pub reason: String,
     pub resume_mode: ComputerResumeMode,
 }

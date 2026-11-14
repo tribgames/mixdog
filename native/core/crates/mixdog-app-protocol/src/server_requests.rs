@@ -8,6 +8,7 @@ use mixdog_protocol::ToolApprovalDecision;
 
 use crate::v2::approval::*;
 use crate::v2::host::*;
+use crate::v2::computer_host::*;
 use crate::v2::browser_engine::*;
 use crate::v2::connections::*;
 
@@ -237,6 +238,42 @@ crate::server_request_definitions! {
     HostComputerPointerFeedback => "host/computer/pointerFeedback" {
         params: HostComputerPointerFeedbackParams,
         result: (),
+        requires: Some("host.computer"),
+    },
+    /// A Computer Use capture, encoded by the desktop and uploaded with blob/put.
+    HostComputerPixels => "host/computer/pixels" {
+        params: HostComputerPixelsParams,
+        result: HostComputerPixelsResult,
+        requires: Some("host.computer"),
+    },
+    /// The desktop's own windows a session may read and drive.
+    HostComputerAppWindows => "host/computer/appWindows" {
+        params: HostComputerAppWindowsParams,
+        result: HostComputerAppWindowsResult,
+        requires: Some("host.computer"),
+    },
+    /// Input into one of the desktop's own windows through its renderer.
+    HostComputerAppInput => "host/computer/appInput" {
+        params: HostComputerAppInputParams,
+        result: HostComputerAppInputResult,
+        requires: Some("host.computer"),
+    },
+    /// Ready the agent's arrow (answered within 750 ms).
+    HostComputerCursorPrepare => "host/computer/cursorPrepare" {
+        params: HostComputerCursorPrepareParams,
+        result: HostComputerCursorPrepareResult,
+        requires: Some("host.computer"),
+    },
+    /// The OS grants the desktop reads.
+    HostComputerPermissions => "host/computer/permissions" {
+        params: HostComputerPermissionsParams,
+        result: HostComputerPermissionsResult,
+        requires: Some("host.computer"),
+    },
+    /// A whole bridge command for the legacy Windows PowerShell host (dual path only).
+    HostComputerCommand => "host/computer/command" {
+        params: HostComputerCommandParams,
+        result: HostComputerCommandResult,
         requires: Some("host.computer"),
     },
     HostVisualizeCommand => "host/visualize/command" {
