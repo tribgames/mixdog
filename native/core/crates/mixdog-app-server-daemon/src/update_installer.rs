@@ -56,7 +56,8 @@ impl StagedInstaller {
         Self { config, lane, proxy, exec, dev }
     }
 
-    /// The user's npm run with `args` (shell-less: no `cmd`, no PowerShell).
+    /// The user's npm run with `args`, never through a shell this code starts (an `npm.cmd` shim
+    /// is started by Windows' own batch handling).
     fn npm_spec(&self, npm: &blocking::NpmCommand, args: &[String]) -> ExecSpec {
         let mut spec = ExecSpec::new(npm.program.to_string_lossy(), &self.config.data_dir);
         spec.args = npm.lead.iter().cloned().chain(args.iter().cloned()).collect();
@@ -612,23 +613,18 @@ pub(crate) mod blocking {
         candidates.into_iter().find(|candidate| present(lane, candidate))
     }
 
-    /// The user's npm. With a `node` on `PATH`: the `npm-cli.js` named by `npm_execpath` or
-    /// behind the `npm` shim, run by that node. Else the `npm` shim itself. Else, with only a
-    /// `node` found, `npm-cli.js` beside it. `None` when none of these exists.
+    /// The user's npm. With a `node` on `PATH`, `npmCliJsPath`'s order, run by that node: the
+    /// `npm-cli.js` named by `npm_execpath`, the one beside the node (Windows, Unix and Homebrew
+    /// layouts), the one behind the `npm` shim. Else the `npm` shim itself. `None` when none of
+    /// these exists.
     pub fn resolve_npm(lane: &InLane<MaintenanceIo>, env: &NpmEnv) -> Option<NpmCommand> {
-        let node = node_on_path(lane, env);
-        let run_cli = |node: &Path, cli: PathBuf| NpmCommand { program: node.to_path_buf(), lead: vec![cli.to_string_lossy().into_owned()] };
-        if let Some(node) = &node {
+        if let Some(node) = node_on_path(lane, env) {
             let exec = env.exec_path.clone().filter(|path| path.to_string_lossy().to_lowercase().ends_with("npm-cli.js") && present(lane, path));
-            if let Some(cli) = exec.or_else(|| shim_cli(lane, env)) {
-                return Some(run_cli(node, cli));
+            if let Some(cli) = exec.or_else(|| cli_beside(lane, &node)).or_else(|| shim_cli(lane, env)) {
+                return Some(NpmCommand { program: node, lead: vec![cli.to_string_lossy().into_owned()] });
             }
         }
-        if let Some(shim) = shim_program(lane, env) {
-            return Some(NpmCommand { program: shim, lead: Vec::new() });
-        }
-        let node = node?;
-        cli_beside(lane, &node).map(|cli| run_cli(&node, cli))
+        shim_program(lane, env).map(|shim| NpmCommand { program: shim, lead: Vec::new() })
     }
 
     /// `new URL(text).href` for the registry URLs npm answers with.
