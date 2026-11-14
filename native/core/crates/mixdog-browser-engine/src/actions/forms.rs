@@ -419,6 +419,18 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_cancelled_stored_login_passes_the_cancel_through_and_never_submits() {
+        let token = CancellationToken::new();
+        let (mut context, host, log) = context(json!({"savedAccount": "work", "submit": true}), Vec::new());
+        context.stored = StoredLoginFill { password_filled: true, reason: None };
+        context.actions.cancel = token.clone().into();
+        token.cancel();
+        assert_eq!(fill(&mut context).await, Err(RefError::Host(HostCallError::Cancelled)));
+        assert!(log.lock().expect("log").is_empty(), "no fill, no invalidation");
+        host.finish().expect("no Enter");
+    }
+
+    #[tokio::test]
     async fn many_fields_are_filled_in_order_each_with_its_own_gesture() {
         let fields = json!([{"ref": "p1-s2-e1", "text": "a"}, {"ref": "p1-s2-e2", "checked": true}, {"ref": "p1-s2-e3", "values": ["x"]}]);
         let script = vec![fill_value("a"), call(json!({"checked": true})), call(json!({"values": ["x"]}))];
