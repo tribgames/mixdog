@@ -29,7 +29,11 @@
 # none (the frozen 1.4.5 list has no remoteHosts/* row; these are the same-window additions of the connections move).
 
 [free_text]
-# none
+# src/free_text.rs: nothing (remoteHosts/touch has no free-text field).
+# tests/it/free_text_fields.json `classes`, the refused class whose reason starts "an id, cursor, revision or digest the core,
+# a client or a service generated:" (where "request remoteHosts/forget /id" is), sorted in after "request remoteHosts/rename /id":
+#   "request remoteHosts/touch /id"
+# (the contract test walks schema/client_request.json and fails on a request field in no class.)
 
 [type_edits]
 # native/core/crates/mixdog-app-protocol/src/v2/connections.rs, after `pub struct RemoteHost`:

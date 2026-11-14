@@ -157,6 +157,10 @@ Call `stopHostListsFeed()` in the quit path with the other disposers.
 Nothing from this task. The connections/* and remoteHosts/* services are registered by s2b-daemon-wiring; which names it removes from
 SERVICE_PENDING in mixdog-app-server-daemon compose_flip.rs is its to state (connections/endpoint, connections/ssh/openEphemeral,
 connections/subscribe, remoteHosts/*, and remoteHosts/touch once the rows fragment is applied).
+For s2b-service (it maps remoteHosts/* to RemoteHostStore): the rows fragment adds remoteHosts/touch (dispatch it to
+RemoteHostStore::touch) and makes remoteHosts/redeemCode answer RemoteHostRedeemed { host, ticket } (the ticket is
+RedeemedPairCode.ticket from redeem_pair_code). Until both are served, a window opened by a code loads without `#pair=<ticket>`
+(the host's page then asks for approval) and every opened remote window logs a failed remoteHosts/touch.
 
 ## 9. Deleted by s2b-delete-ts (not here)
 

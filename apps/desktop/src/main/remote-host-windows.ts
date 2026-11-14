@@ -195,9 +195,11 @@ export function createRemoteHostWindows(
     // The one-time ticket rides the fragment, which is never sent to the relay
     // with the page request; the page drops it once it has used it.
     await window.loadURL(ticket ? `${host.url}#pair=${ticket}` : host.url);
-    // The list orders by this; a core that does not take it leaves the order as it was.
+    // The list orders by this; a failed mark leaves the order as it was and is reported, the window stays.
     const touch: ConnectionsIdParams = { id };
-    await core.call('remoteHosts/touch', touch).catch(() => undefined);
+    await core.call('remoteHosts/touch', touch).catch((error: unknown) => {
+      console.error(`[mixdog] remoteHosts/touch failed: ${error instanceof Error ? error.message : String(error)}`);
+    });
   };
 
   return {
