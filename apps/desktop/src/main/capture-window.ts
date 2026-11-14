@@ -327,6 +327,19 @@ async function runCaptureMobilePass(window: BrowserWindow): Promise<{
   return { liveMobile, resizedBounds };
 }
 
+/** The modal stack check needs a toast above the open Settings modal. The old capture host put one in every snapshot;
+ *  a window on a core has none, so the renderer's own toast event raises it (DESKTOP_TOAST_EVENT of desktop-toasts.tsx,
+ *  not imported: that module is the renderer's React tree). */
+async function showCaptureStackingToast(window: BrowserWindow): Promise<void> {
+  await withCaptureTimeout(
+    window.webContents.executeJavaScript(`window.dispatchEvent(new CustomEvent('mixdog:desktop-toast', {
+      detail: { id: 'capture-toast', text: 'Capture stacking check', tone: 'info', lifetime: 'state' },
+    }))`),
+    'raise stacking toast'
+  );
+  await waitForRenderer(window, "document.querySelector('.mx-toast-region')", 'stacking toast');
+}
+
 /** Open Settings at the desktop size its placement contract is measured at,
  *  through the product's real Ctrl+, contract, and wait for a populated pane. */
 async function openCaptureSettings(window: BrowserWindow): Promise<void> {
@@ -827,6 +840,7 @@ async function captureWindow(): Promise<void> {
     const { liveMobile, resizedBounds } = await runCaptureMobilePass(window);
     await openCaptureSettings(window);
     const largeSettings = await readSettingsPlacement(window);
+    await showCaptureStackingToast(window);
     const modalStack = await readModalStackAssertions(window);
     const { lightTheme, lightShellTopEdge, lightPng } = await runCaptureLightThemePass(window);
     const { compactSettings, narrowSettings } = await readCaptureSettingsAtNarrowWidths(window);
