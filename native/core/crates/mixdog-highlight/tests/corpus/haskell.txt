@@ -1,0 +1,20 @@
+{-# LANGUAGE OverloadedStrings #-}
+module Main (main) where
+import qualified Data.Map as M
+import Data.List (sortBy, foldl')
+-- | Doc comment
+{- block {- nested -} -}
+data Shape = Circle Double | Rect { w :: Double, h :: !Double } deriving (Show, Eq)
+newtype Wrapper a = Wrapper { unwrap :: a }
+class Monoid' a where mempty' :: a
+instance Show a => Show (Wrapper a) where show (Wrapper x) = "W " ++ show x
+area :: Shape -> Double
+area (Circle r) = pi * r ^ 2
+area Rect{w = a, h = b} = a * b
+main :: IO ()
+main = do
+  let xs = [1, 2.5, 0x1F, 0o7, 1e3]; s = "esc \" \n \1234"; c = 'x'
+  mapM_ print $ filter even [x | x <- [1..10], x > 2]
+  case xs of { [] -> return (); (y:_) | y > 1 -> print y | otherwise -> pure () }
+  if null xs then putStrLn "none" else putStrLn "some"
+  where helper = \x -> x + 1

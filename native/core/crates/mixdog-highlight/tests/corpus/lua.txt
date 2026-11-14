@@ -1,0 +1,15 @@
+-- comment
+--[[ block
+comment ]]
+local M = {}
+local x, y = 1, 0x1F + 3.14e-2
+local s = "esc \" \n \x41 \u{48}" .. 'single' .. [[long
+string]] .. [==[level 2]==]
+function M.add(a, b) return a + b end
+local function fact(n) if n <= 1 then return 1 else return n * fact(n - 1) end end
+function obj:method(...) local t = {...} return #t, select('#', ...) end
+for i = 1, 10, 2 do print(i) end
+for k, v in pairs({a = 1, [2] = "b"}) do if not v or k == nil then break end end
+while true do repeat x = x - 1 until x < 0 goto done end ::done::
+local ok, err = pcall(function() error("x") end)
+return setmetatable(M, {__index = function(t, k) return rawget(t, k) end})

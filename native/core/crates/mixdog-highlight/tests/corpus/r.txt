@@ -1,0 +1,12 @@
+# comment
+library(dplyr); require("stringr")
+x <- c(1, 2.5, 0x1F, 1e3, 3L, TRUE, NA, Inf, NULL)
+y = x * 2 %% 3 %/% 2 %in% c(1:3); z <<- -1
+f <- function(a, b = 2, ...) { if (a > b && !is.na(a)) return(a) else if (b) stop("bad") ; invisible(NULL) }
+df <- data.frame(a = 1:3, b = letters[1:3], stringsAsFactors = FALSE)
+df %>% filter(a > 1) %>% mutate(c = a ^ 2) |> head()
+s <- "esc \" \n"; t <- 'single'; r <- r"(raw string)"
+for (i in seq_along(x)) { next }; while (TRUE) break; repeat { break }
+lst <- list(a = 1, `weird name` = 2); lst$a; lst[["b"]]; x[x > 1]
+sapply(x, function(v) v + 1); \(v) v * 2
+`my var` <- 5; 5 -> w; if (is.null(x)) NULL else x

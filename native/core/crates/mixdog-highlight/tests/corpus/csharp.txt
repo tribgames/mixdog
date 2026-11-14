@@ -1,0 +1,23 @@
+using System;
+using System.Collections.Generic;
+namespace App.Core {
+    /// <summary>Doc</summary>
+    [Serializable] public sealed class Person : IComparable<Person> {
+        public string Name { get; set; } = "x"; private readonly int _id; public static int Count;
+        public Person(string name) => Name = name;
+        public async Task<int> RunAsync(CancellationToken ct = default) {
+            var s = "esc \" \n"; var v = @"verbatim ""quoted"" \"; var i = $"interp {Name} {{x}}"; char c = '\'';
+            int n = 0x1F + 0b11 + 1_000; double d = 3.14e-2; decimal m = 1.5m; long l = 10L;
+            var list = new List<int> { 1, 2, 3 }; var q = from x in list where x > 1 select x * 2;
+            await Task.Delay(1, ct).ConfigureAwait(false);
+            if (Name is { Length: > 0 } && !(Name == null)) { foreach (var x in list) yield return x; }
+            switch (n) { case 1: break; default: goto end; }
+            try { throw new InvalidOperationException(); } catch (Exception ex) when (ex != null) { } finally { }
+            lock (this) { using var f = File.Open("a"); }
+            end: return n > 0 ? 1 : 0;
+        }
+        #region r
+        public int CompareTo(Person other) => string.Compare(Name, other?.Name);
+        #endregion
+    }
+}

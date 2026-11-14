@@ -1,0 +1,37 @@
+// keywords, strings, escapes, numbers
+const a = 1, b = 0x1F, c = 1.5e3, d = 0b101, e = 10n;
+let s = 'it\'s', t = "say \"hi\"\n", u = `tpl ${a + b} and ${`nested ${c}`}`;
+var re = /ab+c[/\]]\/x/gi, div = a / b / c;
+if (a >= b && !c) { return null; } else if (d) { throw new Error("x"); }
+/* block
+   comment */
+class Foo extends Bar { static #p = 1; async *gen() { yield* other(); } get x() { return this.#p; } }
+function* g(a, b = 2, ...rest) { await Promise.all([a, b]); }
+const arrow = async (x) => x ** 2;
+label: for (const k of Object.keys(o)) { if (!k) continue label; }
+export default function () {} import {x as y} from './m.js';
+@@@@
+const el = <div className="a" onClick={() => go(1)}>Hello {name}<b>!</b></div>;
+const frag = <><Foo.Bar x="1" {...props} /><span>{items.map(i => <li key={i}>{i}</li>)}</span></>;
+function App() { return <Layout title='t'>text &amp; more</Layout>; }
+const cmp = a < b && c > d;
+const gen = Array<Array<number>>(3);
+@@@@
+#!/usr/bin/env node
+'use strict';
+const x = {a: 1, 'b': 2, [c]: 3, d() { return 1 }, get e() { return 2 }};
+x?.a?.[0] ?? 'none';
+document.querySelectorAll('.a').forEach(function (n) { n.textContent = n.id + "!"; });
+const html = `<div class="${cls}">${esc(text)}</div>`;
+try { JSON.parse(s) } catch { console.log('bad') } finally { done() }
+switch (v) { case 1: break; default: x++ }
+new Date().getTime() / 1000 | 0;
+a = b
+/re/.test(c)
+@@@@
+const css = styled.div`
+  color: ${p => p.color};
+  &:hover { background: #fff; }
+`;
+const q = gql`query { a { b } }`;
+@decorator class A {}

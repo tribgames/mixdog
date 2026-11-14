@@ -1,0 +1,36 @@
+#!/usr/bin/env python3
+import os, sys
+from typing import List, Optional
+@decorator(arg=1)
+class Foo(Base, metaclass=Meta):
+    """Docstring with 'quotes' and "double"."""
+    x: int = 0b11 + 0o7 + 0xFF + 1_000 + 3.14e-2 + 2j
+    def method(self, a, *args, b=None, **kw) -> Optional[int]:
+        s = f"value {a!r:>10} {{literal}} {kw['k']}"
+        r = rb'\d+' + b"bytes" + u'uni' + 'it\'s'
+        lam = lambda x, y=2: x ** y // 3
+        return [i for i in range(10) if i % 2 == 0 and not i in (1, 2)] or None
+async def main():
+    async with session() as s, open("f") as fh:
+        await s.get(url)
+    try:
+        raise ValueError("bad")
+    except (KeyError, ValueError) as e:
+        print(e, file=sys.stderr)
+    finally:
+        pass
+    with open('a') as f: yield from f
+if __name__ == "__main__": main()  # entry
+x = """multi
+line""" ; global y ; del x ; assert x is not None, "msg"
+print(1 if x else 2, end='')
+match command.split():
+    case [action, obj]: pass
+    case _: pass
+@@@@
+>>> import math
+>>> math.sqrt(16)
+4.0
+def f(a, b):
+    """doc"""
+    return a @ b

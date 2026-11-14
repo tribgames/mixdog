@@ -1,0 +1,21 @@
+package com.example.app;
+import java.util.*;
+import static java.lang.Math.max;
+/** Javadoc {@link Foo} @param x the x */
+@SuppressWarnings({"unchecked", "rawtypes"})
+public final class Main<T extends Comparable<T>> extends Base implements Runnable, Serializable {
+    private static final long serialVersionUID = 1L; private int[] arr = {1, 0x2, 0b11, 017, 1_000};
+    protected volatile double d = 3.14e-2f;
+    enum Kind { A, B(2); Kind() {} Kind(int n) {} }
+    @Override public void run() throws Exception {
+        String s = "esc \" \n \u00e9"; char c = '\''; var text = """
+            block
+            """;
+        List<Map<String, List<Integer>>> l = new ArrayList<>();
+        for (int i = 0; i < 10; i++) { if (i % 2 == 0 && !flag) continue; else break; }
+        try (InputStream in = open()) { synchronized (this) { wait(); } } catch (IOException | RuntimeException e) { throw e; } finally { }
+        Object o = switch (k) { case A -> 1; default -> { yield 2; } };
+        if (o instanceof String str) { System.out.println(str); }
+        int r = x > 0 ? y : z; Runnable rn = () -> {};
+    }
+}

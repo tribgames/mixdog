@@ -1,0 +1,1182 @@
+(async () => {
+  // make sure ZipTransformer is imported and attached to window
+  const { ZipTransformer } = window;
+  await Promise.all(
+    [...currentWorkspace.blockSuiteWorkspace.pages.values()].map(p =>
+      p.load()
+    )
+  );
+  // wait for a few more seconds
+  await new Promise(resolve => setTimeout(resolve, 5000));
+  const zipblob = await ZipTransformer.exportPages(
+    currentWorkspace.blockSuiteWorkspace,
+    [...currentWorkspace.blockSuiteWorkspace.pages.values()]
+  );
+  const url = URL.createObjectURL(zipblob);
+  const a = document.createElement('a');
+  a.setAttribute('href', url);
+  a.setAttribute('download', `${currentWorkspace.id}.affine.zip`);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+})();
+@@@@
+// Both keys are { [userId]: value }. The signed-in id isn't in localStorage —
+// read it off the JWT the app already stores:
+const uid = JSON.parse(atob(JSON.parse(localStorage.getItem('nocodb-gui-v2')).token.split('.')[1])).id
+
+// force the onboarding trigger without a fresh signup
+localStorage.setItem('nc-tours-onboarding-handoff', JSON.stringify({ [uid]: true }))
+
+// let everything trigger again (clears every user on this browser)
+localStorage.removeItem('nc-tours-auto-fired')
+@@@@
+// Register service worker
+const registration = await navigator.serviceWorker.register('/sw.js');
+
+// Subscribe to push notifications
+const subscription = await registration.pushManager.subscribe({
+  userVisibleOnly: true,
+  applicationServerKey: 'your-vapid-public-key'
+});
+
+// Send subscription to your server
+await fetch('/api/subscribe', {
+  method: 'POST',
+  body: JSON.stringify(subscription),
+  headers: { 'Content-Type': 'application/json' }
+});
+@@@@
+// encode the current state as a binary buffer
+let currentState1 = Y.encodeStateAsUpdate(ydoc1)
+let currentState2 = Y.encodeStateAsUpdate(ydoc2)
+// now we can continue syncing clients using state vectors without using the Y.Doc
+ydoc1.destroy()
+ydoc2.destroy()
+
+const stateVector1 = Y.encodeStateVectorFromUpdate(currentState1)
+const stateVector2 = Y.encodeStateVectorFromUpdate(currentState2)
+const diff1 = Y.diffUpdate(currentState1, stateVector2)
+const diff2 = Y.diffUpdate(currentState2, stateVector1)
+
+// sync clients
+currentState1 = Y.mergeUpdates([currentState1, diff2])
+currentState2 = Y.mergeUpdates([currentState2, diff1])
+@@@@
+// globally installs the <full-calendar> tag
+import '@fullcalendar/web-component/global'
+
+// plugins
+import themePlugin from '@fullcalendar/web-component/themes/monarch' // YOUR THEME
+import dayGridPlugin from '@fullcalendar/web-component/daygrid'
+
+// stylesheets
+import '@fullcalendar/web-component/skeleton.styles' // ALWAYS NEED SKELETON
+import '@fullcalendar/web-component/themes/monarch/theme.styles' // YOUR THEME
+import '@fullcalendar/web-component/themes/monarch/palettes/purple.css' // YOUR THEME'S PALETTE
+
+// initialize with options and plugins
+const fullCalendarElement = document.querySelector('full-calendar')
+fullCalendarElement.options = {
+  plugins: [themePlugin, dayGridPlugin],
+  initialView: 'dayGridMonth',
+  weekends: false,
+  events: [
+    { title: 'Meeting', start: new Date() }
+  ]
+}
+@@@@
+// webpack.config.js
+module.exports = {
+	module: {
+		rules: [
+			{
+				test: /\.pegjs$/,
+				use: '@rocket.chat/peggy-loader',
+			},
+		],
+	},
+	resolve: {
+		extensions: ['.js', '.pegjs'],
+	},
+};
+@@@@
+// without stopCapturing
+ytext.insert(0, 'a')
+ytext.insert(1, 'b')
+undoManager.undo()
+ytext.toString() // => '' (note that 'ab' was removed)
+// with stopCapturing
+ytext.insert(0, 'a')
+undoManager.stopCapturing()
+ytext.insert(0, 'b')
+undoManager.undo()
+ytext.toString() // => 'a' (note that only 'b' was removed)
+@@@@
+RocketChat(function () {
+	this.initialize({
+		theme: { title: 'Need help?' },
+		department: 'sales',
+		guestName: 'Jane Doe',
+		guestEmail: 'jane@example.com',
+		language: 'en',
+	});
+});
+@@@@
+RocketChat(function () {
+	this.setTheme({
+		color: '#04436A', // title bar background
+		fontColor: '#FFFFFF', // title bar text
+		iconColor: '#1D74F5', // widget icon
+		title: 'Welcome to Rocket.Chat', // title when agents are online
+		offlineTitle: 'Service is offline', // title when no agent is online
+		position: 'right', // 'left' or 'right'
+	});
+
+	this.setDepartment('sales');
+
+	this.onChatStarted(function () {
+		console.log('chat started');
+	});
+});
+@@@@
+class CustomBinding {}
+
+const ytext = doc.getText('text')
+const undoManager = new Y.UndoManager(ytext, {
+  trackedOrigins: new Set([42, CustomBinding])
+})
+
+ytext.insert(0, 'abc')
+undoManager.undo()
+ytext.toString() // => 'abc' (does not track because origin `null` and not part
+                 //           of `trackedTransactionOrigins`)
+ytext.delete(0, 3) // revert change
+
+doc.transact(() => {
+  ytext.insert(0, 'abc')
+}, 42)
+undoManager.undo()
+ytext.toString() // => '' (tracked because origin is an instance of `trackedTransactionorigins`)
+
+doc.transact(() => {
+  ytext.insert(0, 'abc')
+}, 41)
+undoManager.undo()
+ytext.toString() // => 'abc' (not tracked because 41 is not an instance of
+                 //        `trackedTransactionorigins`)
+ytext.delete(0, 3) // revert change
+
+doc.transact(() => {
+  ytext.insert(0, 'abc')
+}, new CustomBinding())
+undoManager.undo()
+ytext.toString() // => '' (tracked because origin is a `CustomBinding` and
+                 //        `CustomBinding` is in `trackedTransactionorigins`)
+@@@@
+const calendar = this.template.querySelector('c-full-calendar').getCalendar()
+calendar.next()
+@@@@
+const doc = new Y.Doc()
+@@@@
+const doc1 = new Y.Doc()
+const doc2 = new Y.Doc()
+
+doc1.on('update', update => {
+  Y.applyUpdate(doc2, update)
+})
+
+doc2.on('update', update => {
+  Y.applyUpdate(doc1, update)
+})
+
+// All changes are also applied to the other document
+doc1.getArray('myarray').insert(0, ['Hello doc2, you got this?'])
+doc2.getArray('myarray').get(0) // => 'Hello doc2, you got this?'
+@@@@
+const relPos = Y.createRelativePositionFromTypeIndex(ytext, 2)
+const encodedRelPos = JSON.stringify(relPos)
+// send encodedRelPos to remote client..
+const parsedRelPos = JSON.parse(encodedRelPos)
+const pos = Y.createAbsolutePositionFromRelativePosition(parsedRelPos, remoteDoc)
+pos.type === remoteytext // => true
+pos.index === 2 // => true
+@@@@
+const relPos = Y.createRelativePositionFromTypeIndex(ytext, 2)
+const encodedRelPos = Y.encodeRelativePosition(relPos)
+// send encodedRelPos to remote client..
+const parsedRelPos = Y.decodeRelativePosition(encodedRelPos)
+const pos = Y.createAbsolutePositionFromRelativePosition(parsedRelPos, remoteDoc)
+pos.type === remoteytext // => true
+pos.index === 2 // => true
+@@@@
+const relPos = Y.createRelativePositionFromTypeIndex(ytext, 2)
+const pos = Y.createAbsolutePositionFromRelativePosition(relPos, doc)
+pos.type === ytext // => true
+pos.index === 2 // => true
+@@@@
+const server = new Server({
+  extensions: [
+    new S3({
+      bucket: 'hocuspocus-documents',
+      endpoint: 'http://localhost:9000',
+      forcePathStyle: true,
+      credentials: {
+        accessKeyId: 'minioadmin',
+        secretAccessKey: 'minioadmin'
+      }
+    }),
+  ],
+})
+@@@@
+const server = new Server({
+  port: 1234,
+
+  // Max bytes buffered across all documents of one unauthenticated connection.
+  maxUnauthenticatedQueueSize: 5 * 1024 * 1024, // default: 5 MiB
+
+  // Max number of messages buffered for one unauthenticated connection.
+  maxUnauthenticatedQueueMessages: 1_000, // default: 1000
+
+  // Max number of documents one connection may open before authenticating any.
+  maxPendingDocuments: 100, // default: 100
+
+  // Connections that don't authenticate any document within `timeout` ms are
+  // closed. This deadline is not refreshed by inbound traffic.
+  timeout: 60_000, // default: 60s
+})
+@@@@
+const state1 = Y.encodeStateAsUpdate(ydoc1)
+const state2 = Y.encodeStateAsUpdate(ydoc2)
+Y.applyUpdate(ydoc1, state2)
+Y.applyUpdate(ydoc2, state1)
+@@@@
+const stateVector1 = Y.encodeStateVector(ydoc1)
+const stateVector2 = Y.encodeStateVector(ydoc2)
+const diff1 = Y.encodeStateAsUpdate(ydoc1, stateVector2)
+const diff2 = Y.encodeStateAsUpdate(ydoc2, stateVector1)
+Y.applyUpdate(ydoc1, diff2)
+Y.applyUpdate(ydoc2, diff1)
+@@@@
+const ydoc = new Y.Doc()
+// perform some changes..
+ydoc.getText().insert(0, 'hello world')
+const update = Y.encodeStateAsUpdate(ydoc)
+// the below update contains scrambled data
+const obfuscatedUpdate = Y.obfuscateUpdate(update)
+const ydoc2 = new Y.Doc()
+Y.applyUpdate(ydoc2, obfuscatedUpdate)
+ydoc2.getText().toString() // => "00000000000"
+@@@@
+const ymap = doc.getMap('map')
+const foodArray = new Y.Array()
+foodArray.insert(0, ['apple', 'banana'])
+ymap.set('food', foodArray)
+ymap.get('food') === foodArray // => true
+ymap.set('fruit', foodArray) // => Error! foodArray is already defined
+@@@@
+const ytext = doc.getText('text')
+const undoManager = new Y.UndoManager(ytext)
+
+ytext.insert(0, 'abc')
+undoManager.undo()
+ytext.toString() // => ''
+undoManager.redo()
+ytext.toString() // => 'abc'
+@@@@
+const ytext = doc.getText('text')
+const undoManager = new Y.UndoManager(ytext, {
+  trackedOrigins: new Set([42, CustomBinding])
+})
+
+undoManager.on('stack-item-added', event => {
+  // save the current cursor location on the stack-item
+  event.stackItem.meta.set('cursor-location', getRelativeCursorLocation())
+})
+
+undoManager.on('stack-item-popped', event => {
+  // restore the current cursor location on the stack-item
+  restoreCursorLocation(event.stackItem.meta.get('cursor-location'))
+})
+@@@@
+const { execSync } = require('child_process');
+const fs = require('fs');
+
+exports.default = async function(context) {
+  // Generate release notes after packaging
+  try {
+    console.log('Generating release notes...');
+    execSync('npm run release:notes -- --output dist/RELEASE_NOTES.md', {
+      stdio: 'inherit'
+    });
+  } catch (error) {
+    console.warn('Failed to generate release notes:', error.message);
+  }
+};
+@@@@
+export default {
+  transform: {
+    '^.+\\.svelte(\\.(js|ts))?$': 'svelte-jester',
+  },
+  transformIgnorePatterns: [
+    '/node_modules/(?!@testing-library/svelte/)',
+  ],
+  moduleFileExtensions: ['js', 'svelte', 'ts'],
+  extensionsToTreatAsEsm: ['.svelte'],
+  testEnvironment: 'jsdom',
+  setupFilesAfterEnv: ['<rootDir>/jest-setup.js'],
+}
+@@@@
+handleEventClick(event) {
+  console.log(event.detail)
+}
+@@@@
+import "@logseq/libs"
+@@@@
+import * as Y from "yjs"
+import { HocuspocusProvider } from "@hocuspocus/provider"
+
+const ydoc = new Y.Doc()
+
+const provider = new HocuspocusProvider({
+  url: "ws://127.0.0.1:1234",
+  name: "example-document",
+  document: ydoc,
+})
+@@@@
+import * as Y from 'yjs'
+@@@@
+import * as Y from 'yjs'
+import { WebrtcProvider } from 'y-webrtc'
+import { WebsocketProvider } from 'y-websocket'
+import { IndexeddbPersistence } from 'y-indexeddb'
+
+const ydoc = new Y.Doc()
+
+// this allows you to instantly get the (cached) documents data
+const indexeddbProvider = new IndexeddbPersistence('count-demo', ydoc)
+indexeddbProvider.whenSynced.then(() => {
+  console.log('loaded data from indexed db')
+})
+
+// Sync clients with the y-webrtc provider.
+const webrtcProvider = new WebrtcProvider('count-demo', ydoc)
+
+// Sync clients with the y-websocket provider
+const websocketProvider = new WebsocketProvider(
+  'wss://demos.yjs.dev', 'count-demo', ydoc
+)
+
+// array of numbers which produce a sum
+const yarray = ydoc.getArray('count')
+
+// observe changes of the sum
+yarray.observe(event => {
+  // print updates when the data changes
+  console.log('new sum: ' + yarray.toArray().reduce((a,b) => a + b))
+})
+
+// add 1 to the sum
+yarray.push([1]) // => "new sum: 1"
+@@@@
+import * as Y from 'yjs';
+
+const doc = new Y.Doc();
+const yarray = doc.getArray('my-array')
+yarray.observe(event => {
+  console.log('yarray was modified')
+})
+// every time a local or remote client modifies yarray, the observer is called
+yarray.insert(0, ['val']) // => "yarray was modified"
+@@@@
+import Audio from '@tiptap/extension-audio'
+
+editor = new Editor({
+  extensions: [Audio],
+})
+@@@@
+import FullCalendar from '@fullcalendar/preact'
+import classicThemePlugin from '@fullcalendar/preact/themes/classic'
+import dayGridPlugin from '@fullcalendar/preact/daygrid'
+
+import '@fullcalendar/preact/skeleton.css'
+import '@fullcalendar/preact/themes/classic/theme.css'
+import '@fullcalendar/preact/themes/classic/palette.css'
+
+<FullCalendar
+  plugins={[
+    dayGridPlugin,
+    classicThemePlugin,
+    // any other plugins
+  ]}
+  initialView='dayGridMonth'
+  weekends={false}
+  events={[
+    { title: 'Meeting', start: new Date() },
+  ]}
+/>
+@@@@
+import FullCalendar from '@fullcalendar/react'
+import classicThemePlugin from '@fullcalendar/react/themes/classic'
+import dayGridPlugin from '@fullcalendar/react/daygrid'
+
+import '@fullcalendar/react/skeleton.css'
+import '@fullcalendar/react/themes/classic/theme.css'
+import '@fullcalendar/react/themes/classic/palette.css'
+
+<FullCalendar
+  plugins={[
+    dayGridPlugin,
+    classicThemePlugin,
+    // any other plugins
+  ]}
+  initialView='dayGridMonth'
+  weekends={false}
+  events={[
+    { title: 'Meeting', start: new Date() },
+  ]}
+/>
+@@@@
+import RedisClient from "ioredis"
+
+new Redis({
+  redis: new RedisClient({ host: "127.0.0.1", port: 6379 }),
+})
+@@@@
+import rocketChatConfig from '@rocket.chat/eslint-config';
+
+export default rocketChatConfig;
+@@@@
+import rocketChatConfig from '@rocket.chat/eslint-config';
+import globals from 'globals';
+
+export default [
+	...rocketChatConfig,
+	{
+		ignores: ['build/**'],
+	},
+	{
+		files: ['src/**/*'],
+		languageOptions: {
+			globals: {
+				...globals.browser,
+			},
+		},
+	},
+];
+@@@@
+import {
+  HocuspocusProvider,
+  HocuspocusProviderWebsocket,
+} from "@hocuspocus/provider"
+
+const socket = new HocuspocusProviderWebsocket({ url: "ws://127.0.0.1:1234" })
+
+const doc1 = new HocuspocusProvider({ websocketProvider: socket, name: "doc-1" })
+const doc2 = new HocuspocusProvider({ websocketProvider: socket, name: "doc-2" })
+@@@@
+import { Calendar } from 'fullcalendar'
+import classicThemePlugin from 'fullcalendar/themes/classic'
+import dayGridPlugin from 'fullcalendar/daygrid'
+import googleCalendarPlugin from '@fullcalendar/google-calendar'
+
+import 'fullcalendar/skeleton.css'
+import 'fullcalendar/themes/classic/theme.css'
+import 'fullcalendar/themes/classic/palette.css'
+
+const calendarEl = document.getElementById('calendar')
+const calendar = new Calendar(calendarEl, {
+  plugins: [
+    googleCalendarPlugin,
+    dayGridPlugin,
+    classicThemePlugin
+  ],
+  initialView: 'dayGridMonth',
+  events: {
+    googleCalendarId: 'abcd1234@group.calendar.google.com'
+  }
+})
+
+calendar.render()
+@@@@
+import { Calendar } from 'fullcalendar'
+import classicThemePlugin from 'fullcalendar/themes/classic'
+import dayGridPlugin from 'fullcalendar/daygrid'
+import iCalendarPlugin from '@fullcalendar/icalendar'
+
+import 'fullcalendar/skeleton.css'
+import 'fullcalendar/themes/classic/theme.css'
+import 'fullcalendar/themes/classic/palette.css'
+
+const calendarEl = document.getElementById('calendar')
+const calendar = new Calendar(calendarEl, {
+  plugins: [
+    iCalendarPlugin,
+    dayGridPlugin,
+    classicThemePlugin
+  ],
+  initialView: 'dayGridMonth',
+  events: {
+    url: 'https://mywebsite.com/icalendar-feed.ics',
+    format: 'ics' // important!
+  }
+})
+
+calendar.render()
+@@@@
+import { Calendar } from 'fullcalendar'
+import classicThemePlugin from 'fullcalendar/themes/classic'
+import dayGridPlugin from 'fullcalendar/daygrid'
+import interactionPlugin from 'fullcalendar/interaction'
+
+import 'fullcalendar/skeleton.css'
+import 'fullcalendar/themes/classic/theme.css'
+import 'fullcalendar/themes/classic/palette.css'
+
+const calendarEl = document.getElementById('calendar')
+const calendar = new Calendar(calendarEl, {
+  plugins: [
+    classicThemePlugin,
+    dayGridPlugin,
+    interactionPlugin
+  ],
+  initialView: 'dayGridMonth',
+  editable: true,
+  events: [
+    { title: 'Meeting', start: new Date() }
+  ]
+})
+
+calendar.render()
+@@@@
+import { Calendar } from 'fullcalendar'
+import classicThemePlugin from 'fullcalendar/themes/classic'
+import dayGridPlugin from 'fullcalendar/daygrid'
+import luxon3Plugin from '@fullcalendar/format-luxon3'
+
+import 'fullcalendar/skeleton.css'
+import 'fullcalendar/themes/classic/theme.css'
+import 'fullcalendar/themes/classic/palette.css'
+
+const calendarEl = document.getElementById('calendar')
+const calendar = new Calendar(calendarEl, {
+  plugins: [
+    luxon3Plugin,
+    dayGridPlugin,
+    classicThemePlugin
+  ],
+  initialView: 'dayGridMonth',
+  titleFormat: 'LLLL d, yyyy', // use Luxon format strings
+})
+
+calendar.render()
+@@@@
+import { Calendar } from 'fullcalendar'
+import classicThemePlugin from 'fullcalendar/themes/classic'
+import dayGridPlugin from 'fullcalendar/daygrid'
+import momentPlugin from '@fullcalendar/format-moment'
+
+import 'fullcalendar/skeleton.css'
+import 'fullcalendar/themes/classic/theme.css'
+import 'fullcalendar/themes/classic/palette.css'
+
+const calendarEl = document.getElementById('calendar')
+const calendar = new Calendar(calendarEl, {
+  plugins: [
+    momentPlugin,
+    dayGridPlugin,
+    classicThemePlugin
+  ],
+  initialView: 'dayGridMonth',
+  titleFormat: 'MMMM D, YYYY' // use Moment format strings
+})
+
+calendar.render()
+@@@@
+import { Calendar } from 'fullcalendar'
+import dayGridPlugin from 'fullcalendar/daygrid'
+import bootstrapPlugin from '@fullcalendar/bootstrap5'
+
+import 'bootstrap/dist/css/bootstrap.css'
+import 'bootstrap-icons/font/bootstrap-icons.css'
+import 'fullcalendar/skeleton.css'
+import '@fullcalendar/bootstrap5/theme.css'
+
+const calendarEl = document.getElementById('calendar')
+const calendar = new Calendar(calendarEl, {
+  plugins: [
+    bootstrapPlugin,
+    dayGridPlugin
+  ],
+  initialView: 'dayGridMonth'
+})
+
+calendar.render()
+@@@@
+import { Calendar } from 'fullcalendar'
+import dayGridPlugin from 'fullcalendar/daygrid'
+import classicThemePlugin from 'fullcalendar/themes/classic'
+
+import 'fullcalendar/skeleton.css'
+import 'fullcalendar/themes/classic/theme.css'
+import 'fullcalendar/themes/classic/palette.css'
+
+const calendarEl = document.getElementById('calendar')
+const calendar = new Calendar(calendarEl, {
+  plugins: [
+    dayGridPlugin,
+    classicThemePlugin,
+    // any other plugins
+  ],
+  initialView: 'dayGridMonth',
+  weekends: false,
+  events: [
+    { title: 'Meeting', start: new Date() }
+  ]
+})
+
+calendar.render()
+@@@@
+import { Calendar } from 'fullcalendar'
+import dayGridPlugin from 'fullcalendar/daygrid'
+import classicThemePlugin from 'fullcalendar/themes/classic'
+import rrulePlugin from '@fullcalendar/rrule'
+
+import 'fullcalendar/skeleton.css'
+import 'fullcalendar/themes/classic/theme.css'
+import 'fullcalendar/themes/classic/palette.css'
+
+const calendarEl = document.getElementById('calendar')
+const calendar = new Calendar(calendarEl, {
+  plugins: [
+    rrulePlugin,
+    dayGridPlugin,
+    classicThemePlugin
+  ],
+  initialView: 'dayGridMonth',
+  events: [
+    {
+      title: 'Meeting',
+      rrule: {
+        freq: 'weekly',
+        byweekday: ['mo', 'fr']
+      }
+    }
+  ]
+})
+
+calendar.render()
+@@@@
+import { Hocuspocus } from "@hocuspocus/server"
+
+const hocuspocus = new Hocuspocus({ /* config */ })
+
+// pass any WebSocket-like instance + request + optional context:
+hocuspocus.handleConnection(ws, request, context)
+@@@@
+import { Server } from "@hocuspocus/server"
+
+const server = new Server({
+  port: 1234,
+
+  async onAuthenticate({ token }) {
+    if (token !== "super-secret-token") {
+      throw new Error("Not authorized!")
+    }
+  },
+
+  async onLoadDocument({ documentName }) {
+    // return a Y.Doc for new documents, or nothing to use the default empty doc
+  },
+
+  async onStoreDocument({ documentName, document }) {
+    // persist the Y.Doc binary state wherever you like
+  },
+})
+
+server.listen()
+@@@@
+import { Server } from "@hocuspocus/server"
+
+const server = new Server({
+  port: 1234,
+})
+
+server.listen()
+@@@@
+import { Server } from "@hocuspocus/server"
+import { Database } from "@hocuspocus/extension-database"
+
+const server = new Server({
+  extensions: [
+    new Database({
+      fetch: async ({ documentName }) => {
+        // return a Uint8Array of the stored Y.js update, or null for new documents
+        return await yourDb.findDocument(documentName)
+      },
+      store: async ({ documentName, state }) => {
+        // persist the binary Y.js state wherever you like
+        await yourDb.upsertDocument(documentName, state)
+      },
+    }),
+  ],
+})
+
+server.listen()
+@@@@
+import { Server } from "@hocuspocus/server"
+import { Logger } from "@hocuspocus/extension-logger"
+
+const server = new Server({
+  extensions: [new Logger()],
+})
+
+server.listen()
+@@@@
+import { Server } from "@hocuspocus/server"
+import { Redis } from "@hocuspocus/extension-redis"
+
+const server = new Server({
+  port: 1234,
+  extensions: [
+    new Redis({
+      host: "127.0.0.1",
+      port: 6379,
+    }),
+  ],
+})
+
+server.listen()
+@@@@
+import { Server } from "@hocuspocus/server"
+import { SQLite } from "@hocuspocus/extension-sqlite"
+
+const server = new Server({
+  extensions: [
+    new SQLite({ database: "db.sqlite" }),
+  ],
+})
+
+server.listen()
+@@@@
+import { Server } from "@hocuspocus/server"
+import { Throttle } from "@hocuspocus/extension-throttle"
+
+const server = new Server({
+  extensions: [new Throttle()],
+})
+
+server.listen()
+@@@@
+import { Server } from "@hocuspocus/server"
+import { Webhook, Events } from "@hocuspocus/extension-webhook"
+
+const server = new Server({
+  extensions: [
+    new Webhook({
+      url: "https://example.com/hocuspocus-webhook",
+      secret: "your-signing-secret",
+      events: [Events.onChange, Events.onConnect, Events.onDisconnect, Events.onCreate],
+    }),
+  ],
+})
+
+server.listen()
+@@@@
+import { Server } from '@hocuspocus/server'
+import { Logger } from '@hocuspocus/extension-logger'
+import { Redis } from '@hocuspocus/extension-redis'
+import { S3 } from '@hocuspocus/extension-s3'
+
+// Server 1
+const server1 = new Server({
+  name: "server-1",
+  port: 8001,
+  extensions: [
+    new Logger(),
+    new Redis({
+      host: "127.0.0.1",
+      port: 6379,
+    }),
+    new S3({
+      bucket: 'hocuspocus-documents',
+      endpoint: 'http://localhost:9000', // MinIO
+      forcePathStyle: true,
+      credentials: {
+        accessKeyId: 'minioadmin',
+        secretAccessKey: 'minioadmin'
+      }
+    }),
+  ],
+})
+
+// Server 2 - same configuration with different name/port
+const server2 = new Server({
+  name: "server-2", 
+  port: 8002,
+  extensions: [/* same extensions */],
+})
+
+server1.listen()
+server2.listen()
+@@@@
+import { Server } from '@hocuspocus/server'
+import { S3 } from '@hocuspocus/extension-s3'
+
+const server = new Server({
+  extensions: [
+    new S3({
+      bucket: 'my-documents-bucket',
+      region: 'us-east-1',
+      credentials: {
+        accessKeyId: 'your-access-key',
+        secretAccessKey: 'your-secret-key'
+      }
+    }),
+  ],
+})
+
+server.listen()
+@@@@
+import { Server } from '@hocuspocus/server'
+import { SQLite } from '@hocuspocus/extension-sqlite'
+
+const server = new Server({
+  port: 1234,
+
+  async onConnect() {
+    console.log('🔮')
+  },
+
+  extensions: [
+    new SQLite({
+      database: 'db.sqlite',
+    }),
+  ],
+});
+
+server.listen();
+@@@@
+import { appImplementsIPreFileUpload } from '../../data/apps/app-packages';
+import { installLocalTestPackage } from '../../data/apps/helper';
+
+describe('My tests', () => {
+	before(async () => {
+		await installLocalTestPackage(appImplementsIPreFileUpload);
+	});
+});
+@@@@
+import { createDatePicker } from '@schedule-x/date-picker'
+import '@schedule-x/theme-default/dist/date-picker.css'
+
+const config = {
+  /**
+   * Set the language. Currently supports: 'en-US', 'en-GB', 'de-DE', 'zh-CN' and 'sv-SE'
+   * For support of further languages, please open a PR, adding your translations under the folder:
+   * packages/translations/src/locales/xx-XX
+   *
+   * Defaults to 'en-US'
+   * */
+  locale: 'zh-CN',
+
+  /**
+   * Set which day is to be considered the starting day of the week. 0 = Sunday, 1 = Monday, (...other days) 6 = Saturday
+   * Defaults to 1 (Monday)
+   * */
+  firstDayOfWeek: 0,
+
+  /**
+   * The default date to display when the calendar is first rendered. Only accepts YYYY-MM-DD format.
+   * Defaults to the current date
+   * */
+  selectedDate: '2023-12-24',
+
+  /**
+   * The label to display in the input field when no date has been selected.
+   */
+  label: 'Select a date',
+
+  /**
+   * The name of the date picker input field
+   */
+  name: 'date-picker',
+
+  /**
+   * An HTML element to which the date picker popup will be appended when opened.
+   * */
+  teleportTo: document.body,
+
+  /**
+   * The placement of the date picker popup in relation to the input field
+   * Available values: 'top-start', 'top-end', 'bottom-start', 'bottom-end'
+   * Defaults to 'bottom-start'
+   * */
+  placement: 'bottom-end',
+
+  /**
+   * The minimum date that a user can select. Only accepts YYYY-MM-DD format.
+   * Defaults to 1970-01-01
+   * */
+  min: '2020-01-01',
+
+  /**
+   * The maximum date that a user can select. Only accepts YYYY-MM-DD format.
+   * Defaults to December 31st of the year following the current year
+   */
+  max: '2025-01-01',
+
+  style: {
+    /**
+     * Render the date picker in dark mode.
+     * Defaults to false
+     */
+    isDark: true,
+
+    /**
+     * Set the width of the date picker wrapper to 100%. Particularly useful for small screens.
+     * Defaults to false
+     */
+    fullWidth: true,
+  },
+
+  listeners: {
+    /**
+     * Callback function that is called when the user selects a date.
+     * @param {string} date - The date that the user selected, in YYYY-MM-DD format
+     */
+    onChange: (date) => {
+      console.log('date changed', date)
+    },
+
+    /**
+     * Called when the user presses the escape key while the date picker popup is open.
+     * */
+    onEscapeKeyDown: ($app) => {
+      // 1. do something else first and then...
+      $app.timePickerState.isOpen.value = false // 2. close the popup
+    },
+  },
+}
+
+const datePicker = createDatePicker(config)
+datePicker.render(document.getElementById('date-picker'))
+@@@@
+import { createDatePicker } from '@schedule-x/date-picker'
+import '@schedule-x/theme-default/dist/date-picker.css'
+
+const datePicker = createDatePicker({
+  listeners: {
+    onChange: (date) => {
+      console.log('date changed', date)
+    },
+  },
+})
+datePicker.render(document.getElementById('date-picker'))
+@@@@
+import { get } from '../__mocks__/svelte-store.js'
+
+test('store behavior', () => {
+  const store = writable(0)
+  store.set(5)
+  
+  expect(get(store)).toBe(5)
+  expect(store._getSubscriberCount()).toBe(0)
+})
+@@@@
+import { parse } from './grammar.pegjs';
+
+const ast = parse('input text');
+@@@@
+import { render, screen, fireEvent } from '@testing-library/svelte'
+import MyComponent from './MyComponent.svelte'
+
+test('renders and handles click', async () => {
+  render(MyComponent, { props: { title: 'Hello' } })
+  
+  const button = screen.getByRole('button')
+  await fireEvent.click(button)
+  
+  expect(screen.getByText('Clicked!')).toBeInTheDocument()
+})
+@@@@
+module.exports = {
+  preset: 'ts-jest',
+  testEnvironment: 'node',
+  testMatch: ['**/?(*.)+(spec|test).[jt]s?(x)'],
+  roots: ['./src'],
+  collectCoverage: true, // ✅ Enabled by default
+  coverageReporters: ['text-summary', 'html', 'lcov'], // ✅ LCOV format
+  coverageDirectory: 'coverage' // ✅ Output directory
+}
+@@@@
+new HocuspocusProvider({
+  url: "wss://collab.example.com",
+  name: "example-document",
+  document: ydoc,
+  token: "super-secret-token",
+})
+@@@@
+new Logger({
+  log: (...args) => myLogger.info({ msg: args.join(" ") }),
+})
+@@@@
+new Logger({
+  onConnect: false,
+  onDisconnect: false,
+  onChange: false,
+})
+@@@@
+new Redis({
+  host: "127.0.0.1",
+  port: 6379,
+  awaitInitialSyncTimeout: 1000,
+})
+@@@@
+new Throttle({
+  throttle: 30,          // allowed connection attempts per window
+  consideredSeconds: 60, // window length in seconds
+  banTime: 5,            // ban duration in minutes
+})
+@@@@
+parent.postMessage({ type: 'rocketchat:conference', command: 'set-call-bar-visible', visible: false }, '*');
+parent.postMessage({ type: 'rocketchat:conference', command: 'set-chat-visible', visible: true }, '*');
+parent.postMessage({ type: 'rocketchat:conference', command: 'toggle-chat' }, '*');
+@@@@
+parserOptions: {
+    ecmaVersion: 'latest',
+    sourceType: 'module',
+    project: ['./tsconfig.json', './tsconfig.node.json'],
+    tsconfigRootDir: __dirname,
+   },
+@@@@
+self.addEventListener('push', event => {
+  const data = event.data ? event.data.json() : {};
+  
+  const options = {
+    body: data.body,
+    icon: data.icon,
+    badge: data.badge,
+    tag: data.tag,
+    data: { url: data.url }
+  };
+
+  event.waitUntil(
+    self.registration.showNotification(data.title, options)
+  );
+});
+
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  
+  if (event.notification.data?.url) {
+    event.waitUntil(
+      clients.openWindow(event.notification.data.url)
+    );
+  }
+});
+@@@@
+settingsRegistry.addGroup('Settings_Group', function() {
+    this.add('SettingInGroup', 'default_value', { type: 'boolean', public: true });
+
+    this.section('Group_Section', function() {
+        this.add('Setting_Inside_Section', 'default_value', {
+            type: 'boolean',
+            public: true,
+            enableQuery: {
+                _id: 'SettingInGroup',
+                value: true
+            }
+        });
+    });
+});
+@@@@
+this.calendarOptions = {
+  ...this.calendarOptions,
+  weekends: !this.calendarOptions.weekends,
+}
+@@@@
+var lexer = new marked.Lexer(options);
+var tokens = lexer.lex(text);
+console.log(tokens);
+console.log(lexer.rules);
+@@@@
+var marked = require('marked');
+
+var markdownString = '```js\n console.log("hello"); \n```';
+
+// Async highlighting with pygmentize-bundled
+marked.setOptions({
+  highlight: function (code, lang, callback) {
+    require('pygmentize-bundled')({ lang: lang, format: 'html' }, code, function (err, result) {
+      callback(err, result.toString());
+    });
+  }
+});
+
+// Using async version of marked
+marked(markdownString, function (err, content) {
+  if (err) throw err;
+  console.log(content);
+});
+
+// Synchronous highlighting with highlight.js
+marked.setOptions({
+  highlight: function (code) {
+    return require('highlight.js').highlightAuto(code).value;
+  }
+});
+
+console.log(marked(markdownString));
+@@@@
+var marked = require('marked');
+console.log(marked('I am using __markdown__.'));
+// Outputs: <p>I am using <strong>markdown</strong>.</p>
+@@@@
+var marked = require('marked');
+marked.setOptions({
+  renderer: new marked.Renderer(),
+  gfm: true,
+  tables: true,
+  breaks: false,
+  pedantic: false,
+  sanitize: true,
+  smartLists: true,
+  smartypants: false
+});
+
+console.log(marked('I am using __markdown__.'));
+@@@@
+var marked = require('marked');
+var renderer = new marked.Renderer();
+
+renderer.heading = function (text, level) {
+  var escapedText = text.toLowerCase().replace(/[^\w]+/g, '-');
+
+  return '<h' + level + '><a name="' +
+                escapedText +
+                 '" class="anchor" href="#' +
+                 escapedText +
+                 '"><span class="header-link"></span></a>' +
+                  text + '</h' + level + '>';
+},
+
+console.log(marked('# heading+', { renderer: renderer }));
+@@@@
+var tokens = marked.lexer(text, options);
+console.log(marked.parser(tokens));
+@@@@
+{
+	test: /\.pegjs$/,
+	use: {
+		loader: '@rocket.chat/peggy-loader',
+		options: {
+			allowedStartRules: ['Start', 'Inline'],
+			cache: true,
+		},
+	},
+}
+@@@@
+{
+    header: true || false,
+    align: 'center' || 'left' || 'right'
+}

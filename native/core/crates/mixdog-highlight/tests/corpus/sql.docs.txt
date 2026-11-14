@@ -1,0 +1,7 @@
+SELECT "__id" AS rid, "Dan_Xing_Wen_Ben" AS yid, "Yong_Li_Xu_Hao" AS seq,
+       "Yong_Li_Biao_Ti" AS title, "Bei_Zhu" AS note
+FROM "bserJ2pmgiLHFHfXNwE"."tblhjrcP0ZgLtKdbkIz"
+WHERE "Bei_Zhu" LIKE '%FIELD-REQ-20261012%'
+ORDER BY "Yong_Li_Xu_Hao"
+@@@@
+UPDATE users SET admin = 1 WHERE name = '@foo:bar.com';

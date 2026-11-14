@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Title &amp; more &lt;tag&gt; &copy; &#169;</title>
+  <style type="text/css">body { color: red; } .a > b { margin: 0 }</style>
+  <script>var x = 1; function f() { return "</div>"; } // c</script>
+  <script type="text/template"><div>{{ name }}</div></script>
+</head>
+<body class="a b" data-x='1' hidden>
+  <!-- comment -->
+  <a href="http://example.com/?a=1&amp;b=2" onclick="go()">link</a>
+  <input type=text disabled value=x>
+  <![CDATA[ raw <data> ]]>
+  <ns:tag xmlns:ns="urn:x" attr="v"><child/></ns:tag>
+  <svg viewBox="0 0 10 10"><path d="M0 0L10 10"/></svg>
+</body>
+</html>
+@@@@
+<root><item id="1">a</item><item id="2"><![CDATA[x]]></item></root>
+@@@@
+<div><script>
+const a = { b: 1 };
+</script><style>.a{color:red}</style><p>text</p></div>

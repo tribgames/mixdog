@@ -1,0 +1,39 @@
+# nr-tui-hljs-engine: the new crate mixdog-highlight (highlight.js 10.7.3 engine + cli-highlight 2.1.11 ANSI conversion).
+# Nothing here is applied by the task; the lead applies it with the wave.
+
+[native/core/Cargo.toml]
+anchor: [workspace] members = [ ... ]  (after the entry "crates/mixdog-js",)
+add:    "crates/mixdog-highlight",
+
+anchor: [workspace.dependencies] (right after the line `mixdog-js = { path = "crates/mixdog-js" }`)
+add:    mixdog-highlight = { path = "crates/mixdog-highlight" }
+
+[native/core/Cargo.lock]
+anchor: between the [[package]] entries "mixdog-graph" and "mixdog-js" (alphabetical)
+add (what `cargo metadata --offline` writes; no new external crate, all three dependencies are already in the lock):
+    [[package]]
+    name = "mixdog-highlight"
+    version = "1.5.0"
+    dependencies = [
+     "mixdog-js",
+     "regress",
+     "serde_json",
+    ]
+
+[native/core/crates/mixdog-workspace-hack/Cargo.toml]
+nothing: regress, serde_json and mixdog-js are used with the features other members already enable; the crate
+adds the regress feature "utf16" in its own Cargo.toml (`regress = { workspace = true, features = ["utf16"] }`),
+which changes no lock entry. If `cargo hakari generate --diff` reports regress (feature utf16) after the crate
+joins the workspace, apply exactly what `cargo hakari generate` writes.
+
+[native/core/crates/mixdog-app-server-daemon/src/compose_flip.rs]
+nothing: the crate registers no protocol method.
+
+[consumers]
+mixdog-markdown-ansi (task nr-tui-md-format) adds `mixdog-highlight = { workspace = true }` to its Cargo.toml and
+calls `mixdog_highlight::{supports_language, highlight_ansi, HighlightTheme, SgrStyle}`.
+
+[verify]
+cargo test --offline -p mixdog-highlight
+cargo test --offline -p mixdog-highlight -- --ignored live_highlight
+cargo clippy --offline -p mixdog-highlight --all-targets -- -D warnings

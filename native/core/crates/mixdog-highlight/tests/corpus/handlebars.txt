@@ -1,0 +1,12 @@
+<div class="entry {{#if active}}on{{/if}}">
+  <h1>{{title}}</h1>
+  {{!-- comment --}} {{! short }}
+  {{#each items as |item idx|}}
+    <p>{{{item.html}}} {{item.name}} {{> partial arg=1}}</p>
+  {{else}}
+    none
+  {{/each}}
+  {{#with person}}{{name}}{{/with}}
+  {{helper "str" 'single' 42 true key=value}}
+  {{#unless x}}<script>var a = {{json a}};</script>{{/unless}}
+</div>

@@ -1,0 +1,13 @@
+{
+  "name": "mixdog", "version": 1.5, "private": true, "n": null, "neg": -1.5e-3,
+  "list": [1, 2.0, "three", false, {"deep": {"a": []}}],
+  "esc": "tab\t quote\" unicode \u00e9 slash \\",
+  // comment line
+  /* block */
+  "empty": {}
+}
+@@@@
+[1, 2, 3, "a", true, false, null, {"k": "v"}]
+@@@@
+{"a": 1,}
+not json at all {

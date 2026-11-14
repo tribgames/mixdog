@@ -1,0 +1,14 @@
+-- comment
+/* block */
+CREATE TABLE IF NOT EXISTS users (
+  id SERIAL PRIMARY KEY, name VARCHAR(255) NOT NULL DEFAULT 'anon', age INT CHECK (age >= 0),
+  created TIMESTAMP DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (id) REFERENCES other(id) ON DELETE CASCADE
+);
+SELECT u.id, COUNT(*) AS n, SUM(o.total) / 100.0 AS t, 'it''s' AS s
+FROM users u LEFT JOIN orders o ON o.user_id = u.id
+WHERE u.age BETWEEN 18 AND 65 AND u.name LIKE 'A%' OR u.id IN (1, 2, 3) AND x IS NOT NULL
+GROUP BY u.id HAVING COUNT(*) > 1 ORDER BY n DESC LIMIT 10 OFFSET 5;
+INSERT INTO users (name, age) VALUES ('a', 1), ("b", 2.5e3);
+UPDATE users SET age = age + 1 WHERE id = 7; DELETE FROM users WHERE id < 0;
+WITH cte AS (SELECT 1) SELECT * FROM cte UNION ALL SELECT 2;
+BEGIN; COMMIT; ROLLBACK; ALTER TABLE t ADD COLUMN c INT; DROP INDEX idx;

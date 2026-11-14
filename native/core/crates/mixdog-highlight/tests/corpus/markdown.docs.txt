@@ -1,0 +1,71 @@
+# ADR NNN: Title stating the decision area
+
+|              |                                            |
+| ------------ | ------------------------------------------ |
+| Status       | Proposed                                   |
+| Date         | YYYY-MM-DD                                 |
+| Issue        | https://github.com/baserow/baserow/issues/ |
+| Author       | Name (@github-handle)                      |
+| Contributors | Name (@github-handle)                      |
+
+## Summary
+
+Two or three sentences: the problem and the decision taken.
+
+## Context
+
+What exists today, the constraints, and what is in and out of scope. Define any terms
+the rest of the record relies on, in a table if there are several.
+
+## Decision
+
+What we will do. Split into numbered subsections when the decision has several parts.
+
+## Options considered (optional)
+
+| Option | Why not |
+| ------ | ------- |
+|        |         |
+
+Use a subsection per option with pros and cons instead when the trade-off needs more
+than a line.
+
+## Consequences
+
+What becomes easier or harder, new costs and risks, and follow-up work.
+
+## Revisit triggers (optional)
+
+Conditions under which this decision should be reopened.
+@@@@
+# Release Notes: v0.51.18-alpha
+
+Changes from v0.51.17-alpha to v0.51.18-alpha
+
+Generated: 2025-12-02T10:00:00.000Z
+
+## 🔴 Urgent
+
+### JS-8441: Fix critical authentication bug
+Brief description of the task from Linear...
+
+**Details:** Status: Done | Assignee: John Doe | Labels: bug, security
+
+**Commits:**
+- `de7281a` JS-8441: fix
+
+## 🟠 High Priority
+
+### JS-7802: Improve performance
+...
+
+## 📝 Other Commits
+
+- `153c1a9` fix crash
+- `7956004` add analyticsSpaceId
+@@@@
+- [My Cool Protocol](usage/configuration/user_authentication/single_sign_on/my_cool_protocol.md)
+@@@@
+| Header 1 | Header 2 |
+| -------- | :------: |
+| Cell 1   |  Cell 2  |
