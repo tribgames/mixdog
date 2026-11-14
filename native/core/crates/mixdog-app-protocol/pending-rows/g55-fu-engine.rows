@@ -1,0 +1,87 @@
+# g55-fu-engine: what the Rust browser engine needs of the protocol to carry over what the TypeScript engine did and the reviews of
+# s4-engine-actions-observe-nav and s4-engine-actions-upload found missing. Three additions, all optional on the wire except the new method:
+#   1. host/browser/upload/receiver: the frame document key (CDP session, frame id, loader id, URL: ref-upload.ts frameOfObject) of the element a
+#      ref names, or of the picker the page already opened. The approval binds it, and host/browser/upload compares it again before each dispatch.
+#      Without it the engine bound an empty key and the host skipped its frame comparison.
+#   2. BrowserPageReadOptions.attributes / .limit: a selector read (extract) names the attributes it wants (up to 12, as the old extract) and how many
+#      matches it takes; the host answered only href, src, alt, title, name and value.
+#   3. HostBrowserEmulationResult.labels: what the host configured in the command's words, the siblings of a group the page kept included (a locale
+#      beside a new user agent), so the emulate reply names them as the old one did (emulation.ts configureEmulation's `applied`).
+# The Rust that uses them is mixdog-browser-engine actions/upload.rs `receiver`, actions/observe.rs `extract`, actions/emulation.rs `emulate`, port.rs `upload_receiver`; the desktop side is
+# apps/desktop/src/main/host/browser-engine/{upload,page,session}.ts and browser/host-policy.ts (done). The crate does not compile until these edits are applied.
+
+[methods]
+# none (host methods are server requests)
+
+[server_requests]
+Beside HostBrowserUpload (after it):
+
+    /// The frame document an upload would land in now: the one the ref's element lives in, or the picker the page already opened (no ref).
+    HostBrowserUploadReceiver => "host/browser/upload/receiver" {
+        params: HostBrowserUploadReceiverParams,
+        result: HostBrowserUploadReceiverResult,
+        requires: Some("host.browserEngine"),
+    },
+
+[notifications]
+# none
+
+[inventory]
+# none
+
+[free_text]
+# native/core/crates/mixdog-app-protocol/src/free_text.rs: beside the (Kind::Answer, "host/browser/upload", ...) entry add
+#     (Kind::Answer, "host/browser/upload/receiver", &["/key", "/url", "/facts/title", "/facts/fault", "/facts/pendingDialog/message", "/facts/pendingDialog/defaultPrompt", "/facts/dismissedDialog/message"]),
+# and the same paths in tests/it/free_text_fields.json (the key and the url carry the page's address).
+
+[type_edits]
+# file: native/core/crates/mixdog-app-protocol/src/v2/browser_engine.rs
+# 1. After HostBrowserUploadResult add (derives and attrs exactly as HostBrowserUploadParams):
+
+    /// `host/browser/upload/receiver`: the frame document that would receive an upload now. With a `ref`, the document the element lives in, read from the
+    /// element itself (the same frame of the same origin and a cross-origin one are told apart; a reload to the same URL is a new document); without one,
+    /// the document of the picker the page already opened. `key` is what an approval binds and `host/browser/upload` compares again before it dispatches;
+    /// `url` is what the approval card shows. A document that cannot be identified is a -32000 failure.
+    pub struct HostBrowserUploadReceiverParams {
+        pub page_id: String,
+        /// The snapshot the ref belongs to; read only with a ref.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub snapshot_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[serde(rename = "ref")]
+        #[cfg_attr(feature = "codegen", ts(rename = "ref"))]
+        pub ref_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub expect: Option<Precondition>,
+    }
+
+    pub struct HostBrowserUploadReceiverResult {
+        pub key: String,
+        pub url: String,
+        pub facts: PageFacts,
+    }
+
+# 2. BrowserPageReadOptions: add after `offset`:
+
+    /// With a `selector`: the attributes of each match to bring back (at most 12; the host's own six when none is named).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attributes: Option<Vec<String>>,
+    /// With a `selector`: how many matches to take rows of (the count of all of them is still answered).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+
+# 3. HostBrowserEmulationResult: add after `applied`:
+
+    /// What the host configured, in the command's words (`userAgent`, `locale=ko-KR`, `media`, ...), the siblings of a group the page kept included.
+    /// Absent when overrides were cleared. (The struct has no `ts(optional_fields)`, so the field says it is optional itself.)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(optional))]
+    pub labels: Option<Vec<String>>,
+
+# After the change the generated schema files and packages/protocol/src/index.ts carry the new types and fields (and the client method table the new request).
+
+[remove]
+# none
+
+[window]
+# none (host/* requests are served by the desktop host, not a window method)

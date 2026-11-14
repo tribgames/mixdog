@@ -85,9 +85,10 @@ fn compact(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// The key that selects everything in the field being typed into.
+/// The key that selects everything in the field being typed into. The modifier is the shortcut one of the machine the page is on
+/// (the host resolves `ControlOrMeta`: Command on macOS, Control elsewhere), which is not always the machine this core runs on.
 fn select_all() -> (&'static str, &'static [&'static str]) {
-    ("a", if cfg!(target_os = "macos") { &["Meta"] } else { &["Control"] })
+    ("a", &["ControlOrMeta"])
 }
 
 impl RefActions {
