@@ -14,6 +14,14 @@ use mixdog_browser_policy::timing::HostPhaseTimes;
 use mixdog_browser_policy::timing::Phase;
 use mixdog_rt::time::Instant;
 
+/// Runs `operation` inside `phase` of the command's timing row when the command keeps one.
+pub async fn timed<T>(timer: Option<&CommandTimer>, phase: Phase, operation: impl Future<Output = T>) -> T {
+    match timer {
+        Some(timer) => timer.phase(phase, operation).await,
+        None => operation.await,
+    }
+}
+
 /// The clock and the record of one running command.
 pub struct CommandTimer {
     origin: Instant,
@@ -96,6 +104,17 @@ mod tests {
         let timing = timer.finish();
         assert_eq!(timing.input_ms, 6.5);
         assert_eq!(timing.steps.map(|steps| steps.len()), Some(6));
+    }
+
+    #[tokio::test]
+    async fn the_target_and_actionability_waits_are_entered_on_the_commands_row_and_a_page_with_none_runs_them_bare() {
+        let timer = CommandTimer::start(0.0);
+        let slept = || async { std::thread::sleep(std::time::Duration::from_millis(3)) };
+        timed(Some(&timer), Phase::Target, slept()).await;
+        timed(Some(&timer), Phase::Actionability, slept()).await;
+        assert_eq!(timed(None, Phase::Actionability, async { 7 }).await, 7);
+        let timing = timer.finish();
+        assert!(timing.target_ms >= 3.0 && timing.actionability_ms >= 3.0, "{timing:?}");
     }
 
     #[tokio::test]

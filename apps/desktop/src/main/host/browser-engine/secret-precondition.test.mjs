@@ -21,6 +21,7 @@ import { registerRefCall } from './ref-call.ts';
 import { registerRefMint } from './ref-mint.ts';
 import { registerScreenshot } from './screenshot.ts';
 import { createInterceptTable, registerSession } from './session.ts';
+import { registerSignIn } from './signin.ts';
 import { registerSnapshot } from './snapshot.ts';
 import { registerUpload } from './upload.ts';
 import { createTranscriptTap } from './transcript.ts';
@@ -240,6 +241,10 @@ const PARAMS = {
   'host/browser/downloads': { sessionId: 's1', op: 'list' },
   'host/browser/upload': { pageId: 'p1', paths: ['x'], expect: { documentId: DOC } },
   'host/browser/upload/receiver': { pageId: 'p1', snapshotId: 's', ref: 'e1', expect: { documentId: DOC } },
+  'host/browser/revision': { pageId: 'p1' },
+  'host/browser/signIn': { sessionId: 's1', pageId: 'p1', op: 'afterCommand', turn: 1 },
+  'host/browser/credentials/fill': { pageId: 'p1', account: 'work' },
+  'host/browser/turn': { sessionId: 's1', op: 'end', turn: 1 },
 };
 
 const SESSION_DEPS = ['partitionSession', 'evaluate', 'invalidateInteractionState', 'applyFetchPatterns', 'tracesByGuest', 'processMemoryMb', 'pause', 'emulation', 'downloads', 'urlPolicy'];
@@ -298,6 +303,7 @@ test('after a typed secret and a submit, no engine reply, error, event or transc
       intercept: createInterceptTable(),
     });
     registerUpload(connection, ctx, { host: leaky(), invalidateInteractionState: leaky() });
+    registerSignIn(connection, ctx, leaky(), leaky());
 
     // Every method the protocol lists is served, so none is left out of the scan.
     const names = engineMethods();

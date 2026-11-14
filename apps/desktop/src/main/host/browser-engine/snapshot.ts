@@ -25,6 +25,7 @@ import { documentIdOf } from './precondition';
 import { registerEngineMethod } from './registry';
 
 export const HOST_BROWSER_SNAPSHOT = 'host/browser/snapshot';
+export const HOST_BROWSER_REVISION = 'host/browser/revision';
 
 /** What the snapshot handler needs of the desktop's snapshot capture. */
 export interface SnapshotHost {
@@ -34,6 +35,8 @@ export interface SnapshotHost {
     command: BrowserCommand,
     signal?: AbortSignal
   ): Promise<BrowserSnapshotPayload>;
+  /** `documents.revision`: the observation revision of every frame of the page now (one `|`-joined string), read without a capture. */
+  revision(guest: WebContents, signal?: AbortSignal): Promise<string>;
 }
 
 const MODES: ReadonlySet<string> = new Set<BrowserSnapshotMode>(['full', 'interactive', 'query', 'viewport']);
@@ -80,6 +83,13 @@ function parseFrame(value: unknown): FrameRef | undefined {
 }
 
 export function registerSnapshot(connection: HostConnection, ctx: EngineContext, host: SnapshotHost): void {
+  // The revision the page has now, as the same number a snapshot answers: a visual grounding is current only while the two agree, and
+  // a capture to read it would retire the refs the agent holds.
+  registerEngineMethod(connection, ctx, HOST_BROWSER_REVISION, async (_params, signal, page) => {
+    const observation = await host.revision(page.guest, signal);
+    return { revision: revisionNumber(observation), observation };
+  });
+
   registerEngineMethod(connection, ctx, HOST_BROWSER_SNAPSHOT, async (params, signal, page) => {
     const { mode, query } = params;
     if (typeof mode !== 'string' || !MODES.has(mode)) {
