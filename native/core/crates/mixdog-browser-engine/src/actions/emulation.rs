@@ -272,14 +272,19 @@ pub fn plan(input: &Map<String, Value>) -> Result<EmulationPlan, PageActionError
 /// changed; the caller reports the page afterwards and puts [`configured_reply`] around it. The caller also drops the refs it holds:
 /// an override changes the page.
 pub async fn emulate(call: &PageCall<'_>, input: &Map<String, Value>) -> Result<Vec<String>, PageActionError> {
-    let plan = plan(input)?;
+    let mut plan = plan(input)?;
     if plan.reset {
         let clear = HostBrowserEmulationParams { page_id: call.page_id.to_owned(), overrides: None };
         call.host.emulation(clear, call.cancel).await?;
     }
     if let Some(spec) = plan.spec {
         let overrides = HostBrowserEmulationParams { page_id: call.page_id.to_owned(), overrides: Some(spec) };
-        call.host.emulation(overrides, call.cancel).await?;
+        let answer = call.host.emulation(overrides, call.cancel).await?;
+        // The host says what it configured in the command's words, the siblings of a group the page kept (a locale beside a new user
+        // agent, a motion preference beside a new color scheme) included: the reply names those too.
+        if let Some(labels) = answer.labels {
+            plan.applied = plan.reset.then(|| "reset".to_owned()).into_iter().chain(labels).collect();
+        }
     }
     Ok(plan.applied)
 }
@@ -415,6 +420,17 @@ mod tests {
         let call = PageCall { host: &only, page_id: "p1", cancel: &cancel };
         assert_eq!(emulate(&call, &input(json!({"reset": true}))).await.expect("emulated"), ["reset"]);
         only.finish().expect("script");
+    }
+
+    #[tokio::test]
+    async fn the_reply_names_the_siblings_the_host_kept_of_a_group() {
+        let host = FakeHost::scripted(vec![
+            Expect::ok("host/browser/emulation", json!({"applied": {"userAgent": "UA"}, "labels": ["userAgent", "locale=ko-KR"], "facts": page_facts("p1", 3)})),
+        ]);
+        let cancel = CancellationToken::new();
+        let call = PageCall { host: &host, page_id: "p1", cancel: &cancel };
+        let applied = emulate(&call, &input(json!({"userAgent": "UA"}))).await.expect("emulated");
+        assert_eq!(applied, ["userAgent", "locale=ko-KR"]);
     }
 
     #[test]

@@ -34,10 +34,10 @@ use crate::error::HostCallError;
 use crate::limits::POSTCONDITION_POLL;
 
 /// The most text one read returns over the wire (`READ_MAX_CHARS_WIRE` of the host): a longer text is read in parts of this size.
-const POSTCONDITION_READ_CHARS: u32 = 120_000;
+pub(crate) const POSTCONDITION_READ_CHARS: u32 = 120_000;
 /// The most parts one text is read in: the host refuses a page text past a million characters (the observation limit), so a
 /// read that has not ended by then is not going to.
-const POSTCONDITION_READ_PARTS: usize = 10;
+pub(crate) const POSTCONDITION_READ_PARTS: usize = 10;
 
 /// What the caller asked of the wait besides the command's own `expect` and `settleMs` (`BrowserSnapshotResultOptions`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -127,7 +127,7 @@ async fn read_page_text(page: &Page<'_>, cancel: &CancelView) -> Result<Option<S
         let params = HostBrowserPageReadParams {
             page_id: page.id.to_string(),
             kind: BrowserPageReadKind::Text,
-            options: Some(BrowserPageReadOptions { max_chars: Some(POSTCONDITION_READ_CHARS), frame: None, selector: None, include_hidden: None, offset }),
+            options: Some(BrowserPageReadOptions { max_chars: Some(POSTCONDITION_READ_CHARS), frame: None, selector: None, include_hidden: None, offset, attributes: None, limit: None }),
         };
         let read = page.host.page_read(params, cancel.token()).await;
         throw_if_cancelled(cancel)?;

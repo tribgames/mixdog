@@ -614,8 +614,13 @@ export function registerSession(connection: HostConnection, ctx: EngineContext, 
       throw invalid('emulation overrides must be an object or null');
     }
     const overrides = (params.overrides ?? null) as EmulationSpec | null;
-    const applied = await page.guarded(expectOf(params), () => deps.emulation.applyAgent(page.guest, overrides, signal));
-    return { applied };
+    let labels: string[] | undefined;
+    const applied = await page.guarded(expectOf(params), () =>
+      deps.emulation.applyAgent(page.guest, overrides, signal, (configured) => {
+        labels = configured;
+      })
+    );
+    return { applied, ...(labels ? { labels } : {}) };
   });
 
   // Downloads (per session, not per page)

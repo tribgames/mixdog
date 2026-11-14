@@ -129,6 +129,7 @@ export const ENGINE_REQUEST_METHODS: readonly string[] = [
   'host/browser/snapshot',
   'host/browser/storage',
   'host/browser/upload',
+  'host/browser/upload/receiver',
 ];
 export const ENGINE_NOTIFICATION_METHODS: readonly string[] = ['host/browser/lease/release'];
 
