@@ -23,6 +23,7 @@ Where the daemon is composed (the place that builds `DaemonLog` and the `Lifecyc
         run_cancel.clone(),
         Arc::new(|| serde_json::Value::Null),          // or Executors::diagnostics() as JSON: kept in a lag profile's "state"
     );
+    telemetry.boot();                                  // once the daemon is ready (Node: emit('boot') before start())
     tokio::spawn(telemetry.clone().run(run_cancel.clone()));
 
 and call `telemetry.note_activity()` where Node called `noteDaemonActivity()` (start and settle of every call on both front doors:
