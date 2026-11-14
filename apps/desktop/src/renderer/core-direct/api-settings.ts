@@ -24,6 +24,7 @@ import type { DirectKey } from '../../shared/desktop-api-split';
 import { createOperationLane, watchAnnouncements } from '../../shared/core-lanes/desktop-operation-route';
 import { remotePagedMember } from '../../shared/core-lanes/remote-reads';
 import { readActivityRailPins } from '../../shared/core-lanes/section-reads';
+import { windowOfReply } from './client.ts';
 import type { DirectContext } from './context.ts';
 import { withDirectErrors } from './errors.ts';
 
@@ -195,9 +196,19 @@ export function createSettingsApi(ctx: DirectContext): SettingsApi {
     // This PC's window through the host, a paired device through the relay: the core decides.
     sendTestNotification: (deviceId) =>
       withDirectErrors(ctx.call('notify/test', { target: deviceId }) as Promise<{ ok: boolean; message?: string }>),
-    // Settings > Appearance: the font families installed on this computer.
+    // Settings > Appearance: the font families installed on this computer. A server window asks this PC's core (main's
+    // handler used pcCore), never the server's.
     listSystemFonts: () =>
-      withDirectErrors(ctx.call('desktop/fonts/list', {}).then((reply) => (reply as { families: string[] }).families)),
+      withDirectErrors(
+        (async () => {
+          const pc = ctx.pcClient();
+          const onServer = pc ? windowOfReply(pc.server)?.role?.startsWith('server:') === true : false;
+          const reply = onServer
+            ? await (pc as unknown as { call(method: string, params: unknown): Promise<unknown> }).call('desktop/fonts/list', {})
+            : await ctx.call('desktop/fonts/list', {});
+          return (reply as { families: string[] }).families;
+        })()
+      ),
     listConversationNotifications: () => op('listConversationNotifications'),
     setConversationNotification: (target, setting) => op('setConversationNotification', [target, setting]),
     subscribeTurnReviewChanged: subscribeTurnReview,
