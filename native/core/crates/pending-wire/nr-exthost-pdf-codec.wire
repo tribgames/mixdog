@@ -13,12 +13,12 @@ no SERVICE_PENDING entry: nothing in the daemon calls it yet (nr-exthost-pdf-doc
 
     mixdog-pdf-codec = { path = "crates/mixdog-pdf-codec" }
 
-(c) `[workspace.dependencies]`, in the registry crates (alphabetical; `sha2 = "0.10"` is already there). Every one is already in Cargo.lock and in
-the local cargo cache at these versions (aes 0.8.4, md-5 0.10.6, unicode-normalization 0.1.26); nothing new is downloaded:
+(c) `[workspace.dependencies]`, in the registry crates (alphabetical; `sha2 = "0.10"` and `unicode-normalization = "0.1"` are already there:
+do not add them again, a duplicate key breaks the manifest). Both are already in Cargo.lock and in the local cargo cache at these versions
+(aes 0.8.4, md-5 0.10.6); nothing new is downloaded:
 
     aes = "0.8"
     md-5 = "0.10"
-    unicode-normalization = "0.1"
 
 `weezl` and `cbc` are not used: the LZW decoder is a port (weezl does not give pdf.js's output on a stream with no end-of-data code or on an EarlyChange
 other than 0 and 1), and the AES-CBC chaining is a loop over the `aes` block cipher because pdf.js's framing (IV prefix, a partial block dropped per

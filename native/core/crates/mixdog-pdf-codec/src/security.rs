@@ -655,7 +655,10 @@ fn prepare_key_data(params: &KeyParams<'_>, password: Option<&[u8]>) -> Option<V
     let key_length_in_bytes = usize::try_from(key_length >> 3).unwrap_or(0);
     if revision >= 3 {
         for _ in 0..50 {
-            hash = md5(&hash[..key_length_in_bytes.min(hash.len())]);
+            // pdf.js hashes `keyLengthInBytes` bytes of the 16 byte digest: a longer key reads zeros past its end.
+            let mut round = hash.clone();
+            round.resize(key_length_in_bytes, 0);
+            hash = md5(&round);
         }
     }
     let encryption_key = hash[..key_length_in_bytes.min(hash.len())].to_vec();

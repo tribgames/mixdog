@@ -749,6 +749,28 @@ fn missing_length_defaults_to_40_bits_below_revision_4() {
 }
 
 #[test]
+fn key_longer_than_md5_hashes_zeros_past_the_digest() {
+    // V 2, R 3, Length 256: pdf.js's 50 MD5 rounds hash 32 bytes, the 16 byte digest and 16 zeros. The values were
+    // computed with Python's hashlib and an RC4 written from the algorithm, following pdf.js's #prepareKeyData.
+    let dict = EncryptDict {
+        filter: Some("Standard".into()),
+        v: Some(2),
+        r: Some(3),
+        length: Some(256),
+        o: hex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"),
+        u: hex("2c3e9b666fdd90223c4264c1074c56c500000000000000000000000000000000"),
+        p: -4,
+        ..Default::default()
+    };
+    let factory = CipherTransformFactory::new(&dict, &hex(FILE_ID), None).unwrap();
+    let title = factory
+        .create_cipher_transform(1, 0)
+        .decrypt_string(&hex("81faeb31063ebc4cd307e1cc692e80803c0be166264c26d9d483d71d"))
+        .unwrap();
+    assert_eq!(title, TITLE);
+}
+
+#[test]
 fn aes_tolerates_damaged_padding() {
     let case = &open_cases()[2];
     let factory = case.open(None).unwrap();
