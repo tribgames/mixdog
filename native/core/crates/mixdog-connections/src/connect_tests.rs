@@ -369,6 +369,24 @@ async fn frozen_inspection_pins_shown_key() {
 }
 
 #[tokio::test]
+async fn a_closed_caller_gets_no_attempt_and_no_question() {
+    let rig = rig().await;
+    let inspection = rig.connect.inspect(ONE, TARGET).await.unwrap();
+    let attempt = rig.connect.attempts().owned(ONE, &inspection.attempt_id).unwrap();
+    rig.connect.caller_closed(ONE).await;
+    // An inspection that was still being read when its connection closed must not leave an attempt nobody can cancel.
+    let refused = rig.connect.inspect(ONE, TARGET).await.unwrap_err();
+    assert_eq!(refused.to_string(), "This connection is closed.");
+    assert_eq!(rig.connect.attempts().attempt_count(ONE), 0);
+    // Nor is a question put to it.
+    let prompter = rig.connect.attempts().prompter(attempt, "build.example".into());
+    assert_eq!(prompter.ask(AskpassQuestion { kind: AskpassKind::Otp, prompt: "Code:".into(), retry: false }).await, None);
+    assert_eq!(rig.connect.attempts().question_count(), 0);
+    // Another connection is not affected.
+    assert!(rig.connect.inspect(TWO, TARGET).await.is_ok());
+}
+
+#[tokio::test]
 async fn caller_close_cancels() {
     let mut rig = rig().await;
     // A pending question answers nothing, and withdraws nothing from a connection that is gone.

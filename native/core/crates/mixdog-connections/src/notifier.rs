@@ -6,6 +6,7 @@
 //! The notifier reads the server's session list, agent pool and held approvals from the link's feed and the link's own view; it
 //! never answers or sends anything to the server.
 
+use std::cell::Cell;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -17,6 +18,7 @@ use mixdog_core_domains::notify::decision::{
     allows_device_notice, decide, Conversation, Decision, DecisionInput, Event, LocalClock, Origin, PreferencesView,
     SessionFields,
 };
+use mixdog_core_domains::notify::engine::ToastStyle;
 use mixdog_core_domains::notify::preview::notification_preview;
 use mixdog_rt::CancellationToken;
 use mixdog_services::bots::routine::is_routine_quiet_reply;
@@ -54,20 +56,22 @@ const READ_FAILURE_LIMIT: u32 = 6;
 /// One answer read gets this long before it is counted as a transient failure, so a read that never settles cannot hold the
 /// single read slot (and with it every notification) forever.
 const READ_DEADLINE: Duration = Duration::from_secs(30);
-/// How many told approvals are remembered, so the same request held again after a reconnect is not told twice.
-const TOLD_APPROVALS: usize = 256;
-
 /// Where a toast goes: this PC's desktop host (`host/notification/show`).
 pub trait NotifySink: Send + Sync {
     /// Whether the OS can show toasts at all.
     fn supported(&self) -> bool;
+    /// Shows a toast. `params.sound` is `Some` only for a toast that carries the PC's sound (a session's final answer): the sink
+    /// gives that one this PC's sound and volume, and every other toast none.
     fn show(&self, params: HostNotificationShowParams) -> Result<(), String>;
+    /// Closes the toasts still showing for the server (`host/notification/close`): its notifier ended.
+    fn close(&self, connection_id: &str);
 }
 
 /// This PC's notification preferences and the conversation overrides, read at each delivery; a server's sessions follow them
 /// like this PC's own.
 pub trait NotifyPrefs: Send + Sync {
-    fn view(&self) -> PreferencesView;
+    /// The preferences now, or why they could not be read: nothing is decided then, and the item is offered again at its next event.
+    fn view(&self) -> Result<PreferencesView, String>;
 }
 
 /// What the desktop host last reported in `host/state/set` key `windowFocus`.
@@ -151,9 +155,11 @@ pub struct NotifierSources {
     pub answers: Arc<dyn FinalAnswers>,
 }
 
-/// The running notifier of one link; dropping it stops it.
+/// The running notifier of one link; dropping it stops it and closes the toasts of the server that are still showing.
 pub struct ServerNotifier {
     task: JoinHandle<()>,
+    sink: Arc<dyn NotifySink>,
+    connection_id: String,
 }
 
 impl ServerNotifier {
@@ -177,13 +183,15 @@ impl ServerNotifier {
     }
 
     pub(crate) fn start(env: NotifierEnv, sources: NotifierSources) -> ServerNotifier {
-        ServerNotifier { task: tokio::spawn(run(env, sources)) }
+        let (sink, connection_id) = (env.sink.clone(), env.connection_id.clone());
+        ServerNotifier { task: tokio::spawn(run(env, sources)), sink, connection_id }
     }
 }
 
 impl Drop for ServerNotifier {
     fn drop(&mut self) {
         self.task.abort();
+        self.sink.close(&self.connection_id);
     }
 }
 
@@ -348,12 +356,18 @@ struct Notifier {
     sessions: Vec<SessionSummaryLite>,
     pending_work: HashSet<String>,
     pending: HashMap<String, Pending>,
+    /// Completions whose answer was read but whose delivery could not be decided (the preferences were unreadable): offered again
+    /// at the next roster or agent event.
+    held: HashMap<String, Completion>,
     queue: VecDeque<(String, u64)>,
     reading: bool,
     titles: HashMap<String, String>,
     conversations: HashMap<String, Conversation>,
-    /// The approvals already told (or already showing when the notifier started), newest last.
+    /// The approvals already told (or already showing when the notifier started), for as long as the server holds them: one the
+    /// server no longer holds is forgotten, and told again if it comes back as a new request.
     told: VecDeque<RequestId>,
+    /// The preferences could not be read at the last try: reported when reads start failing, not again until one succeeds.
+    prefs_failing: Cell<bool>,
     lost_timer: Option<u64>,
     lost_shown: bool,
     previous: Status,
@@ -375,7 +389,24 @@ impl Notifier {
         self.env.texts.attachment_label(kind)
     }
 
-    fn show(&self, title: &str, body: &str, session_id: Option<&str>) {
+    /// This PC's preferences, or `None` when they cannot be read.
+    fn read_prefs(&self, what: &str) -> Option<PreferencesView> {
+        match self.env.prefs.view() {
+            Ok(view) => {
+                self.prefs_failing.set(false);
+                Some(view)
+            }
+            Err(error) => {
+                if !self.prefs_failing.replace(true) {
+                    tracing::warn!(connection = %self.env.connection_id, what, %error, "notification preferences could not be read");
+                }
+                None
+            }
+        }
+    }
+
+    /// `sound`: the toast carries this PC's sound (a session's final answer; nothing else sounds).
+    fn show(&self, title: &str, body: &str, session_id: Option<&str>, sound: bool) {
         if !self.env.sink.supported() {
             return;
         }
@@ -384,7 +415,7 @@ impl Notifier {
             title,
             body,
             thread_id: session_id.map(Into::into),
-            sound: None,
+            sound: sound.then(|| ToastStyle::SOUND.to_owned()),
             volume: None,
             connection_id: Some(self.env.connection_id.clone()),
             label: Some(self.server_label.clone()),
@@ -394,12 +425,13 @@ impl Notifier {
         }
     }
 
-    /// Whether this PC's preferences, mutes, quiet hours and what is on screen let `event` of `conversation` through.
-    fn allowed(&self, session_id: &str, event: Event, conversation: &Conversation) -> bool {
+    /// Whether this PC's preferences, mutes, quiet hours and what is on screen let `event` of `conversation` through; `None` when
+    /// the preferences could not be read, so nothing was decided.
+    fn allowed(&self, session_id: &str, event: Event, conversation: &Conversation) -> Option<bool> {
         if !self.env.sink.supported() {
-            return false;
+            return Some(false);
         }
-        let view = self.env.prefs.view();
+        let view = self.read_prefs("session")?;
         let now = now_ms();
         let decision = decide(&DecisionInput {
             event,
@@ -413,7 +445,7 @@ impl Notifier {
         if let Decision::Skip(reason) = decision {
             tracing::debug!(connection = %self.env.connection_id, session = session_id, ?reason, "server notification suppressed");
         }
-        decision == Decision::Notify
+        Some(decision == Decision::Notify)
     }
 
     fn next_generation(&mut self) -> u64 {
@@ -449,6 +481,7 @@ impl Notifier {
 
     fn cancel(&mut self, session_id: &str) {
         self.pending.remove(session_id);
+        self.held.remove(session_id);
     }
 
     fn schedule(&self, session_id: &str, generation: u64, delay_ms: u64) {
@@ -465,6 +498,7 @@ impl Notifier {
         let stale: Vec<String> = self
             .pending
             .keys()
+            .chain(self.held.keys())
             .filter(|id| !self.tracker.is_idle(id) || !self.sessions.iter().any(|session| &session.id == *id && !session.archived))
             .cloned()
             .collect();
@@ -476,8 +510,13 @@ impl Notifier {
             let id = completion.session_id.clone();
             let delay = if completion.lead_finished { LEAD_FINISHED_MS } else { STABILIZE_MS };
             let generation = self.next_generation();
+            self.held.remove(&id);
             self.pending.insert(id.clone(), Pending { generation, completion, waiting_reported: false, failures: 0 });
             self.schedule(&id, generation, delay);
+        }
+        // This event is the next chance to decide what could not be decided.
+        for (id, completion) in std::mem::take(&mut self.held) {
+            self.offer(id, completion);
         }
     }
 
@@ -585,25 +624,35 @@ impl Notifier {
                 completion.preview = notification_preview(&answer.text);
             }
         }
-        self.deliver(&completion);
+        self.offer(session_id.to_owned(), completion);
     }
 
-    fn deliver(&self, completion: &Completion) {
-        if !self.allowed(&completion.session_id, completion.event, &completion.conversation) {
-            return;
+    /// Delivers a completion, or keeps it for the next event when the preferences could not be read.
+    fn offer(&mut self, session_id: String, completion: Completion) {
+        match self.allowed(&completion.session_id, completion.event, &completion.conversation) {
+            None => {
+                self.held.insert(session_id, completion);
+            }
+            Some(false) => {}
+            Some(true) => {
+                let failed = completion.event == Event::Error;
+                let title = self.label(&self.session_title_label(&completion.title));
+                let body = if failed { self.env.texts.turn_failed() } else { completion.preview.clone() };
+                // A final answer, a failed one included, is the toast that sounds.
+                self.show(&title, &body, Some(&completion.session_id), true);
+            }
         }
-        let failed = completion.event == Event::Error;
-        let title = self.label(&self.session_title_label(&completion.title));
-        let body = if failed { self.env.texts.turn_failed() } else { completion.preview.clone() };
-        self.show(&title, &body, Some(&completion.session_id));
     }
 
     // -- approvals: a session that STARTS waiting on a tool approval or a question needs the user
 
     /// `rows` is every request the server holds; a session shows the lowest `order` of its own. A request told is not told
-    /// again (the server holds it again after a reconnect); the ones showing when the notifier starts are what the window
-    /// already shows (`baseline`). Browser and computer requests have their own dialogs, which tell them.
+    /// again while the server holds it; one it let go of is forgotten, and is told if it comes back as a new request. What
+    /// the notifier found held (`baseline`, or a row marked a replay: the server held it again after a reconnect) is what the
+    /// window already shows, and is not news. A request whose delivery could not be decided (the preferences were unreadable)
+    /// is offered again at the next update. Browser and computer requests have their own dialogs, which tell them.
     fn on_approvals(&mut self, rows: &[PendingApproval], baseline: bool) {
+        self.told.retain(|id| rows.iter().any(|row| &row.request_id == id));
         let mut heads: HashMap<&str, &PendingApproval> = HashMap::new();
         for row in rows.iter().filter(|row| matches!(row.kind, ApprovalKind::Tool | ApprovalKind::Question | ApprovalKind::Permissions)) {
             let head = heads.entry(row.session_id.as_str()).or_insert(row);
@@ -614,36 +663,38 @@ impl Notifier {
         let mut heads: Vec<&PendingApproval> = heads.into_values().filter(|head| !self.told.contains(&head.request_id)).collect();
         heads.sort_by_key(|head| head.order);
         for head in heads {
+            if !baseline && !head.replay && self.tell_approval(head).is_none() {
+                // Undecided: not told yet, so the next update decides again.
+                continue;
+            }
             self.told.push_back(head.request_id.clone());
-            if self.told.len() > TOLD_APPROVALS {
-                self.told.pop_front();
-            }
-            if !baseline {
-                self.tell_approval(head);
-            }
         }
     }
 
-    fn tell_approval(&self, approval: &PendingApproval) {
+    /// `None`: the preferences could not be read, nothing was decided.
+    fn tell_approval(&self, approval: &PendingApproval) -> Option<()> {
         let session_id = approval.session_id.as_str();
         let event = if approval.kind == ApprovalKind::Question { Event::Question } else { Event::Approval };
         let conversation =
             self.conversations.get(session_id).cloned().unwrap_or_else(|| Conversation::of(session_id, &SessionFields::default()));
-        if !self.allowed(session_id, event, &conversation) {
-            return;
+        if !self.allowed(session_id, event, &conversation)? {
+            return Some(());
         }
         let name = self.titles.get(session_id).filter(|title| !title.is_empty()).unwrap_or(&self.env.server_name);
         let title = self.label(&self.session_title_label(name));
-        self.show(&title, &self.env.texts.approval_waiting(), Some(session_id));
+        self.show(&title, &self.env.texts.approval_waiting(), Some(session_id), false);
+        Some(())
     }
 
     // -- the link: a drop that lasts, and the recovery after a drop that was told
 
-    fn notice_allowed(&self) -> bool {
+    /// `None`: the preferences could not be read, nothing was decided.
+    fn notice_allowed(&self) -> Option<bool> {
         if self.env.focus.is_foreground(&self.env.connection_id) {
-            return false;
+            return Some(false);
         }
-        allows_device_notice(&self.env.prefs.view().preferences, LocalClock::at(now_ms()))
+        let view = self.read_prefs("link")?;
+        Some(allows_device_notice(&view.preferences, LocalClock::at(now_ms())))
     }
 
     fn on_link(&mut self, view: &LinkViewState) {
@@ -659,10 +710,12 @@ impl Notifier {
             if !self.lost_shown {
                 return;
             }
+            // Unreadable: the lost notice stays told, and the next link event decides again.
+            let Some(allowed) = self.notice_allowed() else { return };
             self.lost_shown = false;
-            if self.notice_allowed() {
+            if allowed {
                 let title = named(&self.env.texts.restored_title(), &self.server_label);
-                self.show(&title, &self.env.texts.restored_body(), None);
+                self.show(&title, &self.env.texts.restored_body(), None, false);
             }
             return;
         }
@@ -685,13 +738,13 @@ impl Notifier {
 
     fn raise_lost(&mut self, terminal: bool) {
         self.lost_timer = None;
-        if !self.notice_allowed() {
+        if self.notice_allowed() != Some(true) {
             return;
         }
         self.lost_shown = true;
         let title = named(&self.env.texts.lost_title(), &self.server_label);
         let body = if terminal { self.env.texts.lost_stopped() } else { self.env.texts.lost_reconnecting() };
-        self.show(&title, &body, None);
+        self.show(&title, &body, None, false);
     }
 
     fn on_wake(&mut self, wake: Wake) {
@@ -732,9 +785,11 @@ async fn run(env: NotifierEnv, mut sources: NotifierSources) {
         pending: HashMap::new(),
         queue: VecDeque::new(),
         reading: false,
+        held: HashMap::new(),
         titles: HashMap::new(),
         conversations: HashMap::new(),
         told: VecDeque::new(),
+        prefs_failing: Cell::new(false),
         lost_timer: None,
         lost_shown: false,
         previous: Status::Connected,

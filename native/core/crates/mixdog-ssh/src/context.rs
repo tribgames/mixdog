@@ -8,10 +8,11 @@
 use std::collections::BTreeMap;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use mixdog_app_protocol::v2::connections::HostClaimResources;
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncWrite};
 
@@ -223,6 +224,138 @@ impl SshEnv {
     }
 }
 
+/// The environment variable that names the server cores folder, and the one that names the askpass helper.
+pub const SERVER_CORES_ENV: &str = "MIXDOG_SERVER_CORES_DIR";
+pub const ASKPASS_HELPER_ENV: &str = "MIXDOG_ASKPASS_HELPER";
+
+/// What the desktop that claimed the host role says it keeps (`host/claim` `resources`): where the server cores and the askpass
+/// helper are. The claim arrives after the machine is composed, so the ssh code reads this where it needs the folders and not
+/// from the environment it was built with.
+#[derive(Default)]
+pub struct ClaimedResources {
+    current: Mutex<HostClaimResources>,
+}
+
+impl ClaimedResources {
+    /// The resources of the claim that was just accepted (`None`: the claimant named none).
+    pub fn set(&self, resources: Option<HostClaimResources>) {
+        *self.current.lock().unwrap_or_else(PoisonError::into_inner) = resources.unwrap_or_default();
+    }
+
+    /// `env` with the two folders filled in from the claim. They are read after the environment variables: a variable that is set
+    /// wins; a folder the desktop named replaces the one found beside the core's own executable; a name the desktop left out
+    /// changes nothing.
+    pub fn applied(&self, env: &SshEnv) -> SshEnv {
+        let claimed = self.current.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        let named = |variable: &str, claimed: Option<String>, found: &Option<PathBuf>| -> Option<PathBuf> {
+            if env.var(variable).is_some_and(|value| !value.is_empty()) {
+                return found.clone();
+            }
+            claimed.filter(|path| !path.is_empty()).map(PathBuf::from).or_else(|| found.clone())
+        };
+        SshEnv {
+            askpass_helper: named(ASKPASS_HELPER_ENV, claimed.askpass_helper, &env.askpass_helper),
+            server_cores_dir: named(SERVER_CORES_ENV, claimed.server_cores_dir, &env.server_cores_dir),
+            ..env.clone()
+        }
+    }
+}
+
 #[cfg(test)]
 #[path = "base_tests.rs"]
 mod base_tests;
+
+#[cfg(test)]
+mod claimed_tests {
+    use super::*;
+
+    struct NoFiles;
+
+    impl ConfigFiles for NoFiles {
+        fn read_text(&self, _path: &Path) -> Option<String> {
+            None
+        }
+
+        fn list_names(&self, _directory: &Path) -> Vec<String> {
+            Vec::new()
+        }
+
+        fn is_file(&self, _path: &Path) -> bool {
+            false
+        }
+    }
+
+    struct NoConfig;
+
+    impl SshConfigFiles for NoConfig {
+        fn for_args(&self, _args: &[String]) -> Option<PathBuf> {
+            None
+        }
+
+        fn generic(&self) -> Option<PathBuf> {
+            None
+        }
+    }
+
+    struct NoTools;
+
+    #[async_trait]
+    impl ToolRunner for NoTools {
+        async fn run(&self, _command: &Path, _args: &[String], _timeout: Duration) -> io::Result<ToolOutput> {
+            Ok(ToolOutput::default())
+        }
+    }
+
+    struct NoSpawn;
+
+    impl SshSpawner for NoSpawn {
+        fn spawn(&self, _prepared: &PreparedSpawn) -> io::Result<Box<dyn SshChild>> {
+            Err(io::Error::other("no spawn"))
+        }
+    }
+
+    fn env(vars: &[(&str, &str)], askpass: Option<&str>, cores: Option<&str>) -> SshEnv {
+        SshEnv {
+            platform: Platform::Linux,
+            env: vars.iter().map(|(name, value)| ((*name).to_owned(), (*value).to_owned())).collect(),
+            home: PathBuf::from("/home/u"),
+            askpass_helper: askpass.map(PathBuf::from),
+            server_cores_dir: cores.map(PathBuf::from),
+            files: Arc::new(NoFiles),
+            config_files: Arc::new(NoConfig),
+            tools: Arc::new(NoTools),
+            spawner: Arc::new(NoSpawn),
+            diagnostics: Arc::new(Diagnostics::new()),
+        }
+    }
+
+    fn claim(askpass: Option<&str>, cores: Option<&str>) -> HostClaimResources {
+        HostClaimResources { server_cores_dir: cores.map(str::to_owned), askpass_helper: askpass.map(str::to_owned) }
+    }
+
+    #[test]
+    fn the_folders_the_desktop_named_fill_a_machine_that_found_none() {
+        let claimed = ClaimedResources::default();
+        claimed.set(Some(claim(Some("/app/askpass"), Some("/app/cores"))));
+        let applied = claimed.applied(&env(&[], None, None));
+        assert_eq!(applied.askpass_helper, Some(PathBuf::from("/app/askpass")));
+        assert_eq!(applied.server_cores_dir, Some(PathBuf::from("/app/cores")));
+    }
+
+    #[test]
+    fn an_environment_variable_wins_and_a_name_left_out_changes_nothing() {
+        let claimed = ClaimedResources::default();
+        claimed.set(Some(claim(Some("/app/askpass"), None)));
+        let applied = claimed.applied(&env(&[(ASKPASS_HELPER_ENV, "/env/askpass")], Some("/env/askpass"), Some("/beside/cores")));
+        assert_eq!(applied.askpass_helper, Some(PathBuf::from("/env/askpass")));
+        assert_eq!(applied.server_cores_dir, Some(PathBuf::from("/beside/cores")));
+        // Without the variable the desktop's folder replaces the one found beside the executable.
+        let applied = claimed.applied(&env(&[], Some("/beside/askpass"), None));
+        assert_eq!(applied.askpass_helper, Some(PathBuf::from("/app/askpass")));
+        // A claim without resources, or an empty name, is no claim.
+        claimed.set(None);
+        assert_eq!(claimed.applied(&env(&[], Some("/beside/askpass"), None)).askpass_helper, Some(PathBuf::from("/beside/askpass")));
+        claimed.set(Some(claim(Some(""), Some(""))));
+        assert_eq!(claimed.applied(&env(&[], None, None)).server_cores_dir, None);
+    }
+}
