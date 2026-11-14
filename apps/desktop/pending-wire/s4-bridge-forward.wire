@@ -4,6 +4,10 @@ bridge-forward.ts exports createBrowserBridgeForward({ request, lifecycle, dataD
 It serves the same loopback contract and browser-bridge.json as createBrowserAgentBridge (bridge-server.ts is unchanged in contract) and runs each
 command through the core: browser/bridge/run, browser/bridge/turn (begin_turn / finish_turn), browser/bridge/abort (the caller's connection dropped).
 
+0. ORDER: apply item 1 only together with or after native/core/crates/pending-wire/s4-bridge-forward.wire (BrowserApprovalContext::session_gate
+   bound, deferred-g95 item 7). Before that a bridge command whose step asks (submit, post, upload, payment) fails with NO_APPROVAL_SURFACE where
+   it showed the approval card before.
+
 1. browser/host-agent.ts, where `const bridge = createBrowserAgentBridge({...})` is built (s4-delete-ts-engine owns the file, so this is its work, or the
    lead's after the wave): the runner still serves the host lane (browser/host.ts commandRunner: agent.bridge.runner, host/browser/command), the
    loopback server no longer is its:

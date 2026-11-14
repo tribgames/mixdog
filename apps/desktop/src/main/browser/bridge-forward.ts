@@ -8,12 +8,12 @@
 import { bridgeDiscoveryDirectory } from '../bridge/discovery-file';
 import type { BrowserCommand } from './host-types';
 import { BridgeCommandFailure, BrowserBridgeServer } from './bridge-server';
+import { assertBrowserTaskCleanupContext } from './host-policy';
 import { redactBrowserText } from './redaction';
 
 const RUN = 'browser/bridge/run';
 const TURN = 'browser/bridge/turn';
 const ABORT = 'browser/bridge/abort';
-const BAD_CLEANUP_CONTEXT = 'Invalid browser task cleanup context.';
 
 /** What the connection to the core offers (`HostConnection.request`): rejects when the core is not reachable. */
 export type CoreRequest = (method: string, params: unknown) => Promise<unknown>;
@@ -58,17 +58,16 @@ function answer(raw: unknown): unknown {
   throw failure(reply);
 }
 
-/** The same check the bridge made of a turn's start or end before it marked it (`assertBrowserTaskCleanupContext`). */
+/** The same check the bridge made of a turn's start or end before it marked it. */
 function turnParams(command: BrowserCommand & Record<string, unknown>): Record<string, unknown> {
-  const { action, session_id, turn_id, aborted, ...rest } = command;
-  const extra = Object.keys(rest).some((key) => !['unattended_run', 'unattended_agent', 'session_life', 'mail_link', 'internalStep'].includes(key));
-  if (command.internalStep !== undefined) throw new Error('internalStep is not a bridge input');
-  if (!session_id || !Number.isSafeInteger(turn_id) || Number(turn_id) <= 0 || extra) throw new Error(BAD_CLEANUP_CONTEXT);
+  const { session_id, turn_id, internalStep, unattended_run, unattended_agent, session_life, mail_link, ...input } = command;
+  if (internalStep !== undefined) throw new Error('internalStep is not a bridge input');
+  assertBrowserTaskCleanupContext(session_id, turn_id, input);
   return {
-    phase: action === 'begin_turn' ? 'begin' : 'finish',
+    phase: input.action === 'begin_turn' ? 'begin' : 'finish',
     sessionId: session_id,
     turnId: turn_id,
-    ...(aborted === true ? { aborted: true } : {}),
+    ...(input.aborted === true ? { aborted: true } : {}),
   };
 }
 
