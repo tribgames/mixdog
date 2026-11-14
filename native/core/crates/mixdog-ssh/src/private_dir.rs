@@ -32,7 +32,7 @@ fn current_user(env: &SshEnv) -> String {
 }
 
 /// `path.join(base, name)` of the platform for a base that is already normal.
-fn join_name(platform: Platform, base: &str, name: &str) -> String {
+pub(crate) fn join_name(platform: Platform, base: &str, name: &str) -> String {
     let separator = if platform.is_windows() { '\\' } else { '/' };
     let trimmed = base.trim_end_matches(|c| c == separator || (platform.is_windows() && c == '/'));
     format!("{trimmed}{separator}{name}")
