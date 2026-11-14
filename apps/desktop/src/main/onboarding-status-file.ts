@@ -6,7 +6,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { mixdogDataDirectory } from './computer/shared/common';
+import { mixdogDataDirectory } from './data-directory';
 
 interface DesktopOnboardingStatus {
   completed: boolean;

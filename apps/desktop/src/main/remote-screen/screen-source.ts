@@ -40,7 +40,7 @@ import {
   type ScreenPointerMapping,
 } from './screen-geometry';
 import { screenInputCommands } from './screen-input-dispatch';
-import { COMMAND_TIMEOUT_MS } from '../computer/backend/worker-requests';
+import { SCREEN_COMMAND_TIMEOUT_MS } from './screen-timeouts';
 import {
   ScreenHostError,
   screenHostIdentity,
@@ -185,7 +185,7 @@ interface ScreenSourceDeps {
    * the input host is killed and every pending send is abandoned, so a backend
    * that stopped answering cannot hold the stop open; what was not released
    * is dropped and counted. Default: one command's acknowledgment deadline
-   * (`COMMAND_TIMEOUT_MS`): a backend that answers completes the whole release
+   * (`SCREEN_COMMAND_TIMEOUT_MS`): a backend that answers completes the whole release
    * well within the time a single command may take.
    */
   shutdownDeadlineMs?: number;
@@ -314,7 +314,7 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
   const stopListeners = new Set<(reason: RemoteScreenStopReason) => void>();
   const subscriptions: Array<() => void> = [];
   const maxFrameRate = deps.maxFrameRate ?? 30;
-  const shutdownDeadlineMs = deps.shutdownDeadlineMs ?? COMMAND_TIMEOUT_MS;
+  const shutdownDeadlineMs = deps.shutdownDeadlineMs ?? SCREEN_COMMAND_TIMEOUT_MS;
   const ids = { clientId: deps.clientId, screenId: deps.screenId };
 
   let started = false;
