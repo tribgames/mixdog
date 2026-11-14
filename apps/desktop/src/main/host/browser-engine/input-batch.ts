@@ -76,7 +76,7 @@ function parseSteps(value: unknown): InputStep[] {
         if (typeof step.kind !== 'string') invalid(`${at}.kind must be a string`);
         finite(step.x, `${at}.x`);
         finite(step.y, `${at}.y`);
-        if (step.kind === 'dragTo') {
+        if (step.kind === 'dragTo' || step.kind === 'swipe') {
           finite(step.toX, `${at}.toX`);
           finite(step.toY, `${at}.toY`);
         }
@@ -232,6 +232,8 @@ export function registerInputBatch(connection: HostConnection, ctx: EngineContex
           return driver.tapAt(guest, at, work);
         case 'dragTo':
           return driver.dragAt(guest, at, { x: step.toX as number, y: step.toY as number }, work);
+        case 'swipe':
+          return driver.swipeAt(guest, at, { x: step.toX as number, y: step.toY as number }, work);
         default:
           return invalid(`pointer kind ${String((step as { kind: unknown }).kind)} is not known`);
       }
