@@ -273,7 +273,9 @@ fn a_jsonc_file_that_is_missing_empty_or_nul_filled_holds_no_settings() {
 
 #[test]
 fn font_listings_become_sorted_unique_family_names() {
-    assert_eq!(parse_font_families("win32", "Segoe UI\r\nArial\r\n맑은 고딕\r\nArial\r\n\r\n"), ["Arial", "Segoe UI", "맑은 고딕"]);
+    let mut sorted = ["Arial", "Segoe UI", "맑은 고딕"];
+    sorted.sort_by(|a, b| mixdog_js::locale_compare(a, b));
+    assert_eq!(parse_font_families("win32", "Segoe UI\r\nArial\r\n맑은 고딕\r\nArial\r\n\r\n"), sorted);
     // fontconfig joins a family's localized names with commas.
     assert_eq!(
         parse_font_families("linux", "DejaVu Sans\nNoto Sans CJK KR,Noto Sans CJK KR Bold\n"),
@@ -284,8 +286,10 @@ fn font_listings_become_sorted_unique_family_names() {
     assert_eq!(parse_font_families("win32", &format!("{}\nArial", "x".repeat(101))), ["Arial"]);
     // A comma is part of a name outside fontconfig.
     assert_eq!(parse_font_families("win32", "A, B"), ["A, B"]);
-    // Case does not decide the order.
-    assert_eq!(parse_font_families("win32", "b\nA\na\nB"), ["A", "a", "B", "b"]);
+    // `localeCompare` order: a letter's cases stay together, whatever their code points.
+    let cased = parse_font_families("win32", "b\nB\nA\na");
+    assert_eq!(cased[..2].iter().map(|name| name.to_lowercase()).collect::<Vec<_>>(), ["a", "a"]);
+    assert_eq!(cased[2..].iter().map(|name| name.to_lowercase()).collect::<Vec<_>>(), ["b", "b"]);
 }
 
 #[test]
@@ -316,6 +320,8 @@ async fn the_service_answers_links_attachments_and_settings() {
     let resolved = ask("desktop/attachment/resolve", json!({ "sessionId": "s1", "attachmentId": pdf })).await.unwrap();
     assert_eq!(resolved["attachment"]["name"], "spec.pdf");
     assert_eq!(resolved["bytes"], 18);
+    assert_eq!(resolved["viewName"], "spec.pdf");
+    assert_eq!(resolved["dataUrl"], "data:application/pdf;base64,JVBERi0xLjcKc3BlYyBib2R5");
     let error = ask("desktop/attachment/resolve", json!({ "sessionId": "s2", "attachmentId": pdf })).await.unwrap_err();
     assert!(format!("{error:?}").contains("file-download:not-linked"), "{error:?}");
     let error = ask("desktop/attachment/resolve", json!({ "sessionId": "s1", "attachmentId": secret })).await.unwrap_err();
