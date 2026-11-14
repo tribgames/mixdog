@@ -23,6 +23,7 @@ mod wire;
 mod settings_change_feed;
 mod storm;
 mod subscriptions;
+mod two_windows;
 
 use std::collections::BTreeSet;
 use std::collections::HashMap;

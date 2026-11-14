@@ -38,6 +38,10 @@ pub(crate) struct Session {
     pub(crate) host: Option<HostCapabilities>,
     /// `capabilities.modelProxy`: serves `model/proxy/execute` with its own accounts.
     pub(crate) model_proxy: bool,
+    /// The connection is the socket of a desktop window (the transport's window record), not the desktop's own
+    /// connection: a view of the desktop, which neither registers with the boot coordinator nor counts as the
+    /// desktop being on.
+    pub(crate) view: bool,
 }
 
 /// One subscription of this connection.
@@ -197,10 +201,11 @@ impl Connection {
             .is_some_and(|sub| sub.live)
     }
 
-    /// A desktop window: `initialize` declared kind `desktop`, and the app feed is live on it.
+    /// The desktop: `initialize` declared kind `desktop` on the desktop's own connection (not a window's socket,
+    /// [`Session::view`]), and the app feed is live on it. Closing a window therefore never changes this.
     pub(crate) fn is_desktop_on(&self, feed: &FeedId) -> bool {
         self.session()
-            .is_some_and(|session| session.client.kind == mixdog_protocol::ConnectionKind::Desktop)
+            .is_some_and(|session| !session.view && session.client.kind == mixdog_protocol::ConnectionKind::Desktop)
             && self.is_live_on(feed)
     }
 
