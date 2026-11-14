@@ -1,7 +1,7 @@
 // The handlers only a server (ssh) window registers: uploads of this PC's
 // files into the server's staging folder, "download to this PC", and the
-// trash probe its delete confirmation reads. Every byte travels over the
-// window's own session connection (see server-file-access.ts).
+// trash probe its delete confirmation reads. Uploads travel over the window's
+// own session connection; a download is this PC's core's (see server-file-access.ts).
 import type { Shell } from 'electron';
 
 import { DESKTOP_IPC } from '../shared/contract';
@@ -126,8 +126,8 @@ export function registerServerFileIpc({
   handle(DESKTOP_IPC.serverDownloadStep, (_event, downloadId) => server.downloads.step(downloadId));
   handle(DESKTOP_IPC.serverDownloadFinish, (_event, downloadId) => server.downloads.finish(downloadId));
   handle(DESKTOP_IPC.serverDownloadAbort, (_event, downloadId) => server.downloads.abort(downloadId));
-  handle(DESKTOP_IPC.openServerDownload, (_event, path, confirmedPath) =>
-    launchFile(server.downloads.requireDownloaded(path), (file) => shell.openPath(file), confirmedPath)
+  handle(DESKTOP_IPC.openServerDownload, async (_event, path, confirmedPath) =>
+    launchFile(await server.downloads.requireDownloaded(path), (file) => shell.openPath(file), confirmedPath)
   );
   handle(DESKTOP_IPC.serverTrashInfo, async (_event, projectPath) =>
     invokeDesktopOperation('serverTrashInfo', [await projectDirectory(requiredString(projectPath, 'projectPath'))])
