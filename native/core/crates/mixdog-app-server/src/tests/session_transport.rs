@@ -290,7 +290,7 @@ impl World {
     async fn started_on(rig: Rig, script: Script) -> Self {
         let session = SessionRig::new();
         session.set_script(script);
-        let directory = Arc::new(SessionDirectory::new(session.deps()));
+        let directory = Arc::new(SessionDirectory::new(session.deps_configured()));
         let reply = directory
             .request(CoreRequest {
                 method: Method("thread/start"),
@@ -329,7 +329,7 @@ impl World {
     async fn idle_on(rig: Rig, queued: &[(&str, &str)], pasted_texts: Value) -> Self {
         let session = SessionRig::new();
         let id = ThreadId::from("sess_idle");
-        let creator = SessionDirectory::new(session.deps());
+        let creator = SessionDirectory::new(session.deps_configured());
         creator.create_with_id(id.clone(), json!({ "cwd": "/ws" }).as_object().cloned().unwrap(), json!({})).await.expect("create");
         let entries = queued
             .iter()
@@ -354,7 +354,7 @@ impl World {
     }
 
     async fn reopened_on(rig: Rig, session: SessionRig, id: ThreadId) -> Self {
-        let directory = Arc::new(SessionDirectory::new(session.deps()));
+        let directory = Arc::new(SessionDirectory::new(session.deps_configured()));
         directory.open_handle(&id, &CallContext::internal("test")).await.expect("open");
         Self::serving(rig, session, directory, id).await
     }
@@ -500,7 +500,7 @@ async fn an_unknown_thread_is_refused_and_nothing_is_created() {
     assert_eq!(subscribe["result"]["runtimeCreations"], 0);
     let (read_id, subscribe_id) = (read_case["input"]["call"][1]["sessionId"].as_str().unwrap().to_owned(), subscribe["input"]["call"][1]["sessionId"].as_str().unwrap().to_owned());
     let session = SessionRig::new();
-    let directory = Arc::new(SessionDirectory::new(session.deps()));
+    let directory = Arc::new(SessionDirectory::new(session.deps_configured()));
     let rig = Rig::new();
     rig.core.serve_threads(directory.clone());
     let wire = Wire::serve(rig).await;
@@ -816,8 +816,8 @@ async fn a_tool_result_on_a_long_transcript_sends_only_the_changed_item() {
         })
     }));
     let id = ThreadId::from("sess_long");
-    let creator = SessionDirectory::new(session.deps());
-    creator.create_with_id(id.clone(), json!({ "cwd": "/ws" }).as_object().cloned().unwrap(), json!({})).await.expect("create");
+    let creator = SessionDirectory::new(session.deps_configured());
+    creator.create_with_id(id.clone(), json!({ "cwd": "/ws", "orchestrationMode": "balanced" }).as_object().cloned().unwrap(), json!({})).await.expect("create");
     let rows = (0..earlier)
         .map(|n| serde_json::from_value::<Record>(json!({ "k": "item", "iid": format!("row-{n}"), "role": "assistant", "form": "message", "model": true, "visible": true, "refs": [], "body": { "inline": { "text": format!("row-{n}") } } })).unwrap())
         .collect();
@@ -826,6 +826,24 @@ async fn a_tool_result_on_a_long_transcript_sends_only_the_changed_item() {
     let mut client = world.client(1).await;
     world.submit(&mut client, 1, "op-long", "go").await;
     mixdog_rt::time::timeout(std::time::Duration::from_secs(20), ready.notified()).await.expect("the run to commit the tool call within 20 s");
+    // The call's row and the frame its step flushes (a timer) are published after the commit returns; the attach follows both.
+    let published = world.session.feeds.published.clone();
+    let shown = || {
+        let frames = world.session.feeds.frames(world.id.as_str());
+        let row = frames.iter().position(|(_, _, value)| value.to_string().contains("call:call-1"));
+        row.is_some_and(|row| frames[row..].iter().any(|(_, method, _)| method == "thread/frame"))
+    };
+    mixdog_rt::time::timeout(std::time::Duration::from_secs(20), async {
+        while !shown() {
+            let woken = published.notified();
+            if shown() {
+                break;
+            }
+            woken.await;
+        }
+    })
+    .await
+    .expect("the call's row published within 20 s");
     world.call(&mut client, 2, "thread/resume", resume()).await;
     release.notify_one();
     client.until("the run's end", |frames| ran(frames, 1)).await;
