@@ -142,14 +142,14 @@ pub(super) fn manifest_of(dir: &Path) -> Map<String, Value> {
 }
 
 /// `explicitKind`: the frontmatter `kind`, lower-cased, `None` when blank or not a string.
-fn explicit_kind(value: Option<&Value>) -> Option<String> {
+pub(super) fn explicit_kind(value: Option<&Value>) -> Option<String> {
     let text = value?.as_str()?;
     let kind = mixdog_js::js_trim(text).to_lowercase();
     (!kind.is_empty()).then_some(kind)
 }
 
 /// `isDialogDefaultBody`: the body ends with the bot dialog's three closing lines.
-fn is_dialog_default_body(body: &str) -> bool {
+pub(super) fn is_dialog_default_body(body: &str) -> bool {
     let lines: Vec<&str> = mixdog_js::js_trim(body).split('\n').map(|l| l.strip_suffix('\r').unwrap_or(l)).collect();
     let [.., first, second, third] = lines.as_slice() else {
         return false;

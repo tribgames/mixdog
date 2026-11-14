@@ -160,6 +160,27 @@ impl AgentRoutes {
         }
     }
 
+    /// Stores `route` in the config's `agents` section whichever store the agent's own route lives in, unless the config
+    /// already holds that model (the kind stamp's `restoreRoute`: a restored bot's route goes where a workflow agent's lives).
+    pub async fn set_config_route(&self, id: &str, route: Value) -> Result<(), ConfigError> {
+        let same = |current: &Value| ["provider", "model"].iter().all(|key| current.get(key) == route.get(key));
+        if self.config_route(id).as_ref().is_some_and(same) {
+            return Ok(());
+        }
+        let id = id.to_owned();
+        self.config
+            .update_agent(move |agent| {
+                let agents = agent.entry("agents").or_insert_with(|| Value::Object(Map::new()));
+                if let Value::Object(agents) = agents {
+                    agents.insert(id, route);
+                }
+                canonicalize(agent);
+                Ok(())
+            })
+            .await
+            .map(|_| ())
+    }
+
     /// Drops the agent's own route so it follows Main again (the storage half of
     /// `clearOverride`). The config is only rewritten when the agent had an override.
     pub async fn clear_route(&self, id: &str) -> Result<(), ConfigError> {

@@ -41,7 +41,7 @@ where
     let record = data_dir.join(IMPORTED_FILE);
     let written = mixdog_core_base::support::on_lane(io, &CancellationToken::new(), move |_lane| publish_file_with(&record, b"1", Access::Inherit)).await?;
     if let Err(error) = written {
-        eprintln!("[session-hidden] the import is not recorded and runs again at the next start: {error}");
+        tracing::warn!("[session-hidden] the import is not recorded and runs again at the next start: {error}");
     }
     Ok(count)
 }
@@ -57,7 +57,7 @@ fn unimported(_lane: &InLane<InteractiveIo>, data_dir: &Path) -> Option<Vec<Hidd
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return None,
         Err(error) => {
-            eprintln!("[session-hidden] {} unreadable: {error}", file.display());
+            tracing::warn!("[session-hidden] {} unreadable: {error}", file.display());
             return None;
         }
     };
