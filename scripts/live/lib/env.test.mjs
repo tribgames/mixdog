@@ -6,6 +6,7 @@ import test from 'node:test';
 
 import { linuxLoad, macLoad } from './cpu.mjs';
 import { instanceConfig, mergeOverlay } from './env.mjs';
+import { profileShares, topFunctions } from './inspector.mjs';
 import { parseCimProcess, samePath, starterEnv, startArgs, verifyCore } from './instance.mjs';
 import { findOrtLibrary, parseLiveArgs, resolveLivePaths } from './paths.mjs';
 import { CUSTOM } from './paths.mjs';
@@ -100,4 +101,21 @@ test('starterEnv names the core and the root, drops ELECTRON_RUN_AS_NODE, sets t
   const env = starterEnv({ coreExe: 'c', isoRoot: 'r', parent: { ELECTRON_RUN_AS_NODE: '1', PATH: 'p' } });
   assert.deepEqual(env, { PATH: 'p', MIXDOGD_BIN: 'c', MIXDOG_DEV_ISOLATED_ROOT: 'r' });
   assert.equal(starterEnv({ coreExe: 'c', isoRoot: 'r', electronDist: 'e', parent: {} }).ELECTRON_OVERRIDE_DIST_PATH, 'e');
+});
+
+test('profileShares and topFunctions split a CPU profile by self time', () => {
+  const frame = (functionName, url = '', lineNumber = 0) => ({ functionName, url, lineNumber });
+  const profile = {
+    nodes: [
+      { id: 1, callFrame: frame('(root)') },
+      { id: 2, callFrame: frame('(idle)') },
+      { id: 3, callFrame: frame('(garbage collector)') },
+      { id: 4, callFrame: frame('work', 'file:///a/b/main.js', 9) },
+    ],
+    samples: [2, 4, 4, 3],
+    timeDeltas: [0, 1000, 1000, 1000],
+  };
+  const shares = profileShares(profile);
+  assert.deepEqual(shares, { totalMs: 4, idlePct: 25, programPct: 0, gcPct: 25, jsPct: 50, busyPct: 75 });
+  assert.deepEqual(topFunctions(profile), [{ fn: 'work main.js:10', selfMs: 2, pct: 50 }]);
 });
