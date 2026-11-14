@@ -1,0 +1,10 @@
+# apps/desktop/src/main/host/connection.ts (hot file, applied by the lead)
+1. In `export const HOST_METHOD`, after `humanOnlyEnd`, add:
+     browserLiveControl: 'host/browser/liveControl',
+     screenDisplays: 'host/screen/displays',
+     browserPage: 'host/browser/page',
+2. In `export interface HostConnection`, after `handleNotification`, add:
+     /** The method names registered through handleRequest and handleNotification, sorted. */
+     servedMethods(): string[];
+   (host-connection.ts already returns servedMethods and exports HOST_METHOD_NOT_FOUND = -32601; the lead may instead move that constant beside HOST_INVALID_PARAMS and import it there.)
+3. Test fakes implementing HostConnection need a servedMethods stub: apps/desktop/src/main/host/host.test.mjs (object near line 30, beside handleRequest) and host/host-twin.test.mjs (near line 36): add `servedMethods: () => [],`. Other tasks own those files in this wave: not edited here.
