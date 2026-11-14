@@ -18,7 +18,7 @@ import { ipcErrorEnvelope } from '../shared/coded-error';
 import { translateNativeUi } from '../shared/native-ui';
 import type { DesktopService } from './desktop-service-contract';
 import type { DesktopSettingsStore } from './settings-store';
-import type { BrowserHost } from './browser/host';
+import type { BrowserHost } from './browser/host-types';
 import type { BrowserLoginPopup } from './browser/login-popup';
 import { registerBrowserIpc } from './ipc-browser';
 import type { ProtocolConnection } from './protocol/connection';
