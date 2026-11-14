@@ -24,6 +24,19 @@ pub fn js_regex_error(pattern: &str, flags: &str) -> Option<String> {
     Some(format!("Invalid regular expression: /{pattern}/{shown}: {reason}"))
 }
 
+/// Raw-pattern variant for the UTF-16 regex bridge. Syntax is checked on the
+/// original units. Only the final diagnostic String replaces lone surrogates;
+/// this conversion must never be used as the pattern passed to the engine.
+pub(crate) fn js_regex_error_utf16(pattern: &[u16], flags: &str) -> Option<String> {
+    if !valid_flags(flags) {
+        return Some(format!("Invalid flags supplied to RegExp constructor '{flags}'"));
+    }
+    let unicode = flags.contains(['u', 'v']);
+    let reason = Parser::from_units(pattern.to_vec(), unicode, flags.contains('v')).parse().err()?;
+    let shown: String = "dgimsuvy".chars().filter(|c| flags.contains(*c)).collect();
+    Some(format!("Invalid regular expression: /{}/{shown}: {reason}", String::from_utf16_lossy(pattern)))
+}
+
 /// `JSRegExp::FlagsFromString`: each of `dgimsuvy` at most once, and not `u` with `v`.
 fn valid_flags(flags: &str) -> bool {
     let mut seen = String::new();
@@ -173,8 +186,12 @@ fn is_identifier_part(c: u32) -> bool {
 
 impl Parser {
     fn new(pattern: &str, unicode: bool, unicode_sets: bool) -> Self {
+        Self::from_units(pattern.encode_utf16().collect(), unicode, unicode_sets)
+    }
+
+    fn from_units(src: Vec<u16>, unicode: bool, unicode_sets: bool) -> Self {
         Self {
-            src: pattern.encode_utf16().collect(),
+            src,
             pos: 0,
             unicode,
             unicode_sets,

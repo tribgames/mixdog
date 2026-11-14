@@ -454,6 +454,129 @@ fn identity_hex_escapes(pattern: &str) -> std::borrow::Cow<'_, str> {
     if changed { std::borrow::Cow::Owned(out) } else { std::borrow::Cow::Borrowed(pattern) }
 }
 
+/// A fresh `new RegExp(pattern, flags).test(text)` on raw JavaScript code units.
+/// Global/sticky state starts at zero for each call; `y` must match at offset 0.
+/// Patterns and subjects never pass through UTF-8 replacement conversion.
+/// Error messages are a final Rust String boundary: the raw error's unpaired
+/// surrogates become U+FFFD there, without affecting compilation or matching.
+pub fn regex_is_match_utf16(pattern: &[u16], text: &[u16], flags: &str) -> Result<bool, String> {
+    if let Some(error) = crate::regex_error::js_regex_error_utf16(pattern, flags) {
+        return Err(error);
+    }
+    let unicode = flags.contains(['u', 'v']);
+    let source = raw_pattern_forms(pattern, unicode, flags.contains('v'));
+    let mut engine_flags = regress::Flags::from(flags);
+    // regress keeps these fields separate; ECMAScript v is also Unicode mode.
+    engine_flags.unicode = unicode;
+    let regex = if unicode {
+        regress::Regex::from_unicode(
+            char::decode_utf16(source.iter().copied()).map(|value| match value {
+                Ok(c) => u32::from(c),
+                Err(error) => u32::from(error.unpaired_surrogate()),
+            }),
+            engine_flags,
+        )
+    } else {
+        regress::Regex::from_unicode(source.iter().copied().map(u32::from), engine_flags)
+    }
+    .map_err(|error| {
+        format!(
+            "Invalid regular expression: /{}/{flags}: unsupported by the regex engine ({error})",
+            String::from_utf16_lossy(pattern),
+        )
+    })?;
+    // Utf16Input always decodes valid pairs. Ucs2Input deliberately visits each
+    // unit: a non-u dot sees half an astral character, exactly as JavaScript.
+    let found = if unicode {
+        regex.find_from_utf16(text, 0).next()
+    } else {
+        regex.find_from_ucs2(text, 0).next()
+    };
+    Ok(found.is_some_and(|found| !flags.contains('y') || found.start() == 0))
+}
+
+fn raw_pattern_forms(pattern: &[u16], unicode: bool, sets: bool) -> Vec<u16> {
+    let mut output = Vec::new();
+    let mut at = 0;
+    let mut depth = 0usize;
+    let hex = |at: usize| {
+        pattern
+            .get(at)
+            .and_then(|u| char::from_u32(u32::from(*u)))
+            .filter(char::is_ascii_hexdigit)
+            .and_then(|c| c.to_digit(16))
+    };
+    while at < pattern.len() {
+        let unit = pattern[at];
+        if unit == u16::from(b'\\') && at + 1 < pattern.len() {
+            let escaped = pattern[at + 1];
+            if !unicode && escaped == u16::from(b'u') {
+                let digits: Option<Vec<u32>> = (at + 2..at + 6).map(hex).collect();
+                match digits {
+                    Some(digits) => {
+                        let scalar = digits.into_iter().fold(0, |n, digit| n * 16 + digit) as u16;
+                        if (0xd800..=0xdfff).contains(&scalar) {
+                            // regress otherwise joins adjacent escaped halves even
+                            // without u. Literal raw units cannot be joined by its parser.
+                            output.push(scalar);
+                            at += 6;
+                            continue;
+                        }
+                    }
+                    None => {
+                        // Annex B identity escape, including \u{...} without u.
+                        output.push(u16::from(b'u'));
+                        at += 2;
+                        continue;
+                    }
+                }
+            }
+            if !unicode
+                && escaped == u16::from(b'x')
+                && (hex(at + 2).is_none() || hex(at + 3).is_none())
+            {
+                output.push(escaped);
+            } else if sets && depth > 0 && escaped == u16::from(b'b') {
+                output.extend("\\x08".encode_utf16());
+            } else {
+                output.push(unit);
+                output.push(escaped);
+            }
+            at += 2;
+            continue;
+        }
+        if sets {
+            if unit == u16::from(b'[') {
+                depth += 1;
+            } else if unit == u16::from(b']') {
+                depth = depth.saturating_sub(1);
+            } else if depth > 0 && "&!#$%*+,.:;<=>?@^`~".encode_utf16().any(|c| c == unit) {
+                let negation = unit == u16::from(b'^')
+                    && at > 0
+                    && pattern[at - 1] == u16::from(b'[')
+                    && pattern[..at - 1]
+                        .iter()
+                        .rev()
+                        .take_while(|u| **u == u16::from(b'\\'))
+                        .count()
+                        % 2
+                        == 0;
+                if !negation {
+                    if pattern.get(at + 1) == Some(&unit) {
+                        output.extend([unit, unit]);
+                        at += 2;
+                        continue;
+                    }
+                    output.push(u16::from(b'\\'));
+                }
+            }
+        }
+        output.push(unit);
+        at += 1;
+    }
+    output
+}
+
 /// One match with its groups.
 pub struct Caps<'t> {
     text: &'t str,
