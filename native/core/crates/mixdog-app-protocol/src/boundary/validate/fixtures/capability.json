@@ -39,7 +39,7 @@
       "name": "a"
     },
     "path": "/enabled",
-    "expected": "capability setMcpServerEnabled received an invalid number of arguments."
+    "expected": "setMcpServerEnabled requires a boolean value."
   },
   {
     "case": "setup request completion misses its receipt",
@@ -75,7 +75,7 @@
       "file": null
     },
     "path": "/revision",
-    "expected": "capability revertTurnChanges received an invalid number of arguments."
+    "expected": "revision must be a non-negative integer."
   },
   {
     "case": "revert with a null file",
@@ -104,7 +104,7 @@
     "method": "thread/askSide",
     "params": null,
     "path": "/question",
-    "expected": "capability askSide received an invalid number of arguments."
+    "expected": "side question must be a string."
   },
   {
     "case": "a null required value counts as given",
@@ -152,7 +152,7 @@
       "opId": "o1"
     },
     "path": "/turnKey",
-    "expected": "capability retryFailedTurn received an invalid number of arguments."
+    "expected": "turn key must be a string."
   },
   {
     "case": "retry key not a string",
@@ -15840,7 +15840,7 @@
       "opId": "o1"
     },
     "path": "/question",
-    "expected": "capability askSide received an invalid number of arguments."
+    "expected": "side question must be a string."
   },
   {
     "case": "revert a file of a turn",
@@ -15995,7 +15995,7 @@
       "file": null
     },
     "path": "/revision",
-    "expected": "capability revertTurnChanges received an invalid number of arguments."
+    "expected": "revision must be a non-negative integer."
   },
   {
     "case": "set a goal",
