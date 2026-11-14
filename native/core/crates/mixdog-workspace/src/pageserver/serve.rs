@@ -2,7 +2,7 @@
 //! The page server (`local-page-server.ts`): leases name pages, a loopback listener answers GET/HEAD for them, and every response is read from
 //! the one handle opened first, authorized again for the lease it is served under.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
@@ -25,6 +25,7 @@ use tokio_util::sync::CancellationToken;
 use super::lease::{LOCAL_PAGE_TTL, Lease, Leases, PageScope};
 use super::policy::{page_asset_type, page_location};
 use super::shim::with_sandbox_storage_shim;
+use super::virtual_pages::{INDEX, VirtualFile};
 use crate::error::{WsError, WsResult};
 use crate::lanes::{self, Lanes};
 use crate::openedpath::{open_page_file, opened_location};
@@ -87,7 +88,7 @@ impl PageServer {
         Self::with_ttl(port_file, authority, lanes, LOCAL_PAGE_TTL)
     }
 
-    fn with_ttl(port_file: PathBuf, authority: Arc<dyn PageAuthority>, lanes: Lanes, ttl: Duration) -> Arc<Self> {
+    pub(super) fn with_ttl(port_file: PathBuf, authority: Arc<dyn PageAuthority>, lanes: Lanes, ttl: Duration) -> Arc<Self> {
         Arc::new_cyclic(|me| Self {
             me: me.clone(),
             port_file,
@@ -135,6 +136,22 @@ impl PageServer {
         Ok(format!("{origin}/{token}/{}", path.join("/")))
     }
 
+    /// A URL for an in-memory page: `files` (which must hold `index.html`) are all it serves, scripts run in an opaque origin as for a one-file
+    /// lease, and nothing is read from disk. The lease has the same lifetime, capacity and owner revocation as any other.
+    pub async fn lease_virtual(&self, files: Arc<BTreeMap<String, VirtualFile>>, owner_id: Option<String>) -> WsResult<String> {
+        if !files.contains_key(INDEX) {
+            return Err(WsError::invalid("A virtual page needs an index.html."));
+        }
+        let scope = PageScope::Virtual { files };
+        self.authority.check(&scope, Path::new(INDEX)).await.map_err(|refusal| match refusal {
+            Refusal::Denied => WsError::coded(DENIED_CODE, "The page is not available."),
+            Refusal::Transient => WsError::plain("The page permission could not be checked."),
+        })?;
+        let origin = self.origin().await?;
+        let token = self.leases.insert(Lease { root: PathBuf::new(), page: PathBuf::from(INDEX), scope, owner_id, expires_at: Instant::now() + self.ttl });
+        Ok(format!("{origin}/{token}/{INDEX}"))
+    }
+
     /// A closed window leaves no usable preview URL behind.
     pub fn revoke_owner(&self, owner_id: &str) {
         self.leases.revoke_owner(owner_id);
@@ -174,6 +191,9 @@ impl PageServer {
         let token = parts.next().unwrap_or_default();
         let lease = self.leases.active(token, Instant::now()).ok_or(StatusCode::NOT_FOUND)?;
         let segments = parts.map(percent_decode).collect::<Option<Vec<String>>>().ok_or(StatusCode::BAD_REQUEST)?;
+        if let PageScope::Virtual { files } = &lease.scope {
+            return self.serve_virtual(head, token, &lease, files.get(&segments.join("/"))).await;
+        }
         let mut target = lease.root.clone();
         target.extend(&segments);
         let target = resolve(&target);
@@ -225,18 +245,20 @@ impl PageServer {
             Some(page) => Full::new(page).map_err(|never| match never {}).boxed(),
             None => ChunkBody::stream(self.lanes, file, length),
         };
-        let mut response = Response::new(body);
-        let headers = response.headers_mut();
-        headers.insert(CONTENT_TYPE, HeaderValue::from_static(mime));
-        headers.insert(CONTENT_LENGTH, HeaderValue::from(length));
-        headers.insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
-        headers.insert(X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
-        headers.insert(REFERRER_POLICY, HeaderValue::from_static("no-referrer"));
-        if is_file_scope {
-            // Selected HTML keeps its scripts, without the project pages' origin, storage or window authority on this server.
-            headers.insert(CONTENT_SECURITY_POLICY, HeaderValue::from_static("sandbox allow-scripts"));
-        }
-        Ok(response)
+        Ok(page_response(body, HeaderValue::from_static(mime), length, is_file_scope))
+    }
+
+    /// One file of a virtual lease: only the names it was made with, the same authorization and lease bookkeeping as a file, and the shim
+    /// on its HTML document.
+    async fn serve_virtual(&self, head: bool, token: &str, lease: &Lease, file: Option<&VirtualFile>) -> Result<Response<PageBody>, StatusCode> {
+        let file = file.ok_or(StatusCode::NOT_FOUND)?;
+        let content_type = HeaderValue::from_str(&file.content_type).map_err(|_| StatusCode::NOT_FOUND)?;
+        self.authorize(token, lease, Path::new(INDEX)).await?;
+        self.leases.touch(token);
+        let body = if file.is_html() { Bytes::from(with_sandbox_storage_shim(&file.bytes)) } else { Bytes::copy_from_slice(&file.bytes) };
+        let length = body.len() as u64;
+        let body: PageBody = if head { Empty::new().map_err(|never| match never {}).boxed() } else { Full::new(body).map_err(|never| match never {}).boxed() };
+        Ok(page_response(body, content_type, length, true))
     }
 
     /// The lease's authority and its pinned page, then the lease itself: expiry, eviction or owner closure while those awaited win over a
@@ -270,6 +292,22 @@ impl PageServer {
             Err(_) => Err(Refusal::Transient),
         }
     }
+}
+
+/// The headers every page response carries. A sandboxed lease also gets the CSP that keeps its scripts usable without the project pages'
+/// origin, storage or window authority on this server.
+fn page_response(body: PageBody, content_type: HeaderValue, length: u64, sandboxed: bool) -> Response<PageBody> {
+    let mut response = Response::new(body);
+    let headers = response.headers_mut();
+    headers.insert(CONTENT_TYPE, content_type);
+    headers.insert(CONTENT_LENGTH, HeaderValue::from(length));
+    headers.insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    headers.insert(X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
+    headers.insert(REFERRER_POLICY, HeaderValue::from_static("no-referrer"));
+    if sandboxed {
+        headers.insert(CONTENT_SECURITY_POLICY, HeaderValue::from_static("sandbox allow-scripts"));
+    }
+    response
 }
 
 pub(super) fn refuse(status: StatusCode) -> Response<PageBody> {

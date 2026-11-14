@@ -6,5 +6,6 @@ pub mod policy;
 pub mod ports;
 pub mod serve;
 pub mod shim;
+pub mod virtual_pages;
 
 pub use serve::{PageAuthority, PageServer, Refusal};

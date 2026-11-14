@@ -2,23 +2,26 @@
 //! lifetime that traffic never renews, and the table holds at most [`MAX_LOCAL_PAGE_LEASES`]; room is made by dropping the lease whose last
 //! successful request is oldest.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 
+use super::virtual_pages::VirtualFile;
+
 /// Hard limit, not renewed by page traffic: a chat link is opened again for a fresh URL.
 pub const LOCAL_PAGE_TTL: Duration = Duration::from_secs(60 * 60);
 pub const MAX_LOCAL_PAGE_LEASES: usize = 128;
 
-/// What a lease serves: exactly one file (under the grant that named it), or the project's web assets.
+/// What a lease serves: exactly one file (under the grant that named it), the project's web assets, or an in-memory page of named files.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PageScope {
     File { grant_token: Option<String> },
     Project,
+    Virtual { files: Arc<BTreeMap<String, VirtualFile>> },
 }
 
 #[derive(Clone, Debug)]
