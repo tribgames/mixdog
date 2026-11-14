@@ -110,6 +110,57 @@ async function readReceiver(
 }
 
 /**
+ * Whether the element the ref names is a file input. The route the approval named has to be the way the files are handed over:
+ * `fileInput` is a file input itself, `pickerClick` and `drop` are an element that is not one (the files of a file input go
+ * straight to it, which is not the gesture that was approved). A page that cannot be asked is not a verdict: the dispatch's
+ * own checks stand.
+ */
+async function isFileInputRef(
+  host: UploadHost,
+  guest: WebContents,
+  target: ReceiverTarget,
+  signal: AbortSignal
+): Promise<boolean | undefined> {
+  const options = { sessionId: target.sessionId };
+  try {
+    const resolved = await host.cdp.call<{ object?: { objectId?: string } }>(
+      guest,
+      'DOM.resolveNode',
+      { backendNodeId: target.backendNodeId },
+      signal,
+      options
+    );
+    const objectId = resolved.object?.objectId;
+    if (!objectId) return undefined;
+    try {
+      const reply = await host.cdp.call<{ result?: { value?: { valid?: boolean } }; exceptionDetails?: unknown }>(
+        guest,
+        'Runtime.callFunctionOn',
+        {
+          objectId,
+          functionDeclaration: `function() {
+            return {
+              valid: (this.tagName || '').toLowerCase() === 'input'
+                && String(this.type || '').toLowerCase() === 'file',
+            };
+          }`,
+          returnByValue: true,
+        },
+        signal,
+        options
+      );
+      if (reply.exceptionDetails || typeof reply.result?.value?.valid !== 'boolean') return undefined;
+      return reply.result.value.valid;
+    } finally {
+      host.cdp.releaseObject(guest, objectId, target.sessionId);
+    }
+  } catch {
+    signal.throwIfAborted();
+    return undefined;
+  }
+}
+
+/**
  * `host/browser/upload/receiver`: the frame document that would receive an upload now, as `ref-upload.ts` `receiver()` reads it
  * from the element itself: `key` (CDP session, frame id, loader id and URL) is what an approval binds and `upload` compares again
  * before it dispatches; `url` is what the approval card shows. Without a `ref` it names the picker the page already opened.
@@ -204,6 +255,12 @@ export function registerUpload(connection: HostConnection, ctx: EngineContext, d
             return known ? { backendNodeId: known.backendNodeId, sessionId: known.sessionId } : undefined;
           })();
 
+    // The route is the approved one: a ref of another kind is refused before anything is sent.
+    check();
+    if (route !== 'chooser' && target) {
+      const fileInput = await isFileInputRef(host, page.guest, target, signal);
+      if (fileInput !== undefined && fileInput !== (route === 'fileInput')) throw preconditionFailed('receiver', page.facts());
+    }
     check();
     await createRefUpload(guarded).uploadRef(
       page.guest,
