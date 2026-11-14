@@ -20,6 +20,7 @@ mixdog-app-server = { workspace = true }
 mixdog-app-server-transport = { workspace = true }
 mixdog-app-server-client = { workspace = true }
 mixdog-browser-engine = { workspace = true }
+mixdog-browser-policy = { workspace = true }
 mixdog-core-base = { workspace = true }
 mixdog-core = { workspace = true }
 mixdog-core-run = { workspace = true }
@@ -152,6 +153,9 @@ mixdog-exthost = { workspace = true, features = ["test-support"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 mixdog-trace = { workspace = true, features = ["flush-probe"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-browser-engine = { workspace = true, features = ["test-support"] }
 
 [target.'cfg(windows)'.dev-dependencies]
 # The composed tests' child process and what it starts, in a job object of the test (`compose_test_support::Tree`).

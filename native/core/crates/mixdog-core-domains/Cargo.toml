@@ -15,6 +15,7 @@ async-trait = { workspace = true }
 base64 = { workspace = true }
 chrono = { workspace = true, features = ["clock"] }
 futures = { workspace = true, features = ["alloc", "async-await", "std"] }
+image = { workspace = true }
 mixdog-agent = { workspace = true }
 mixdog-ai = { workspace = true }
 mixdog-app-protocol = { workspace = true }
@@ -100,3 +101,7 @@ mixdog-exthost = { workspace = true, features = ["test-support"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 mixdog-trace = { workspace = true, features = ["flush-probe"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-app-server = { workspace = true, features = ["replay-controls"] }
+mixdog-browser-engine = { workspace = true, features = ["test-support"] }
