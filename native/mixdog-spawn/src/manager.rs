@@ -1049,7 +1049,7 @@ fn launch_process(
             os_code: Some(if cfg!(windows) { 3 } else { 2 }),
         });
     }
-    let containment = Containment::create().map_err(|e| io_error(&e))?;
+    let containment = Containment::create(crate::contain::breakaway_ok(&request.owner)).map_err(|e| io_error(&e))?;
     let started = match request.pty {
         Some(size) => {
             pty::spawn(&launch, request.cwd.as_path(), &env, size, &containment).map(|parts| {

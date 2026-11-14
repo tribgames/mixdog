@@ -1,6 +1,7 @@
-//! What the Node desktop host (`apps/desktop/src/main/computer`) answers on Linux that the helper does not: the `diagnose` report
-//! (`observation/inspect.ts`, `diagnose-probes.ts`). The capture of a screen is not here: the desktop's computer host takes and
-//! encodes it (`host/computer/capture`), as does the display list (`host/computer/displays`).
+//! What the Node desktop host (`apps/desktop/src/main/computer`) answers that the helper does not: the `diagnose` report
+//! (`observation/inspect.ts`, `diagnose-probes.ts`), on every platform, and the Linux capabilities it reports as permissions. The
+//! capture of a screen is not here: the desktop's computer host takes and encodes it (`host/computer/capture`), as does the display
+//! list (`host/computer/displays`).
 
 use std::sync::Arc;
 
@@ -18,10 +19,14 @@ pub const ARRIVALS_SESSION_ID: &str = "__computer_window_arrivals__";
 
 // --- diagnose ---
 
-/// A window the helper lists (`normalizeComputerWindowRecords`): its id and whether it has the focus.
+/// A window the helper lists (`normalizeComputerWindowRecords`): its id, whether it has the focus, and the text an app target is
+/// matched against.
 pub struct WindowRow {
     pub id: String,
     pub focused: bool,
+    pub app: String,
+    pub title: String,
+    pub class_name: String,
 }
 
 /// The windows of a `list_windows` / `window_snapshot` answer; a row without an id is dropped.
@@ -38,7 +43,8 @@ pub fn window_rows(result: &Map<String, Value>) -> Vec<WindowRow> {
                 Value::Number(id) => id.to_string(),
                 _ => return None,
             };
-            (!id.is_empty()).then(|| WindowRow { id, focused: row.get("focused") == Some(&json!(true)) })
+            let field = |key: &str| row.get(key).and_then(Value::as_str).unwrap_or_default().to_owned();
+            (!id.is_empty()).then(|| WindowRow { id, focused: row.get("focused") == Some(&json!(true)), app: field("app"), title: field("title"), class_name: field("class_name") })
         })
         .collect()
 }
@@ -47,6 +53,8 @@ pub fn window_rows(result: &Map<String, Value>) -> Vec<WindowRow> {
 pub type Probe = Result<Map<String, Value>, String>;
 
 pub struct Diagnosis<'a> {
+    /// Node's `process.platform` of the machine the helper runs on.
+    pub platform: &'a str,
     pub requested_window_id: &'a str,
     pub ocr_language: Option<&'a str>,
     pub windows: Option<Vec<WindowRow>>,
@@ -54,9 +62,10 @@ pub struct Diagnosis<'a> {
     pub accessibility: Option<Probe>,
     pub ocr: Probe,
     pub input: Probe,
-    /// The desktop host's `readDisplays()` answer, as it sent it.
-    pub displays: &'a Value,
-    pub readiness: &'a Readiness,
+    /// The desktop host's `readDisplays()` answer, as it sent it; `None` leaves the displays out of the report.
+    pub displays: Option<&'a Value>,
+    /// `readComputerPermissions()`; `None` leaves the permissions out of the report.
+    pub permissions: Option<Value>,
     pub observe_only: bool,
 }
 
@@ -170,7 +179,7 @@ fn input_report(probe: &Probe) -> Map<String, Value> {
 }
 
 /// `linuxComputerPermissions`: the string fields summarize the probed capabilities.
-fn permissions_report(readiness: &Readiness) -> Value {
+pub fn linux_permissions(readiness: &Readiness) -> Value {
     let caps = &readiness.capabilities;
     let input = [&caps.pointer, &caps.keyboard].into_iter().find(|cap| cap.state != State::Ready).unwrap_or(&caps.pointer);
     json!({
@@ -216,12 +225,12 @@ pub fn diagnose_text(diagnosis: &Diagnosis) -> String {
     let windows = diagnosis.windows.as_deref().unwrap_or(&[]);
     let focused = windows.iter().find(|window| window.focused).map(|window| json!(window.id)).unwrap_or(Value::Null);
     let input_mode = if diagnosis.observe_only { "observation_only" } else { "enabled" };
-    json!({
+    let mut report = json!({
         "ok": diagnosis.windows.is_some(),
         "action": "diagnose",
-        "platform": "linux",
+        "platform": diagnosis.platform,
         "ready": ready,
-        "backend": "linux_mixdog_computer_electron",
+        "backend": format!("{}_mixdog_computer_electron", diagnosis.platform),
         "windows": { "available": diagnosis.windows.is_some(), "count": windows.len(), "focused_window_id": focused },
         "capabilities": {
             "exact_window_capture": true,
@@ -238,11 +247,13 @@ pub fn diagnose_text(diagnosis: &Diagnosis) -> String {
             "browser_content_route": "preserve_selected_session",
             "capture_probe": "run capture against an exact target; diagnostics does not expose screen pixels",
         },
-        "permissions": permissions_report(diagnosis.readiness),
-        "displays": diagnosis.displays,
-        "issues": issues,
-    })
-    .to_string()
+    });
+    for (field, value) in [("permissions", diagnosis.permissions.clone()), ("displays", diagnosis.displays.cloned()), ("issues", Some(json!(issues)))] {
+        if let Some(value) = value {
+            report[field] = value;
+        }
+    }
+    report.to_string()
 }
 
 /// The readiness the diagnose reports: the process's one probe.

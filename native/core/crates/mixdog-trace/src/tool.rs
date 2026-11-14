@@ -228,7 +228,7 @@ fn leading_line(text: &str) -> String {
 }
 
 re!(EXPECTED_CANCEL, r#"^Session\s+"[^"]+"\s+closed:\s*(?:aborted|closed)\s+during call\b"#, "i");
-re!(USER_CONTROL_CANCEL, r"^(?:Error:\s*)?(?:Browser command interrupted by local user input\.|computer_session_aborted:|computer_user_control_active:)", "i");
+re!(USER_CONTROL_CANCEL, r"^(?:Error:\s*)?(?:Browser command interrupted by local user input\.|computer_session_aborted:|computer_user_control_active:|computer_user_takeover:)", "i");
 
 fn is_expected_cancellation(raw: &str) -> bool {
     EXPECTED_CANCEL.is_match(&leading_line(raw))
