@@ -31,6 +31,7 @@ fn encode(v: &Value) -> Json {
         Value::Number(n) => json!({"t":"number","bits":format!("{:016x}",n.to_bits())}),
         Value::Date(n) => json!({"t":"date","bits":format!("{:016x}",n.to_bits())}),
         Value::Text(s) => json!({"t":"text","v":s}),
+        Value::Utf16(units) => json!({"t":"utf16","units":units}),
         Value::Bool(b) => json!({"t":"bool","v":b}),
         Value::Error(e) => json!({"t":"error","v":e.message()}),
         Value::Array(a) => json!({"t":"array","v":a.iter().map(encode).collect::<Vec<_>>()}),

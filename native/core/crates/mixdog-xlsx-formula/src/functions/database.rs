@@ -20,15 +20,15 @@ fn primitive(value: &V) -> V {
     match value {
         // JavaScript addition uses the default hint: arrays/errors stringify,
         // and Date's default primitive is also a string (not its milliseconds).
-        V::Array(_) | V::Date(_) | V::Error(_) => V::Text(to_js_string(value)),
+        V::Array(_) | V::Date(_) | V::Error(_) => V::from_utf16(to_js_utf16(value)),
         other => other.clone(),
     }
 }
 fn add(a: V, b: &V) -> V {
     let a = primitive(&a);
     let b = primitive(b);
-    if matches!(a, V::Text(_)) || matches!(b, V::Text(_)) {
-        V::Text(to_js_string(&a) + &to_js_string(&b))
+    if a.is_text() || b.is_text() {
+        V::from_utf16([to_js_utf16(&a), to_js_utf16(&b)].concat())
     } else {
         V::Number(to_js_number(&a) + to_js_number(&b))
     }
@@ -39,7 +39,7 @@ fn less(a: &V, b: &V) -> bool {
         other => primitive(other),
     };
     match (number_hint(a), number_hint(b)) {
-        (V::Text(x), V::Text(y)) => compare_utf16(&x, &y).is_lt(),
+        (x, y) if x.is_text() && y.is_text() => x.text_units().unwrap() < y.text_units().unwrap(),
         (a, b) => to_js_number(&a) < to_js_number(&b),
     }
 }
@@ -52,6 +52,12 @@ fn sum(a: &[V]) -> V {
         match items.next() {
             Some(V::Error(e)) => return V::Error(*e),
             Some(V::Number(n)) => *subtotal += n,
+            Some(V::Utf16(units)) => {
+                let n = parse_float_utf16(units);
+                if !n.is_nan() {
+                    *subtotal += n;
+                }
+            }
             Some(V::Text(s)) => {
                 let n = parse_float(s);
                 if !n.is_nan() {
@@ -73,7 +79,7 @@ fn sum(a: &[V]) -> V {
 }
 fn run(name: &str, a: &[V]) -> Result<V, Failure> {
     let (database, field, criteria) = (arg(a, 0), arg(a, 1), arg(a, 2));
-    if is_nan_of(&field) && !matches!(field, V::Text(_)) {
+    if is_nan_of(&field) && !field.is_text() {
         return Ok(V::Error(E::Value));
     }
     let db = column(&database);
@@ -112,7 +118,7 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
                     if !passes {
                         passes = matches!(c, V::Undefined)
                             || matches!(c,V::Text(s) if s=="*")
-                            || meets_criteria(value, &V::Text(to_js_string(c)));
+                            || meets_criteria(value, &V::from_utf16(to_js_utf16(c)));
                     }
                 }
             }
@@ -121,7 +127,7 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
             }
         }
     }
-    let index = if matches!(field, V::Text(_)) {
+    let index = if field.is_text() {
         find_field(db, &field)
     } else {
         field
