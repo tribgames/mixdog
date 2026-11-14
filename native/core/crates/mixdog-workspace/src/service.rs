@@ -223,8 +223,9 @@ struct PhoneGrants {
     credential_of: Arc<dyn Fn(ConnectionId) -> Option<String> + Send + Sync>,
 }
 
-/// What a page lease is asked again before every response: a one-file lease lives while its desktop grant does and names that
-/// file; a project lease is the page-root check the caller already passed.
+/// What a page lease is asked again before every response: a one-file lease of a window lives while its desktop grant does and
+/// names that file; a paired device's one-file lease (no desktop token) and a project lease stand on the check the caller passed
+/// when the URL was made, as the window's page server authorized them.
 struct DesktopPageAuthority {
     grants: Arc<crate::desktop_grants::DesktopGrantStore>,
 }
@@ -234,13 +235,12 @@ impl crate::pageserver::PageAuthority for DesktopPageAuthority {
     async fn check(&self, scope: &crate::pageserver::lease::PageScope, absolute: &Path) -> Result<(), crate::pageserver::Refusal> {
         use crate::pageserver::Refusal;
         match scope {
-            crate::pageserver::lease::PageScope::Project => Ok(()),
+            crate::pageserver::lease::PageScope::Project | crate::pageserver::lease::PageScope::File { grant_token: None } => Ok(()),
             crate::pageserver::lease::PageScope::File { grant_token: Some(token) } => match self.grants.still_granted(token, absolute).await {
                 Ok(true) => Ok(()),
                 Ok(false) => Err(Refusal::Denied),
                 Err(_) => Err(Refusal::Transient),
             },
-            crate::pageserver::lease::PageScope::File { grant_token: None } => Err(Refusal::Denied),
         }
     }
 }
@@ -548,7 +548,9 @@ impl WorkspaceService {
         let params = &req.params;
         let (root, rel) = self.file_target(req, params).await?;
         project_entry_path(&root, &rel)?;
+        // A paired device's token was redeemed from the phone table above: its lease is the one file, with no desktop grant to ask.
         let scope = match params.get("accessToken").and_then(Value::as_str) {
+            Some(_) if req.ctx.origin == mixdog_protocol::Origin::Relay => crate::pageserver::lease::PageScope::File { grant_token: None },
             Some(token) => crate::pageserver::lease::PageScope::File { grant_token: Some(token.to_owned()) },
             None => crate::pageserver::lease::PageScope::Project,
         };

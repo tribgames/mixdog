@@ -166,6 +166,34 @@ async fn a_one_file_grant_leases_that_file_alone() {
     assert!(sibling.is_err(), "{sibling:?}");
 }
 
+struct NoneGone;
+
+#[async_trait::async_trait]
+impl mixdog_workspace::grants::SessionCatalog for NoneGone {
+    async fn has(&self, _: &str) -> mixdog_workspace::error::WsResult<bool> {
+        Ok(true)
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_paired_device_one_file_grant_leases_that_file_alone() {
+    let env = env(true);
+    env.service.set_phone_grants(
+        Arc::new(mixdog_workspace::grants::GrantStore::new(Arc::new(mixdog_workspace::transfer::SystemClock), Arc::new(NoneGone))),
+        Arc::new(|connection: ConnectionId| (connection.0 == 2).then(|| "phone-1".to_owned())),
+    );
+    let folder = env.base.join("phone-outside");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join("phone.html"), "<p>phone page</p>").unwrap();
+    std::fs::write(folder.join("sibling.html"), "<p>sibling</p>").unwrap();
+    let minted = call_as(&env, Origin::Relay, "transfer/grant/mint", json!({ "path": folder.join("phone.html").to_string_lossy() })).await.unwrap();
+    let (root, rel, token) = (minted["projectPath"].clone(), minted["relPath"].clone(), minted["accessToken"].clone());
+    let url = call_as(&env, Origin::Relay, "projectFs/localPageUrl", json!({ "root": root, "rel": rel, "accessToken": token })).await.unwrap();
+    assert_eq!(get(url.as_str().unwrap()).await, (200, "<p>phone page</p>".to_owned()));
+    let sibling = call_as(&env, Origin::Relay, "projectFs/localPageUrl", json!({ "root": root, "rel": "sibling.html", "accessToken": token })).await;
+    assert!(sibling.is_err(), "{sibling:?}");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_relay_call_for_a_root_the_relay_refuses_is_refused() {
     let env = env(true);
