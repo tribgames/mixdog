@@ -5189,14 +5189,17 @@
           ]
         },
         "tokens": {
+          "description": "`null` is the automatic context size (the old main process accepted it: boundary/validate/capability_settings.rs refuses only a size below 16384; boundary/validate/capability.rs still requires the field to be present).",
           "format": "int64",
-          "type": "integer"
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "required": [
         "modelId",
-        "opId",
-        "tokens"
+        "opId"
       ],
       "type": "object"
     },

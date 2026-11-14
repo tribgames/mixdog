@@ -7253,14 +7253,17 @@
           ]
         },
         "tokens": {
+          "description": "`null` is the automatic context size (the old main process accepted it: boundary/validate/capability_settings.rs refuses only a size below 16384; boundary/validate/capability.rs still requires the field to be present).",
           "format": "int64",
-          "type": "integer"
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "required": [
         "modelId",
-        "opId",
-        "tokens"
+        "opId"
       ],
       "type": "object"
     },
@@ -9062,6 +9065,10 @@
           },
           "type": "array"
         },
+        "needsEnroll": {
+          "description": "A paired phone's delegated enroll was refused in a way only elevation fixes (delegation off or denied) and no delegated enroll of it is running: the row offers Approve for the new phone.",
+          "type": "boolean"
+        },
         "otherUser": {
           "description": "Another Windows account owns the service (informational: Approve changes nothing).",
           "type": "boolean"
@@ -9083,6 +9090,7 @@
         "enrolledKeys",
         "installed",
         "missingKeys",
+        "needsEnroll",
         "otherUser",
         "outdated",
         "owed",

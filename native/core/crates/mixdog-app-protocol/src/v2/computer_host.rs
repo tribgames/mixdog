@@ -101,6 +101,22 @@ pub struct HostComputerPixelsParams {
     pub format: HostComputerPixelsFormat,
     /// 1..=100.
     pub quality: u8,
+    /// The part of the display to capture, in physical pixels of the screen (the display's origin included): the core's display
+    /// zoom asks for the region at full resolution and answers `source` with the rectangle delivered, which must equal the region.
+    /// Absent = the whole display (g25-fu-cu-b, s3-10).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub region: Option<HostComputerPixelsRegion>,
+}
+
+/// A rectangle of a display in physical pixels of the screen.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct HostComputerPixelsRegion {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
 }
 
 /// What was captured, in physical pixels of the screen.

@@ -3695,8 +3695,10 @@ pub struct LocalProviderSetLocalProviderContextParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
     pub model_id: String,
-    #[cfg_attr(feature = "codegen", ts(type = "number"))]
-    pub tokens: i64,
+    /// `null` is the automatic context size (the old main process accepted it: boundary/validate/capability_settings.rs
+    /// refuses only a size below 16384; boundary/validate/capability.rs still requires the field to be present).
+    #[cfg_attr(feature = "codegen", ts(type = "number | null"))]
+    pub tokens: Option<i64>,
 }
 
 impl crate::common::HasOpId for LocalProviderSetLocalProviderContextParams {
