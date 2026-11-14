@@ -97,110 +97,41 @@ Then: `packages/protocol-client` `tsc -p .` and its tests
 `packages/protocol-client/src/method-table.ts` derives everything from the generated `methodTable`: a server request is
 offered only when its `requires` is null, so a `host/*` request that names a capability needs no edit there.
 
-## Pending window rows
+## Window rows (from G3 on)
 
-The `[window]` lines of the fragments, kept for PROTO-WIRE-G3, which writes them into
-`native/core/crates/mixdog-app-protocol/src/boundary/window_methods.json` (owned by s2a-core-window-scope in G2).
+`native/core/crates/mixdog-app-protocol/src/boundary/window_methods.json` is a refusal list (version 2): a window-scoped
+connection may call every client method except the ones it names (`boundary::window_scope::allows`, checked for requests
+only, not for client notifications). From G3 on the PROTO-WIRE task of the wave writes it from the `[window]` lines:
 
-### s1-proto
+- `<method> allow <reason>`: nothing to write (default allow).
+- `<method> deny <reason>`: the method is added to `methods`, and to the host-role list of the `host_role_refused` test in
+  `window_scope.rs`; `tables_name_real_methods` fails on a name that is not a client method.
+- Owner rule: a local window is trusted as the desktop is today, so nothing the renderer reaches today (directly or through a
+  main-process IPC lane, `apps/desktop/src/shared/desktop-api-split.ts` and `preload/index.ts`) is refused. A deny line whose
+  method a renderer lane reaches through main is not written; `every_direct_key_allowed` pins those names as allowed.
 
-```
-projectFs/grant/describe allow the renderer described and minted through main IPC describeLocalPaths today
-projectFs/grant/redeem allow the renderer's page and file IPCs redeem a grant through main today
-projectFs/localPage/origin allow the renderer's CSP and preview read the page origin through main today
-projectFs/localPage/revokeOwner deny internal: main revokes when a window closes
-```
+PROTO-WIRE-G3 applied every line kept since G1 and the G3 lines:
 
-### s2b-proto
+| method | row | why |
+|---|---|---|
+| `projectFs/grant/describe`, `projectFs/grant/redeem`, `projectFs/localPage/origin` | allow | renderer lanes through main |
+| `projectFs/localPage/revokeOwner` | deny (already) | main revokes when a window closes |
+| `projectFs/localPage/virtual` | deny | main leases visualize pages (pane preview, export); no renderer lane hands it files |
+| `connections/*` (s2b-proto allow lines), `connections/ssh/openEphemeral` | allow / deny | openEphemeral opens `MIXDOG_SSH_TARGET`, main's own call |
+| `connections/endpoint` | deny (already) | host claimant only |
+| `remoteHosts/redeemCode`, `rename`, `forget`, `presence` | not written (allow) | s2b-proto said deny, but the renderer reaches them through main today (`connectRemoteHostByCode`, `renameRemoteHost`, `forgetRemoteHost`, `listRemoteHosts` with `online`) |
+| `pcAccess/readiness`, `pcAccess/approve` | not written (allow) | x-pcaccess-core said deny, but the renderer reaches them through main (`computerReadiness`, `approvePcAccess`) |
+| `test/browserEngine/run`, `dev/computer/run`, `migrate/profile/adopt` | deny (already) | test hooks, host-role |
+| `migrate/profile/status` | deny | no renderer lane reaches it |
+| `computer/userControl` | deny | the pill and the main process only; no renderer key |
+| `computer/pointerReleased` | not written | a client notification: the table gates requests |
+| `takeover/ready` | allow | the takeover card and the sign-in window wait on it |
+| `desktop/workflowConfig/read` | deny | only main names a settings file |
+| other x-residual-moves and x-rs-desktop-pet methods | allow | no `[window]` deny line |
 
-```
-connections/subscribe allow renderer settings/server window; caller policy in mixdog-connections policy.rs
-connections/unsubscribe allow renderer settings/server window; caller policy in mixdog-connections policy.rs
-connections/ssh/list allow renderer settings/server window; caller policy in mixdog-connections policy.rs
-connections/ssh/rename allow renderer settings/server window; caller policy in mixdog-connections policy.rs
-connections/ssh/forget allow renderer settings/server window; caller policy in mixdog-connections policy.rs
-connections/ssh/open allow renderer settings/server window; caller policy in mixdog-connections policy.rs
-connections/ssh/configHosts allow renderer settings/server window; caller policy in mixdog-connections policy.rs
-connections/ssh/inspect allow renderer settings/server window; caller policy in mixdog-connections policy.rs
-connections/ssh/connect allow renderer settings/server window; caller policy in mixdog-connections policy.rs
-connections/ssh/cancel allow renderer settings/server window; caller policy in mixdog-connections policy.rs
-connections/ssh/askpassReply allow renderer settings/server window; caller policy in mixdog-connections policy.rs
-connections/ssh/cleanup allow renderer settings/server window; caller policy in mixdog-connections policy.rs
-connections/ssh/updateSettings allow renderer settings/server window; caller policy in mixdog-connections policy.rs
-connections/ssh/diagnosticsLog allow renderer settings/server window; caller policy in mixdog-connections policy.rs
-connections/ssh/diagnosticsCopy allow renderer settings/server window; caller policy in mixdog-connections policy.rs
-connections/ssh/serverLog allow renderer settings/server window; caller policy in mixdog-connections policy.rs
-connections/ssh/serverLogins allow renderer settings/server window; caller policy in mixdog-connections policy.rs
-connections/ssh/serverLoginBegin allow renderer settings/server window; caller policy in mixdog-connections policy.rs
-connections/ssh/serverLoginStatus allow renderer settings/server window; caller policy in mixdog-connections policy.rs
-connections/ssh/serverLoginComplete allow renderer settings/server window; caller policy in mixdog-connections policy.rs
-connections/ssh/serverLoginCancel allow renderer settings/server window; caller policy in mixdog-connections policy.rs
-connections/ssh/serverLoginSaveKey allow renderer settings/server window; caller policy in mixdog-connections policy.rs
-connections/ssh/serverLoginLogout allow renderer settings/server window; caller policy in mixdog-connections policy.rs
-connections/ssh/serverLoginRemoveCustom allow renderer settings/server window; caller policy in mixdog-connections policy.rs
-connections/ssh/openEphemeral deny host claimant only: main calls it for the window it opens; no renderer IPC reaches it
-connections/link/get allow renderer settings/server window; caller policy in mixdog-connections policy.rs
-connections/link/retry allow renderer settings/server window; caller policy in mixdog-connections policy.rs
-connections/link/retryNow allow renderer settings/server window; caller policy in mixdog-connections policy.rs
-connections/link/requestSignIn allow renderer settings/server window; caller policy in mixdog-connections policy.rs
-connections/ports/list allow renderer settings/server window; caller policy in mixdog-connections policy.rs
-connections/ports/forward allow renderer settings/server window; caller policy in mixdog-connections policy.rs
-connections/ports/stop allow renderer settings/server window; caller policy in mixdog-connections policy.rs
-connections/ports/dismiss allow renderer settings/server window; caller policy in mixdog-connections policy.rs
-connections/restore/get allow renderer settings/server window; caller policy in mixdog-connections policy.rs
-connections/restore/set allow renderer settings/server window; caller policy in mixdog-connections policy.rs
-connections/restore/progress allow renderer settings/server window; caller policy in mixdog-connections policy.rs
-connections/endpoint deny host claimant only: main calls it for the window it opens; no renderer IPC reaches it
-remoteHosts/list allow renderer settings/server window; caller policy in mixdog-connections policy.rs
-remoteHosts/redeemCode deny host claimant only: main calls it for the window it opens; no renderer IPC reaches it
-remoteHosts/rename deny host claimant only: main calls it for the window it opens; no renderer IPC reaches it
-remoteHosts/forget deny host claimant only: main calls it for the window it opens; no renderer IPC reaches it
-remoteHosts/presence deny host claimant only: main calls it for the window it opens; no renderer IPC reaches it
-```
+Rules learned in G3:
 
-### s4-proto
-
-```
-# one line per new client -> core method; the host/browser/* names are core -> host requests and client notifications, not client methods.
-test/browserEngine/run deny test hook: registered only under MIXDOGD_TEST_HOOKS=1, Local origin only, never offered to a window
-# item/browser/requestApproval is a server request answered by the renderer (no window row); the host/browser/events, page/facts and
-# userInput client notifications are sent by the host connection only (the claimant of host/claim), like host/browser/page.
-```
-
-### x-pcaccess-core
-
-```
-pcAccess/readiness deny Local-only: main reads it for the readiness row; a window reaches it only through the main IPC
-pcAccess/approve deny Local-only: main runs the Approve; a window reaches it only through the main IPC
-```
-
-### wincu-int (merged by PROTO-WIRE-G1 without a fragment)
-
-`computer/userControl` (origins Local, Ssh) came with the wincu-int protocol hunks, which carry no `[window]` line.
-PROTO-WIRE-G3 decides its row from the desktop code that calls it (the Computer Use pill's Resume, Stop and Pause).
-
-### s3-02 (PROTO-WIRE-G2)
-
-```
-dev/computer/run deny dev harness entry: the desktop main process and CLI harnesses call it, never a renderer; the core also refuses it without MIXDOG_DEV_COMPUTER_RUN=1
-computer/pointerReleased deny desktop main only: it reports the real pointer over an overlay window, which no renderer owns (a client notification, listed for the window policy)
-computer/userControl deny main pill only: unchanged; its new actions pause, takeover and configureIdleResume come from the pill and the main process, never a renderer
-```
-
-The service s3-13 wrote serves `dev/computer/run` only in a `test-hooks` build started with `MIXDOGD_TEST_HOOKS=1` (not
-`MIXDOG_DEV_COMPUTER_RUN=1`, which s3-02 named); both fragments deny it to a window.
-
-### s3-13 (PROTO-WIRE-G2)
-
-```
-dev/computer/run deny a test hook for the live harness; a renderer never calls it
-```
-
-### x-migrate-adopt-core (PROTO-WIRE-G2)
-
-```
-migrate/profile/status deny host-role: the desktop main process asks which profile the core recorded; no renderer lane reaches it
-migrate/profile/adopt deny host-role: the core reads and moves files from the directory named; only the desktop main process names the profile
-```
-
-s3-10 and x-proto-gating-core carry no `[window]` line (a type edit and a `host/claim` field).
+- A `[free_text]` line that puts a field in a `free` class needs its `FREE_TEXT` row too, whatever the fragment says.
+- An untyped param with fixed fields (e.g. `desktopPet/state/write /prefs`) is enumerated in `payloads` by its `fields`, not
+  classed whole as `open`.
+- A method row added to `client_request_definitions!` moves the pinned count of `mixdog-app-server` `tests/call_lanes.rs`.
