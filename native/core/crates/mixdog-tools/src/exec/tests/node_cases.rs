@@ -446,6 +446,13 @@ async fn every_deadline_plan_is_what_the_tool_does_with_the_call() {
         let (rig, shell, _) = stepped_rig(processes.clone(), |_| {});
         let mut input = case["args"].clone();
         input["command"] = "make".into();
+        // Node's recorder called `executeBashTool` past the argument guard (`validateBuiltinArgs`); a model call with a
+        // `wait_ms` under 1000 is refused by that guard and never reaches a plan.
+        if case["args"]["wait_ms"].as_u64().is_some_and(|wait| wait < 1000) {
+            let refused = shell.call(&ctx(&rig, &format!("d{n}")), input).await.expect_err("the guard refuses it");
+            assert!(refused.message_for_model.contains("\"wait_ms\" must be an integer from 1000"), "{}", refused.message_for_model);
+            continue;
+        }
         let ended = tokio::time::timeout(NEVER, shell.call(&ctx(&rig, &format!("d{n}")), input)).await.ok().map(body);
         let at = (tokio::time::Instant::now() - processes.spawned_at.lock().unwrap()[0]).as_millis() as u64;
         let limit = processes.spawned.lock().unwrap()[0].2.map_or(0, |d| d.as_millis() as u64);
