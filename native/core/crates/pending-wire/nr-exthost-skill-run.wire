@@ -1,0 +1,90 @@
+# nr-exthost-skill-run: `mixdogd skill-run` (mixdog_skill_scripts::skill_run) replaces skill-script-entry.mjs as the target of mixdog-skill-node.
+# Files of this task: mixdog-skill-scripts (Cargo.toml, src/lib.rs, src/run.rs, src/user.rs, src/bin/skill_run_probe.rs, tests/launch.rs) and
+# mixdog-mcp/src/launcher.rs (doc comments and its five tests only; the renderers are unchanged). Nothing was compiled (the lead builds the wave).
+
+## 1. native/core/Cargo.lock
+mixdog-skill-scripts gains two unix-only dependencies, both already in the lock and in [workspace.dependencies]: libc, signal-hook.
+Regenerate (`cargo update --workspace --offline`); no crate is added.
+
+## 2. native/core/crates/mixdog-workspace-hack/Cargo.toml
+`cargo hakari generate` (signal-hook and libc feature unions for mixdog-skill-scripts).
+
+## 3. native/core/crates/mixdog-cli/Cargo.toml, [dependencies]
+Add (beside mixdog-fsio, optional entries are for features only; this one is plain):
+    mixdog-skill-scripts = { workspace = true }
+(mixdog-cli -> mixdog-skill-scripts is the new edge; mixdog-skill-scripts depends on mixdog-mcp and mixdog-js, never on mixdog-cli or the daemon: no cycle.)
+Dev side, if D:\mixdog-build\tools\unify-test-features.py wants it: mixdog-skill-scripts is listed without features (its `test-support` only builds the probe binary).
+
+## 4. native/core/crates/mixdog-cli/src/main.rs
+In `enum Command`, after `EffortJudgeHost { .. }`, add:
+
+    /// The program the `mixdog-skill-node` launchers start: runs a skill script (what skill-script-entry.mjs did).
+    #[command(name = "skill-run", hide = true, trailing_var_arg = true, allow_hyphen_values = true, disable_help_flag = true)]
+    SkillRun {
+        #[arg(allow_hyphen_values = true, value_name = "SCRIPT_AND_ARGS")]
+        args: Vec<OsString>,
+    },
+
+In `fn main`, after the `Command::EffortJudgeHost { .. }` arm, add:
+
+        Command::SkillRun { args } => {
+            // Until nr-exthost-jsrt-skill-scripts: a script that is not shipped runs on the install's bundled interpreter.
+            let runtime = match mixdog_app_server_daemon::js_runtime::resolve_current() {
+                Ok(js) => mixdog_skill_scripts::UserScriptRuntime::Interpreter {
+                    entry: js.package_root.join("src").join("skill-script-entry.mjs"),
+                    program: js.program,
+                    electron: js.electron,
+                },
+                Err(error) => mixdog_skill_scripts::UserScriptRuntime::Unavailable { reason: error.to_string() },
+            };
+            mixdog_skill_scripts::skill_run(args, runtime)
+        }
+
+(`OsString` is already imported by main.rs through exec; add `use std::ffi::OsString;` if it is not. A skill script given `--help` or `-x` must reach
+skill-run unchanged: allow_hyphen_values on the variant and the argument, and the help flag is off for this hidden subcommand. When the resolve
+fails the variant is Unavailable and a non-shipped script prints "<reason>: cannot run <path>" and exits 1.)
+
+## 5. native/core/crates/mixdog-app-server-daemon/src/compose.rs (about line 719)
+Replace
+    let entry = js.package_root.join("src").join("skill-script-entry.mjs");
+    let skill_runtime = ExecSkillRuntime {
+        platform: node_platform().to_owned(),
+        interpreter: js.program.to_string_lossy().into_owned(),
+        entry: entry.to_string_lossy().into_owned(),
+        electron: js.electron,
+    };
+    let skills = SkillRuntime::new(js.program.to_string_lossy(), entry.to_string_lossy(), js.electron);
+by
+    let mixdogd = std::env::current_exe().map_err(ComposeError::Launcher)?;
+    let skill_runtime = ExecSkillRuntime {
+        platform: node_platform().to_owned(),
+        interpreter: mixdogd.to_string_lossy().into_owned(),
+        entry: "skill-run".to_owned(),
+        electron: false,
+    };
+    let skills = SkillRuntime::new(mixdogd.to_string_lossy(), "skill-run", false);
+`js` is still used by the extension host. The PowerShell `mixdog-skill-node` function that mixdog-tools exec/invocation.rs prepends to every PowerShell command
+renders from skill_runtime, so Windows PowerShell skill calls start `mixdogd skill-run` and not Node. The per-installation launcher directory name is a digest of
+the runtime, so it changes with the interpreter and entry (the old directory is left alone).
+Other callers that build these two runtimes from the JS runtime (mixdog-app-server-daemon/src/exec.rs builds an ExecSkillRuntime from its caller; search the
+daemon and mixdog-cli/src/exec for `skill-script-entry`) take the same two values.
+
+## 6. native/core/crates/mixdog-app-server-daemon/src/compose_mcp.rs, ConfigSkillSettings::current
+The `jsRuntime` feature (mixdog_mcp::skills::FEATURE_JS_RUNTIME) is on wherever the launcher directory is written (the local daemon and SSH servers alike), so skills
+that require it are offered everywhere: after the `for id in ["browser", ...]` loop add
+    active.insert(mixdog_mcp::skills::FEATURE_JS_RUNTIME.to_owned());
+and, where the server's own settings source builds its `active_features` (SSH server composition), the same insert. Nothing in the daemon inserted it before.
+
+## 7. native/core/crates/mixdog-app-server-daemon/src/js_runtime.rs (not this task's file, for the lead)
+`resolve_current()` stays as is until nr-exthost-jsrt-skill-scripts; it is the only consumer of the interpreter variant.
+
+## 8. native/core/crates/mixdog-tools/src/exec/testdata/invocation_node_vectors.json (not this task's file)
+Its recorded vectors name `skill-script-entry.mjs`: they are recordings of Node's rendering with a Node-shaped runtime and keep replaying (the renderer is unchanged).
+Nothing to change unless the node_cases replay builds its SkillRuntime from compose.rs.
+
+## 9. Test commands (the lead)
+cargo nextest run -p mixdog-skill-scripts --features test-support --offline
+  (tests/launch.rs: user-script cases run only when MIXDOG_TEST_SKILL_INTERPRETER names a node or electron-in-node-mode binary; the others always run)
+cargo nextest run -p mixdog-mcp --offline
+cargo nextest run -p mixdog-tools --offline
+cargo clippy -p mixdog-skill-scripts -p mixdog-mcp --all-targets --features mixdog-skill-scripts/test-support --offline
