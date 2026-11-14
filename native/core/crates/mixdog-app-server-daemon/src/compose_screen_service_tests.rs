@@ -173,14 +173,6 @@ fn a_password_request_is_answered_busy_or_by_the_installers_outcome_name() {
     assert_eq!((ran.outcome.as_str(), ran.state, ran.detail), ("enrolled", InstallState::Installed, None));
 }
 
-#[test]
-fn the_input_desktop_keeps_its_name_and_both_flags() {
-    let watched = mixdog_tools::desktop::computer_screen_input::InputDesktop { name: Some("Winlogon".into()), consent: true, logon_ui: false };
-    assert_eq!(input_desktop(&watched), InputDesktop { input_desktop: Some("Winlogon".into()), consent: true, logon_ui: false });
-    let unreadable = mixdog_tools::desktop::computer_screen_input::InputDesktop { name: None, consent: false, logon_ui: true };
-    assert_eq!(input_desktop(&unreadable), InputDesktop { input_desktop: None, consent: false, logon_ui: true });
-}
-
 fn pixels(desktop: Arc<Desktop>, stored: &[(&str, &[u8])]) -> HostPixels {
     HostPixels { desktop, blobs: Arc::new(Blobs(stored.iter().map(|(digest, bytes)| ((*digest).to_owned(), bytes.to_vec())).collect())), origin: Instant::now() }
 }

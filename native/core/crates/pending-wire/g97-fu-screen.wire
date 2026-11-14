@@ -1,0 +1,36 @@
+# g97-fu-screen: core wire
+
+Two Cargo edits (hot files) and the deferred lines this commit closes. No protocol row, no module line, no compose_flip.rs change,
+nothing to remove from SERVICE_PENDING (ScreenSourcesDeps did not change; compose_screen_service.rs is edited in place).
+
+1. native/core/crates/mixdog-tools/Cargo.toml, `[target.'cfg(windows)'.dependencies]`, the `windows-sys = { workspace = true, features = [...] }`
+   line: add `"Win32_Graphics_Gdi"` and `"Win32_UI_HiDpi"` to its features (the per-monitor capture in
+   `src/desktop/computer_screen/monitors.rs`: EnumDisplayMonitors, GetMonitorInfoW, CreateDIBSection, BitBlt, GetDpiForMonitor,
+   SetThreadDpiAwarenessContext). windows-sys 0.61.2 is already in Cargo.lock; no new package and no new edge, so the lock does not change.
+
+2. native/core/crates/mixdog-workspace-hack/Cargo.toml: regenerate with `cargo hakari generate` (the two features join the unified
+   `windows-sys-d4189bed749088b6` entry under `[target.x86_64-pc-windows-msvc.dependencies]` and `.build-dependencies`), then the
+   usual `cargo hakari verify`.
+
+3. Deferred lines this commit closes (delete them):
+   - pending-wire/deferred-g95.md, "Open, no owner yet" item 1: the sentence "Also: fill the display list before a granted client's ready;
+     one InputDesktop type." (the display list was g96-screen-viewer's, the one InputDesktop type is this commit's).
+   - pending-wire/deferred-g7.md, section "s3-screen-source item 4 / s3-screen-input live-view hookup / g55-fu-cu-ssh InputDesktop", the
+     parts (b) "Screen::displays reports one virtual display" (now one display per monitor, in this process) and the InputDesktop sentence
+     ("giving the source's trait the input module's `InputDesktop` and deleting the source's own struct and its `local_desktop` copy",
+     and the `desktop -> LocalDesktop` mapping line).
+   - the g96-screen-viewer core wire, items 4 and 5 (kept in git history): both done here.
+
+What the lead should know:
+- The phone's screen picture is the monitor's own pixels, read in this process: `ScreenSources::capture` takes the monitor this process
+  reads at the display's place (`ComputerBackend::displays()` is now one display per monitor, primary first, with its DPI scale; ids are
+  places in that order) and `Screen::source` captures that monitor's whole rectangle at its own size, thirty pictures a second from a thread
+  that follows the input desktop. The desktop's list of monitors (`host/computer/displays`) still gives the ids, labels, primary flag and
+  scale; each listed rectangle is replaced by the one this process reads for the same monitor (the desktop's is DIP size times scale, a
+  pixel off), so the session's locked geometry equals the picture and nothing is scaled. Only where this process reads no such monitor,
+  or the capture cannot start, the desktop's pixels (`host/computer/pixels`, about 10 fps, at most 1920 px) stand in, as before.
+- One `InputDesktop` type (computer_screen_input::InputDesktop, `name`); screen_source re-exports it. switch::LocalDesktop, the source's
+  own struct, `local_desktop` and compose_screen_service.rs `input_desktop()` are gone. The type derives Deserialize with the replay
+  corpus' field names (`inputDesktop`, `consent`, `logonUi`).
+- Live smoke to run with this: a phone watching a 4K monitor and a second monitor at the same time, sampled for the frame rate and the
+  size the phone reports; a UAC prompt (the helper's drawn track takes over and returns); unplug/replug of a monitor (displaysChanged).

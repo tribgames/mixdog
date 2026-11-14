@@ -152,8 +152,11 @@ fn format_command(id: u64, command: &Command<'_>) -> Result<String, ScreenInputE
 }
 
 /// The input desktop as the watcher sees it. `name` is `None` when the input desktop cannot be opened (the secure desktop).
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// The one type of it: the screen session, its switch and the composition all read this one (`inputDesktop` in the replay corpora).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct InputDesktop {
+    #[serde(rename = "inputDesktop")]
     pub name: Option<String>,
     pub consent: bool,
     pub logon_ui: bool,

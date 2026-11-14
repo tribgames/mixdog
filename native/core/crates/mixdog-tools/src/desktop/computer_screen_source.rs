@@ -13,9 +13,10 @@
 //!   counterpart.
 //! - Resolve: a client's `ready` for a display nobody holds creates a session and starts it at once; its later signals
 //!   reach the same session; another client's are refused while it lives; any other signal never creates one.
-//! - Frames: the in-process capture of the display (`ComputerBackend::screen_source`) and, where it cannot capture, the
-//!   desktop's pixels (`host/computer/pixels`, [`DisplayPixels`]). The helper's drawn frames reach the sender through
-//!   [`ScreenSink::frame`].
+//! - Frames: the in-process capture of the display's own monitor (`ComputerBackend::screen_source` of the monitor this process
+//!   reads at the display's place: the monitor's whole rectangle at its own size, thirty pictures a second) and, where it cannot
+//!   capture, the desktop's pixels (`host/computer/pixels`, [`DisplayPixels`]). The helper's drawn frames reach the sender
+//!   through [`ScreenSink::frame`].
 //! - Indicator, password requests and the input host are ports the composition fills ([`ScreenIndicatorPort`],
 //!   [`ScreenPcAccessPort`], [`ScreenInputHost`]); the Electron objects stay in the desktop.
 //! - Close ([`ScreenSources::stop_for_quit`], [`ScreenSources::dispose`]): latched at once and for good. Every session still
@@ -88,7 +89,6 @@ use super::session::SessionDeps;
 use super::session::SharedCredential;
 use super::session::ViewerAuthorization;
 use super::session::number;
-use super::switch::LocalDesktop;
 use super::video::ScreenVideoSource;
 use super::video::SinkFrame;
 use super::video::VideoPath;
@@ -277,13 +277,9 @@ pub trait ScreenPcAccessPort: Send + Sync {
     ) -> BoxFuture<Result<PcAccessAnswer, String>>;
 }
 
-/// The input desktop as the input host's watcher reports it: its name, the consent UAC prompt, the sign-in screen.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct InputDesktop {
-    pub input_desktop: Option<String>,
-    pub consent: bool,
-    pub logon_ui: bool,
-}
+/// The input desktop as the input host's watcher reports it: its name, the consent UAC prompt, the sign-in screen. The one type of it
+/// (the input module's).
+pub use super::super::computer_screen_input::InputDesktop;
 
 /// The input host of the ordinary desktop, started with each session.
 pub trait ScreenInputHost: Send + Sync {
@@ -586,6 +582,30 @@ fn summarize_display(display: &ScreenDisplay) -> Value {
     })
 }
 
+fn area_of(info: &DisplayInfo) -> PixelRect {
+    PixelRect { x: i64::from(info.x), y: i64::from(info.y), width: i64::from(info.width), height: i64::from(info.height) }
+}
+
+/// The part of `area` that `display` covers, in pixels.
+fn overlap(area: &PixelRect, display: &DisplayInfo) -> i64 {
+    let shown = area_of(display);
+    let width = (area.x + area.width).min(shown.x + shown.width) - area.x.max(shown.x);
+    let height = (area.y + area.height).min(shown.y + shown.height) - area.y.max(shown.y);
+    width.max(0) * height.max(0)
+}
+
+/// The display of `displays` that is the monitor `area` is: the one that covers most of it, provided the two are alike (each covers
+/// nine tenths of the other). A display that covers a monitor and more (the whole virtual screen over several) is not that monitor.
+fn same_monitor<'a>(area: &PixelRect, displays: &'a [DisplayInfo]) -> Option<&'a DisplayInfo> {
+    let alike = |shared: i64, own: i64| shared * 10 >= own * 9;
+    displays
+        .iter()
+        .map(|display| (overlap(area, display), display))
+        .filter(|(shared, display)| *shared > 0 && alike(*shared, area.width * area.height) && alike(*shared, area_of(display).width * area_of(display).height))
+        .max_by_key(|(shared, _)| *shared)
+        .map(|(_, display)| display)
+}
+
 /// The PC's displays: read from the monitor enumerator (the backend's own list where none is given), kept until the next read (a read
 /// that fails leaves the list as it was).
 struct DisplaySet {
@@ -617,16 +637,32 @@ impl DisplaySet {
         match &self.lister {
             Some(lister) => {
                 if let Ok(monitors) = lister.read().await {
-                    *lock(&self.current) = screen_displays(&monitors);
+                    *lock(&self.current) = screen_displays(&self.in_native_pixels(monitors));
                 }
             }
             None => self.refresh(),
         }
     }
 
-    /// Whether the monitors are enumerated beside the core, so no capture of one is made in this process.
-    fn enumerated(&self) -> bool {
-        self.lister.is_some()
+    /// The monitors the desktop listed, each with the rectangle this process reads for the same monitor. The desktop gives a size in
+    /// DIPs times the scale, which rounds away from the monitor's pixels; the picture of a monitor is exactly its pixels, and the
+    /// session locks its geometry to the display's size, so a picture that is not that size would be scaled every time. A monitor
+    /// this process finds no counterpart of, or none to ask, keeps the desktop's rectangle.
+    fn in_native_pixels(&self, monitors: Vec<Monitor>) -> Vec<Monitor> {
+        let Ok(own) = self.backend.displays() else { return monitors };
+        monitors
+            .into_iter()
+            .map(|mut monitor| {
+                let area = area_of(&monitor.info);
+                if let Some(found) = same_monitor(&area, &own) {
+                    monitor.info.x = found.x;
+                    monitor.info.y = found.y;
+                    monitor.info.width = found.width;
+                    monitor.info.height = found.height;
+                }
+                monitor
+            })
+            .collect()
     }
 
     async fn changed(&self) {
@@ -679,10 +715,6 @@ impl MediaFrameSource for PixelsSource {
 
 struct InputHostAdapter(Arc<dyn ScreenInputHost>);
 
-fn local_desktop(desktop: &InputDesktop) -> LocalDesktop {
-    LocalDesktop { input_desktop: desktop.input_desktop.clone(), consent: desktop.consent, logon_ui: desktop.logon_ui }
-}
-
 impl ScreenHost for InputHostAdapter {
     fn start(&self) -> BoxFuture<Result<(), String>> {
         self.0.start()
@@ -695,16 +727,16 @@ impl ScreenHost for InputHostAdapter {
         }
     }
 
-    fn desktop(&self) -> Option<LocalDesktop> {
-        self.0.desktop().as_ref().map(local_desktop)
+    fn desktop(&self) -> Option<InputDesktop> {
+        self.0.desktop()
     }
 
     fn session(&self) -> Option<u32> {
         self.0.session()
     }
 
-    fn on_desktop(&self, listener: Listener<LocalDesktop>) -> Unsub {
-        self.0.on_desktop(Arc::new(move |desktop: &InputDesktop| listener(&local_desktop(desktop))))
+    fn on_desktop(&self, listener: Listener<InputDesktop>) -> Unsub {
+        self.0.on_desktop(listener)
     }
 
     fn on_exit(&self, listener: Listener<()>) -> Unsub {
@@ -1080,14 +1112,16 @@ impl ScreenSources {
     pub fn capture(&self, screen_id: &str) -> Result<Box<dyn MediaFrameSource>, ComputerError> {
         let unknown = || ComputerError::InvalidInput { reason: format!("unknown display {screen_id}") };
         let display = DisplayId(screen_id.parse().map_err(|_| unknown())?);
-        if !self.parts.displays.list().iter().any(|listed| listed.screen_id == screen_id) {
-            return Err(unknown());
-        }
-        // A monitor the desktop enumerates is captured by the desktop: the in-process capture is of the whole virtual screen.
-        let captured = if self.parts.displays.enumerated() {
-            Err(ComputerError::Unavailable { reason: "the monitors are captured by the desktop".to_string() })
-        } else {
-            self.parts.backend.screen_source(display)
+        let listed = self.parts.displays.list();
+        let shown = listed.iter().find(|listed| listed.screen_id == screen_id).ok_or_else(unknown)?;
+        // The monitor this process reads at the display's place is captured here, at its own size; the desktop's pixels stand in
+        // where there is none (or the capture cannot start).
+        let captured = match self.parts.backend.displays() {
+            Ok(own) => match same_monitor(&shown.physical, &own) {
+                Some(found) => self.parts.backend.screen_source(found.id),
+                None => Err(ComputerError::Unavailable { reason: "this process reads no monitor at the display's place".to_string() }),
+            },
+            Err(error) => Err(error),
         };
         match captured {
             Ok(source) => Ok(source),
@@ -1356,7 +1390,7 @@ mod tests {
             done(Ok(vec!["10".to_string(), "20".to_string()]))
         }
         fn desktop(&self) -> Option<InputDesktop> {
-            Some(InputDesktop { input_desktop: Some("Default".to_string()), consent: false, logon_ui: false })
+            Some(InputDesktop { name: Some("Default".to_string()), consent: false, logon_ui: false })
         }
         fn session(&self) -> Option<u32> {
             Some(1)
@@ -1666,14 +1700,40 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_monitor_the_desktop_enumerates_is_captured_by_the_desktops_pixels() {
-        let lister = Listed::of(vec![monitor(11, 0, 1920, 1080, 100)]);
+    async fn a_monitor_the_desktop_enumerates_is_captured_in_this_process_at_its_own_size() {
+        // The desktop's size is its DIP size times the scale, a pixel off the monitor's: the display takes the pixels this process reads.
+        let lister = Listed::of(vec![monitor(11, 0, 1921, 1080, 100)]);
+        let (sources, _) = sources_over(Backend::new(true, true), Some(lister), Some(Arc::new(Pixels)));
+        let listed = sources.displays().await;
+        assert_eq!((listed[0]["pixelWidth"].clone(), listed[0]["pixelHeight"].clone()), (json!(1920), json!(1080)));
+        let source = sources.capture("11").expect("a source");
+        assert_eq!(source.kind(), FrameSourceKind::Screen { display: 0 }, "the monitor of this process at that place, not the desktop's pixels");
+        assert!(matches!(sources.capture("0"), Err(ComputerError::InvalidInput { .. })), "the id is the desktop's");
+    }
+
+    #[tokio::test]
+    async fn a_monitor_this_process_reads_nothing_at_is_captured_by_the_desktops_pixels() {
+        let lister = Listed::of(vec![monitor(11, 5000, 1920, 1080, 100)]);
         let (sources, _) = sources_over(Backend::new(true, true), Some(lister), Some(Arc::new(Pixels)));
         sources.displays().await;
         let mut source = sources.capture("11").expect("a source");
         assert_eq!(source.kind(), FrameSourceKind::Screen { display: 11 });
-        assert_eq!(source.next_frame().await.expect("a frame").expect("one").seq, 99);
-        assert!(matches!(sources.capture("0"), Err(ComputerError::InvalidInput { .. })), "the virtual screen is not one of the monitors");
+        let frame = source.next_frame().await.expect("a frame").expect("one");
+        assert_eq!((frame.seq, frame.format), (0, PixelFormat::Jpeg), "the source numbers the pictures it hands on");
+    }
+
+    #[test]
+    fn a_display_is_the_monitor_it_covers_and_not_a_virtual_screen_that_covers_it_among_others() {
+        let display = |id, x, width| DisplayInfo { id: DisplayId(id), x, y: 0, width, height: 1080, scale_percent: 100 };
+        let area = |x, width| PixelRect { x, y: 0, width, height: 1080 };
+        let own = [display(0, 0, 1920), display(1, 1920, 1920)];
+        assert_eq!(same_monitor(&area(1920, 1920), &own).map(|found| found.id), Some(DisplayId(1)));
+        assert_eq!(same_monitor(&area(960, 1920), &own).map(|found| found.id), None, "half on each: neither is that monitor");
+        assert_eq!(same_monitor(&area(1921, 1919), &own).map(|found| found.id), Some(DisplayId(1)), "a pixel's rounding does not matter");
+        assert_eq!(same_monitor(&area(10_000, 1920), &own).map(|found| found.id), None);
+        let virtual_screen = [display(0, 0, 3840)];
+        assert_eq!(same_monitor(&area(0, 1920), &virtual_screen).map(|found| found.id), None, "the whole virtual screen is not one monitor");
+        assert_eq!(same_monitor(&area(0, 3840), &virtual_screen).map(|found| found.id), Some(DisplayId(0)), "a single monitor is the virtual screen");
     }
 
     // ---- frames
