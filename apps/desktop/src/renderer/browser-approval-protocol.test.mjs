@@ -108,3 +108,17 @@ test('the core resolving a request elsewhere closes its card; stopping closes th
   assert.deepEqual(closed, ['r1', 'r2']);
   assert.equal(client.listeners.size, 0);
 });
+
+test('a dropped connection closes the cards; the core offers them again after the reconnect', () => {
+  const client = fakeClient();
+  const opened = [];
+  const closed = [];
+  subscribeBrowserApprovals(client, (prompt) => opened.push(prompt.id), (id) => closed.push(id));
+  client.emit({ type: 'serverRequest', request: browserRequest('r1') });
+  client.emit({ type: 'status', status: { state: 'reconnecting', attempt: 0 } });
+  assert.deepEqual(closed, ['r1']);
+  client.emit({ type: 'status', status: { state: 'ready', serverInstanceId: 's' } });
+  client.emit({ type: 'serverRequest', request: browserRequest('r1') });
+  assert.deepEqual(opened, ['r1', 'r1']);
+  assert.deepEqual(closed, ['r1']);
+});

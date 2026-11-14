@@ -55,17 +55,22 @@ export function browserApprovalPrompt(
   };
 }
 
-/** Answers the card; false when the answer could not leave (the card stays and the core offers it again after a reconnect). */
+/** Answers the card; false when the answer could not leave (the card stays until the core resolves it or the connection drops). */
 export type BrowserApprovalAnswer = (choice: BrowserApprovalChoice, reason?: string) => boolean;
 
 /** Calls `onPrompt` for every browser approval the core offers (the ones already held included) and `onResolved(promptId)`
- *  when the core resolved one elsewhere. Returns the stop function. */
+ *  when the core resolved one elsewhere or the connection dropped (the client drops its held requests with the socket and the
+ *  core offers the open ones again after the reconnect). Returns the stop function. */
 export function subscribeBrowserApprovals(
   client: Pick<ProtocolClient, 'on' | 'pendingServerRequests' | 'respond'>,
   onPrompt: (prompt: BrowserApprovalPrompt, answer: BrowserApprovalAnswer) => void,
   onResolved: (promptId: string) => void = () => undefined
 ): () => void {
-  const prompts = new Map<string, string>();
+  // The ids of the cards this subscription opened (a card's prompt id is its request id).
+  const prompts = new Set<string>();
+  const close = (requestId: string): void => {
+    if (prompts.delete(requestId)) onResolved(requestId);
+  };
   const offer = (request: { id: unknown; method: string; params: unknown }): void => {
     if (request.method !== 'item/browser/requestApproval' || !isObj(request.params)) return;
     const params = request.params as { action?: unknown; request?: unknown; threadId?: unknown; surfaceThreadId?: unknown };
@@ -76,7 +81,7 @@ export function subscribeBrowserApprovals(
       threadId: text(params.threadId),
       surfaceThreadId: text(params.surfaceThreadId) || undefined,
     });
-    prompts.set(requestId, prompt.id);
+    prompts.add(requestId);
     onPrompt(prompt, (choice, reason) => {
       try {
         client.respond(request.id as never, { result: browserApprovalDecision(choice, reason) as never });
@@ -90,16 +95,11 @@ export function subscribeBrowserApprovals(
   for (const request of client.pendingServerRequests()) offer(request);
   const stop = client.on((event) => {
     if (event.type === 'serverRequest') offer(event.request);
-    else if (event.type === 'serverRequestResolved') {
-      const promptId = prompts.get(String(event.params.requestId));
-      if (promptId === undefined) return;
-      prompts.delete(String(event.params.requestId));
-      onResolved(promptId);
-    }
+    else if (event.type === 'serverRequestResolved') close(String(event.params.requestId));
+    else if (event.type === 'status' && event.status.state !== 'ready') for (const requestId of [...prompts]) close(requestId);
   });
   return () => {
     stop();
-    for (const promptId of prompts.values()) onResolved(promptId);
-    prompts.clear();
+    for (const requestId of [...prompts]) close(requestId);
   };
 }
