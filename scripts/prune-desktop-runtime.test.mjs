@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { pruneDesktopPtyPackage, pruneDesktopRuntime } from './prune-desktop-runtime.mjs';
+import { pruneDesktopRuntime } from './prune-desktop-runtime.mjs';
 
 async function put(path, contents = 'fixture') {
   await mkdir(join(path, '..'), { recursive: true });
@@ -129,33 +129,6 @@ test('desktop runtime prune keeps the Node LSTM OCR and PDF entrypoints only', a
     await missing(join(unpdfRoot, 'dist', 'pdfjs.mjs'));
     assert.ok(result.removedTesseractBytes > 0);
     assert.ok(result.removedPdfBytes > 0);
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
-test('desktop node-pty prune keeps the active Windows payload only', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'mixdog-node-pty-prune-'));
-  try {
-    await put(join(root, 'package.json'), '{"main":"./lib/index.js"}');
-    await put(join(root, 'LICENSE'));
-    await put(join(root, 'lib', 'index.js'));
-    await put(join(root, 'lib', 'index.js.map'));
-    await put(join(root, 'build', 'Release', 'pty.node'));
-    await put(join(root, 'build', 'Release', 'pty.pdb'), Buffer.alloc(1024));
-    await put(join(root, 'prebuilds', 'linux-x64', 'node.abi127.node'));
-    await put(join(root, 'third_party', 'conpty', 'win10-arm64', 'OpenConsole.exe'));
-    await put(join(root, 'src', 'index.ts'));
-
-    const result = await pruneDesktopPtyPackage(root, { platform: 'win32', arch: 'x64' });
-
-    await access(join(root, 'lib', 'index.js'));
-    await access(join(root, 'build', 'Release', 'pty.node'));
-    await missing(join(root, 'build', 'Release', 'pty.pdb'));
-    await missing(join(root, 'prebuilds'));
-    await missing(join(root, 'third_party'));
-    await missing(join(root, 'src'));
-    assert.ok(result.afterBytes < result.beforeBytes);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

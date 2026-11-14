@@ -20,7 +20,7 @@ import { promisify } from 'node:util';
 import { listPackage, statFile } from '@electron/asar';
 import { createAsarPackage } from './asar-pack.mjs';
 import { embeddingRuntimeTarget, pruneEmbeddingRuntime } from '../../../scripts/prune-embedding-runtime.mjs';
-import { pruneDesktopPtyPackage, pruneDesktopRuntime } from '../../../scripts/prune-desktop-runtime.mjs';
+import { pruneDesktopRuntime } from '../../../scripts/prune-desktop-runtime.mjs';
 import { nativeBinaryRunsOn } from '../../../scripts/native-binary-arch.mjs';
 import {
   downloadNativeTool,
@@ -28,31 +28,12 @@ import {
   nativeToolInstalledName,
 } from '../../../scripts/native-tool-download.mjs';
 import { runtimeDependencyCacheIdentity } from '../../../scripts/runtime-dependency-cache-key.mjs';
-import { compareDesktopPtyVersion } from '../../../scripts/verify-runtime-dependency-versions.mjs';
 import { optionValue } from './cli-args.mjs';
 import { CORE_READS, mirrorCoreRuntime, PACKAGE_DIR, WINDOWS_ONNX_VC_RUNTIME_DLLS } from './core-layout.mjs';
 import { copyRuntimePackagePayload, runtimePackageSource } from './runtime-package-payload.mjs';
 
 const execFileAsync = promisify(execFile);
 
-// node-pty derives its spawn-helper path by rewriting `app.asar` to
-// `app.asar.unpacked`. The desktop ships node-pty already inside
-// app.asar.unpacked, so the upstream rewrite yields
-// `app.asar.unpacked.unpacked/...`, the helper is never found and every PTY
-// spawn fails with "posix_spawnp failed". Rewrite only an `app.asar` segment
-// that is not already unpacked, and refuse to build if upstream changed the line.
-const PTY_HELPER_REWRITE = "helperPath = helperPath.replace('app.asar', 'app.asar.unpacked');";
-const PTY_HELPER_REWRITE_FIXED = "helperPath = helperPath.replace(/app\\.asar(?!\\.unpacked)/, 'app.asar.unpacked');";
-
-async function patchDesktopPtyHelperPath(packageDir) {
-  const file = join(packageDir, 'lib', 'unixTerminal.js');
-  const source = await readFile(file, 'utf8');
-  if (source.includes(PTY_HELPER_REWRITE_FIXED)) return;
-  if (!source.includes(PTY_HELPER_REWRITE)) {
-    throw new Error(`node-pty spawn-helper path rewrite changed upstream; review ${file}`);
-  }
-  await writeFile(file, source.replace(PTY_HELPER_REWRITE, PTY_HELPER_REWRITE_FIXED));
-}
 const desktopDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const rootDir = resolve(desktopDir, '../..');
 const runtimeDir = join(desktopDir, '.runtime');
@@ -92,8 +73,6 @@ function unpackedArchivePaths(manifest) {
   return [...externalProcessArchivePaths, ...builtinSkillArchivePaths(manifest)];
 }
 
-const desktopPtyPackageDir = join(desktopDir, 'node_modules', '@homebridge', 'node-pty-prebuilt-multiarch');
-const builderDesktopPtyDir = join(runtimeDir, 'desktop-node-pty');
 const desktopNativeToolsDir = join(runtimeDir, 'native-tools');
 const configuredBrowserImportNativeSourceDir = String(process.env.MIXDOG_BROWSER_IMPORT_NATIVE_DIR ?? '').trim();
 let browserImportNativeSourceDir = '';
@@ -507,45 +486,6 @@ async function assertTargetArchitecture(path, label) {
   );
 }
 
-/** Same check across a staged package tree. */
-async function assertTreeTargetArchitecture(root, label) {
-  const entries = await readdir(root, { recursive: true, withFileTypes: true });
-  for (const entry of entries) {
-    if (!entry.isFile() || !NATIVE_BINARY_NAME.test(entry.name)) continue;
-    await assertTargetArchitecture(join(entry.parentPath, entry.name), `${label} (${entry.name})`);
-  }
-}
-
-// The package's Linux prebuilds are named node.abi<N>.node, but its loader looks
-// for electron.abi<N>.node when running under Electron and then falls back to
-// build/Release/pty.node, which the npm tarball does not ship. The addon is
-// N-API (ABI-stable across Node and Electron), so expose the newest glibc
-// prebuild at that fallback path instead of rebuilding per Electron release.
-async function installLinuxPtyBinding(packageDir) {
-  const prebuildDir = join(packageDir, 'prebuilds', `${embeddingTarget.platform}-${embeddingTarget.arch}`);
-  const candidates = (await readdir(prebuildDir))
-    .map((name) => /^node\.abi(\d+)\.node$/.exec(name))
-    .filter(Boolean)
-    .sort((left, right) => Number(right[1]) - Number(left[1]));
-  if (candidates.length === 0) throw new Error(`Desktop node-pty has no glibc prebuild under ${prebuildDir}`);
-  const releaseDir = join(packageDir, 'build', 'Release');
-  await mkdir(releaseDir, { recursive: true });
-  await cp(join(prebuildDir, candidates[0][0]), join(releaseDir, 'pty.node'));
-}
-async function desktopPtyNativeRoot() {
-  // Linux loads the ABI-specific prebuild directly. Windows and macOS install
-  // their active binding under build/Release instead. Validate only the root
-  // the package loader can select for this target: the package intentionally
-  // carries foreign Linux and Windows fallback payloads beside it.
-  const prebuildRoot = join(builderDesktopPtyDir, 'prebuilds', `${embeddingTarget.platform}-${embeddingTarget.arch}`);
-  try {
-    if ((await stat(prebuildRoot)).isDirectory()) return prebuildRoot;
-  } catch (error) {
-    if (error?.code !== 'ENOENT') throw error;
-  }
-  return join(builderDesktopPtyDir, 'build', 'Release');
-}
-
 async function resolveRuntimePackageManifest() {
   const { stdout } = await runNpm(['pack', '--dry-run', '--json', '--ignore-scripts'], {
     cwd: rootDir,
@@ -567,23 +507,11 @@ async function runtimeInputFingerprint(manifest) {
       sha256: sha256(await readFile(source)),
     });
   }
-  const [preparationSource, desktopPruneSource, desktopLockfile, installedDesktopPty] = await Promise.all([
+  const [preparationSource, desktopPruneSource, desktopLockfile] = await Promise.all([
     readFile(fileURLToPath(import.meta.url)),
     readFile(join(rootDir, 'scripts', 'prune-desktop-runtime.mjs')),
     readFile(join(desktopDir, 'package-lock.json')),
-    readFile(join(desktopPtyPackageDir, 'package.json'), 'utf8'),
   ]);
-  // node-pty is copied from the live apps/desktop/node_modules, which the
-  // lockfile hash below does not describe. Refuse a stale install here, before
-  // a reuse check could pass an old node-pty off as current.
-  const ptyMismatch = compareDesktopPtyVersion({
-    desktopLockPackages: JSON.parse(desktopLockfile).packages,
-    shippedVersion: JSON.parse(installedDesktopPty).version,
-    source: desktopPtyPackageDir,
-  });
-  if (ptyMismatch.length > 0) {
-    throw new Error(`${ptyMismatch[0]}. Run npm ci in apps/desktop before preparing the runtime.`);
-  }
   return sha256(
     JSON.stringify({
       schemaVersion: preparedRuntimeSchema,
@@ -621,7 +549,6 @@ async function canReusePreparedRuntime(fingerprint, packageManifest) {
         access(join(runtimeSidecar, ...path.split('/'))),
         access(join(builderNativeModulesDir, ...path.split('/').slice(1))),
       ]),
-      access(join(builderDesktopPtyDir, 'package.json')),
       ...NATIVE_TOOL_KINDS.map((kind) =>
         access(join(desktopNativeToolsDir, nativeToolInstalledName(kind, embeddingTarget)))
       ),
@@ -803,24 +730,6 @@ async function prepareRuntime(manifest, fingerprint) {
 
   try {
     await timed('native-tools', () => prepareDesktopNativeTools());
-    // node-pty is taken from the DESKTOP's own node_modules, which npm resolved
-    // for the build host. It is therefore the one input here that a foreign
-    // target cannot simply inherit — the check refuses a host copy rather than
-    // letting it reach app.asar.unpacked.
-    await timed('desktop-node-pty', async () => {
-      await cp(desktopPtyPackageDir, builderDesktopPtyDir, { recursive: true });
-      await patchDesktopPtyHelperPath(builderDesktopPtyDir);
-      const ptyPrune = await pruneDesktopPtyPackage(builderDesktopPtyDir, embeddingTarget);
-      if (embeddingTarget.platform === 'linux') await installLinuxPtyBinding(builderDesktopPtyDir);
-      console.log(
-        `Pruned desktop node-pty from ${(ptyPrune.beforeBytes / 1024 / 1024).toFixed(1)} MiB ` +
-          `to ${(ptyPrune.afterBytes / 1024 / 1024).toFixed(1)} MiB.`
-      );
-      // The package intentionally carries third_party/prebuild variants for
-      // several platforms before pruning. Validate the one active payload that
-      // remains for the packaged target.
-      await assertTreeTargetArchitecture(await desktopPtyNativeRoot(), 'Desktop node-pty');
-    });
     // The staging install only needs the production dependency tree. The repo's
     // postinstall (embedding prune) is driven explicitly by this script.
     // Stripping scripts leaves the lockfile tree unchanged.

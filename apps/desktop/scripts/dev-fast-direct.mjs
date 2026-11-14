@@ -162,10 +162,6 @@ export async function assertPackagedProductionDependencyClosure(archivePath, opt
 }
 
 const repoPackageManifest = join(repoRoot, 'package.json');
-// electron-builder keeps this package unpacked (asarUnpack). A native binding
-// cannot be dlopen'd from inside the archive, so an incremental artifact that
-// repacks it leaves the installed app with no terminals at all.
-const ptyPackageSegments = ['node_modules', '@homebridge', 'node-pty-prebuilt-multiarch'];
 const browserImportNativeFileNames = [
   'mixdog-browser-import.exe',
   'bitwarden_chromium_import_helper.exe',
@@ -614,10 +610,9 @@ async function replaceWinAsarIntegrity(executablePath, integrity) {
   await writeFile(executablePath, Buffer.from(executable.generate()));
 }
 
-// The staging template replaces `out/` with the current build and re-stages the
-// PTY package from the checkout, so neither is worth extracting from the
-// installed archive.
-export const stagedShellDiscardedPaths = ['out', join(...ptyPackageSegments)];
+// The staging template replaces `out/` with the current build, so it is not
+// worth extracting from the installed archive.
+export const stagedShellDiscardedPaths = ['out'];
 
 function isDiscardedStagedShellPath(relativePath) {
   return stagedShellDiscardedPaths.some(
@@ -754,7 +749,6 @@ async function stageShell({ installDir, artifactDir }) {
   await rm(join(stagingRoot, 'out'), { recursive: true, force: true });
   await stageTree(join(desktopDir, 'out'), join(stagingRoot, 'out'));
   await rm(join(stagingRoot, 'out', 'main', 'capture-window.js'), { force: true });
-  await rm(join(stagingRoot, ...ptyPackageSegments), { recursive: true, force: true });
   try {
     await createAsarPackage(stagingRoot, artifactArchive, fastDirectAsarOptions());
   } finally {
@@ -771,17 +765,6 @@ async function stageShell({ installDir, artifactDir }) {
     if (statFile(artifactArchive, asarPath(file), false).unpacked) {
       throw new Error(`FastDirect artifact unexpectedly unpacked ${file}`);
     }
-  }
-  const sourcePtyPackage = join(desktopDir, ...ptyPackageSegments);
-  const stagedPtyPackage = join(artifactResources, 'app.asar.unpacked', ...ptyPackageSegments);
-  try {
-    await cp(sourcePtyPackage, stagedPtyPackage, { recursive: true });
-  } catch (error) {
-    throw new Error(`FastDirect could not stage the PTY package from ${sourcePtyPackage}: ${error.message}`);
-  }
-  const ptyBinding = join(stagedPtyPackage, 'build', 'Release', 'pty.node');
-  if (!(await stat(ptyBinding).catch(() => null))?.isFile()) {
-    throw new Error(`FastDirect artifact is missing the unpacked PTY binding: ${ptyBinding}`);
   }
   await assertPackagedProductionDependencyClosure(artifactArchive);
   const artifactExe = join(artifactDir, 'Mixdog.exe');

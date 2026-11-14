@@ -346,11 +346,6 @@ jobs:
         run: bash apps/desktop/scripts/linux-verify-package.sh apps/desktop/dist native-out ${{ matrix.arch }} 2.31 extract | tee package-verify.txt
       - name: GNOME extension packaged (system-wide + resources in .deb, resources in AppImage)
         run: bash apps/desktop/scripts/linux-gnome-extension-check.sh payload "${DEB_ROOT%/opt/Mixdog}" "$AI_ROOT"
-      - name: Verify packaged node-pty (Electron ABI, real PTY spawn) in both payloads
-        run: |
-          for root in "$DEB_ROOT" "$AI_ROOT"; do
-            ELECTRON_RUN_AS_NODE=1 "$root/mixdog-desktop" apps/desktop/scripts/linux-pty-check.cjs "$root/resources" | tee -a pty-check.log
-          done
       - name: Verify auto-update feed and .deb metadata
         run: |
           feed=apps/desktop/dist/latest-linux.yml
@@ -457,7 +452,6 @@ jobs:
           path: |
             smoke/
             smoke-deb/
-            pty-check.log
             package-verify.txt
             apparmor-profiles.txt
             sandbox-perms.txt

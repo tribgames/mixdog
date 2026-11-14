@@ -7,7 +7,6 @@ import test from 'node:test';
 import { finished } from 'node:stream/promises';
 
 import {
-  compareDesktopPtyVersion,
   compareShippedVersions,
   desktopRequire,
   lockKeyForPackageJson,
@@ -68,17 +67,6 @@ test('compareShippedVersions lists every drifted, unlocked and stale-root packag
   assert.match(mismatches[1], /@scope\/pkg: shipped 1\.0\.0, lockfile 2\.0\.0 \(runtime\.asar\.unpacked\)/);
   assert.match(mismatches[2], /node_modules\/extra: .*absent from the lockfile/);
   assert.match(mismatches[3], /node_modules\/mixdog: shipped 1\.3\.1, lockfile 1\.3\.2/);
-});
-
-test('compareDesktopPtyVersion checks the shipped node-pty against the desktop lockfile', () => {
-  const desktopLockPackages = {
-    'node_modules/@homebridge/node-pty-prebuilt-multiarch': { version: '0.13.1' },
-  };
-  assert.deepEqual(compareDesktopPtyVersion({ desktopLockPackages, shippedVersion: '0.13.1', source: 's' }), []);
-  const stale = compareDesktopPtyVersion({ desktopLockPackages, shippedVersion: '0.12.0', source: 's' });
-  assert.equal(stale.length, 1);
-  assert.match(stale[0], /shipped 0\.12\.0, desktop lockfile 0\.13\.1/);
-  assert.equal(compareDesktopPtyVersion({ desktopLockPackages: {}, shippedVersion: '0.13.1', source: 's' }).length, 1);
 });
 
 test('readSidecarPackages reads versions from an unpacked sidecar tree', async () => {
@@ -154,7 +142,6 @@ async function buildRuntimeFixture({ zodVersion }) {
       unpackDir: join('node_modules', 'native'),
     })
   );
-  await writeJson(join(runtimeDir, 'desktop-node-pty', 'package.json'), { version: '0.13.1' });
   const lock = (packages) => ({
     lockfileVersion: 3,
     packages: { '': { name: 'mixdog', version: '1.3.2' }, ...packages },
@@ -169,12 +156,7 @@ async function buildRuntimeFixture({ zodVersion }) {
       'node_modules/native': { version: '3.0.0' },
     })
   );
-  const desktopDir = join(base, 'desktop');
-  await writeJson(
-    join(desktopDir, 'package-lock.json'),
-    lock({ 'node_modules/@homebridge/node-pty-prebuilt-multiarch': { version: '0.13.1' } })
-  );
-  return { base, runtimeDir, rootDir: base, desktopDir };
+  return { base, runtimeDir, rootDir: base };
 }
 
 test('readArchivePackages lists packed manifests and leaves unpacked ones to the sidecar', {
@@ -210,24 +192,22 @@ test('verifyRuntimeDependencyVersions passes a runtime that matches the lockfile
   }
 });
 
-test('verifyRuntimeDependencyVersions reports drift, unversioned manifests and a stale node-pty', {
+test('verifyRuntimeDependencyVersions reports drift and unversioned manifests', {
   skip: asarSkipReason,
 }, async () => {
   const fixture = await buildRuntimeFixture({ zodVersion: '3.0.0' });
   try {
-    await writeJson(join(fixture.runtimeDir, 'desktop-node-pty', 'package.json'), { version: '0.12.0' });
     // The lockfile moves @scope/pkg ahead of the shipped 2.0.0.
     const lockPath = join(fixture.rootDir, 'package-lock.json');
     const lock = JSON.parse(await readFile(lockPath, 'utf8'));
     lock.packages['node_modules/@scope/pkg'].version = '2.1.0';
     await writeFile(lockPath, JSON.stringify(lock));
     const mismatches = await verifyRuntimeDependencyVersions(fixture);
-    assert.equal(mismatches.length, 3);
+    assert.equal(mismatches.length, 2);
     assert.ok(
       mismatches.some((line) => /node_modules\/zod: shipped 3\.0\.0, lockfile 3\.25\.76 \(runtime\.asar\)/.test(line))
     );
     assert.ok(mismatches.some((line) => /@scope\/pkg: shipped 2\.0\.0, lockfile 2\.1\.0/.test(line)));
-    assert.ok(mismatches.some((line) => /shipped 0\.12\.0, desktop lockfile 0\.13\.1/.test(line)));
   } finally {
     await removeFixture(fixture);
   }

@@ -345,7 +345,7 @@ test('packaged production dependency closure accepts asarUnpack packages from th
       name: 'app',
       dependencies: {
         ws: '1.0.0',
-        '@homebridge/node-pty-prebuilt-multiarch': '1.0.0',
+        koffi: '1.0.0',
       },
     },
     'node_modules/ws/package.json': { name: 'ws' },
@@ -353,15 +353,14 @@ test('packaged production dependency closure accepts asarUnpack packages from th
   const unpackedJson = join(
     `${archive}.unpacked`,
     'node_modules',
-    '@homebridge',
-    'node-pty-prebuilt-multiarch',
+    'koffi',
     'package.json'
   );
   await mkdir(join(unpackedJson, '..'), { recursive: true });
   await writeFile(
     unpackedJson,
     `${JSON.stringify({
-      name: '@homebridge/node-pty-prebuilt-multiarch',
+      name: 'koffi',
     })}\n`
   );
   await assertPackagedProductionDependencyClosure(archive);
@@ -371,11 +370,11 @@ test('packaged production dependency closure accepts an explicit unpacked allow-
   const { archive } = await packProductionDependencyFixture(context, {
     'package.json': {
       name: 'app',
-      dependencies: { '@homebridge/node-pty-prebuilt-multiarch': '1.0.0' },
+      dependencies: { koffi: '1.0.0' },
     },
   });
   await assertPackagedProductionDependencyClosure(archive, {
-    unpackedPackages: ['@homebridge/node-pty-prebuilt-multiarch'],
+    unpackedPackages: ['koffi'],
   });
 });
 
@@ -412,14 +411,11 @@ test('a corrupt asar is not treated as a missing production dependency for plann
 });
 
 // An installed shell in miniature: packed files, unpacked files inside and
-// outside the paths staging discards, and the PTY package the staging re-copies
-// from the checkout.
+// outside the paths staging discards.
 const stagedShellFixtureFiles = {
   'package.json': '{"name":"installed-shell"}\n',
   'node_modules/keep/index.js': 'packed keep\n',
   'node_modules/keep/native.node': 'kept binding\n',
-  'node_modules/@homebridge/node-pty-prebuilt-multiarch/package.json': '{"name":"pty"}\n',
-  'node_modules/@homebridge/node-pty-prebuilt-multiarch/build/Release/pty.node': 'pty binding\n',
   'out/main/index.js': 'main\n',
   'out/main/helper.cjs': 'helper\n',
   'out/renderer/index.html': '<html></html>\n',
@@ -495,17 +491,15 @@ test('FastDirect staging extracts exactly the tree extract-then-discard produced
   const expected = await describeTree(baseline);
   assert.deepEqual(await describeTree(staged), expected);
   // The comparison only means something if the fixture kept a packed file, kept
-  // an unpacked file, dropped the whole `out/` tree, and dropped the PTY package
-  // while leaving its parent directory behind.
+  // an unpacked file, and dropped the whole `out/` tree.
   assert.ok(
     expected.some((row) => row.startsWith('file package.json ') && row.endsWith('{"name":"installed-shell"}\n'))
   );
   assert.ok(
     expected.some((row) => row.startsWith('file node_modules/keep/native.node ') && row.endsWith('kept binding\n'))
   );
-  assert.ok(expected.includes('dir  node_modules/@homebridge'));
   assert.equal(
-    expected.some((row) => row.includes('out/') || row.includes('node-pty-prebuilt-multiarch')),
+    expected.some((row) => row.includes('out/')),
     false
   );
 });
