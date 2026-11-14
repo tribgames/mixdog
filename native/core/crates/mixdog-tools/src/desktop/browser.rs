@@ -887,8 +887,10 @@ mod tests {
     #[async_trait]
     impl HostCommands for Held {
         async fn browser(&self, _: &mixdog_protocol::ThreadId, _: &str, _: JsonValue, _: &mixdog_rt::CancellationToken) -> Result<JsonValue, HostCommandError> {
+            // Create the waiter before publishing arrival, so notify_waiters cannot race past it.
+            let released = self.release.notified();
             self.reached.fetch_add(1, Ordering::SeqCst);
-            self.release.notified().await;
+            released.await;
             Ok(json!({ "text": "done" }))
         }
 
@@ -911,9 +913,11 @@ mod tests {
             let tool = tool.clone();
             running.push(tokio::spawn(async move { tool.call(&crate::orch::tests::ctx(), json!({ "action": "list_tabs" })).await }));
         }
-        while host.reached.load(Ordering::SeqCst) < MAX_CONCURRENT {
-            tokio::task::yield_now().await;
-        }
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while host.reached.load(Ordering::SeqCst) < MAX_CONCURRENT {
+                tokio::task::yield_now().await;
+            }
+        }).await.expect("all admitted commands reached the host");
         let refused = tool.call(&crate::orch::tests::ctx(), json!({ "action": "list_tabs" })).await.expect_err("the 33rd is refused");
         assert_eq!(refused.message_for_model, "Error: too many concurrent browser commands");
         assert_eq!(host.reached.load(Ordering::SeqCst), MAX_CONCURRENT, "the refused command was not sent");
@@ -926,11 +930,31 @@ mod tests {
             let tool = tool.clone();
             async move { tool.call(&crate::orch::tests::ctx(), json!({ "action": "list_tabs" })).await }
         });
-        while host.reached.load(Ordering::SeqCst) <= MAX_CONCURRENT {
-            tokio::task::yield_now().await;
-        }
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while host.reached.load(Ordering::SeqCst) <= MAX_CONCURRENT {
+                tokio::task::yield_now().await;
+            }
+        }).await.expect("the newly admitted command reached the host");
         host.release.notify_waiters();
         assert!(again.await.unwrap().is_ok(), "a place was free again");
+    }
+
+    #[tokio::test]
+    async fn an_aborted_browser_call_releases_its_admission_slot() {
+        static COUNT: AtomicUsize = AtomicUsize::new(0);
+        let host = Arc::new(Held::default());
+        let mut tool = BrowserTool::browser(host.clone());
+        tool.running = &COUNT;
+        let task = tokio::spawn(async move { tool.call(&crate::orch::tests::ctx(), json!({ "action": "list_tabs" })).await });
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while host.reached.load(Ordering::SeqCst) == 0 {
+                tokio::task::yield_now().await;
+            }
+        }).await.expect("the command reached the host");
+        assert_eq!(COUNT.load(Ordering::SeqCst), 1);
+        task.abort();
+        assert!(task.await.unwrap_err().is_cancelled());
+        assert_eq!(COUNT.load(Ordering::SeqCst), 0);
     }
 
     mod ceiling {
