@@ -13,6 +13,9 @@ use mixdog_agent::env::SkillSelector;
 use mixdog_agent::env::ToolGate;
 use mixdog_agent::message::AgentMessage;
 use mixdog_agent::message::Source;
+use mixdog_agent::message::ToolKind;
+use mixdog_agent::native_search::parse_native_tool_search;
+use mixdog_core_api::domain::provider::ToolCall;
 use mixdog_agent::tools::ToolEnv;
 use mixdog_core_api::domain::provider::Content;
 use mixdog_core_api::domain::provider::ContentPart;
@@ -232,6 +235,22 @@ impl SkillSelector for ExplicitSkillSelector {
                 Ok(output) => (summary_of(&output.parts), output.follow_up_messages),
                 Err(error) => (error.message_for_model, Vec::new()),
             };
+            // A native tool-search provider's Skill result is the payload that loads the skill's deferred
+            // tools (`parseNativeToolSearchPayload`): it rides a paired call and result, and its summary is
+            // what says whether the skill loaded.
+            if let Some(native) = parse_native_tool_search("Skill", &summary) {
+                let text = native.get("summary").and_then(JsonValue::as_str).unwrap_or_default().to_owned();
+                if loaded_skill(&text) {
+                    applied.push(name.clone());
+                }
+                let call = ToolCall { id: id.clone(), name: "Skill".to_owned(), arguments: json!({ "name": name }), native_type: None };
+                transcript.push(AgentMessage::assistant(String::new(), vec![call]));
+                let mut result = AgentMessage::tool_text(id, text, ToolKind::Normal);
+                result.message.native_tool_search = Some(native);
+                transcript.push(result);
+                transcript.extend(follow_ups.into_iter().map(|m| AgentMessage::sourced(Source::Skill, m.text)));
+                continue;
+            }
             if loaded_skill(&summary) {
                 applied.push(name);
             }
