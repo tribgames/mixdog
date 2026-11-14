@@ -24,7 +24,8 @@ windowHost.publishFocus(windows)).
     focus: (connectionId, sessionId) => { /* same body as the showConnectionWindow focus(); `local` is the main window; with sessionId open that session in it (openDesktopNotificationSession) */ },
     report: (method, params) => method === 'host/state/set' ? void connection.request(method, params).catch(() => {}) : connection.notify(method, params),
   },
-  In installWindowCloseCleanup 'closed': windowHost.windowClosed(connection.id, !app-quitting); the quit rule is the existing close/quit rule near index.ts "close/quit" (byUser false while quitting).
+  In installWindowCloseCleanup 'closed': windowHost.windowClosed(connection.id, !quitApproved) (the same rule the 'closed' handler already uses for serverWindowRestore.forget: byUser false while quitting).
+  Right after createDesktopHost returns (each new host connection starts with nothing reported), call windowHost.publishFocus(...) once with the current windows.
   On window show/hide/focus/blur/minimize/restore (each connection window and the main window): windowHost.publishFocus(every live window as {connectionId, visible: isVisible() && !isMinimized(), focused: isFocused(), sessionId: its shown session}).
 
 [notification presenter in main/index.ts options.notifications]
