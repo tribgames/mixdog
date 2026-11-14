@@ -15,7 +15,7 @@ Its consumers are the later view-model tasks (nr-tui-vm-results, nr-tui-vm-error
     mixdog-view-model = { path = "crates/mixdog-view-model" }
 
 No registry crate is added: serde and serde_json are already workspace dependencies. The crate depends on these workspace crates (all downward; nothing depends on `mixdog-view-model` yet): `mixdog-js`,
-`mixdog-protocol`, `mixdog-workspace-hack`. `mixdog-termtext` is added to its `[dependencies]` by nr-tui-vm-display (wave 2), not here.
+`mixdog-protocol`, `mixdog-workspace-hack`, and `mixdog-testkit` as a dev-dependency (tests/tools_twin.rs reads its golden with `mixdog_testkit::fixture!`; the workspace clippy.toml bans `std::fs` reads). `mixdog-termtext` is added to its `[dependencies]` by nr-tui-vm-display (wave 2), not here.
 
 ## 2. native/core/Cargo.lock
 
@@ -27,6 +27,7 @@ Add the package entry (cargo writes it; `--locked` needs it present), in name or
     dependencies = [
      "mixdog-js",
      "mixdog-protocol",
+     "mixdog-testkit",
      "mixdog-workspace-hack",
      "serde",
      "serde_json",
@@ -43,6 +44,17 @@ Run `cargo hakari generate` (the new crate adds no registry crate, so the file i
 `src/runtime/shared/` first and falls back to the rows copies; `tool-surface.mjs` and `tool-work-units.mjs` exist only as the rows copies in this tree). tests/tools_twin.rs reads the file and needs no fixture directory.
 Two recorded outputs are Node exceptions (`code_graph` with a null argument, `classifyToolCategory` and `aggregateToolCategoryEntries` read `args.mode` of null); the twin skips them.
 
-## 5. Nothing else
+## 5. Left for later tasks (review)
+
+- nr-tui-vm-results: `formatAggregateDetail` (and its stepped form `formatAggregateDetailSteps` of the rows copy) of `tool-surface.mjs` is not in
+  `tool_surface.rs`: it reads `parseUpdateSummary` / `formatLineDelta` of `tool-result-summary.mjs`, which that task ports. It is ported there
+  (in `results/`, beside the summary parsers, with `singularNoun`, `pluralNoun`, `mergedFileTarget` and `accumulateUpdateMetric`), and its
+  only Node caller, `tool-result-status.mjs` (`aggregateRawResultSteps`), uses it from there. The twin of that task records it.
+- `mixdog_protocol::tool_units::surfaced_tool_units` (used by mixdog-core-session `actor.rs` and `statusline_agents.rs`) repeats a subset of
+  the rules now in `tool_work_units.rs` (its own normalize / parse-args / collection-count). The protocol crate cannot depend on this crate;
+  the duplicate goes when its two callers take `classify_tool_category` / `aggregate_tool_category_entries` from `mixdog-view-model` (a
+  core-session task; not owned here).
+
+## 6. Nothing else
 
 No `compose_flip.rs` change (no protocol method), no `pending-rows`.
