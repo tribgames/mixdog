@@ -71,6 +71,10 @@ test('resources missing what the core needs are refused', () => {
     assert.throws(() => verify(missing), new RegExp(`missing or empty ${dir}`));
   }
 
+  const noAskpass = resources();
+  rmSync(join(noAskpass.root, 'core', 'mixdog-askpass'));
+  assert.throws(() => verify(noAskpass), /the ssh askpass helper .* is not in the package/);
+
   const noLibrary = resources();
   rmSync(join(noLibrary.modules, 'onnxruntime-node', ortBinaryDir('linux', 'x64'), 'libonnxruntime.so.1'));
   assert.throws(() => verify(noLibrary), /ONNX Runtime library .* does not exist/);
