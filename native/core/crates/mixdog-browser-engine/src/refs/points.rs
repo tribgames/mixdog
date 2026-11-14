@@ -3,8 +3,9 @@
 //! top of it, and refuses rather than guesses, because a wrong point clicks the wrong thing.
 //!
 //! The point is in the viewport of the realm the ref lives in: the page-world probe adds the offset of every same-origin
-//! frame itself. An input that must land through a cross-origin frame names the ref instead (`BrowserHitGuard` of
-//! `host/browser/input/batch`), and the host places it.
+//! frame itself. The offset of a cross-origin frame (`frameOffsetForSession` of `ref-points.ts`) is not added: no host
+//! method reports it yet, and `host/browser/input/batch` dispatches a pointer step at the top-viewport point it is given
+//! (its `BrowserHitGuard` only checks the hit). A point of a ref inside a cross-origin frame is therefore frame-local.
 //!
 //! Each call is one probe. The wait that repeats a probe while the element is covered, moving or hidden belongs to the settle
 //! module (`settle::actionability`) and hands its last refusal to [`with_covered_guidance`].
