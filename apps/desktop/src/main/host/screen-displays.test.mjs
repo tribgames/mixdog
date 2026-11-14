@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import { summarizeScreenDisplay } from '../remote-screen/screen-geometry.ts';
 import { HOST_SCREEN_DISPLAYS, registerScreenDisplaysHost } from './screen-displays.ts';
 
 function serve(list) {
@@ -19,8 +20,8 @@ const display = (id, primary) => ({
   captureSourceId: `screen:${id}:0`,
 });
 
-test('displays are forwarded and summarized', async () => {
-  const call = serve(async () => [display('1', true), display('2', false)]);
+test('displays are forwarded as the summaries the screen sources give', async () => {
+  const call = serve(async () => [display('1', true), display('2', false)].map(summarizeScreenDisplay));
   assert.deepEqual(await call({}), [
     { screenId: '1', label: 'Display 1', primary: true, pixelWidth: 1920, pixelHeight: 1080, scaleFactor: 1.5 },
     { screenId: '2', label: 'Display 2', primary: false, pixelWidth: 1920, pixelHeight: 1080, scaleFactor: 1.5 },
@@ -29,6 +30,13 @@ test('displays are forwarded and summarized', async () => {
 
 test('no display with a capture source answers an empty list', async () => {
   assert.deepEqual(await serve(() => [])({}), []);
+});
+
+test('a provider failure (no screen source on this PC) reaches the core', async () => {
+  const call = serve(async () => {
+    throw new Error('Remote screen is unavailable.');
+  });
+  await assert.rejects(call({}), /Remote screen is unavailable/);
 });
 
 test('non-object params are refused with -32602', async () => {
