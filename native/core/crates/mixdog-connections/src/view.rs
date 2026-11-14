@@ -211,10 +211,8 @@ struct Inner {
     restore_store: Arc<WindowRestoreStore>,
     progress: watch::Receiver<Vec<ServerRestoreProgress>>,
     state: Mutex<State>,
-    /// The tasks that follow each link, with the number of the follow that started them (a replaced follow is not undone by the
-    /// task it replaced).
-    follows: Mutex<HashMap<String, (u64, AbortHandle)>>,
-    follow_seq: Mutex<u64>,
+    /// The task that follows each link.
+    follows: Mutex<HashMap<String, AbortHandle>>,
     stop: CancellationToken,
 }
 
@@ -242,11 +240,6 @@ impl Inner {
         let Some(link) = self.links.get(id) else { return };
         let (mut view, mut ports) = (link.link_view(), link.ports_view());
         drop(link);
-        let number = {
-            let mut seq = locked(&self.follow_seq);
-            *seq += 1;
-            *seq
-        };
         let (inner, key_id) = (self.clone(), id.to_owned());
         let task = mixdog_rt::spawn("connections-feed-link", TaskClass::Control, async move {
             loop {
@@ -266,8 +259,8 @@ impl Inner {
             }
             // The link itself is gone (not replaced): the next reconcile removes what it published.
         });
-        let replaced = locked(&self.follows).insert(id.to_owned(), (number, task.abort_handle()));
-        if let Some((_, old)) = replaced {
+        let replaced = locked(&self.follows).insert(id.to_owned(), task.abort_handle());
+        if let Some(old) = replaced {
             old.abort();
         }
     }
@@ -277,7 +270,7 @@ impl Inner {
         let ids = self.links.ids();
         let gone: Vec<String> = locked(&self.follows).keys().filter(|id| !ids.contains(id)).cloned().collect();
         for id in gone {
-            if let Some((_, task)) = locked(&self.follows).remove(&id) {
+            if let Some(task) = locked(&self.follows).remove(&id) {
                 task.abort();
             }
             let mut state = locked(&self.state);
@@ -321,7 +314,6 @@ impl ConnectionsFeed {
             progress: restore.progress(),
             state: Mutex::new(state),
             follows: Mutex::new(HashMap::new()),
-            follow_seq: Mutex::new(0),
             stop: stop.clone(),
         });
         inner.publish_hosts();

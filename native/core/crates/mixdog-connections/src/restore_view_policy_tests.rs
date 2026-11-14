@@ -248,6 +248,14 @@ async fn restore_view_policy_reopens_remembered_saved_servers_in_batch_mode() {
     assert_eq!(store.list().await.unwrap(), ["a", "b"], "a server no longer saved is forgotten");
 }
 
+#[test]
+fn restore_view_policy_attempt_context_writes_the_target_diagnostics_ring() {
+    let context = crate::restore::attempt_context(&record("a", "user@one.example.com:2222"));
+    let target = mixdog_ssh::command::parse_ssh_target("user@one.example.com:2222").unwrap();
+    assert_eq!(context.diagnostics_key, Some(mixdog_ssh::diagnostics::diagnostics_key_for(&target)), "the ring connections/ssh/diagnosticsLog reads");
+    assert!(context.askpass.is_none(), "batch mode");
+}
+
 #[tokio::test]
 async fn restore_view_policy_setting_off_reopens_nothing() {
     let dir = tempfile::tempdir().unwrap();
