@@ -1,16 +1,25 @@
 # g96-be-tools-b: what the lead applies after the wave
 
 ## mixdog-app-server-daemon/src/compose_flip.rs (hot)
-Anchor: the `Worktrees::new(...)` chain, directly after the line
-    .with_root_cleanup(Arc::new(crate::worktree_cache_cleanups::CodeGraphCleanup::new(code_graph_cache.clone(), b.tokens.maintenance_io)))
-add the line (project_registry is the Arc<Catalog> built earlier in the same function):
-    .with_root_cleanup(Arc::new(crate::worktree_cache_cleanups::TrustedRootCleanup::new(project_registry.clone())))
+Two edits in the same function (the one that builds `project_registry`, the `Catalog` over `b.core_state`).
+
+1. Anchor: the `code_graph` tool's `UserTrustedRoots` literal, where the registry Arc is moved today:
+       registry: project_registry,
+   becomes
+       registry: project_registry.clone(),
+   (without it the Arc is moved before the worktree chain below and edit 2 does not compile).
+
+2. Anchor: the `Worktrees::new(...)` chain, directly after the line
+       .with_root_cleanup(Arc::new(crate::worktree_cache_cleanups::CodeGraphCleanup::new(code_graph_cache.clone(), b.tokens.maintenance_io)))
+   add the line
+       .with_root_cleanup(Arc::new(crate::worktree_cache_cleanups::TrustedRootCleanup::new(project_registry.clone())))
+
 This is `forgetTrustedCodeGraphRoot`: a removed worktree root also leaves the project registry. No Cargo change
 (mixdog-workspace and mixdog-scm are already dependencies of mixdog-app-server-daemon).
 
-## Callers that read the new counts (not done here, owned by the session-runtime area)
+## Callers of the new counts
 ExecRuntime::other_owner_shell_work(&ThreadId) -> (foreground, background) in mixdog-tools exec/jobs.rs is the Rust
-`otherSessionBackgroundShellJobCount`. The Node caller session-runtime/workspace/transitions.mjs (defaultOwnShellJobCount:
-background jobs owned by the sessions that move workspace) has its Rust twin in the workspace transition code; it should
-count `jobs.list(owner)` running promoted jobs of the moving sessions (or call the method with each owner) when that code
-asks "does a session hold running background shell work". SERVICE_PENDING: no names to remove.
+`otherSessionBackgroundShellJobCount`; its caller is the task list (exec/task.rs). The Node caller
+session-runtime/workspace/transitions.mjs (defaultOwnShellJobCount) already has its Rust twin: WorktreeHost::shell_job_count
+(mixdog-app-server-daemon host_runtime_draft.rs, read by mixdog-core-session worktree_merge.rs); nothing to wire for it.
+SERVICE_PENDING: no names to remove.
