@@ -1,5 +1,5 @@
-# g35-fu-host: four optional fields the desktop engine host already sends or reads (apps/desktop/src/main/host/browser-engine). All are
-# optional, so an old core and an old host keep parsing; no method, server request, notification or inventory row changes.
+# g35-fu-host: the optional fields and the init-script `clear` op the desktop engine host already sends or serves (apps/desktop/src/main/host/browser-engine). The fields are
+# optional and `clear` is a new op only the core sends, so an old core and an old host keep parsing; no method, server request, notification or inventory row changes.
 
 [methods]
 # none
@@ -48,6 +48,9 @@ pub enum BrowserPlacement {
     /// Save the redacted trace in the host's own trace folder (the old `saveTrace`); `export_path` names another absolute folder instead.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub save_trace: Option<bool>,
+# 7. enum BrowserListOp (used only by HostBrowserInitScriptsParams.op): add a fourth variant after `List`:
+    /// Removes every init script of the page (the old init_script `clear`).
+    Clear,
 # Regenerate packages/protocol/src/index.ts and schema/*.json (the usual codegen) after applying.
 
 [remove]
