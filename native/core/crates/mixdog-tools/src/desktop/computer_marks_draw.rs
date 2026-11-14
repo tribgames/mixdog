@@ -197,7 +197,8 @@ fn decode(image: &[u8], mime: &str) -> Result<Raster, PaintError> {
         decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
         let mut reader = decoder.read_info().map_err(|error| PaintError::Decode(error.to_string()))?;
         let (width, height) = (reader.info().width as usize, reader.info().height as usize);
-        let mut raw = vec![0u8; reader.output_line_size(reader.info().width) * height];
+        let size = reader.output_buffer_size().ok_or_else(|| PaintError::Decode("frame is too large to decode".to_owned()))?;
+        let mut raw = vec![0u8; size];
         let frame = reader.next_frame(&mut raw).map_err(|error| PaintError::Decode(error.to_string()))?;
         let channels = match frame.color_type {
             png::ColorType::Grayscale => 1,
