@@ -1,0 +1,1393 @@
+{
+ "note": "recorded by tests/recorders/record-modes.mjs from the Node TUI sources; do not edit by hand",
+ "fixed": {
+  "resetShown": "\u001b[?1006l\u001b[?1005l\u001b[?1015l\u001b[?1003l\u001b[?1002l\u001b[?1000l\u001b[?2004l\u001b[>0s\u001b[?25h",
+  "resetHidden": "\u001b[?1006l\u001b[?1005l\u001b[?1015l\u001b[?1003l\u001b[?1002l\u001b[?1000l\u001b[?2004l\u001b[>0s\u001b[?25l",
+  "oscResetBackground": "\u001b]111\u0007",
+  "altScrollRestore": "\u001b[?1007h",
+  "entry": "\u001b[?1006l\u001b[?1005l\u001b[?1015l\u001b[?1003l\u001b[?1002l\u001b[?1000l\u001b[?2004l\u001b[>0s\u001b[?25l\u001b[?1049h\u001b[?1006l\u001b[?1005l\u001b[?1015l\u001b[?1003l\u001b[?1002l\u001b[?1000l\u001b[?2004l\u001b[>0s\u001b[?25l\u001b[2J\u001b[H\u001b[5 q",
+  "restore": "\u001b[?1006l\u001b[?1005l\u001b[?1015l\u001b[?1003l\u001b[?1002l\u001b[?1000l\u001b[?2004l\u001b[>0s\u001b[?25h\u001b[?1007h\u001b[0 q\u001b[<u\u001b[>4;0m\u001b[?1049l\u001b[?1006l\u001b[?1005l\u001b[?1015l\u001b[?1003l\u001b[?1002l\u001b[?1000l\u001b[?2004l\u001b[>0s\u001b[?25h\u001b]111\u0007",
+  "hardExit": "\u001b[?1006l\u001b[?1005l\u001b[?1015l\u001b[?1003l\u001b[?1002l\u001b[?1000l\u001b[?2004l\u001b[>0s\u001b[?25h\u001b]111\u0007",
+  "bracketedPasteOn": "\u001b[?2004h"
+ },
+ "mouse": {
+  "passthrough": "\u001b[?1006l\u001b[?1002l\u001b[?1000l\u001b[?1007l",
+  "restore": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l",
+  "delayMs": 700,
+  "retryMs": 200,
+  "maxRetries": 5
+ },
+ "background": [
+  {
+   "input": "rgb(0, 128, 255)",
+   "out": "\u001b]11;rgb:0000/8080/ffff\u0007"
+  },
+  {
+   "input": "rgb(999,1,2)",
+   "out": "\u001b]11;rgb:ffff/0101/0202\u0007"
+  },
+  {
+   "input": "rgb(1,2,3)",
+   "out": "\u001b]11;rgb:0101/0202/0303\u0007"
+  },
+  {
+   "input": "rgb( 10 , 20 , 30 )",
+   "out": "\u001b]11;rgb:0a0a/1414/1e1e\u0007"
+  },
+  {
+   "input": "rgb(00012,3,4)",
+   "out": "\u001b]11;rgb:0c0c/0303/0404\u0007"
+  },
+  {
+   "input": "rgb(256,0,0)",
+   "out": "\u001b]11;rgb:ffff/0000/0000\u0007"
+  },
+  {
+   "input": "RGB(1,2,3)",
+   "out": "\u001b]111\u0007"
+  },
+  {
+   "input": "",
+   "out": "\u001b]111\u0007"
+  },
+  {
+   "input": "#112233",
+   "out": "\u001b]111\u0007"
+  },
+  {
+   "input": "rgb(1,2)",
+   "out": "\u001b]111\u0007"
+  },
+  {
+   "input": "rgb(1,2,3,4)",
+   "out": "\u001b]111\u0007"
+  },
+  {
+   "input": "rgb(a,b,c)",
+   "out": "\u001b]111\u0007"
+  },
+  {
+   "input": "rgba(1,2,3)",
+   "out": "\u001b]111\u0007"
+  }
+ ],
+ "combos": [
+  {
+   "env": {},
+   "extendedKeys": false,
+   "extendedKeysOn": "",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l\u001b[>1s"
+  },
+  {
+   "env": {
+    "WT_SESSION": "1"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l"
+  },
+  {
+   "env": {
+    "TERM_PROGRAM": "vscode",
+    "WT_SESSION": "1"
+   },
+   "extendedKeys": false,
+   "extendedKeysOn": "",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l"
+  },
+  {
+   "env": {
+    "MIXDOG_TUI_EXTENDED_KEYS": "0",
+    "WT_SESSION": "1"
+   },
+   "extendedKeys": false,
+   "extendedKeysOn": "",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l"
+  },
+  {
+   "env": {
+    "MIXDOG_TUI_EXTENDED_KEYS": "on",
+    "TERM_PROGRAM": "vscode"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l\u001b[>1s"
+  },
+  {
+   "env": {
+    "TERM": "xterm-kitty"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l\u001b[>1s"
+  },
+  {
+   "env": {
+    "TMUX": "/tmp/tmux-1000/default,1,0"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l\u001b[>1s"
+  },
+  {
+   "env": {
+    "MIXDOG_TUI_MOUSE": ""
+   },
+   "extendedKeys": false,
+   "extendedKeysOn": "",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l\u001b[>1s"
+  },
+  {
+   "env": {
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": ""
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l"
+  },
+  {
+   "env": {
+    "TERM_PROGRAM": "vscode",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": ""
+   },
+   "extendedKeys": false,
+   "extendedKeysOn": "",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l"
+  },
+  {
+   "env": {
+    "MIXDOG_TUI_EXTENDED_KEYS": "0",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": ""
+   },
+   "extendedKeys": false,
+   "extendedKeysOn": "",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l"
+  },
+  {
+   "env": {
+    "MIXDOG_TUI_EXTENDED_KEYS": "on",
+    "TERM_PROGRAM": "vscode",
+    "MIXDOG_TUI_MOUSE": ""
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l\u001b[>1s"
+  },
+  {
+   "env": {
+    "TERM": "xterm-kitty",
+    "MIXDOG_TUI_MOUSE": ""
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l\u001b[>1s"
+  },
+  {
+   "env": {
+    "TMUX": "/tmp/tmux-1000/default,1,0",
+    "MIXDOG_TUI_MOUSE": ""
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l\u001b[>1s"
+  },
+  {
+   "env": {
+    "MIXDOG_TUI_MOUSE": "0"
+   },
+   "extendedKeys": false,
+   "extendedKeysOn": "",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "0"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "TERM_PROGRAM": "vscode",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "0"
+   },
+   "extendedKeys": false,
+   "extendedKeysOn": "",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "MIXDOG_TUI_EXTENDED_KEYS": "0",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "0"
+   },
+   "extendedKeys": false,
+   "extendedKeysOn": "",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "MIXDOG_TUI_EXTENDED_KEYS": "on",
+    "TERM_PROGRAM": "vscode",
+    "MIXDOG_TUI_MOUSE": "0"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "TERM": "xterm-kitty",
+    "MIXDOG_TUI_MOUSE": "0"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "TMUX": "/tmp/tmux-1000/default,1,0",
+    "MIXDOG_TUI_MOUSE": "0"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "MIXDOG_TUI_MOUSE": "false"
+   },
+   "extendedKeys": false,
+   "extendedKeysOn": "",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "false"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "TERM_PROGRAM": "vscode",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "false"
+   },
+   "extendedKeys": false,
+   "extendedKeysOn": "",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "MIXDOG_TUI_EXTENDED_KEYS": "0",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "false"
+   },
+   "extendedKeys": false,
+   "extendedKeysOn": "",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "MIXDOG_TUI_EXTENDED_KEYS": "on",
+    "TERM_PROGRAM": "vscode",
+    "MIXDOG_TUI_MOUSE": "false"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "TERM": "xterm-kitty",
+    "MIXDOG_TUI_MOUSE": "false"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "TMUX": "/tmp/tmux-1000/default,1,0",
+    "MIXDOG_TUI_MOUSE": "false"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "MIXDOG_TUI_MOUSE": "NO"
+   },
+   "extendedKeys": false,
+   "extendedKeysOn": "",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "NO"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "TERM_PROGRAM": "vscode",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "NO"
+   },
+   "extendedKeys": false,
+   "extendedKeysOn": "",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "MIXDOG_TUI_EXTENDED_KEYS": "0",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "NO"
+   },
+   "extendedKeys": false,
+   "extendedKeysOn": "",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "MIXDOG_TUI_EXTENDED_KEYS": "on",
+    "TERM_PROGRAM": "vscode",
+    "MIXDOG_TUI_MOUSE": "NO"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "TERM": "xterm-kitty",
+    "MIXDOG_TUI_MOUSE": "NO"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "TMUX": "/tmp/tmux-1000/default,1,0",
+    "MIXDOG_TUI_MOUSE": "NO"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "MIXDOG_TUI_MOUSE": "off"
+   },
+   "extendedKeys": false,
+   "extendedKeysOn": "",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "off"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "TERM_PROGRAM": "vscode",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "off"
+   },
+   "extendedKeys": false,
+   "extendedKeysOn": "",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "MIXDOG_TUI_EXTENDED_KEYS": "0",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "off"
+   },
+   "extendedKeys": false,
+   "extendedKeysOn": "",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "MIXDOG_TUI_EXTENDED_KEYS": "on",
+    "TERM_PROGRAM": "vscode",
+    "MIXDOG_TUI_MOUSE": "off"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "TERM": "xterm-kitty",
+    "MIXDOG_TUI_MOUSE": "off"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "TMUX": "/tmp/tmux-1000/default,1,0",
+    "MIXDOG_TUI_MOUSE": "off"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "MIXDOG_TUI_MOUSE": "1"
+   },
+   "extendedKeys": false,
+   "extendedKeysOn": "",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l\u001b[>1s"
+  },
+  {
+   "env": {
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "1"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l"
+  },
+  {
+   "env": {
+    "TERM_PROGRAM": "vscode",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "1"
+   },
+   "extendedKeys": false,
+   "extendedKeysOn": "",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l"
+  },
+  {
+   "env": {
+    "MIXDOG_TUI_EXTENDED_KEYS": "0",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "1"
+   },
+   "extendedKeys": false,
+   "extendedKeysOn": "",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l"
+  },
+  {
+   "env": {
+    "MIXDOG_TUI_EXTENDED_KEYS": "on",
+    "TERM_PROGRAM": "vscode",
+    "MIXDOG_TUI_MOUSE": "1"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l\u001b[>1s"
+  },
+  {
+   "env": {
+    "TERM": "xterm-kitty",
+    "MIXDOG_TUI_MOUSE": "1"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l\u001b[>1s"
+  },
+  {
+   "env": {
+    "TMUX": "/tmp/tmux-1000/default,1,0",
+    "MIXDOG_TUI_MOUSE": "1"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l\u001b[>1s"
+  },
+  {
+   "env": {
+    "MIXDOG_TUI_MOUSE": "on"
+   },
+   "extendedKeys": false,
+   "extendedKeysOn": "",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l\u001b[>1s"
+  },
+  {
+   "env": {
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "on"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l"
+  },
+  {
+   "env": {
+    "TERM_PROGRAM": "vscode",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "on"
+   },
+   "extendedKeys": false,
+   "extendedKeysOn": "",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l"
+  },
+  {
+   "env": {
+    "MIXDOG_TUI_EXTENDED_KEYS": "0",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "on"
+   },
+   "extendedKeys": false,
+   "extendedKeysOn": "",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l"
+  },
+  {
+   "env": {
+    "MIXDOG_TUI_EXTENDED_KEYS": "on",
+    "TERM_PROGRAM": "vscode",
+    "MIXDOG_TUI_MOUSE": "on"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l\u001b[>1s"
+  },
+  {
+   "env": {
+    "TERM": "xterm-kitty",
+    "MIXDOG_TUI_MOUSE": "on"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l\u001b[>1s"
+  },
+  {
+   "env": {
+    "TMUX": "/tmp/tmux-1000/default,1,0",
+    "MIXDOG_TUI_MOUSE": "on"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l\u001b[>1s"
+  },
+  {
+   "env": {
+    "MIXDOG_TUI_MOUSE": " 0"
+   },
+   "extendedKeys": false,
+   "extendedKeysOn": "",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l\u001b[>1s"
+  },
+  {
+   "env": {
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": " 0"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l"
+  },
+  {
+   "env": {
+    "TERM_PROGRAM": "vscode",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": " 0"
+   },
+   "extendedKeys": false,
+   "extendedKeysOn": "",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l"
+  },
+  {
+   "env": {
+    "MIXDOG_TUI_EXTENDED_KEYS": "0",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": " 0"
+   },
+   "extendedKeys": false,
+   "extendedKeysOn": "",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l"
+  },
+  {
+   "env": {
+    "MIXDOG_TUI_EXTENDED_KEYS": "on",
+    "TERM_PROGRAM": "vscode",
+    "MIXDOG_TUI_MOUSE": " 0"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l\u001b[>1s"
+  },
+  {
+   "env": {
+    "TERM": "xterm-kitty",
+    "MIXDOG_TUI_MOUSE": " 0"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l\u001b[>1s"
+  },
+  {
+   "env": {
+    "TMUX": "/tmp/tmux-1000/default,1,0",
+    "MIXDOG_TUI_MOUSE": " 0"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l\u001b[>1s"
+  },
+  {
+   "env": {
+    "WT_SESSION": "1"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l"
+  },
+  {
+   "env": {
+    "WT_SESSION": "1"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l"
+  },
+  {
+   "env": {
+    "TERM_PROGRAM": "vscode",
+    "WT_SESSION": "1"
+   },
+   "extendedKeys": false,
+   "extendedKeysOn": "",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l"
+  },
+  {
+   "env": {
+    "MIXDOG_TUI_EXTENDED_KEYS": "0",
+    "WT_SESSION": "1"
+   },
+   "extendedKeys": false,
+   "extendedKeysOn": "",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l"
+  },
+  {
+   "env": {
+    "MIXDOG_TUI_EXTENDED_KEYS": "on",
+    "TERM_PROGRAM": "vscode",
+    "WT_SESSION": "1"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l"
+  },
+  {
+   "env": {
+    "TERM": "xterm-kitty",
+    "WT_SESSION": "1"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l"
+  },
+  {
+   "env": {
+    "TMUX": "/tmp/tmux-1000/default,1,0",
+    "WT_SESSION": "1"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l"
+  },
+  {
+   "env": {
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": ""
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l"
+  },
+  {
+   "env": {
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": ""
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l"
+  },
+  {
+   "env": {
+    "TERM_PROGRAM": "vscode",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": ""
+   },
+   "extendedKeys": false,
+   "extendedKeysOn": "",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l"
+  },
+  {
+   "env": {
+    "MIXDOG_TUI_EXTENDED_KEYS": "0",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": ""
+   },
+   "extendedKeys": false,
+   "extendedKeysOn": "",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l"
+  },
+  {
+   "env": {
+    "MIXDOG_TUI_EXTENDED_KEYS": "on",
+    "TERM_PROGRAM": "vscode",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": ""
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l"
+  },
+  {
+   "env": {
+    "TERM": "xterm-kitty",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": ""
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l"
+  },
+  {
+   "env": {
+    "TMUX": "/tmp/tmux-1000/default,1,0",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": ""
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l"
+  },
+  {
+   "env": {
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "0"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "0"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "TERM_PROGRAM": "vscode",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "0"
+   },
+   "extendedKeys": false,
+   "extendedKeysOn": "",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "MIXDOG_TUI_EXTENDED_KEYS": "0",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "0"
+   },
+   "extendedKeys": false,
+   "extendedKeysOn": "",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "MIXDOG_TUI_EXTENDED_KEYS": "on",
+    "TERM_PROGRAM": "vscode",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "0"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "TERM": "xterm-kitty",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "0"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "TMUX": "/tmp/tmux-1000/default,1,0",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "0"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "false"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "false"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "TERM_PROGRAM": "vscode",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "false"
+   },
+   "extendedKeys": false,
+   "extendedKeysOn": "",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "MIXDOG_TUI_EXTENDED_KEYS": "0",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "false"
+   },
+   "extendedKeys": false,
+   "extendedKeysOn": "",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "MIXDOG_TUI_EXTENDED_KEYS": "on",
+    "TERM_PROGRAM": "vscode",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "false"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "TERM": "xterm-kitty",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "false"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "TMUX": "/tmp/tmux-1000/default,1,0",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "false"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "NO"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "NO"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "TERM_PROGRAM": "vscode",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "NO"
+   },
+   "extendedKeys": false,
+   "extendedKeysOn": "",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "MIXDOG_TUI_EXTENDED_KEYS": "0",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "NO"
+   },
+   "extendedKeys": false,
+   "extendedKeysOn": "",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "MIXDOG_TUI_EXTENDED_KEYS": "on",
+    "TERM_PROGRAM": "vscode",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "NO"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "TERM": "xterm-kitty",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "NO"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "TMUX": "/tmp/tmux-1000/default,1,0",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "NO"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "off"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "off"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "TERM_PROGRAM": "vscode",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "off"
+   },
+   "extendedKeys": false,
+   "extendedKeysOn": "",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "MIXDOG_TUI_EXTENDED_KEYS": "0",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "off"
+   },
+   "extendedKeys": false,
+   "extendedKeysOn": "",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "MIXDOG_TUI_EXTENDED_KEYS": "on",
+    "TERM_PROGRAM": "vscode",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "off"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "TERM": "xterm-kitty",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "off"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "TMUX": "/tmp/tmux-1000/default,1,0",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "off"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": false,
+   "mouseOn": ""
+  },
+  {
+   "env": {
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "1"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l"
+  },
+  {
+   "env": {
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "1"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l"
+  },
+  {
+   "env": {
+    "TERM_PROGRAM": "vscode",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "1"
+   },
+   "extendedKeys": false,
+   "extendedKeysOn": "",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l"
+  },
+  {
+   "env": {
+    "MIXDOG_TUI_EXTENDED_KEYS": "0",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "1"
+   },
+   "extendedKeys": false,
+   "extendedKeysOn": "",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l"
+  },
+  {
+   "env": {
+    "MIXDOG_TUI_EXTENDED_KEYS": "on",
+    "TERM_PROGRAM": "vscode",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "1"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l"
+  },
+  {
+   "env": {
+    "TERM": "xterm-kitty",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "1"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l"
+  },
+  {
+   "env": {
+    "TMUX": "/tmp/tmux-1000/default,1,0",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "1"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l"
+  },
+  {
+   "env": {
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "on"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l"
+  },
+  {
+   "env": {
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "on"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l"
+  },
+  {
+   "env": {
+    "TERM_PROGRAM": "vscode",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "on"
+   },
+   "extendedKeys": false,
+   "extendedKeysOn": "",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l"
+  },
+  {
+   "env": {
+    "MIXDOG_TUI_EXTENDED_KEYS": "0",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "on"
+   },
+   "extendedKeys": false,
+   "extendedKeysOn": "",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l"
+  },
+  {
+   "env": {
+    "MIXDOG_TUI_EXTENDED_KEYS": "on",
+    "TERM_PROGRAM": "vscode",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "on"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l"
+  },
+  {
+   "env": {
+    "TERM": "xterm-kitty",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "on"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l"
+  },
+  {
+   "env": {
+    "TMUX": "/tmp/tmux-1000/default,1,0",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": "on"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l"
+  },
+  {
+   "env": {
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": " 0"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l"
+  },
+  {
+   "env": {
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": " 0"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l"
+  },
+  {
+   "env": {
+    "TERM_PROGRAM": "vscode",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": " 0"
+   },
+   "extendedKeys": false,
+   "extendedKeysOn": "",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l"
+  },
+  {
+   "env": {
+    "MIXDOG_TUI_EXTENDED_KEYS": "0",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": " 0"
+   },
+   "extendedKeys": false,
+   "extendedKeysOn": "",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l"
+  },
+  {
+   "env": {
+    "MIXDOG_TUI_EXTENDED_KEYS": "on",
+    "TERM_PROGRAM": "vscode",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": " 0"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l"
+  },
+  {
+   "env": {
+    "TERM": "xterm-kitty",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": " 0"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l"
+  },
+  {
+   "env": {
+    "TMUX": "/tmp/tmux-1000/default,1,0",
+    "WT_SESSION": "1",
+    "MIXDOG_TUI_MOUSE": " 0"
+   },
+   "extendedKeys": true,
+   "extendedKeysOn": "\u001b[>1u\u001b[>4;2m",
+   "mouse": true,
+   "mouseOn": "\u001b[?1000h\u001b[?1002h\u001b[?1006h\u001b[?1007l"
+  }
+ ]
+}

@@ -1,0 +1,59 @@
+# nr-tui-term-console: wire lines for mixdog-term (terminal modes, raw console, reader, guard)
+
+No hot file needs a change: the crate is a workspace member already (NR-WIRE 1), and every Cargo feature this task uses is in
+its manifest (windows-sys Win32_Foundation / Win32_System_Console / Win32_System_Threading, libc and signal-hook on Unix,
+mixdog-fsio, and vte / portable-pty / tempfile / serde_json for the tests). No protocol method, no service, nothing in
+compose_flip.rs SERVICE_PENDING.
+
+Not compiled: cargo was not run (the lead compiles the wave). Re-read for compile errors first: console/unix.rs and
+console/win.rs (the unsafe blocks), reader.rs (the two `platform` modules), guard.rs (the `signals` modules, the `redirect`
+modules) and tests/console_pty.rs (portable-pty 0.9 and vte 0.14 calls).
+
+## What the application task (nr-tui-app / the binary's entry) must apply, in this order
+
+1. `let exit = guard::ExitSettings::from_process();` and `let env = modes::ModeEnv::from_process();`
+   `let modes = modes::TerminalModes::new(env);` (the latch every restore shares).
+2. `let mut stderr = guard::StderrGuard::install();` first of all (it is a no-op with `MIXDOG_TUI_ALLOW_STDERR=1`): the Rust
+   tracing subscriber of the TUI keeps writing to stderr and so lands in `mixdog-tui.stderr.log`. Keep it until the end and
+   call `stderr.restore()` last. A pre-TUI message (the "needs an interactive terminal" refusal) is printed BEFORE it.
+3. `let raw = console::RawConsole::enable()` (when stdin is not a terminal the application prints the refusal and returns 1,
+   as index.jsx does), `let term = guard::TerminalGuard::new(modes.clone(), Some(raw)); let restorer = term.restorer();`
+   `guard::install_panic_hook(restorer.clone());`
+4. Write, through `restorer.write(..)`: `modes::screen_entry_sequence()` (alternate screen, cleared, blinking bar) before
+   anything else; `env.extended_keys_on()` at the moment raw mode is on, before the first read (this is the App.jsx effect: it
+   moves to the entry; it is empty when the terminal is not on the allowlist); `modes::background_sequence(theme.background)`
+   once the theme is known (also on every theme switch; the Node code wrote it only to a TTY); `modes::BRACKETED_PASTE_ON`
+   while paste is wanted; `env.mouse_on()` once the session is ready (empty with `MIXDOG_TUI_MOUSE=0`).
+5. `let (tx, rx) = std::sync::mpsc::channel(); let reader = reader::spawn_reader(tx);` and feed `TermEvent::Bytes` to
+   `input::Decoder`. `TermEvent::Resize(columns, rows)` is not debounced here: the application debounces it.
+   `TermEvent::Closed` (stdin ended or failed) must be answered with
+   `cleanup.stdio_dead(guard::StdioSource::Stdin, guard::StdioEvent::Ended)`.
+6. `let cleanup = guard::SignalCleanup::install(config)` with `let mut config = guard::CleanupConfig::new("mixdog-tui");`
+   `config.timeout = exit.cleanup_timeout();` (2500 ms + 1000 ms), `config.before_cleanup = Some(restorer.hook());`
+   `config.restore_terminal = Some(restorer.hook());` `config.cleanup = Some(..dispose the session..)` (runs on its own thread,
+   abandoned at the deadline), `config.after_cleanup = Some(..restore stderr / terminal again, idempotent..)`. Do this where
+   index.jsx did: after the session is ready.
+7. A write to the terminal or stderr that fails with `guard::is_stdio_fatal(&error)` is answered with
+   `cleanup.stdio_dead(StdioSource::Stdout, StdioEvent::Error(&error))` (EPIPE / EIO / closed handle only; a would-block or
+   an interruption is ignored by that call).
+8. The wheel zoom passthrough uses `modes::MouseTrackingRestore::new(restorer.modes().clone())`: `passthrough(now)` returns
+   the bytes that switch tracking and alternate scroll off (write them) and schedules the restore; call `poll(now)` from the
+   UI loop (`next_due()` gives the time of the next poll) and write what it returns; call `write_failed(now)` when that
+   write returned an error. After the terminal was restored it returns `None` (the "cancelPendingMouseTrackingRestores").
+9. The end of the session: `cleanup.uninstall()`, dispose the session, `drop(term)` (drains the queued input, writes
+   `modes::restore_sequence()` once, puts the console modes back), `stderr.restore()`, then
+   `guard::schedule_hard_exit(&exit, 0)` before returning (writes the reset again and ends the process after 500 ms unless
+   `MIXDOG_TUI_HARD_EXIT=0`).
+
+## Notes for the lead
+
+- `TermEvent` gained `Closed`; `modes::enter_sequence` / `restore_sequence(&ModeEnv)` of the first stub were replaced by
+  `screen_entry_sequence()` / `restore_sequence()` (the restore pops kitty and disables modifyOtherKeys unconditionally, as
+  index.jsx does); `modes::ModeEnv` gained `windows_terminal` and `mouse`. Nothing outside the crate used them.
+- Windows pty tests: tests/console_pty.rs drives a pseudo-terminal on Unix only (ConPTY rewrites the byte stream, so the
+  byte assertions would not hold); on Windows the ignored `windows_console_modes` checks the console mode flags.
+- Not ported (outside the files this task owns): `recordCatchableFatal` / `finishProcessLifecycle` of
+  `src/runtime/shared/process-lifecycle.mjs` (the crash-marker bookkeeping around process-shutdown), and the provider
+  admission/drain globals `__mixdogShutdownProviderAdmission` / `__mixdogDrainProviderConnections` that
+  `installProcessSignalCleanup` calls: both belong to the session runtime and are reached through `config.cleanup` /
+  `config.before_cleanup` by the task that owns that runtime.
