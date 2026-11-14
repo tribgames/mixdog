@@ -11,7 +11,10 @@ workspace = true
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
+mixdog-fsio = { workspace = true }
 mixdog-js = { workspace = true }
+mixdog-rt = { workspace = true }
+mixdog-statefile = { workspace = true }
 # The helpers of the twin tests (`twin`): a library of the office crates' tests, reached through the feature below.
 mixdog-testkit = { workspace = true, optional = true }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
@@ -22,6 +25,12 @@ mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 test-support = ["dep:mixdog-testkit"]
 
 [dev-dependencies]
+base64 = { workspace = true }
 mixdog-testkit = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["rt"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (see mixdog-statefile).
+mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 # This crate's own tests build `twin` too, so a test build has one feature set whatever packages are selected.
 mixdog-office-base = { path = ".", features = ["test-support"] }
