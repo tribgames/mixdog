@@ -1653,12 +1653,22 @@
       ],
       "type": "object"
     },
+    "ComputerTakeoverReason": {
+      "description": "Why a `takeover` of the user's hold is raised (`computer/userControl`).",
+      "enum": [
+        "desktop_unavailable",
+        "display_changed"
+      ],
+      "type": "string"
+    },
     "ComputerUserControlAction": {
       "description": "What the Computer Use pill asks of `computer/userControl`.",
       "enum": [
         "resume",
         "stop",
-        "pause"
+        "pause",
+        "takeover",
+        "configureIdleResume"
       ],
       "type": "string"
     },
@@ -1667,6 +1677,26 @@
       "properties": {
         "action": {
           "$ref": "#/definitions/ComputerUserControlAction"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ComputerTakeoverReason"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "`takeover` only: why the hold is taken. Checked by `ComputerUserControlParams::validate` (computer_host.rs)."
+        },
+        "seconds": {
+          "description": "`configureIdleResume` only, 0..=60.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "sessionThreadId": {
           "description": "The session the pill acts for; absent: every session.",
@@ -2971,6 +3001,29 @@
       },
       "required": [
         "connectorId"
+      ],
+      "type": "object"
+    },
+    "DevComputerRunParams": {
+      "description": "Params of `dev/computer/run` (client -> core): one command through the harness, refused with -32601 unless the core was started with `MIXDOG_DEV_COMPUTER_RUN=1`.",
+      "properties": {
+        "command": true,
+        "sessionThreadId": {
+          "type": "string"
+        },
+        "timeoutMs": {
+          "description": "At most 120000.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "command",
+        "sessionThreadId"
       ],
       "type": "object"
     },
@@ -4488,6 +4541,16 @@
             }
           ],
           "description": "Where the desktop keeps the server cores and the askpass helper the core launches."
+        },
+        "serves": {
+          "description": "The `host/*` methods this claimant serves. Absent: every method of the capabilities declared in `capabilities.host` (the boolean routing); present: a request for a method not listed is not sent to this claimant (`unsupportedMethod`).",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
         }
       },
       "required": [
@@ -6021,6 +6084,22 @@
         "opId",
         "query"
       ],
+      "type": "object"
+    },
+    "MigrateProfileAdoptParams": {
+      "description": "Params of `migrate/profile/adopt`: the Electron profile directory (absolute, existing).",
+      "properties": {
+        "userData": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "userData"
+      ],
+      "type": "object"
+    },
+    "MigrateProfileStatusParams": {
+      "description": "Params of `migrate/profile/status`: none.",
       "type": "object"
     },
     "ModelListParams": {
@@ -24954,6 +25033,52 @@
       "type": "object"
     },
     {
+      "description": "The desktop-profile move's state: its generation, and the profile directory the core has recorded (Local only).",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "migrate/profile/status"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/MigrateProfileStatusParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Adopts the Electron profile for a core started without it: moves the profile files of generation 2 into the data dir (idempotent; only the profile recorded already may be named again). Local only.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "migrate/profile/adopt"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/MigrateProfileAdoptParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
       "description": "UI-originated in-app browser control; forwarded as `host/browser/command`.",
       "properties": {
         "id": {
@@ -25013,6 +25138,29 @@
         },
         "params": {
           "$ref": "#/definitions/ComputerUserControlParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "One Computer Use command through the live helper pool outside a model turn (test hook: served only by a `test-hooks` build started with MIXDOGD_TEST_HOOKS=1; the handler calls DevComputerRunParams::validate).",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "dev/computer/run"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/DevComputerRunParams"
         }
       },
       "required": [

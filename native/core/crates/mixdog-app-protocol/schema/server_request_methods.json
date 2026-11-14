@@ -2422,6 +2422,293 @@
       ],
       "type": "object"
     },
+    "HostComputerAppInputEffect": {
+      "description": "What became of an `appInput`.",
+      "enum": [
+        "delivered",
+        "not_editable",
+        "window_gone",
+        "refused"
+      ],
+      "type": "string"
+    },
+    "HostComputerAppInputEvidence": {
+      "description": "What the desktop saw of the typing target.",
+      "properties": {
+        "editable": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "focusedRole": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "HostComputerAppInputOp": {
+      "description": "What `host/computer/appInput` does.",
+      "enum": [
+        "key",
+        "type",
+        "click",
+        "move",
+        "wheel"
+      ],
+      "type": "string"
+    },
+    "HostComputerAppInputParams": {
+      "description": "Params of `host/computer/appInput` (core -> host): input into one of the desktop's own windows, delivered through its renderer without OS focus or the pointer. The desktop answers -32602 when `windowId` is not app-owned. A member an `op` does not use is absent.",
+      "properties": {
+        "button": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/HostComputerButton"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "clicks": {
+          "description": "`click`: 1..=3.",
+          "format": "uint8",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "dx": {
+          "description": "`wheel`: signed notches.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "dy": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "keys": {
+          "description": "`key`: the normalized chord, e.g. `ctrl+a`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "op": {
+          "$ref": "#/definitions/HostComputerAppInputOp"
+        },
+        "sessionThreadId": {
+          "type": "string"
+        },
+        "text": {
+          "description": "`type`: the text.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "windowId": {
+          "type": "string"
+        },
+        "x": {
+          "description": "`click`, `move`, `wheel`: physical pixels relative to the window's bounds.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "y": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "op",
+        "sessionThreadId",
+        "windowId"
+      ],
+      "type": "object"
+    },
+    "HostComputerAppInputResult": {
+      "description": "Result of `host/computer/appInput`.",
+      "properties": {
+        "cursor": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/HostComputerPoint"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where the arrow now stands."
+        },
+        "delivered": {
+          "type": "boolean"
+        },
+        "effect": {
+          "$ref": "#/definitions/HostComputerAppInputEffect"
+        },
+        "evidence": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/HostComputerAppInputEvidence"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "delivered",
+        "effect"
+      ],
+      "type": "object"
+    },
+    "HostComputerAppWindow": {
+      "description": "One window of the desktop itself. The overlay, pill and indicator windows are not listed: they stay in `host/computer/internalWindows`.",
+      "properties": {
+        "bounds": {
+          "$ref": "#/definitions/HostComputerBounds"
+        },
+        "displayId": {
+          "type": "string"
+        },
+        "focused": {
+          "type": "boolean"
+        },
+        "kind": {
+          "$ref": "#/definitions/HostComputerAppWindowKind"
+        },
+        "scaleFactor": {
+          "format": "double",
+          "type": "number"
+        },
+        "title": {
+          "type": "string"
+        },
+        "windowId": {
+          "description": "Spelled as the helper spells it: `hwnd:0x..`, `cg:<n>` or `x11:0x..`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "bounds",
+        "displayId",
+        "focused",
+        "kind",
+        "scaleFactor",
+        "title",
+        "windowId"
+      ],
+      "type": "object"
+    },
+    "HostComputerAppWindowKind": {
+      "description": "What an app-owned window is.",
+      "enum": [
+        "main",
+        "browser_guest",
+        "aux"
+      ],
+      "type": "string"
+    },
+    "HostComputerAppWindowsParams": {
+      "additionalProperties": false,
+      "description": "Params of `host/computer/appWindows` (core -> host): none.",
+      "type": "object"
+    },
+    "HostComputerAppWindowsResult": {
+      "description": "Result of `host/computer/appWindows`.",
+      "properties": {
+        "windows": {
+          "items": {
+            "$ref": "#/definitions/HostComputerAppWindow"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "windows"
+      ],
+      "type": "object"
+    },
+    "HostComputerBlob": {
+      "description": "Bytes the host put in the core's blob store with `blob/put` before it answered.",
+      "properties": {
+        "byteLength": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "digest": {
+          "type": "string"
+        },
+        "mimeType": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "byteLength",
+        "digest",
+        "mimeType"
+      ],
+      "type": "object"
+    },
+    "HostComputerBounds": {
+      "description": "A rectangle in physical pixels.",
+      "properties": {
+        "height": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "width": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "x": {
+          "format": "int32",
+          "type": "integer"
+        },
+        "y": {
+          "format": "int32",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "height",
+        "width",
+        "x",
+        "y"
+      ],
+      "type": "object"
+    },
+    "HostComputerButton": {
+      "description": "A pointer button.",
+      "enum": [
+        "left",
+        "right",
+        "middle"
+      ],
+      "type": "string"
+    },
     "HostComputerCaptureParams": {
       "description": "Params of `host/computer/capture` (core → host): the `capture` command exactly as the loopback bridge was posted it (`computer-bridge/client.mjs`: the host command plus `session_id`).",
       "properties": {
@@ -2454,6 +2741,109 @@
       ],
       "type": "object"
     },
+    "HostComputerCommandParams": {
+      "description": "Params of `host/computer/command` (core -> host, dual path only): a whole bridge command, as `computer-bridge/client.mjs` posts it. Answered only while the desktop runs the legacy Windows PowerShell host.",
+      "properties": {
+        "command": true,
+        "sessionThreadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "command",
+        "sessionThreadId"
+      ],
+      "type": "object"
+    },
+    "HostComputerCommandResult": {
+      "description": "Result of `host/computer/command`: the host's value as the bridge's `{ ok, value }` carried it.",
+      "properties": {
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "imageBlob": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/HostComputerBlob"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "isError": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "text": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "ok"
+      ],
+      "type": "object"
+    },
+    "HostComputerCursorPrepareParams": {
+      "description": "Params of `host/computer/cursorPrepare` (core -> host): ready the agent's arrow before the first pointer input of a session. The desktop answers within 750 ms (`overlay/cursor-readiness.ts`); the core waits at most 900 ms and goes on without it.",
+      "properties": {
+        "sessionThreadId": {
+          "type": "string"
+        },
+        "windowId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "x": {
+          "format": "double",
+          "type": "number"
+        },
+        "y": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "sessionThreadId",
+        "x",
+        "y"
+      ],
+      "type": "object"
+    },
+    "HostComputerCursorPrepareResult": {
+      "description": "Result of `host/computer/cursorPrepare`.",
+      "properties": {
+        "state": {
+          "$ref": "#/definitions/HostComputerCursorState"
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "type": "object"
+    },
+    "HostComputerCursorState": {
+      "description": "How ready the arrow is.",
+      "enum": [
+        "ready",
+        "unavailable",
+        "timeout"
+      ],
+      "type": "string"
+    },
     "HostComputerDisplay": {
       "description": "One display of `host/computer/displays` (`computer/host/display-reads.ts` `readDisplays`).",
       "properties": {
@@ -2480,6 +2870,17 @@
         "width": {
           "format": "uint32",
           "minimum": 0.0,
+          "type": "integer"
+        },
+        "x": {
+          "default": 0,
+          "description": "The display's origin in native desktop coordinates (`nativeDisplayGeometry`, physical pixels on Windows and Linux). Absent from an older desktop's list: a display at 0,0.",
+          "format": "int32",
+          "type": "integer"
+        },
+        "y": {
+          "default": 0,
+          "format": "int32",
           "type": "integer"
         }
       },
@@ -2656,6 +3057,291 @@
         "unavailable"
       ],
       "type": "string"
+    },
+    "HostComputerPermissionsParams": {
+      "description": "Params of `host/computer/permissions` (core -> host): `request` asks macOS to show its own prompts (`requestComputerPermissions`) before the grants are read; absent or false only reads.",
+      "properties": {
+        "request": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "HostComputerPermissionsResult": {
+      "description": "Result of `host/computer/permissions`: the grants as the desktop reads them (`host/permission-reads.ts`). Each is the host's own word: `granted`, `denied`, `not-determined`, `restricted`, `not_required_on_windows`, `target_integrity_dependent`, `accessibility_dependent` or a Linux capability state; the core matches the ones it knows.",
+      "properties": {
+        "accessibility": {
+          "type": "string"
+        },
+        "input": {
+          "type": "string"
+        },
+        "linux": {
+          "description": "Linux only: each capability's probed readiness, structurally."
+        },
+        "screenCapture": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "accessibility",
+        "input",
+        "screenCapture"
+      ],
+      "type": "object"
+    },
+    "HostComputerPixelsAttempt": {
+      "description": "One backend the host tried for a capture.",
+      "properties": {
+        "backend": {
+          "type": "string"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "backend",
+        "ok"
+      ],
+      "type": "object"
+    },
+    "HostComputerPixelsBackend": {
+      "description": "How the pixels of `host/computer/pixels` are taken.",
+      "enum": [
+        "screen",
+        "app_owned",
+        "composited"
+      ],
+      "type": "string"
+    },
+    "HostComputerPixelsFormat": {
+      "description": "The encoding of `host/computer/pixels`.",
+      "enum": [
+        "jpeg",
+        "png"
+      ],
+      "type": "string"
+    },
+    "HostComputerPixelsParams": {
+      "description": "Params of `host/computer/pixels` (core -> host): one capture, encoded by the desktop, which uploads the bytes with `blob/put` before it answers. Replaces `host/computer/capture` for display and app-owned pixels. Errors are -32000 with `data.code` `computer_capture_unavailable`, `computer_capture_permission` or `computer_window_gone`.",
+      "properties": {
+        "backend": {
+          "$ref": "#/definitions/HostComputerPixelsBackend"
+        },
+        "format": {
+          "$ref": "#/definitions/HostComputerPixelsFormat"
+        },
+        "maxHeight": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "maxWidth": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "quality": {
+          "description": "1..=100.",
+          "format": "uint8",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "sessionThreadId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "target": {
+          "$ref": "#/definitions/HostComputerPixelsTarget"
+        }
+      },
+      "required": [
+        "backend",
+        "format",
+        "maxWidth",
+        "quality",
+        "target"
+      ],
+      "type": "object"
+    },
+    "HostComputerPixelsResult": {
+      "description": "Result of `host/computer/pixels`.",
+      "properties": {
+        "attempts": {
+          "items": {
+            "$ref": "#/definitions/HostComputerPixelsAttempt"
+          },
+          "type": "array"
+        },
+        "backend": {
+          "description": "The backend that produced the pixels.",
+          "type": "string"
+        },
+        "blob": {
+          "$ref": "#/definitions/HostComputerBlob"
+        },
+        "captureHeight": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "captureWidth": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "capturedAt": {
+          "description": "Epoch ms.",
+          "format": "double",
+          "type": "number"
+        },
+        "source": {
+          "$ref": "#/definitions/HostComputerPixelsSource"
+        }
+      },
+      "required": [
+        "attempts",
+        "backend",
+        "blob",
+        "captureHeight",
+        "captureWidth",
+        "capturedAt",
+        "source"
+      ],
+      "type": "object"
+    },
+    "HostComputerPixelsSource": {
+      "description": "What was captured, in physical pixels of the screen.",
+      "properties": {
+        "displayId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "height": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "scaleFactor": {
+          "format": "double",
+          "type": "number"
+        },
+        "width": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "windowId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "x": {
+          "format": "int32",
+          "type": "integer"
+        },
+        "y": {
+          "format": "int32",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "height",
+        "scaleFactor",
+        "width",
+        "x",
+        "y"
+      ],
+      "type": "object"
+    },
+    "HostComputerPixelsTarget": {
+      "description": "What `host/computer/pixels` captures, by `kind`.",
+      "oneOf": [
+        {
+          "description": "A display to capture: by id, by index, or (both absent) the primary one.",
+          "properties": {
+            "displayId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "index": {
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "kind": {
+              "enum": [
+                "display"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A window to capture, named as the helper names windows (`hwnd:0x..`, `cg:<n>`, `x11:0x..`).",
+          "properties": {
+            "kind": {
+              "enum": [
+                "window"
+              ],
+              "type": "string"
+            },
+            "windowId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "windowId"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "HostComputerPoint": {
+      "description": "A point in physical pixels.",
+      "properties": {
+        "x": {
+          "format": "double",
+          "type": "number"
+        },
+        "y": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y"
+      ],
+      "type": "object"
     },
     "HostComputerPointerFeedbackParams": {
       "description": "Params of `host/computer/pointerFeedback` (core → host): a helper's pointer progress, which the overlay draws as the agent's arrow. Each event is a `@@MIXDOG_POINTER@@` line the core checked against the request it belongs to (`worker-pool.ts` `reportPointerProgress`). The host answers `null`.",
@@ -6124,12 +6810,44 @@
         "$ref": "#/definitions/HostFileSnapshot"
       }
     },
+    "host/computer/appInput": {
+      "params": {
+        "$ref": "#/definitions/HostComputerAppInputParams"
+      },
+      "result": {
+        "$ref": "#/definitions/HostComputerAppInputResult"
+      }
+    },
+    "host/computer/appWindows": {
+      "params": {
+        "$ref": "#/definitions/HostComputerAppWindowsParams"
+      },
+      "result": {
+        "$ref": "#/definitions/HostComputerAppWindowsResult"
+      }
+    },
     "host/computer/capture": {
       "params": {
         "$ref": "#/definitions/HostComputerCaptureParams"
       },
       "result": {
         "$ref": "#/definitions/HostComputerCaptureResult"
+      }
+    },
+    "host/computer/command": {
+      "params": {
+        "$ref": "#/definitions/HostComputerCommandParams"
+      },
+      "result": {
+        "$ref": "#/definitions/HostComputerCommandResult"
+      }
+    },
+    "host/computer/cursorPrepare": {
+      "params": {
+        "$ref": "#/definitions/HostComputerCursorPrepareParams"
+      },
+      "result": {
+        "$ref": "#/definitions/HostComputerCursorPrepareResult"
       }
     },
     "host/computer/displays": {
@@ -6157,6 +6875,22 @@
       },
       "result": {
         "$ref": "#/definitions/HostComputerInternalWindowsResult"
+      }
+    },
+    "host/computer/permissions": {
+      "params": {
+        "$ref": "#/definitions/HostComputerPermissionsParams"
+      },
+      "result": {
+        "$ref": "#/definitions/HostComputerPermissionsResult"
+      }
+    },
+    "host/computer/pixels": {
+      "params": {
+        "$ref": "#/definitions/HostComputerPixelsParams"
+      },
+      "result": {
+        "$ref": "#/definitions/HostComputerPixelsResult"
       }
     },
     "host/computer/pointerFeedback": {
