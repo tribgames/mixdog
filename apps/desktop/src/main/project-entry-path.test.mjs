@@ -1,21 +1,18 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, parse, resolve } from 'node:path';
 import test from 'node:test';
 
 import { comparablePath, projectEntryPathIn } from './project-entry-path.ts';
+import { withTempDir } from '../../../../scripts/lib/scoped-temp.mjs';
 
-async function withRoot(run) {
-  const base = await fs.mkdtemp(join(tmpdir(), 'entry-path-'));
-  const root = join(base, 'root');
-  await fs.mkdir(join(root, 'sub'), { recursive: true });
-  try {
+const withRoot = (run) =>
+  withTempDir('entry-path', async (base) => {
+    const root = join(base, 'root');
+    await fs.mkdir(join(root, 'sub'), { recursive: true });
     await run(root, base);
-  } finally {
-    await fs.rm(base, { recursive: true, force: true });
-  }
-}
+  });
 
 test('resolves existing and missing entries under the root', async () => {
   await withRoot((root) => {
@@ -49,4 +46,10 @@ test('refuses a symlinked directory that resolves outside the root', async (t) =
 
 test('comparablePath folds case only on Windows', () => {
   assert.equal(comparablePath('A/B'), process.platform === 'win32' ? 'a/b' : 'A/B');
+});
+
+test('a drive or filesystem root accepts entries under it', () => {
+  const root = parse(resolve(tmpdir())).root;
+  const entry = 'mixdog-entry-path-missing/file.txt';
+  assert.equal(projectEntryPathIn(root, entry), resolve(root, entry));
 });
