@@ -326,6 +326,8 @@ struct Run {
     cancel: CancellationToken,
     /// An abort of the whole session is cleaning the helper up: this run does not.
     covered: Arc<AtomicBool>,
+    /// Neither `wait_for_user` nor a lifecycle control: the work a dropped caller's session abort cancels (`queue.cancelSession`).
+    ordinary: bool,
 }
 
 #[derive(Deserialize)]
@@ -426,6 +428,7 @@ impl ComputerBridgeRun {
         let session = params.session_key.as_str();
         let action = text_field(command, "action");
         let lifecycle = LIFECYCLE_ACTIONS.contains(&action);
+        let ordinary = action != "wait_for_user" && !lifecycle;
         let capacity = if lifecycle { LIFECYCLE_CAPACITY } else { ORDINARY_CAPACITY };
         if self.active.load(Ordering::SeqCst) >= capacity {
             return Ok(refusal(CAPACITY_REFUSAL, 429));
@@ -441,13 +444,18 @@ impl ComputerBridgeRun {
         let cancel = req.ctx.cancel.child_token();
         let covered = Arc::new(AtomicBool::new(false));
         let id = self.next_run.fetch_add(1, Ordering::SeqCst);
-        locked(&self.runs).push(Run { id, session: session.to_owned(), signal: params.signal_id.clone(), cancel: cancel.clone(), covered: covered.clone() });
+        locked(&self.runs).push(Run { id, session: session.to_owned(), signal: params.signal_id.clone(), cancel: cancel.clone(), covered: covered.clone(), ordinary });
         let outcome = self.dispatch(session, command, &cancel).await;
         locked(&self.runs).retain(|run| run.id != id);
         self.trim_queue(session);
         // A dropped connection is the only cancellation signal left when the runtime dies before it can send `session_abort`: the
         // session's input stops here, but a wait for the user and the lifecycle controls leave it be.
-        if cancel.is_cancelled() && action != "wait_for_user" && !lifecycle && !covered.load(Ordering::SeqCst) {
+        if cancel.is_cancelled() && ordinary && !covered.load(Ordering::SeqCst) {
+            // The session's other queued and running work ends with it (`queue.cancelSession`); this abort is their one cleanup.
+            for run in locked(&self.runs).iter().filter(|run| run.session == session && run.ordinary) {
+                run.covered.store(true, Ordering::SeqCst);
+                run.cancel.cancel();
+            }
             let _confirmed = self.host.abort(session).await;
         }
         Ok(self.seal(session, command, outcome).await)
@@ -530,9 +538,11 @@ impl ComputerBridgeRun {
     /// command cancelled before it ran.
     async fn queued(&self, session: &str, cancel: &CancellationToken) -> Result<OwnedMutexGuard<()>, String> {
         let queue = locked(&self.queues).entry(session.to_owned()).or_default().clone();
+        // Cancellation first: a command cancelled while the one before it ended never runs.
         tokio::select! {
-            guard = queue.lock_owned() => Ok(guard),
+            biased;
             () = cancel.cancelled() => Err(ABORTED_QUEUED.to_owned()),
+            guard = queue.lock_owned() => Ok(guard),
         }
     }
 
@@ -1250,6 +1260,38 @@ mod tests {
         cancel.cancel();
         let _ = waiting.await;
         assert_eq!(locked(&f.host.events).len(), 1);
+    }
+
+    /// A dropped caller's abort ends the session's queued work too: the command behind it never runs, and the helper is aborted once.
+    #[tokio::test]
+    async fn a_cancelled_call_cancels_the_sessions_queued_work() {
+        let f = Arc::new(fixture_with(Host { hang: true, abort_confirms: true, ..Host::default() }, Saved::default()));
+        let first_cancel = CancellationToken::new();
+        let first = tokio::spawn({
+            let (f, cancel) = (f.clone(), first_cancel.clone());
+            async move { run_with(&f, "s4", "one", json!({ "action": "capture", "app": "a" }), cancel).await }
+        });
+        for _ in 0..200 {
+            if !locked(&f.host.log).is_empty() {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        let second = tokio::spawn({
+            let f = f.clone();
+            async move { run_with(&f, "s4", "two", json!({ "action": "list_windows" }), CancellationToken::new()).await }
+        });
+        for _ in 0..200 {
+            if locked(&f.service.runs).len() == 2 {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        first_cancel.cancel();
+        assert_eq!(error_of(&first.await.unwrap_or_default()), ABORTED_RUNNING);
+        assert_eq!(error_of(&second.await.unwrap_or_default()), ABORTED_QUEUED);
+        assert_eq!(locked(&f.host.log).len(), 1, "the queued command never ran");
+        assert_eq!(*locked(&f.host.events), vec!["abort:s4".to_owned()]);
     }
 
     /// `session_abort`, `execution_end` and `session_release` answer Node's words; an abort whose cleanup is not confirmed fails.
