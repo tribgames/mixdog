@@ -8,12 +8,13 @@ use std::os::windows::io::AsRawHandle;
 
 use mixdog_fsio::{File, OpenOptions, Unlaned};
 use windows_sys::Win32::System::Console::{
-    CONSOLE_SCREEN_BUFFER_INFO, ENABLE_EXTENDED_FLAGS, ENABLE_VIRTUAL_TERMINAL_INPUT, ENABLE_VIRTUAL_TERMINAL_PROCESSING,
-    ENABLE_WINDOW_INPUT, GetConsoleMode, GetConsoleScreenBufferInfo, SetConsoleMode,
+    CONSOLE_SCREEN_BUFFER_INFO, ENABLE_VIRTUAL_TERMINAL_INPUT, ENABLE_VIRTUAL_TERMINAL_PROCESSING, ENABLE_WINDOW_INPUT,
+    GetConsoleMode, GetConsoleScreenBufferInfo, SetConsoleMode,
 };
 
-/// The input mode of a raw console: the flags libuv sets, so line input, echo and processed input are off.
-const RAW_INPUT_MODE: u32 = ENABLE_WINDOW_INPUT | ENABLE_VIRTUAL_TERMINAL_INPUT | ENABLE_EXTENDED_FLAGS;
+/// The input mode of a raw console: the flags libuv sets, so line input, echo and processed input are off. Without
+/// `ENABLE_EXTENDED_FLAGS` the console keeps its own quick-edit and insert settings, as under Node.
+const RAW_INPUT_MODE: u32 = ENABLE_WINDOW_INPUT | ENABLE_VIRTUAL_TERMINAL_INPUT;
 
 pub(super) struct State {
     input: File,
