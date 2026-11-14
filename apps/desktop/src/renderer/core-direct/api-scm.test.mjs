@@ -16,7 +16,7 @@ function setup(answer = async () => ({ ok: true })) {
 const CASES = [
   ['gitCliStatus', [], 'git/cliStatus', {}],
   ['installGitCli', [], 'git/cli/install', {}],
-  ['githubCliStatus', [true], 'github/status', { refresh: true }],
+  ['githubCliStatus', [], 'github/status', {}],
   ['installGithubCli', [], 'github/install', {}],
   ['githubCliLoginStatus', ['f1'], 'github/login/status', { flowId: 'f1' }],
   ['githubCliLoginOpenBrowser', ['f1', { openBrowser: true }], 'github/login/openBrowser', { flowId: 'f1' }],
