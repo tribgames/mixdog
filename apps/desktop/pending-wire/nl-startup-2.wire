@@ -2,13 +2,15 @@
 1. local-core.ts, function readCoreState: add to the returned object (and to its return type)
      controlPort: Number.isInteger(discovery.core?.control?.port) ? discovery.core.control.port : null,
      token: typeof discovery.endpoints?.session?.token === 'string' ? discovery.endpoints.session.token : null,
-   (the parsed type gains core.control{port} and endpoints.session{token}).
-2. After the app's core is launched (resolveLocalCore's onLaunched callback gives the child), start once per app run:
-     const watcher = watchCore({
-       readDiscovery: () => readCoreState(runtimeRoot),
-       ownedPid: () => ownedCore?.pid ?? null,   // the child onLaunched last reported, null when it has exited
+   (the parsed type gains core.control{port} and endpoints.session{token}), and export readCoreState (step 2 calls it
+   from the module that holds the launched child).
+2. main/index.ts (hot file): in createProtocol's local branch, inside the resolveLocalCore onLaunched callback that sets
+   localCoreProcess, start the watcher once per app run (keep it in a module-level `let coreWatcher`, started only when null):
+     coreWatcher ??= watchCore({
+       readDiscovery: () => readCoreState(resolveRuntimeRoot()),
+       ownedPid: () => localCoreProcess?.pid ?? null,   // the child onLaunched last reported; a pid that no longer runs is skipped by watchCore
        log: (line) => logger.error(line),
      });
-   import { watchCore } from '../../../../../packages/protocol-client/src/launch/ensure-core.mjs'; call watcher.stop() at quit
-   (before coreExit). No onKilled is needed: the connection's reconnect ladder calls resolveLocalCore, whose ensureCore
+   import { watchCore } from '../../../../../packages/protocol-client/src/launch/ensure-core.mjs'; call coreWatcher?.stop() at quit
+   (before the coreExit(localCoreProcess, ...) wait). No onKilled is needed: the connection's reconnect ladder calls resolveLocalCore, whose ensureCore
    starts a replacement because the killed pid names no core.
