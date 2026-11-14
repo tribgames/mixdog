@@ -160,11 +160,3 @@ test('the remote-access and terminal-activity reads come from the held sections,
   await assert.rejects(lane([]).lane.invoke('termActivity', []), { code: 'sectionUnavailable' });
   await assert.rejects(lane([entry('remote', null, {})]).lane.invoke('remoteAccessInfo', [false]), /no info/);
 });
-
-test('browserRemoteOpen is the notification host/browser/surface', async () => {
-  const { lane: l, notified, calls } = lane([]);
-  assert.equal(await l.invoke('browserRemoteOpen', [{ sessionId: 's1', hide: true }]), null);
-  assert.deepEqual(notified, [{ method: 'host/browser/surface', params: { sessionId: 's1', hide: true } }]);
-  assert.deepEqual(calls, []);
-  await assert.rejects(l.invoke('browserRemoteOpen', [{}]), /sessionId/);
-});

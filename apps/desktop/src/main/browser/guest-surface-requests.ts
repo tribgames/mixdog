@@ -19,8 +19,6 @@ interface BrowserSurfaceRequestsHost {
   window: BrowserWindow;
   sessions: BrowserSessionRegistry;
   state: BrowserGuestStateStore;
-  /** The display client was asked to reveal or hide the session's surface. */
-  onSurfaceRequest?(request: DesktopBrowserOpenRequest): void;
   /** True once a panel (or native view) on this PC shows the page; false
    *  when none does within `timeoutMs` (display-tracking). */
   waitUntilShown?(guest: WebContents, timeoutMs: number, signal?: AbortSignal): Promise<boolean>;
@@ -43,8 +41,6 @@ export function createBrowserSurfaceRequests(host: BrowserSurfaceRequestsHost) {
     }
     const request: DesktopBrowserOpenRequest = browserOpenRequest(sessionId, reveal, detail);
     window.webContents.send(DESKTOP_IPC.browserOpenRequested, request);
-    // An explicit reveal or hide is an agent handoff paired clients must see too.
-    host.onSurfaceRequest?.(request);
     // A failed open reveals nothing, so the core is not told.
     if (request.hide || (request.reveal === true && !request.error)) {
       for (const listener of surfaceListeners) listener({ sessionId, tabId: request.tabId, surface: request });

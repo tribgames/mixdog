@@ -19,8 +19,11 @@ import type { VisualGrounding } from './ref-points';
 import type { BrowserRefSet } from './ref-recovery';
 import type { AccessibilityRefSnapshot } from './snapshot-capture';
 
-/** What moved in a page's record, for whoever publishes the page's facts. */
-export type GuestChangeReason = 'document' | 'dialog' | 'chooser' | 'crash' | 'session' | 'popup';
+/** What moved in a page's record, for whoever publishes the page's facts.
+ *  `background`: the page joined or left the session's background pages, or
+ *  changed what kind of page it is there (an agent's page a person took as
+ *  a tab), so its `background` fact moved without a panel showing or hiding it. */
+export type GuestChangeReason = 'document' | 'dialog' | 'chooser' | 'crash' | 'session' | 'popup' | 'background';
 
 /** What the record tells an observer: a fact changed, or the host itself
  *  logged or refused something the core must see in order with the page's own
