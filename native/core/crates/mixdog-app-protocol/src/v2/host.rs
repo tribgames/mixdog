@@ -868,27 +868,6 @@ pub struct HostFileSnapshot {
     pub size: u64,
 }
 
-/// What a `host/localPage/url` lease covers; absent means `project`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
-#[serde(rename_all = "camelCase")]
-pub enum LocalPageScope {
-    File,
-    Project,
-}
-
-/// Params of `host/localPage/url` (core → host); the result is the URL string.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
-#[serde(rename_all = "camelCase")]
-#[cfg_attr(feature = "codegen", ts(optional_fields))]
-pub struct HostLocalPageUrlParams {
-    pub root: String,
-    pub rel: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub scope: Option<LocalPageScope>,
-}
-
 /// The visualize service's actions (`host/visualize/command`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]

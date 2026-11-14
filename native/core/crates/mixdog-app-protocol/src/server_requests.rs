@@ -340,11 +340,6 @@ crate::server_request_definitions! {
         result: HostFileSnapshot,
         requires: Some("host.files"),
     },
-    HostLocalPageUrl => "host/localPage/url" {
-        params: HostLocalPageUrlParams,
-        result: String,
-        requires: Some("host.files"),
-    },
     /// The OS trash is the desktop window's (Node's `trashItem` host request).
     HostFilesTrashItem => "host/files/trashItem" {
         params: HostFilesTrashItemParams,

@@ -2171,32 +2171,6 @@
       ],
       "type": "object"
     },
-    "HostLocalPageUrlParams": {
-      "description": "Params of `host/localPage/url` (core → host); the result is the URL string.",
-      "properties": {
-        "rel": {
-          "type": "string"
-        },
-        "root": {
-          "type": "string"
-        },
-        "scope": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/LocalPageScope"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        }
-      },
-      "required": [
-        "rel",
-        "root"
-      ],
-      "type": "object"
-    },
     "HostNotificationStatusParams": {
       "additionalProperties": false,
       "description": "Params of `host/notification/status` (core → host): none.",
@@ -2537,14 +2511,6 @@
           "type": "string"
         }
       ]
-    },
-    "LocalPageScope": {
-      "description": "What a `host/localPage/url` lease covers; absent means `project`.",
-      "enum": [
-        "file",
-        "project"
-      ],
-      "type": "string"
     },
     "ModelProxyExecuteParams": {
       "description": "Server core → a connection with `capabilities.modelProxy`: run one model call with this machine's accounts. Completion is the response; losing the connection resolves the call `cancelled`.",
@@ -5074,28 +5040,6 @@
         },
         "params": {
           "$ref": "#/definitions/HostFileSnapshotParams"
-        }
-      },
-      "required": [
-        "id",
-        "method",
-        "params"
-      ],
-      "type": "object"
-    },
-    {
-      "properties": {
-        "id": {
-          "$ref": "#/definitions/RequestId"
-        },
-        "method": {
-          "enum": [
-            "host/localPage/url"
-          ],
-          "type": "string"
-        },
-        "params": {
-          "$ref": "#/definitions/HostLocalPageUrlParams"
         }
       },
       "required": [

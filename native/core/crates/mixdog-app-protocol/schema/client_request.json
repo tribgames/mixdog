@@ -22225,7 +22225,7 @@
       "type": "object"
     },
     {
-      "description": "URL of the desktop host's local page server (`host/localPage/url`).",
+      "description": "URL of the core's local page server for a file or a project's pages.",
       "properties": {
         "id": {
           "$ref": "#/definitions/RequestId"

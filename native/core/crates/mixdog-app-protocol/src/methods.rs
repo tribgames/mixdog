@@ -3167,7 +3167,7 @@ crate::client_request_definitions! {
         mutation: none,
         origins: [Local, Ssh, Relay],
     },
-    /// URL of the desktop host's local page server (`host/localPage/url`).
+    /// URL of the core's local page server for a file or a project's pages.
     ProjectFsLocalPageUrl => "projectFs/localPageUrl" {
         params: ProjectFsLocalPageUrlParams,
         result: JsonValue,

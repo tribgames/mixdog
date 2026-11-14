@@ -166,7 +166,7 @@ async fn every_host_answer_field_of_the_inventory_answers_or_fails_as_classed() 
             "host/systemProxy/resolve" => HostCapability::SystemProxy,
             "host/visualize/command" => HostCapability::Visualize,
             "host/update/command" => HostCapability::Updater,
-            "host/capture/fileSnapshot" | "host/localPage/url" => HostCapability::Files,
+            "host/capture/fileSnapshot" => HostCapability::Files,
             "host/computer/capture" | "host/computer/displays" | "host/computer/foregroundLease" | "host/computer/internalWindows" | "host/computer/pixels"
             | "host/computer/appWindows" | "host/computer/appInput" | "host/computer/cursorPrepare" | "host/computer/permissions" | "host/computer/command" => {
                 HostCapability::Computer

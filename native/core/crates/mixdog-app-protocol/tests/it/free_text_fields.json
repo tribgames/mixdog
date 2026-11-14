@@ -2769,7 +2769,6 @@
     "answer host/computer/pixels /attempts/*/backend",
     "answer host/computer/pixels /attempts/*/reason",
     "answer host/computer/pixels /backend",
-    "answer host/localPage/url ",
     "answer host/systemProxy/resolve /rules",
     "answer host/update/command /status",
     "answer item/browser/requestApproval /remember",
