@@ -1,0 +1,3 @@
+# s2a-ts-api-terminal
+- Registration: the renderer api composer (s2b-renderer-api) spreads createTerminalApi(ctx) from apps/desktop/src/renderer/core-direct/api-terminal.ts for DIRECT_KEYS.terminal, one call per window connection (it keeps the tab feed state and the flow-control buffer).
+- api-terminal.ts imports TerminalDataBufferer from src/main/terminal-data-buffer.ts (the one buffer, not copied). The task that deletes the main terminal IPC (registerTerminalIpc) must move terminal-data-buffer.ts (and its test) out of main, not delete it, and fix that import.
