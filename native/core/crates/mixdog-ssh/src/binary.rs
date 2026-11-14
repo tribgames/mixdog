@@ -33,7 +33,7 @@ pub fn client_install_command(platform: Platform) -> Option<&'static str> {
 /// Node's `path.join(directory, file)` of the platform: separators are the platform's, `.` and `..` segments collapse.
 fn join(platform: Platform, directory: &str, file: &str) -> String {
     let windows = platform.is_windows();
-    let separator = if windows { '\' } else { '/' };
+    let separator = if windows { '\\' } else { '/' };
     let text = format!("{directory}{separator}{file}");
     let text = if windows { text.replace('/', "\\") } else { text };
     let bytes = text.as_bytes();

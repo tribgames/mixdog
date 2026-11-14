@@ -459,11 +459,10 @@ impl Shared {
         if let Some(jobs) = self.store.section(SectionName::HostShellJobs, None).map(|entry| entry.value).filter(|v| !v.is_null()) {
             fields.insert("hostShellJobs".to_owned(), jobs);
         }
-        if let Some(remote) = self.store.section(SectionName::HostState, Some("remoteSession")) {
-            let id = remote_session_id(&remote.value);
-            fields.insert("remoteEnabled".to_owned(), json!(id.is_some()));
-            fields.insert("remoteSessionId".to_owned(), id.map_or(Json::Null, Json::from));
-        }
+        // Every state says it (`withRemoteSession`): off, with a null id, while the host holds no remote channel.
+        let id = self.store.section(SectionName::HostState, Some("remoteSession")).and_then(|remote| remote_session_id(&remote.value));
+        fields.insert("remoteEnabled".to_owned(), json!(id.is_some()));
+        fields.insert("remoteSessionId".to_owned(), id.map_or(Json::Null, Json::from));
         state
     }
 
