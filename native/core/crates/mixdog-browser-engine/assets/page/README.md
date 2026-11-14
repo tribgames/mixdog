@@ -26,10 +26,11 @@ Format:
 | `file-drop.js` | upload by drop (drop guards: install, bound install, aim, take, bound take) | none |
 | `ref-rect.js` | ref rect measurement (`BROWSER_REF_RECT`, `browserRefRectExpression`) | `__MIXDOG_STABLE_RECT__`, `__MIXDOG_REF_RECT__`, `__MIXDOG_REF__` |
 | `stable-rect.js` | shared stable-rect measurement (used by ref-rect and ref-point-probe) | none |
-| `scroll-text.js` | scroll text (match pass, apply pass) | `__MIXDOG_DOCUMENT_ROOTS__` (the document-roots function of the documents module), `__MIXDOG_WANTED__`, `__MIXDOG_TOKEN__` |
+| `scroll-text.js` | scroll text (match pass, apply pass) | `__MIXDOG_DOCUMENT_ROOTS__` (`document-roots.js`), `__MIXDOG_WANTED__`, `__MIXDOG_TOKEN__` |
 | `visual-locator.js` | visual locator | `__MIXDOG_QUERY__` (lower-cased trimmed query as JSON string), `__MIXDOG_MAXIMUM__` (clamped 1..50) |
 | `payment-evidence.js` | payment evidence of the page | `__MIXDOG_HOSTS__` (JSON array of processor frame hosts) |
+| `frame-transform.js` | frame transform refusal (`BROWSER_FRAME_HAS_TRANSFORM`), the value of the ref-point-probe placeholder | none |
+| `document-roots.js` | document roots with open shadow roots (`BROWSER_DOCUMENT_ROOTS`), the value of the scroll-text placeholder | none |
 | `ref-point-probe.js` | ref point probe (hit-tested point of a ref) | `__MIXDOG_STABLE_RECT__`, `__MIXDOG_FRAME_HAS_TRANSFORM__` (the frame-transform function) |
 
-The document-roots and frame-transform functions are not assets of this task;
-their owners supply them to the placeholders above.
+`frame-transform.js` and `document-roots.js` are the sources the two placeholders above take.
