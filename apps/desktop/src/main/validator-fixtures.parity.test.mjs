@@ -489,11 +489,15 @@ const SCM_INPUT = 'mixdog-scm/src/input.rs';
  * the value; a value that is a typed protocol param is answered by its decode.
  */
 const COVERAGE = {
+  // The core has no param for the sign-in options (the route's `null` slot, input_tests.rs): the shared scm-input.ts check runs in the
+  // host and the phone's adapter before the call, so a malformed options value never reaches the core and there is no Rust check to name.
   optionalGithubLoginOptions: ['mixdog-scm/src/input_tests.rs', '"githubCliLoginOpenBrowser" => positional("github/login/openBrowser"'],
   optionalSessionId: [`${GROUPS}capability_settings.rs`, 'session id is invalid.'],
   projectDisplayName: [`${GROUPS}workspace_names.rs`, 'alias must be a string.'],
   requiredAbortOptions: [`${GROUPS}prompt.rs`, 'abort restorePrompt is invalid.'],
+  normalizeDesktopFeedback: ['mixdog-core-domains/src/domains/feedback.rs', 'const INVALID_REPLY: &str = "Reply email is invalid."'],
   requiredAgentMemoryEntry: ['mixdog-core-rooms/src/rooms/memory.rs', 'memory id is invalid.'],
+  requiredAttachmentFile: ['mixdog-core-domains/src/domains/desktop_residual_b.rs', 'attachment type cannot be opened.'],
   requiredBrowserPermissionPolicy: [CONFIG_SCHEMA, 'key("desktop.browserPermissions", Kind::BrowserPermissions'],
   requiredCommitHash: [SCM_INPUT, 'A commit hash is required.'],
   requiredConversationNotificationSetting: [CONFIG_SCHEMA, 'Kind::NotificationOverrides'],
@@ -545,30 +549,64 @@ const COVERAGE = {
   requiredWorkspaceTextWrites: [`${GROUPS}workspace_names.rs`, 'Workspace edit files are invalid.'],
   sessionDisplayName: [`${GROUPS}workspace_names.rs`, 'title must be a string.'],
   validateGithubRequest: ['mixdog-scm/src/gh/contract.rs', 'A supported GitHub action is required.'],
+  validatedRelayUrl: ['mixdog-remote/src/leg/socket.rs', 'MIXDOG_RELAY_URL must not contain credentials.'],
 };
 
 const VALIDATOR_NAME = /^(required|optional|validate|normalize|sanitized|projectDisplayName|sessionDisplayName)/;
 
-/** `DESKTOP_IPC` key -> the validators its handler calls by name, for every handler registered in main's ipc files. */
+/** Every function declared at the top level of a main ipc file (`function f` or `const f = (...) =>`), by name, with the body to scan. */
+function helperBodies(files) {
+  const bodies = new Map();
+  for (const file of files) {
+    for (const node of file.statements) {
+      if (ts.isFunctionDeclaration(node) && node.name && node.body) bodies.set(node.name.text, node.body);
+      if (!ts.isVariableStatement(node)) continue;
+      for (const declaration of node.declarationList.declarations) {
+        const init = declaration.initializer;
+        if (ts.isIdentifier(declaration.name) && init && (ts.isArrowFunction(init) || ts.isFunctionExpression(init))) {
+          bodies.set(declaration.name.text, init.body);
+        }
+      }
+    }
+  }
+  return bodies;
+}
+
+/** The validators `node` calls by name, directly or through a helper of the ipc files (a helper's own calls count, to any depth). */
+function validatorsReachedFrom(node, helpers, seen = new Set()) {
+  const calls = new Set();
+  const walk = (inner) => {
+    if (ts.isCallExpression(inner) && ts.isIdentifier(inner.expression)) {
+      const name = inner.expression.text;
+      if (VALIDATOR_NAME.test(name)) calls.add(name);
+      else if (helpers.has(name) && !seen.has(name)) {
+        seen.add(name);
+        for (const reached of validatorsReachedFrom(helpers.get(name), helpers, seen)) calls.add(reached);
+      }
+    }
+    ts.forEachChild(inner, walk);
+  };
+  walk(node);
+  return calls;
+}
+
+/** `DESKTOP_IPC` key -> the validators its handler calls, by name or through a helper of the same files, for every handler registered in main's ipc files. */
 function validatorsOfHandlers() {
   const found = new Map();
-  const files = fs
-    .readdirSync(MAIN_DIRECTORY)
-    .filter((name) => /^(ipc|vault|local-provider)[^.]*[.]ts$/.test(name) || name === 'ipc.ts');
-  for (const name of files) {
+  const names = fs.readdirSync(MAIN_DIRECTORY).filter((name) => /^(ipc|vault|local-provider)[^.]*[.]ts$/.test(name) || name === 'ipc.ts');
+  const parse = (name) => {
     const path = `${MAIN_DIRECTORY}${name}`;
-    const file = ts.createSourceFile(path, fs.readFileSync(path, 'utf8'), ts.ScriptTarget.ES2022, true);
+    return ts.createSourceFile(path, fs.readFileSync(path, 'utf8'), ts.ScriptTarget.ES2022, true);
+  };
+  const files = names.map(parse);
+  // A handler may call a helper declared in any file beside the ipc files (a handler that only forwards to one), so the helpers come from all of them.
+  const helpers = helperBodies(fs.readdirSync(MAIN_DIRECTORY).filter((name) => /[.]ts$/.test(name) && !/[.]test[.]/.test(name)).map(parse));
+  for (const file of files) {
     const visit = (node) => {
       const channel = ts.isCallExpression(node) && node.arguments.length >= 2 ? node.arguments[0] : null;
       if (channel && ts.isPropertyAccessExpression(channel) && channel.expression.getText() === 'DESKTOP_IPC') {
         const calls = found.get(channel.name.text) ?? new Set();
-        const walk = (inner) => {
-          if (ts.isCallExpression(inner) && ts.isIdentifier(inner.expression) && VALIDATOR_NAME.test(inner.expression.text)) {
-            calls.add(inner.expression.text);
-          }
-          ts.forEachChild(inner, walk);
-        };
-        node.arguments.slice(1).forEach(walk);
+        for (const argument of node.arguments.slice(1)) for (const name of validatorsReachedFrom(argument, helpers)) calls.add(name);
         found.set(channel.name.text, calls);
       }
       ts.forEachChild(node, visit);
@@ -581,14 +619,15 @@ function validatorsOfHandlers() {
 test('coverage: every validator a direct key calls is answered by a rule of the core that still exists', () => {
   const handlers = validatorsOfHandlers();
   const unmapped = new Set();
-  const used = new Set();
+  // A covered validator is stale when no handler calls it. A key the host serves itself (the attachment staging) is not a
+  // direct key, but its handler still calls the validator the core twin answers for.
+  const used = new Set([...handlers.values()].flatMap((names) => [...names]));
   let withValidators = 0;
   for (const key of Object.values(DIRECT_KEYS).flat()) {
     const validators = handlers.get(key);
     if (!validators?.size) continue;
     withValidators += 1;
     for (const name of validators) {
-      used.add(name);
       if (!Object.hasOwn(COVERAGE, name)) unmapped.add(`${key}: ${name}`);
     }
   }

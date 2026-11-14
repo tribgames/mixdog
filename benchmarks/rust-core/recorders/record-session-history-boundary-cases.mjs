@@ -6,6 +6,8 @@
 //
 //   node --import ./apps/desktop/scripts/test-env.mjs --import ./apps/desktop/scripts/test-tsx.mjs \
 //        benchmarks/rust-core/recorders/record-session-history-boundary-cases.mjs --tree <export of b6f10295a with node_modules>
+// Every module is loaded from that export (set.load resolves against --tree, never against the product tree), so session-attachments.ts is
+// read from the recording's own source: the product tree replaced it by the core method desktop/attachment/resolve.
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -15,7 +17,7 @@ import { historyBoundaryScenarios } from './lib/history-boundary-scenarios.mjs';
 
 REPLAY_TARGETS['session-history-boundary-cases'] = {
   protocolMethods: ['thread/attachment/list'],
-  missing: ['the desktop host\'s refusal reasons (`not-linked`) for an attachment id the session\'s visible history never named: the core answers thread/attachment/list from the session\'s own rows; the per-id open and its refusal belong to the desktop (apps/desktop/src/main/session-attachments.ts)'],
+  missing: ['the desktop host\'s refusal reasons (`not-linked`) for an attachment id the session\'s visible history never named: the core answers thread/attachment/list from the session\'s own rows; the per-id open and its refusal are served by the core method desktop/attachment/resolve (mixdog-core-domains desktop_residual_b.rs, answering code file-download:<reason>), which apps/desktop/src/main/ipc-sessions.ts readSessionAttachment calls; the file this recorder loads from the recorded export (session-attachments.ts) no longer exists in the product tree'],
 };
 const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-history-boundary-'));
 process.env.MIXDOG_DATA_DIR = dataDir;
