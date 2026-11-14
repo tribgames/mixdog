@@ -1,0 +1,42 @@
+# nr-exthost-pdf-document: mixdog-pdf gains document.rs, page.rs and codec_glue.rs, and three dependency edges.
+
+## 1. native/core/Cargo.toml
+Nothing: `mixdog-pdf` and `mixdog-pdf-codec` are workspace members and workspace dependencies already; `brotli`,
+`mixdog-testkit`, `serde_json` and `flate2` have workspace entries.
+
+## 2. native/core/Cargo.lock, package "mixdog-pdf"
+The dependency list becomes (the crate's Cargo.toml now has brotli and mixdog-pdf-codec as dependencies, and
+mixdog-testkit and serde_json beside flate2 as dev-dependencies):
+    [[package]]
+    name = "mixdog-pdf"
+    version = "1.5.0"
+    dependencies = [
+     "brotli",
+     "flate2",
+     "mixdog-pdf-codec",
+     "mixdog-testkit",
+     "serde_json",
+     "tracing",
+    ]
+(`cargo metadata --offline --locked` rewrites it the same way; brotli 9.1.1 is the only brotli in the lock.)
+
+## 3. native/core/crates/mixdog-workspace-hack/Cargo.toml and .config/hakari.toml
+mixdog-pdf still does not depend on the hack crate. Its edge to mixdog-pdf-codec and brotli (features std, as
+mixdog-ai) adds no feature the hack crate does not already unify. If `cargo hakari verify` asks for mixdog-pdf in
+[final-excludes] workspace-members (beside mixdog-js), add it as the nr-exthost-pdf-syntax fragment said.
+
+## 4. Seams for the later tasks of the track
+- `mixdog_pdf::document::{Document, OpenOptions, Exception, wrap_reason}` and `mixdog_pdf::page::{Page, Viewport}`;
+  `mixdog_pdf::codec_glue::{CodecFilters, CodecDecryptorFactory}`. `lib.rs` (owned by nr-exthost-pdf-syntax) declares
+  the modules and has no `pub use` of them; a task that wants `mixdog_pdf::Document` adds
+  `pub use document::{Document, OpenOptions};` there.
+- `Document::open(bytes, &OpenOptions)`; `Document::page(index)` gives a `Page` with `view`, `rotate`, `user_unit`,
+  `resources(&doc)`, `content(&doc)` (the decoded content streams joined) and `viewport(scale)`.
+  `Document::xref()` is the object access the font and text tasks use; `Document::options()` carries
+  `use_system_fonts` and `disable_font_face` of the reference configuration.
+
+## 5. No SERVICE_PENDING names, no protocol rows: the crate registers no service.
+
+## 6. Verify (after 2)
+cargo nextest run -p mixdog-pdf --offline
+cargo clippy -p mixdog-pdf --all-targets --offline -- -D warnings
