@@ -836,6 +836,8 @@ mod saved_login_backend {
         async fn execute(&self, _: &ThreadId, command: Value) -> Result<Value, String> {
             self.0.lock().unwrap().push(command.clone());
             Ok(match command["action"].as_str() {
+                Some("window_bounds") if command["app"] == "chrome" => json!({ "window_id": "hwnd:0x1", "title": "Sign in" }),
+                Some("window_bounds") => return Err("ambiguous_window_target: app \"edge\" matched 2 windows; retry with one exact window_id".to_owned()),
                 Some("saved_login_check") => json!({ "saved_login_target": { "window_id": "hwnd:0x1", "pid": "4242", "origin": "https://login.example.com" } }),
                 _ => json!({ "action": "fill_saved_login", "effect": "confirmed" }),
             })
@@ -904,6 +906,12 @@ mod saved_login_backend {
         let reply: Value = serde_json::from_str(text).unwrap();
         assert_eq!(reply["ok"], true);
         assert_eq!(reply["action"], "saved_login");
+        // The host's reply of a semantic action: what the write did, how it was delivered, the window, and the verdict.
+        assert_eq!(reply["effect"], "confirmed");
+        assert_eq!(reply["delivery"], "background");
+        assert_eq!(reply["window_id"], "hwnd:0x1");
+        assert_eq!(reply["verified"], false);
+        assert_eq!(reply["verdict"]["decision"], "verify_fresh_state");
         assert_eq!(reply["saved_login"], json!({ "account": "j•••e@example.com", "origin": "https://login.example.com", "field": "password" }));
         assert!(reply["message"].as_str().unwrap().starts_with("filled the saved password of j•••e@example.com"));
         assert_eq!(rig.inner.0.load(Ordering::SeqCst), 0, "the backend never saw the action");
@@ -919,6 +927,85 @@ mod saved_login_backend {
         rig.backend.run(ax, CancellationToken::new()).await.unwrap();
         rig.registry.settle(&SavedLoginTurn { session: SESSION.to_owned(), turn: 7 }).await;
         rig.backend.run(capture, CancellationToken::new()).await.unwrap();
+    }
+
+    /// A command that names its window by app is resolved to the app's one window first (`resolveAppWindowId`), and a refusal of
+    /// that resolution is the fill's refusal with nothing sent to the desktop.
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn a_fill_that_names_an_app_is_made_in_the_apps_window() {
+        let chrome = rig(Some(7), true, false);
+        let by_app = ComputerRequest { action: ComputerAction::SavedLogin, input: json!({ "app": "chrome", "savedAccount": "j•••e@example.com", "field": "password" }) };
+        chrome.backend.run(by_app, CancellationToken::new()).await.unwrap();
+        let sent = chrome.helper.0.lock().unwrap().clone();
+        assert_eq!(sent.iter().map(|command| command["action"].as_str().unwrap()).collect::<Vec<_>>(), ["window_bounds", "saved_login_check", "saved_login_type"]);
+        assert_eq!(sent[0], json!({ "action": "window_bounds", "session_id": SESSION, "app": "chrome" }));
+        assert!(sent[1..].iter().all(|command| command["window_id"] == "hwnd:0x1"));
+
+        let edge = rig(Some(8), true, false);
+        let by_app = ComputerRequest { action: ComputerAction::SavedLogin, input: json!({ "app": "edge", "savedAccount": "j•••e@example.com", "field": "password" }) };
+        let (code, message) = failure(edge.backend.run(by_app, CancellationToken::new()).await);
+        assert_eq!(code, "ambiguous_window_target");
+        assert!(message.contains("retry with one exact window_id"));
+        assert!(edge.desktop.actions.lock().unwrap().is_empty(), "nothing reached the desktop");
+    }
+
+    /// The agent turn a fill is scoped to is the session's running one; its settlement (the actor's `turn_settled`) lifts the
+    /// redaction and the pixel guard of that turn, and a session that ends lifts all of its own.
+    #[tokio::test]
+    async fn a_turns_settlement_lifts_its_fills_redaction_and_pixel_guard() {
+        use crate::session::turn_snapshots::TurnSnapshots;
+
+        use super::super::computer::SavedLoginTurnClock;
+        use super::super::computer::SettlingSavedLogins;
+
+        #[derive(Default)]
+        struct Calls(Mutex<Vec<String>>);
+        impl TurnSnapshots for Calls {
+            fn turn_settled(&self, thread: &ThreadId) {
+                self.0.lock().unwrap().push(format!("settled {}", thread.as_str()));
+            }
+            fn runtime_stopped(&self, thread: &ThreadId) {
+                self.0.lock().unwrap().push(format!("stopped {}", thread.as_str()));
+            }
+            fn dispose(&self) {
+                self.0.lock().unwrap().push("dispose".to_owned());
+            }
+        }
+        async fn until(what: &str, mut done: impl FnMut() -> bool) {
+            tokio::time::timeout(std::time::Duration::from_secs(10), async {
+                while !done() {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap_or_else(|_| panic!("{what}"));
+        }
+        let registry = SavedLoginRegistry::new();
+        let inner = Arc::new(Calls::default());
+        let clock = SavedLoginTurnClock::new(registry.clone());
+        let snapshots = SettlingSavedLogins::new(inner.clone(), clock.clone());
+        let thread = ThreadId::from(SESSION);
+        assert_eq!(clock.turn(&thread), Some(1), "the first turn is turn 1");
+        let first = SavedLoginTurn { session: SESSION.to_owned(), turn: 1 };
+        assert!(registry.remember(&first, &[PASSWORD.to_owned()]));
+        assert!(registry.arm_pixels(super::super::PixelGuard { turn: first, window_id: "hwnd:0x1".to_owned(), pid: "4242".to_owned() }));
+        assert_eq!(registry.redact(PASSWORD), "[saved login]");
+        snapshots.turn_settled(&thread);
+        until("turn 1 to settle", || registry.spellings().is_empty() && registry.pixel_guards().is_empty()).await;
+        assert_eq!(clock.turn(&thread), Some(2), "the next turn is turn 2");
+        assert_eq!(registry.redact(PASSWORD), PASSWORD);
+        assert_eq!(*inner.0.lock().unwrap(), ["settled S1"], "the wrapped snapshots still settle");
+        // A fill of turn 2 dies with its session.
+        let second = SavedLoginTurn { session: SESSION.to_owned(), turn: 2 };
+        assert!(registry.remember(&second, &[PASSWORD.to_owned()]));
+        snapshots.runtime_stopped(&thread);
+        until("the session to be forgotten", || registry.spellings().is_empty()).await;
+        assert_eq!(inner.0.lock().unwrap().last().map(String::as_str), Some("stopped S1"));
+        // Another session counts its own turns.
+        assert_eq!(clock.turn(&ThreadId::from("S2")), Some(1));
+        snapshots.dispose();
+        assert_eq!(inner.0.lock().unwrap().last().map(String::as_str), Some("dispose"));
     }
 
     #[tokio::test]
