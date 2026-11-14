@@ -1,0 +1,48 @@
+# nr-office-base: the new crate crates/mixdog-office-base (shared office helpers, format tables, ids, result envelope,
+# write-note seam, A1 parsers, twin-test helpers). Written without compiling (no cargo run in this wave); the first
+# compile is the lead's. Nothing consumes it yet.
+
+## 1. native/core/Cargo.toml [workspace] members, after "crates/mixdog-office" (any place in the list):
+    "crates/mixdog-office-base",
+
+## 2. native/core/Cargo.toml [workspace.dependencies], after the line `mixdog-office = { path = "crates/mixdog-office" }`:
+mixdog-office-base = { path = "crates/mixdog-office-base" }
+
+## 3. Cargo.lock and the hack
+# `cargo update --workspace --offline` adds the package `mixdog-office-base` (dependencies: mixdog-js, mixdog-testkit,
+# mixdog-workspace-hack, serde_json, sha2, uuid). Every one is already in the lock (uuid with "v4" is already unified by the
+# hack: `uuid = { version = "1", features = ["v4", "v7"] }`). Run the repository's hakari check after adding the member and
+# take its output if it asks for a line. The crate declares no mixdog-fsio dependency: it does no file I/O (the twin helpers
+# read through mixdog-testkit).
+
+## 4. Fixture set index: native/core/fixtures/MANIFEST.json `sets`, after "office-detect" (alphabetical: office-detect, office-shared, office-startup):
+#    {
+#      "command": "node benchmarks/rust-core/recorders/record-office-shared.mjs --tree <tree>",
+#      "fileCount": 1,
+#      "manifest": "office-shared/MANIFEST.json",
+#      "manifestSha256": "1966cecbbc8bf06453e013399d13f461dd24031ae6b3685a40fa0b42eccaae66",
+#      "recorder": "benchmarks/rust-core/recorders/record-office-shared.mjs",
+#      "set": "office-shared",
+#      "totalBytes": 282192
+#    }
+# (verify-manifests.mjs recomputes these; re-run the recorder with --tree <a tree with src/runtime/office and node_modules> if the
+# manifest digest differs after the lead's merge.)
+
+## 5. SERVICE_PENDING (compose_flip.rs)
+# No name to remove: this task registers no service and no protocol method.
+
+## 6. Dependency edges of later tasks (not applied here)
+# Every office crate that uses these helpers takes `mixdog-office-base = { workspace = true }`; a crate whose tests use the
+# twin helpers also takes, under [dev-dependencies], `mixdog-office-base = { workspace = true, features = ["test-support"] }`
+# (twin.rs is #[cfg(any(test, feature = "test-support"))], so a release build has neither it nor mixdog-testkit).
+# Entry points the later tasks call:
+#   a1::{column_label, column_number, parse_cell_ref, parse_xlsx_cell, parse_xlsx_range}   (formula engine, CSV/TSV backend, xlsx engine)
+#   column_widths::natural_column_widths, column_alignments::figure_column_alignments, line_breaks::{wrap_units, without_runt},
+#   page_sizes::page_size_points, labels::preset_labels, korean_particles::korean_particle_replacements, asar_path::physical_asar_path
+#   formats::{document_file_kind, document_format, normalize_office_format, legacy_package_kind, FILE_KIND_TO_FORMAT, FORMATS,
+#   TABULAR_FORMATS, OOXML_FORMATS}, ids::{office_session_id, office_transaction_id}
+#   envelope::{tool_result, serialized_tool_value, ToolImage, OfficeConflictError}
+#   write_note::{WriteNote, NoWriteNote}: every writer takes `&dyn WriteNote` and calls note_write(path) before writing a workspace file
+#   (replaces noteOfficeWrite and its AsyncLocalStorage; the tool call passes its ledger, a caller outside a tool call passes NoWriteNote).
+# Not ported here (they belong to the session-registry task): the sessions and documentSessions maps, documentSessionKey,
+# emptyOfficeDesignState, microsoftOfficeOpenFields, ensureOfficeSessionDesign, mergeOfficeDesignRequest, resolveOfficeDesignContext.
