@@ -425,7 +425,7 @@ export function registerSession(connection: HostConnection, ctx: EngineContext, 
     [...initScriptsOf(guest)].map(([id, script]) => ({ id, source: script.source }));
 
   registerEngineMethod(connection, ctx, 'host/browser/initScripts', async (params, signal, page) => {
-    const op = oneOf(params.op, ['add', 'remove', 'list'], 'initScripts op');
+    const op = oneOf(params.op, ['add', 'remove', 'list', 'clear'], 'initScripts op');
     const scripts = initScriptsOf(page.guest);
     if (op === 'list') return { scripts: initScriptList(page.guest) };
 
@@ -454,20 +454,46 @@ export function registerSession(connection: HostConnection, ctx: EngineContext, 
       return { id, scripts: initScriptList(page.guest) };
     }
 
+    const removeScript = async (id: string, identifier: string) => {
+      try {
+        await page.guarded(expectOf(params), () =>
+          ctx.cdp.call(page.guest, 'Page.removeScriptToEvaluateOnNewDocument', { identifier }, signal)
+        );
+      } catch (error) {
+        if (signal.aborted) throw signal.reason || error;
+        // Chromium uses this exact message for an absent script. Missing CDP
+        // sessions or targets are not proof that the script was removed.
+        if (!(error instanceof Error) || error.message !== 'Script not found') throw error;
+      }
+      scripts.delete(id);
+    };
+
+    if (op === 'clear') {
+      // Every script is tried; the ones that could not be removed stay listed and are named.
+      const removed = scripts.size;
+      const failures: Error[] = [];
+      for (const [id, script] of [...scripts]) {
+        try {
+          await removeScript(id, script.identifier);
+        } catch (error) {
+          if (signal.aborted) throw signal.reason || error;
+          failures.push(new Error(`${id}: ${error instanceof Error ? error.message : String(error)}`, { cause: error }));
+        }
+      }
+      if (failures.length) {
+        throw new AggregateError(
+          failures,
+          `removed ${removed - failures.length} init script(s), but ${failures.length} could not be removed; retry clear\n` +
+            failures.map((error) => error.message).join('\n')
+        );
+      }
+      return { scripts: initScriptList(page.guest) };
+    }
+
     const id = String(params.id ?? '').trim();
     const script = scripts.get(id);
     if (!script) throw new Error(`unknown init script ${id || '(empty)'}; list init_script to see current ids`);
-    try {
-      await page.guarded(expectOf(params), () =>
-        ctx.cdp.call(page.guest, 'Page.removeScriptToEvaluateOnNewDocument', { identifier: script.identifier }, signal)
-      );
-    } catch (error) {
-      if (signal.aborted) throw signal.reason || error;
-      // Chromium uses this exact message for an absent script. Missing CDP
-      // sessions or targets are not proof that the script was removed.
-      if (!(error instanceof Error) || error.message !== 'Script not found') throw error;
-    }
-    scripts.delete(id);
+    await removeScript(id, script.identifier);
     return { id, scripts: initScriptList(page.guest) };
   });
 

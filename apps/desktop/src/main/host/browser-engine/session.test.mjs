@@ -221,6 +221,22 @@ test('a script Chromium no longer has is dropped; any other removal failure keep
   assert.equal((await broken.call('host/browser/initScripts', { pageId: 'p1', op: 'list' })).scripts.length, 1);
 });
 
+test('clear removes every init script; one that could not be removed stays listed and is named', async () => {
+  const h = harness();
+  await h.call('host/browser/initScripts', { pageId: 'p1', op: 'add', source: 'a' });
+  await h.call('host/browser/initScripts', { pageId: 'p1', op: 'add', source: 'b' });
+  const cleared = await h.call('host/browser/initScripts', { pageId: 'p1', op: 'clear' });
+  assert.deepEqual(cleared.scripts, []);
+  assert.equal(h.sends.filter((send) => send.method === 'Page.removeScriptToEvaluateOnNewDocument').length, 2);
+  const broken = harness({}, { 'Page.removeScriptToEvaluateOnNewDocument': new Error('Target closed') });
+  await broken.call('host/browser/initScripts', { pageId: 'p1', op: 'add', source: 'a' });
+  await assert.rejects(
+    broken.call('host/browser/initScripts', { pageId: 'p1', op: 'clear' }),
+    /removed 0 init script\(s\), but 1 could not be removed; retry clear\nis\d+: Target closed/
+  );
+  assert.equal((await broken.call('host/browser/initScripts', { pageId: 'p1', op: 'list' })).scripts.length, 1);
+});
+
 test('intercept rules are normalised, matched with hit counts and rolled back when the Fetch push fails', async () => {
   let pushes = 0;
   let failPush = false;
