@@ -773,8 +773,9 @@ async fn every_method_routes_to_its_module() {
     let saved = call(&rig, "remoteHosts/list", json!({}), main_ctx()).await.expect("listed");
     let id = saved[0]["id"].as_str().expect("an id").to_owned();
     call(&rig, "remoteHosts/rename", json!({ "id": id, "name": "Studio" }), host_ctx()).await.expect("renamed");
+    call(&rig, "remoteHosts/touch", json!({ "id": id }), host_ctx()).await.expect("touched");
     call(&rig, "remoteHosts/forget", json!({ "id": id }), host_ctx()).await.expect("forgotten");
-    served.extend(["remoteHosts/rename", "remoteHosts/forget"]);
+    served.extend(["remoteHosts/rename", "remoteHosts/touch", "remoteHosts/forget"]);
     // connect needs the attempt inspect opened.
     let inspected = call(&rig, "connections/ssh/inspect", json!({ "target": TARGET }), main_ctx()).await.expect("inspected");
     let attempt = inspected["attemptId"].as_str().expect("an attempt").to_owned();
@@ -1349,6 +1350,14 @@ async fn saved_hosts_are_listed_renamed_forgotten_and_asked_about() {
     // Only saved hosts are asked about, and only the ones the relay reports are online.
     let presence = call(&rig, "remoteHosts/presence", json!({ "ids": ["nope", id] }), host_ctx()).await.expect("presence");
     assert_eq!(presence, json!({ "online": [id] }));
+
+    // A window for the saved PC finished loading: its last-connected time is set; an id that is no longer saved changes nothing.
+    assert_eq!(rig.remote_hosts.get(&id).expect("saved").last_connected_at, None);
+    call(&rig, "remoteHosts/touch", json!({ "id": id }), host_ctx()).await.expect("touched");
+    assert!(rig.remote_hosts.get(&id).expect("saved").last_connected_at.is_some());
+    call(&rig, "remoteHosts/touch", json!({ "id": "nope" }), host_ctx()).await.expect("an unknown id is not an error");
+    let refused = call(&rig, "remoteHosts/touch", json!({ "id": id }), main_ctx()).await;
+    assert!(refused.is_err(), "only the host touches");
 
     call(&rig, "remoteHosts/forget", json!({ "id": id }), host_ctx()).await.expect("forgotten");
     assert!(rig.remote_hosts.list().is_empty());

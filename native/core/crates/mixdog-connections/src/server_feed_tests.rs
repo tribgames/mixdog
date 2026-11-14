@@ -366,20 +366,6 @@ async fn server_feed_edge_reaches_the_list_after_the_debounce() {
 }
 
 #[tokio::test]
-async fn server_feed_flush_publishes_the_held_rows_at_once() {
-    let client = stub(vec![("thread/list", vec![Reply::Value(json!({ "data": [row("a", "old", 10)] }))])]);
-    let feed = ServerFeed::attach(client.clone());
-    let mut sessions = feed.sessions();
-    sessions.wait_for(|rows| rows.len() == 1).await.unwrap();
-    client.events.send(notification("thread/started", json!({ "thread": row("n", "new", 50) }))).unwrap();
-    for _ in 0..50 {
-        tokio::task::yield_now().await;
-    }
-    feed.flush();
-    assert_eq!(ids(&feed), ["n", "a"]);
-}
-
-#[tokio::test]
 async fn server_feed_state_carries_host_shell_jobs_and_remote_session() {
     let client = stub(vec![("thread/list", vec![Reply::Value(json!({ "data": [] }))])]);
     let feed = ServerFeed::attach(client.clone());

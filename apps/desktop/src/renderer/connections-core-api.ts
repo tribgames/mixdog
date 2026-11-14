@@ -112,6 +112,8 @@ export function createConnectionsCoreApi(deps: ConnectionsCoreDeps): Connections
           const subscriptionId = feedSubscription;
           feedSubscription = null;
           await client.call('connections/unsubscribe', { subscriptionId });
+          // The service ends its own record; the server keeps pushing the feed until this ends the subscription.
+          await client.call('feed/unsubscribe', { feedId: CONNECTIONS_FEED });
         }
       })
       .catch((error: unknown) => {

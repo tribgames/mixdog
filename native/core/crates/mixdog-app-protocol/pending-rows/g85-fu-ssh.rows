@@ -1,0 +1,41 @@
+# g85-fu-ssh: the desktop tells the core that the window of a saved remote PC finished loading, so the PC's lastConnectedAt moves
+# (remote-host-windows.ts openWindow ended with store.touch(id); the Rust RemoteHostStore::touch had no caller and no method carried it).
+# Served by mixdog-connections service.rs ("remoteHosts/touch", Callers::Host in policy.rs); an id that is no longer saved changes nothing, as the TypeScript touch did.
+
+[methods]
+Beside RemoteHostsForget (after it, before RemoteHostsPresence):
+
+    /// A window for a saved remote PC finished loading: its last-connected time is now (`remote-host-windows.ts` touch). An id no longer saved changes nothing. Caller: H.
+    RemoteHostsTouch => "remoteHosts/touch" {
+        params: ConnectionsIdParams,
+        result: v2::feed::EmptyResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+
+[server_requests]
+# none
+
+[notifications]
+# none
+
+[inventory]
+# none (no operation name: a plain request like remoteHosts/forget)
+
+[free_text]
+# none in src/free_text.rs. tests/it/free_text_fields.json, sorted among the remoteHosts lines, add:
+#     "request remoteHosts/touch /id"
+
+[type_edits]
+# none
+
+[remove]
+# none
+
+[window]
+# window_methods.json "methods": a window does not touch (only the desktop's main process does, when a window of a saved PC loads). In src/boundary/window_scope.rs
+# the test host_role_refused names every table method that does not start with "host/": add "remoteHosts/touch" to that list. Nothing goes into
+# every_direct_key_allowed beside "remoteHosts/forget" (that list names the methods a window keeps).
+remoteHosts/touch deny: only the desktop's main process opens the saved PC's window and reports that it loaded

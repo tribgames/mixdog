@@ -121,6 +121,7 @@ const METHODS: &[&str] = &[
     "remoteHosts/redeemCode",
     "remoteHosts/rename",
     "remoteHosts/forget",
+    "remoteHosts/touch",
     "remoteHosts/presence",
     WINDOW_CLOSED,
 ];
@@ -1288,6 +1289,12 @@ impl Inner {
             "remoteHosts/forget" => {
                 let params: ConnectionsIdParams = decode(req)?;
                 deps.remote_hosts.forget(&params.id).await.map_err(attempt_failure)?;
+                empty()
+            }
+            "remoteHosts/touch" => {
+                // The desktop's window for a saved PC finished loading: the host was connected to just now (an id no longer saved changes nothing).
+                let params: ConnectionsIdParams = decode(req)?;
+                deps.remote_hosts.touch(&params.id).await.map_err(attempt_failure)?;
                 empty()
             }
             "remoteHosts/presence" => {
