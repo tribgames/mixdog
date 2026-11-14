@@ -15,6 +15,7 @@ import {
   hostGraceMs,
   reconnectDelayCapMs,
 } from './connection-link.ts';
+import { forwardConnectionLink } from './link-ipc.ts';
 import { ConnectionPool } from './pool.ts';
 import { createPortForwardStore } from './port-forward-store.ts';
 import { registerServerPortsIpc } from './ports-ipc.ts';
@@ -263,6 +264,21 @@ test('only a server window forwards, and the browser opens the forward’s loopb
   await assert.rejects(invoke(2, DESKTOP_IPC.serverPortOpen, 4000), /port-not-active/);
   await invoke(2, DESKTOP_IPC.serverPortStop, 3000);
   assert.deepEqual((await invoke(2, DESKTOP_IPC.serverPortsList, false)).forwards, []);
+});
+
+test('port changes reach the server window that shows them', async () => {
+  const f = portsFixture();
+  const sent = [];
+  const target = { isDestroyed: () => false, send: (channel, value) => sent.push([channel, value]) };
+  const stop = forwardConnectionLink({ link: null, subscribeNotices: () => () => {}, ports: f.ports }, target);
+  await f.ports.forward(3000);
+  assert.ok(
+    sent.some(([channel, view]) => channel === DESKTOP_IPC.serverPortsChanged && view.forwards[0]?.status === 'active')
+  );
+  stop();
+  const count = sent.length;
+  await f.ports.forward(4000);
+  assert.equal(sent.length, count, 'nothing after the window closed');
 });
 
 test('a host’s grace setting caps the reconnect backoff', () => {
