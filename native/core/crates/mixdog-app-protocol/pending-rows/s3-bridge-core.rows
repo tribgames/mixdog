@@ -1,0 +1,109 @@
+# s3-bridge-core: computer/bridge/run and computer/bridge/abort (desktop -> core). The desktop's loopback computer bridge, which the
+# Node-hosted runtime still talks to, runs each command it accepts through the core's computer service. Internal: only the connection
+# that is the host claimant may call them (the service answers PermissionDenied to any other; ctx.host_claimant), and a window-scoped
+# connection never reaches them. Served by mixdog-tools desktop::computer_bridge_run::ComputerBridgeRun (see pending-wire/s3-bridge-core.wire).
+
+[methods]
+# Paste after the ComputerUserControl row in src/methods.rs (symbol: ComputerUserControl => "computer/userControl").
+    /// One command the desktop's loopback computer bridge accepted (the bridge's wire shape: the helper's vocabulary plus `session_id`, `turn_id`, `runtime_id`), run through the core's computer service with the bridge's own semantics: per-session serialisation, the allowance of concurrent requests, abort, the runtime-only actions (secret bind and input, turn settlement, session abort, execution end, session release), saved-login owners by process fate, redaction and the reply limits. `signalId` names this call for `computer/bridge/abort`. The answer is the bridge's own (`ok`, `value` or `error`, and the HTTP `status` it would have been: 400 invalid request, 429 allowance spent).
+    ComputerBridgeRun => "computer/bridge/run" {
+        params: v2::host::ComputerBridgeRunParams,
+        result: v2::host::ComputerBridgeRunResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Ends the work of one bridge call (`signalId`: its caller's connection dropped) or, without one, aborts the session (the helper is stopped and its input cleaned up, as `session_abort` does).
+    ComputerBridgeAbort => "computer/bridge/abort" {
+        params: v2::host::ComputerBridgeAbortParams,
+        result: v2::host::ComputerBridgeAbortResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+
+[server_requests]
+# none
+
+[notifications]
+# none
+
+[inventory]
+# none. The inventory is the frozen 1.4.5 list (tests/fixtures/parity-inventory.json); the bridge was an HTTP surface of the desktop,
+# never a daemon operation, so these get no row.
+
+[free_text]
+# src/free_text.rs FREE_TEXT, next to the dev/computer/run row:
+#   // The Computer Use command the desktop's bridge forwards (computer/bridge/run): its text and keys are what the model typed.
+#   (Kind::Request, "computer/bridge/run", &["/command/**"]),
+# tests/it/free_text_fields.json:
+#   - `classes`, the free class (where "request dev/computer/run /command/**" is): "request computer/bridge/run /command/**"
+#   - `classes`, the refused class whose reason starts "an id, cursor, revision or digest the core, a client or a service generated:":
+#       "request computer/bridge/run /sessionKey", "request computer/bridge/run /signalId",
+#       "request computer/bridge/abort /sessionKey", "request computer/bridge/abort /signalId"
+#   - `payloads` -> request: next to "dev/computer/run": { "/command": { "source": "native/core/crates/mixdog-tools/src/desktop/computer_bridge_run.rs (the desktop bridge's computer command)", "open": { "": { "class": "free", "reason": "the bridge's Computer Use command: its text and keys are what the model typed" } } } }
+
+[type_edits]
+# In v2/host.rs, after ComputerUserControlResult (derives and attrs exactly as ComputerUserControlParams: Debug, Clone, PartialEq, Serialize, Deserialize,
+# cfg_attr(codegen) JsonSchema+TS, camelCase, ts(optional_fields)). JsonValue is already imported there.
+
+/// Params of `computer/bridge/run` (desktop -> core): one command of the loopback computer bridge, for the session it names.
+pub struct ComputerBridgeRunParams {
+    /// The bridge's wire command (`ComputerCommand`): an object with `action` and the action's fields; `session_id`, `turn_id` and `runtime_id` ride in it.
+    pub command: JsonValue,
+    /// The session the command runs in (the bridge's `session_id`, `default` when it names none).
+    pub session_key: String,
+    /// Names this call for `computer/bridge/abort`.
+    pub signal_id: String,
+}
+
+/// The image of a bridge reply.
+pub struct ComputerBridgeImage {
+    /// Base64.
+    pub data: String,
+    /// `image/png` or `image/jpeg`.
+    pub mime_type: String,
+}
+
+/// A bridge reply (`ComputerCommandResult`).
+pub struct ComputerBridgeValue {
+    pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<ComputerBridgeImage>,
+}
+
+/// Result of `computer/bridge/run`: the bridge's own answer.
+pub struct ComputerBridgeRunResult {
+    pub ok: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<ComputerBridgeValue>,
+    /// The redacted message of why the command failed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    /// The HTTP status the bridge answers when it is not 200: 400 (invalid request) or 429 (the allowance of concurrent requests is spent).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<u16>,
+}
+
+/// Params of `computer/bridge/abort` (desktop -> core).
+pub struct ComputerBridgeAbortParams {
+    pub session_key: String,
+    /// The call to end; absent: the whole session is aborted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signal_id: Option<String>,
+}
+
+/// Result of `computer/bridge/abort`.
+pub struct ComputerBridgeAbortResult {
+    /// False when a session abort's cleanup was not confirmed.
+    pub ok: bool,
+    /// How many running or queued calls were cancelled.
+    pub cancelled: u32,
+}
+
+[window]
+# src/boundary/window_methods.json "methods" (alphabetical, after "computer/userControl" would put these before it: insert "computer/bridge/abort", "computer/bridge/run" before "computer/userControl") and the host-role list in src/boundary/window_scope.rs next to "dev/computer/run":
+computer/bridge/run deny: a window never drives the desktop's computer bridge; only the desktop's main process (the host claimant) does
+computer/bridge/abort deny: same
