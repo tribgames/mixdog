@@ -1,6 +1,6 @@
 # s3-07 core wire (CORE-WIRE-G2)
 
-No new module, workspace member, dependency or registration: the task edits computer_user_control.rs only (computer_lane.rs unchanged).
+No new module, workspace member, dependency or registration: the task edits computer_user_control.rs only; g25-fu-cu-a also edits computer_backend.rs and computer_lane.rs (parking outside the lane, saved-login steps in the foreground lane).
 
 ## The section's idleResumeSeconds (after s3-02's rows are applied)
 

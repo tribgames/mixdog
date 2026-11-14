@@ -1,7 +1,7 @@
 //! Mixdog's own windows (`host/computer/appWindows`) and the input the desktop delivers into them (`host/computer/appInput`):
 //! what `canUseAppOwnedInput` + `dispatchElectronInput` / `dispatchElectronText` did in the Node host
-//! (`host/input-dispatch.ts`, `host/input-dispatch-electron-*.ts`). A window the desktop names takes `key`, `type`, `scroll`
-//! and pointer steps through its renderer's own input channel, so it is never raised and the user's foreground window stays
+//! (`host/input-dispatch.ts`, `host/input-dispatch-electron-*.ts`). A window the desktop names takes `key`, `type` and `scroll`
+//! steps through its renderer's own input channel, so it is never raised and the user's foreground window stays
 //! where it is; any other window, and a desktop that does not serve the two methods, keep the helper path.
 //!
 //! The list is read together with the internal windows (`computer_internal_windows::filter`) and kept for a short while, the
@@ -210,8 +210,6 @@ pub(super) enum AppInputOp {
     /// The keys in the helper's grammar, as `normalizeComputerKeySequence` wrote them.
     Key { keys: String },
     Type { text: String, point: Option<(f64, f64)> },
-    Click { x: f64, y: f64, button: &'static str, clicks: u8 },
-    Move { x: f64, y: f64 },
     /// Signed wheel deltas in CSS pixels (`WHEEL_NOTCH` a notch), at a point or the middle of the window, with the step's
     /// `modifiers` text (`ctrl+shift`) held.
     Wheel { point: Option<(f64, f64)>, dx: f64, dy: f64, modifiers: Option<String> },
@@ -219,7 +217,8 @@ pub(super) enum AppInputOp {
 
 impl AppInputOp {
     /// The input a step is, with its screen-physical points (`computer_frames::map_step`) moved to the window's origin; `None`
-    /// for a step the renderer's channel does not take.
+    /// for a step the renderer's channel does not take (`canUseAppOwnedInput`: only `type`, `key` and `scroll`; clicks and pointer
+    /// moves stay on the helper path).
     fn from_step(step: &Map<String, Value>, window: &AppWindow) -> Option<AppInputOp> {
         if text(step, "delivery") == "foreground" || step.get("ref").is_some_and(|reference| !reference.is_null() && reference.as_str() != Some("")) {
             return None;
@@ -228,16 +227,9 @@ impl AppInputOp {
             let (x, y) = (step.get("x")?.as_f64()?, step.get("y")?.as_f64()?);
             Some((x - window.bounds.x, y - window.bounds.y))
         };
-        let click = |button, clicks| point().map(|(x, y)| AppInputOp::Click { x, y, button, clicks });
         match text(step, "action") {
             "key" => Some(AppInputOp::Key { keys: step.get("keys")?.as_str()?.to_string() }),
             "type" => Some(AppInputOp::Type { text: step.get("text").and_then(Value::as_str).unwrap_or_default().to_string(), point: point() }),
-            "click" => click("left", 1),
-            "right_click" => click("right", 1),
-            "middle_click" => click("middle", 1),
-            "double_click" => click("left", 2),
-            "triple_click" => click("left", 3),
-            "mouse_move" => point().map(|(x, y)| AppInputOp::Move { x, y }),
             "scroll" => {
                 // `wheelDeltas`: 1..100 notches of `amount ?? dy ?? 3`, up and left negative, a step without a direction signed by `dy`.
                 let number = |key: &str| step.get(key).and_then(Value::as_f64);
@@ -270,8 +262,6 @@ impl AppInputOp {
                     set(vec![("x", json!(x)), ("y", json!(y))]);
                 }
             }
-            AppInputOp::Click { x, y, button, clicks } => set(vec![("op", json!("click")), ("x", json!(x)), ("y", json!(y)), ("button", json!(button)), ("clicks", json!(clicks))]),
-            AppInputOp::Move { x, y } => set(vec![("op", json!("move")), ("x", json!(x)), ("y", json!(y))]),
             AppInputOp::Wheel { point, dx, dy, modifiers } => {
                 set(vec![("op", json!("wheel")), ("dx", json!(dx)), ("dy", json!(dy))]);
                 if let Some((x, y)) = point {
@@ -289,19 +279,19 @@ impl AppInputOp {
         match self {
             AppInputOp::Key { .. } => "key",
             AppInputOp::Type { .. } => "type",
-            AppInputOp::Click { .. } => "click",
-            AppInputOp::Move { .. } => "mouse_move",
             AppInputOp::Wheel { .. } => "scroll",
         }
     }
 
-    /// What a delivered input says it did (`delivered()` of `input-dispatch-electron-input.ts`, the text of `dispatchElectronText`).
-    fn delivered_text(&self) -> String {
+    /// What a delivered input says it did (`delivered()` of `input-dispatch-electron-input.ts`, the text of `dispatchElectronText`);
+    /// `presses` is the count of key presses the desktop sent for a key step.
+    fn delivered_text(&self, presses: Option<u64>) -> String {
         match self {
-            AppInputOp::Key { .. } => "sent key press(es) to app-owned Electron renderer".into(),
+            AppInputOp::Key { .. } => match presses {
+                Some(count) => format!("sent {count} key press(es) to app-owned Electron renderer"),
+                None => "sent key press(es) to app-owned Electron renderer".into(),
+            },
             AppInputOp::Type { text, .. } => format!("typed {} literal characters into app-owned Electron renderer", utf16_len(text)),
-            AppInputOp::Click { .. } => "sent a click to app-owned Electron renderer".into(),
-            AppInputOp::Move { .. } => "moved the pointer in app-owned Electron renderer".into(),
             AppInputOp::Wheel { .. } => "sent a wheel event to app-owned Electron renderer".into(),
         }
     }
@@ -311,7 +301,6 @@ impl AppInputOp {
             AppInputOp::Key { .. } => "electron_key_event",
             AppInputOp::Type { point: Some(_), .. } => "electron_point_focus_insert_text",
             AppInputOp::Type { point: None, .. } => "electron_insert_text",
-            AppInputOp::Click { .. } | AppInputOp::Move { .. } => "electron_pointer_event",
             AppInputOp::Wheel { .. } => "electron_wheel_event",
         }
     }
@@ -347,8 +336,23 @@ pub(super) async fn app_input(desktop: &dyn HostChannel, session: &str, window_i
     }
     match effect {
         "delivered" if answer.get("delivered").and_then(Value::as_bool) != Some(false) => {
-            result.insert("text".into(), json!(op.delivered_text()));
+            result.insert("text".into(), json!(op.delivered_text(answer.get("presses").and_then(Value::as_u64))));
             result.insert("delivery_accepted".into(), json!(true));
+            // The renderer's process (`webContents.getOSProcessId()`).
+            if let Some(pid) = answer.get("pid").filter(|pid| pid.is_u64() || pid.is_i64()) {
+                result.insert("pid".into(), pid.clone());
+            }
+        }
+        // `preparatoryClickFailure`: the click that focuses the point before the text was not confirmed, so nothing was typed. The
+        // click's own code and words ride along; a click that may have landed leaves `delivery_accepted` unknown (null).
+        "click_unconfirmed" => {
+            let said = |key: &str| answer.get(key).and_then(Value::as_str).filter(|text| !text.is_empty());
+            let may_have_executed = answer.get("inputMayHaveExecuted").and_then(Value::as_bool) == Some(true) || answer.get("deliveryAccepted").and_then(Value::as_bool) != Some(false);
+            result.insert("action".into(), json!("type"));
+            result.insert("code".into(), json!(said("code").unwrap_or("typing_target_unconfirmed")));
+            result.insert("text".into(), json!(said("text").unwrap_or("The preparatory click was not confirmed; no text was sent.")));
+            result.insert("delivery_accepted".into(), if may_have_executed { Value::Null } else { json!(false) });
+            result.insert("input_may_have_executed".into(), json!(may_have_executed));
         }
         // `typingTargetUnconfirmed`: nothing was typed; a click that preceded it may have landed.
         "not_editable" => {
@@ -453,9 +457,10 @@ mod tests {
     fn points_become_window_relative_and_a_wheel_keeps_the_native_workers_amount_rules() {
         let window = AppWindow::from_json(&json!({ "windowId": "hwnd:0x1", "bounds": { "x": 100, "y": 50, "width": 8, "height": 6 } })).unwrap();
         let op = |step: Value| AppInputOp::from_step(&object(step), &window);
-        assert_eq!(op(json!({ "action": "double_click", "x": 130, "y": 90 })), Some(AppInputOp::Click { x: 30.0, y: 40.0, button: "left", clicks: 2 }));
-        assert_eq!(op(json!({ "action": "right_click", "x": 100, "y": 50 })), Some(AppInputOp::Click { x: 0.0, y: 0.0, button: "right", clicks: 1 }));
-        assert_eq!(op(json!({ "action": "click" })), None);
+        // Clicks and pointer moves are the helper's, as `canUseAppOwnedInput` left them.
+        for action in ["click", "double_click", "right_click", "middle_click", "triple_click", "mouse_move"] {
+            assert_eq!(op(json!({ "action": action, "x": 130, "y": 90 })), None, "{action}");
+        }
         assert_eq!(op(json!({ "action": "scroll", "direction": "up", "amount": 500 })), Some(AppInputOp::Wheel { point: None, dx: 0.0, dy: -10_000.0, modifiers: None }));
         assert_eq!(op(json!({ "action": "scroll", "direction": "left", "x": 110, "y": 60 })), Some(AppInputOp::Wheel { point: Some((10.0, 10.0)), dx: -300.0, dy: 0.0, modifiers: None }));
         // No direction: `dy` gives the amount and the sign; the modifiers ride along.
@@ -483,7 +488,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_window_the_desktop_does_not_own_goes_to_the_helper() {
         let desk = Desk::new(Err((-32602, "invalid params")));
-        let error = app_input(&*desk, "t", "hwnd:0xab", AppInputOp::Move { x: 1.0, y: 1.0 }, &CancellationToken::new()).await.expect_err("not owned");
+        let error = app_input(&*desk, "t", "hwnd:0xab", AppInputOp::Wheel { point: None, dx: 0.0, dy: 100.0, modifiers: None }, &CancellationToken::new()).await.expect_err("not owned");
         assert!(falls_back(&error));
         assert!(!not_served(&error));
     }
@@ -518,6 +523,34 @@ mod tests {
         assert!(matches!(&gone, ComputerError::Failed { message, .. } if message.starts_with("computer_window_gone")));
         assert!(!falls_back(&gone));
         assert!(ask(json!({ "delivered": false, "effect": "refused" })).await.is_err());
+    }
+
+    /// `preparatoryClickFailure`: the click's code and words, and whether input may have gone out, are the row's.
+    #[tokio::test(start_paused = true)]
+    async fn an_unconfirmed_preparatory_click_is_a_row_with_the_clicks_code() {
+        let ask = |answer: Value| {
+            let desk = Desk::new(Ok(answer));
+            async move { app_input(&*desk, "t", "hwnd:0xab", AppInputOp::Type { text: "x".into(), point: Some((1.0, 1.0)) }, &CancellationToken::new()).await.expect("a row") }
+        };
+        let refused = ask(json!({ "delivered": false, "effect": "click_unconfirmed", "code": "user_input_active", "text": "the person is using the mouse", "deliveryAccepted": false })).await;
+        assert_eq!(refused["code"], "user_input_active");
+        assert_eq!(refused["text"], "the person is using the mouse");
+        assert_eq!(refused["delivery_accepted"], false);
+        assert_eq!(refused["input_may_have_executed"], false);
+        assert_eq!(refused["action"], "type");
+        let unknown = ask(json!({ "delivered": false, "effect": "click_unconfirmed" })).await;
+        assert_eq!(unknown["code"], "typing_target_unconfirmed");
+        assert_eq!(unknown["text"], "The preparatory click was not confirmed; no text was sent.");
+        assert_eq!(unknown["delivery_accepted"], Value::Null);
+        assert_eq!(unknown["input_may_have_executed"], true);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_delivered_key_row_carries_the_press_count_and_the_renderers_process() {
+        let desk = Desk::new(Ok(json!({ "delivered": true, "effect": "delivered", "presses": 2, "pid": 4242 })));
+        let reply = app_input(&*desk, "t", "hwnd:0xab", AppInputOp::Key { keys: "^A".into() }, &CancellationToken::new()).await.expect("delivered");
+        assert_eq!(reply["text"], "sent 2 key press(es) to app-owned Electron renderer");
+        assert_eq!(reply["pid"], 4242);
     }
 
     #[test]

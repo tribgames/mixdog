@@ -1,24 +1,42 @@
-# s3-06: fill_saved_login served by the core (SavedLoginComputerBackend)
+# s3-06 (+ g25-fu-cu-a): fill_saved_login served by the core (SavedLoginComputerBackend)
 
-[mixdog-core-session/src/session/secret_input.rs] (not a hot file, but not owned by s3-06 either)
-After `pub use computer::HostComputerCommands;` add:
-    pub use computer::SavedLoginComputerBackend;
-    pub use computer::SavedLoginTurns;
+The re-exports in mixdog-core-session secret_input.rs (SavedLoginComputerBackend, SavedLoginTurnClock, SavedLoginTurns,
+SettlingSavedLogins) are in the tree. What is left is the daemon composition, all in
+[mixdog-app-server-daemon/src/compose_flip.rs]. Every name below is real; nothing is a placeholder.
 
-[mixdog-app-server-daemon/src/compose_flip.rs] in the `computer_pool` session closure (the one that builds
-`RedactingComputerBackend` then `GatedComputerBackend`), wrap the gated backend:
-    let gated = GatedComputerBackend::new(redacted, human_only.clone());
-    Arc::new(SavedLoginComputerBackend::new(
-        Arc::new(gated),
-        ThreadId::from(session),
-        <desktop browser host: mixdog_tools::desktop::host::ChannelHostCommands::new(b.host.clone()) (no redaction needed: the vault answer is consumed by the fill)>,
-        Arc::new(HostComputerCommands::new(late_computer_hosts.clone(), human_only.clone())),
-        <ONE Arc<SavedLoginRegistry> = SavedLoginRegistry::new(), created beside `fill`>,
-        <redactor: Arc<FullRedactor { saved: registry.clone(), sessions: fill.clone() }> in place of `fill.clone()` for RedactingComputerBackend too, so saved-login passwords are hidden from every computer reply>,
-        <Arc<dyn SavedLoginTurns>: the number of the session's running agent turn (1-based, Node's turn_id), None when none runs>,
-    ))
-and create the registry/redactor before `computer_pool` (the redactor replaces `fill.clone()` in RedactingComputerBackend::new and in the `fill` handoff env where it hides replies).
+1. Before `let fill = ...SecretFill::new(` (the "ONE secret fill" block) nothing is needed. Right AFTER `let fill = Arc::new(match &browser_timing { ... });`
+   add the one registry, the redactor over it and the turn clock:
 
-[turn settlement] the owner of the agent turn calls `registry.settle(&SavedLoginTurn { session, turn }).await` when a turn settles and `registry.forget(session).await` when a session ends (lifts the password redaction and the pixel guard); no code calls these yet.
+    let saved_logins = mixdog_core_session::session::secret_input::SavedLoginRegistry::new();
+    let saved_login_turns = mixdog_core_session::session::secret_input::SavedLoginTurnClock::new(saved_logins.clone());
+    let redactor: Arc<dyn mixdog_core_session::session::secret_input::Redact> = Arc::new(mixdog_core_session::session::secret_input::FullRedactor { saved: saved_logins.clone(), sessions: fill.clone() });
+
+2. In the `computer_pool` session closure (the one that builds RedactingComputerBackend then GatedComputerBackend): capture
+   `(fill, human_only, redactor, saved_logins, saved_login_turns, late_computer_hosts, host)` where `host = b.host.clone()`, build the
+   redacting backend with `redactor.clone()` in place of `fill.clone()` (so saved-login passwords are hidden from every computer reply),
+   and wrap the gated backend:
+
+    let gated = Arc::new(mixdog_core_session::session::secret_input::GatedComputerBackend::new(redacted, human_only.clone()));
+    Arc::new(mixdog_core_session::session::secret_input::SavedLoginComputerBackend::new(
+        gated,
+        mixdog_core_api::ids::ThreadId::from(session),
+        Arc::new(mixdog_tools::desktop::host::ChannelHostCommands::new(host.clone())),
+        Arc::new(mixdog_core_session::session::secret_input::HostComputerCommands::new(late_computer_hosts.clone(), human_only.clone())),
+        saved_logins.clone(),
+        redactor.clone(),
+        saved_login_turns.clone(),
+    )) as Arc<dyn mixdog_core_api::domain::computer::ComputerBackend>
+
+   (The vault's answer is consumed by the fill and never reaches a model, so the desktop channel needs no redaction.)
+
+3. In the `SessionDeps` literal, the `snapshots:` field (the `match &computer_pool { Some(pool) => Arc::new(SettlingSnapshots::new(..)), None => worktree_snapshots }` block):
+   wrap the whole block's value, so a settled turn and a stopped runtime reach the registry:
+
+    snapshots: Arc::new(mixdog_core_session::session::secret_input::SettlingSavedLogins::new({ <the existing block, unchanged> }, saved_login_turns.clone())),
+
+   This is what lifts the pixel guard and the password redaction (`settle` on `turn_settled`, `forget` on `runtime_stopped`); without it
+   the first password fill would hold captures back for the daemon's life.
+
+[handoff env] where `fill.clone()` is passed as the redactor that hides tool replies of the handoff env, pass `redactor.clone()` instead.
 
 [SERVICE_PENDING] nothing to remove: fill_saved_login is a computer action, not a protocol method; `host/browser/command` saved_login_* already exists.

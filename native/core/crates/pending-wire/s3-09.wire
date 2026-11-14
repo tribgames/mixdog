@@ -14,4 +14,12 @@
   `APP_OWNED.refresh(desktop.as_ref(), cancel)` (or `refresh_with(|| self.ask_desktop(WINDOWS_METHOD, ..))`) before routing a step when no list was read in the call.
 - Contract assumed of the desktop (s3-02 must match): `appInput` params `{sessionThreadId, windowId, op, keys?, text?, x?, y?, button?, clicks?, dx?, dy?, modifiers?}` with points in physical px relative to the window's bounds;
   `keys` is the helper grammar of `normalizeComputerKeySequence` (what `electronKeyPresses` reads); `dx`/`dy` are signed CSS pixels (notches x 100, as `wheelDeltas`), `modifiers` the step's text as `normalizeModifierMask` reads it; `type` may carry `x`,`y` (the point the
-  editable-target probe is run at after the preparatory click the desktop makes itself); answer `{delivered, effect: delivered|not_editable|window_gone|refused, evidence?, cursor?}`; -32602 when the window is not app-owned.
+  editable-target probe is run at after the preparatory click the desktop makes itself); answer
+  `{delivered, effect: delivered|not_editable|click_unconfirmed|window_gone|refused, evidence?, cursor?, presses?, pid?, code?, text?, deliveryAccepted?, inputMayHaveExecuted?}`;
+  `presses` (key steps: how many key presses were sent) and `pid` (the renderer's process) ride a delivered answer; `click_unconfirmed` is the preparatory click of a
+  `type` at a point not being confirmed (`preparatoryClickFailure`): `code` and `text` are the click's own (defaults `typing_target_unconfirmed` and the standard words),
+  `deliveryAccepted: false` with no `inputMayHaveExecuted` means no input went out; -32602 when the window is not app-owned.
+- Only `key`, `type` and `scroll` steps are routed (`canUseAppOwnedInput`); clicks and pointer moves stay on the helper path, so no `click`/`move` op exists.
+- Left to s3-18 (the act wiring, which owns send_step and preflight) and to the desktop's appInput handler: the per-step re-authorization of app-owned input
+  (`authorizeDispatch`: policy window/action check, observe-only check, abort) before each routed step, and the refusal of a key the renderer cannot map
+  (`electronKeyPresses`, `background_unsupported`) in `preflight` before any step runs.
