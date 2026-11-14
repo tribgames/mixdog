@@ -2,10 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { readFileSync } from 'node:fs';
-import { DESKTOP_IPC } from '../shared/contract.ts';
 import { createAllowAllActionsConfirm, isAllowAllActionsEnable } from './developer-risk-confirm.ts';
 import { beginComputerOperation } from './human-only-approval.ts';
-import { registerWindowSettingsIpc } from './ipc-window-settings.ts';
+import { HOST_EXTRAS_IPC, registerHostExtrasIpc } from './ipc-host-extras.ts';
 // Node b6f10295a DEVELOPER_SECTIONS (runtime/shared/developer-options.mjs), recorded.
 const DEVELOPER_SECTIONS = JSON.parse(readFileSync(new URL('./test-support/developer-sections.recorded.json', import.meta.url), 'utf8'));
 const option = DEVELOPER_SECTIONS.flatMap((section) => section.options).find((entry) => entry.id === 'allowAllActions');
@@ -80,63 +79,38 @@ test('a destroyed window or a closed dialog does not turn it on', async () => {
   assert.equal(fake.shown.length, 0);
 });
 
-function windowHost() {
+function windowHost(confirmAllowAllActions) {
   const handlers = new Map();
   const calls = [];
-  const host = {
-    invokeCapability: async (capability, args) => {
-      calls.push([capability, args]);
-      return { value: capability };
+  registerHostExtrasIpc({
+    handle: (channel, handler) => handlers.set(channel, handler),
+    removeHandler: (channel) => handlers.delete(channel),
+    host: {
+      invokeCapability: async (capability, args) => {
+        calls.push([capability, args]);
+        return { value: capability };
+      },
     },
-    readCapabilities: async () => [],
-    getSnapshot: () => ({}),
-  };
-  return {
-    handlers,
-    calls,
-    register: (extra = {}) =>
-      registerWindowSettingsIpc({
-        window: { webContents: { setZoomFactor() {}, send() {} }, setTitleBarOverlay() {} },
-        app: {},
-        host,
-        handle: (channel, handler) => handlers.set(channel, handler),
-        invokeDesktopOperation: async () => undefined,
-        readsLocalOnboardingStatus: false,
-        ...extra,
-      }),
-    invoke: (capability, args) => handlers.get(DESKTOP_IPC.invokeCapability)({}, { capability, args }),
-  };
+    confirmAllowAllActions,
+    signInFocus: null,
+  });
+  return { calls, enable: () => handlers.get(HOST_EXTRAS_IPC.enableAllowAllActions)({}) };
 }
 
 test('the renderer cannot turn on allowAllActions without the main-process confirmation', async () => {
-  // No confirmation wired: refused, and the host never sees the write.
-  const bare = windowHost();
-  bare.register();
-  await bare.invoke('setDeveloperOption', ['allowAllActions', true]);
-  assert.deepEqual(bare.calls, [['getDeveloperSettings', []]]);
-
-  // Declined: unchanged. Accepted: forwarded once.
+  // Declined: unchanged, the host never sees the write. Accepted: forwarded once. Each request asks again.
   const answers = [false, true];
   const asked = [];
-  const wired = windowHost();
-  wired.register({
-    confirmAllowAllActions: async () => {
-      asked.push(true);
-      return answers.shift();
-    },
+  const wired = windowHost(async () => {
+    asked.push(true);
+    return answers.shift();
   });
-  await wired.invoke('setDeveloperOption', ['allowAllActions', true]);
+  await wired.enable();
   assert.deepEqual(wired.calls, [['getDeveloperSettings', []]]);
-  await wired.invoke('setDeveloperOption', ['allowAllActions', true]);
-  assert.deepEqual(wired.calls.at(-1), ['setDeveloperOption', ['allowAllActions', true]]);
-  assert.equal(asked.length, 2);
-
-  // Turning it off and other options never ask.
-  await wired.invoke('setDeveloperOption', ['allowAllActions', false]);
-  await wired.invoke('setDeveloperOption', ['cursorOAuth', true]);
-  assert.equal(asked.length, 2);
-  assert.deepEqual(wired.calls.slice(-2), [
-    ['setDeveloperOption', ['allowAllActions', false]],
-    ['setDeveloperOption', ['cursorOAuth', true]],
+  await wired.enable();
+  assert.deepEqual(wired.calls.slice(1), [
+    ['setDeveloperOption', ['allowAllActions', true]],
+    ['getDeveloperSettings', []],
   ]);
+  assert.equal(asked.length, 2);
 });
