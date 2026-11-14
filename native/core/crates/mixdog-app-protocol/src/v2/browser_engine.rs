@@ -1176,7 +1176,7 @@ pub struct HostBrowserScreenshotResult {
     pub facts: PageFacts,
 }
 
-/// `host/browser/cdp/send`: refused with -32015 for the domains in `CDP_REFUSED_PREFIXES`.
+/// `host/browser/cdp/send`: refused with -32015 for the methods in `BROWSER_ENGINE_CDP_REFUSED`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
@@ -1515,7 +1515,7 @@ pub struct HostBrowserLeaseReleaseParams {
     pub lease_id: String,
 }
 
-/// One CDP event of the allowlist (`ENGINE_EVENT_METHODS`), or a synthetic `Mixdog.*` one.
+/// One CDP event of the allowlist (`BROWSER_ENGINE_EVENT_METHODS`), or a synthetic `Mixdog.*` one.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
@@ -1661,7 +1661,6 @@ pub struct BrowserEngineCapability {
     #[serde(default)]
     pub features: Vec<String>,
 }
-
 
 #[cfg(test)]
 mod tests {

@@ -237,7 +237,7 @@
     (
         Kind::Answer,
         "host/browser/page/stop",
-        &["/title", "/fault", "/pendingDialog/message", "/pendingDialog/defaultPrompt", "/dismissedDialog/message"],
+        &["/facts/title", "/facts/fault", "/facts/pendingDialog/message", "/facts/pendingDialog/defaultPrompt", "/facts/dismissedDialog/message"],
     ),
     (
         Kind::Answer,
@@ -401,11 +401,11 @@
 #      answer host/browser/page/renderCheckpoint /facts/pendingDialog/defaultPrompt
 #      answer host/browser/page/renderCheckpoint /facts/pendingDialog/message
 #      answer host/browser/page/renderCheckpoint /facts/title
-#      answer host/browser/page/stop /dismissedDialog/message
-#      answer host/browser/page/stop /fault
-#      answer host/browser/page/stop /pendingDialog/defaultPrompt
-#      answer host/browser/page/stop /pendingDialog/message
-#      answer host/browser/page/stop /title
+#      answer host/browser/page/stop /facts/dismissedDialog/message
+#      answer host/browser/page/stop /facts/fault
+#      answer host/browser/page/stop /facts/pendingDialog/defaultPrompt
+#      answer host/browser/page/stop /facts/pendingDialog/message
+#      answer host/browser/page/stop /facts/title
 #      answer host/browser/page/sync /facts/dismissedDialog/message
 #      answer host/browser/page/sync /facts/fault
 #      answer host/browser/page/sync /facts/pendingDialog/defaultPrompt
@@ -542,13 +542,13 @@
 #      answer host/browser/page/renderCheckpoint /facts/pageId
 #      answer host/browser/page/renderCheckpoint /facts/pendingDialog/sessionId
 #      answer host/browser/page/renderCheckpoint /facts/pendingFileChooser/receiverKey
-#      answer host/browser/page/stop /childSessions/*/frameId
-#      answer host/browser/page/stop /childSessions/*/sessionId
-#      answer host/browser/page/stop /documentId
-#      answer host/browser/page/stop /openedPopups/*
-#      answer host/browser/page/stop /pageId
-#      answer host/browser/page/stop /pendingDialog/sessionId
-#      answer host/browser/page/stop /pendingFileChooser/receiverKey
+#      answer host/browser/page/stop /facts/childSessions/*/frameId
+#      answer host/browser/page/stop /facts/childSessions/*/sessionId
+#      answer host/browser/page/stop /facts/documentId
+#      answer host/browser/page/stop /facts/openedPopups/*
+#      answer host/browser/page/stop /facts/pageId
+#      answer host/browser/page/stop /facts/pendingDialog/sessionId
+#      answer host/browser/page/stop /facts/pendingFileChooser/receiverKey
 #      answer host/browser/page/sync /facts/childSessions/*/frameId
 #      answer host/browser/page/sync /facts/childSessions/*/sessionId
 #      answer host/browser/page/sync /facts/documentId
@@ -673,9 +673,9 @@
 #      answer host/browser/page/renderCheckpoint /facts/childSessions/*/url
 #      answer host/browser/page/renderCheckpoint /facts/refusedRequests/*/url
 #      answer host/browser/page/renderCheckpoint /facts/url
-#      answer host/browser/page/stop /childSessions/*/url
-#      answer host/browser/page/stop /refusedRequests/*/url
-#      answer host/browser/page/stop /url
+#      answer host/browser/page/stop /facts/childSessions/*/url
+#      answer host/browser/page/stop /facts/refusedRequests/*/url
+#      answer host/browser/page/stop /facts/url
 #      answer host/browser/page/sync /facts/childSessions/*/url
 #      answer host/browser/page/sync /facts/refusedRequests/*/url
 #      answer host/browser/page/sync /facts/url
@@ -773,11 +773,11 @@
 #      answer host/browser/page/renderCheckpoint /facts/pendingDialog/type
 #      answer host/browser/page/renderCheckpoint /facts/pendingFileChooser/mode
 #      answer host/browser/page/renderCheckpoint /facts/refusedRequests/*/reason
-#      answer host/browser/page/stop /actor
-#      answer host/browser/page/stop /dismissedDialog/type
-#      answer host/browser/page/stop /pendingDialog/type
-#      answer host/browser/page/stop /pendingFileChooser/mode
-#      answer host/browser/page/stop /refusedRequests/*/reason
+#      answer host/browser/page/stop /facts/actor
+#      answer host/browser/page/stop /facts/dismissedDialog/type
+#      answer host/browser/page/stop /facts/pendingDialog/type
+#      answer host/browser/page/stop /facts/pendingFileChooser/mode
+#      answer host/browser/page/stop /facts/refusedRequests/*/reason
 #      answer host/browser/page/sync /facts/actor
 #      answer host/browser/page/sync /facts/dismissedDialog/type
 #      answer host/browser/page/sync /facts/pendingDialog/type
