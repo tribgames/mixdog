@@ -17,6 +17,10 @@ import type {
 import { registerComputerInternalWindows } from './computer-internal-windows';
 import { registerComputerLease } from './computer-lease';
 import { registerComputerPointer } from './computer-pointer';
+import { registerComputerCursor } from './computer-cursor';
+import { registerComputerAppInput, type ComputerAppInputDeps } from './computer-app-input';
+import { registerComputerAppWindows } from './computer-app-windows';
+import { registerComputerPixels } from './computer-pixels';
 import { HOST_COMMAND_FAILED, HOST_INVALID_PARAMS, HostRpcError, type HostConnection, objectParams } from './connection';
 
 export const HOST_COMPUTER_CAPTURE = 'host/computer/capture';
@@ -38,7 +42,13 @@ export interface ComputerControl {
 /** The control while Computer Use is on, else null (the bridge Node would not have published). */
 export type ComputerControlSource = () => ComputerControl | null;
 
-export function registerComputerHost(connection: HostConnection, source: ComputerControlSource): void {
+/** The core computer host's handlers, served only when `enabled` (COMPUTER_HOST_V2 until DESKTOP-WIRE-G4). */
+export interface ComputerHostV2 {
+  enabled: boolean;
+  appInput: ComputerAppInputDeps;
+}
+
+export function registerComputerHost(connection: HostConnection, source: ComputerControlSource, v2: ComputerHostV2): void {
   const running = (): ComputerControl => {
     const control = source();
     if (!control) throw new HostRpcError(HOST_COMMAND_FAILED, COMPUTER_UNAVAILABLE);
@@ -64,4 +74,9 @@ export function registerComputerHost(connection: HostConnection, source: Compute
   registerComputerLease(connection);
   registerComputerInternalWindows(connection);
   registerComputerPointer(connection);
+  if (!v2.enabled) return;
+  registerComputerCursor(connection);
+  registerComputerAppWindows(connection);
+  registerComputerAppInput(connection, v2.appInput);
+  registerComputerPixels(connection, { callCore: (method, params) => connection.request(method, params) });
 }

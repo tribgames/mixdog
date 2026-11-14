@@ -13,13 +13,16 @@ import { type BrowserSurfaceSource, registerBrowserSurfaceReport } from './brows
 import { type BrowserTabsControl, createBrowserTabsReporter } from './browser-tabs';
 import { type BrowserViewControl, createBrowserView } from './browser-view';
 import { registerWindowHost, WINDOW_HOST_METHOD, type WindowHostDeps } from '../connections/window-host';
-import { CORE_WINDOWS, HOST_METHOD, type HostConnection } from './connection';
+import { COMPUTER_HOST_V2, CORE_WINDOWS, HOST_METHOD, type HostConnection } from './connection';
 import { type FilesControl, registerFilesHost } from './files';
 import { createHostReports, type HostUpdater } from './lifecycle';
 import { createVisualizeHost, type VisualizeControl } from './visualize';
 import { type NotificationPresenter, registerNotificationHost } from './notification';
 import { registerSystemProxyHost } from './system-proxy';
 import { type ComputerControlSource, registerComputerHost } from './computer';
+import type { ComputerAppInputDeps } from './computer-app-input';
+import { type ComputerCommandHostSource, registerComputerCommand } from './computer-command';
+import { type ComputerPermissionReads, registerComputerPermissions } from './computer-permissions';
 import { registerHumanOnlyHolds } from './human-only';
 import { registerScreenDisplaysHost } from './screen-displays';
 
@@ -51,6 +54,14 @@ export interface DesktopHostOptions {
   resolveProxy: (url: string) => Promise<string>;
   /** The computer host while Computer Use is on, else null. */
   computer: ComputerControlSource;
+  /** Shows the agent's arrow for input `host/computer/appInput` delivered into the desktop's own windows. */
+  computerAppInput: ComputerAppInputDeps;
+  /** The operating-system grants (`host/computer/permissions`): `readComputerPermissions` / `requestComputerPermissions`. */
+  computerPermissions: ComputerPermissionReads;
+  /** The legacy Windows host's bridge answer while Computer Use is on, else null (`host/computer/command`, dual path). */
+  computerCommand: ComputerCommandHostSource;
+  /** Serves the core computer host's handlers; COMPUTER_HOST_V2 (MIXDOG_COMPUTER_HOST_V2=1) when absent, until G4. */
+  computerHostV2?: boolean;
   notifications: NotificationPresenter;
   updater?: HostUpdater;
   /** An install that failed after `host/update/command` was answered: report it (diagnostics). */
@@ -94,7 +105,12 @@ export function createDesktopHost(options: DesktopHostOptions) {
   const visualize = createVisualizeHost(connection, options.visualize, options.onVisualizePublishFailed);
   registerFilesHost(connection, options.files);
   registerSystemProxyHost(connection, options.resolveProxy);
-  registerComputerHost(connection, options.computer);
+  const computerHostV2 = options.computerHostV2 ?? COMPUTER_HOST_V2;
+  registerComputerHost(connection, options.computer, { enabled: computerHostV2, appInput: options.computerAppInput });
+  if (computerHostV2) {
+    registerComputerPermissions(connection, options.computerPermissions);
+    registerComputerCommand(connection, options.computerCommand);
+  }
   // The browser host's own screen-displays path (the screen sources' displays, or "Remote screen is unavailable.").
   registerScreenDisplaysHost(connection, () => ({
     list: () => options.browser().remote('screenDisplays', []) as Promise<RemoteScreenDisplaySummary[]>,

@@ -4,6 +4,8 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { bindPointerPresence } from '../computer/host/pointer-cursor';
+import { computerUseCoordinator } from '../computer/session/coordinator';
 import { createComputerPillSource, type ComputerSectionValue } from '../host/computer-pill';
 import { createDesktopHost, type DesktopHostOptions } from '../host';
 import { createHostConnection } from './host-connection';
@@ -32,7 +34,13 @@ export interface LocalHostRoleOptions extends Omit<DesktopHostOptions, 'connecti
 
 export function createLocalHostRole({ protocol, onClaimFailed, ...options }: LocalHostRoleOptions) {
   const host = createDesktopHost({ ...options, connection: createHostConnection(protocol) });
-  const computerPill = createComputerPillSource();
+  // The presence mirror: the pill and the arrow follow the core's section (the in-process coordinator while the section
+  // names the desktop's own host as the backend); moving the real mouse releases the agent's pointer in the core.
+  const computerPill = createComputerPillSource(Date.now, {
+    legacy: computerUseCoordinator,
+    notifyPointerReleased: (sessionThreadId) => protocol.notify('computer/pointerReleased', { sessionThreadId }),
+  });
+  bindPointerPresence(computerPill);
   protocol.watchSection('computer', (entry) => {
     const value = entry?.value as ComputerSectionValue | null | undefined;
     computerPill.apply(

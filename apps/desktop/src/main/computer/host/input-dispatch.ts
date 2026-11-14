@@ -6,7 +6,7 @@ import { computerUseCoordinator } from '../session/coordinator';
 import type { ComputerCommand, PowerShellResponse } from '../shared/types';
 import type { CommandRouterHost } from './command-router';
 import type { ComputerExecutionPolicy } from './execution-policy';
-import { dispatchElectronText, type DispatchAuthority } from './input-dispatch-electron-text';
+import { dispatchElectronText, type DispatchAuthority, type ElectronTextDispatch } from './input-dispatch-electron-text';
 import { powerShellInputRequest, type InputObservation } from './input-dispatch-request';
 import { dispatchElectronInput } from './input-dispatch-electron-input';
 import { canUseAppOwnedInput } from './input-preflight';
@@ -128,7 +128,16 @@ export function createInputDispatch(host: DispatchHost, policy: ComputerExecutio
     };
     const electronTarget = canUseAppOwnedInput(command) ? electronWindowForNativeId(targetWindowId) : null;
     if (electronTarget && !electronTarget.webContents.isDestroyed()) {
-      const electronInput = { host, command, target, renderer: electronTarget, authorizeDispatch };
+      const electronInput = {
+        host,
+        command,
+        target,
+        renderer: electronTarget,
+        authorizeDispatch,
+        // The agent's arrow on the old path (s3-21 moved the coordinator out of the Electron dispatchers).
+        showCursor: ({ action, ...cursor }: Parameters<NonNullable<ElectronTextDispatch['showCursor']>>[0]) =>
+          computerUseCoordinator.showCursor({ ...cursor, action, effect: action, mode: 'background' }),
+      };
       return command.action === 'type' ? dispatchElectronText(electronInput) : dispatchElectronInput(electronInput);
     }
     const powerShellRequest = {
