@@ -71,17 +71,25 @@ jobs:
         with:
           path: native-out/mixdog-patch
           key: native-glibc228-${{ matrix.arch }}-patch-${{ matrix.image }}-${{ hashFiles('native/mixdog-patch/**', 'apps/desktop/scripts/linux-build-native-old-glibc.sh') }}
+      - name: Cache built mixdog_main_native.node
+        id: cache-main-native
+        uses: actions/cache@v4
+        with:
+          path: native-out/mixdog_main_native.node
+          key: native-glibc228-${{ matrix.arch }}-main-native-${{ matrix.image }}-${{ hashFiles('native/mixdog-main-native/**', 'native/core/crates/mixdog-browser-rules/**', 'native/core/crates/mixdog-js/**', 'apps/desktop/scripts/linux-build-native-old-glibc.sh') }}
       - name: Select the tools that missed their cache
         id: missing
         env:
           HIT_COMPUTER: ${{ steps.cache-computer.outputs.cache-hit }}
           HIT_GRAPH: ${{ steps.cache-graph.outputs.cache-hit }}
           HIT_PATCH: ${{ steps.cache-patch.outputs.cache-hit }}
+          HIT_MAIN_NATIVE: ${{ steps.cache-main-native.outputs.cache-hit }}
         run: |
           missing=()
           [[ "$HIT_COMPUTER" == true ]] || missing+=(computer)
           [[ "$HIT_GRAPH" == true ]] || missing+=(graph)
           [[ "$HIT_PATCH" == true ]] || missing+=(patch)
+          [[ "$HIT_MAIN_NATIVE" == true ]] || missing+=(main-native)
           echo "tools=${missing[*]}" >> "$GITHUB_OUTPUT"
       - name: Build the missing tools concurrently (glibc 2.28)
         if: steps.missing.outputs.tools != ''
@@ -89,11 +97,12 @@ jobs:
           mkdir -p native-out
           docker run --rm -e MIXDOG_NATIVE_TOOLS="${{ steps.missing.outputs.tools }}" -v "$PWD:/w" ${{ matrix.image }} bash /w/apps/desktop/scripts/linux-build-native-old-glibc.sh 2>&1 | tee native-out/build.log
           test "${PIPESTATUS[0]}" -eq 0
-      - name: Require all three tools
+      - name: Require all three tools and the main-process module
         run: |
           for tool in computer graph patch; do
             test -f "native-out/mixdog-$tool"
           done
+          test -f native-out/mixdog_main_native.node
       - uses: actions/upload-artifact@v5
         if: inputs.upload_artifact
         with:

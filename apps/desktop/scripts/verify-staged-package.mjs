@@ -9,6 +9,8 @@
 //
 //   core/mixdogd[.exe] and js-runtime.json     the manifest is core-layout's, the app interpreter exists
 //   native-tools/mixdog-computer.exe          a Windows package holds the Computer Use helper, built for its architecture
+//   native-tools/mixdog_main_native.node      every package holds the main-process Node-API module (the Browser Use
+//                                              URL and redaction rules), built for its architecture
 //   runtime.asar.unpacked/node_modules         package root with everything `mixdogd` reads, the extension host /
 //                                              skill launcher dependency closure, the ONNX Runtime library + siblings
 //   server-cores/                              servers.json lists exactly the server platforms; each bundle.tgz matches
@@ -74,6 +76,11 @@ export function verifyStagedResources({ resources, platform, arch, hostOnly = fa
     if (!existsSync(helper) || !statSync(helper).isFile()) throw new Error(`the Computer Use helper ${helper} is not in the package`);
     if (!nativeBinaryRunsOn(readFileSync(helper), arch)) throw new Error(`the Computer Use helper ${helper} does not run on win32-${arch}`);
   }
+  // The Browser Use rules live only in this module: a package without it, or with one built for another architecture,
+  // must fail here, at the build, and never reach a user.
+  const mainNative = join(resources, 'native-tools', 'mixdog_main_native.node');
+  if (!existsSync(mainNative) || !statSync(mainNative).isFile()) throw new Error(`the main-process native module ${mainNative} is not in the package`);
+  if (!nativeBinaryRunsOn(readFileSync(mainNative), arch)) throw new Error(`the main-process native module ${mainNative} does not run on ${platform}-${arch}`);
   const mixdogRoot = desktopMixdogRoot(resources);
   const archived = existsSync(join(resources, 'runtime.asar'))
     ? new Set(listPackage(join(resources, 'runtime.asar'), { isPack: false }).map((entry) => entry.replaceAll('\\', '/')))

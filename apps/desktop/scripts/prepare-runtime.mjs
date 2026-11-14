@@ -115,6 +115,11 @@ let secureDesktopInputIdentity = null;
 const windowLibraryFileNames = ['mixdog_window.node'];
 let windowLibrarySourceDir = '';
 let windowLibraryInputIdentity = null;
+// The Node-API module of the main process on every platform (native/mixdog-main-native; the Browser Use URL and
+// redaction rules, loaded by src/main/native-module.ts). Shipped with every build; a build without it fails.
+const mainNativeFileName = 'mixdog_main_native.node';
+let mainNativeBinary = '';
+let mainNativeInputIdentity = null;
 const NATIVE_BINARY_NAME = /\.(?:node|dll|dylib|so(?:\.\d+)*)$/i;
 // onnxruntime's Windows binaries import the MSVC C++ runtime, which Windows
 // does not ship; without the VC++ Redistributable the addon fails to load.
@@ -242,6 +247,71 @@ const computerRustTargets = Object.freeze({
 });
 let computerNativeBinary = '';
 let computerInputIdentity = null;
+// The Rust crates the module is built from: its own package and the rule crates it links by path.
+const mainNativeSourceRoots = [
+  join('native', 'mixdog-main-native'),
+  join('native', 'core', 'crates', 'mixdog-browser-rules'),
+  join('native', 'core', 'crates', 'mixdog-js'),
+];
+// What cargo names the library of the crate for the target.
+const mainNativeBuiltFileName = {
+  win32: 'mixdog_main_native.dll',
+  darwin: 'libmixdog_main_native.dylib',
+  linux: 'libmixdog_main_native.so',
+}[embeddingTarget.platform];
+
+/**
+ * The main-process Node-API module (native/mixdog-main-native) for the target, on every platform: built by cargo and
+ * cached by the digest of its sources. On Linux the glibc 2.28 build of linux-build-native-old-glibc.sh is taken from
+ * MIXDOG_NATIVE_TOOLS_OVERRIDE_DIR when that is set, and must be there.
+ */
+async function prepareMainNative() {
+  const sourceHashes = [];
+  for (const root of mainNativeSourceRoots) sourceHashes.push(await sourceTreeHash(join(rootDir, root)));
+  const identity = { schemaVersion: 1, target: embeddingTarget.key, sourceHash: sha256(sourceHashes.join('\n')) };
+  const overrideDir = String(process.env.MIXDOG_NATIVE_TOOLS_OVERRIDE_DIR ?? '').trim();
+  if (overrideDir && embeddingTarget.platform === 'linux') {
+    const override = join(resolve(overrideDir), mainNativeFileName);
+    await access(override).catch(() => {
+      throw new Error(`The main-process native module is required from ${overrideDir} but ${override} does not exist.`);
+    });
+    return { binary: override, identity };
+  }
+  const triple = computerRustTargets[embeddingTarget.key];
+  if (!triple) throw new Error(`No main-process native module target exists for ${embeddingTarget.key}.`);
+  if (process.platform !== embeddingTarget.platform) {
+    throw new Error(
+      `Building the ${embeddingTarget.platform} main-process native module requires a ${embeddingTarget.platform} host.`
+    );
+  }
+  const outputDirectory = join(desktopDir, '.cache', 'main-native', embeddingTarget.key);
+  const output = join(outputDirectory, mainNativeFileName);
+  const cacheMarker = join(outputDirectory, '.mixdog-main-native-cache.json');
+  try {
+    const cached = JSON.parse(await readFile(cacheMarker, 'utf8'));
+    if (cached.sourceHash === identity.sourceHash && cached.target === identity.target) {
+      await access(output);
+      return { binary: output, identity };
+    }
+  } catch (error) {
+    if (error?.code !== 'ENOENT' && !(error instanceof SyntaxError)) throw error;
+  }
+  const crateRoot = join(rootDir, 'native', 'mixdog-main-native');
+  const { stdout } = await execFileAsync('rustc', ['-vV'], { cwd: rootDir });
+  const hostTriple = /^host:\s*(\S+)/m.exec(stdout)?.[1];
+  if (hostTriple !== triple) await execFileAsync('rustup', ['target', 'add', triple], { cwd: rootDir });
+  // The crate's own folder is the working directory: its .cargo/config.toml sets the Windows linker and static CRT.
+  await execFileAsync('cargo', ['build', '--locked', '--release', '--target', triple], {
+    cwd: crateRoot,
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  await mkdir(outputDirectory, { recursive: true });
+  const targetRoot = process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : join(crateRoot, 'target');
+  await cp(join(targetRoot, triple, 'release', mainNativeBuiltFileName), output);
+  await writeFile(cacheMarker, `${JSON.stringify(identity, null, 2)}
+`);
+  return { binary: output, identity };
+}
 
 /**
  * The Computer Use helper (native/mixdog-computer), built from source for the
@@ -523,6 +593,7 @@ async function runtimeInputFingerprint(manifest) {
       secureDesktop: secureDesktopInputIdentity,
       windowLibrary: windowLibraryInputIdentity,
       computer: computerInputIdentity,
+      mainNative: mainNativeInputIdentity,
       packageFiles,
     })
   );
@@ -561,6 +632,7 @@ async function canReusePreparedRuntime(fingerprint, packageManifest) {
         ? windowLibraryFileNames.map((name) => access(join(desktopNativeToolsDir, name)))
         : []),
       ...(computerNativeBinary ? [access(join(desktopNativeToolsDir, computerNativeFileName))] : []),
+      access(join(desktopNativeToolsDir, mainNativeFileName)),
     ]);
     return true;
   } catch (error) {
@@ -628,6 +700,11 @@ async function prepareDesktopNativeTools() {
     await cp(computerNativeBinary, destination);
     await assertTargetArchitecture(destination, 'Computer Use backend');
     if (embeddingTarget.platform !== 'win32') await chmod(destination, 0o755);
+  }
+  {
+    const destination = join(desktopNativeToolsDir, mainNativeFileName);
+    await cp(mainNativeBinary, destination);
+    await assertTargetArchitecture(destination, 'Main-process native module');
   }
   if (browserImportInputIdentity) {
     const sourceDirectory = resolve(browserImportNativeSourceDir);
@@ -1121,6 +1198,9 @@ try {
     : null;
   ({ binary: computerNativeBinary, identity: computerInputIdentity } = await timed('computer-native', () =>
     prepareComputerNative()
+  ));
+  ({ binary: mainNativeBinary, identity: mainNativeInputIdentity } = await timed('main-native', () =>
+    prepareMainNative()
   ));
   const manifest = await timed('package-manifest', () => resolveRuntimePackageManifest());
   const fingerprint = await timed('input-fingerprint', () => runtimeInputFingerprint(manifest));

@@ -70,7 +70,7 @@ pub struct Refusal {
 }
 
 impl Refusal {
-    pub(crate) fn new(reason: impl Into<String>) -> Self {
+    pub fn new(reason: impl Into<String>) -> Self {
         Self { reason: reason.into() }
     }
 }
@@ -129,7 +129,7 @@ pub fn is_loopback_hostname(hostname: &str) -> bool {
 }
 
 /// Node's `net.isIP`: 4, 6 or 0. An IPv6 address may carry a zone (`fe80::1%eth0`).
-pub(crate) fn ip_version(host: &str) -> u8 {
+pub fn ip_version(host: &str) -> u8 {
     if host.parse::<Ipv4Addr>().is_ok() {
         return 4;
     }

@@ -1,0 +1,13 @@
+[package]
+name = "mixdog-browser-rules"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "The Browser Use URL and redaction rules, with nothing but the JavaScript-semantics crate and the url parser (no async runtime, no workspace-hack): shared by mixdog-browser-policy and the desktop Node-API module"
+
+[lints]
+workspace = true
+
+[dependencies]
+mixdog-js = { workspace = true }
+url = { workspace = true }
