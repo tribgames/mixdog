@@ -1,0 +1,30 @@
+# s3-07 core wire (CORE-WIRE-G2)
+
+No new module, workspace member, dependency or registration: the task edits computer_user_control.rs only (computer_lane.rs unchanged).
+
+## mixdog-protocol/src/section.rs (hot file, protocol type edit), together with the one place that fills it
+
+`ComputerUserControlSection` gains the interval the pill and the model read:
+
+    /// The idle-resume interval in seconds, 0 to 60; 0 means only Resume ends a hold (`idleResumeSeconds`).
+    #[serde(default)]
+    pub idle_resume_seconds: u32,
+
+(camelCase on the wire: `idleResumeSeconds`; schema and TS types regenerate.) Then in
+`mixdog-tools/src/desktop/computer_user_control.rs`, `UserControlState::section()`, both constructors of
+`ComputerUserControlSection` take `idle_resume_seconds: self.idle_resume_seconds(),`, and the inline tests that build the struct
+(`ComputerUserControlSection { active, reason, resume_mode }` in computer_user_control.rs) add `idle_resume_seconds: 5` (the default
+interval; `0` for the ones built with `UserControlState::new(Duration::ZERO)`). Also `mixdog-core/src/run_host/native_tools.rs`
+if it builds the struct literally (it only reads `self.control.section()`).
+
+## s3-19 (daemon ComputerUserControlService) consumes
+
+- `UserControlState::pause(&self) -> bool` (already existed; its hold now parks requests up to 15 s, then they answer `paused`)
+- `UserControlState::take_over_environment(&self, reason: &str) -> bool` (`desktop_unavailable` | `display_changed`)
+- `UserControlState::set_idle_resume(&self, seconds: u32)` (the caller rejects values outside 0..60 with
+  `computer_idle_seconds_invalid: use 0 or 1..60`; the core holds anything above 60 at 60) and `idle_resume_seconds(&self) -> u32`
+- Persistence of the interval (`computer-idle-resume.json`) is the daemon's, not the state's.
+
+## SERVICE_PENDING (compose_flip.rs)
+
+Nothing to remove for this task.

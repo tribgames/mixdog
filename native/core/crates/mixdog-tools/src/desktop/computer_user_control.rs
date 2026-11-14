@@ -14,6 +14,8 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::sync::Weak;
+use std::sync::atomic::AtomicU32;
+use std::sync::atomic::Ordering;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
 use std::sync::PoisonError;
@@ -48,6 +50,16 @@ const USER_INPUT_ACTIVE: &str = "user_input_active";
 const SUPERSEDED: &str = "superseded by external input";
 /// The code of the refusal of a held desktop (`ComputerUseCoordinator.assertAutomationAllowed`).
 const TAKEOVER_CODE: &str = "computer_user_takeover";
+/// The reasons an environment change hands the desktop back (`environment-guard.ts`): the screen locked or the machine slept, or the
+/// displays changed under the observations. They never resume by themselves.
+const ENVIRONMENT_REASONS: [&str; 2] = ["desktop_unavailable", "display_changed"];
+/// The code a parked request ends with once the person resumed: it was never dispatched, so it must capture again
+/// (`PausedComputerWork`).
+const RESUME_RECAPTURE_CODE: &str = "computer_resume_recapture_required";
+/// How long a request parks behind the person's pause before it answers `paused` (`MAX_PAUSE_WAIT_MS`).
+const PAUSE_WAIT: Duration = Duration::from_secs(15);
+/// The largest idle-resume interval, in seconds (`configure`: 0 or 1..60).
+const MAX_IDLE_RESUME_SECONDS: u32 = 60;
 /// The reads that stay open while the person holds the desktop (`recovery-reads.ts`).
 const RECOVERY_READS: [&str; 4] = ["list_windows", "list_apps", "list_history", "diagnose"];
 
@@ -96,7 +108,8 @@ struct Inner {
 
 /// Whether the person holds the desktop, shared by one pool's sessions.
 pub struct UserControlState {
-    idle_resume: Duration,
+    /// The idle-resume interval in seconds, runtime-settable (`configureIdleResume`); zero means only Resume.
+    idle_resume: AtomicU32,
     inner: Mutex<Inner>,
     /// Counts the changes, which the waits wake on.
     changes: watch::Sender<u64>,
@@ -192,12 +205,31 @@ impl UserControlState {
     /// (`resume_mode: manual`).
     pub fn new(idle_resume: Duration) -> Self {
         Self {
-            idle_resume,
+            idle_resume: AtomicU32::new(u32::try_from(idle_resume.as_secs()).unwrap_or(u32::MAX).min(MAX_IDLE_RESUME_SECONDS)),
             inner: Mutex::default(),
             changes: watch::channel(0).0,
             listener: Mutex::default(),
             backends: Mutex::default(),
             recovering: tokio::sync::Mutex::new(()),
+        }
+    }
+
+    /// The idle-resume interval (`idleResumeSeconds` of the coordinator's snapshot).
+    fn interval(&self) -> Duration {
+        Duration::from_secs(u64::from(self.idle_resume_seconds()))
+    }
+
+    /// The idle-resume interval in seconds, 0 to 60; zero means only the person's Resume ends a hold.
+    pub fn idle_resume_seconds(&self) -> u32 {
+        self.idle_resume.load(Ordering::SeqCst)
+    }
+
+    /// `configureIdleResume`: sets the interval at run time (a value above 60 is held at 60; the caller rejects it first). The
+    /// holds in place are published again, since their resume mode follows the interval, and the waits re-read it.
+    pub fn set_idle_resume(&self, seconds: u32) {
+        let seconds = seconds.min(MAX_IDLE_RESUME_SECONDS);
+        if self.idle_resume.swap(seconds, Ordering::SeqCst) != seconds {
+            self.changed();
         }
     }
 
@@ -288,12 +320,12 @@ impl UserControlState {
     }
 
     fn mode(&self, idle_resumable: bool) -> ComputerResumeMode {
-        if idle_resumable && !self.idle_resume.is_zero() { ComputerResumeMode::Idle } else { ComputerResumeMode::Manual }
+        if idle_resumable && !self.interval().is_zero() { ComputerResumeMode::Idle } else { ComputerResumeMode::Manual }
     }
 
     /// `manualResume`: with no idle interval only the person's Resume ends a yield.
     fn manual(&self) -> bool {
-        self.idle_resume.is_zero()
+        self.interval().is_zero()
     }
 
     /// Wakes the waits.
@@ -316,13 +348,13 @@ impl UserControlState {
     }
 
     /// The session's execution ended (`forgetSession`): its yield goes with it, and a Stop is done once no session is left
-    /// (`clearTakeoverReasonWhenIdle`). The pool publishes the section along with its own presence.
+    /// (`clearTakeoverReasonWhenIdle`), as is an environment takeover (`releaseEndedPause`). The pool publishes the section along with its own presence.
     pub fn session_ended(&self, session: &str) {
         {
             let mut inner = locked(&self.inner);
             inner.open.remove(session);
             inner.yielded.remove(session);
-            if inner.open.is_empty() && inner.takeover.as_ref().is_some_and(|takeover| takeover.reason == USER_STOP) {
+            if inner.open.is_empty() && inner.takeover.as_ref().is_some_and(|takeover| takeover.reason == USER_STOP || ENVIRONMENT_REASONS.contains(&takeover.reason.as_str())) {
                 inner.takeover = None;
             }
         }
@@ -368,6 +400,14 @@ impl UserControlState {
     /// the sessions' executions until Resume. False when no session is using the computer.
     pub fn pause(&self) -> bool {
         self.take_over(USER_PAUSE, false)
+    }
+
+    /// `bindComputerEnvironmentGuard`: the screen locked, the machine slept (`desktop_unavailable`) or a display changed
+    /// (`display_changed`), which invalidates what the sessions observed. Every session's input is refused like a Stop's, but
+    /// the desktop never resumes by itself (only Resume ends it) and no wait is cancelled. False for another reason, or when no
+    /// session is using the computer.
+    pub fn take_over_environment(&self, reason: &str) -> bool {
+        ENVIRONMENT_REASONS.contains(&reason) && self.take_over(reason, false)
     }
 
     /// The pill's Resume (`resumeAfterUserTakeover`, `resumeYielded`): ends a takeover, else the yield of `session`, or of every
@@ -416,7 +456,7 @@ impl UserControlState {
     /// Whether `session`'s hold ends by itself once the desktop has been idle (`isIdleResumable`).
     fn idle_resumable(&self, session: &str) -> bool {
         let inner = locked(&self.inner);
-        !self.idle_resume.is_zero() && inner.takeover.as_ref().map_or_else(|| inner.yielded.contains(session), |takeover| takeover.idle_resumable)
+        !self.interval().is_zero() && inner.takeover.as_ref().map_or_else(|| inner.yielded.contains(session), |takeover| takeover.idle_resumable)
     }
 
     /// The idle-resume of the hold measured in `round`: ends a takeover, else every yield (`resume`, `resumeYielded`). Nothing
@@ -489,11 +529,78 @@ impl UserControlState {
         }
         match blocked {
             None => Ok(None),
-            Some(Block::Takeover) => {
-                Err(ComputerError::Failed { code: TAKEOVER_CODE.into(), message: format!("{TAKEOVER_CODE}: Computer Use is paused while the user has control") })
-            }
+            Some(Block::Takeover) if self.paused_by_user() => self.park(backend, command, cancel).await.map(Some),
+            Some(Block::Takeover) => Err(takeover_refusal()),
             Some(Block::Yielded) => Ok(Some(reply(yielded_payload(refusal_payload(action, text(command, "window_id"), false), self.manual())))),
         }
+    }
+
+    /// The person's own pause holds the desktop (`pausedForUserInput`): a request waits it out instead of being refused.
+    fn paused_by_user(&self) -> bool {
+        locked(&self.inner).takeover.as_ref().is_some_and(|takeover| takeover.reason == USER_PAUSE)
+    }
+
+    /// `waitUntilRunnable` + `attemptUntilSettled`: a request meeting the person's pause parks, never dispatched, until Resume
+    /// (it then answers with the pending-work reply, since the desktop changed hands) or until `PAUSE_WAIT` passes (it then
+    /// answers `paused` and will not dispatch later). A hold that becomes any other takeover refuses it; a cancelled turn ends it.
+    async fn park(&self, backend: &ProcessComputerBackend, command: &Map<String, Value>, cancel: &CancellationToken) -> Result<Vec<ToolPart>, ComputerError> {
+        let mut changes = self.changes.subscribe();
+        let deadline = Instant::now() + PAUSE_WAIT;
+        loop {
+            let held = locked(&self.inner).takeover.as_ref().map(|takeover| takeover.reason.clone());
+            match held {
+                None => break,
+                Some(reason) if reason != USER_PAUSE => return Err(takeover_refusal()),
+                Some(_) => {}
+            }
+            let now = Instant::now();
+            if now >= deadline {
+                return Ok(reply(paused_work_reply(command, USER_PAUSE)));
+            }
+            tokio::select! {
+                () = cancel.cancelled() => return Err(ComputerError::Cancelled),
+                _ = changes.changed() => {}
+                () = sleep(deadline - now) => {}
+            }
+        }
+        self.pending_work(backend, command, cancel).await
+    }
+
+    /// `recaptureRequiredReply` + `pendingWorkReply`: the fresh look at the request's window, with what the request still has to do.
+    async fn pending_work(&self, backend: &ProcessComputerBackend, command: &Map<String, Value>, cancel: &CancellationToken) -> Result<Vec<ToolPart>, ComputerError> {
+        let window = text(command, "window_id");
+        let mut images = Vec::new();
+        let observation = if window.is_empty() {
+            failed_observation("exact target window is unavailable for recapture")
+        } else {
+            let mut capture = Map::new();
+            capture.insert("action".into(), json!("capture"));
+            capture.insert("window_id".into(), json!(window));
+            match backend.capture(capture, "", cancel).await {
+                Ok(parts) => {
+                    let mut parts = parts.into_iter();
+                    match parts.next() {
+                        Some(ToolPart::Text(body)) => match serde_json::from_str::<Value>(&body) {
+                            Ok(Value::Object(observation)) => {
+                                images.extend(parts);
+                                observation
+                            }
+                            _ => failed_observation("the recapture reply was not readable"),
+                        },
+                        _ => failed_observation("the recapture reply was not readable"),
+                    }
+                }
+                Err(ComputerError::Cancelled) => return Err(ComputerError::Cancelled),
+                Err(ComputerError::Failed { message, .. }) => failed_observation(&message),
+                Err(other) => failed_observation(&format!("{other:?}")),
+            }
+        };
+        let (payload, fresh) = pending_work_reply(command, observation);
+        let mut parts = reply(payload);
+        if fresh {
+            parts.extend(images);
+        }
+        Ok(parts)
     }
 
     /// What a command's result means for the person's hold (`failedAttempt`, `runAttempt`): the person's input interrupting a
@@ -531,11 +638,11 @@ impl UserControlState {
             }
         };
         let first = observe().await?;
-        if first.desktop_locked || first.held || first.idle < self.idle_resume {
+        if first.desktop_locked || first.held || first.idle < self.interval() {
             return Ok(false);
         }
         let last = observe().await?;
-        Ok(!last.desktop_locked && !last.held && first.same(&last) && last.idle >= self.idle_resume)
+        Ok(!last.desktop_locked && !last.held && first.same(&last) && last.idle >= self.interval())
     }
 
     /// Resumes the hold when the desktop has been quiet. True when it resumed.
@@ -639,6 +746,110 @@ impl Drop for Waiting<'_> {
     fn drop(&mut self) {
         locked(&self.control.inner).waiting.remove(&self.session);
     }
+}
+
+/// The refusal of a held desktop (`assertAutomationAllowed`).
+fn takeover_refusal() -> ComputerError {
+    ComputerError::Failed { code: TAKEOVER_CODE.into(), message: format!("{TAKEOVER_CODE}: Computer Use is paused while the user has control") }
+}
+
+/// The observation of a recapture that could not be taken (`{ ok: false, action: 'capture', error }`).
+fn failed_observation(error: &str) -> Map<String, Value> {
+    let mut observation = Map::new();
+    observation.insert("ok".into(), json!(false));
+    observation.insert("action".into(), json!("capture"));
+    observation.insert("error".into(), json!(error));
+    observation
+}
+
+/// `workProgress` of a request that was parked before it dispatched anything: no step ran, none is uncertain.
+fn work_progress(command: &Map<String, Value>) -> Map<String, Value> {
+    let single = [Value::Object(command.clone())];
+    let steps: &[Value] = match command.get("steps") {
+        Some(Value::Array(steps)) => steps,
+        _ => &single,
+    };
+    let listed: Vec<Value> = steps
+        .iter()
+        .enumerate()
+        .map(|(index, step)| {
+            let mut row = Map::new();
+            row.insert("index".into(), json!(index + 1));
+            if let Some(action) = step.get("action") {
+                row.insert("action".into(), action.clone());
+            }
+            row.insert("status".into(), json!("pending"));
+            Value::Object(row)
+        })
+        .collect();
+    let mut progress = Map::new();
+    progress.insert("completed".into(), json!(steps.is_empty()));
+    progress.insert("completed_steps".into(), json!(0));
+    progress.insert("total_steps".into(), json!(steps.len()));
+    progress.insert("input_replayed".into(), json!(false));
+    progress.insert("steps".into(), Value::Array(listed));
+    progress.insert("pending_work".into(), json!({"completed_steps": 0, "pending_steps": (1..=steps.len()).collect::<Vec<_>>()}));
+    progress
+}
+
+/// `pausedWorkReply`: ends a request whose pause budget ran out, without ending the person's pause. It will not dispatch later.
+fn paused_work_reply(command: &Map<String, Value>, reason: &str) -> Map<String, Value> {
+    let mut payload = Map::new();
+    payload.insert("ok".into(), json!(true));
+    payload.insert("action".into(), json!(text(command, "action")));
+    payload.insert("status".into(), json!("paused"));
+    payload.insert("code".into(), json!("computer_user_intervention_pending"));
+    payload.extend(work_progress(command));
+    payload.insert("completed".into(), json!(false));
+    payload.insert("reason".into(), json!(reason));
+    payload.insert("fresh_capture_required".into(), json!(true));
+    payload.insert("verdict".into(), json!({"decision": "wait_for_user", "recommended": "wait_for_user"}));
+    payload.insert(
+        "recovery".into(),
+        json!({
+            "next": "wait_for_user",
+            "guidance": "User control is still active. This request stopped waiting and will not dispatch later. The configured idle/manual resume route remains available. Wait for confirmed resume, capture fresh state, and continue only the remaining intent. Completed or uncertain input must never be resent blindly.",
+        }),
+    );
+    payload
+}
+
+/// `buildRecaptureRequiredPayload` + `pendingWorkReply`: the reply of a request that waited for the person's pause to end, with
+/// whether the observation it carries is fresh. A fresh observation is a successful capture of a window; any other one is cut to
+/// the fields that say why it failed (`failedRecaptureObservation`).
+fn pending_work_reply(command: &Map<String, Value>, observation: Map<String, Value>) -> (Map<String, Value>, bool) {
+    const FAILED_FIELDS: [&str; 11] = [
+        "ok",
+        "action",
+        "code",
+        "error",
+        "window_id",
+        "requested_window_id",
+        "capture_target_reason",
+        "pixel_status",
+        "pixel_unavailable",
+        "accessibility_status",
+        "accessibility_error",
+    ];
+    let named = |key: &str| observation.get(key).and_then(Value::as_str).is_some_and(|id| !id.is_empty());
+    let fresh = observation.get("ok") == Some(&Value::Bool(true)) && observation.get("action") == Some(&json!("capture")) && (named("requested_window_id") || named("window_id"));
+    let observation: Map<String, Value> = if fresh { observation } else { observation.into_iter().filter(|(field, _)| FAILED_FIELDS.contains(&field.as_str())).collect() };
+    let mut payload = Map::new();
+    payload.insert("ok".into(), json!(fresh));
+    payload.insert("action".into(), json!(text(command, "action")));
+    payload.insert("code".into(), json!(RESUME_RECAPTURE_CODE));
+    payload.insert("verdict".into(), json!({"decision": if fresh { "verify_fresh_state" } else { "escalate" }, "recommended": if fresh { "continue_pending_work" } else { "recapture" }}));
+    payload.insert(
+        "recovery".into(),
+        json!({
+            "next": if fresh { "continue_from_observation" } else { "capture" },
+            "guidance": "The request waited for user control to end. Keep the task active. Use the fresh observation to check the target, focus and remaining intent, then continue pending steps. Completed steps must not be replayed. An uncertain step may already have dispatched input: resolve its effect before deciding what remains. Never resend it blindly.",
+        }),
+    );
+    payload.insert("observation".into(), Value::Object(observation));
+    payload.insert("status".into(), json!("resumed"));
+    payload.extend(work_progress(command));
+    (payload, fresh)
 }
 
 /// A reply object as a result (`{ text: JSON.stringify(payload) }`).
@@ -1086,5 +1297,177 @@ mod tests {
         let error = a.run(focus_window, CancellationToken::new()).await.unwrap_err();
         assert!(matches!(error, ComputerError::Failed { ref code, .. } if code == "computer_user_takeover"), "{error:?}");
         assert!(manager.lines().iter().all(|line| line["action"] != "focus_window"), "{:?}", manager.lines());
+    }
+
+    /// A request that meets the person's pause parks without dispatching and, once they press Resume, answers with the pending-work
+    /// reply: it asks for a fresh capture and replays nothing.
+    #[tokio::test(start_paused = true)]
+    async fn a_parked_request_answers_with_the_pending_reply_after_resume() {
+        let manager = quiet_helper();
+        let control = Arc::new(UserControlState::new(Duration::ZERO));
+        let a = Arc::new(session(&manager, &control, "a"));
+        assert!(control.pause());
+        let parked = {
+            let (control, a) = (control.clone(), a.clone());
+            tokio::spawn(async move { control.admit(&a, &click_in_background(), &CancellationToken::new()).await })
+        };
+        sleep(Duration::from_secs(5)).await;
+        assert!(!parked.is_finished(), "the request waits while the pause lasts");
+        assert!(control.resume(None));
+        let reply = parked.await.unwrap().unwrap().expect("the parked request is answered, not run");
+        let payload = payload_of(&reply);
+        assert_eq!(payload["code"], "computer_resume_recapture_required");
+        assert_eq!(payload["status"], "resumed");
+        assert_eq!(payload["ok"], false, "no window to capture again");
+        assert_eq!(payload["input_replayed"], false);
+        assert_eq!(payload["observation"], json!({"ok": false, "action": "capture", "error": "exact target window is unavailable for recapture"}));
+        assert_eq!(payload["pending_work"], json!({"completed_steps": 0, "pending_steps": [1]}));
+        assert_eq!(payload["steps"], json!([{"index": 1, "action": "click", "status": "pending"}]));
+        assert_eq!(payload["verdict"], json!({"decision": "escalate", "recommended": "recapture"}));
+        assert_eq!(payload["recovery"]["next"], "capture");
+        assert!(manager.lines().is_empty(), "nothing reached the helper: {:?}", manager.lines());
+    }
+
+    /// A fresh capture of the window makes the reply continue from it; a failed one is cut to the fields that say why.
+    #[test]
+    fn the_pending_reply_follows_the_observation() {
+        let command = object(json!({"action": "type", "window_id": "hwnd:0x2"}));
+        let (fresh, is_fresh) = pending_work_reply(&command, object(json!({"ok": true, "action": "capture", "window_id": "hwnd:0x2", "elements": [1]})));
+        assert!(is_fresh);
+        assert_eq!(fresh["ok"], true);
+        assert_eq!(fresh["verdict"], json!({"decision": "verify_fresh_state", "recommended": "continue_pending_work"}));
+        assert_eq!(fresh["recovery"]["next"], "continue_from_observation");
+        assert_eq!(fresh["observation"]["elements"], json!([1]));
+        let (failed, is_fresh) = pending_work_reply(&command, object(json!({"ok": false, "action": "capture", "error": "gone", "elements": [1]})));
+        assert!(!is_fresh);
+        assert_eq!(failed["observation"], json!({"ok": false, "action": "capture", "error": "gone"}));
+        assert_eq!(failed["status"], "resumed");
+        let (unnamed, is_fresh) = pending_work_reply(&command, object(json!({"ok": true, "action": "capture"})));
+        assert!(!is_fresh, "a capture of no window is not fresh");
+        assert_eq!(unnamed["ok"], false);
+    }
+
+    /// The pause budget runs out: the request answers `paused` with every step pending, and the person's pause stays.
+    #[tokio::test(start_paused = true)]
+    async fn a_request_parked_past_the_budget_answers_paused() {
+        let manager = quiet_helper();
+        let control = Arc::new(UserControlState::new(Duration::ZERO));
+        let a = session(&manager, &control, "a");
+        assert!(control.pause());
+        let started = Instant::now();
+        let sequence = object(json!({"action": "sequence", "steps": [{"action": "key", "text": "a"}, {"action": "key", "text": "b"}]}));
+        let reply = control.admit(&a, &sequence, &CancellationToken::new()).await.unwrap().expect("a paused reply");
+        assert_eq!(started.elapsed(), PAUSE_WAIT);
+        let payload = payload_of(&reply);
+        assert_eq!(payload["status"], "paused");
+        assert_eq!(payload["code"], "computer_user_intervention_pending");
+        assert_eq!(payload["completed"], false);
+        assert_eq!(payload["reason"], "user_pause");
+        assert_eq!(payload["total_steps"], 2);
+        assert_eq!(payload["pending_work"], json!({"completed_steps": 0, "pending_steps": [1, 2]}));
+        assert_eq!(payload["fresh_capture_required"], true);
+        assert_eq!(payload["verdict"], json!({"decision": "wait_for_user", "recommended": "wait_for_user"}));
+        assert!(control.section().is_some_and(|section| section.reason == "user_pause"), "the pause itself goes on");
+    }
+
+    /// A cancelled turn ends its parked request, and a Stop that replaces the pause refuses it.
+    #[tokio::test(start_paused = true)]
+    async fn a_parked_request_ends_with_its_turn_or_a_stop() {
+        let manager = quiet_helper();
+        let control = Arc::new(UserControlState::new(Duration::ZERO));
+        let (a, b) = (Arc::new(session(&manager, &control, "a")), Arc::new(session(&manager, &control, "b")));
+        assert!(control.pause());
+        let turn = CancellationToken::new();
+        let cancelled = {
+            let (control, a, turn) = (control.clone(), a.clone(), turn.clone());
+            tokio::spawn(async move { control.admit(&a, &click_in_background(), &turn).await })
+        };
+        let stopped = {
+            let (control, b) = (control.clone(), b.clone());
+            tokio::spawn(async move { control.admit(&b, &click_in_background(), &CancellationToken::new()).await })
+        };
+        sleep(Duration::from_secs(1)).await;
+        turn.cancel();
+        assert_eq!(cancelled.await.unwrap(), Err(ComputerError::Cancelled));
+        assert!(control.stop());
+        assert_eq!(stopped.await.unwrap(), Err(takeover_refusal()));
+    }
+
+    /// Only a person's pause parks: another takeover still refuses at once.
+    #[tokio::test(start_paused = true)]
+    async fn only_the_pause_parks() {
+        let manager = quiet_helper();
+        let control = Arc::new(UserControlState::new(Duration::ZERO));
+        let a = session(&manager, &control, "a");
+        assert!(control.stop());
+        let started = Instant::now();
+        assert_eq!(control.admit(&a, &click_in_background(), &CancellationToken::new()).await, Err(takeover_refusal()));
+        assert_eq!(started.elapsed(), Duration::ZERO);
+    }
+
+    /// An environment change refuses every session, never resumes by itself even on an idle desktop, ends with the last session
+    /// and takes only its own reasons.
+    #[tokio::test(start_paused = true)]
+    async fn an_environment_takeover_refuses_every_session_until_resume() {
+        let manager = Scripted::new(|request| match request["action"].as_str() {
+            Some("input_idle_state") => idle_reading(60_000),
+            _ => Ok(json!({"text": "ok"})),
+        });
+        let control = Arc::new(UserControlState::default());
+        assert!(!control.take_over_environment("display_changed"), "no session is using the computer");
+        let (a, b) = (session(&manager, &control, "a"), session(&manager, &control, "b"));
+        let cancel = CancellationToken::new();
+        assert!(!control.take_over_environment("user_stop"), "not an environment reason");
+        assert!(control.take_over_environment("display_changed"));
+        assert_eq!(control.section(), Some(ComputerUserControlSection { active: true, reason: "display_changed".into(), resume_mode: ComputerResumeMode::Manual }));
+        for backend in [&a, &b] {
+            assert_eq!(control.admit(backend, &click_in_background(), &cancel).await, Err(takeover_refusal()));
+        }
+        let waited = payload_of(&control.wait_for_user(&a, &wait_for_user(json!(10_000)), &cancel).await.unwrap());
+        assert_eq!(waited["status"], "timeout", "an idle desktop does not end it, and the wait is not cancelled");
+        assert_eq!(waited["reason"], "display_changed");
+        assert!(control.resume(None));
+        assert!(control.admit(&a, &click_in_background(), &cancel).await.unwrap().is_none());
+        assert!(control.take_over_environment("desktop_unavailable"));
+        control.session_ended("a");
+        assert!(control.section().is_some());
+        control.session_ended("b");
+        assert_eq!(control.section(), None, "nothing is left to protect");
+    }
+
+    /// The interval is settable at run time: a yield's resume mode follows it, the listener hears the change, and a wait
+    /// resumes after the new interval of quiet.
+    #[tokio::test(start_paused = true)]
+    async fn the_idle_resume_interval_is_settable() {
+        let started = Instant::now();
+        let manager = Scripted::new(move |request| match request["action"].as_str() {
+            Some("input_idle_state") => idle_reading(u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX)),
+            _ => Ok(json!({"text": "ok"})),
+        });
+        let control = Arc::new(UserControlState::default());
+        assert_eq!(control.idle_resume_seconds(), 5);
+        let heard = Arc::new(Mutex::new(0));
+        let log = heard.clone();
+        control.on_change(Arc::new(move || *locked(&log) += 1));
+        let a = session(&manager, &control, "a");
+        control.settle(&a, &focus(), interrupted()).await.unwrap();
+        assert_eq!(*locked(&heard), 1);
+        control.set_idle_resume(20);
+        assert_eq!(control.idle_resume_seconds(), 20);
+        assert_eq!(*locked(&heard), 2, "the section is published again");
+        control.set_idle_resume(20);
+        assert_eq!(*locked(&heard), 2, "an unchanged interval publishes nothing");
+        let waited = payload_of(&control.wait_for_user(&a, &wait_for_user(json!(60_000)), &CancellationToken::new()).await.unwrap());
+        assert_eq!(waited["status"], "resumed");
+        let elapsed = started.elapsed();
+        assert!(elapsed >= Duration::from_secs(20) && elapsed <= Duration::from_secs(21), "{elapsed:?}");
+
+        control.settle(&a, &focus(), interrupted()).await.unwrap();
+        control.set_idle_resume(0);
+        assert_eq!(control.section().map(|section| section.resume_mode), Some(ComputerResumeMode::Manual));
+        let refused = control.admit(&a, &focus(), &CancellationToken::new()).await.unwrap().expect("a manual yield is not resumed by idleness");
+        assert_eq!(payload_of(&refused)["resume_mode"], "manual");
+        control.set_idle_resume(90);
+        assert_eq!(control.idle_resume_seconds(), 60, "held at the largest interval");
     }
 }
