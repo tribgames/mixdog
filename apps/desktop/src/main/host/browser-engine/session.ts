@@ -299,7 +299,8 @@ export function registerSession(connection: HostConnection, ctx: EngineContext, 
 
     if (op === 'get') {
       const found = new Map<string, Electron.Cookie>();
-      for (const url of urls) {
+      // A page with no URL yet reads the whole partition, as the old command did.
+      for (const url of urls.length ? urls : ['']) {
         const cookies = await partitionSession.cookies.get({
           ...(url ? { url } : {}),
           ...(name ? { name } : {}),

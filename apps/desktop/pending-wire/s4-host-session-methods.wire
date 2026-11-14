@@ -38,6 +38,9 @@ SERVICE_PENDING is not touched (these are host methods the core calls, not core 
   Take these three from the table above (`intercept.interceptFetchPatterns`, `intercept.matchInterceptRule`,
   `intercept.hasInterceptRules`) instead of createBrowserIntercept(): the `intercept` method edits that table, so the
   router must read the same one.
+  Until s4-delete-ts-engine removes createBrowserIntercept, the old `intercept` command (host-foundation.ts) still
+  edits its own table: the router then reads both (patterns = the old table's + this table's, match = this table
+  first, then the old one; hasInterceptRules = either), or the old command path's rules stop taking effect.
 
 ## For s4-delete-ts-engine (not done here: those files belong to it)
 
