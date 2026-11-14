@@ -1,5 +1,5 @@
 // Records the Node golden for the Rust tool result projections (mixdog-view-model: results::{summary, status, text,
-// classification, read_rows, aggregate_detail, git_media, task_notification}). Every exported function of the Node modules runs
+// classification, read_rows, aggregate_detail, git_media}). Every exported function of the Node modules runs
 // over a corpus of real-shaped results (shell output with ANSI, file reads with line numbers, edit and patch diffs, search
 // hits, web results, MCP content arrays, agent results and task envelopes, errors, very large outputs, empty results) plus the
 // result texts of the row-bearing fixtures of native/core fixtures; tests/results_twin.rs replays the file in Rust.
