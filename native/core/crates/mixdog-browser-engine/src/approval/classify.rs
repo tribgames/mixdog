@@ -304,7 +304,7 @@ mod tests {
     use super::*;
 
     fn known(name: &str) -> bool {
-        ["click", "fill", "press", "upload", "sequence", "navigate", "snapshot", "type"].contains(&name)
+        ["click", "fill", "press", "upload", "sequence", "navigate", "snapshot", "type", "read", "hover", "evaluate"].contains(&name)
     }
 
     fn policy() -> ActionPolicy {
@@ -458,6 +458,69 @@ mod tests {
         assert_eq!(ask.prompt.receiver_origin, "https://up.test:8443");
         let unconfirmed = classify(&step, &command, TargetFacts::default());
         assert_eq!(unconfirmed.prompt.receiver_origin, "");
+    }
+
+    /// The step of a corpus command as the policy reads it.
+    fn corpus_step(command: &serde_json::Value) -> StepFacts {
+        let text = |key: &str| command.get(key).and_then(serde_json::Value::as_str).unwrap_or_default().to_owned();
+        StepFacts {
+            action: text("action"),
+            submit: command.get("submit").and_then(serde_json::Value::as_bool) == Some(true),
+            key: text("key"),
+            target_name: command.pointer("/target/name").and_then(serde_json::Value::as_str).unwrap_or_default().to_owned(),
+            describe: String::new(),
+        }
+    }
+
+    /// The shared classification corpus (`approval-classification.json`, recorded from `action-approval.ts` and replayed by its
+    /// test): the same commands ask as the same kinds, nothing that is not asked there starts asking, and every refusal stays.
+    #[test]
+    fn the_shared_corpus_classifies_every_command_as_the_typescript_approval_does() {
+        let corpus: serde_json::Value = serde_json::from_str(include_str!("../../../../fixtures/browser-parity/approval-classification.json")).expect("corpus");
+        let cases = corpus["cases"].as_array().expect("cases");
+        assert!(cases.len() >= 40);
+        for case in cases {
+            let name = case["name"].as_str().expect("name");
+            let text = |key: &str| case["policy"].get(key).and_then(serde_json::Value::as_str).map(str::to_owned);
+            let confirm_submit = case["policy"].get("confirmSubmit").and_then(serde_json::Value::as_bool).unwrap_or(true);
+            let policy = ActionPolicy::new(&text("confirmActions").unwrap_or_default(), &text("denyActions").unwrap_or_default(), confirm_submit, known);
+            let command = ApprovalCommand {
+                step: corpus_step(&case["command"]),
+                steps: case["command"]["steps"].as_array().map(|steps| steps.iter().map(corpus_step).collect()).unwrap_or_default(),
+                paths: if case["command"]["upload"] == true { vec!["C:/a.txt".into()] } else { Vec::new() },
+                ..Default::default()
+            };
+            let expect = &case["expect"];
+            let planned = plan(&policy, &command);
+            match expect["outcome"].as_str().expect("outcome") {
+                "none" => assert_eq!(planned, Ok(None), "{name}"),
+                "refused" => {
+                    let wanted = if expect["error"] == "denied" { ApprovalError::DeniedByPolicy } else { ApprovalError::InvalidPolicy };
+                    assert_eq!(planned, Err(wanted), "{name}");
+                }
+                "ask" => {
+                    let planned = planned.expect(name).expect(name);
+                    let facts = TargetFacts { payment: planned.probes_payment() && case["paymentEvidence"] == true, ..Default::default() };
+                    let ask = classify(&planned, &command, facts);
+                    let kinds: Vec<&str> = ask
+                        .prompt
+                        .kinds
+                        .iter()
+                        .map(|kind| match kind {
+                            Remember::Submit => "submit",
+                            Remember::Post => "post",
+                            Remember::Upload => "upload",
+                            Remember::Confirm => "confirm",
+                        })
+                        .collect();
+                    let wanted: Vec<&str> = expect["kinds"].as_array().expect("kinds").iter().filter_map(serde_json::Value::as_str).collect();
+                    assert_eq!(kinds, wanted, "{name}");
+                    assert_eq!(ask.prompt.payment, expect["payment"] == true, "{name}");
+                    assert_eq!(ask.kind == BrowserApprovalKind::Payment, ask.prompt.payment, "{name}");
+                }
+                other => unreachable!("{name}: outcome {other}"),
+            }
+        }
     }
 
     #[test]

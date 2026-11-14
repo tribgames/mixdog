@@ -105,8 +105,9 @@ test('the sink forwards only the allowlisted events and reports the lane state',
   assert.equal(sink.active(), false);
   engine = true;
   assert.equal(sink.carries('Log.entryAdded'), true);
-  assert.equal(sink.carries('Network.webSocketFrameSent'), false);
-  sink.forward({}, 'Network.webSocketFrameSent', {}, undefined);
+  assert.equal(sink.carries('Network.webSocketFrameSent'), true);
+  assert.equal(sink.carries('Page.frameNavigated'), false);
+  sink.forward({}, 'Page.frameNavigated', {}, undefined);
   sink.forward({}, 'Log.entryAdded', { entry: {} }, 's1');
   events.flush('p1');
   assert.equal(sent[0].params.events.length, 1);
