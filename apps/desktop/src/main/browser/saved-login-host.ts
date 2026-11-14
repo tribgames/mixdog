@@ -1,3 +1,5 @@
+import { type FillEngine, fillGuard, pageOfDocument } from './credential-autofill';
+
 /**
  * Saved-login values for the core (Computer Use `fill_saved_login`). The core runs the fill and needs the
  * saved value for that one write, so the desktop hands it over once per fill, for an admitted fill only
@@ -14,6 +16,11 @@
  *   check apply. Answers the worker's response as it came (`{ok, error?, result?}`); for an admitted fill only.
  * - `saved_login_release {turn_id}`: the fill's turn settled; its admission, and those of older turns of the
  *   session, end.
+ *
+ * `saved_login_type` may carry `expect` (a `Precondition`) beside its `expected` target: the page the browser
+ * window shows is then held to the state the core decided against, and the check runs in the same synchronous
+ * step as the dispatch to the worker (nothing is awaited between them). In engine mode a write without `expect`
+ * is refused with -32010 reason `document` and nothing is sent.
  *
  * The desktop keeps no value: the vault is read per lookup and the reply is the only copy it makes.
  */
@@ -32,6 +39,8 @@ export interface SavedLoginHostDeps {
   autoSignIn: () => boolean;
   credentials: SavedLoginCredentials;
   worker: SavedLoginWorkerPort;
+  /** The engine lane's view of the pages; absent without the lane (a write then has no `expect` to hold to). */
+  engine?: FillEngine;
   /** credential-vault.ts's pure text rules, loaded when first needed (that module needs Electron). */
   text: () => Promise<{ secureOrigin(value: string): string; maskedCredentialLabel(username: string): string }>;
 }
@@ -109,6 +118,8 @@ export function createSavedLoginHost(deps: SavedLoginHostDeps) {
         }
         command.saved_login_text = input.text;
         command.saved_login_expected = input.expected;
+        // The page check and the dispatch below are one synchronous step: no await sits between them.
+        fillGuard(deps.engine, pageOfDocument((input.expect as { documentId?: unknown } | undefined)?.documentId), input.expect)?.();
       }
       const reply = await deps.worker.run(command);
       if (!reply || typeof reply.saved_login_response !== 'object' || !reply.saved_login_response) {
