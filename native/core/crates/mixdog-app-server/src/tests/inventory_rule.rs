@@ -168,7 +168,7 @@ async fn every_host_answer_field_of_the_inventory_answers_or_fails_as_classed() 
             "host/update/command" => HostCapability::Updater,
             "host/capture/fileSnapshot" | "host/localPage/url" => HostCapability::Files,
             "host/screen/displays" => HostCapability::Browser,
-            "host/computer/capture" | "host/computer/displays" => HostCapability::Computer,
+            "host/computer/capture" | "host/computer/displays" | "host/computer/foregroundLease" | "host/computer/internalWindows" => HostCapability::Computer,
             other => panic!("an answer of {other}: no capability serves it"),
         };
         let method = Method(Box::leak(field.method.clone().into_boxed_str()));

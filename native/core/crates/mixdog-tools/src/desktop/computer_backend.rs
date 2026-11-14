@@ -3,12 +3,17 @@
 //! reply line per request, the protocol the Node desktop speaks), plus the in-process screen
 //! half in `computer_screen`.
 //!
-//! The action contract is Node's (`computer-bridge/action-schema.mjs`): the same cross-field
+//! The action contract is Node's (`computer-bridge/action-schema.mjs`, in `computer_command`): the same cross-field
 //! rules, the same translation of a tool call into host commands, the same limits and the same
 //! recovery on a timeout or cancellation (the helper is killed and `--abort-cleanup` releases any
-//! input it held). What the Node desktop host adds on top of the helper (the permission prompt,
-//! overlay, history ledger, saved-login secrets, zoom frame store) is not here;
-//! those actions report `Unavailable`.
+//! input it held). What the Node desktop host adds on top of the helper is one module per concern, each
+//! called from here: `computer_act`, `computer_capture`, `computer_diagnose`, `computer_env` (the launch
+//! environment), `computer_policy` (observation only), `computer_targets`, `computer_keys`,
+//! `computer_frames`, `computer_reply`, `computer_settle`, `computer_verify`, `computer_zoom`,
+//! `computer_ocr`, `computer_internal_windows`, `computer_lane` (the desktop's one keyboard and
+//! pointer), `computer_user_control`, `computer_lease` and `computer_feedback` (the helper's side
+//! lines) and `computer_abort`. The ones not ported yet keep this backend's earlier behaviour:
+//! the actions they serve report `Unavailable`.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -17,6 +22,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicI64;
+use std::sync::atomic::AtomicU32;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
@@ -54,8 +60,6 @@ use mixdog_core_api::domain::process::ProcessOwner;
 use mixdog_core_api::domain::process::SpawnRequest;
 use mixdog_core_api::domain::tool::ImageData;
 use mixdog_core_api::domain::tool::ToolPart;
-use mixdog_js::JsRegex;
-use mixdog_js::js_trim;
 use mixdog_js::js_trim_start;
 use mixdog_js::utf16_len;
 use mixdog_protocol::ProcessHandle;
@@ -68,10 +72,34 @@ use tokio::sync::oneshot;
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
-use super::computer_gnome;
+use super::computer_abort;
+use super::computer_abort::RestorePoints;
+use super::computer_budget::CommandBudget;
+use super::computer_budget::InFlight;
+use super::computer_budget::LiveProcess;
+use super::computer_budget::LiveProcesses;
+use super::computer_budget::Tally;
+use super::computer_command::host_command;
+use super::computer_command::text;
+use super::computer_command::validate;
+use super::computer_env;
+use super::computer_env::EnvInputs;
+use super::computer_feedback;
+use super::computer_frames::FrameStore;
+use super::computer_internal_windows;
+use super::computer_lane;
+use super::computer_lane::Lane;
+use super::computer_lease;
 use super::computer_linux;
+use super::computer_policy;
 use super::computer_recovery::lead_code as error_code;
+use super::computer_reply;
 use super::computer_screen::Screen;
+use super::computer_settle;
+use super::computer_targets;
+use super::computer_user_control::UserControlState;
+use super::computer_verify;
+use super::computer_zoom;
 use crate::state::secrets::ComputerSecretHost;
 
 pub(crate) const RESPONSE_MARKER: &str = "@@MIXCU@@";
@@ -102,44 +130,19 @@ fn node_spawn_message(binary: &Path, error: &ProcessError) -> Option<String> {
 }
 
 /// Per-command ceiling for one helper round trip (Node `COMMAND_TIMEOUT_MS`).
-const COMMAND_TIMEOUT: Duration = Duration::from_millis(45_000);
+pub(super) const COMMAND_TIMEOUT: Duration = Duration::from_millis(45_000);
 const MAX_REQUEST_BYTES: usize = 256 * 1024;
 const MAX_RESPONSE_BYTES: usize = 32 * 1024 * 1024;
 const MAX_TEXT_CHARS: usize = 1_000_000;
 const MAX_IMAGE_CHARS: usize = 24 * 1024 * 1024;
-const DEFAULT_DELIVERY: &str = "background";
-/// The session a call without one belongs to.
-const DEFAULT_SESSION: &str = "default";
 /// `client.mjs` `BRIDGE_UNAVAILABLE_MESSAGE`.
 const BRIDGE_UNAVAILABLE_MESSAGE: &str = "computer use is unavailable; open the Mixdog desktop app and enable Computer Use in settings";
 /// Process handles are unique per manager, and one manager can serve several backends.
 static NEXT_HANDLE: AtomicU64 = AtomicU64::new(1);
 
-/// Helper actions that only read (`computerActionsWith('nativeRead')`).
-const READ_ACTIONS: [&str; 19] = [
-    "list_windows",
-    "window_snapshot",
-    "related_windows",
-    "snapshot",
-    "find",
-    "clipboard_read",
-    "wait",
-    "window_bounds",
-    "window_capture",
-    "validate_background_input",
-    "window_predicates",
-    "accessibility_probe",
-    "window_integrity",
-    "input_recovery_state",
-    "input_idle_state",
-    "ocr_image",
-    "ocr_status",
-    "process_fate",
-    "list_installed_apps",
-];
 /// Commands the desktop host serves as reads (`computerActionsWith('hostRead')`): withheld while a
 /// secret field may be focused.
-const HOST_READ_ACTIONS: [&str; 14] = [
+pub(super) const HOST_READ_ACTIONS: [&str; 14] = [
     "list_windows",
     "snapshot",
     "find",
@@ -155,20 +158,6 @@ const HOST_READ_ACTIONS: [&str; 14] = [
     "verify",
     "wait_for_user",
 ];
-/// Helper actions that keep the session's element refs (`retainNativeRefs`): the reads plus
-/// the ones that hand input back.
-const RETAIN_REF_ACTIONS: [&str; 5] =
-    ["release_session", "release_cursor_theme", "release_held_input", "release_sequence_holds", "restore_input_state"];
-
-/// `OBSERVE_ONLY_ALLOWED_ACTIONS` (`computerActionsWith('observeOnly')`) among the commands `run` sends: the helper's and the
-/// host's reads and `diagnose` (the lifecycle actions of that set never pass through `run`).
-fn observe_only_admits(action: &str) -> bool {
-    action == "diagnose" || READ_ACTIONS.contains(&action) || HOST_READ_ACTIONS.contains(&action)
-}
-
-/// `isObserveOnly()`: whether the desktop's "Observation only" setting (`desktop.computerObserveOnly`) is on now. The user's
-/// setting, read live; not [`ComputerConfig::observe_only`], the backend's static helper flag.
-pub type ObserveOnlySetting = Arc<dyn Fn() -> bool + Send + Sync>;
 
 /// How the helper is run.
 #[derive(Clone, Debug)]
@@ -177,11 +166,8 @@ pub struct ComputerConfig {
     pub binary: PathBuf,
     /// Names the helper's per-session state (held input, element refs).
     pub session_id: String,
-    /// Tags input this process injects so the helper's observer can tell it from the user's.
-    pub input_marker: Option<String>,
-    /// Refuse every mutation (the helper's `read_only` run). A static flag of this backend, which nothing in the core turns on;
-    /// it is not the user's "Observation only" setting, which is the live [`ObserveOnlySetting`] (`with_observe_only_setting`).
-    pub observe_only: bool,
+    /// The daemon's data directory, under which the helper keeps its inactive-window ledger; `None` keeps none.
+    pub data_dir: Option<PathBuf>,
     /// Pause after a background sequence step, in milliseconds.
     pub sequence_settle_ms: u64,
     /// Longest literal foreground text one call may type.
@@ -190,19 +176,55 @@ pub struct ComputerConfig {
 
 impl ComputerConfig {
     pub fn new(binary: impl Into<PathBuf>, session_id: impl Into<String>) -> Self {
-        Self {
-            binary: binary.into(),
-            session_id: session_id.into(),
-            input_marker: None,
-            observe_only: false,
-            sequence_settle_ms: 350,
-            max_foreground_text: 4_000,
-        }
+        Self { binary: binary.into(), session_id: session_id.into(), data_dir: None, sequence_settle_ms: 350, max_foreground_text: 4_000 }
     }
 }
 
-type Waiter = Box<dyn FnOnce(Result<Map<String, Value>, String>) + Send>;
-type Pending = Arc<Mutex<HashMap<i64, Waiter>>>;
+/// Whether observation-only mode is on (`desktop.computerObserveOnly`), read afresh on every call.
+pub type ObserveOnly = Arc<dyn Fn() -> bool + Send + Sync>;
+
+/// What the backends of one pool share: the desktop's one keyboard and pointer, the person's control of it, the live
+/// observation-only setting and the pending-command budget.
+#[derive(Clone)]
+pub struct ComputerShared {
+    pub lane: Arc<Lane>,
+    pub user_control: Arc<UserControlState>,
+    pub observe_only: ObserveOnly,
+    /// The commands pending across the sessions (4 each, 32 in all).
+    pub budget: Arc<CommandBudget>,
+    /// The helper processes alive across the sessions (8 at most).
+    pub live: Arc<LiveProcesses>,
+    /// The helper requests in flight across the sessions (32 at most).
+    pub in_flight: Arc<InFlight>,
+}
+
+impl Default for ComputerShared {
+    /// A lane, a control and a budget of its own, observation only off.
+    fn default() -> Self {
+        Self { lane: Arc::default(), user_control: Arc::default(), observe_only: Arc::new(|| false), budget: Arc::default(), live: Arc::default(), in_flight: Arc::default() }
+    }
+}
+
+/// A helper's `{"ok":false}` reply: its error text, and the `result` it carried (a capture's `capture_cleanup`, the codes of a
+/// refusal), which the reply's readers keep.
+#[derive(Clone, Debug, PartialEq)]
+pub struct HelperFailure {
+    pub text: String,
+    pub result: Option<Map<String, Value>>,
+}
+
+impl HelperFailure {
+    /// The tool's error: the code the text leads with, and the text.
+    pub(super) fn into_error(self) -> ComputerError {
+        host_error(&self.text)
+    }
+}
+
+/// One request's reply: the helper's result, or its failure.
+pub(super) type Reply = Result<Map<String, Value>, HelperFailure>;
+pub(super) type Waiter = Box<dyn FnOnce(Reply) + Send>;
+/// The requests in flight, by id.
+pub(super) type Pending = Arc<Mutex<HashMap<i64, Waiter>>>;
 
 fn locked<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -260,40 +282,77 @@ impl LineSplitter {
     }
 }
 
-/// Hands one output line to the request it answers.
-fn deliver(pending: &Pending, line: &str) {
+/// Where the helper's output lines go: replies to the requests they answer, foreground-lease asks to the relay (which
+/// answers on stdin outside the turn gate), pointer progress to the desktop's overlay.
+struct Readers {
+    pending: Pending,
+    relay: computer_lease::Relay,
+    pointer: computer_feedback::Pointer,
+    /// Told once the helper's output has ended and its waiters are failed (`ProcessComputerBackend::watch_for_death`).
+    gone: Arc<tokio::sync::Notify>,
+    /// The helper counts as a live process until its output has ended.
+    live: Option<LiveProcess>,
+}
+
+/// Hands one output line to its reader; any other line is the helper's own noise.
+fn deliver(readers: &Readers, line: &str) {
+    if let Some(body) = line.strip_prefix(computer_lease::LINE_MARKER) {
+        readers.relay.on_line(body);
+        return;
+    }
+    if let Some(body) = line.strip_prefix(computer_feedback::LINE_MARKER) {
+        readers.pointer.on_line(body);
+        return;
+    }
     let Some(body) = line.strip_prefix(RESPONSE_MARKER) else { return };
     let (id, outcome) = if body.len() > MAX_RESPONSE_BYTES {
         // Too large to trust or parse; the id is still the number after `"id":`.
-        (leading_id(body), Err("computer_response_too_large: worker output exceeded byte limit".into()))
+        let text = "computer_response_too_large: worker output exceeded byte limit".to_owned();
+        (leading_id(body), Err(HelperFailure { text, result: None }))
     } else {
         match serde_json::from_str::<Value>(body) {
             Ok(value) => (value.get("id").and_then(Value::as_i64), envelope(value)),
             Err(_) => return,
         }
     };
-    let waiter = id.and_then(|id| locked(pending).remove(&id));
+    let waiter = id.and_then(|id| locked(&readers.pending).remove(&id));
+    // What the desktop's lease owner did for the action joins the helper's own account (`worker-pool.ts`); a failed reply
+    // drops them.
+    let facts = id.and_then(|id| readers.relay.take_facts(id));
+    let outcome = match (outcome, facts) {
+        (Ok(mut result), Some(facts)) => {
+            let mut lock = result.get("foreground_lock").and_then(Value::as_object).cloned().unwrap_or_default();
+            lock.insert("host".into(), facts);
+            result.insert("foreground_lock".into(), Value::Object(lock));
+            Ok(result)
+        }
+        (outcome, _) => outcome,
+    };
     if let Some(waiter) = waiter {
         waiter(outcome);
     }
 }
+
+/// The failure the requests waiting on a helper that exited get.
+const HOST_EXITED_TEXT: &str = "computer_host_exited: the computer host stopped";
+
+/// How long one `--abort-cleanup` run may take (`ABORT_CLEANUP_TIMEOUT_MS`, `host/lifecycle-abort.ts:21`).
+const ABORT_CLEANUP_TIME_LIMIT: Duration = Duration::from_millis(7_000);
+
+/// Replies in a row reporting `monitor_unresponsive` after which the helper is replaced.
+const UNRESPONSIVE_LIMIT: u32 = 3;
 
 /// Marks the host gone and fails every request still waiting on it.
 fn fail_waiters(pending: &Pending, alive: &AtomicBool) {
     alive.store(false, Ordering::SeqCst);
     let orphans: Vec<Waiter> = locked(pending).drain().map(|(_, waiter)| waiter).collect();
     for waiter in orphans {
-        waiter(Err("computer_host_exited: the computer host stopped".into()));
+        waiter(Err(HelperFailure { text: HOST_EXITED_TEXT.into(), result: None }));
     }
 }
 
 /// Reads the helper's output events until it exits.
-async fn pump(
-    mut events: Box<dyn EventSource<ProcessEvent>>,
-    pending: Pending,
-    alive: Arc<AtomicBool>,
-    exited: watch::Sender<bool>,
-) {
+async fn pump(mut events: Box<dyn EventSource<ProcessEvent>>, mut readers: Readers, alive: Arc<AtomicBool>, exited: watch::Sender<bool>) {
     let mut lines = LineSplitter::default();
     let mut reading = true;
     while let Some(event) = events.next().await {
@@ -301,26 +360,29 @@ async fn pump(
             ProcessEvent::Output { stream: OutputStream::Stdout, bytes, .. } if reading => {
                 let (complete, broken) = lines.push(&bytes);
                 for line in complete {
-                    deliver(&pending, &line);
+                    deliver(&readers, &line);
                 }
                 if broken {
                     // Past a line that is not text the output is not trusted; keep draining the
                     // pipe until the process is gone.
                     reading = false;
-                    fail_waiters(&pending, &alive);
+                    fail_waiters(&readers.pending, &alive);
                 }
             }
             ProcessEvent::Output { .. } => {}
             ProcessEvent::Exited { .. } => {
                 if let Some(line) = reading.then(|| lines.finish()).flatten() {
-                    deliver(&pending, &line);
+                    deliver(&readers, &line);
                 }
                 break;
             }
         }
     }
-    fail_waiters(&pending, &alive);
+    fail_waiters(&readers.pending, &alive);
+    // Gone before anything that waited for the exit looks at the count.
+    drop(readers.live.take());
     let _ = exited.send(true);
+    readers.gone.notify_one();
 }
 
 /// Runs a process to its exit; true when it exited with code 0 (the cleanup's confirmation).
@@ -339,8 +401,8 @@ async fn run_to_exit(manager: &dyn ProcessManager, request: SpawnRequest) -> boo
 }
 
 pub struct ProcessComputerBackend {
-    config: ComputerConfig,
-    manager: Arc<dyn ProcessManager>,
+    pub(super) config: ComputerConfig,
+    pub(super) manager: Arc<dyn ProcessManager>,
     host: Mutex<Option<Host>>,
     /// One request starts the helper and is written at a time; the wait leaves on the request's cancel.
     turn: mixdog_rt::Gate,
@@ -348,7 +410,7 @@ pub struct ProcessComputerBackend {
     screen: Screen,
     desktop: Option<Arc<dyn HostChannel>>,
     /// The Linux session the preflight reads; `None` where the platform is not Linux and nothing is probed.
-    linux: Option<LinuxSession>,
+    pub(super) linux: Option<LinuxSession>,
     /// A typed secret's field may still hold focus: reads are refused until the next action.
     secret_focus: AtomicBool,
     /// A visible execution is open: some action ran since the last `execution_end`, abort or
@@ -358,14 +420,27 @@ pub struct ProcessComputerBackend {
     /// (`hostBoundComputerSessions`, `client.mjs:367`).
     bound: AtomicBool,
     observer: Option<Arc<dyn ExecutionObserver>>,
-    /// The user's "Observation only" setting (`desktop.computerObserveOnly`), read live at each action's admission and before each
-    /// `act` step; `None` admits every action. Distinct from the static `config.observe_only`.
-    observe_only_setting: Option<ObserveOnlySetting>,
+    /// Tags the input this backend's helpers inject, so their observer tells it from the person's: one value for the resident
+    /// helper, each respawn of it and its `--abort-cleanup` run (`MIXDOG_COMPUTER_INPUT_MARKER`).
+    marker: u32,
+    shared: ComputerShared,
+    /// The frames this backend's captures issued, which frame-bound coordinates are mapped through.
+    pub(super) frames: FrameStore,
+    /// What an `--abort-cleanup` run restores the pointer and focus to.
+    restore_points: Mutex<RestorePoints>,
+    /// Wakes `watch_for_death`: a helper's output ended, or the backend is dropped.
+    gone: Arc<tokio::sync::Notify>,
+    /// Consecutive helper replies that said the input observer does not answer (`monitor_unresponsive`).
+    unresponsive: AtomicU32,
+    /// The `--abort-cleanup` runs this backend has going (`cleanupJobs.has(sessionId)`): the pool reclaims no session that has one.
+    cleaning: Arc<std::sync::atomic::AtomicUsize>,
+    /// The windows this session has been told about, which the next command names the newcomers to.
+    pub(super) arrivals: computer_settle::Arrivals,
 }
 
 /// The environment the Linux preflight reads, taken afresh for each action.
-struct LinuxSession {
-    env: Box<dyn Fn() -> computer_linux::Env + Send + Sync>,
+pub(super) struct LinuxSession {
+    pub(super) env: Box<dyn Fn() -> computer_linux::Env + Send + Sync>,
 }
 
 impl LinuxSession {
@@ -385,8 +460,7 @@ impl LinuxSession {
 /// Told when this session's visible execution opens and closes: the edges of `executing`, which the
 /// computer-use pill follows (`beginCommand` / `endExecution` of Node's coordinator).
 pub trait ExecutionObserver: Send + Sync {
-    /// An action ran with no execution open. `observe_only` is the backend's static `ComputerConfig::observe_only`, not the
-    /// user's live "Observation only" (Node's pill does not read that setting either).
+    /// An action ran with no execution open. `observe_only` is the setting that action read.
     fn began(&self, observe_only: bool);
     /// The open execution ended: `execution_end`, an abort, a release or a cancelled call.
     fn ended(&self);
@@ -399,9 +473,9 @@ impl ProcessComputerBackend {
         self
     }
 
-    /// Refuses every action but a read while `setting` reads on (the desktop's "Observation only").
-    pub fn with_observe_only_setting(mut self, setting: ObserveOnlySetting) -> Self {
-        self.observe_only_setting = Some(setting);
+    /// Runs under the lane, the person's control and the observation-only setting the pool's other sessions share.
+    pub fn with_shared(mut self, shared: ComputerShared) -> Self {
+        self.shared = shared;
         self
     }
 
@@ -429,23 +503,6 @@ impl ProcessComputerBackend {
         was_open
     }
 
-    /// `isObserveOnly()`: the desktop's "Observation only" as it reads now; off without a setting.
-    fn observing_only(&self) -> bool {
-        self.observe_only_setting.as_ref().is_some_and(|on| on())
-    }
-
-    /// `assertObservationInputAllowed` (desktop `observation-policy.ts`): while "Observation only" is on, `action` is refused in
-    /// Node's words unless it is a read.
-    fn assert_observation_input_allowed(&self, action: &str) -> Result<(), ComputerError> {
-        if self.observing_only() && !observe_only_admits(action) {
-            return Err(ComputerError::Failed {
-                code: "observation_only".into(),
-                message: format!("observation_only: Computer Use is observing only, so '{action}' input is blocked. Turn off \"Observation only\" in Settings to allow input."),
-            });
-        }
-        Ok(())
-    }
-
     /// The helper runs under `manager`; it starts on the first action and restarts after a
     /// timeout or cancellation.
     pub fn new(config: ComputerConfig, manager: Arc<dyn ProcessManager>) -> Self {
@@ -462,13 +519,59 @@ impl ProcessComputerBackend {
             secret_focus: AtomicBool::new(false),
             executing: AtomicBool::new(false),
             bound: AtomicBool::new(false),
-            observe_only_setting: None,
+            marker: computer_env::new_marker(),
+            shared: ComputerShared::default(),
+            frames: FrameStore::default(),
+            restore_points: Mutex::default(),
+            gone: Arc::default(),
+            unresponsive: AtomicU32::new(0),
+            cleaning: Arc::default(),
+            arrivals: computer_settle::Arrivals::default(),
         }
+    }
+
+    /// Cleans up after a helper that exits by itself as soon as that is seen, not at the next command or the end of the
+    /// execution (the sample's `runtime.py` releases at once). The cleanup runs under the turn and only takes a helper still
+    /// marked dead, so it never races a restart: a newer live helper, or one a retire already took, is left alone. Ends with
+    /// the backend.
+    pub fn watch_for_death(self: &Arc<Self>) {
+        // Outside a runtime nothing could run the cleanup; the next command or the end of the execution does it.
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else { return };
+        let backend = Arc::downgrade(self);
+        let gone = self.gone.clone();
+        runtime.spawn(async move {
+            loop {
+                gone.notified().await;
+                let Some(backend) = backend.upgrade() else { break };
+                let confirmed = backend.recover_dead_host().await;
+                backend.pause_unless(confirmed);
+            }
+        });
     }
 
     /// Whether the session reached the helper and still owns state there.
     pub fn is_bound(&self) -> bool {
         self.bound.load(Ordering::SeqCst)
+    }
+
+    /// Whether a visible execution is open (a turn's commands have run and it has not settled).
+    pub fn is_executing(&self) -> bool {
+        self.executing.load(Ordering::SeqCst)
+    }
+
+    /// Whether a cleanup of this session is running now.
+    pub fn is_cleaning(&self) -> bool {
+        self.cleaning.load(Ordering::SeqCst) > 0
+    }
+
+    /// Whether observation-only mode is on now.
+    pub(super) fn observe_only(&self) -> bool {
+        (self.shared.observe_only)()
+    }
+
+    /// Whether a resident helper is running now (nothing is started to tell).
+    pub fn has_live_host(&self) -> bool {
+        locked(&self.host).as_ref().is_some_and(|host| host.alive.load(Ordering::SeqCst))
     }
 
     /// `session_abort` (`abortComputerSession`, `client.mjs:490-499`; the host side
@@ -477,11 +580,34 @@ impl ProcessComputerBackend {
     /// session no longer owns state in the helper. A cancelled `computer` call does this itself.
     pub async fn abort_session(&self) -> bool {
         self.close_execution();
+        self.shared.lane.forget(&self.config.session_id);
+        self.arrivals.forget();
+        self.frames.forget_delivered();
         let confirmed = self.retire().await;
         if confirmed {
             self.bound.store(false, Ordering::SeqCst);
+            self.shared.user_control.cleanup_confirmed(&self.config.session_id);
+        }
+        self.pause_unless(confirmed)
+    }
+
+    /// A cleanup the helper could not confirm hands the desktop to the user (`lifecycle-abort.ts:unconfirmedCleanup`); returns
+    /// `confirmed`.
+    pub(super) fn pause_unless(&self, confirmed: bool) -> bool {
+        if !confirmed {
+            self.shared.user_control.cleanup_unconfirmed(&self.config.session_id);
         }
         confirmed
+    }
+
+    /// `recoverLatchedCleanup` for this session: the helper is stopped and the cleanup run again; true when it confirmed.
+    pub(super) async fn recover_cleanup(&self) -> bool {
+        let confirmed = self.retire().await;
+        if confirmed {
+            self.bound.store(false, Ordering::SeqCst);
+            self.shared.user_control.cleanup_confirmed(&self.config.session_id);
+        }
+        self.pause_unless(confirmed)
     }
 
     /// `execution_end` (`endComputerExecution`, `client.mjs:505-512`; the host side
@@ -495,8 +621,11 @@ impl ProcessComputerBackend {
             return false;
         }
         if !locked(&self.host).as_ref().is_some_and(|host| host.alive.load(Ordering::SeqCst)) {
-            return true;
+            // A helper that died on its own may have held input: its session is cleaned up from a fresh process, and one
+            // that does not confirm ends the session as on a live helper (`session-lifecycle.ts` `confirmed === false`).
+            return if self.recover_dead_host().await { true } else { self.abort_session().await };
         }
+        let _lane = self.shared.lane.enter(computer_lane::Kind::Release, &CancellationToken::new()).await.ok();
         let mut command = Map::new();
         command.insert("action".into(), json!("release_held_input"));
         match self.call(command, &CancellationToken::new()).await {
@@ -509,32 +638,46 @@ impl ProcessComputerBackend {
     /// a live helper first drops the session's refs, restores its focus and lets go of held input
     /// (`release_session`), then the session is aborted whatever that answered.
     pub async fn release_session(&self) -> bool {
+        let _lane = self.shared.lane.enter(computer_lane::Kind::Release, &CancellationToken::new()).await.ok();
         let mut released = true;
+        // Only the last session using the desktop restores its focus, from the windows the earlier ones held
+        // (`restoreSessionDesktop`); an earlier one hands the windows it held on.
+        let leaving = self.shared.lane.leave(&self.config.session_id);
         if locked(&self.host).as_ref().is_some_and(|host| host.alive.load(Ordering::SeqCst)) {
             let mut command = Map::new();
             command.insert("action".into(), json!("release_session"));
-            released = self.call(command, &CancellationToken::new()).await.is_ok();
+            command.insert("restore_focus".into(), json!(leaving.last));
+            command.insert("handed_window_ids".into(), json!(leaving.handed));
+            let reply = self.call(command, &CancellationToken::new()).await;
+            released = reply.is_ok();
+            if let (false, Ok(reply)) = (leaving.last, &reply) {
+                let held = reply.get("held_window_ids").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str);
+                self.shared.lane.hand_over(held.map(str::to_owned));
+            }
         }
         self.abort_session().await && released
     }
 
-    /// A run of the helper with `args`; it reads requests from stdin when `stdin_piped`.
-    fn request(&self, args: Vec<String>, stdin_piped: bool) -> Result<SpawnRequest, ComputerError> {
+    /// A run of the helper with `args`; it reads requests from stdin when `stdin_piped`. `abort` is the recovery env of an
+    /// `--abort-cleanup` run.
+    fn request(&self, args: Vec<String>, stdin_piped: bool, abort: Vec<(String, String)>) -> Result<SpawnRequest, ComputerError> {
+        let ledger = self.config.data_dir.as_deref().map(|dir| computer_env::ledger_path(dir, &self.config.session_id, self.marker));
+        self.request_for(args, stdin_piped, abort, self.marker, ledger)
+    }
+
+    /// `request` for a run with its own input `marker` and `ledger` (a sweep of the ledgers a dead core left).
+    fn request_for(&self, args: Vec<String>, stdin_piped: bool, abort: Vec<(String, String)>, marker: u32, ledger_path: Option<PathBuf>) -> Result<SpawnRequest, ComputerError> {
         let cwd = std::env::current_dir().ok().and_then(AbsPath::new).ok_or_else(|| ComputerError::Unavailable {
             reason: "computer_backend_unavailable: the working directory is unreadable".into(),
         })?;
-        let mut set = vec![
-            ("MIXDOG_COMPUTER_READ_ACTIONS".to_owned(), READ_ACTIONS.join(",")),
-            (
-                "MIXDOG_COMPUTER_RETAIN_REF_ACTIONS".to_owned(),
-                READ_ACTIONS.iter().chain(RETAIN_REF_ACTIONS.iter()).copied().collect::<Vec<_>>().join(","),
-            ),
-            ("MIXDOG_COMPUTER_SEQUENCE_SETTLE_MS".to_owned(), self.config.sequence_settle_ms.to_string()),
-            ("MIXDOG_COMPUTER_MAX_FOREGROUND_TEXT".to_owned(), self.config.max_foreground_text.to_string()),
-        ];
-        if let Some(marker) = &self.config.input_marker {
-            set.push(("MIXDOG_COMPUTER_INPUT_MARKER".to_owned(), marker.clone()));
-        }
+        let set = computer_env::helper_env(&EnvInputs {
+            sequence_settle_ms: self.config.sequence_settle_ms,
+            max_foreground_text: self.config.max_foreground_text,
+            marker,
+            ledger_path,
+            host_lock_offered: computer_lease::owner_available(self.desktop.as_ref()),
+            abort,
+        });
         Ok(SpawnRequest {
             handle: ProcessHandle(format!("computer-{}-{}", std::process::id(), NEXT_HANDLE.fetch_add(1, Ordering::SeqCst))),
             command: CommandSpec::Argv { program: self.config.binary.to_string_lossy().into_owned(), args },
@@ -543,17 +686,38 @@ impl ProcessComputerBackend {
             pty: None,
             stdin_piped,
             output: OutputMode::Separate,
-            owner: ProcessOwner::Internal,
-            time_limit: None,
+            owner: ProcessOwner::ComputerHelper,
+            // A cleanup run is bounded as Node's (`lifecycle-abort.ts` `ABORT_CLEANUP_TIMEOUT_MS`): a hung one is killed and
+            // reads as unconfirmed, and never holds the turn or a sweep.
+            time_limit: (!stdin_piped).then_some(ABORT_CLEANUP_TIME_LIMIT),
         })
+    }
+
+    /// The resident helper, which reads requests from stdin. The ledger's folder is made first (`newPath` in
+    /// `worker-ledgers.ts`): the helper opens the ledger without creating folders, and holds nothing it cannot record.
+    fn resident(&self) -> Result<SpawnRequest, ComputerError> {
+        if let Some(folder) = self.config.data_dir.as_deref().map(computer_env::ledger_folder) {
+            let _ = std::fs::create_dir_all(folder);
+        }
+        self.request(Vec::new(), true, Vec::new())
+    }
+
+    /// `--abort-cleanup`: a fresh process that releases what the helper held and restores the session's restore points.
+    fn cleanup(&self) -> Result<SpawnRequest, ComputerError> {
+        let abort = computer_abort::env(&locked(&self.restore_points));
+        self.request(vec!["--abort-cleanup".to_owned()], false, abort)
     }
 
     async fn spawn(&self) -> Result<Host, ComputerError> {
         let unavailable = |error: String| ComputerError::Unavailable {
             reason: format!("computer_backend_unavailable: cannot start {}: {error}", self.config.binary.display()),
         };
-        let request = self.request(Vec::new(), true)?;
+        self.sweep_leftover_ledgers().await;
+        // A new process is refused while the cap of live ones is reached (`assertComputerWorkerCapacity`, `worker-pool.ts:182`).
+        self.shared.live.assert_room()?;
+        let request = self.resident()?;
         let handle = request.handle.clone();
+        let live = self.shared.live.hold();
         self.manager.spawn(request).await.map_err(|error| match node_spawn_message(&self.config.binary, &error) {
             Some(text) => ComputerError::Unavailable { reason: text },
             None => unavailable(format!("{error:?}")),
@@ -568,17 +732,30 @@ impl ProcessComputerBackend {
         let pending: Pending = Arc::default();
         let alive = Arc::new(AtomicBool::new(true));
         let (done, exited) = watch::channel(false);
-        tokio::spawn(pump(events, pending.clone(), alive.clone(), done));
+        let readers = Readers {
+            pending: pending.clone(),
+            relay: computer_lease::Relay::new(self.manager.clone(), handle.clone(), pending.clone(), self.desktop.clone()),
+            pointer: computer_feedback::Pointer::new(self.desktop.clone(), &self.config.session_id),
+            gone: self.gone.clone(),
+            live: Some(live),
+        };
+        tokio::spawn(pump(events, readers, alive.clone(), done));
         Ok(Host { handle, pending, alive, exited })
     }
 
     /// Writes one request and returns the channel its reply arrives on.
-    async fn send(&self, mut command: Map<String, Value>, cancel: &CancellationToken) -> Result<oneshot::Receiver<Result<Map<String, Value>, String>>, ComputerError> {
+    async fn send(&self, mut command: Map<String, Value>, cancel: &CancellationToken) -> Result<oneshot::Receiver<Reply>, ComputerError> {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         command.insert("id".into(), json!(id));
         command.entry("session_id").or_insert_with(|| json!(self.config.session_id));
-        if self.config.observe_only {
-            command.insert("read_only".into(), json!(true));
+        // The elevation field belongs to the Windows helper alone; the Linux and macOS requests carry what Node sent, which always
+        // names pointer_feedback (false on a read).
+        let windows_helper = self.linux.is_none() && !cfg!(target_os = "macos");
+        computer_policy::decorate(&mut command, self.observe_only(), windows_helper);
+        if windows_helper {
+            computer_feedback::decorate(&mut command, self.desktop.as_ref());
+        } else {
+            computer_feedback::mark(&mut command, self.desktop.as_ref());
         }
         let line = Value::Object(command).to_string();
         if line.len() > MAX_REQUEST_BYTES {
@@ -588,6 +765,9 @@ impl ProcessComputerBackend {
         }
         let (reply, receive) = oneshot::channel();
         let _turn = self.turn.enter(cancel).await.map_err(|_| ComputerError::Cancelled)?;
+        // The pool's in-flight cap counts dispatched requests, not ones still waiting for the turn, and refuses before a helper
+        // is even started (`worker-pool.ts:270`).
+        let slot = self.shared.in_flight.begin()?;
         let live = locked(&self.host)
             .as_ref()
             .filter(|host| host.alive.load(Ordering::SeqCst))
@@ -598,6 +778,8 @@ impl ProcessComputerBackend {
                 let dead = locked(&self.host).take();
                 if let Some(dead) = dead {
                     dead.stop(&*self.manager).await;
+                    // It exited on its own, maybe holding input: released before a new helper starts.
+                    self.run_cleanup().await;
                 }
                 let host = self.spawn().await?;
                 let live = (host.handle.clone(), host.pending.clone());
@@ -605,7 +787,10 @@ impl ProcessComputerBackend {
                 live
             }
         };
-        locked(&pending).insert(id, Box::new(move |outcome| drop(reply.send(outcome))));
+        locked(&pending).insert(id, Box::new(move |outcome| {
+            drop(slot);
+            drop(reply.send(outcome));
+        }));
         let mut bytes = line.into_bytes();
         bytes.push(b'\n');
         if let Err(error) = self.manager.write_stdin(&handle, bytes).await {
@@ -613,6 +798,7 @@ impl ProcessComputerBackend {
             let broken = locked(&self.host).take();
             if let Some(broken) = broken {
                 broken.stop(&*self.manager).await;
+                self.run_cleanup().await;
             }
             return Err(ComputerError::Failed {
                 code: "computer_host_write_failed".into(),
@@ -624,115 +810,183 @@ impl ProcessComputerBackend {
 
     /// Stops the helper and releases whatever input it held, from a fresh process. True when that
     /// cleanup confirmed.
-    async fn retire(&self) -> bool {
+    pub(super) async fn retire(&self) -> bool {
+        // Under the turn: a request that found no helper cannot start a new one under this marker and ledger while the
+        // cleanup still runs.
+        let _turn = self.turn.enter(&CancellationToken::new()).await;
         let host = locked(&self.host).take();
         if let Some(host) = host {
             host.stop(&*self.manager).await;
         }
-        match self.request(vec!["--abort-cleanup".to_owned()], false) {
+        self.run_cleanup().await
+    }
+
+    /// One `--abort-cleanup` run with this session's restore points and ledger; true when it exited 0.
+    async fn run_cleanup(&self) -> bool {
+        let (_job, _live) = (Tally::up(&self.cleaning), self.shared.live.hold());
+        match self.cleanup() {
             Ok(request) => run_to_exit(&*self.manager, request).await,
             Err(_) => false,
         }
     }
 
-    async fn call(&self, command: Map<String, Value>, cancel: &CancellationToken) -> Result<Map<String, Value>, ComputerError> {
+    /// A helper that exited by itself is stopped and cleaned up as a timeout's is. True when there was none or the cleanup
+    /// confirmed. A live helper (a newer one) is left alone.
+    async fn recover_dead_host(&self) -> bool {
+        let _turn = self.turn.enter(&CancellationToken::new()).await;
+        let dead = {
+            let mut slot = locked(&self.host);
+            if slot.as_ref().is_some_and(|host| !host.alive.load(Ordering::SeqCst)) { slot.take() } else { None }
+        };
+        let Some(dead) = dead else { return true };
+        dead.stop(&*self.manager).await;
+        self.run_cleanup().await
+    }
+
+    /// Recovers what a core that died left: every ledger under `<data>/computer/ledgers` is replayed by an `--abort-cleanup` run
+    /// (`MIXDOG_ABORT_LEDGERS`, `worker-ledgers.ts:recover`) and the file removed once it confirmed. Once per data folder in this
+    /// process, before the first helper starts: later ledgers there belong to helpers of this process. One that was not
+    /// confirmed stays for the next start.
+    async fn sweep_leftover_ledgers(&self) {
+        static SWEPT: std::sync::OnceLock<tokio::sync::Mutex<std::collections::HashSet<PathBuf>>> = std::sync::OnceLock::new();
+        let Some(data) = self.config.data_dir.as_deref() else { return };
+        let mut swept = SWEPT.get_or_init(Default::default).lock().await;
+        if !swept.insert(data.to_path_buf()) {
+            return;
+        }
+        for (path, marker) in computer_env::leftover_ledgers(&computer_env::ledger_folder(data)) {
+            let abort = vec![("MIXDOG_ABORT_LEDGERS".to_owned(), path.to_string_lossy().into_owned())];
+            let Ok(request) = self.request_for(vec!["--abort-cleanup".to_owned()], false, abort, marker.unwrap_or(self.marker), None) else { continue };
+            if run_to_exit(&*self.manager, request).await {
+                let _ = std::fs::remove_file(&path);
+            }
+        }
+    }
+
+    /// Runs the sweep of the ledgers a dead core left (`sweep_leftover_ledgers`) now, at the core's start, instead of before the
+    /// first helper: windows a crashed daemon left without activation are restored before anyone uses `computer` again.
+    pub async fn sweep_ledgers(&self) {
+        self.sweep_leftover_ledgers().await;
+    }
+
+    /// Counts the replies that report the input observer unresponsive; true at the `UNRESPONSIVE_LIMIT`th in a row. A reply that
+    /// reports it ready starts the count again, one that says nothing of it leaves it.
+    fn observer_stuck(&self, reply: &Reply) -> bool {
+        let named = |result: &Map<String, Value>| {
+            if result.get("observer_ready") == Some(&Value::Bool(true)) {
+                Some(false)
+            } else {
+                (result.get("observer_reason").and_then(Value::as_str) == Some("monitor_unresponsive")).then_some(true)
+            }
+        };
+        let state = match reply {
+            Ok(result) => named(result),
+            // Only the text of an observation lost to the monitor: "original observation is unavailable (monitor_unresponsive)"
+            // is also what a healthy helper says of a frame from before a respawn (another generation's observer).
+            Err(failure) => failure
+                .result
+                .as_ref()
+                .and_then(named)
+                .or_else(|| failure.text.contains("input observation lost (monitor_unresponsive)").then_some(true)),
+        };
+        match state {
+            Some(true) => {
+                if self.unresponsive.fetch_add(1, Ordering::SeqCst) + 1 >= UNRESPONSIVE_LIMIT {
+                    self.unresponsive.store(0, Ordering::SeqCst);
+                    return true;
+                }
+                false
+            }
+            Some(false) => {
+                self.unresponsive.store(0, Ordering::SeqCst);
+                false
+            }
+            None => false,
+        }
+    }
+
+    /// One helper round trip within `COMMAND_TIMEOUT`.
+    pub(super) async fn call(&self, command: Map<String, Value>, cancel: &CancellationToken) -> Result<Map<String, Value>, ComputerError> {
+        self.call_with(command, COMMAND_TIMEOUT, cancel).await
+    }
+
+    /// One helper round trip within `timeout`; the helper's own failure is the tool's error.
+    pub(super) async fn call_with(&self, command: Map<String, Value>, timeout: Duration, cancel: &CancellationToken) -> Result<Map<String, Value>, ComputerError> {
+        self.exchange(command, timeout, cancel).await?.map_err(HelperFailure::into_error)
+    }
+
+    /// One helper round trip within `timeout`: its result, or its failure with the result it carried. Every reply passes the
+    /// restore points, and a window list comes back without Mixdog's own windows.
+    pub(super) async fn exchange(&self, command: Map<String, Value>, timeout: Duration, cancel: &CancellationToken) -> Result<Reply, ComputerError> {
         if cancel.is_cancelled() {
             return Err(ComputerError::Cancelled);
         }
+        let lists_windows = matches!(text(&command, "action"), "list_windows" | "window_snapshot");
         let receive = self.send(command, cancel).await?;
-        self.wait_reply(receive, cancel).await
+        let mut reply = self.wait_reply(receive, timeout, cancel).await?;
+        let carried = match &reply {
+            Ok(result) => Some(result),
+            Err(failure) => failure.result.as_ref(),
+        };
+        if let Some(result) = carried {
+            locked(&self.restore_points).observe(result);
+        }
+        // The observer's hook thread is not restarted by the helper: one that keeps not answering is replaced.
+        if self.observer_stuck(&reply) {
+            let confirmed = self.retire().await;
+            self.pause_unless(confirmed);
+        }
+        if lists_windows && let Ok(result) = &mut reply {
+            computer_internal_windows::filter(self, result, cancel).await;
+        }
+        Ok(reply)
     }
 
-    /// The reply of a sent command, within `COMMAND_TIMEOUT` and the request's cancel. Either
-    /// one ending the wait retires the helper: a command it may still be running holds input.
-    async fn wait_reply(
-        &self,
-        receive: oneshot::Receiver<Result<Map<String, Value>, String>>,
-        cancel: &CancellationToken,
-    ) -> Result<Map<String, Value>, ComputerError> {
-        let scope = Scope::new().cancel(cancel).deadline(Some(Instant::now() + COMMAND_TIMEOUT));
+    /// The reply of a sent command, within `timeout` and the request's cancel. Either one ending the wait retires the helper:
+    /// a command it may still be running holds input.
+    async fn wait_reply(&self, receive: oneshot::Receiver<Reply>, timeout: Duration, cancel: &CancellationToken) -> Result<Reply, ComputerError> {
+        let scope = Scope::new().cancel(cancel).deadline(Some(Instant::now() + timeout));
         match scope.run(receive).await {
             Scoped::Cancelled => {
                 // Node aborts the session when a call is cancelled (`client.mjs:113,407`).
                 self.abort_session().await;
                 Err(ComputerError::Cancelled)
             }
+            // The command keeps its own error, as the worker's retire rejects it in Node (`worker-requests.ts:157`); the hold an
+            // unconfirmed cleanup leaves refuses the next command.
             Scoped::DeadlineExceeded => {
-                self.retire().await;
+                let confirmed = self.retire().await;
+                self.pause_unless(confirmed);
                 Err(ComputerError::Failed {
                     code: "computer_command_timeout".into(),
-                    message: format!("computer_command_timeout: command exceeded {}ms; the input host was restarted", COMMAND_TIMEOUT.as_millis()),
+                    message: format!("computer_command_timeout: command exceeded {}ms; the input host was restarted", timeout.as_millis()),
                 })
             }
-            Scoped::Done(Err(_)) => Err(host_exited()),
-            Scoped::Done(Ok(Err(message))) => Err(host_error(&message)),
-            Scoped::Done(Ok(Ok(result))) => Ok(result),
+            Scoped::Done(Err(_)) => {
+                let confirmed = self.recover_dead_host().await;
+                self.pause_unless(confirmed);
+                Err(host_exited())
+            }
+            Scoped::Done(Ok(reply)) => {
+                if matches!(&reply, Err(failure) if failure.result.is_none() && failure.text == HOST_EXITED_TEXT) {
+                    let confirmed = self.recover_dead_host().await;
+                    self.pause_unless(confirmed);
+                }
+                Ok(reply)
+            }
         }
     }
 
-    async fn act(&self, mut command: Map<String, Value>, cancel: &CancellationToken) -> Result<Vec<ToolPart>, ComputerError> {
-        let steps = match command.shift_remove("steps") {
-            Some(Value::Array(steps)) => steps,
-            _ => Vec::new(),
-        };
-        let delivery = command.get("delivery").and_then(Value::as_str).unwrap_or(DEFAULT_DELIVERY).to_string();
-        let observe = command.shift_remove("capture_after_mode");
-        let target: Map<String, Value> =
-            ["window_id", "app"].iter().filter_map(|key| command.get(*key).map(|v| ((*key).to_string(), v.clone()))).collect();
-        let mut messages = Vec::new();
-        for step in steps {
-            let Value::Object(mut step) = step else { continue };
-            // Node runs every step back through admission and checks again right before each input transport
-            // (`input-dispatch.ts`): "Observation only" turned on mid-sequence stops the steps left. Node reports the refused
-            // step as a failed row; here, as for any failed step, the error ends the call.
-            self.assert_observation_input_allowed(text(&step, "action"))?;
-            for (key, value) in &target {
-                step.entry(key.clone()).or_insert_with(|| value.clone());
-            }
-            step.insert("delivery".into(), json!(delivery));
-            step.insert("session_id".into(), json!(self.config.session_id));
-            // A background step on an exact window goes through the helper's sequence step,
-            // which reports the windows it opened or closed; everything else is the action itself.
-            let request = if delivery == "background" && step.contains_key("window_id") {
-                let mut request = Map::new();
-                request.insert("action".into(), json!("sequence_step"));
-                request.insert("delivery".into(), json!("background"));
-                request.insert("step".into(), Value::Object(step));
-                request
-            } else {
-                step
-            };
-            let result = self.call(request, cancel).await?;
-            let inner = result.get("step_result").and_then(Value::as_object).unwrap_or(&result);
-            messages.push(text_of(inner));
-        }
-        let mut payload = json!({
-            "ok": true,
-            "action": "act",
-            "message": messages.join("; "),
-            "goal_verified": false,
-            "verdict": { "decision": "verify_fresh_state" },
-        });
-        let mut parts = Vec::new();
-        if target.contains_key("window_id") || target.contains_key("app") {
-            let mut capture = Map::new();
-            capture.insert("action".into(), json!("capture"));
-            capture.extend(target);
-            if let Some(mode) = observe {
-                capture.insert("mode".into(), mode);
-            }
-            payload["capture_after"] = json!({ "ok": true, "action": "capture" });
-            let observed = self.capture(capture, "", cancel).await?;
-            parts.push(ToolPart::Text(payload.to_string()));
-            parts.extend(observed);
-            return Ok(parts);
-        }
-        parts.push(ToolPart::Text(payload.to_string()));
-        Ok(parts)
+    /// A single helper action: its result, settled against the windows it started from, shaped as the tool's reply.
+    async fn single(&self, action: &str, command: Map<String, Value>, cancel: &CancellationToken) -> Result<Vec<ToolPart>, ComputerError> {
+        let before = computer_settle::before(self, action, &command, cancel).await?;
+        let mut result = self.call(command, cancel).await?;
+        computer_settle::after(self, action, before, &mut result, cancel).await?;
+        computer_reply::single(action, &result)
     }
 
     /// A read the Node desktop host makes of the helper (`callPowerShell` with `read_only`): under `session`, or the backend's own.
-    async fn host_read(&self, action: &str, extra: Vec<(&str, Value)>, session: Option<&str>, cancel: &CancellationToken) -> Result<Map<String, Value>, ComputerError> {
+    pub(super) async fn host_read(&self, action: &str, extra: Vec<(&str, Value)>, session: Option<&str>, cancel: &CancellationToken) -> Result<Map<String, Value>, ComputerError> {
         let mut command = Map::new();
         command.insert("action".into(), json!(action));
         for (key, value) in extra {
@@ -746,14 +1000,6 @@ impl ProcessComputerBackend {
         self.call(command, cancel).await
     }
 
-    /// Every command of the host starts with a read of the windows through its arrivals worker; the answer is not used here.
-    async fn peek_arrivals(&self, cancel: &CancellationToken) -> Result<(), ComputerError> {
-        match self.host_read("window_snapshot", Vec::new(), Some(computer_gnome::ARRIVALS_SESSION_ID), cancel).await {
-            Err(ComputerError::Cancelled) => Err(ComputerError::Cancelled),
-            _ => Ok(()),
-        }
-    }
-
     /// The desktop that serves the computer host's reads, or Node's refusal when none does (`client.mjs` `BRIDGE_UNAVAILABLE_MESSAGE`).
     fn desktop(&self) -> Result<&Arc<dyn HostChannel>, ComputerError> {
         match &self.desktop {
@@ -764,7 +1010,7 @@ impl ProcessComputerBackend {
 
     /// One `host/computer/*` request to the desktop's computer host. The host's refusal is the text Node's client gives for a bridge
     /// reply of `{ ok: false, error }`; a request that outlives the client's timeout is `computer bridge timed out`.
-    async fn ask_desktop(&self, method: &'static str, params: Value, cancel: &CancellationToken) -> Result<Value, ComputerError> {
+    pub(super) async fn ask_desktop(&self, method: &'static str, params: Value, cancel: &CancellationToken) -> Result<Value, ComputerError> {
         let desktop = self.desktop()?;
         match desktop.request_scoped(HostCapability::Computer, Method(method), params, cancel).await {
             Ok(value) => Ok(value),
@@ -776,105 +1022,16 @@ impl ProcessComputerBackend {
             Err(HostError::Core(_)) => Err(bridge_unavailable()),
         }
     }
-
-    /// The capture of a screen: the command Node's client posts to the bridge goes to the desktop's computer host
-    /// (`host/computer/capture`), which takes the pixels, fits them to the capture budget and encodes them; the reply is the one the
-    /// tool returns.
-    ///
-    /// `asked_mode` is the call's own `mode`: the reply text carries it (`args.input?.mode || 'state'`), not the one a Linux fallback rewrote.
-    async fn capture_screen(&self, command: &Map<String, Value>, asked_mode: &str, cancel: &CancellationToken) -> Result<Vec<ToolPart>, ComputerError> {
-        let mode = if asked_mode.is_empty() { "state" } else { asked_mode };
-        let mut posted = command.clone();
-        // A call without a session sends none (the pool names it `default`).
-        if self.config.session_id != DEFAULT_SESSION {
-            posted.insert("session_id".into(), json!(self.config.session_id));
-        }
-        let reply = self.ask_desktop("host/computer/capture", json!({ "command": posted }), cancel).await?;
-        screen_parts(&reply, mode)
-    }
-
-    /// `diagnose` on a Linux session: the host's report of the windows, accessibility, OCR, input observation, displays and the
-    /// probed capabilities (`inspect.ts` `diagnoseComputer`).
-    async fn diagnose(&self, linux: &LinuxSession, command: &Map<String, Value>, cancel: &CancellationToken) -> Result<Vec<ToolPart>, ComputerError> {
-        self.peek_arrivals(cancel).await?;
-        let probe = |outcome: Result<Map<String, Value>, ComputerError>| match outcome {
-            Err(ComputerError::Cancelled) => Err(ComputerError::Cancelled),
-            Err(ComputerError::Failed { message, .. }) => Ok(Err(message)),
-            Err(other) => Ok(Err(format!("{other:?}"))),
-            Ok(result) => Ok(Ok(result)),
-        };
-        let windows = match self.host_read("list_windows", Vec::new(), None, cancel).await {
-            Ok(result) => Some(computer_gnome::window_rows(&result)),
-            Err(ComputerError::Cancelled) => return Err(ComputerError::Cancelled),
-            Err(_) => None,
-        };
-        let requested = text(command, "window_id").to_owned();
-        let target = match &windows {
-            Some(windows) if requested.is_empty() => windows.iter().find(|window| window.focused),
-            Some(windows) => windows.iter().find(|window| window.id == requested),
-            None => None,
-        };
-        let accessibility = match target {
-            Some(target) => Some(probe(self.host_read("accessibility_probe", vec![("window_id", json!(target.id))], None, cancel).await)?),
-            None => None,
-        };
-        let ocr_language = command.get("ocr_language").and_then(Value::as_str);
-        let ocr = probe(self.host_read("ocr_status", vec![("ocr_language", json!(ocr_language))], None, cancel).await)?;
-        let input = probe(self.host_read("input_idle_state", Vec::new(), None, cancel).await)?;
-        let readiness = computer_gnome::readiness(self.manager.clone(), (linux.env)()).await;
-        let displays = self.ask_desktop("host/computer/displays", json!({}), cancel).await?;
-        let report = computer_gnome::Diagnosis {
-            requested_window_id: &requested,
-            ocr_language,
-            windows,
-            accessibility,
-            ocr,
-            input,
-            displays: &displays,
-            readiness: &readiness,
-            // `observeOnly: isObserveOnly()`: the report's input_mode is the live setting's.
-            observe_only: self.config.observe_only || self.observing_only(),
-        };
-        Ok(vec![ToolPart::Text(computer_gnome::diagnose_text(&report))])
-    }
-
-    /// `capture`: the accessibility snapshot, plus the window's pixels unless the mode is `ax`.
-    async fn capture(&self, mut command: Map<String, Value>, asked_mode: &str, cancel: &CancellationToken) -> Result<Vec<ToolPart>, ComputerError> {
-        if command.contains_key("screen") {
-            return self.capture_screen(&command, asked_mode, cancel).await;
-        }
-        let mode = command.shift_remove("mode").and_then(|mode| mode.as_str().map(str::to_string)).unwrap_or_else(|| "state".into());
-        let mut parts = Vec::new();
-        let mut window = command.get("window_id").cloned();
-        if mode != "vision" {
-            command.insert("action".into(), json!("snapshot"));
-            let snapshot = self.call(command.clone(), cancel).await?;
-            window = snapshot.get("window_id").cloned().or(window);
-            parts.extend(parts_of(&snapshot)?);
-        }
-        if mode != "ax" {
-            command.insert("action".into(), json!("window_capture"));
-            if let Some(window) = window {
-                command.insert("window_id".into(), window);
-                command.shift_remove("app");
-            }
-            let image = self.call(command, cancel).await?;
-            let mut image_parts = parts_of(&image)?;
-            if mode != "vision" {
-                image_parts.retain(|part| matches!(part, ToolPart::Image { .. }));
-            }
-            parts.extend(image_parts);
-        }
-        Ok(parts)
-    }
 }
 
 impl Drop for ProcessComputerBackend {
     fn drop(&mut self) {
+        // Ends watch_for_death's task.
+        self.gone.notify_one();
         let held = locked(&self.host).take();
         let Some(host) = held else { return };
         let manager = self.manager.clone();
-        let cleanup = self.request(vec!["--abort-cleanup".to_owned()], false).ok();
+        let cleanup = self.cleanup().ok();
         // A drop cannot await: the stop and the cleanup run on the runtime, if there is one.
         match tokio::runtime::Handle::try_current() {
             Ok(runtime) => {
@@ -897,18 +1054,18 @@ fn leading_id(body: &str) -> Option<i64> {
     js_trim_start(rest).split(|c: char| !c.is_ascii_digit()).next()?.parse().ok()
 }
 
-/// A reply envelope: its `result` object, or its `error` text.
-fn envelope(value: Value) -> Result<Map<String, Value>, String> {
-    if value.get("ok").and_then(Value::as_bool) == Some(false) {
-        return Err(value.get("error").and_then(Value::as_str).unwrap_or("computer host request failed").to_string());
+/// A reply envelope: its `result` object, or its `error` text with the `result` an `ok:false` reply carried.
+fn envelope(value: Value) -> Reply {
+    let Value::Object(mut object) = value else { return Ok(Map::new()) };
+    let result = match object.shift_remove("result") {
+        Some(Value::Object(result)) => Some(result),
+        _ => None,
+    };
+    if object.get("ok").and_then(Value::as_bool) == Some(false) {
+        let text = object.get("error").and_then(Value::as_str).unwrap_or("computer host request failed").to_string();
+        return Err(HelperFailure { text, result });
     }
-    match value {
-        Value::Object(mut object) => match object.shift_remove("result") {
-            Some(Value::Object(result)) => Ok(result),
-            _ => Ok(Map::new()),
-        },
-        _ => Ok(Map::new()),
-    }
+    Ok(result.unwrap_or_default())
 }
 
 /// What Node's client answers when no desktop publishes the bridge: an error result of its own, with no recovery.
@@ -916,76 +1073,11 @@ fn bridge_unavailable() -> ComputerError {
     ComputerError::Failed { code: REPORTED_CODE.into(), message: format!("Error: {BRIDGE_UNAVAILABLE_MESSAGE}") }
 }
 
-/// A screen capture's reply as the tool returns it (`computerToolResult`): the reply text in its canonical form, the image with the
-/// size that text reports, and an error result when the text says the capture failed.
-fn screen_parts(reply: &Value, mode: &str) -> Result<Vec<ToolPart>, ComputerError> {
-    let Value::Object(reply) = reply else {
-        return Err(ComputerError::Failed { code: "computer_invalid_reply".into(), message: "computer bridge returned invalid or oversized text".into() });
-    };
-    let mut parts = parts_of(reply)?;
-    let raw = match &parts[0] {
-        ToolPart::Text(text) if !text.is_empty() => text.clone(),
-        _ => "OK".to_owned(),
-    };
-    let text = canonical_capture_text(&raw, mode);
-    let size = reported_size(&text);
-    if let Some(ToolPart::Image { width, height, .. }) = parts.get_mut(1) {
-        (*width, *height) = size.map_or((None, None), |(w, h)| (Some(w), Some(h)));
-    }
-    // The host's own flag counts on its own, as in `computerToolResult`.
-    if reply.get("isError") == Some(&json!(true)) || capture_failed(&text) {
-        return Err(ComputerError::Failed { code: REPORTED_CODE.into(), message: text });
-    }
-    parts[0] = ToolPart::Text(text);
-    Ok(parts)
-}
-
-/// `canonicalComputerResultText` for a capture (`result-canonical.mjs`): the action and mode are the call's, and the host's own
-/// diagnostics stay out of what the model reads. A screen capture has no elements or OCR lines to render.
-fn canonical_capture_text(text: &str, mode: &str) -> String {
-    let Ok(Value::Object(mut value)) = serde_json::from_str::<Value>(text) else { return text.to_owned() };
-    if !value.get("action").is_some_and(Value::is_string) {
-        return text.to_owned();
-    }
-    value.insert("action".into(), json!("capture"));
-    value.insert("mode".into(), json!(mode));
-    let mut value = Value::Object(value);
-    drop_host_diagnostics(&mut value);
-    value.to_string()
-}
-
-fn drop_host_diagnostics(value: &mut Value) {
-    match value {
-        Value::Array(items) => items.iter_mut().for_each(drop_host_diagnostics),
-        Value::Object(fields) => {
-            for field in ["timings_ms", "capture_attempts"] {
-                fields.shift_remove(field);
-            }
-            fields.values_mut().for_each(drop_host_diagnostics);
-        }
-        _ => {}
-    }
-}
-
-/// `computerImageDimensions`: the frame's real size, from the text's `width` and `height` (or its `observation`'s).
-fn reported_size(text: &str) -> Option<(u32, u32)> {
-    let value: Value = serde_json::from_str(text).ok()?;
-    [Some(&value), value.get("observation")].into_iter().flatten().find_map(|frame| {
-        let edge = |key: &str| frame.get(key).and_then(Value::as_f64).filter(|edge| *edge > 0.0 && edge.is_finite());
-        Some((edge("width")? as u32, edge("height")? as u32))
-    })
-}
-
-/// `canonicalComputerResultIsError` for a capture.
-fn capture_failed(text: &str) -> bool {
-    serde_json::from_str::<Value>(text).is_ok_and(|value| value.get("action") == Some(&json!("capture")) && value.get("ok") == Some(&json!(false)))
-}
-
 fn host_exited() -> ComputerError {
     ComputerError::Failed { code: "computer_host_exited".into(), message: "the computer host stopped".into() }
 }
 
-fn unsupported(reason: &str) -> ComputerError {
+pub(super) fn unsupported(reason: &str) -> ComputerError {
     ComputerError::Unavailable { reason: reason.into() }
 }
 
@@ -994,7 +1086,7 @@ fn host_error(message: &str) -> ComputerError {
     ComputerError::Failed { code: if code.is_empty() { "computer_failed".into() } else { code }, message: message.to_string() }
 }
 
-fn text_of(result: &Map<String, Value>) -> String {
+pub(super) fn text_of(result: &Map<String, Value>) -> String {
     match result.get("text") {
         Some(Value::String(text)) => text.clone(),
         _ => "OK".into(),
@@ -1003,7 +1095,7 @@ fn text_of(result: &Map<String, Value>) -> String {
 
 /// Tool parts of one helper result: its text, and its image when it carries one
 /// (`validateComputerReply` bounds both).
-fn parts_of(result: &Map<String, Value>) -> Result<Vec<ToolPart>, ComputerError> {
+pub(super) fn parts_of(result: &Map<String, Value>) -> Result<Vec<ToolPart>, ComputerError> {
     let invalid = |reason: &str| ComputerError::Failed { code: "computer_invalid_reply".into(), message: reason.into() };
     let text = text_of(result);
     if utf16_len(&text) > MAX_TEXT_CHARS {
@@ -1030,286 +1122,11 @@ fn parts_of(result: &Map<String, Value>) -> Result<Vec<ToolPart>, ComputerError>
     Ok(parts)
 }
 
-// --- the tool contract (`computer-bridge/action-schema.mjs`) --------------------------------
-
-fn has(input: &Map<String, Value>, key: &str) -> bool {
-    input.contains_key(key)
-}
-
-fn text<'a>(input: &'a Map<String, Value>, key: &str) -> &'a str {
-    input.get(key).and_then(Value::as_str).unwrap_or_default()
-}
-
-/// The rules beyond the tool's JSON schema (`validateComputerToolArgs`, minus the schema
-/// itself and the per-step rules of `act.actions`, which the helper enforces on each step).
-fn validate(action: ComputerAction, input: &Map<String, Value>) -> Result<(), String> {
-    let name = action.wire_name();
-    for field in ["window_id", "app", "frame_id"] {
-        if let Some(Value::String(value)) = input.get(field)
-            && js_trim(value).is_empty()
-        {
-            return Err(format!("Computer Use {name} {field} must not be empty"));
-        }
-    }
-    if matches!(action, ComputerAction::Act | ComputerAction::Window | ComputerAction::Menu | ComputerAction::Verify | ComputerAction::SavedLogin)
-        && ["window_id", "app"].iter().filter(|key| has(input, key)).count() != 1
-    {
-        return Err(format!("Computer Use {name} requires exactly one of window_id or app"));
-    }
-    match action {
-        ComputerAction::Capture => capture_error(input),
-        ComputerAction::List => list_error(input),
-        ComputerAction::Menu => menu_error(input),
-        ComputerAction::Verify => verify_error(input),
-        ComputerAction::Act => {
-            if input.get("actions").and_then(Value::as_array).is_none_or(Vec::is_empty) {
-                Err("Computer Use action \"act\" requires input field(s): actions".into())
-            } else {
-                Ok(())
-            }
-        }
-        ComputerAction::Window => window_error(input),
-        ComputerAction::Clipboard => clipboard_error(input),
-        ComputerAction::Launch => launch_error(input),
-        ComputerAction::SavedLogin => saved_login_error(input),
-        ComputerAction::Diagnose | ComputerAction::WaitForUser => Ok(()),
-    }
-}
-
-fn capture_error(input: &Map<String, Value>) -> Result<(), String> {
-    let mode = input.get("mode").and_then(Value::as_str).filter(|m| !m.is_empty()).unwrap_or("state");
-    let targets = ["window_id", "app", "screen"].iter().filter(|key| has(input, key)).count();
-    let include_ocr = input.get("include_ocr") == Some(&Value::Bool(true));
-    let err = |message: &str| Err(format!("Computer Use {message}"));
-    if targets > 1 {
-        return err("capture accepts at most one of window_id, app, or screen");
-    }
-    if mode == "zoom" && (!has(input, "frame_id") || !has(input, "region")) {
-        return err("capture mode=\"zoom\" requires input field(s): frame_id, region");
-    }
-    if mode == "zoom" && targets > 0 {
-        return err("capture mode=\"zoom\" accepts frame_id and region instead of a window, app, or screen target");
-    }
-    if mode != "zoom" && (has(input, "frame_id") || has(input, "region")) {
-        return err("capture frame_id/region requires mode=\"zoom\"");
-    }
-    if mode == "ax" && include_ocr {
-        return err("capture include_ocr is unavailable with mode=\"ax\"");
-    }
-    if mode == "zoom" && has(input, "ocr_language") && !include_ocr {
-        return err("capture mode=\"zoom\" reads text only with include_ocr");
-    }
-    if mode == "ax" && has(input, "image_output") {
-        return err("capture image_output requires a mode that returns pixels");
-    }
-    if has(input, "screen") && mode != "vision" {
-        return err("capture screen requires mode=\"vision\"");
-    }
-    Ok(())
-}
-
-fn list_error(input: &Map<String, Value>) -> Result<(), String> {
-    let history = text(input, "kind") == "history";
-    if has(input, "limit") && !history {
-        return Err("Computer Use list limit applies to kind=\"history\"".into());
-    }
-    if has(input, "query") && history {
-        return Err("Computer Use list query applies to kind=\"windows\" or kind=\"apps\"".into());
-    }
-    Ok(())
-}
-
-fn menu_error(input: &Map<String, Value>) -> Result<(), String> {
-    let bad = input
-        .get("path")
-        .and_then(Value::as_array)
-        .is_some_and(|path| path.iter().any(|segment| segment.as_str().is_none_or(|s| js_trim(s).is_empty())));
-    if bad { Err("Computer Use menu path segments must be non-empty labels".into()) } else { Ok(()) }
-}
-
-fn verify_error(input: &Map<String, Value>) -> Result<(), String> {
-    const ALLOWED: [&str; 4] = ["present", "absent", "title_contains", "window_exists"];
-    for (index, predicate) in input.get("expect").and_then(Value::as_array).into_iter().flatten().enumerate() {
-        let n = index + 1;
-        let Some(predicate) = predicate.as_object() else {
-            return Err(format!("Computer Use verify predicate {n} must be an object"));
-        };
-        let extras: Vec<&str> = predicate.keys().map(String::as_str).filter(|k| !ALLOWED.contains(k)).collect();
-        if !extras.is_empty() {
-            return Err(format!("Computer Use verify predicate {n} does not accept field(s): {}", extras.join(", ")));
-        }
-        if predicate.len() != 1 {
-            return Err(format!("Computer Use verify predicate {n} takes exactly one condition"));
-        }
-        let (key, value) = predicate.iter().next().ok_or_else(|| format!("Computer Use verify predicate {n} takes exactly one condition"))?;
-        if key == "window_exists" {
-            if !value.is_boolean() {
-                return Err(format!("Computer Use verify predicate {n} window_exists must be a boolean"));
-            }
-        } else {
-            let Some(value) = value.as_str() else {
-                return Err(format!("Computer Use verify predicate {n} text must be a string"));
-            };
-            if js_trim(value).is_empty() {
-                return Err(format!("Computer Use verify predicate {n} text must not be empty"));
-            }
-        }
-    }
-    Ok(())
-}
-
-fn window_error(input: &Map<String, Value>) -> Result<(), String> {
-    if text(input, "operation") == "move" && !["x", "y", "width", "height"].iter().any(|key| has(input, key)) {
-        return Err("Computer Use window operation=\"move\" requires x, y, width, or height".into());
-    }
-    Ok(())
-}
-
-fn clipboard_error(input: &Map<String, Value>) -> Result<(), String> {
-    match text(input, "operation") {
-        "write" if !has(input, "text") => Err("Computer Use clipboard operation=\"write\" requires input field: text".into()),
-        "read" if has(input, "text") => Err("Computer Use clipboard operation=\"read\" does not accept input field: text".into()),
-        _ => Ok(()),
-    }
-}
-
-fn launch_error(input: &Map<String, Value>) -> Result<(), String> {
-    let app = match input.get("app") {
-        Some(Value::String(app)) => js_trim(app).to_string(),
-        _ => String::new(),
-    };
-    if app.is_empty() {
-        return Err("Computer Use launch app must not be empty".into());
-    }
-    let compile = |pattern: &str, flags: &str| JsRegex::new(pattern, flags);
-    let http = compile(r"^https?://", "i")?.is_match(&app);
-    if compile(r"[\r\n\0]|javascript:", "i")?.is_match(&app) || (!http && compile(r"&&|\|\|", "")?.is_match(&app)) {
-        return Err("Computer Use launch app must be one executable, file, or URL without command syntax".into());
-    }
-    if !http
-        && (compile(r#"(?:^|[\\/"'])\s*(?:cmd|powershell|pwsh|wt|wsl|bash|sh|zsh|fish|nu|wscript|cscript|mshta|rundll32|regsvr32)(?:\.exe)?(?:["'\s]|$)"#, "i")?
-            .is_match(&app)
-            || compile(r#"\.(?:bat|cmd|ps1|vbs|vbe|js|jse|wsf|wsh|hta|lnk|url|appref-ms)(?:["']?\s*)$"#, "i")?.is_match(&app))
-    {
-        return Err("Computer Use launch blocks shells, script hosts, and shortcut files; use an exact non-shell executable, document, or URL".into());
-    }
-    Ok(())
-}
-
-fn saved_login_error(input: &Map<String, Value>) -> Result<(), String> {
-    if js_trim(&text(input, "savedAccount")).is_empty() {
-        return Err("Computer Use saved_login savedAccount must not be empty".into());
-    }
-    Ok(())
-}
-
-/// One `act.actions` entry as the host sequence step it becomes (`toHostSequenceStep`).
-fn host_step(step: &Value, frame_id: Option<&Value>) -> Value {
-    let Some(step) = step.as_object() else { return step.clone() };
-    let mut out = step.clone();
-    let kind = out.shift_remove("type").unwrap_or(Value::Null);
-    let mut action = kind.clone();
-    match kind.as_str() {
-        Some("click") => {
-            action = match text(step, "button") {
-                "right" => json!("right_click"),
-                "middle" => json!("middle_click"),
-                _ => json!("click"),
-            };
-            out.shift_remove("button");
-        }
-        Some("move") => action = json!("mouse_move"),
-        Some("set_value") => {
-            if let Some(value) = out.shift_remove("value") {
-                out.insert("text".into(), value);
-            }
-        }
-        _ => {}
-    }
-    out.insert("action".into(), action);
-    if let Some(frame) = frame_id
-        && ["x", "y", "to_x", "to_y", "waypoints"].iter().any(|key| has(step, key))
-    {
-        out.insert("frame_id".into(), frame.clone());
-    }
-    Value::Object(out)
-}
-
-/// The helper command a tool call becomes (`toComputerHostCommand`).
-fn host_command(action: ComputerAction, input: &Map<String, Value>) -> Map<String, Value> {
-    let mut command = input.clone();
-    let set = |command: &mut Map<String, Value>, name: &str| {
-        command.insert("action".into(), json!(name));
-    };
-    match action {
-        ComputerAction::List => {
-            let name = match text(input, "kind") {
-                "apps" => "list_apps",
-                "history" => "list_history",
-                _ => "list_windows",
-            };
-            set(&mut command, name);
-            command.shift_remove("kind");
-        }
-        ComputerAction::Capture => {
-            if text(input, "mode") == "zoom" {
-                set(&mut command, "zoom");
-                command.shift_remove("mode");
-            } else {
-                set(&mut command, "capture");
-            }
-        }
-        ComputerAction::Menu => set(&mut command, "invoke_menu"),
-        ComputerAction::Act => {
-            set(&mut command, "sequence");
-            let delivery = input.get("delivery").cloned().unwrap_or_else(|| json!(DEFAULT_DELIVERY));
-            command.insert("delivery".into(), delivery);
-            let frame = input.get("frame_id").filter(|frame| frame.as_str().is_none_or(|f| !f.is_empty()));
-            let steps: Vec<Value> = input.get("actions").and_then(Value::as_array).into_iter().flatten().map(|step| host_step(step, frame)).collect();
-            command.insert("steps".into(), Value::Array(steps));
-            if let Some(mode) = input.get("observe").filter(|m| m.as_str().is_none_or(|m| !m.is_empty())) {
-                command.insert("capture_after_mode".into(), mode.clone());
-            }
-            for key in ["observe", "actions", "frame_id"] {
-                command.shift_remove(key);
-            }
-        }
-        ComputerAction::Window => {
-            let operation = text(input, "operation");
-            let name = match operation {
-                "focus" => "focus_window",
-                "move" => "move_window",
-                "close" => "close_window",
-                "terminate" => "terminate_process",
-                _ => {
-                    command.insert("state".into(), json!(operation));
-                    "window_state"
-                }
-            };
-            set(&mut command, name);
-            command.shift_remove("operation");
-        }
-        ComputerAction::Clipboard => {
-            set(&mut command, if text(input, "operation") == "write" { "clipboard_write" } else { "clipboard_read" });
-            command.shift_remove("operation");
-        }
-        ComputerAction::SavedLogin => {
-            set(&mut command, "fill_saved_login");
-            if let Some(account) = command.shift_remove("savedAccount") {
-                command.insert("saved_account".into(), account);
-            }
-            command.insert("delivery".into(), json!("foreground"));
-        }
-        other => set(&mut command, other.wire_name()),
-    }
-    command
-}
-
 #[async_trait]
 impl ComputerSecretHost for ProcessComputerBackend {
     async fn execute(&self, command: Map<String, Value>) -> Result<Map<String, Value>, String> {
         // A handoff secret is typed through the host's router, which refuses input while "Observation only" is on (`find` is a read).
-        if let Err(ComputerError::Failed { message, .. }) = self.assert_observation_input_allowed(text(&command, "action")) {
+        if let Err(ComputerError::Failed { message, .. }) = computer_policy::admit(&command, self.observe_only()) {
             return Err(message);
         }
         self.call(command, &CancellationToken::new()).await.map_err(|error| match error {
@@ -1345,7 +1162,9 @@ impl ComputerBackend for ProcessComputerBackend {
         };
         validate(request.action, input).map_err(|reason| ComputerError::InvalidInput { reason })?;
         let asked_mode = text(input, "mode");
-        let mut command = host_command(request.action, input);
+        let mut command = host_command(request.action, input)?;
+        // The host admits a command before anything of it is queued (`command-queue.ts` `budget.acquire`); the slot is held until it ends.
+        let _slot = self.shared.budget.acquire(&self.config.session_id)?;
         // On Linux a default capture without window control becomes a full-screen capture, and an action whose own capability
         // (input device, window control, AT-SPI, ...) is missing is refused before anything is dispatched (`client.mjs:300,320`).
         let mut note = None;
@@ -1363,18 +1182,18 @@ impl ComputerBackend for ProcessComputerBackend {
                 return Err(ComputerError::Failed { code: refusal.code.into(), message: refusal.message });
             }
         }
-        let name = text(&command, "action").to_string();
-        // `assertObservationInputAllowed` at admission: while "Observation only" is on, anything but a read is refused before it
-        // opens an execution or reaches the helper. Node's client has already tracked the session and its coordinator begun the
-        // pill when its router refuses; this core refuses first, so a refused input leaves the session unbound and shows no pill.
-        self.assert_observation_input_allowed(&name)?;
         // `trackComputerSession` (`client.mjs:366-371`) runs for each command sent.
         self.bound.store(true, Ordering::SeqCst);
+        self.shared.lane.claim(&self.config.session_id);
+        let observe_only = self.observe_only();
         if !self.executing.swap(true, Ordering::SeqCst) {
             if let Some(observer) = &self.observer {
-                observer.began(self.config.observe_only);
+                observer.began(observe_only);
             }
         }
+        // The host's admission (`command-admission.ts` `assertCommandPreconditions`) checks the live setting first.
+        computer_policy::admit(&command, observe_only)?;
+        let name = text(&command, "action").to_string();
         // While a typed secret's field may hold focus no capture leaves the host: a read is
         // refused, and the next action (which moves on) lifts the hold.
         if self.secret_focus.load(Ordering::SeqCst) {
@@ -1386,48 +1205,43 @@ impl ComputerBackend for ProcessComputerBackend {
             }
             self.secret_focus.store(false, Ordering::SeqCst);
         }
+        // Every command of the host starts with a look at the windows that opened since the session's last one.
+        let arrived = computer_settle::arrived_before(self, &name, &cancel).await?;
+        computer_targets::resolve(self, &mut command, &cancel).await?;
+        let _lane = self.shared.lane.enter(computer_lane::Kind::of(&command), &cancel).await?;
+        // The person's hold on the desktop: a takeover refuses the command, a yield answers it, before anything is dispatched.
+        let control = &self.shared.user_control;
+        if let Some(held) = control.admit(self, &command, &cancel).await? {
+            return Ok(held);
+        }
+        let issued = command.clone();
         let result = match name.as_str() {
             "sequence" => self.act(command, &cancel).await,
             "capture" => self.capture(command, asked_mode, &cancel).await,
-            "zoom" => Err(unsupported("capture mode=\"zoom\" needs the desktop host's frame store")),
+            "zoom" => computer_zoom::zoom(self, command, &cancel).await,
             "list_history" => Err(unsupported("list kind=\"history\" needs the desktop host's action ledger")),
-            "wait_for_user" => Err(unsupported("wait_for_user needs the desktop host's user-wait service")),
+            "wait_for_user" => control.wait_for_user(self, &command, &cancel).await,
             "fill_saved_login" => Err(unsupported("saved_login needs the desktop host's secret store")),
-            "verify" => {
-                command.insert("action".into(), json!("window_predicates"));
-                parts_of(&self.call(command, &cancel).await?)
-            }
-            "diagnose" => match &self.linux {
-                Some(linux) => self.diagnose(linux, &command, &cancel).await,
-                None => {
-                    let mut parts = Vec::new();
-                    for probe in ["accessibility_probe", "ocr_status"] {
-                        let mut probe_command = Map::new();
-                        probe_command.insert("action".into(), json!(probe));
-                        parts.extend(parts_of(&self.call(probe_command, &cancel).await?)?);
-                    }
-                    Ok(parts)
-                }
-            },
-            "list_apps" => {
-                command.insert("action".into(), json!("list_installed_apps"));
-                parts_of(&self.call(command, &cancel).await?)
-            }
-            _ => parts_of(&self.call(command, &cancel).await?),
+            "verify" => computer_verify::run(self, command, &cancel).await,
+            "diagnose" => self.diagnose(&command, &cancel).await,
+            _ => self.single(&name, command, &cancel).await,
         };
+        // The person's input that interrupted the command yields its session, a takeover code hands the desktop back.
+        let result = control.settle(self, &issued, result).await;
+        // The arrivals report reads the window list for app names: it runs after the lane is given back, as TS reported after
+        // runForegroundExclusive returned (`command-attempt.ts`).
+        drop(_lane);
         // The fallback's note follows a result that is not an error.
-        result.map(|mut parts| {
-            if let Some(note) = note {
-                parts.push(ToolPart::Text(note.into()));
-            }
-            parts
-        })
+        let mut parts = result?;
+        computer_settle::report_arrived(self, &name, arrived, &mut parts, &cancel).await?;
+        if let Some(note) = note {
+            parts.push(ToolPart::Text(note.into()));
+        }
+        Ok(parts)
     }
 
     fn inject(&self, input: ScreenInput) -> Result<InputOutcome, ComputerError> {
-        if self.config.observe_only {
-            return Err(ComputerError::Denied);
-        }
+        computer_policy::admit_screen_input(self.observe_only())?;
         self.screen.inject(input)
     }
 
@@ -1449,7 +1263,7 @@ impl ComputerBackend for ProcessComputerBackend {
 
     fn status(&self) -> ComputerStatus {
         let active = locked(&self.host).as_ref().is_some_and(|host| host.alive.load(Ordering::SeqCst));
-        ComputerStatus { active, observe_only: self.config.observe_only, controller: None }
+        ComputerStatus { active, observe_only: self.observe_only(), controller: None }
     }
 }
 
@@ -1491,45 +1305,6 @@ mod tests {
     }
 
     #[test]
-    fn tool_calls_become_the_host_commands_node_sends() {
-        let list = host_command(ComputerAction::List, &input(json!({"kind":"apps","query":"x"})));
-        assert_eq!(Value::Object(list), json!({"action":"list_apps","query":"x"}));
-        let window = host_command(ComputerAction::Window, &input(json!({"operation":"minimize","window_id":"w"})));
-        assert_eq!(Value::Object(window), json!({"action":"window_state","state":"minimize","window_id":"w"}));
-        let act = host_command(
-            ComputerAction::Act,
-            &input(json!({"window_id":"w","observe":"ax","frame_id":"f","actions":[
-                {"type":"click","button":"right","x":1,"y":2},
-                {"type":"set_value","value":"v","ref":"e1"},
-                {"type":"move","x":3,"y":4}]})),
-        );
-        assert_eq!(
-            Value::Object(act),
-            json!({"action":"sequence","window_id":"w","delivery":"background","capture_after_mode":"ax","steps":[
-                {"action":"right_click","x":1,"y":2,"frame_id":"f"},
-                {"action":"set_value","text":"v","ref":"e1"},
-                {"action":"mouse_move","x":3,"y":4,"frame_id":"f"}]})
-        );
-        let login = host_command(ComputerAction::SavedLogin, &input(json!({"savedAccount":"a","app":"b"})));
-        assert_eq!(Value::Object(login), json!({"action":"fill_saved_login","saved_account":"a","app":"b","delivery":"foreground"}));
-    }
-
-    #[test]
-    fn cross_field_rules_match_the_node_messages() {
-        let err = |action, value: Value| validate(action, &input(value)).unwrap_err();
-        assert_eq!(err(ComputerAction::Window, json!({"operation":"focus"})), "Computer Use window requires exactly one of window_id or app");
-        assert_eq!(
-            err(ComputerAction::Capture, json!({"mode":"zoom"})),
-            "Computer Use capture mode=\"zoom\" requires input field(s): frame_id, region"
-        );
-        assert_eq!(err(ComputerAction::List, json!({"limit":3})), "Computer Use list limit applies to kind=\"history\"");
-        assert!(err(ComputerAction::Launch, json!({"app":"powershell.exe"})).starts_with("Computer Use launch blocks shells"));
-        assert!(err(ComputerAction::Launch, json!({"app":"a && b"})).ends_with("without command syntax"));
-        assert!(validate(ComputerAction::Launch, &input(json!({"app":"https://example.com/a&&b"}))).is_ok());
-        assert!(validate(ComputerAction::Capture, &input(json!({"window_id":"w"}))).is_ok());
-    }
-
-    #[test]
     fn error_codes_and_replies() {
         assert_eq!(error_code("Error: Stale_Target: gone"), "stale_target");
         assert_eq!(error_code("no code here"), "");
@@ -1539,8 +1314,19 @@ mod tests {
         assert_eq!(parts[0], ToolPart::Text("hi".into()));
         assert_eq!(parts[1], ToolPart::Image { mime: "image/png".into(), data: ImageData::Bytes(b"hi".to_vec()), width: None, height: None });
         assert!(parts_of(&input(json!({"image":{"data":"aGk=","mimeType":"image/gif"}}))).is_err());
-        assert_eq!(envelope(json!({"id":1,"ok":false,"error":"x"})), Err("x".into()));
+        assert_eq!(envelope(json!({"id":1,"ok":false,"error":"x"})), Err(HelperFailure { text: "x".into(), result: None }));
         assert_eq!(leading_id("{\"id\": 42,\"ok\":true"), Some(42));
+    }
+
+    /// An `ok:false` reply keeps the `result` it carried (a capture's `capture_cleanup`), and its text is the error as before.
+    #[test]
+    fn a_failed_reply_keeps_the_result_it_carried() {
+        let reply = envelope(json!({"id":1,"ok":false,"error":"capture_failed: x","result":{"capture_cleanup":{"status":"unconfirmed"}}}));
+        let failure = reply.unwrap_err();
+        assert_eq!(failure.text, "capture_failed: x");
+        assert_eq!(failure.result.as_ref().and_then(|result| result.get("capture_cleanup")), Some(&json!({"status":"unconfirmed"})));
+        assert_eq!(failure.into_error(), ComputerError::Failed { code: "capture_failed".into(), message: "capture_failed: x".into() });
+        assert_eq!(envelope(json!({"id":2,"ok":true,"result":{"text":"a"}})), Ok(input(json!({"text":"a"}))));
     }
 
     #[test]
@@ -1561,6 +1347,17 @@ mod tests {
     impl EventSource<ProcessEvent> for Script {
         async fn next(&mut self) -> Option<ProcessEvent> {
             self.0.pop_front()
+        }
+    }
+
+    /// The readers of a helper with no desktop.
+    fn readers(pending: &Pending) -> Readers {
+        Readers {
+            pending: pending.clone(),
+            relay: computer_lease::Relay::new(Arc::new(Answering::default()), ProcessHandle("h".into()), pending.clone(), None),
+            pointer: computer_feedback::Pointer::new(None, "s1"),
+            gone: Arc::default(),
+            live: None,
         }
     }
 
@@ -1587,25 +1384,59 @@ mod tests {
         );
         let alive = Arc::new(AtomicBool::new(true));
         let (done, exited) = watch::channel(false);
-        pump(Box::new(events), pending, alive.clone(), done).await;
+        pump(Box::new(events), readers(&pending), alive.clone(), done).await;
         assert!(!alive.load(Ordering::SeqCst));
         assert!(*exited.borrow());
         let outcomes = locked(&outcomes);
         assert_eq!(outcomes[0].0, 1);
         assert_eq!(outcomes[0].1.as_ref().unwrap().get("text"), Some(&json!("a")));
         assert_eq!(outcomes[1].0, 2);
-        assert!(outcomes[1].1.as_ref().unwrap_err().starts_with("computer_host_exited"));
+        assert!(outcomes[1].1.as_ref().unwrap_err().text.starts_with("computer_host_exited"));
+    }
+
+    /// Foreground-lease and pointer lines go to their readers: neither answers nor fails the request in flight, even one that
+    /// looks like its reply, and the reply that follows them is delivered.
+    #[tokio::test]
+    async fn side_lines_never_answer_or_fail_a_request() {
+        use mixdog_core_api::domain::process::ExitStatus;
+        use mixdog_core_api::domain::process::ProcessExit;
+
+        let pending: Pending = Arc::default();
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let into = seen.clone();
+        locked(&pending).insert(1, Box::new(move |outcome| locked(&into).push(outcome)));
+        let output = |seq, text: &str| ProcessEvent::Output { seq, stream: OutputStream::Stdout, bytes: text.as_bytes().to_vec() };
+        let events = Script(
+            [
+                output(0, "@@MIXDOG_FGLOCK@@ acquire 1 1 0 200 5.000\n@@MIXDOG_POINTER@@{\"id\":1,\"ok\":false,\"error\":\"not a reply\"}\n"),
+                output(1, "@@MIXDOG_FGLOCK@@{\"id\":1\n@@MIXCU@@{\"id\":1,\"ok\":true,\"result\":{\"text\":\"a\"}}\n"),
+                ProcessEvent::Exited { seq: 2, exit: ProcessExit { status: ExitStatus::Code(0), killed: None } },
+            ]
+            .into(),
+        );
+        let (done, _exited) = watch::channel(false);
+        pump(Box::new(events), readers(&pending), Arc::new(AtomicBool::new(true)), done).await;
+        // Had a side line answered or failed request 1, its waiter would hold that outcome and the reply would find none.
+        let want: Vec<Reply> = vec![Ok(input(json!({"text":"a"})))];
+        assert_eq!(*locked(&seen), want);
     }
 
     type Feeds = Mutex<HashMap<String, tokio::sync::mpsc::UnboundedSender<ProcessEvent>>>;
 
-    /// A helper that answers every request line `ok` (except a `hang`) and a cleanup run that exits 0, with no OS
-    /// process behind it: the backend's own launch, write and reply code runs, on every platform.
+    /// A helper that answers every request line `ok` (except a `hang`, a `fail` that carries a result, and a `chatty` that
+    /// writes side lines first) and a cleanup run that exits 0, with no OS process behind it: the backend's own launch, write and
+    /// reply code runs, on every platform. It keeps every start and every request line.
     #[derive(Default)]
     struct Answering {
         senders: Feeds,
         receivers: Mutex<HashMap<String, tokio::sync::mpsc::UnboundedReceiver<ProcessEvent>>>,
         seq: AtomicU64,
+        spawned: Mutex<Vec<SpawnRequest>>,
+        lines: Mutex<Vec<Value>>,
+        /// The cleanup runs exit 1 instead of 0.
+        failing_cleanup: AtomicBool,
+        /// The helper takes every request and answers none of them.
+        silent: AtomicBool,
     }
 
     struct Feed(tokio::sync::mpsc::UnboundedReceiver<ProcessEvent>);
@@ -1621,13 +1452,22 @@ mod tests {
         fn emit(&self, handle: &ProcessHandle, event: impl FnOnce(u64) -> ProcessEvent) {
             let seq = self.seq.fetch_add(1, Ordering::SeqCst);
             let sender = locked(&self.senders).get(&handle.0).cloned().expect("a spawned handle");
-            sender.send(event(seq)).expect("the pump is listening");
+            // A helper that already exited has no listener left.
+            let _ = sender.send(event(seq));
+        }
+
+        fn say(&self, handle: &ProcessHandle, line: String) {
+            self.emit(handle, |seq| ProcessEvent::Output { seq, stream: OutputStream::Stdout, bytes: format!("{line}\n").into_bytes() });
         }
 
         fn exit(seq: u64, killed: Option<mixdog_core_api::domain::process::KillReason>) -> ProcessEvent {
+            Self::exit_with(seq, 0, killed)
+        }
+
+        fn exit_with(seq: u64, code: i32, killed: Option<mixdog_core_api::domain::process::KillReason>) -> ProcessEvent {
             use mixdog_core_api::domain::process::ExitStatus;
             use mixdog_core_api::domain::process::ProcessExit;
-            ProcessEvent::Exited { seq, exit: ProcessExit { status: ExitStatus::Code(0), killed } }
+            ProcessEvent::Exited { seq, exit: ProcessExit { status: ExitStatus::Code(code), killed } }
         }
     }
 
@@ -1637,8 +1477,10 @@ mod tests {
             let (send, receive) = tokio::sync::mpsc::unbounded_channel();
             locked(&self.senders).insert(request.handle.0.clone(), send);
             locked(&self.receivers).insert(request.handle.0.clone(), receive);
+            locked(&self.spawned).push(request.clone());
             if !request.stdin_piped {
-                self.emit(&request.handle, |seq| Self::exit(seq, None));
+                let code = i32::from(self.failing_cleanup.load(Ordering::SeqCst));
+                self.emit(&request.handle, |seq| Self::exit_with(seq, code, None));
             }
             Ok(mixdog_core_api::domain::process::SpawnedProcess { handle: request.handle, pid: 1 })
         }
@@ -1650,9 +1492,27 @@ mod tests {
 
         async fn write_stdin(&self, handle: &ProcessHandle, bytes: Vec<u8>) -> Result<(), ProcessError> {
             let request: Value = serde_json::from_slice(&bytes).expect("a request line");
-            if request["action"] != "hang" {
-                let reply = format!("{RESPONSE_MARKER}{}\n", json!({"id": request["id"], "ok": true, "result": {"text": "ok"}}));
-                self.emit(handle, |seq| ProcessEvent::Output { seq, stream: OutputStream::Stdout, bytes: reply.into_bytes() });
+            locked(&self.lines).push(request.clone());
+            let id = &request["id"];
+            match request["action"].as_str() {
+                _ if self.silent.load(Ordering::SeqCst) => {}
+                Some("hang") => {}
+                Some("die") => self.emit(handle, |seq| Self::exit(seq, None)),
+                Some("stuck") => self.say(
+                    handle,
+                    format!("{RESPONSE_MARKER}{}", json!({"id": id, "ok": true, "result": {"observer_ready": false, "observer_reason": "monitor_unresponsive"}})),
+                ),
+                Some("ready") => self.say(handle, format!("{RESPONSE_MARKER}{}", json!({"id": id, "ok": true, "result": {"observer_ready": true}}))),
+                Some("fail") => self.say(
+                    handle,
+                    format!("{RESPONSE_MARKER}{}", json!({"id": id, "ok": false, "error": "capture_failed: x", "result": {"capture_cleanup": {"status": "unconfirmed"}}})),
+                ),
+                Some("chatty") => {
+                    self.say(handle, format!("@@MIXDOG_FGLOCK@@ acquire {id} 1 0 200 5.000"));
+                    self.say(handle, format!("@@MIXDOG_POINTER@@{}", json!({"id": id, "ok": false, "error": "not a reply"})));
+                    self.say(handle, format!("{RESPONSE_MARKER}{}", json!({"id": id, "ok": true, "result": {"text": "ok"}})));
+                }
+                _ => self.say(handle, format!("{RESPONSE_MARKER}{}", json!({"id": id, "ok": true, "result": {"text": "ok"}}))),
             }
             Ok(())
         }
@@ -1718,74 +1578,376 @@ mod tests {
         let cancel = CancellationToken::new();
         let receive = backend.send(input(json!({"action":"hang"})), &cancel).await.unwrap();
         cancel.cancel();
-        assert_eq!(backend.wait_reply(receive, &cancel).await, Err(ComputerError::Cancelled));
+        assert_eq!(backend.wait_reply(receive, COMMAND_TIMEOUT, &cancel).await, Err(ComputerError::Cancelled));
         assert_eq!(seen(), ["began:false", "ended"], "a cancelled call aborts the session");
     }
 
-    /// `assertObservationInputAllowed`: while the desktop's "Observation only" is on, an input is refused in Node's words before it
-    /// opens an execution or starts the helper, and a read still runs; once it is off, the same input runs.
+    /// A cleanup the helper cannot confirm (timeout, dead helper, abort) hands the desktop to the user, also once the session's
+    /// execution has closed (no session is open here), while the command keeps its own error (`lifecycle-abort.ts:unconfirmedCleanup`).
     #[tokio::test]
-    async fn observation_only_refuses_input_at_admission() {
-        let observing = Arc::new(AtomicBool::new(true));
-        let edges = Arc::new(Edges::default());
-        let setting = observing.clone();
-        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), Arc::new(Answering::default()))
-            .with_observer(edges.clone())
-            .with_observe_only_setting(Arc::new(move || setting.load(Ordering::SeqCst)));
-        let write = || ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"write","text":"x"}) };
+    async fn an_unconfirmed_cleanup_hands_the_desktop_to_the_user() {
+        let read = || ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"read"}) };
+        let started = || {
+            let manager = Arc::new(Answering::default());
+            let control = Arc::new(UserControlState::default());
+            let shared = ComputerShared { user_control: control.clone(), ..ComputerShared::default() };
+            (ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager.clone()).with_shared(shared), manager, control)
+        };
+        let held = |control: &UserControlState| control.section().map(|section| section.reason);
 
-        assert_eq!(
-            backend.run(write(), CancellationToken::new()).await,
-            Err(ComputerError::Failed {
-                code: "observation_only".into(),
-                message: "observation_only: Computer Use is observing only, so 'clipboard_write' input is blocked. Turn off \"Observation only\" in Settings to allow input.".into(),
-            })
-        );
-        assert!(!backend.is_bound() && !backend.status().active, "nothing reached the helper");
-        assert!(locked(&edges.0).is_empty(), "no execution opened");
+        let (backend, manager, control) = started();
+        backend.run(read(), CancellationToken::new()).await.unwrap();
+        assert!(backend.abort_session().await);
+        assert_eq!(held(&control), None, "a confirmed cleanup holds nothing");
+
+        manager.failing_cleanup.store(true, Ordering::SeqCst);
+        backend.run(read(), CancellationToken::new()).await.unwrap();
+        assert!(!backend.abort_session().await);
+        assert_eq!(held(&control).as_deref(), Some("input_cleanup_unconfirmed"));
+
+        let (backend, manager, control) = started();
+        backend.run(read(), CancellationToken::new()).await.unwrap();
+        manager.failing_cleanup.store(true, Ordering::SeqCst);
+        let cancel = CancellationToken::new();
+        let receive = backend.send(input(json!({"action":"hang"})), &cancel).await.unwrap();
+        let waited = backend.wait_reply(receive, Duration::from_millis(50), &cancel).await;
+        assert!(matches!(waited, Err(ComputerError::Failed { ref code, .. }) if code == "computer_command_timeout"), "{waited:?}");
+        assert_eq!(held(&control).as_deref(), Some("input_cleanup_unconfirmed"));
+
+        let (backend, manager, control) = started();
+        backend.run(read(), CancellationToken::new()).await.unwrap();
+        manager.failing_cleanup.store(true, Ordering::SeqCst);
+        let error = backend.call(input(json!({"action":"die"})), &CancellationToken::new()).await.unwrap_err();
+        assert!(matches!(&error, ComputerError::Failed { code, .. } if code == "computer_host_exited"), "{error:?}");
+        assert_eq!(held(&control).as_deref(), Some("input_cleanup_unconfirmed"));
+    }
+
+    /// A cleanup that did not confirm stays latched: Resume retries it once and leaves the desktop with the person while it still
+    /// does not confirm, and releases it when it does (`recoverLatchedCleanup`, `resumeByUser`).
+    #[tokio::test]
+    async fn a_latched_cleanup_is_recovered_before_resume() {
+        let manager = Arc::new(Answering::default());
+        let control = Arc::new(UserControlState::new(Duration::ZERO));
+        let shared = ComputerShared { user_control: control.clone(), ..ComputerShared::default() };
+        let backend = Arc::new(ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager.clone()).with_shared(shared));
+        control.register("s1", Arc::downgrade(&backend));
         let read = ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"read"}) };
         backend.run(read, CancellationToken::new()).await.unwrap();
-        observing.store(false, Ordering::SeqCst);
-        backend.run(write(), CancellationToken::new()).await.unwrap();
+        manager.failing_cleanup.store(true, Ordering::SeqCst);
+        assert!(!backend.abort_session().await);
+        assert!(control.is_latched());
+        assert_eq!(control.section().map(|section| section.reason).as_deref(), Some("input_cleanup_unconfirmed"));
+        assert!(!control.resume_verified(None).await, "the click alone does not clear it");
+        assert!(control.is_latched() && control.section().is_some());
+        manager.failing_cleanup.store(false, Ordering::SeqCst);
+        assert!(control.resume_verified(None).await);
+        assert!(!control.is_latched());
+        assert_eq!(control.section(), None);
     }
 
-    /// A secret typed by a handoff goes through `execute`, which `run` does not: "Observation only" refuses its `type` in Node's
-    /// words and still admits its `find`.
+    /// A session holds four commands pending (`createComputerCommandBudget`): the fifth concurrent one through `run` is refused with
+    /// nothing queued, in the host's words, and a command that ended frees its slot.
     #[tokio::test]
-    async fn observation_only_refuses_a_secret_type_but_admits_its_find() {
-        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), Arc::new(Answering::default()))
-            .with_observe_only_setting(Arc::new(|| true));
-        let command = |action: &str| input(json!({"action": action}));
-        assert_eq!(
-            ComputerSecretHost::execute(&backend, command("type")).await,
-            Err("observation_only: Computer Use is observing only, so 'type' input is blocked. Turn off \"Observation only\" in Settings to allow input.".to_owned())
-        );
-        assert!(ComputerSecretHost::execute(&backend, command("find")).await.is_ok());
-    }
-
-    /// Node admits each `act` step again: "Observation only" turned on after the sequence was admitted refuses the next input
-    /// step in Node's words, once the step before it has reached the helper.
-    #[tokio::test]
-    async fn observation_only_turned_on_mid_sequence_stops_the_steps_left() {
-        // Off for the sequence's admission and its first step, on from the second step's check.
-        let reads = Arc::new(AtomicU64::new(0));
-        let counted = reads.clone();
-        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), Arc::new(Answering::default()))
-            .with_observe_only_setting(Arc::new(move || counted.fetch_add(1, Ordering::SeqCst) >= 2));
-        let act = ComputerRequest {
-            action: ComputerAction::Act,
-            input: json!({"window_id":"w","actions":[{"type":"key","keys":"a"},{"type":"click","x":1,"y":2}]}),
-        };
-
-        assert_eq!(
-            backend.run(act, CancellationToken::new()).await,
-            Err(ComputerError::Failed {
-                code: "observation_only".into(),
-                message: "observation_only: Computer Use is observing only, so 'click' input is blocked. Turn off \"Observation only\" in Settings to allow input.".into(),
+    async fn the_fifth_concurrent_command_of_a_session_is_refused() {
+        let manager = Arc::new(Answering::default());
+        manager.silent.store(true, Ordering::SeqCst);
+        let shared = ComputerShared::default();
+        let backend = Arc::new(ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager.clone()).with_shared(shared.clone()));
+        let read = || ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"read"}) };
+        let tokens: Vec<CancellationToken> = (0..4).map(|_| CancellationToken::new()).collect();
+        let running: Vec<_> = tokens
+            .iter()
+            .map(|token| {
+                let (backend, token) = (backend.clone(), token.clone());
+                tokio::spawn(async move { backend.run(read(), token).await })
             })
+            .collect();
+        for _ in 0..500 {
+            if shared.budget.pending_of("s1") == 4 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert_eq!(shared.budget.pending_of("s1"), 4, "four commands are pending");
+        let sent = locked(&manager.lines).len();
+        let fifth = backend.run(read(), CancellationToken::new()).await;
+        assert!(
+            matches!(&fifth, Err(ComputerError::Failed { code, message })
+                if code == "computer_capacity_exhausted" && message == "computer_capacity_exhausted: pending command limit reached; no input was queued"),
+            "{fifth:?}"
         );
-        assert!(backend.is_bound() && backend.status().active, "the first step reached the helper");
-        assert_eq!(reads.load(Ordering::SeqCst), 3, "the admission and each step read the setting");
+        assert_eq!(locked(&manager.lines).len(), sent, "the refused command wrote nothing to the helper");
+        assert_eq!(shared.budget.pending_of("s1"), 4, "a refused command takes no slot");
+        for token in &tokens {
+            token.cancel();
+        }
+        for task in running {
+            assert!(task.await.unwrap().is_err(), "a cancelled command ends in an error");
+        }
+        assert_eq!(shared.budget.pending_of("s1"), 0, "the slots came back");
+    }
+
+    /// One marker per backend, in the helper's range: the resident helper, its `--abort-cleanup` run and the helper started
+    /// again after the abort all carry it, so the cleanup releases exactly what the helper injected.
+    #[tokio::test]
+    async fn the_resident_helper_and_its_cleanup_carry_one_input_marker() {
+        let manager = Arc::new(Answering::default());
+        let data = tempfile::tempdir().unwrap();
+        let config = ComputerConfig { data_dir: Some(data.path().to_path_buf()), ..ComputerConfig::new("helper", "s1") };
+        let backend = ProcessComputerBackend::new(config, manager.clone());
+        let read = || ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"read"}) };
+        backend.run(read(), CancellationToken::new()).await.unwrap();
+        assert!(backend.abort_session().await);
+        backend.run(read(), CancellationToken::new()).await.unwrap();
+
+        let spawned = locked(&manager.spawned).clone();
+        let args = |request: &SpawnRequest| match &request.command {
+            CommandSpec::Argv { args, .. } => args.clone(),
+            other => panic!("an argv command, got {other:?}"),
+        };
+        assert_eq!(spawned.iter().map(args).collect::<Vec<_>>(), [vec![], vec!["--abort-cleanup".to_owned()], vec![]], "resident, cleanup, resident");
+        let markers: Vec<Option<String>> = spawned
+            .iter()
+            .map(|request| request.env.set.iter().find(|(name, _)| name == "MIXDOG_COMPUTER_INPUT_MARKER").map(|(_, value)| value.clone()))
+            .collect();
+        let marker: i64 = markers[0].as_deref().expect("the resident helper carries the marker").parse().expect("a number");
+        assert!((1..=i64::from(i32::MAX)).contains(&marker), "{marker}");
+        assert!(markers.iter().all(|each| *each == markers[0]), "{markers:?}");
+        // The ledger the resident helper records into is the one the cleanup run replays.
+        let ledgers: Vec<Option<String>> = spawned
+            .iter()
+            .map(|request| request.env.set.iter().find(|(name, _)| name == "MIXDOG_COMPUTER_INACTIVE_LEDGER").map(|(_, value)| value.clone()))
+            .collect();
+        assert!(ledgers[0].is_some() && ledgers.iter().all(|each| *each == ledgers[0]), "{ledgers:?}");
+        assert!(data.path().join("computer").join("ledgers").is_dir());
+        // No desktop offers the lock here.
+        assert!(spawned.iter().all(|request| request.env.set.iter().all(|(name, _)| name != "MIXDOG_COMPUTER_HOST_FOREGROUND_LOCK")));
+        // Every run is the computer helper's (its job lets the cursor watchdog break away); only the cleanup is time-limited.
+        assert!(spawned.iter().all(|request| matches!(request.owner, ProcessOwner::ComputerHelper)));
+        let limits: Vec<Option<Duration>> = spawned.iter().map(|request| request.time_limit).collect();
+        assert_eq!(limits, [None, Some(ABORT_CLEANUP_TIME_LIMIT), None]);
+    }
+
+    /// The request a helper run is made from names the computer helper as its owner.
+    #[test]
+    fn a_helper_request_is_owned_by_the_computer_helper() {
+        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), Arc::new(Answering::default()));
+        let request = backend.request(vec![], true, vec![]).unwrap();
+        assert!(matches!(request.owner, ProcessOwner::ComputerHelper));
+        assert_eq!(request.time_limit, None);
+    }
+
+    fn cleanup_args(spawned: &[SpawnRequest]) -> Vec<&'static str> {
+        spawned
+            .iter()
+            .map(|request| match &request.command {
+                CommandSpec::Argv { args, .. } if args.first().is_some_and(|arg| arg == "--abort-cleanup") => "cleanup",
+                CommandSpec::Argv { .. } => "resident",
+                _ => "other",
+            })
+            .collect()
+    }
+
+    async fn wait_dead(backend: &ProcessComputerBackend) {
+        for _ in 0..1_000 {
+            let dead = locked(&backend.host).as_ref().is_some_and(|host| !host.alive.load(Ordering::SeqCst));
+            if dead {
+                return;
+            }
+            tokio::task::yield_now().await;
+        }
+        panic!("the helper did not register its exit");
+    }
+
+    /// A helper that exits while a request waits on it is cleaned up (`--abort-cleanup`) before the next one starts.
+    #[tokio::test]
+    async fn a_helper_that_exits_during_a_request_is_cleaned_up() {
+        let manager = Arc::new(Answering::default());
+        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager.clone());
+        let cancel = CancellationToken::new();
+        let error = backend.call(input(json!({"action":"die"})), &cancel).await.unwrap_err();
+        assert!(matches!(&error, ComputerError::Failed { code, .. } if code == "computer_host_exited"), "{error:?}");
+        assert_eq!(cleanup_args(&locked(&manager.spawned)), ["resident", "cleanup"]);
+        backend.call(input(json!({"action":"clipboard_read"})), &cancel).await.unwrap();
+        assert_eq!(cleanup_args(&locked(&manager.spawned)), ["resident", "cleanup", "resident"]);
+    }
+
+    /// A helper that exits between requests is cleaned up before its replacement starts, and when an execution ends.
+    #[tokio::test]
+    async fn a_helper_that_exits_between_requests_is_cleaned_up_before_a_respawn() {
+        let manager = Arc::new(Answering::default());
+        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager.clone());
+        let cancel = CancellationToken::new();
+        let exit_helper = || {
+            let handle = locked(&manager.spawned).last().expect("a helper").handle.clone();
+            manager.emit(&handle, |seq| Answering::exit(seq, None));
+        };
+        backend.call(input(json!({"action":"clipboard_read"})), &cancel).await.unwrap();
+        exit_helper();
+        wait_dead(&backend).await;
+        backend.call(input(json!({"action":"clipboard_read"})), &cancel).await.unwrap();
+        assert_eq!(cleanup_args(&locked(&manager.spawned)), ["resident", "cleanup", "resident"]);
+
+        backend.executing.store(true, Ordering::SeqCst);
+        exit_helper();
+        wait_dead(&backend).await;
+        assert!(backend.end_execution().await);
+        assert_eq!(cleanup_args(&locked(&manager.spawned)), ["resident", "cleanup", "resident", "cleanup"]);
+        assert!(!backend.has_live_host());
+    }
+
+    /// A helper that exits with no request waiting is cleaned up when its exit is seen, and once: the next command only starts
+    /// the replacement.
+    #[tokio::test]
+    async fn a_helper_that_exits_while_idle_is_cleaned_up_when_it_is_seen() {
+        let manager = Arc::new(Answering::default());
+        let backend = Arc::new(ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager.clone()));
+        backend.watch_for_death();
+        let cancel = CancellationToken::new();
+        backend.call(input(json!({"action":"clipboard_read"})), &cancel).await.unwrap();
+        let handle = locked(&manager.spawned).last().expect("a helper").handle.clone();
+        manager.emit(&handle, |seq| Answering::exit(seq, None));
+        for _ in 0..1_000 {
+            if cleanup_args(&locked(&manager.spawned)) == ["resident", "cleanup"] {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(cleanup_args(&locked(&manager.spawned)), ["resident", "cleanup"]);
+        backend.call(input(json!({"action":"clipboard_read"})), &cancel).await.unwrap();
+        assert_eq!(cleanup_args(&locked(&manager.spawned)), ["resident", "cleanup", "resident"]);
+    }
+
+    /// A helper whose observer keeps answering `monitor_unresponsive` is retired; one reply that says it is ready starts the count over.
+    #[tokio::test]
+    async fn a_helper_with_an_unresponsive_observer_is_retired() {
+        let manager = Arc::new(Answering::default());
+        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager.clone());
+        let cancel = CancellationToken::new();
+        for action in ["stuck", "stuck", "ready", "stuck", "stuck"] {
+            backend.call(input(json!({"action": action})), &cancel).await.unwrap();
+        }
+        assert_eq!(cleanup_args(&locked(&manager.spawned)), ["resident"]);
+        assert!(backend.has_live_host());
+        backend.call(input(json!({"action":"stuck"})), &cancel).await.unwrap();
+        assert_eq!(cleanup_args(&locked(&manager.spawned)), ["resident", "cleanup"]);
+        assert!(!backend.has_live_host());
+    }
+
+    /// A failure's text counts toward the limit only when it says the observation was lost to the monitor; a frame from before a
+    /// respawn ("original observation is unavailable (monitor_unresponsive)") is not the observer of this helper failing.
+    #[test]
+    fn only_a_lost_observation_text_counts_as_an_unresponsive_observer() {
+        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), Arc::new(Answering::default()));
+        let failed = |text: &str| -> Reply { Err(HelperFailure { text: text.into(), result: None }) };
+        let stale = "input_observation_unavailable: original observation is unavailable (monitor_unresponsive)";
+        for _ in 0..UNRESPONSIVE_LIMIT + 1 {
+            assert!(!backend.observer_stuck(&failed(stale)));
+        }
+        let lost = "input_observation_unavailable: input observation lost (monitor_unresponsive)";
+        let stuck: Vec<bool> = (0..UNRESPONSIVE_LIMIT).map(|_| backend.observer_stuck(&failed(lost))).collect();
+        assert_eq!(stuck, [false, false, true]);
+    }
+
+    /// The ledgers a dead core left are replayed once, before the first helper of this process starts, each with the marker its
+    /// name carries, and removed once confirmed; a later backend on the same folder does not touch the ledgers there.
+    #[tokio::test]
+    async fn the_ledgers_a_dead_core_left_are_swept_before_the_first_helper() {
+        let manager = Arc::new(Answering::default());
+        let data = tempfile::tempdir().unwrap();
+        let folder = computer_env::ledger_folder(data.path());
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join("old-123.ledger"), b"x").unwrap();
+        std::fs::write(folder.join("keep.txt"), b"x").unwrap();
+        let config = ComputerConfig { data_dir: Some(data.path().to_path_buf()), ..ComputerConfig::new("helper", "s1") };
+        let backend = ProcessComputerBackend::new(config.clone(), manager.clone());
+        backend.call(input(json!({"action":"clipboard_read"})), &CancellationToken::new()).await.unwrap();
+
+        let spawned = locked(&manager.spawned).clone();
+        assert_eq!(cleanup_args(&spawned), ["cleanup", "resident"]);
+        let env = |name: &str| spawned[0].env.set.iter().find(|(key, _)| key == name).map(|(_, value)| value.clone());
+        assert_eq!(env("MIXDOG_ABORT_LEDGERS"), Some(folder.join("old-123.ledger").to_string_lossy().into_owned()));
+        assert_eq!(env("MIXDOG_COMPUTER_INPUT_MARKER").as_deref(), Some("123"));
+        assert_eq!(env("MIXDOG_COMPUTER_INACTIVE_LEDGER"), None);
+        assert!(!folder.join("old-123.ledger").exists() && folder.join("keep.txt").exists());
+
+        std::fs::write(folder.join("live-9.ledger"), b"x").unwrap();
+        let second = Arc::new(Answering::default());
+        let other = ProcessComputerBackend::new(ComputerConfig { session_id: "s2".into(), ..config }, second.clone());
+        other.call(input(json!({"action":"clipboard_read"})), &CancellationToken::new()).await.unwrap();
+        assert_eq!(cleanup_args(&locked(&second.spawned)), ["resident"]);
+        assert!(folder.join("live-9.ledger").exists());
+    }
+
+    /// A failed reply's `result` reaches the reader that asks for it, while `call` reports the failure's text as before.
+    #[tokio::test]
+    async fn a_helper_failure_reaches_the_caller_with_its_result() {
+        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), Arc::new(Answering::default()));
+        let cancel = CancellationToken::new();
+        let failure = backend.exchange(input(json!({"action":"fail"})), COMMAND_TIMEOUT, &cancel).await.unwrap().unwrap_err();
+        assert_eq!(failure.result.as_ref().and_then(|result| result.get("capture_cleanup")), Some(&json!({"status":"unconfirmed"})));
+        assert_eq!(
+            backend.call(input(json!({"action":"fail"})), &cancel).await,
+            Err(ComputerError::Failed { code: "capture_failed".into(), message: "capture_failed: x".into() })
+        );
+        assert!(backend.status().active, "a refusal leaves the helper running");
+    }
+
+    /// `list kind="apps"` is the helper's own `list_apps`, a read.
+    #[tokio::test]
+    async fn the_app_list_is_the_helpers_list_apps() {
+        let manager = Arc::new(Answering::default());
+        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager.clone());
+        backend.run(ComputerRequest { action: ComputerAction::List, input: json!({"kind":"apps","query":"x"}) }, CancellationToken::new()).await.unwrap();
+        let sent: Vec<Value> = locked(&manager.lines).iter().filter(|line| line["action"] != "window_snapshot").cloned().collect();
+        assert_eq!(sent.iter().map(|line| line["action"].clone()).collect::<Vec<_>>(), [json!("list_apps")]);
+        assert_eq!(sent[0]["query"], "x");
+    }
+
+    /// A helper that writes foreground-lease and pointer lines before its reply still answers the request with that reply.
+    #[tokio::test]
+    async fn side_lines_from_a_running_helper_are_consumed() {
+        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), Arc::new(Answering::default()));
+        let result = backend.call(input(json!({"action":"chatty"})), &CancellationToken::new()).await.unwrap();
+        assert_eq!(result.get("text"), Some(&json!("ok")));
+        assert!(backend.status().active);
+    }
+
+    /// The observation-only setting is read on every call: turned on between two executions, the second opens observing only
+    /// and its request goes to the helper as a read-only run, while the release that ends it never does.
+    #[tokio::test]
+    async fn the_observation_only_setting_is_read_on_every_call() {
+        let manager = Arc::new(Answering::default());
+        let edges = Arc::new(Edges::default());
+        let on = Arc::new(AtomicBool::new(false));
+        let setting = on.clone();
+        let shared = ComputerShared { observe_only: Arc::new(move || setting.load(Ordering::SeqCst)), ..ComputerShared::default() };
+        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager.clone()).with_shared(shared).with_observer(edges.clone());
+        let read = || ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"read"}) };
+
+        backend.run(read(), CancellationToken::new()).await.unwrap();
+        assert!(!backend.status().observe_only);
+        assert!(backend.end_execution().await);
+        on.store(true, Ordering::SeqCst);
+        backend.run(read(), CancellationToken::new()).await.unwrap();
+        assert!(backend.status().observe_only);
+        assert!(backend.end_execution().await);
+
+        assert_eq!(*locked(&edges.0), ["began:false", "ended", "began:true", "ended"]);
+        let read_only: Vec<(Value, Option<Value>)> = locked(&manager.lines)
+            .iter()
+            .filter(|line| line["action"] != "window_snapshot")
+            .map(|line| (line["action"].clone(), line.get("read_only").cloned()))
+            .collect();
+        assert_eq!(
+            read_only,
+            [
+                (json!("clipboard_read"), None),
+                (json!("release_held_input"), None),
+                (json!("clipboard_read"), Some(json!(true))),
+                (json!("release_held_input"), None)
+            ]
+        );
     }
 
     #[cfg(unix)]
@@ -1928,7 +2090,7 @@ done
             assert!(written(dir.path().join("cleanup")).is_none());
 
             cancel.cancel();
-            let ended = backend.wait_reply(receive, &cancel).await;
+            let ended = backend.wait_reply(receive, COMMAND_TIMEOUT, &cancel).await;
 
             assert_eq!(ended, Err(ComputerError::Cancelled));
             assert!(written(dir.path().join("cleanup")).is_some());
