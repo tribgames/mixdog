@@ -7,12 +7,13 @@
  */
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 
+import { SCREEN_COMMAND_TIMEOUT_MS } from '../../remote-screen/screen-timeouts';
 import { recordCursorDiagnostic } from '../overlay/cursor-diagnostics';
 import type { PowerShellResponse } from '../shared/types';
 import { captureCleanup } from '../shared/capture-attempts';
 
 /** Per-command ceiling for the PowerShell host round trip. */
-export const COMMAND_TIMEOUT_MS = 45_000;
+export const COMMAND_TIMEOUT_MS = SCREEN_COMMAND_TIMEOUT_MS;
 
 /** One in-flight worker request, from dispatch to its reply, timeout or the
  *  retirement of the worker that owns it. */
