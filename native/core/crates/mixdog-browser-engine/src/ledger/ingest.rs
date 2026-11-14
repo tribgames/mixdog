@@ -14,7 +14,6 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fmt;
 use std::sync::Arc;
-use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
 use mixdog_app_protocol::v2::browser_engine::BrowserEngineEvent;
@@ -260,8 +259,9 @@ impl fmt::Debug for Ingest {
     }
 }
 
+/// Epoch milliseconds on the replay's clock when one runs the process.
 fn wall_clock_ms() -> i64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| i64::try_from(elapsed.as_millis()).unwrap_or(i64::MAX))
+    mixdog_rt::wall_clock!().duration_since(UNIX_EPOCH).map_or(0, |elapsed| i64::try_from(elapsed.as_millis()).unwrap_or(i64::MAX))
 }
 
 impl Ingest {
