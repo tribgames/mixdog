@@ -5,6 +5,7 @@
 //! whole response kept as a raw file of the session.
 
 mod reduce;
+pub use reduce::positive_env_int;
 
 #[cfg(test)]
 mod k1_replay;
