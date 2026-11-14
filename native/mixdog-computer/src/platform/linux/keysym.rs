@@ -30,6 +30,8 @@ pub fn of_key(key: Key) -> Result<u32, String> {
     Ok(match key {
         Key::Mod(modifier_key) => modifier(modifier_key),
         Key::Char(c) => of_char(c),
+        // Only a Windows keyboard layout resolves a character to a virtual key.
+        Key::Vk(vk) => return Err(format!("invalid_keys: virtual key {vk:#x} has no key here")),
         Key::Named(named) => match named {
             Named::Backspace => 0xff08,
             Named::Tab => TAB,

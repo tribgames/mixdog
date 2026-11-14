@@ -2,6 +2,7 @@
 //! one definition instead of keeping copies in step.
 
 use std::collections::HashSet;
+use std::path::PathBuf;
 
 pub struct Config {
     /// Actions that read state and never send input.
@@ -29,18 +30,39 @@ fn number(name: &str, fallback: u64) -> u64 {
         .unwrap_or(fallback)
 }
 
-pub fn input_marker() -> i64 {
+/// The marker the desktop host named, if it named a usable one.
+pub fn host_input_marker() -> Option<i64> {
     std::env::var("MIXDOG_COMPUTER_INPUT_MARKER")
         .ok()
         .and_then(|value| value.trim().parse::<i64>().ok())
         .filter(|value| *value > 0 && *value <= i32::MAX as i64)
-        .unwrap_or_else(|| {
-            let seed = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|elapsed| elapsed.as_nanos() as i64)
-                .unwrap_or(1);
-            ((seed ^ (std::process::id() as i64)) & 0x7fff_ffff).max(1)
-        })
+}
+
+pub fn input_marker() -> i64 {
+    host_input_marker().unwrap_or_else(|| {
+        let seed = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_nanos() as i64)
+            .unwrap_or(1);
+        ((seed ^ (std::process::id() as i64)) & 0x7fff_ffff).max(1)
+    })
+}
+
+/// Whether the desktop host offers its foreground-lock lease on stdio
+/// (MixForegroundLockHost.FromEnvironment, MixForegroundLock.cs:349-353).
+#[cfg_attr(not(windows), allow(dead_code, reason = "only Windows leases the foreground lock"))]
+pub fn host_foreground_lock() -> bool {
+    std::env::var("MIXDOG_COMPUTER_HOST_FOREGROUND_LOCK").is_ok_and(|value| value == "1")
+}
+
+/// The file every no-activate hold is recorded in before its style is
+/// written, so a fresh process can undo what a killed host left
+/// (MixWin32InactiveLedger.cs); None when the desktop gave none.
+#[cfg_attr(not(windows), allow(dead_code, reason = "only Windows holds windows inactive"))]
+pub fn inactive_ledger() -> Option<PathBuf> {
+    std::env::var_os("MIXDOG_COMPUTER_INACTIVE_LEDGER")
+        .filter(|path| !path.is_empty())
+        .map(PathBuf::from)
 }
 
 impl Config {

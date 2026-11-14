@@ -492,6 +492,7 @@ dependencies = [
  "serde",
  "serde_json",
  "windows",
+ "windows-future",
  "x11rb",
  "zbus",
 ]

@@ -1,7 +1,7 @@
 //! The accessibility tree over AT-SPI's D-Bus interfaces, mapped into the
 //! shared role vocabulary.
 
-use crate::a11y::{format_value, normalize_menu_label, Element, MenuOutcome, Node};
+use crate::a11y::{format_value, normalize_menu_label, Element, MenuOutcome, Node, NodeExtra};
 use crate::obj;
 use crate::platform::{Wid, WindowInfo};
 use crate::protocol::Obj;
@@ -428,6 +428,7 @@ impl Atspi {
             y: y as f64,
             width: width as f64,
             height: height as f64,
+            extra: NodeExtra::default(),
         })
     }
 
@@ -679,11 +680,6 @@ impl Element for AtspiElement {
             .call(&parent, SELECTION, "SelectChild", &(index,))?;
         done.then_some(())
             .ok_or_else(|| "a11y_action_failed: selection was refused".to_string())
-    }
-    fn focus(&self) -> Result<(), String> {
-        let done: bool = self.atspi.call(&self.node, COMPONENT, "GrabFocus", &())?;
-        done.then_some(())
-            .ok_or_else(|| "focus was refused".to_string())
     }
     fn scroll(
         &self,
