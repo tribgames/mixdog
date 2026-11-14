@@ -1,0 +1,42 @@
+# s3-21 desktop wire: host/computer/appWindows and host/computer/appInput. Applied by the wave's DESKTOP-WIRE task; delete this file after.
+
+## apps/desktop/src/main/host/computer.ts (registerComputerHost: next to registerComputerPointer)
+import { registerComputerAppInput, type ComputerAppInputDeps } from './computer-app-input';
+import { registerComputerAppWindows } from './computer-app-windows';
+  registerComputerAppWindows(connection);
+  registerComputerAppInput(connection, appInput);
+# registerComputerHost gains a third parameter `appInput: ComputerAppInputDeps`:
+#   export function registerComputerHost(connection: HostConnection, source: ComputerControlSource, appInput: ComputerAppInputDeps): void {
+
+## apps/desktop/src/main/host/index.ts (hot file)
+# import: `import type { ComputerAppInputDeps } from './computer-app-input';`
+# in the host options interface, after `computer: ComputerControlSource;`:
+  /** Shows the agent's arrow for input `host/computer/appInput` delivered into the desktop's own windows. */
+  computerAppInput: ComputerAppInputDeps;
+# the registration line becomes:
+  registerComputerHost(connection, options.computer, options.computerAppInput);
+
+## apps/desktop/src/main/index.ts (hot file; in the host options object, after the `computer: () => { ... },` entry)
+  computerAppInput: {
+    showCursor: (sessionId, x, y, action) =>
+      computerUseCoordinator.showCursor({ sessionId, x, y, action, effect: action as ComputerUseCursorEffect, mode: 'background' }),
+  },
+# (type-import ComputerUseCursorEffect from './computer/session/coordinator'; replace with s3-20's presence overlay showCursor once
+# it exists. x, y are native physical pixels; action is type | scroll | click | move; the window id is not passed, the arrow
+# follows the session.)
+
+## apps/desktop/src/main/host/connection.ts
+# HOST_METHOD needs no row: the method names live in HOST_COMPUTER_APP_WINDOWS / HOST_COMPUTER_APP_INPUT, as for the
+# other host/computer/* modules. Update the HOST_CAPABILITIES.computer comment: "capture and displays (computer.ts), foregroundLease,
+# internalWindows, pointerFeedback, appWindows and appInput (computer-lease.ts, computer-internal-windows.ts, computer-pointer.ts,
+# computer-app-windows.ts, computer-app-input.ts)".
+
+## apps/desktop/src/main/computer/host/input-dispatch.ts (old rollback path until s3-30/s3-31; not owned by s3-21)
+# s3-21 removed the coordinator import from input-dispatch-electron-text.ts and -input.ts: showCursor is now an optional field of
+# ElectronTextDispatch. To keep the arrow on the old path, in dispatchInput's `const electronInput = { host, command, target, renderer: electronTarget, authorizeDispatch };` add
+#   showCursor: ({ action, ...cursor }) => computerUseCoordinator.showCursor({ ...cursor, action, effect: action, mode: 'background' }),
+
+## protocol (not a desktop line; for the protocol lead, optional)
+# The desktop answers appInput with fields beyond generated HostComputerAppInputResult: effect 'click_unconfirmed', presses, pid,
+# code, text, deliveryAccepted, inputMayHaveExecuted (the core reads them from raw JSON, see computer_app_owned.rs), and reads a
+# `modifiers` string of the wheel op. computer-app-input.ts types the extension locally (ComputerAppInputAnswer).

@@ -3,7 +3,6 @@
  *  confirmed; nothing is typed when that confirmation fails. */
 import type { electronWindowForNativeId } from '../observation/window-handles';
 import { dipToNative } from '../shared/native-coordinates';
-import { computerUseCoordinator } from '../session/coordinator';
 import type { ComputerCommand, PowerShellResponse } from '../shared/types';
 import type { CommandRouterHost } from './command-router';
 import { waitForElectronTypingTarget } from './electron-text-target';
@@ -18,6 +17,15 @@ export type DispatchAuthority =
 
 export type ElectronTextRenderer = NonNullable<ReturnType<typeof electronWindowForNativeId>>;
 
+/** Where the agent's arrow is shown for an input the renderer received (native physical pixels). */
+export interface ElectronCursor {
+  sessionId: string;
+  windowId?: string;
+  x: number;
+  y: number;
+  action: 'type' | 'scroll' | 'click' | 'move';
+}
+
 export interface ElectronTextDispatch {
   host: Pick<CommandRouterHost, 'callPowerShell' | 'sessionIdFor' | 'isObserveOnly'>;
   command: ComputerCommand;
@@ -25,6 +33,8 @@ export interface ElectronTextDispatch {
   renderer: ElectronTextRenderer;
   /** Runs the abort, coordinator and policy checks; resolves to the dispatch authority fields. */
   authorizeDispatch(): Promise<DispatchAuthority>;
+  /** Shows the arrow at the input's point. The caller owns the presence overlay: this file does not import it. */
+  showCursor?(cursor: ElectronCursor): void;
 }
 
 type Point = { x: number; y: number };
@@ -74,7 +84,7 @@ function typingTargetUnconfirmed(typingPoint: Point | undefined, targetWindowId:
 }
 
 export async function dispatchElectronText(input: ElectronTextDispatch): Promise<PowerShellResponse> {
-  const { host, command, target, renderer, authorizeDispatch } = input;
+  const { host, command, target, renderer, authorizeDispatch, showCursor } = input;
   const { targetWindowId, physicalX, physicalY, allowedWindowIds } = target;
   const text = String(command.text ?? '');
   const typingPoint = physicalX !== undefined && physicalY !== undefined ? { x: physicalX, y: physicalY } : undefined;
@@ -110,14 +120,7 @@ export async function dispatchElectronText(input: ElectronTextDispatch): Promise
       x: Math.round(bounds.x + bounds.width / 2),
       y: Math.round(bounds.y + bounds.height / 2),
     });
-  computerUseCoordinator.showCursor({
-    sessionId: host.sessionIdFor(command),
-    windowId: targetWindowId,
-    ...feedbackPoint,
-    action: 'type',
-    effect: 'type',
-    mode: 'background',
-  });
+  showCursor?.({ sessionId: host.sessionIdFor(command), windowId: targetWindowId, ...feedbackPoint, action: 'type' });
   await renderer.webContents.insertText(text);
   return {
     id: 0,
