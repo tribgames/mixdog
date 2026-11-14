@@ -8,6 +8,8 @@ import { dirname, join, resolve, sep } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import electronPath from 'electron';
+import { prepareCore } from '../../../../scripts/live/lib/instance.mjs';
+import { DESKTOP_DIR, REPO_ROOT, findOrtLibrary } from '../../../../scripts/live/lib/paths.mjs';
 import { killProcessTreesSync, spawnTreeKill } from '../../../../src/runtime/agent/orchestrator/mcp/child-tree.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -236,10 +238,11 @@ await rm(metadataOutput, { force: true });
 await rm(errorOutput, { force: true });
 if (jitterProbeMode) await rm(jitterProbeOutput, { force: true });
 await stat(captureEntry);
-// The capture window is a client of an isolated mixdogd (main/capture-core.ts): the binary is named once here, as an
-// absolute path, so the Electron child finds it whatever its working directory is. A name without a directory is
-// looked up on PATH by the core launcher itself, so it is passed as given.
-const captureCoreBinary = (() => {
+// The capture window is a client of an isolated mixdogd (main/capture-core.ts). MIXDOGD_BIN names the built binary;
+// it is staged in this capture's profile with the js-runtime.json a product install has beside it (the daemon refuses
+// to start without one), as a live run stages its core, and the Electron child gets the staged absolute path. A name
+// without a directory is an installed mixdogd the core launcher finds on PATH, manifest included, so it is passed as given.
+const captureCoreBinary = await (async () => {
   const named = String(process.env.MIXDOGD_BIN || '').trim();
   if (!named) {
     throw new Error('The capture needs MIXDOGD_BIN to name the built mixdogd (the capture window is a client of it).');
@@ -247,7 +250,15 @@ const captureCoreBinary = (() => {
   if (!/[\\/]/.test(named)) return named;
   const absolute = resolve(named);
   if (!existsSync(absolute)) throw new Error(`MIXDOGD_BIN names a file that does not exist: ${absolute}`);
-  return absolute;
+  const staged = await prepareCore({
+    coreExe: absolute,
+    desktopDir: DESKTOP_DIR,
+    repoRoot: REPO_ROOT,
+    isoRoot: userData,
+    ortLibrary: findOrtLibrary(),
+    log: (line) => console.error(`[capture-ui] ${line}`),
+  });
+  return staged.exe;
 })();
 const startedAt = Date.now();
 
