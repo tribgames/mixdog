@@ -384,12 +384,12 @@ impl DomainService for TerminalService {
             }
             "terminal/pause" => {
                 let params: TerminalPauseParams = decode(&req.params)?;
-                self.tabs.pause_output(params.tab_id.as_str());
+                self.tabs.pause_output(params.tab_id.as_str(), &client);
                 Ok(Reply::Value(json!({})))
             }
             "terminal/resume" => {
                 let params: TerminalResumeParams = decode(&req.params)?;
-                self.tabs.resume_output(params.tab_id.as_str());
+                self.tabs.resume_output(params.tab_id.as_str(), &client);
                 Ok(Reply::Value(json!({})))
             }
             "terminal/dispose" => {
