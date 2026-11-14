@@ -1,5 +1,5 @@
 /// Milliseconds on QueryPerformanceCounter, the clock the bridge host's lease
-/// thread reads too (foreground-lease-thread.cjs), so a lease deadline and the
+/// thread reads too (native/mixdog-window foreground_lease.rs), so a lease deadline and the
 /// timestamps of both sides compare across the two processes.
 public static class MixLeaseClock
 {
