@@ -46,6 +46,13 @@
         },
         "origin": {
           "$ref": "#/definitions/Origin"
+        },
+        "window": {
+          "description": "The id of the desktop window this connection is the socket of (`Mixdog-Window`); absent for any other connection.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
@@ -424,6 +431,13 @@
         },
         "voice": {
           "$ref": "#/definitions/CapabilityState"
+        },
+        "windowScope": {
+          "default": 0,
+          "description": "The version of the window method table the server holds a window-scoped connection to (`boundary::window_scope`); 0 from a core that has none.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
         }
       },
       "required": [

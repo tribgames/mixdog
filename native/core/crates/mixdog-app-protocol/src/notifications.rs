@@ -214,6 +214,8 @@ crate::notification_definitions! {
     UiSettingsChanged => "ui/settings/changed" (UiSettingsChangedParams) @app,
     /// Node's `provider-models-changed` event: every client drops its provider model lists; `origin` names the announcer.
     UiProviderModelsChanged => "ui/providerModels/changed" (UiProviderModelsChangedParams) @app,
+    /// The pet's stored settings after a `desktopPet/state/write`.
+    DesktopPetStateChanged => "desktopPet/state/changed" (crate::v2::desktop_pet::DesktopPetStateChangedParams) @app,
     RemotePointer => "remote/pointer" (RemotePointerParams) @app,
     /// Draining: what still runs and the token that authorizes an abort (`lifecycle-remote.md` §5.1).
     CoreDrain => "core/drain" (CoreDrainParams) @app,

@@ -3238,6 +3238,13 @@
         },
         "origin": {
           "$ref": "#/definitions/Origin"
+        },
+        "window": {
+          "description": "The id of the desktop window this connection is the socket of (`Mixdog-Window`); absent for any other connection.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
@@ -3583,6 +3590,158 @@
         "accepted"
       ],
       "type": "string"
+    },
+    "DesktopAttachmentParams": {
+      "additionalProperties": false,
+      "description": "Params of `desktop/attachment/resolve` and `desktop/attachment/stage`: an attachment (content hash) of a session. Resolve answers `{attachment: {id, name, mimeType, kind, size}, bytes, viewName, dataUrl}`; stage answers `{path, attachment}`.",
+      "properties": {
+        "attachmentId": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "attachmentId",
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "DesktopFontsListParams": {
+      "additionalProperties": false,
+      "description": "Params of `desktop/fonts/list`: none. Answers `{families: string[]}`.",
+      "type": "object"
+    },
+    "DesktopLinkResolveParams": {
+      "additionalProperties": false,
+      "description": "Params of `desktop/link/resolve`: a conversation link's href and the session's folder. Answers `{path: string | null}`.",
+      "properties": {
+        "cwd": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "href": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "href"
+      ],
+      "type": "object"
+    },
+    "DesktopLinkResolvePathParams": {
+      "additionalProperties": false,
+      "description": "Params of `desktop/link/resolvePath`: an already decoded path and the session's folder. Answers `{path: string | null}`.",
+      "properties": {
+        "cwd": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
+    "DesktopPetPrefs": {
+      "description": "The pet's per-device settings, as `desktop-pet.json` stores them.",
+      "properties": {
+        "autoAdvance": {
+          "type": "boolean"
+        },
+        "autoClose": {
+          "type": "boolean"
+        },
+        "collapsed": {
+          "type": "boolean"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "hereAnchor": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/PetHereAnchor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "keepAbove": {
+          "type": "boolean"
+        },
+        "onScreen": {
+          "type": "boolean"
+        },
+        "pinned": {
+          "type": "boolean"
+        },
+        "pinnedHere": {
+          "type": "boolean"
+        },
+        "positions": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PetPoint"
+          },
+          "description": "Saved free-floating window positions by display id.",
+          "type": "object"
+        },
+        "scale": {
+          "description": "One of 50, 60, ... 200.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "autoAdvance",
+        "autoClose",
+        "collapsed",
+        "enabled",
+        "keepAbove",
+        "onScreen",
+        "pinned",
+        "pinnedHere",
+        "positions",
+        "scale"
+      ],
+      "type": "object"
+    },
+    "DesktopPetStateReadParams": {
+      "description": "Params of `desktopPet/state/read`: none.",
+      "type": "object"
+    },
+    "DesktopPetStateWriteParams": {
+      "description": "Params of `desktopPet/state/write`: the settings document. Anything malformed in it is stored as the default for that field.",
+      "properties": {
+        "prefs": true
+      },
+      "required": [
+        "prefs"
+      ],
+      "type": "object"
+    },
+    "DesktopWorkflowConfigReadParams": {
+      "additionalProperties": false,
+      "description": "Params of `desktop/workflowConfig/read`: the JSONC settings file. Answers `{config: object | null}`.",
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
     },
     "DevComputerRunError": {
       "description": "The failure of a `dev/computer/run` command.",
@@ -9102,6 +9261,57 @@
       "description": "Params of `pcAccess/readiness`: none.",
       "type": "object"
     },
+    "PetHereAnchor": {
+      "description": "Where a pinned-here window stands relative to the app window's content bounds: its top-left `dx` from the left edge (or, `right`, from the right edge, positive leftward), and `dy` from the top (or, `bottom`, the bottom).",
+      "properties": {
+        "bottom": {
+          "type": "boolean"
+        },
+        "composer": {
+          "description": "Measured against the composer card instead of the content bounds.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "dx": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "dy": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "right": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "bottom",
+        "dx",
+        "dy",
+        "right"
+      ],
+      "type": "object"
+    },
+    "PetPoint": {
+      "description": "A saved free-floating window position (screen px).",
+      "properties": {
+        "x": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "y": {
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "x",
+        "y"
+      ],
+      "type": "object"
+    },
     "PluginsAddPluginParams": {
       "description": "Params of `plugins/addPlugin`.",
       "properties": {
@@ -9841,6 +10051,28 @@
       "required": [
         "rel",
         "root"
+      ],
+      "type": "object"
+    },
+    "ProjectFsLocalPageVirtualParams": {
+      "description": "Params of `projectFs/localPage/virtual` (Node's `localVirtualPageUrl`, local-page-server.ts): the files of an in-memory page; `index.html` is required.",
+      "properties": {
+        "files": {
+          "items": {
+            "$ref": "#/definitions/VirtualPageFile"
+          },
+          "type": "array"
+        },
+        "ownerId": {
+          "description": "The desktop window that asked: its leases end when it closes (`projectFs/localPage/revokeOwner`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "files"
       ],
       "type": "object"
     },
@@ -14173,6 +14405,13 @@
         },
         "voice": {
           "$ref": "#/definitions/CapabilityState"
+        },
+        "windowScope": {
+          "default": 0,
+          "description": "The version of the window method table the server holds a window-scoped connection to (`boundary::window_scope`); 0 from a core that has none.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
         }
       },
       "required": [
@@ -16309,6 +16548,34 @@
     },
     "SystemPortsUnsubscribeParams": {
       "description": "Params of `system/ports/unsubscribe`.",
+      "type": "object"
+    },
+    "TakeoverReadyParams": {
+      "description": "Params of `takeover/ready`: takeover `takeover_id` of session `session_id`.",
+      "properties": {
+        "sessionId": {
+          "type": "string"
+        },
+        "takeoverId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId",
+        "takeoverId"
+      ],
+      "type": "object"
+    },
+    "TakeoverReadyResult": {
+      "description": "Result of `takeover/ready`: true once the person may act on the takeover, false when it ended first or was never seen.",
+      "properties": {
+        "ready": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "ready"
+      ],
       "type": "object"
     },
     "TerminalAttachParams": {
@@ -20749,6 +21016,36 @@
       },
       "type": "object"
     },
+    "VirtualPageFile": {
+      "description": "One file of a virtual page: its content is `data_base64` (bytes) or `text` (UTF-8), exactly one of them.",
+      "properties": {
+        "dataBase64": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "description": "`/`-separated name the page requests, e.g. `index.html`, `app.js`.",
+          "type": "string"
+        },
+        "text": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "type": {
+          "description": "The `Content-Type` it is served with, e.g. `text/html; charset=utf-8`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "type"
+      ],
+      "type": "object"
+    },
     "VisualizeAnnotation": {
       "description": "The agent's mark on displayed pane `pane` (selectors and labels only).",
       "properties": {
@@ -22601,6 +22898,58 @@
       },
       "result": true
     },
+    "desktop/attachment/resolve": {
+      "params": {
+        "$ref": "#/definitions/DesktopAttachmentParams"
+      },
+      "result": true
+    },
+    "desktop/attachment/stage": {
+      "params": {
+        "$ref": "#/definitions/DesktopAttachmentParams"
+      },
+      "result": true
+    },
+    "desktop/fonts/list": {
+      "params": {
+        "$ref": "#/definitions/DesktopFontsListParams"
+      },
+      "result": true
+    },
+    "desktop/link/resolve": {
+      "params": {
+        "$ref": "#/definitions/DesktopLinkResolveParams"
+      },
+      "result": true
+    },
+    "desktop/link/resolvePath": {
+      "params": {
+        "$ref": "#/definitions/DesktopLinkResolvePathParams"
+      },
+      "result": true
+    },
+    "desktop/workflowConfig/read": {
+      "params": {
+        "$ref": "#/definitions/DesktopWorkflowConfigReadParams"
+      },
+      "result": true
+    },
+    "desktopPet/state/read": {
+      "params": {
+        "$ref": "#/definitions/DesktopPetStateReadParams"
+      },
+      "result": {
+        "$ref": "#/definitions/DesktopPetPrefs"
+      }
+    },
+    "desktopPet/state/write": {
+      "params": {
+        "$ref": "#/definitions/DesktopPetStateWriteParams"
+      },
+      "result": {
+        "$ref": "#/definitions/DesktopPetPrefs"
+      }
+    },
     "dev/computer/run": {
       "params": {
         "$ref": "#/definitions/DevComputerRunParams"
@@ -23829,6 +24178,12 @@
       },
       "result": true
     },
+    "projectFs/localPage/virtual": {
+      "params": {
+        "$ref": "#/definitions/ProjectFsLocalPageVirtualParams"
+      },
+      "result": true
+    },
     "projectFs/localPageUrl": {
       "params": {
         "$ref": "#/definitions/ProjectFsLocalPageUrlParams"
@@ -24216,6 +24571,14 @@
       },
       "result": {
         "$ref": "#/definitions/EmptyResult"
+      }
+    },
+    "takeover/ready": {
+      "params": {
+        "$ref": "#/definitions/TakeoverReadyParams"
+      },
+      "result": {
+        "$ref": "#/definitions/TakeoverReadyResult"
       }
     },
     "terminal/attach": {
