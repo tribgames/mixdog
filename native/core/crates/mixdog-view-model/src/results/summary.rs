@@ -18,13 +18,13 @@ use mixdog_js::slice_utf16;
 use mixdog_js::string_to_number;
 use mixdog_js::utf16_len;
 use mixdog_js::value_to_string;
+use mixdog_protocol::text_class::parse_task_notification;
 use serde_json::Map;
 use serde_json::Value;
 
 use crate::results::git_media::git_result_error;
 use crate::results::git_media::git_result_exit_code;
 use crate::results::git_media::media_result_summary;
-use crate::results::task_notification::parse_task_notification;
 use crate::tool_primitives::AGENT_SURFACE_BRIEF_MAX;
 use crate::tool_primitives::compact_parts;
 use crate::tool_primitives::display_path_of;
