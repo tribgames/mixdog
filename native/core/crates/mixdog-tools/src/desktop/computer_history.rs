@@ -271,7 +271,12 @@ fn iso_timestamp(value: &Value) -> bool {
 }
 
 fn hwnd_id(value: &Value) -> bool {
-    let Some(rest) = value.as_str().and_then(|text| text.strip_prefix("hwnd:0x")) else { return false };
+    // `/^hwnd:0x[0-9a-f]{1,16}$/i`: the prefix too is matched without regard to case.
+    let Some(text) = value.as_str() else { return false };
+    let rest = match text.get(..7) {
+        Some(head) if head.eq_ignore_ascii_case("hwnd:0x") => &text[7..],
+        _ => return false,
+    };
     (1..=16).contains(&rest.len()) && rest.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
@@ -539,6 +544,8 @@ fn prune_run_logs(directory: &Path) {
 pub fn history_limit(requested: Option<&Value>) -> usize {
     let number = match requested {
         Some(Value::Number(n)) => n.as_f64(),
+        // `Number(true)` is 1.
+        Some(Value::Bool(b)) => Some(if *b { 1.0 } else { 0.0 }),
         Some(Value::String(s)) => mixdog_js::js_trim(s).parse::<f64>().ok(),
         _ => None,
     };
@@ -748,6 +755,7 @@ mod tests {
         assert_eq!(history_limit(Some(&json!(0))), 60);
         assert_eq!(history_limit(Some(&json!(2.5))), 60);
         assert_eq!(history_limit(Some(&json!("7"))), 7);
+        assert_eq!(history_limit(Some(&json!(true))), 1);
     }
 
     #[test]
@@ -858,6 +866,8 @@ mod tests {
         let record = diagnostic_record(&map(json!({"action": "click", "ok": false, "delivery_accepted": null, "input_may_have_executed": true,
             "native_result": {"delivery_accepted": null, "input_may_have_executed": true}})));
         assert_eq!(record["observation"], json!({}));
+        assert_eq!(diagnostic_record(&map(json!({"window_id": "HWND:0X1F"})))["window_id"], "HWND:0X1F");
+        assert!(diagnostic_record(&map(json!({"window_id": "hwnd:0x"}))).get("window_id").is_none());
         assert_eq!(record["delivery_accepted"], Value::Null);
         assert_eq!(record["native_result"]["delivery_accepted"], Value::Null);
         let capture = diagnostic_record(&map(json!({"action": "capture", "ok": false, "pixel_status": "unavailable"})));
