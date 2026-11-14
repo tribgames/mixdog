@@ -1,0 +1,41 @@
+# g95-fu-ssh-link wiring
+
+Everything below is written in mixdog-app-server-client (engine.rs) and mixdog-connections (link.rs, server_logins.rs,
+remote_file_reader.rs and their tests) plus one new file mixdog-protocol/src/redact.rs; this fragment lists only what a file
+that is not this task's must do. No protocol row, no method, no SERVICE_PENDING name changes; no new Cargo dependency edge
+(every crate used is already a dependency of its crate: mixdog-core-api, mixdog-protocol, mixdog-app-protocol and mixdog-rt of
+mixdog-connections; tokio's `rt` feature gives `JoinSet`).
+
+## 1. mixdog-protocol/src/lib.rs (module line)
+After `pub mod message_class;` add
+
+    pub mod redact;
+
+(`redact.rs` is new: `pub const REDACTED` and `pub fn redact_secrets<S: AsRef<str>>(text, secrets: &[S]) -> String`, with its tests.
+mixdog-connections server_logins.rs already calls `mixdog_protocol::redact::redact_secrets`, so the crate builds only with this line.)
+
+## 2. mixdog-app-server/src/relay_answer.rs (one redaction, in the lower crate)
+Delete `const REDACTED: &str = "[redacted]";` (line 16) and replace the body of `RelayAnswer::redact` with
+
+    fn redact(&self, text: &str) -> String {
+        mixdog_protocol::redact::redact_secrets(text, &self.secrets)
+    }
+
+keeping its doc line (`redactSecrets`). `REDACTED` is used nowhere else in that file (check with grep before deleting).
+
+## 3. Where `LinkPool::new` is built (the connections composition in mixdog-app-server-daemon)
+`LinkStores` has a new field `host: Arc<dyn HostChannel>` (mixdog_core_api::host::HostChannel): this PC's core as the desktop host's
+channel, the same `Arc<dyn HostChannel>` that `HostChannelWindows::new(host)` in service.rs is given. Pass it when `LinkStores { hosts,
+port_forwards, payloads, host }` is built. The link declares `capabilities.host` (browser, visualize, notifications, systemProxy, power,
+media, updater, files, computer, windows; no browserEngine) on every server connection, claims the host role there (`host/claim {hostId:
+"link:<connection id>"}` on every attach) and relays the server's `host/*` requests and its `host/notification/*` and `host/browser/*`
+notifications through that channel to the desktop that claimed the role on this PC. A request this PC's desktop cannot run is answered to
+the server with error -32000 "This PC's desktop could not run the request."
+
+## 4. Desktop (nothing to apply here, a note for the deletion tasks)
+Until the TypeScript connection to a server (apps/desktop/src/main/protocol/connection.ts with `capabilities.host`) is deleted it also claims
+the host role on that server's core, and the server serves the latest claimant: the deletion task of that connection removes the second claim.
+
+## 5. What the lead may now drop from earlier fragments / lists
+- deferred-core "login:<flowId> push = status read only" (not applicable): the push is followed now (server_logins.rs follow_feed).
+- review findings of g61 s2b-link-pool p1 (onModelLoginEnd), p2 and mb3 (host capabilities), mb0: closed by this task.
