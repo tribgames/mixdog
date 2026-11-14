@@ -896,7 +896,16 @@ impl ComputerSessionPool {
     pub async fn authorization_windows(&self, session: &str) -> Result<Vec<serde_json::Value>, ComputerError> {
         match self.entry_for(session)?.0 {
             Process::Helper(process) => process.authorization_windows().await,
-            Process::Host(_) => Err(ComputerError::Unavailable { reason: "no helper serves this session: the desktop's computer host answers for its windows".to_owned() }),
+            // The window list is the desktop's, not a session's: a session the desktop's host serves has no helper, so a helper of
+            // its own reads it once and ends with the read.
+            Process::Host(_) => {
+                let Some(binary) = &self.binary else {
+                    return Err(ComputerError::Unavailable { reason: "no computer helper is installed to read the windows".to_owned() });
+                };
+                let mut config = ComputerConfig::new(binary.clone(), "computer-settings");
+                config.data_dir = Some(self.data_dir.clone());
+                ProcessComputerBackend::new(config, self.manager.clone()).authorization_windows().await
+            }
         }
     }
 

@@ -93,7 +93,11 @@ pub(super) fn augment(frames: &FrameStore, capture: &Capture, result: &Map<Strin
         return 0;
     };
     let shown = frame_elements(capture.accessibility, frame);
-    let remaining = (capture.budget - shown.count as i64).max(0);
+    // The words keep a share of the budget the accessibility elements cannot take: at most half of it (one at least), and no more
+    // than the words asked for (`reservedOcrBudget` of `mergeCaptureOcr`).
+    let reserved = ask.limit.min((capture.budget / 2).max(1));
+    let kept = (shown.count as i64).min((capture.budget - reserved).max(0));
+    let remaining = (capture.budget - kept).max(0);
     if remaining == 0 {
         parts.push(skipped("element_budget_exhausted"));
         return 0;
@@ -374,7 +378,10 @@ mod tests {
         let snapshot = json!({"elements": [{"mark": 1, "name": "", "x": 2560, "y": -489, "width": 20, "height": 20}]});
         let (text, _) = run(json!({"include_ocr": true}), "som", Some(snapshot.clone()), &reply(words.clone()), 3);
         assert_eq!(text.matches("[ocr:").count(), 2, "{text}");
-        let (none, _) = run(json!({"include_ocr": true}), "som", Some(snapshot), &reply(words), 1);
+        // The budget reserves a share for the words: one at least, whatever the elements take.
+        let (reserved, _) = run(json!({"include_ocr": true}), "som", Some(snapshot.clone()), &reply(words.clone()), 1);
+        assert_eq!(reserved.matches("[ocr:").count(), 1, "{reserved}");
+        let (none, _) = run(json!({"include_ocr": true}), "som", Some(snapshot), &reply(words), 0);
         assert_eq!(none, "OCR skipped (include_ocr): element_budget_exhausted");
     }
 

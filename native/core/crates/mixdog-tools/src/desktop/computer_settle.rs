@@ -5,7 +5,9 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::Mutex;
+use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
@@ -39,6 +41,9 @@ const DIALOG_WATCH_FOCUS_GAP: Duration = Duration::from_millis(600);
 const DIALOG_POLL: Duration = Duration::from_millis(100);
 /// How long a command waits for an arrivals read (`window-arrivals.ts` `ARRIVALS_READ_BUDGET_MS`).
 const ARRIVALS_READ_BUDGET: Duration = Duration::from_millis(300);
+/// The watch after an action: a look every interval until the span ends or a window the session may see appears.
+const ARRIVALS_WATCH_INTERVAL: Duration = Duration::from_millis(200);
+const ARRIVALS_WATCH_SPAN: Duration = Duration::from_millis(1_000);
 
 // --- window records (`ComputerWindowRecord`, `normalizeComputerWindowRecords`) ---
 
@@ -540,6 +545,12 @@ pub(super) struct Arrivals {
     baseline: Mutex<Option<Baseline>>,
     /// The one read in flight; a busy read is skipped, never queued behind.
     reading: AtomicBool,
+    /// Windows a watch saw that no reply has named yet, kept even after they close so the next reply still names them.
+    seen: Mutex<Vec<Window>>,
+    /// Counts the commands and watches that began: a watch looks only while its own count is the current one.
+    generation: AtomicU64,
+    /// Wakes the backend's watch task after an action.
+    pub(super) wake: Arc<tokio::sync::Notify>,
 }
 
 /// Held while the arrivals read runs.
@@ -563,7 +574,71 @@ impl Arrivals {
     /// The session was released (`windowArrivals.forget`): its next command takes a fresh baseline instead of naming what opened
     /// meanwhile.
     pub fn forget(&self) {
+        self.generation.fetch_add(1, Ordering::SeqCst);
         *locked(&self.baseline) = None;
+        locked(&self.seen).clear();
+    }
+
+    /// Seen windows not yet named, then the list's own newcomers.
+    fn unnamed(&self, known: &HashSet<String>, windows: Vec<Window>) -> Vec<Window> {
+        let mut unnamed: Vec<Window> = locked(&self.seen).iter().filter(|window| !known.contains(&window.id)).cloned().collect();
+        let seen = ids(&unnamed);
+        unnamed.extend(windows.into_iter().filter(|window| !known.contains(&window.id) && !seen.contains(&window.id)));
+        unnamed
+    }
+
+    /// An action's reply has gone out: a short watch keeps looking for the windows that open after it and keeps what it sees for the
+    /// session's next reply, so a popup that opens and closes between commands is still named.
+    pub fn start_watch(&self) {
+        self.generation.fetch_add(1, Ordering::SeqCst);
+        self.wake.notify_one();
+    }
+
+    /// One look of a watch of `generation`: whether to keep watching.
+    async fn look<R: WindowReader>(&self, reader: &R, session: &str, generation: u64) -> bool {
+        if !matches!(locked(&self.baseline).as_ref(), Some(Baseline::Known(_))) {
+            return false;
+        }
+        let Ok(read) = self.bounded_read(reader, false, &CancellationToken::new()).await else { return false };
+        // Superseded or released during the read: record nothing for this session.
+        if self.generation.load(Ordering::SeqCst) != generation {
+            return false;
+        }
+        // Busy or late: look again next time.
+        let Some(windows) = read else { return true };
+        let fresh: Vec<Window> = match locked(&self.baseline).as_ref() {
+            Some(Baseline::Known(known)) => windows.into_iter().filter(|window| !known.contains(&window.id)).collect(),
+            _ => return false,
+        };
+        if fresh.is_empty() {
+            return true;
+        }
+        let mut seen = locked(&self.seen);
+        for window in &fresh {
+            if !seen.iter().any(|held| held.id == window.id) {
+                seen.push(window.clone());
+            }
+        }
+        drop(seen);
+        let mut rows: Vec<Value> = fresh.iter().map(Window::to_json).collect();
+        computer_policy::narrow_rows(session, &mut rows);
+        rows.is_empty()
+    }
+
+    /// The watch after one action (`watch`): looks every interval for the span, ending as soon as a window the session may see
+    /// appears, or another command or watch begins.
+    pub async fn watch<R: WindowReader>(&self, reader: &R, session: &str) {
+        let generation = self.generation.load(Ordering::SeqCst);
+        let deadline = Instant::now() + ARRIVALS_WATCH_SPAN;
+        loop {
+            sleep(ARRIVALS_WATCH_INTERVAL).await;
+            if self.generation.load(Ordering::SeqCst) != generation || !self.look(reader, session, generation).await {
+                return;
+            }
+            if Instant::now() + ARRIVALS_WATCH_INTERVAL > deadline {
+                return;
+            }
+        }
     }
 
     /// The list read within the budget: `None` when it is still running, another read is, or it failed.
@@ -581,6 +656,8 @@ impl Arrivals {
     /// The windows the session has not been told about; a session's first command only takes the baseline. `acts` is whether the
     /// command may change the desktop, which a session without a baseline cannot tell apart from what it reads.
     pub async fn read<R: WindowReader>(&self, reader: &R, acts: bool, cancel: &CancellationToken) -> Result<Vec<Window>, ComputerError> {
+        // A new command ends the watch of the one before it.
+        self.generation.fetch_add(1, Ordering::SeqCst);
         let windows = self.bounded_read(reader, false, cancel).await?;
         let mut baseline = locked(&self.baseline);
         let Some(windows) = windows else {
@@ -588,7 +665,10 @@ impl Arrivals {
             if acts && baseline.is_none() {
                 *baseline = Some(Baseline::Unknown);
             }
-            return Ok(Vec::new());
+            return Ok(match baseline.as_ref() {
+                Some(Baseline::Known(known)) => self.unnamed(known, Vec::new()),
+                _ => Vec::new(),
+            });
         };
         match baseline.take() {
             None => {
@@ -604,7 +684,7 @@ impl Arrivals {
                 // A closed window leaves the baseline, so a handle reused later reads as new.
                 let present = ids(&windows);
                 known.retain(|id| present.contains(id));
-                let arrived = windows.into_iter().filter(|window| !known.contains(&window.id)).collect();
+                let arrived = self.unnamed(&known, windows);
                 *baseline = Some(Baseline::Known(known));
                 Ok(arrived)
             }
@@ -621,12 +701,15 @@ impl Arrivals {
         }
         if let Some(Baseline::Known(known)) = baseline.as_mut() {
             known.extend(named.iter().cloned());
+            locked(&self.seen).retain(|window| !named.contains(&window.id));
         }
     }
 
     /// Names the arrivals on a JSON reply. A reply that cannot carry them (plain text, user-owned clipboard text) leaves them for the
     /// next command.
-    pub async fn report<R: WindowReader>(&self, reader: &R, arrived: Vec<Window>, parts: &mut [ToolPart], clipboard_read: bool, cancel: &CancellationToken) -> Result<(), ComputerError> {
+    /// A restricted session hears only about the windows it may capture; the ones it does not see are named as well, so they are not
+    /// offered again.
+    pub async fn report<R: WindowReader>(&self, reader: &R, session: &str, arrived: Vec<Window>, parts: &mut [ToolPart], clipboard_read: bool, cancel: &CancellationToken) -> Result<(), ComputerError> {
         if arrived.is_empty() || clipboard_read {
             return Ok(());
         }
@@ -641,6 +724,12 @@ impl Arrivals {
         };
         let named: Vec<String> = arrived.iter().map(|window| window.id.clone()).collect();
         self.note_settled(None, &named);
+        let mut visible: Vec<Value> = arrived.iter().map(Window::to_json).collect();
+        computer_policy::narrow_rows(session, &mut visible);
+        let arrived: Vec<Window> = arrived.into_iter().filter(|window| visible.iter().any(|row| row["id"] == window.id.as_str())).collect();
+        if arrived.is_empty() {
+            return Ok(());
+        }
         // The snapshot read carries no app names; only a reply with arrivals pays for them, and a slow or failed read leaves them empty.
         let apps: HashMap<String, String> = self.bounded_read(reader, true, cancel).await?.into_iter().flatten().map(|window| (window.id, window.app)).collect();
         let rows: Vec<Value> = arrived
@@ -749,7 +838,19 @@ pub(super) async fn arrived_before(backend: &ProcessComputerBackend, action: &st
 
 /// Names `arrived` on the reply of `action`.
 pub(super) async fn report_arrived(backend: &ProcessComputerBackend, action: &str, arrived: Vec<Window>, parts: &mut [ToolPart], cancel: &CancellationToken) -> Result<(), ComputerError> {
-    backend.arrivals.report(backend, arrived, parts, action == "clipboard_read", cancel).await
+    backend.arrivals.report(backend, &backend.config.session_id, arrived, parts, action == "clipboard_read", cancel).await
+}
+
+/// After an action's reply: the short watch for the windows that open after it (not after a read).
+pub(super) fn watch_after(backend: &ProcessComputerBackend, action: &str) {
+    if tracks() && !HOST_READ_ACTIONS.contains(&action) {
+        backend.arrivals.start_watch();
+    }
+}
+
+/// The watch task's body: one watch per wake, for the backend's session.
+pub(super) async fn watch_once(backend: &ProcessComputerBackend) {
+    backend.arrivals.watch(backend, &backend.config.session_id).await;
 }
 
 #[cfg(test)]
@@ -1097,13 +1198,47 @@ mod tests {
         let arrived = arrivals.read(&reader, true, &cancel).await.unwrap();
         assert_eq!(arrived, vec![popup]);
         let mut parts = reply(r#"{"ok":true}"#);
-        arrivals.report(&reader, arrived, &mut parts, false, &cancel).await.unwrap();
+        arrivals.report(&reader, "s", arrived, &mut parts, false, &cancel).await.unwrap();
         let payload: Value = serde_json::from_str(text_of(&parts)).unwrap();
         assert_eq!(payload["windows_opened_since_last_action"], json!([{"id": "hwnd:0x9", "title": "Sign in", "app": ""}]));
         assert_eq!(payload["ok"], true);
 
         assert!(arrivals.read(&reader, true, &cancel).await.unwrap().is_empty(), "named windows are not named again");
         assert!(reader.calls().iter().all(|(_, _, arrivals)| *arrivals), "through the arrivals worker's own session");
+    }
+
+    /// A popup that opens and closes between two commands is still named by the next one: the watch after the action saw it.
+    #[tokio::test(start_paused = true)]
+    async fn a_window_the_watch_saw_is_named_even_after_it_closed() {
+        let (first, popup) = (window("hwnd:0x1", 1), window("hwnd:0x9", 2));
+        let (shown, flash) = (first.clone(), popup.clone());
+        let reader = Clocked::new(move |_, number| Some(if number == 2 { vec![shown.clone(), flash.clone()] } else { vec![shown.clone()] }));
+        let arrivals = Arrivals::default();
+        let cancel = CancellationToken::new();
+        arrivals.read(&reader, true, &cancel).await.unwrap();
+
+        arrivals.watch(&reader, "s").await;
+
+        assert_eq!(arrivals.read(&reader, true, &cancel).await.unwrap(), vec![popup], "gone from the list, still named once");
+        assert!(arrivals.read(&reader, true, &cancel).await.unwrap().is_empty());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_command_that_begins_ends_the_watch_before_it() {
+        let (first, popup) = (window("hwnd:0x1", 1), window("hwnd:0x9", 2));
+        let (shown, flash) = (first.clone(), popup.clone());
+        let reader = Clocked::new(move |_, number| Some(if number >= 2 { vec![shown.clone(), flash.clone()] } else { vec![shown.clone()] }));
+        let arrivals = Arrivals::default();
+        let cancel = CancellationToken::new();
+        arrivals.read(&reader, true, &cancel).await.unwrap();
+        let watching = arrivals.watch(&reader, "s");
+        let next = async {
+            sleep(Duration::from_millis(100)).await;
+            arrivals.read(&reader, true, &cancel).await.unwrap()
+        };
+        let (_, arrived) = tokio::join!(watching, next);
+        assert_eq!(arrived, vec![popup]);
+        assert_eq!(reader.calls().len(), 2, "the watch made no look of its own");
     }
 
     #[tokio::test(start_paused = true)]
@@ -1117,7 +1252,7 @@ mod tests {
         let arrived = arrivals.read(&reader, false, &cancel).await.unwrap();
         for (text, clipboard) in [("plain text", false), (r#"{"text":"secret"}"#, true)] {
             let mut parts = reply(text);
-            arrivals.report(&reader, arrived.clone(), &mut parts, clipboard, &cancel).await.unwrap();
+            arrivals.report(&reader, "s", arrived.clone(), &mut parts, clipboard, &cancel).await.unwrap();
             assert_eq!(text_of(&parts), text);
         }
         assert_eq!(arrivals.read(&reader, false, &cancel).await.unwrap(), vec![popup]);
