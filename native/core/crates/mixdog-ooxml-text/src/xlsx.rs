@@ -102,8 +102,9 @@ fn hidden_column_numbers(xml: &str) -> Vec<f64> {
         }
         let mut index = first;
         // At most 64 columns of one declaration (a count past 2^53 would not advance, so the count bounds the loop too).
+        // `index - first < 64` is false for an infinite `min` (Infinity - Infinity is NaN): no column is listed.
         for _ in 0..64 {
-            if index > last {
+            if index > last || (index - first).is_nan() {
                 break;
             }
             hidden.push(index);
@@ -399,5 +400,7 @@ mod tests {
         assert_eq!(hidden.len(), 64);
         assert_eq!(hidden[0], 3.0);
         assert_eq!(hidden[63], 66.0);
+        let infinite = format!(r#"<cols><col min="{0}" max="{0}" hidden="1"/></cols>"#, "9".repeat(400));
+        assert!(hidden_column_numbers(&infinite).is_empty());
     }
 }
