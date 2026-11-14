@@ -14,7 +14,11 @@
 // Steps (one line each, ok or FAIL): list projects; start a thread; a ~1 MB prompt through blob refs; a 600 KB file written
 // through a blob ref and read back; terminal ensure/attach/input/output on the main and on a window connection; an approval
 // answered by a window; a denied process/spawn on a window; two windows on one thread (the first answer wins).
-// Exit 0 when every step passed, 1 when one failed, 2 on a bad command line or an unreachable core.
+// A step whose input is not there (the model steps without --route and --workspace, the approval steps without --mixdogd) is printed
+// `skip` and counted as not run: it is neither a pass nor a failure. A --core run without --route therefore exits 0 when the
+// steps it can make all passed, and says how many it did not run; it proves the connections, the blob and file path, the
+// terminals and the window refusal, not the model or approval steps.
+// Exit 0 when no step failed, 1 when one failed, 2 on a bad command line or an unreachable core.
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -35,6 +39,8 @@ const POLL_MS = 20;
 
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 const nonce = () => randomBytes(4).toString('hex');
+/** A step that cannot run with what it was given: reported as not run, not as a failure. */
+class NotRun extends Error {}
 const message = (error) => (error instanceof Error ? error.message : String(error));
 
 /** The value `probe` returns once it is truthy; a rejection naming `what` after `ms`. */
@@ -268,6 +274,11 @@ async function run() {
     try {
       detail = (await work()) ?? '';
     } catch (error) {
+      if (error instanceof NotRun) {
+        results.push(null);
+        console.log(`skip ${name} ${error.message}`);
+        return false;
+      }
       ok = false;
       detail = message(error);
     }
@@ -276,7 +287,7 @@ async function run() {
     return ok;
   };
   const needs = (what, ...values) => {
-    if (values.some((value) => !value)) throw new Error(`not run: needs ${what}`);
+    if (values.some((value) => !value)) throw new NotRun(`not run: needs ${what}`);
   };
   const blobText = async (client, text) => ({ $blobRef: (await client.putBlob(Buffer.from(text, 'utf8'), 'text/plain')).blob.digest, as: 'text' });
   const startThread = async (client, route, interactive) => {
@@ -397,8 +408,11 @@ async function run() {
 
   await Promise.all(links.map((link) => link.close()));
   await own?.stop();
-  const failed = results.filter((ok) => !ok).length;
-  console.log(failed ? `direct-core-smoke: ${failed} of ${results.length} steps FAILED` : `direct-core-smoke: all ${results.length} steps passed`);
+  const failed = results.filter((ok) => ok === false).length;
+  const skipped = results.filter((ok) => ok === null).length;
+  const ran = results.length - skipped;
+  const unrun = skipped ? `; ${skipped} not run (give --route and --workspace, or --mixdogd)` : '';
+  console.log(failed ? `direct-core-smoke: ${failed} of ${ran} steps FAILED${unrun}` : `direct-core-smoke: all ${ran} steps run passed${unrun}`);
   return failed ? 1 : 0;
 }
 

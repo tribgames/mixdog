@@ -19,6 +19,7 @@ import {
   routeDesktopNotification,
   routeDesktopOperation,
 } from './desktop-operation-route.ts';
+import { isSectionCapability } from '../section-capabilities.ts';
 import { LOGIN_CANCEL_METHODS, LOGIN_START_METHODS } from './login-feed.ts';
 import { routeService } from './service-route.ts';
 
@@ -28,6 +29,19 @@ const WINDOW_METHODS = new URL(
 );
 const table = JSON.parse(fs.readFileSync(fileURLToPath(WINDOW_METHODS), 'utf8'));
 const REFUSED = new Set(table.methods);
+
+/** The capabilities that give no request: the pushed sections and the activity notification. */
+const NO_REQUEST_CAPABILITIES = [
+  'getOnboardingStatus',
+  'getProviderAccounts',
+  'getProviderSetup',
+  'getWebSearchRoute',
+  'listAgents',
+  'listPresets',
+  'listProviders',
+  'listWorkflows',
+  'noteUserInput',
+];
 
 /** Argument lists that reach the branches of a router: none, an object, strings, and the action shapes the goal call takes. */
 const PROBES = [
@@ -141,9 +155,13 @@ test('every capability resolves, and none to a host-role method', () => {
     if (methods.size === 0) unresolved.push(capability);
     for (const method of methods) assert.ok(!REFUSED.has(method), `${capability} resolves to ${method}`);
   }
-  // A capability the lanes refuse with `unknownMethod` is the desktop's own (it has no protocol method): it can never
-  // reach a window's connection, so it cannot be refused there.
-  assert.ok(unresolved.length < DESKTOP_CAPABILITIES.length / 2, `${unresolved.length} capabilities resolve to nothing`);
+  // The capabilities that resolve to no request are a named list: the sections the core pushes (the connection's section
+  // store answers them: section-capabilities.ts) and `noteUserInput`, which is the `client/activity` notification. A tenth
+  // one, or one of these that starts resolving, is a change to look at.
+  assert.deepEqual(unresolved.sort(), [...NO_REQUEST_CAPABILITIES].sort());
+  for (const capability of unresolved) {
+    assert.ok(capability === 'noteUserInput' || isSectionCapability(capability), `${capability} resolves to nothing and is neither a section nor the activity notification`);
+  }
 });
 
 test('the protocol client actions and their argument table name no refused method', () => {
