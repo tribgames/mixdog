@@ -173,11 +173,13 @@ export function createComputerPresence(deps: ComputerPresenceDeps): ComputerPres
     const activities: ComputerUseActivity[] = sessions.map((session) => {
       const id = session.sessionThreadId;
       const mode = cursors.get(id)?.mode ?? session.mode ?? lastMode.get(id) ?? 'background';
+      // A pointer event after the section said no command runs is a command running (the coordinator's `showCursor`
+      // makes the activity active), so the arrow is not read as one held while the session thinks.
       const phase: ComputerUseActivityPhase = takeover
         ? 'paused_user_takeover'
         : session.phase && ACTIVITY_PHASES.has(session.phase)
           ? (session.phase as ComputerUseActivityPhase)
-          : session.mode === null
+          : session.mode === null && !cursors.has(id)
             ? 'thinking'
             : mode === 'foreground'
               ? 'active_foreground'
@@ -253,6 +255,7 @@ export function createComputerPresence(deps: ComputerPresenceDeps): ComputerPres
     },
     applySection(next): void {
       const wasDelegating = delegating();
+      const previousModes = new Map(sessionsOf().map((session) => [session.sessionThreadId, session.mode]));
       section = next;
       const open = new Set(next.active ? next.sessions.map((session) => session.sessionThreadId) : []);
       const known = new Set([...startedAt.keys(), ...cursors.keys(), ...released, ...lastMode.keys()]);
@@ -270,8 +273,11 @@ export function createComputerPresence(deps: ComputerPresenceDeps): ComputerPres
         const id = session.sessionThreadId;
         if (!startedAt.has(id)) startedAt.set(id, at);
         // A finished command leaves only the overlay's short tail, not a live pointer through the session's thinking
-        // time; a command in another mode starts with no arrow of the previous one.
-        if (session.mode === null) cursors.delete(id);
+        // time (on the command's end, not on every later value); a command in another mode starts with no arrow of the
+        // previous one.
+        if (session.mode === null) {
+          if (previousModes.get(id) !== null) cursors.delete(id);
+        }
         else if (session.mode) {
           const before = lastMode.get(id);
           if (before !== undefined && before !== session.mode) cursors.delete(id);
