@@ -72,6 +72,11 @@ pub fn add(left: f64, right: f64) -> f64 {
     if right.is_nan() { f64::from_bits(right.to_bits() | (1u64 << 51)) } else { left + right }
 }
 
+/// Numeric JavaScript `*`, retaining V8's right-NaN payload before native arithmetic can commute it.
+pub fn mul(left: f64, right: f64) -> f64 {
+    if right.is_nan() { f64::from_bits(right.to_bits() | (1u64 << 51)) } else { left * right }
+}
+
 const HUGE: f64 = 1.0e300;
 const TINY: f64 = 1.0e-300;
 const TWO54: f64 = 1.801_439_850_948_198_4e16;

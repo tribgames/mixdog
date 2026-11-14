@@ -641,6 +641,15 @@
       "totalBytes": 239203
     },
     {
+      "command": "node benchmarks/rust-core/recorders/record-office-engineering.mjs --tree <tree>",
+      "fileCount": 4,
+      "manifest": "office-engineering/MANIFEST.json",
+      "manifestSha256": "5a442d8bc7733384a2b25986080aa29c4850aa4b58c402d24d8d87f42bb0411b",
+      "recorder": "benchmarks/rust-core/recorders/record-office-engineering.mjs",
+      "set": "office-engineering",
+      "totalBytes": 1523887
+    },
+    {
       "command": "node benchmarks/rust-core/recorders/record-office-math.mjs --tree <tree>",
       "fileCount": 1,
       "manifest": "office-math/MANIFEST.json",
