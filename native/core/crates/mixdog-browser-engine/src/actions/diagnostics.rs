@@ -79,22 +79,33 @@ async fn fetch_bodies(page: &PageCall<'_>, request: &NetworkRequest) -> Result<F
     Ok(fetched)
 }
 
-/// `network`: without `requestId`, the recorded requests (newest first, filtered by `query` and `resourceTypes`, at most `limit`);
-/// with one, that request's headers, bodies and WebSocket frames. `now_ms` is the epoch time a request still in flight is measured
-/// against.
-pub async fn network(page: &PageCall<'_>, ledgers: &PageLedgers, command: &Value, now_ms: i64) -> Result<ToolReply, ActionError> {
-    let request_id = js_trim(&string_arg(command, "requestId")).to_owned();
-    if request_id.is_empty() {
-        let query = NetworkQuery {
-            query: string_arg(command, "query"),
-            resource_types: command.get("resourceTypes").and_then(Value::as_array).map(|types| types.iter().map(value_to_string).collect()).unwrap_or_default(),
-            limit: number_arg(command, "limit").map(|limit| limit.trunc() as i64),
-        };
-        return Ok(ToolReply::text(list_report(&ledgers.network, &query, now_ms)));
-    }
-    let Some(request) = ledgers.network.get(&request_id) else {
-        return Err(ActionError::failed(format!("unknown network request \"{request_id}\"; call network without requestId to list requests")));
+/// `network` without a `requestId`: the recorded requests (newest first, filtered by `query` and `resourceTypes`, at most `limit`).
+/// `now_ms` is the epoch time a request still in flight is measured against.
+pub fn network_list(ledgers: &PageLedgers, command: &Value, now_ms: i64) -> ToolReply {
+    let query = NetworkQuery {
+        query: string_arg(command, "query"),
+        resource_types: command.get("resourceTypes").and_then(Value::as_array).map(|types| types.iter().map(value_to_string).collect()).unwrap_or_default(),
+        limit: number_arg(command, "limit").map(|limit| limit.trunc() as i64),
     };
+    ToolReply::text(list_report(&ledgers.network, &query, now_ms))
+}
+
+/// The command's `requestId` (trimmed), empty when it names none.
+pub fn network_request_id(command: &Value) -> String {
+    js_trim(&string_arg(command, "requestId")).to_owned()
+}
+
+/// The recorded request a `requestId` names, copied out so the ledger is not held while its bodies are read from the page.
+pub fn network_request(ledgers: &PageLedgers, request_id: &str) -> Result<NetworkRequest, ActionError> {
+    ledgers
+        .network
+        .get(request_id)
+        .cloned()
+        .ok_or_else(|| ActionError::failed(format!("unknown network request \"{request_id}\"; call network without requestId to list requests")))
+}
+
+/// `network` with a `requestId`: that request's headers, bodies and WebSocket frames.
+pub async fn network_detail(page: &PageCall<'_>, request: &NetworkRequest, command: &Value, now_ms: i64) -> Result<ToolReply, ActionError> {
     let fetched = fetch_bodies(page, request).await?;
     let options = DetailOptions {
         max_chars: number_arg(command, "maxChars"),
@@ -141,7 +152,12 @@ mod tests {
         let source = CancelSource::new();
         let view = source.view();
         let page = PageCall { host, page_id: "p1", expect: None, cancel: &view };
-        network(&page, ledgers, &command, 2_000).await
+        let request_id = network_request_id(&command);
+        if request_id.is_empty() {
+            return Ok(network_list(ledgers, &command, 2_000));
+        }
+        let request = network_request(ledgers, &request_id)?;
+        network_detail(&page, &request, &command, 2_000).await
     }
 
     #[test]
@@ -225,7 +241,8 @@ mod tests {
         source.cancel("user takeover");
         let view = source.view();
         let page = PageCall { host: &host, page_id: "p1", expect: None, cancel: &view };
-        let error = network(&page, &ledgers, &json!({"requestId": "r1"}), 2_000).await.expect_err("cancelled");
+        let request = network_request(&ledgers, "r1").expect("recorded");
+        let error = network_detail(&page, &request, &json!({"requestId": "r1"}), 2_000).await.expect_err("cancelled");
         assert_eq!(error, ActionError::Host(HostCallError::Cancelled));
     }
 }
