@@ -145,6 +145,46 @@ fn an_attachment_is_written_under_the_temp_folder_by_its_digest() {
     assert!(!other.path().join("mixdog-attachments").exists());
 }
 
+/// A PNG of `width` x `height` gray-ramp RGB pixels in stored (uncompressed) deflate blocks; the reader does not check the chunk CRCs.
+fn stored_png(width: u32, height: u32) -> Vec<u8> {
+    let mut raw = Vec::new();
+    for y in 0..height {
+        raw.push(0u8);
+        for x in 0..width {
+            raw.extend_from_slice(&[(x % 256) as u8, (y % 256) as u8, 128]);
+        }
+    }
+    let (mut low, mut high) = (1u32, 0u32);
+    for byte in &raw {
+        low = (low + u32::from(*byte)) % 65521;
+        high = (high + low) % 65521;
+    }
+    let mut zlib = vec![0x78, 0x01];
+    let blocks: Vec<&[u8]> = raw.chunks(60_000).collect();
+    for (index, block) in blocks.iter().enumerate() {
+        zlib.push(u8::from(index + 1 == blocks.len()));
+        zlib.extend_from_slice(&(block.len() as u16).to_le_bytes());
+        zlib.extend_from_slice(&(!(block.len() as u16)).to_le_bytes());
+        zlib.extend_from_slice(block);
+    }
+    zlib.extend_from_slice(&((high << 16) | low).to_be_bytes());
+    let chunk = |kind: &[u8; 4], body: &[u8]| [&(body.len() as u32).to_be_bytes()[..], kind, body, &[0u8; 4]].concat();
+    let mut header = Vec::new();
+    header.extend_from_slice(&width.to_be_bytes());
+    header.extend_from_slice(&height.to_be_bytes());
+    header.extend_from_slice(&[8, 2, 0, 0, 0]);
+    [&[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a][..], &chunk(b"IHDR", &header), &chunk(b"IDAT", &zlib), &chunk(b"IEND", &[])].concat()
+}
+
+#[test]
+fn a_png_picture_is_scaled_like_a_jpeg_one() {
+    let url = thumbnail_of(&stored_png(640, 480), 0).unwrap();
+    let bytes = base64::engine::general_purpose::STANDARD.decode(url.strip_prefix("data:image/jpeg;base64,").unwrap()).unwrap();
+    assert_eq!(image::load_from_memory(&bytes).unwrap().to_rgb8().dimensions(), (320, 240));
+    let small = base64::engine::general_purpose::STANDARD.decode(thumbnail_of(&stored_png(40, 30), 0).unwrap().strip_prefix("data:image/jpeg;base64,").unwrap()).unwrap();
+    assert_eq!(image::load_from_memory(&small).unwrap().to_rgb8().dimensions(), (40, 30));
+}
+
 // ---- attachment-thumbnail.test.mjs -----------------------------------------------------------------------------------
 
 #[test]

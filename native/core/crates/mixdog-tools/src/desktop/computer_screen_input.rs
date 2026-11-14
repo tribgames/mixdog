@@ -14,17 +14,16 @@
 //! Its stdout: the first `desktop` line, then `ready <windows session id>`, then `desktop <name|-> <consent 0|1> <logonui
 //! 0|1>` on change, `ok <id> ...` / `err <id> <code>` per command and `released` once it let go on `q` or end of stdin.
 //!
-//! - Ordered: every call takes its turn of one queue, so a release always follows the command it must undo and a run of
-//!   input (`apply_all`, a `screen-keys` combo) is never interleaved with another.
-//! - Released: `release_all` lifts every key and button this side holds; `stop` sends `q`; the process lifting what it holds on
-//!   end of stdin means a core that dies never leaves a key or button down. A process that ends without saying `released`
+//! - Ordered: the lines reach the process one writer at a time, each acknowledged by its id. Which keys and buttons are held,
+//!   the pointer mapping and the order of a combo are the screen session's (`computer_screen/router.rs`, `session.rs`): this
+//!   module is the host process only.
+//! - Released: `stop` sends `q`; the process lifting what it holds on end of stdin means a core that dies never leaves a key or
+//!   button down. A process that ends without saying `released`
 //!   (a crash, a kill for a missed acknowledgment) is followed by `mixdog-computer --abort-cleanup` under the same input
 //!   marker, which lifts what its ownership receipt records. The cleanups of one process finish before the next starts.
 //! - Bounded: a command that is not acknowledged within [`SCREEN_COMMAND_TIMEOUT`] retires the process (whatever it did
 //!   later would be unordered against the releases that follow), a start within [`START_TIMEOUT`], a stop within
 //!   [`STOP_TIMEOUT`] (then it is retired), a cleanup within [`ABORT_CLEANUP_TIMEOUT`].
-//! - Geometry: pointer and wheel points are video pixels of one geometry generation; [`ScreenGeometry`] (implemented by the
-//!   screen source) maps them to physical desktop pixels, and an input of another generation is refused.
 //!
 //! Where the secure desktop (a UAC prompt, the lock screen) has the input, this process cannot inject; the watcher
 //! ([`ScreenInput::desktop_watch`], [`InputDesktop::secure_up`]) tells the session, which switches input to the secure-desktop
@@ -44,7 +43,6 @@ use mixdog_core_api::domain::common::AbsPath;
 use mixdog_core_api::domain::common::EventSource;
 use mixdog_core_api::domain::computer::ComputerError;
 use mixdog_core_api::domain::computer::DesktopIdentity;
-use mixdog_core_api::domain::computer::InputOutcome;
 use mixdog_core_api::domain::computer::PointerButton;
 use mixdog_core_api::domain::computer::ScreenInput as InputOp;
 use mixdog_core_api::domain::process::CommandSpec;
@@ -110,76 +108,6 @@ impl From<ScreenInputError> for ComputerError {
 }
 
 type Reply = Result<Vec<String>, ScreenInputError>;
-
-// ---------------------------------------------------------------------------------------------------------------
-// Geometry and the viewer's input
-
-/// The locked geometry of the shared display, as the screen source holds it.
-pub trait ScreenGeometry: Send + Sync {
-    /// The live geometry generation: input made for another one is refused.
-    fn generation(&self) -> u64;
-    /// A video-pixel point (fractions allowed) -> the physical desktop pixel under it; `None` outside the frame.
-    fn to_physical(&self, point: (f64, f64)) -> Option<(i32, i32)>;
-}
-
-/// A key by Windows virtual-key code and set-1 scan code; `extended` is the E0 prefix.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Key {
-    pub vk: u32,
-    pub scan: u32,
-    pub extended: bool,
-}
-
-/// What a viewer sends (`RemoteScreenInput`). Pointer and wheel points are video pixels of the locked geometry; wheel deltas
-/// follow `WheelEvent`'s sign in Windows wheel units (120 = one notch).
-#[derive(Clone, Debug, PartialEq)]
-pub enum RemoteInput {
-    Move { x: f64, y: f64 },
-    Button { button: PointerButton, down: bool, x: f64, y: f64 },
-    Wheel { x: f64, y: f64, dx: i32, dy: i32 },
-    Key { key: Key, down: bool },
-    /// An atomic combo: the keys pressed in order, then released in reverse, as one step.
-    Keys(Vec<Key>),
-    Text(String),
-    /// Releases every key and button this viewer holds.
-    Release,
-}
-
-fn key_op(key: Key, down: bool) -> InputOp {
-    InputOp::Key { vk: key.vk, scan: key.scan, extended: key.extended, down }
-}
-
-/// The commands one input produces, or `None` when it cannot be applied now: a pointer or wheel of another geometry
-/// generation, a point outside the frame, or a zero wheel (the phone retries after the next geometry acknowledgment). A
-/// button up is always deliverable, or a press made before a geometry change could never be lifted: unmapped, it releases in
-/// place. `Keys` yields its key downs in order (`ScreenInput::apply_remote` presses and releases them as one step); `Release`
-/// yields none.
-pub fn screen_input_ops(input: &RemoteInput, geometry: &dyn ScreenGeometry, generation: u64) -> Option<Vec<InputOp>> {
-    let point = |x: f64, y: f64| {
-        if geometry.generation() != generation {
-            return None;
-        }
-        geometry.to_physical((x, y))
-    };
-    match input {
-        RemoteInput::Move { x, y } => point(*x, *y).map(|(x, y)| vec![InputOp::Move { x, y }]),
-        RemoteInput::Button { button, down, x, y } => match point(*x, *y) {
-            Some(at) => Some(vec![InputOp::Button { button: *button, down: *down, at: Some(at) }]),
-            None if !down => Some(vec![InputOp::Button { button: *button, down: false, at: None }]),
-            None => None,
-        },
-        RemoteInput::Wheel { x, y, dx, dy } => {
-            if *dx == 0 && *dy == 0 {
-                return None;
-            }
-            point(*x, *y).map(|(x, y)| vec![InputOp::Wheel { x, y, dx: *dx, dy: *dy }])
-        }
-        RemoteInput::Key { key, down } => Some(vec![key_op(*key, *down)]),
-        RemoteInput::Keys(keys) => Some(keys.iter().map(|key| key_op(*key, true)).collect()),
-        RemoteInput::Text(text) => Some(vec![InputOp::Text(text.clone())]),
-        RemoteInput::Release => Some(Vec::new()),
-    }
-}
 
 // ---------------------------------------------------------------------------------------------------------------
 // The wire
@@ -324,8 +252,6 @@ struct State {
     runs: u64,
     next_id: u64,
     stopping: bool,
-    /// Presses sent and not yet lifted, in the order they were made: `(hold key, the command that lifts it)`.
-    held: Vec<(String, InputOp)>,
     session: Option<u32>,
 }
 
@@ -337,29 +263,11 @@ struct Inner {
     starting: AsyncMutex<()>,
     /// One writer at a time, so ids and lines reach the process in order.
     writer: AsyncMutex<()>,
-    /// The queue input, releases and cursor reads take their turn in.
-    turn: AsyncMutex<()>,
     desktop: watch::Sender<Option<InputDesktop>>,
     /// Counts the exits this side did not ask for (a crash, or a kill for a missed acknowledgment).
     exits: watch::Sender<u32>,
     /// The `--abort-cleanup` runs under way.
     cleanups: watch::Sender<usize>,
-}
-
-fn hold_of(op: &InputOp) -> Option<(String, bool, InputOp)> {
-    match op {
-        InputOp::Button { button, down, .. } => Some((
-            format!("btn:{}", button_code(*button)),
-            *down,
-            InputOp::Button { button: *button, down: false, at: None },
-        )),
-        InputOp::Key { vk, scan, extended, down } => Some((
-            format!("key:{vk}:{scan}:{}", u8::from(*extended)),
-            *down,
-            InputOp::Key { vk: *vk, scan: *scan, extended: *extended, down: false },
-        )),
-        _ => None,
-    }
 }
 
 impl Inner {
@@ -520,7 +428,6 @@ impl Inner {
             let mut state = self.state();
             if state.run.as_ref().is_some_and(|run| run.id == run_id) {
                 state.session = None;
-                state.held.clear();
                 state.run.take().map(|run| (run, state.stopping))
             } else {
                 None
@@ -625,28 +532,6 @@ impl Inner {
             }
         }
     }
-
-    /// One input through the process; a press is held before it is sent (a down whose delivery is uncertain is still
-    /// released), a lift forgets its press once acknowledged.
-    async fn send_input(self: &Arc<Self>, op: &InputOp) -> Result<(), ScreenInputError> {
-        let hold = hold_of(op);
-        if let Some((key, true, release)) = &hold {
-            let mut state = self.state();
-            match state.held.iter_mut().find(|(held, _)| held == key) {
-                Some(entry) => entry.1 = release.clone(),
-                None => state.held.push((key.clone(), release.clone())),
-            }
-        }
-        self.command(&Command::Input(op)).await?;
-        if let Some((key, false, _)) = hold {
-            self.state().held.retain(|(held, _)| *held != key);
-        }
-        Ok(())
-    }
-
-    fn holds(&self, key: &str) -> bool {
-        self.state().held.iter().any(|(held, _)| held == key)
-    }
 }
 
 /// The phone's screen input: one `mixdog-computer --screen-input` process, its ordered commands, its release and its
@@ -664,7 +549,6 @@ impl ScreenInput {
                 state: Mutex::new(State::default()),
                 starting: AsyncMutex::new(()),
                 writer: AsyncMutex::new(()),
-                turn: AsyncMutex::new(()),
                 desktop: watch::channel(None).0,
                 exits: watch::channel(0).0,
                 cleanups: watch::channel(0).0,
@@ -746,81 +630,13 @@ impl ScreenInput {
         self.inner.exits.subscribe()
     }
 
-    /// One command in its turn: a move, button, wheel, key or literal text in desktop pixels. Resolves once the process
-    /// acknowledged it.
+    /// One command: a move, button, wheel, key or literal text in desktop pixels. Resolves once the process acknowledged it.
     pub async fn apply(&self, op: &InputOp) -> Result<(), ScreenInputError> {
-        let _turn = self.inner.turn.lock().await;
-        self.inner.send_input(op).await
+        self.inner.command(&Command::Input(op)).await.map(|_| ())
     }
 
-    /// A plan in order, as one turn. `live` is re-read before each command: once it fails nothing more is sent and the
-    /// outcome is `Rejected` (a stop, revoke or geometry change that landed while the plan waited).
-    pub async fn apply_all(&self, ops: &[InputOp], live: &(dyn Fn() -> bool + Sync)) -> Result<InputOutcome, ScreenInputError> {
-        let _turn = self.inner.turn.lock().await;
-        for op in ops {
-            if !live() {
-                return Ok(InputOutcome::Rejected);
-            }
-            self.inner.send_input(op).await?;
-        }
-        Ok(InputOutcome::Applied)
-    }
-
-    /// A viewer's input mapped through `geometry` (see [`screen_input_ops`]) and applied: `Rejected` when it cannot be applied
-    /// now (stale geometry generation, a point outside the frame, a zero wheel, `live` false). `Release` lifts everything held.
-    /// A `Keys` combo presses each key in order and releases them in reverse as one turn; a key this side already holds stays
-    /// held (neither pressed nor released), and `live` is read before each press, never before a release.
-    pub async fn apply_remote(
-        &self,
-        input: &RemoteInput,
-        geometry: &dyn ScreenGeometry,
-        generation: u64,
-        live: &(dyn Fn() -> bool + Sync),
-    ) -> Result<InputOutcome, ScreenInputError> {
-        let Some(ops) = screen_input_ops(input, geometry, generation) else { return Ok(InputOutcome::Rejected) };
-        let pointed = matches!(input, RemoteInput::Move { .. } | RemoteInput::Button { down: true, .. } | RemoteInput::Wheel { .. });
-        let live_now = || live() && (!pointed || geometry.generation() == generation);
-        match input {
-            RemoteInput::Release => self.release_all().await.map(|_| InputOutcome::Applied),
-            RemoteInput::Keys(_) => self.press_combo(&ops, &live_now).await,
-            _ => self.apply_all(&ops, &live_now).await,
-        }
-    }
-
-    async fn press_combo(&self, downs: &[InputOp], live: &(dyn Fn() -> bool + Sync)) -> Result<InputOutcome, ScreenInputError> {
-        let _turn = self.inner.turn.lock().await;
-        let inner = &self.inner;
-        let mut pressed: Vec<(String, InputOp)> = Vec::new();
-        let mut outcome = Ok(InputOutcome::Applied);
-        for down in downs {
-            let Some((key, true, release)) = hold_of(down) else { continue };
-            if !live() {
-                outcome = Ok(InputOutcome::Rejected);
-                break;
-            }
-            if inner.holds(&key) {
-                continue;
-            }
-            pressed.push((key, release));
-            if let Err(error) = inner.send_input(down).await {
-                outcome = Err(error);
-                break;
-            }
-        }
-        // Released in reverse, whatever happened to the presses; one that a release point already lifted is skipped.
-        for (key, release) in pressed.iter().rev() {
-            if inner.holds(key) {
-                if let Err(error) = inner.send_input(release).await {
-                    outcome = Err(error);
-                }
-            }
-        }
-        outcome
-    }
-
-    /// The cursor position in desktop pixels, read in its turn behind the input before it.
+    /// The cursor position in desktop pixels.
     pub async fn cursor(&self) -> Result<(i32, i32), ScreenInputError> {
-        let _turn = self.inner.turn.lock().await;
         let fields = self.inner.command(&Command::Cursor).await?;
         match fields.as_slice() {
             [x, y] => Ok((
@@ -828,24 +644,6 @@ impl ScreenInput {
                 y.parse().map_err(|_| ScreenInputError::new("protocol_error"))?,
             )),
             _ => Err(ScreenInputError::new("protocol_error")),
-        }
-    }
-
-    /// Lifts every key and button this side holds, in the order they were pressed, and returns how many there were. A lift
-    /// the process cannot take is reported once all were tried; what a dead process held is lifted by its `released` or the
-    /// abort cleanup, not here. Nothing held sends nothing.
-    pub async fn release_all(&self) -> Result<u32, ScreenInputError> {
-        let _turn = self.inner.turn.lock().await;
-        let held: Vec<(String, InputOp)> = self.inner.state().held.clone();
-        let mut failure = None;
-        for (_, release) in &held {
-            if let Err(error) = self.inner.send_input(release).await {
-                failure.get_or_insert(error);
-            }
-        }
-        match failure {
-            Some(error) => Err(error),
-            None => Ok(held.len() as u32),
         }
     }
 
@@ -1128,35 +926,6 @@ mod tests {
         (fake, input)
     }
 
-    /// A geometry that doubles every video pixel; a point past the frame is outside.
-    struct Grid {
-        generation: u64,
-        width: f64,
-        height: f64,
-    }
-
-    impl ScreenGeometry for Grid {
-        fn generation(&self) -> u64 {
-            self.generation
-        }
-        fn to_physical(&self, (x, y): (f64, f64)) -> Option<(i32, i32)> {
-            (x >= 0.0 && y >= 0.0 && x <= self.width && y <= self.height).then(|| ((x * 2.0) as i32, (y * 2.0) as i32))
-        }
-    }
-
-    fn grid() -> Grid {
-        Grid { generation: 4, width: 100.0, height: 50.0 }
-    }
-
-    const ALWAYS: &(dyn Fn() -> bool + Sync) = &|| true;
-
-    const CTRL: Key = Key { vk: 0xa2, scan: 0x1d, extended: false };
-    const LETTER_C: Key = Key { vk: 0x43, scan: 0x2e, extended: false };
-
-    fn key_down(vk: u32, scan: u32) -> InputOp {
-        InputOp::Key { vk, scan, extended: false, down: true }
-    }
-
     // -----------------------------------------------------------------------------------------------------------
     // The wire
 
@@ -1214,58 +983,6 @@ mod tests {
     // -----------------------------------------------------------------------------------------------------------
     // The viewer's input through the geometry
 
-    #[test]
-    fn pointer_input_is_mapped_through_the_locked_geometry() {
-        let grid = grid();
-        let ops = |input: RemoteInput, generation: u64| screen_input_ops(&input, &grid, generation);
-        assert_eq!(ops(RemoteInput::Move { x: 10.0, y: 20.0 }, 4), Some(vec![InputOp::Move { x: 20, y: 40 }]));
-        assert_eq!(
-            ops(RemoteInput::Button { button: PointerButton::Left, down: true, x: 1.0, y: 2.0 }, 4),
-            Some(vec![InputOp::Button { button: PointerButton::Left, down: true, at: Some((2, 4)) }])
-        );
-        assert_eq!(
-            ops(RemoteInput::Wheel { x: 100.0, y: 50.0, dx: 0, dy: 120 }, 4),
-            Some(vec![InputOp::Wheel { x: 200, y: 100, dx: 0, dy: 120 }])
-        );
-    }
-
-    #[test]
-    fn input_of_another_geometry_generation_or_off_the_frame_is_refused() {
-        let grid = grid();
-        let ops = |input: RemoteInput, generation: u64| screen_input_ops(&input, &grid, generation);
-        assert_eq!(ops(RemoteInput::Move { x: 10.0, y: 20.0 }, 3), None);
-        assert_eq!(ops(RemoteInput::Move { x: 100.5, y: 20.0 }, 4), None);
-        assert_eq!(ops(RemoteInput::Move { x: -1.0, y: 0.0 }, 4), None);
-        assert_eq!(ops(RemoteInput::Button { button: PointerButton::Left, down: true, x: 1.0, y: 2.0 }, 3), None);
-        assert_eq!(ops(RemoteInput::Wheel { x: 1.0, y: 2.0, dx: 0, dy: 0 }, 4), None);
-        assert_eq!(ops(RemoteInput::Wheel { x: 1.0, y: 2.0, dx: 0, dy: 120 }, 3), None);
-    }
-
-    #[test]
-    fn a_button_up_is_always_deliverable() {
-        let grid = grid();
-        let up = RemoteInput::Button { button: PointerButton::Right, down: false, x: 500.0, y: 500.0 };
-        assert_eq!(
-            screen_input_ops(&up, &grid, 3),
-            Some(vec![InputOp::Button { button: PointerButton::Right, down: false, at: None }])
-        );
-    }
-
-    #[test]
-    fn keys_text_and_release_do_not_depend_on_the_geometry() {
-        let grid = grid();
-        assert_eq!(screen_input_ops(&RemoteInput::Key { key: CTRL, down: true }, &grid, 0), Some(vec![key_down(0xa2, 0x1d)]));
-        assert_eq!(
-            screen_input_ops(&RemoteInput::Keys(vec![CTRL, LETTER_C]), &grid, 0),
-            Some(vec![key_down(0xa2, 0x1d), key_down(0x43, 0x2e)])
-        );
-        assert_eq!(screen_input_ops(&RemoteInput::Text("hi".into()), &grid, 0), Some(vec![InputOp::Text("hi".into())]));
-        assert_eq!(screen_input_ops(&RemoteInput::Release, &grid, 0), Some(Vec::new()));
-    }
-
-    // -----------------------------------------------------------------------------------------------------------
-    // The process
-
     #[tokio::test(start_paused = true)]
     async fn a_start_waits_for_ready_and_reports_the_session_and_the_desktop() {
         let (fake, input) = setup(Behaviour::serving());
@@ -1309,26 +1026,6 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn a_run_of_input_is_never_interleaved_with_another() {
-        let (fake, input) = started(Behaviour::serving()).await;
-        let first = [InputOp::Move { x: 1, y: 1 }, InputOp::Move { x: 2, y: 2 }];
-        let second = [InputOp::Move { x: 3, y: 3 }, InputOp::Move { x: 4, y: 4 }];
-        let (a, b) = tokio::join!(input.apply_all(&first, ALWAYS), input.apply_all(&second, ALWAYS));
-        assert_eq!((a, b), (Ok(InputOutcome::Applied), Ok(InputOutcome::Applied)));
-        assert_eq!(fake.written(0), ["m 1 1 1", "m 2 2 2", "m 3 3 3", "m 4 4 4"]);
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_run_stops_when_it_may_no_longer_run() {
-        let (fake, input) = started(Behaviour::serving()).await;
-        let calls = AtomicU64::new(0);
-        let live = || calls.fetch_add(1, Ordering::SeqCst) < 1;
-        let ops = [InputOp::Move { x: 1, y: 1 }, InputOp::Move { x: 2, y: 2 }];
-        assert_eq!(input.apply_all(&ops, &live).await, Ok(InputOutcome::Rejected));
-        assert_eq!(fake.written(0), ["m 1 1 1"]);
-    }
-
-    #[tokio::test(start_paused = true)]
     async fn an_error_reply_carries_the_process_code() {
         let (_fake, input) = started(Behaviour { error: Some("out_of_bounds"), ..Behaviour::serving() }).await;
         assert_eq!(input.apply(&InputOp::Move { x: 1, y: 1 }).await, Err(ScreenInputError::new("out_of_bounds")));
@@ -1359,94 +1056,6 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn remote_input_of_a_stale_generation_is_rejected_unsent() {
-        let (fake, input) = started(Behaviour::serving()).await;
-        let grid = grid();
-        let stale = input.apply_remote(&RemoteInput::Move { x: 5.0, y: 5.0 }, &grid, 3, ALWAYS).await;
-        assert_eq!(stale, Ok(InputOutcome::Rejected));
-        let current = input.apply_remote(&RemoteInput::Move { x: 5.0, y: 5.0 }, &grid, 4, ALWAYS).await;
-        assert_eq!(current, Ok(InputOutcome::Applied));
-        let denied = input.apply_remote(&RemoteInput::Move { x: 6.0, y: 6.0 }, &grid, 4, &|| false).await;
-        assert_eq!(denied, Ok(InputOutcome::Rejected));
-        assert_eq!(fake.written(0), ["m 1 10 10"]);
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_press_made_before_a_geometry_change_can_still_be_lifted() {
-        let (fake, input) = started(Behaviour::serving()).await;
-        let down = RemoteInput::Button { button: PointerButton::Left, down: true, x: 5.0, y: 5.0 };
-        input.apply_remote(&down, &grid(), 4, ALWAYS).await.expect("pressed");
-        let after = Grid { generation: 5, ..grid() };
-        let up = RemoteInput::Button { button: PointerButton::Left, down: false, x: 5.0, y: 5.0 };
-        assert_eq!(input.apply_remote(&up, &after, 4, ALWAYS).await, Ok(InputOutcome::Applied));
-        assert_eq!(fake.written(0), ["b 1 l 1 10 10", "b 2 l 0"]);
-        assert_eq!(input.release_all().await, Ok(0));
-    }
-
-    // -----------------------------------------------------------------------------------------------------------
-    // Release
-
-    #[tokio::test(start_paused = true)]
-    async fn release_all_lifts_every_held_key_and_button_in_press_order() {
-        let (fake, input) = started(Behaviour::serving()).await;
-        input.apply(&InputOp::Button { button: PointerButton::Left, down: true, at: Some((1, 1)) }).await.expect("pressed");
-        input.apply(&key_down(65, 30)).await.expect("pressed");
-        assert_eq!(input.release_all().await, Ok(2));
-        assert_eq!(fake.written(0)[2..], ["b 3 l 0", "k 4 65 30 0 0"]);
-        // Idempotent: nothing held sends nothing.
-        assert_eq!(input.release_all().await, Ok(0));
-        assert_eq!(fake.written(0).len(), 4);
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_lifted_key_is_no_longer_held() {
-        let (fake, input) = started(Behaviour::serving()).await;
-        input.apply(&key_down(65, 30)).await.expect("pressed");
-        input.apply(&InputOp::Key { vk: 65, scan: 30, extended: false, down: false }).await.expect("lifted");
-        assert_eq!(input.release_all().await, Ok(0));
-        assert_eq!(fake.written(0).len(), 2);
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_release_request_from_the_viewer_lifts_everything() {
-        let (fake, input) = started(Behaviour::serving()).await;
-        input.apply(&key_down(65, 30)).await.expect("pressed");
-        let outcome = input.apply_remote(&RemoteInput::Release, &grid(), 0, ALWAYS).await;
-        assert_eq!(outcome, Ok(InputOutcome::Applied));
-        assert_eq!(fake.written(0)[1], "k 2 65 30 0 0");
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_key_combo_presses_in_order_and_releases_in_reverse() {
-        let (fake, input) = started(Behaviour::serving()).await;
-        let combo = RemoteInput::Keys(vec![CTRL, LETTER_C]);
-        assert_eq!(input.apply_remote(&combo, &grid(), 0, ALWAYS).await, Ok(InputOutcome::Applied));
-        assert_eq!(fake.written(0), ["k 1 162 29 0 1", "k 2 67 46 0 1", "k 3 67 46 0 0", "k 4 162 29 0 0"]);
-        assert_eq!(input.release_all().await, Ok(0));
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_combo_leaves_a_key_the_viewer_already_holds_held() {
-        let (fake, input) = started(Behaviour::serving()).await;
-        input.apply_remote(&RemoteInput::Key { key: CTRL, down: true }, &grid(), 0, ALWAYS).await.expect("pressed");
-        let combo = RemoteInput::Keys(vec![CTRL, LETTER_C]);
-        assert_eq!(input.apply_remote(&combo, &grid(), 0, ALWAYS).await, Ok(InputOutcome::Applied));
-        assert_eq!(fake.written(0)[1..], ["k 2 67 46 0 1", "k 3 67 46 0 0"]);
-        assert_eq!(input.release_all().await, Ok(1));
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_combo_that_may_not_run_presses_nothing_more_but_still_releases() {
-        let (fake, input) = started(Behaviour::serving()).await;
-        // Read before each press: the first passes, the second refuses.
-        let calls = AtomicU64::new(0);
-        let live = || calls.fetch_add(1, Ordering::SeqCst) < 1;
-        let combo = RemoteInput::Keys(vec![CTRL, LETTER_C]);
-        assert_eq!(input.apply_remote(&combo, &grid(), 0, &live).await, Ok(InputOutcome::Rejected));
-        assert_eq!(fake.written(0), ["k 1 162 29 0 1", "k 2 162 29 0 0"]);
-    }
-
-    #[tokio::test(start_paused = true)]
     async fn a_stop_sends_q_and_closes_stdin_and_runs_no_cleanup_after_a_release() {
         let (fake, input) = started(Behaviour::serving()).await;
         input.stop().await;
@@ -1473,7 +1082,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_process_that_dies_without_releasing_is_followed_by_the_abort_cleanup() {
         let (fake, input) = started(Behaviour::serving()).await;
-        input.apply(&key_down(65, 30)).await.expect("pressed");
+        input.apply(&InputOp::Key { vk: 65, scan: 30, extended: false, down: true }).await.expect("pressed");
         let mut exits = input.exit_watch();
         fake.exit(0, ExitStatus::Signal(9));
         exits.changed().await.expect("the exit is reported");
@@ -1481,9 +1090,8 @@ mod tests {
         assert_eq!(*exits.borrow(), 1);
         assert_eq!(fake.args(1), vec!["--abort-cleanup".to_owned()]);
         assert_eq!(fake.env(1, "MIXDOG_COMPUTER_INPUT_MARKER").as_deref(), Some("77"));
-        // What it held died with it: the cleanup lifts it, this side holds nothing.
+        // What it held died with it: the cleanup lifts it.
         assert!(!input.alive());
-        assert_eq!(input.release_all().await, Ok(0));
     }
 
     #[tokio::test(start_paused = true)]
