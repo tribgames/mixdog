@@ -189,6 +189,32 @@ mod tests {
         }
     }
 
+    /// A desktop window's socket (loopback, or an SSH forward) is a `Local` / `Ssh` connection, never `Relay`: a window's command
+    /// is forwarded with no phone narrowing, which is what main did for the renderer; a phone's is held to the phone table.
+    #[tokio::test]
+    async fn a_window_is_not_held_to_the_phone_table() {
+        use mixdog_core_api::call::WindowRole;
+        use mixdog_core_api::call::WindowScope;
+        let channel = Arc::new(MockHostChannel::default());
+        channel.claim(HostCapability::Browser);
+        channel.reply(Method("host/browser/command"), json!({ "text": "done" }));
+        let service = BrowserService::new(channel.clone());
+        let from = |origin: Origin, window: Option<WindowScope>| CoreRequest {
+            method: Method("browser/command"),
+            params: json!({ "action": "hide" }),
+            op: None,
+            ctx: CallContext::connection(ConnectionId(1), origin, tokio_util::sync::CancellationToken::new()).with_window(window),
+        };
+        let main = Some(WindowScope { id: "w1".into(), role: WindowRole::Main });
+        let server = Some(WindowScope { id: "w1".into(), role: WindowRole::Server { connection_id: "c1".into() } });
+        for (origin, window) in [(Origin::Local, main), (Origin::Local, server.clone()), (Origin::Ssh, server)] {
+            assert!(service.call(from(origin, window.clone())).await.is_ok(), "{origin:?} {window:?}");
+        }
+        assert_eq!(channel.sent().len(), 3, "each window command reached the host");
+        assert!(service.call(from(Origin::Relay, None)).await.is_err(), "a phone's `hide` is outside its table");
+        assert_eq!(channel.sent().len(), 3);
+    }
+
     #[tokio::test]
     async fn no_host_and_a_host_error_are_distinct_failures() {
         let channel = Arc::new(MockHostChannel::default());
