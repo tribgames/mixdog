@@ -1,0 +1,27 @@
+[package]
+name = "mixdog-office-base"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+mixdog-js = { workspace = true }
+# The helpers of the twin tests (`twin`): a library of the office crates' tests, reached through the feature below.
+mixdog-testkit = { workspace = true, optional = true }
+mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
+
+[features]
+# `twin`: locate the Node source, run a recorder, load and compare goldens. A dev-dependency of the crates that replay
+# an office recording (`mixdog-office-base = { workspace = true, features = ["test-support"] }`).
+test-support = ["dep:mixdog-testkit"]
+
+[dev-dependencies]
+mixdog-testkit = { workspace = true }
+# This crate's own tests build `twin` too, so a test build has one feature set whatever packages are selected.
+mixdog-office-base = { path = ".", features = ["test-support"] }
