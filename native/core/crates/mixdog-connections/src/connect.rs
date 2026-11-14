@@ -18,11 +18,12 @@ use mixdog_ssh::connect_failure::failure_of;
 use mixdog_ssh::context::{AttemptContext, HostSettings, ModelLogin, Platform, SshEnv};
 use mixdog_ssh::diagnostics::{diagnostics_key_for, DiagnosticKind, Diagnostics};
 use mixdog_ssh::host_key::{inspect_host_key, pin_host_key, replace_host_key, HostKeyInspection};
+use mixdog_ssh::resolved_config::ResolvedConfigs;
 use mixdog_ssh::session::{Progress, SessionPhase};
 use serde_json::json;
 
 use crate::attempts::{Attempt, AttemptError, AttemptState, Attempts};
-use crate::host_store::{parse_host_settings, SshHostRecord, SshHostSettings, SshHostStore};
+use crate::host_store::{parse_host_settings, SshHostRecord, SshHostSettings, SshHostStore, DEFAULT_GRACE_MINUTES};
 use crate::link::LinkSpec;
 use crate::login::{with_login_retry, LoginHelpers};
 
@@ -46,32 +47,48 @@ pub trait SshMachine: Send + Sync {
 }
 
 /// The machine of this PC.
-pub struct EnvMachine(pub Arc<SshEnv>);
+pub struct EnvMachine {
+    pub env: Arc<SshEnv>,
+    /// The per-target generated ssh configs (the same instance the ssh environment's `config_files` is).
+    pub configs: Arc<ResolvedConfigs>,
+}
 
 #[async_trait]
 impl SshMachine for EnvMachine {
     async fn inspect(&self, target: &SshTarget) -> Result<HostKeyInspection, SshError> {
-        inspect_host_key(&self.0, &AttemptContext::default(), target).await
+        let mut inspection = inspect_host_key(&self.env, &AttemptContext::default(), target).await?;
+        if matches!(inspection.check, SshHostKeyCheck::Unreachable { .. }) {
+            return Ok(inspection);
+        }
+        // Mixdog's ssh runs with what ssh resolves for this server, minus every forward; when that cannot be built faithfully the
+        // user's config applies and its forwards are listed.
+        let resolved = self.configs.resolve_for_target(&self.env, &AttemptContext::default(), target).await;
+        if let (Err(unresolved), Some(summary)) = (resolved, inspection.summary.as_mut()) {
+            if !unresolved.forwards.is_empty() {
+                summary.forwards = Some(unresolved.forwards);
+            }
+        }
+        Ok(inspection)
     }
 
     fn pin(&self, inspection: &HostKeyInspection) -> Result<(), SshError> {
-        pin_host_key(&self.0, inspection)
+        pin_host_key(&self.env, inspection)
     }
 
     async fn replace(&self, inspection: &HostKeyInspection) -> Result<(), SshError> {
-        replace_host_key(&self.0, inspection).await
+        replace_host_key(&self.env, inspection).await
     }
 
     fn platform(&self) -> Platform {
-        self.0.platform
+        self.env.platform
     }
 
     fn diagnostics(&self) -> Arc<Diagnostics> {
-        self.0.diagnostics.clone()
+        self.env.diagnostics.clone()
     }
 
     fn var(&self, name: &str) -> Option<String> {
-        self.0.var(name).map(str::to_owned)
+        self.env.var(name).map(str::to_owned)
     }
 }
 
@@ -196,9 +213,12 @@ pub(crate) fn host_settings(settings: &SshHostSettings) -> HostSettings {
     }
 }
 
+/// The ssh context of a saved server: its settings, the grace period always set (the saved one, else the default).
 fn context_for(record: &SshHostRecord, target: &SshTarget, force_restart: bool) -> AttemptContext {
+    let mut settings = record.settings.as_ref().map(host_settings).unwrap_or_default();
+    settings.grace_minutes = Some(settings.grace_minutes.unwrap_or(DEFAULT_GRACE_MINUTES));
     AttemptContext {
-        settings: record.settings.as_ref().map(host_settings),
+        settings: Some(settings),
         force_restart,
         diagnostics_key: Some(diagnostics_key_for(target)),
         askpass: None,

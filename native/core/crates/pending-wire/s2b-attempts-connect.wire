@@ -14,8 +14,10 @@ functions below, and removes them from SERVICE_PENDING: `connections/ssh/inspect
 `connections/ssh/askpassReply`, `connections/ssh/open`, `connections/ssh/openEphemeral`.
 
 ## 4. For the service wiring (s2b-service)
-- Build `Connect::new(ConnectDeps { attempts: Attempts::new(link_pool as Arc<dyn ServerLinks>, push), machine: Arc::new(EnvMachine(ssh_env)),
+- Build `Connect::new(ConnectDeps { attempts: Attempts::new(link_pool as Arc<dyn ServerLinks>, push), machine: Arc::new(EnvMachine { env: ssh_env, configs }),
   login: Arc::new(EnvLoginHelpers::new(ssh_env, io, user_data_dir)), hosts, windows, view, clock })` once.
+  `configs: Arc<ResolvedConfigs>` is the instance the ssh environment's `config_files` holds: the inspection builds the target's own
+  config there and lists the user's forwards in the summary when it cannot (the TS inspectWithForwards).
   `LinkPool` implements `ServerLinks` (attempts.rs). `view` is the connection feed's `SshHost` of a record (its `open` flag is `link_pool.get(id)` attached).
 - `windows: Arc<dyn ServerWindows>` is the callback that calls `WindowHost::open(id, name)` of the desktop host; `Err(message)` becomes a `failed` result.
 - `push: Arc<dyn ConnectionsPush>` sends `connections/ssh/askpass` (SshAskpass) and `connections/ssh/progress` (SshProgress) notifications to the
@@ -30,5 +32,6 @@ functions below, and removes them from SERVICE_PENDING: `connections/ssh/inspect
 - When a protocol connection closes (the dispatcher's connection-closed hook), call `connect.caller_closed(connection_id).await`: its attempts are
   cancelled and pending questions answered with null.
 - `login::with_login_retry(helpers, prompter, base, run, is_cancelled)` is generic over `LoginOutcome` (implemented for `SshConnectResult` and
-  `SshCleanupResult`): the cleanup task (s2b-cleanup) calls it with `Attempts::prompter(attempt, host)`-style prompters of its own.
+  `SshCleanupResult`): the cleanup task (s2b-ops) calls it with `Attempts::operation_prompter(caller, operation_id, host)`,
+  whose questions the caller answers with `connections/ssh/askpassReply {attemptId: operationId, ...}`.
 - `connect::host_settings(&SshHostSettings) -> HostSettings` converts a saved server's settings for an `AttemptContext` (pub(crate)).

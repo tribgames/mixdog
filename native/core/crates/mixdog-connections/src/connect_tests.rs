@@ -657,6 +657,23 @@ async fn an_answer_too_long_for_a_password_cancels_the_question() {
     assert_eq!(within(asked).await.unwrap(), None);
 }
 
+#[tokio::test]
+async fn an_operation_question_is_answered_by_its_caller_and_dies_with_it() {
+    let mut rig = rig().await;
+    let prompter = rig.connect.attempts().operation_prompter(ONE, "cleanup-1".into(), "build.example".into());
+    let asked = tokio::spawn(async move { prompter.ask(AskpassQuestion { kind: AskpassKind::Password, prompt: "Password:".into(), retry: false }).await });
+    let (to, question) = within(rig.askpass.recv()).await.unwrap();
+    assert_eq!((to, question.attempt_id.as_str()), (ONE, "cleanup-1"));
+    rig.connect.askpass_reply(TWO, "cleanup-1", &question.request_id, Some("stolen".into()));
+    rig.connect.askpass_reply(ONE, "cleanup-1", &question.request_id, Some("secret".into()));
+    assert_eq!(within(asked).await.unwrap(), Some("secret".to_owned()));
+    let prompter = rig.connect.attempts().operation_prompter(ONE, "cleanup-2".into(), "build.example".into());
+    let asked = tokio::spawn(async move { prompter.ask(AskpassQuestion { kind: AskpassKind::Otp, prompt: "Code:".into(), retry: false }).await });
+    within(rig.askpass.recv()).await.unwrap();
+    rig.connect.caller_closed(ONE).await;
+    assert_eq!(within(asked).await.unwrap(), None);
+}
+
 // ----- opening a server's window ---------------------------------------------------------------------------------------
 
 #[tokio::test]
