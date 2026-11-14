@@ -44,7 +44,7 @@ async fn a_claim_that_runs_after_its_connection_closed_is_not_recorded() {
     let host = rig.ready(1, json!({ "host": { "browser": true } }));
     let conn = rig.outgoing.connection(ConnectionId(1)).unwrap();
     rig.outgoing.unregister(&conn);
-    rig.outgoing.claim(HostId::from("pc"), &conn);
+    rig.outgoing.claim(HostId::from("pc"), &conn, None);
     assert_eq!(
         rig.outgoing.request(HostCapability::Browser, BROWSER, json!({})).await,
         Err(unavailable("noClaimant"))
@@ -657,4 +657,101 @@ async fn a_claim_attaches_through_the_hook_until_it_is_replaced_or_its_connectio
     rig.outgoing.unregister(&conn);
     assert_eq!(live(), 0, "a closed connection detaches its claim");
     drop((browser_only, first, second));
+}
+
+/// A connection that declared `declared` and sent `host/claim` listing `serves` (`None`: no list).
+async fn claimed_serving(rig: &Rig, id: u64, host_id: &str, declared: serde_json::Value, serves: Option<&[&str]>) -> super::Client {
+    let mut params = json!({ "hostId": host_id });
+    if let Some(listed) = serves {
+        params["serves"] = json!(listed);
+    }
+    let host = rig.ready(id, json!({ "host": declared }));
+    host.request(1, "host/claim", params);
+    assert_eq!(host.response(1).await["result"], json!({}));
+    host
+}
+
+#[tokio::test(start_paused = true)]
+async fn claim_serves_unlisted_method_fails_fast() {
+    let rig = Rig::new();
+    let host = claimed_serving(&rig, 1, "pc", json!({ "systemProxy": true }), Some(&["host/systemProxy/other"])).await;
+    assert_eq!(
+        rig.outgoing.request(HostCapability::SystemProxy, RESOLVE, json!({ "url": "u" })).await,
+        Err(unavailable("unsupportedMethod"))
+    );
+    assert!(host.drain().is_empty(), "nothing was sent to the claimant");
+    // A capability nobody declared is still no claimant.
+    assert_eq!(rig.outgoing.request(HostCapability::Browser, BROWSER, json!({})).await, Err(unavailable("noClaimant")));
+}
+
+#[tokio::test(start_paused = true)]
+async fn claim_without_serves_keeps_boolean_routing() {
+    let rig = Rig::new();
+    let host = claimed_serving(&rig, 1, "pc", json!({ "systemProxy": true }), None).await;
+    let outgoing = rig.outgoing.clone();
+    let call = tokio::spawn(async move { outgoing.request(HostCapability::SystemProxy, RESOLVE, json!({})).await });
+    let request = host.frames(1).await.remove(0).body;
+    host.send(json!({ "id": request["id"], "result": 1 }));
+    assert_eq!(call.await.unwrap(), Ok(json!(1)));
+}
+
+#[tokio::test(start_paused = true)]
+async fn method_not_found_reply_maps_to_unsupported() {
+    let rig = Rig::new();
+    let host = claimed_serving(&rig, 1, "pc", json!({ "systemProxy": true }), Some(&["host/systemProxy/resolve"])).await;
+    let outgoing = rig.outgoing.clone();
+    let call = tokio::spawn(async move { outgoing.request(HostCapability::SystemProxy, RESOLVE, json!({})).await });
+    let request = host.frames(1).await.remove(0).body;
+    host.send(json!({ "id": request["id"], "error": { "code": -32601, "message": "Method not found" } }));
+    assert_eq!(call.await.unwrap(), Err(unavailable("unsupportedMethod")));
+}
+
+#[tokio::test(start_paused = true)]
+async fn later_claim_with_method_wins_over_earlier_without() {
+    let rig = Rig::new();
+    let old = claimed_serving(&rig, 1, "old", json!({ "systemProxy": true }), None).await;
+    let new = claimed_serving(&rig, 2, "new", json!({ "systemProxy": true }), Some(&["host/systemProxy/resolve"])).await;
+    let outgoing = rig.outgoing.clone();
+    let call = tokio::spawn(async move { outgoing.request(HostCapability::SystemProxy, RESOLVE, json!({})).await });
+    let request = new.frames(1).await.remove(0).body;
+    new.send(json!({ "id": request["id"], "result": "new" }));
+    assert_eq!(call.await.unwrap(), Ok(json!("new")));
+    assert!(old.drain().is_empty());
+
+    // A later claim that omits the method is skipped for it: the earlier claim serves.
+    let rig = Rig::new();
+    let old = claimed_serving(&rig, 1, "old", json!({ "systemProxy": true }), Some(&["host/systemProxy/resolve"])).await;
+    let new = claimed_serving(&rig, 2, "new", json!({ "systemProxy": true }), Some(&["host/systemProxy/other"])).await;
+    let outgoing = rig.outgoing.clone();
+    let call = tokio::spawn(async move { outgoing.request(HostCapability::SystemProxy, RESOLVE, json!({})).await });
+    let request = old.frames(1).await.remove(0).body;
+    old.send(json!({ "id": request["id"], "result": "old" }));
+    assert_eq!(call.await.unwrap(), Ok(json!("old")));
+    assert!(new.drain().is_empty());
+}
+
+#[tokio::test(start_paused = true)]
+async fn notification_not_sent_to_claim_that_omits_it() {
+    let rig = Rig::new();
+    let host = claimed_serving(&rig, 1, "pc", json!({ "notifications": true }), Some(&["host/notification/other"])).await;
+    assert_eq!(
+        rig.outgoing.notify(HostCapability::Notifications, Method("host/notification/show"), json!({ "title": "t" })),
+        Err(CoreError::CapabilityUnavailable { capability: "desktopHost".into(), detail: "unsupportedMethod".into() })
+    );
+    assert!(host.drain().is_empty());
+    rig.outgoing.notify(HostCapability::Notifications, Method("host/notification/other"), json!({})).unwrap();
+    assert_eq!(host.drain().len(), 1);
+}
+
+#[tokio::test(start_paused = true)]
+async fn non_claimant_connection_list_ignored() {
+    // A connection that declared the capability but never claimed serves nothing, and another claimant's list does not
+    // extend to it.
+    let rig = Rig::new();
+    let _bystander = rig.ready(1, json!({ "host": { "systemProxy": true } }));
+    let _claimant = claimed_serving(&rig, 2, "pc", json!({ "browser": true }), Some(&["host/browser/command"])).await;
+    assert_eq!(
+        rig.outgoing.request(HostCapability::SystemProxy, RESOLVE, json!({})).await,
+        Err(unavailable("noClaimant"))
+    );
 }
