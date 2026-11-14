@@ -228,7 +228,7 @@ mod tests {
     /// (`capture_*`, `privileged_worker_*`, `msaa_*`, `focus_required`, ...) belong here because `error-recovery.mjs` never named them.
     /// So do the remote screen's input codes (`cursor_unavailable`, `out_of_bounds`, `protocol_error`: `--screen-input` answers the
     /// desktop, never the model) and the JPEG encoder's own `wic` failure, which falls back to PNG and never reaches a reply.
-    const WITHOUT_RECOVERY: [&str; 53] = [
+    const WITHOUT_RECOVERY: [&str; 54] = [
         "a11y_action_failed",
         "a11y_value_failed",
         "accessibility_blocked_by_integrity",
@@ -276,6 +276,7 @@ mod tests {
         "selection_not_exclusive",
         "sequence_step_invalid",
         "stale_element",
+        "target_integrity_unknown",
         "unsafe_key",
         "value_write_ignored",
         "wayland_window_control_unavailable",

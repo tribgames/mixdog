@@ -212,7 +212,7 @@ fn a_picture_is_scaled_to_a_thumbnail_or_handed_over_bounded() {
 #[tokio::test]
 async fn the_thumbnail_method_reads_the_store_by_content_hash() {
     let dir = tempfile::tempdir().unwrap();
-    let id = hex_of(&[1; 32]);
+    let id = hex_of(&[0xab; 32]);
     let service = service(dir.path(), HashMap::from([(id.clone(), jpeg(64, 64))]));
     let ask = |params: Value| value(&service, request("desktop/attachment/thumbnail", params, None));
     assert!(ask(json!({ "attachmentRef": id })).await.unwrap()["dataUrl"].as_str().unwrap().starts_with("data:image/jpeg;base64,"));
