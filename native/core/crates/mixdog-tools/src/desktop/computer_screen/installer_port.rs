@@ -299,6 +299,18 @@ impl PcAccessHelper {
     }
 }
 
+impl super::lease::InstallPort for PcAccessHelper {
+    fn state(&self, controller_key: Option<String>) -> BoxFuture<InstallState> {
+        super::lease::InstallPort::state(&self.installer, controller_key)
+    }
+    fn request(&self, controller_key: String) -> BoxFuture<super::installer::InstallResult> {
+        super::lease::InstallPort::request(&self.installer, controller_key)
+    }
+    fn ensure_running(&self) -> BoxFuture<HelperStatus> {
+        super::lease::InstallPort::ensure_running(&self.installer)
+    }
+}
+
 #[cfg(test)]
 #[path = "installer_port_tests.rs"]
 mod tests;

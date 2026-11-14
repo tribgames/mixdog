@@ -27,6 +27,9 @@ mod router;
 mod session;
 #[cfg(windows)]
 mod service;
+#[cfg(windows)]
+#[path = "computer_screen_source.rs"]
+mod source;
 #[cfg(any(windows, test))]
 mod switch;
 #[cfg(any(windows, test))]
@@ -63,6 +66,29 @@ pub mod pc_access_helper {
     pub use super::installer::KeyChangeOutcome;
     pub use super::installer::KeyChangeResult;
     pub use super::installer_port::PcAccessHelper;
+}
+
+/// The phone's whole-PC screen sources, with the ports they are composed over.
+#[cfg(windows)]
+pub mod screen_source {
+    pub use super::source::AccountAdmin;
+    pub use super::source::DisplayPixels;
+    pub use super::source::HelperPictureFrame;
+    pub use super::source::IndicatorState;
+    pub use super::source::InputDesktop;
+    pub use super::source::PcAccessAnswer;
+    pub use super::source::PixelArea;
+    pub use super::source::QUIT_BUDGET_MS;
+    pub use super::source::ScreenAccessEnd;
+    pub use super::source::ScreenFrame;
+    pub use super::source::ScreenIndicatorPort;
+    pub use super::source::ScreenInputHost;
+    pub use super::source::ScreenPcAccessPort;
+    pub use super::source::ScreenSink;
+    pub use super::source::ScreenSources;
+    pub use super::source::ScreenSourcesDeps;
+    pub use super::source::ScreenViewer;
+    pub use super::source::VideoArea;
 }
 
 #[cfg(windows)]
