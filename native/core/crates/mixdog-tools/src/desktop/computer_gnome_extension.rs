@@ -131,14 +131,17 @@ fn system_extension_dir() -> PathBuf {
     Path::new(SYSTEM_EXTENSIONS_DIR).join(GNOME_EXTENSION_UUID)
 }
 
-/// Where the extension files of this install are: `MIXDOG_GNOME_EXTENSION_DIR`, a `gnome-extension` folder beside the executable or
-/// in the packaged app's resources, then the repository's `native/gnome-extension` above the executable (a development tree).
+/// Where the extension files of this install are: `MIXDOG_GNOME_EXTENSION_DIR`, a `gnome-extension` folder beside the executable, in
+/// the packaged app's resources (the core sits in `resources/core` and the package packs the extension to `resources/gnome-extension`,
+/// so the folder above the executable is searched too), then the repository's `native/gnome-extension` above the executable (a
+/// development tree).
 pub fn bundled_dir(env: &Env, exe_dir: &Path) -> Option<PathBuf> {
     let explicit = var(env, "MIXDOG_GNOME_EXTENSION_DIR");
     if !explicit.is_empty() {
         return Some(PathBuf::from(explicit));
     }
     let mut candidates = vec![exe_dir.join("gnome-extension"), exe_dir.join("resources").join("gnome-extension")];
+    candidates.extend(exe_dir.parent().map(|dir| dir.join("gnome-extension")));
     candidates.extend(exe_dir.ancestors().map(|dir| dir.join("native").join("gnome-extension")));
     candidates.into_iter().map(|dir| dir.join(GNOME_EXTENSION_UUID)).find(|dir| dir.join("metadata.json").exists())
 }
@@ -438,6 +441,17 @@ mod tests {
         broken.fail = true;
         let state = run(&broken, true).await.unwrap();
         assert!(!state.enabled && state.error.is_some());
+    }
+
+    #[test]
+    fn the_packaged_extension_is_found_from_the_core_folder_of_the_resources() {
+        let resources = tempfile::tempdir().unwrap();
+        let bundled = resources.path().join("gnome-extension").join(GNOME_EXTENSION_UUID);
+        std::fs::create_dir_all(&bundled).unwrap();
+        std::fs::write(bundled.join("metadata.json"), meta(1)).unwrap();
+        let core = resources.path().join("core");
+        std::fs::create_dir_all(&core).unwrap();
+        assert_eq!(bundled_dir(&Env::new(), &core), Some(bundled));
     }
 
     #[test]
