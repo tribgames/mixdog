@@ -223,6 +223,28 @@ struct PhoneGrants {
     credential_of: Arc<dyn Fn(ConnectionId) -> Option<String> + Send + Sync>,
 }
 
+/// What a page lease is asked again before every response: a one-file lease of a window lives while its desktop grant does and
+/// names that file; a paired device's one-file lease (no desktop token) and a project lease stand on the check the caller passed
+/// when the URL was made, as the window's page server authorized them.
+struct DesktopPageAuthority {
+    grants: Arc<crate::desktop_grants::DesktopGrantStore>,
+}
+
+#[async_trait]
+impl crate::pageserver::PageAuthority for DesktopPageAuthority {
+    async fn check(&self, scope: &crate::pageserver::lease::PageScope, absolute: &Path) -> Result<(), crate::pageserver::Refusal> {
+        use crate::pageserver::Refusal;
+        match scope {
+            crate::pageserver::lease::PageScope::Project | crate::pageserver::lease::PageScope::File { grant_token: None } => Ok(()),
+            crate::pageserver::lease::PageScope::File { grant_token: Some(token) } => match self.grants.still_granted(token, absolute).await {
+                Ok(true) => Ok(()),
+                Ok(false) => Err(Refusal::Denied),
+                Err(_) => Err(Refusal::Transient),
+            },
+        }
+    }
+}
+
 pub struct WorkspaceService {
     me: OnceLock<Weak<WorkspaceService>>,
     feeds: Arc<dyn ScopedFeeds>,
@@ -252,6 +274,9 @@ pub struct WorkspaceService {
     /// The desktop host's channel, for the methods only an Electron window can answer.
     host: OnceLock<Arc<dyn HostChannel>>,
     phone_grants: OnceLock<PhoneGrants>,
+    /// The desktop's persisted one-file grants and the core's page server ([`Self::enable_desktop_files`]).
+    desktop_grants: OnceLock<Arc<crate::desktop_grants::DesktopGrantStore>>,
+    page_server: OnceLock<Arc<crate::pageserver::PageServer>>,
     /// The sweepers run once, whatever the number of calls to [WorkspaceService::spawn_idle_sweeper].
     sweepers: std::sync::Once,
     /// The user's Markdown default view, read when editor settings are (see [`Self::set_user_markdown_view`]).
@@ -384,6 +409,8 @@ impl WorkspaceService {
             state: deps.state,
             host: OnceLock::new(),
             phone_grants: OnceLock::new(),
+            desktop_grants: OnceLock::new(),
+            page_server: OnceLock::new(),
             sweepers: std::sync::Once::new(),
             user_markdown_view: OnceLock::new(),
             managed: OnceLock::new(),
@@ -493,6 +520,42 @@ impl WorkspaceService {
         let transfers = self.transfers.clone();
         store.on_listed(Arc::new(move |sessions| transfers.relisted(sessions)));
         let _ = self.phone_grants.set(PhoneGrants { store, credential_of });
+    }
+
+    /// Turns on the desktop's file grants (`projectFs/grant/*`, a one-file token on a Local call) and the core's page server
+    /// (`projectFs/localPageUrl`, `projectFs/localPage/*`). The grants persist at `grants_file`, the page server keeps its port in
+    /// `page_port_file`. Without this the four methods answer `unsupported` and `projectFs/localPageUrl` goes to the host window.
+    /// Set once.
+    pub fn enable_desktop_files(&self, grants_file: PathBuf, page_port_file: PathBuf) {
+        let grants = crate::desktop_grants::DesktopGrantStore::new(grants_file, self.lanes);
+        let authority = Arc::new(DesktopPageAuthority { grants: grants.clone() });
+        let _ = self.desktop_grants.set(grants);
+        let _ = self.page_server.set(crate::pageserver::PageServer::new(page_port_file, authority, self.lanes));
+    }
+
+    fn desktop_grants(&self) -> WsResult<&Arc<crate::desktop_grants::DesktopGrantStore>> {
+        self.desktop_grants.get().ok_or_else(|| WsError::new(Reason::Unsupported, "Desktop file grants are not available."))
+    }
+
+    fn page_server(&self) -> WsResult<&Arc<crate::pageserver::PageServer>> {
+        self.page_server.get().ok_or_else(|| WsError::new(Reason::Unsupported, "The local page server is not available."))
+    }
+
+    /// `projectFs/localPageUrl` through the core's page server. A call of a relay connection first passes the registered-project
+    /// check of [`Self::root_of`] (or its own device grant), as every relay file call does; the lease is made from verified
+    /// authority: a one-file grant leases that file alone, a root leases the project's pages.
+    async fn local_page_url(&self, req: &CoreRequest, server: &Arc<crate::pageserver::PageServer>) -> WsResult<Value> {
+        let params = &req.params;
+        let (root, rel) = self.file_target(req, params).await?;
+        project_entry_path(&root, &rel)?;
+        // A paired device's token was redeemed from the phone table above: its lease is the one file, with no desktop grant to ask.
+        let scope = match params.get("accessToken").and_then(Value::as_str) {
+            Some(_) if req.ctx.origin == mixdog_protocol::Origin::Relay => crate::pageserver::lease::PageScope::File { grant_token: None },
+            Some(token) => crate::pageserver::lease::PageScope::File { grant_token: Some(token.to_owned()) },
+            None => crate::pageserver::lease::PageScope::Project,
+        };
+        let owner = params.get("ownerId").and_then(Value::as_str).map(str::to_owned);
+        Ok(Value::String(server.lease_url(&root, &rel, scope, owner).await?))
     }
 
     /// The grant store and the paired device the request comes from.
@@ -688,8 +751,15 @@ impl WorkspaceService {
     /// by the connection's origin and `rel`.
     async fn file_target(&self, req: &CoreRequest, params: &Value) -> WsResult<(PathBuf, String)> {
         if let Some(token) = params.get("accessToken") {
-            let (grants, credential, connection) = self.phone_grants_for(req)?;
             let token = token.as_str().ok_or_else(|| WsError::invalid("accessToken is invalid."))?;
+            // A window's own call redeems the desktop's persisted grant; a paired device's token is the phone table's.
+            if req.ctx.origin != mixdog_protocol::Origin::Relay
+                && let Some(desktop) = self.desktop_grants.get()
+            {
+                let granted = desktop.redeem(token, s(params, "root")?, s(params, "rel")?).await?;
+                return Ok((granted.root, granted.rel));
+            }
+            let (grants, credential, connection) = self.phone_grants_for(req)?;
             let granted = grants.redeem(&credential, connection, token, s(params, "root")?, s(params, "rel")?).await?;
             return Ok((granted.root, granted.rel));
         }
@@ -808,9 +878,43 @@ impl WorkspaceService {
             "project/directory" => {
                 // `projectDirectory`: the managed worktree's folder, else the Project's real path. `owner` asks for the
                 // Project's real path even for a worktree (`startProjectTask`'s `canonicalDirectory(knownProject(path))`).
-                let folder = self.project_directory(s(params, "path")?, opt_bool(params, "owner"), &cancel).await?;
-                value(json!({ "path": folder.to_string_lossy() }))
+                let path = s(params, "path")?;
+                match self.project_directory(path, opt_bool(params, "owner"), &cancel).await {
+                    Ok(folder) => value(json!({ "path": folder.to_string_lossy() })),
+                    // `standalone`: a folder that is no registered Project answers every file call as its own root (the desktop's
+                    // `standaloneRoot`): an absolute path of an existing directory, for a window's own call. A file or a missing
+                    // path keeps the registry's refusal.
+                    Err(refusal) if opt_bool(params, "standalone") && req.ctx.origin != mixdog_protocol::Origin::Relay => {
+                        let Ok(folder) = crate::pathguard::absolute_local_path(path) else { return Err(refusal) };
+                        let probe = folder.clone();
+                        let directory = run_fallible(self.lanes.interactive, &cancel, move || {
+                            #[allow(clippy::disallowed_methods, reason = "lane job")]
+                            Ok(probe.is_dir())
+                        })
+                        .await?;
+                        if !directory {
+                            return Err(refusal);
+                        }
+                        value(json!({ "path": folder.to_string_lossy(), "standalone": true }))
+                    }
+                    Err(refusal) => Err(refusal),
+                }
             }
+            "projectFs/grant/describe" => {
+                let paths: Vec<String> = serde_json::from_value(params.get("paths").cloned().unwrap_or(Value::Null)).map_err(|_| WsError::invalid("paths are invalid."))?;
+                let mint = params.get("mint").and_then(Value::as_bool).unwrap_or(true);
+                let projects: Vec<PathBuf> = self.catalog.list().await?.into_iter().map(|row| PathBuf::from(row.path)).collect();
+                value(json!(self.desktop_grants()?.describe(&paths, mint, &projects).await?))
+            }
+            "projectFs/grant/redeem" => {
+                let granted = self.desktop_grants()?.redeem(s(params, "accessToken")?, s(params, "projectPath")?, s(params, "relPath")?).await?;
+                value(json!({ "root": granted.root.to_string_lossy(), "rel": granted.rel, "absolute": granted.absolute.to_string_lossy() }))
+            }
+            "projectFs/localPage/revokeOwner" => {
+                self.page_server()?.revoke_owner(s(params, "ownerId")?);
+                value(json!({}))
+            }
+            "projectFs/localPage/origin" => value(Value::String(self.page_server()?.origin().await?)),
             "project/recoveryDirectory" => {
                 let root = self.catalog.resolve(s(params, "path")?).await?;
                 value(json!({ "path": self.fs.recovery.store_path(&root).to_string_lossy() }))
@@ -1628,6 +1732,11 @@ impl DomainService for WorkspaceService {
         if let (Some(scope), Some(op)) = (op_scope(req.method.as_str()), req.op.as_ref()) {
             return this.with_op(&req, scope, op.to_string()).await;
         }
+        if req.method.as_str() == "projectFs/localPageUrl"
+            && let Some(server) = this.page_server.get()
+        {
+            return this.local_page_url(&req, server).await.map(Reply::Value).map_err(|e| this.map_error(&req, e));
+        }
         let host_method = match req.method.as_str() {
             "projectFs/captureSnapshot" => Some("host/capture/fileSnapshot"),
             "projectFs/localPageUrl" => Some("host/localPage/url"),
@@ -1675,6 +1784,10 @@ impl DomainService for WorkspaceService {
             "projectFs/browseDirs",
             "projectFs/captureSnapshot",
             "projectFs/localPageUrl",
+            "projectFs/grant/describe",
+            "projectFs/grant/redeem",
+            "projectFs/localPage/revokeOwner",
+            "projectFs/localPage/origin",
             "projectFs/writeText",
             "projectFs/writeTextBatch",
             "projectFs/create",
