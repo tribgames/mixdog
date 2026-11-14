@@ -52,6 +52,7 @@ function fakeClient(answer) {
     on: (l) => (listeners.add(l), () => listeners.delete(l)),
     close: async () => undefined,
     emitStore: (change) => storeListeners.forEach((l) => l(change)),
+    emit: (event) => listeners.forEach((l) => l(event)),
   };
 }
 
@@ -259,9 +260,61 @@ test('subscribeAgentPool delivers the agentPool section rows', async () => {
   assert.equal(seen.length, 1);
 });
 
-test('the relay refusal subscription is returned a remover', async () => {
+test('the core announcing a refused relay frame reaches the subscriber until it is removed', async () => {
+  const { client, api } = await opened();
+  const seen = [];
+  const off = api.subscribeRelayPayloadRefused((detail) => seen.push(detail));
+  const announce = (params) => client.emit({ type: 'notification', notification: { method: 'ui/relayPayloadRefused', params } });
+  announce({ bytes: 70000000, limit: 67108864 });
+  announce({ bytes: null });
+  client.emit({ type: 'notification', notification: { method: 'ui/settings/changed', params: { scope: 'x' } } });
+  assert.deepEqual(seen, [{ bytes: 70000000, limit: 67108864 }, { bytes: null, limit: null }]);
+  off();
+  announce({ bytes: 1, limit: 2 });
+  assert.equal(seen.length, 2);
+});
+
+test('a session state that left the baseline unchanged is not delivered again, a changed one is', async () => {
+  const { client, api } = await opened();
+  const seen = [];
+  api.subscribeSessionState((u) => seen.push(u.sessionId));
+  await api.setVisibleSessions([S1]);
+  await tick();
+  assert.equal(seen.length, 1);
+  client.emitStore({ type: 'thread', threadId: S1 });
+  assert.equal(seen.length, 1);
+  // A resync starts from no baseline: the window gets the state again.
+  api.resyncSessionState(S1);
+  assert.equal(seen.length, 2);
+  folding(client, S1, [row('r1', 'hello')]);
+  client.emitStore({ type: 'thread', threadId: S1 });
+  assert.equal(seen.length, 3);
+});
+
+test('an engine state that left the baseline unchanged is not delivered again', async () => {
+  const { ctx, api } = await opened();
+  const seen = [];
+  api.subscribeState((s) => seen.push(s));
+  const { shell } = sessionLanesOf(ctx);
+  shell.publish({ sessionId: 'a', items: [] });
+  shell.publish({ sessionId: 'a', items: [] });
+  shell.publish({ sessionId: 'b', items: [] });
+  assert.deepEqual(seen.map((s) => s.sessionId), ['a', 'b']);
+});
+
+test('sessions that leave the visible set are logged as released baselines', async () => {
   const { api } = await opened();
-  assert.equal(typeof api.subscribeRelayPayloadRefused(() => undefined), 'function');
+  const logged = [];
+  const original = console.error;
+  console.error = (line) => logged.push(String(line));
+  try {
+    await api.setVisibleSessions([S1]);
+    await tick();
+    await api.setVisibleSessions([S2]);
+  } finally {
+    console.error = original;
+  }
+  assert.equal(logged.filter((line) => line.startsWith('[mixdog-lane] baseline released count=1 visible=1 ids=')).length, 1);
 });
 
 // The patch chain of the removed preload decoder (session-state.test.mjs) is gone: the lane publishes whole states, so a
