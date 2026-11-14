@@ -211,7 +211,8 @@ impl ThreadScmService {
             detail: None,
         };
         let confirm = flag(draft, "confirmLarge");
-        let branch = string(draft, "branch");
+        // `requiredNewTaskDraft` kept `branch` trimmed, the flags only when true, and `create` only beside a branch.
+        let branch = mixdog_js::js_trim(&string(draft, "branch")).to_owned();
         if !branch.is_empty() {
             let select = select_input(&json!({ "branch": branch, "create": flag(draft, "create"), "confirmLarge": confirm })).map_err(scm_error)?;
             let done = self.workspaces.select_branch(thread.as_str(), select, false, cancel).await.map_err(scm_error)?;

@@ -42,7 +42,7 @@ async function opened(answer) {
   await connection.start();
   return { client, connection };
 }
-const win = () => ({ seen: [], lost: [], notification(m, p) { this.seen.push([m, p]); }, loginFeedLost(f) { this.lost.push(f); } });
+const win = () => ({ seen: [], lost: [], pushes: [], push(p) { this.pushes.push(p); }, notification(m, p) { this.seen.push([m, p]); }, loginFeedLost(f) { this.lost.push(f); } });
 
 test('capability_lane_runs', async () => {
   const { client, connection } = await opened(async (method) => (method === 'thread/start' ? { thread: { id: 't1' } } : { ok: true }));
@@ -132,4 +132,66 @@ test('activity_rate_limited', async () => {
   connection.noteUserInput(30_000);
   connection.noteUserInput(61_000);
   assert.equal(client.calls.filter((c) => c.notify === 'client/activity').length, 2);
+});
+
+const absent = Object.assign(new Error('x'), { detail: { kind: 'rpc', code: -32602, data: { reason: 'invalidParams' } } });
+const mediaUpdate = (value) => ({ method: 'job/section', params: { section: 'mediaJobs', key: 'j1', revision: 1, value }, feed: { id: 'media:j1' } });
+
+test('scoped_feed_held_for_late_watcher_and_removed', async () => {
+  const { client, connection } = await opened();
+  const a = win();
+  const b = win();
+  connection.attach(a);
+  connection.attach(b);
+  assert.deepEqual(await connection.call('feed/subscribe', { feedId: 'media:j1' }), { absent: false });
+  client.emit({ type: 'notification', notification: mediaUpdate({ s: 1 }) });
+  assert.equal(a.pushes[0].changes[0].entry.value.s, 1);
+  await connection.watchFeed(b, 'media:j1');
+  assert.equal(b.pushes[0].changes[0].entry.value.s, 1, 'a late watcher is given what the feed holds');
+  assert.ok(connection.snapshot().entries.some((e) => e.section === 'mediaJobs' && e.key === 'j1'), 'a replaced mirror keeps the held sections');
+  assert.equal(client.calls.filter((c) => c.method === 'feed/subscribe').length, 1, 'the first watcher subscribes');
+  await connection.unwatchFeed(a, 'media:j1');
+  assert.equal(a.pushes.at(-1).changes[0].entry, null, 'leaving removes the held sections from its mirror');
+  assert.ok(!client.calls.some((c) => c.method === 'feed/unsubscribe'), 'another watcher remains');
+  await connection.unwatchFeed(b, 'media:j1');
+  assert.ok(client.calls.some((c) => c.method === 'feed/unsubscribe'), 'the last one leaving unsubscribes');
+  await assert.rejects(connection.call('feed/subscribe', { feedId: 'login:x' }), /not available/);
+});
+
+test('scoped_feed_absent_and_resubscribed_after_reconnect', async () => {
+  let missing = true;
+  const { client, connection } = await opened(async (method) => {
+    if (method === 'feed/subscribe' && missing) throw absent;
+    return { ok: true };
+  });
+  const w = win();
+  connection.attach(w);
+  assert.deepEqual(await connection.watchFeed(w, 'media:j9'), { absent: true });
+  missing = false;
+  await connection.watchFeed(w, 'media:j1');
+  client.emit({ type: 'notification', notification: mediaUpdate({ s: 1 }) });
+  client.emit({ type: 'status', status: { state: 'reconnecting' } });
+  client.emit({ type: 'status', status: { state: 'ready' } });
+  assert.equal(client.calls.filter((c) => c.method === 'feed/subscribe' && c.params.feedId === 'media:j1').length, 2);
+  missing = true;
+  client.emit({ type: 'status', status: { state: 'reconnecting' } });
+  client.emit({ type: 'status', status: { state: 'ready' } });
+  await new Promise((r) => setImmediate(r));
+  assert.equal(w.pushes.at(-1).changes[0].entry, null, 'a feed the core no longer holds is removed');
+  missing = false;
+});
+
+test('scoped_feed_restore_failure_is_a_feed_error', async () => {
+  let fail = false;
+  const { client, connection } = await opened(async (method) => {
+    if (method === 'feed/subscribe' && fail) throw new Error('down');
+    return {};
+  });
+  const w = win();
+  await connection.watchFeed(w, 'media:j1');
+  fail = true;
+  client.emit({ type: 'status', status: { state: 'reconnecting' } });
+  client.emit({ type: 'status', status: { state: 'ready' } });
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(w.pushes.at(-1), { kind: 'feedError', feedId: 'media:j1', message: 'down' });
 });

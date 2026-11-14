@@ -377,13 +377,74 @@ pub struct Submission {
     pub options: Map<String, Value>,
 }
 
+/// The longest file name a prompt part keeps (`requiredPromptContent`: `filename.slice(0, 160)`), in UTF-16 units.
+const MAX_PROMPT_FILENAME_UNITS: usize = 160;
+
+/// The office types a file part may name, in their canonical case (`OFFICE_MIME_TYPES`, `shared/prompt-limits.ts`).
+const OFFICE_MIME_TYPES: [&str; 7] = [
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-excel.sheet.macroEnabled.12",
+    "application/msword",
+    "application/vnd.ms-powerpoint",
+    "application/vnd.ms-excel",
+];
+
+/// `canonicalPromptFileMimeType` (`shared/prompt-limits.ts`): the canonical-case type of a PDF or office type, its
+/// parameters ignored. Any other type (a phone sends `text/plain`) is not refused here; it is the trimmed text.
+fn canonical_file_mime(mime: &str) -> String {
+    let base = mixdog_js::js_to_lowercase(mixdog_js::js_trim(mime.split(';').next().unwrap_or_default()));
+    if base == "application/pdf" {
+        return base;
+    }
+    match OFFICE_MIME_TYPES.into_iter().find(|candidate| mixdog_js::js_to_lowercase(candidate) == base) {
+        Some(canonical) => canonical.to_owned(),
+        None => mixdog_js::js_trim(mime).to_owned(),
+    }
+}
+
+/// What the desktop host's `requiredPromptContent` cleaned in the parts it accepted, applied to every origin before the
+/// intake: an image's type trimmed and lowercased, a file's type in its canonical case, a file's name cut to
+/// [`MAX_PROMPT_FILENAME_UNITS`] and left out when it is not text or empty. A part keeps every other field it carries.
+fn clean_prompt_parts(prompt: &Value) -> Value {
+    let Value::Array(parts) = prompt else { return prompt.clone() };
+    let clean = |part: &Value| -> Value {
+        let Value::Object(fields) = part else { return part.clone() };
+        let mut fields = fields.clone();
+        let mime = fields.get("mimeType").and_then(Value::as_str).map(str::to_owned);
+        match (fields.get("type").and_then(Value::as_str), mime) {
+            (Some("image"), Some(mime)) => {
+                fields.insert("mimeType".into(), json!(mixdog_js::js_to_lowercase(mixdog_js::js_trim(&mime))));
+            }
+            (Some("file"), mime) => {
+                if let Some(mime) = mime {
+                    fields.insert("mimeType".into(), json!(canonical_file_mime(&mime)));
+                }
+                let name = fields
+                    .get("filename")
+                    .and_then(Value::as_str)
+                    .map(|name| mixdog_js::slice_utf16(name, MAX_PROMPT_FILENAME_UNITS))
+                    .filter(|name| !name.is_empty());
+                match name {
+                    Some(name) => fields.insert("filename".into(), json!(name)),
+                    None => fields.shift_remove("filename"),
+                };
+            }
+            _ => {}
+        }
+        Value::Object(fields)
+    };
+    Value::Array(parts.iter().map(clean).collect())
+}
+
 /// `materializePromptSubmission(prompt, options)` (`store.mjs:631-648`): the pasted texts stored, the prompt's text tokens and
 /// inline media turned into references (`long_text` says what a long plain text becomes), the prompt's text held to
 /// [`MAX_PROMPT_TEXT_BYTES`], then the pasted images paired with the images they name. A refusal is Node's sentence.
 pub fn materialize_prompt_submission(store: &dyn PromptStore, prompt: &Value, options: &Value, long_text: LongText) -> Result<Submission, String> {
     let pasted_texts = options.get("pastedTexts");
     let (refs, texts) = materialize_pasted_texts(store, pasted_texts)?;
-    let prompt = materialize_prompt_content(store, prompt, &refs, long_text)?;
+    let prompt = materialize_prompt_content(store, &clean_prompt_parts(prompt), &refs, long_text)?;
     if prompt_text_bytes(store, &prompt)? > MAX_PROMPT_TEXT_BYTES {
         return Err("prompt text exceeds the 1 MiB input limit".into());
     }
@@ -693,5 +754,25 @@ mod tests {
             let at = dir.path().join("prompt-attachments/sha256").join(&reference[..2]).join(reference);
             assert_eq!(std::fs::read(at).unwrap(), bytes);
         }
+    }
+
+    #[test]
+    fn prompt_parts_are_cleaned_before_the_intake() {
+        let long = "n".repeat(200);
+        let prompt = json!([
+            { "type": "image", "data": "eA==", "mimeType": " IMAGE/PNG " },
+            { "type": "file", "data": "eA==", "mimeType": "Application/PDF; charset=x", "filename": long },
+            { "type": "file", "data": "eA==", "mimeType": "application/vnd.ms-excel.sheet.macroenabled.12", "filename": "" },
+            { "type": "file", "data": "eA==", "mimeType": " text/plain ", "filename": 7 },
+        ]);
+        let cleaned = clean_prompt_parts(&prompt);
+        assert_eq!(cleaned[0]["mimeType"], "image/png");
+        assert_eq!(cleaned[1]["mimeType"], "application/pdf");
+        assert_eq!(cleaned[1]["filename"].as_str().map(str::len), Some(MAX_PROMPT_FILENAME_UNITS));
+        assert_eq!(cleaned[2]["mimeType"], "application/vnd.ms-excel.sheet.macroEnabled.12");
+        assert!(cleaned[2].get("filename").is_none(), "an empty name is left out");
+        assert_eq!(cleaned[3]["mimeType"], "text/plain");
+        assert!(cleaned[3].get("filename").is_none(), "a name that is not text is left out");
+        assert_eq!(clean_prompt_parts(&json!("text")), json!("text"));
     }
 }
