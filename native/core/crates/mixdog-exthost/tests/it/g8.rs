@@ -1,5 +1,8 @@
-//! RL G8, office throughput, through the real pool, the real Node worker and the real shared render
-//! browser. Heavy (LibreOffice and Chromium), so it only runs when asked for:
+//! RL G8, office throughput, through the real pool and the shared render browser, with scripted workers
+//! (`src/bin/ext_fake_worker.rs` in its `g8` mode) and the scripted browser (`src/bin/ext_fake_browser.rs`) in place of
+//! LibreOffice and Chromium. It proves the pool's own mechanics at scale: the call mix over W workers, the result latency
+//! while other calls' chunk windows are full, a call that cannot be cancelled holding one slot until "stop worker".
+//! Heavy at full scale, so it only runs when asked for:
 //!
 //!   G8_SCALE=smoke  cargo test -p mixdog-exthost --features test-support --test it g8:: -- --ignored --nocapture   (1 call per session)
 //!   G8_SCALE=full   cargo test -p mixdog-exthost --features test-support --test it g8:: -- --ignored --nocapture  (32 calls, 4 sessions)
@@ -14,7 +17,6 @@
     reason = "a test driver: temp directories and process-wide environment"
 )]
 
-use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -49,10 +51,6 @@ enum Kind {
 }
 
 const KINDS: [Kind; 4] = [Kind::DocxRender, Kind::XlsxRecalc, Kind::PdfRender, Kind::HtmlToPdf];
-
-fn repo_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(4).unwrap().to_owned()
-}
 
 fn env_usize(name: &str) -> Option<usize> {
     std::env::var(name).ok().and_then(|v| v.parse().ok())
@@ -94,14 +92,14 @@ impl Drop for Scratch {
 
 fn pool(scratch: &Scratch, workers: usize) -> Arc<ExtHostPool> {
     Arc::new(ExtHostPool::new(ExtHostConfig {
-        program: "node".into(),
-        args: vec![repo_root().join("src/ext-host/test/g8-worker.mjs").into_os_string()],
+        program: env!("CARGO_BIN_EXE_ext_fake_worker").into(),
+        args: vec!["g8".into()],
         electron: false,
         workers,
         pending_cap: 64,
         spawn_io: mixdog_rt::testing::tokens().spawn_io,
         render_browser: RenderBrowserConfig {
-            command: None,
+            command: Some((env!("CARGO_BIN_EXE_ext_fake_browser").into(), vec!["endpoint".into()])),
             profile_root: scratch.0.join("browsers"),
             no_sandbox: false,
         },
@@ -384,7 +382,7 @@ fn clone_dirs(session: &Session) -> Session {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "heavy: LibreOffice and Chromium; run on a quiet machine"]
+#[ignore = "heavy at full scale; run on a quiet machine"]
 async fn office_throughput() {
     let smoke = std::env::var("G8_SCALE").map_or(true, |v| v != "full");
     let w = workers();

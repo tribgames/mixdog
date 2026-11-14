@@ -623,14 +623,21 @@ fn fail(queued: &Queued, error: ExtError) {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
 
     use super::*;
+
+    /// A scripted binary of this package (`src/bin`). Cargo names it to integration tests only, so a unit test finds it
+    /// next to its own test binary, where it is built with the feature `test-support` the tests run with.
+    pub(crate) fn fake_binary(name: &str) -> PathBuf {
+        let exe = std::env::current_exe().expect("the test binary's path");
+        let dir = exe.parent().and_then(std::path::Path::parent).expect("the target directory");
+        dir.join(format!("{name}{}", std::env::consts::EXE_SUFFIX))
+    }
 
     /// Drives a dispatcher by hand so the order of events is the test's, not the scheduler's.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_stop_that_arrives_while_the_worker_is_spawning_is_applied_when_it_exists() {
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(4).unwrap();
         let spawn_io = mixdog_rt::testing::tokens().spawn_io;
         let render_browser = RenderBrowserConfig {
             command: None,
@@ -638,8 +645,8 @@ mod tests {
             no_sandbox: false,
         };
         let config = ExtHostConfig {
-            program: "node".into(),
-            args: vec![root.join("src/ext-host/test/fake-worker.mjs").into_os_string()],
+            program: fake_binary("ext_fake_worker"),
+            args: Vec::new(),
             electron: false,
             workers: 1,
             pending_cap: 4,
