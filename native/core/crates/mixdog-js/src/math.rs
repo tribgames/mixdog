@@ -66,6 +66,12 @@ fn random_from_bits(bits: u64) -> f64 {
     f64::from_bits((bits >> 12) | 0x3ff0_0000_0000_0000) - 1.0
 }
 
+/// Numeric JavaScript `+`: V8 propagates and quiets the right NaN when both operands are NaN.
+/// Keep payload selection explicit because native addition may commute its operands.
+pub fn add(left: f64, right: f64) -> f64 {
+    if right.is_nan() { f64::from_bits(right.to_bits() | (1u64 << 51)) } else { left + right }
+}
+
 const HUGE: f64 = 1.0e300;
 const TINY: f64 = 1.0e-300;
 const TWO54: f64 = 1.801_439_850_948_198_4e16;

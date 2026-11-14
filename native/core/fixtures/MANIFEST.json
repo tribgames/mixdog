@@ -641,6 +641,15 @@
       "totalBytes": 239203
     },
     {
+      "command": "node benchmarks/rust-core/recorders/record-office-math.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "office-math/MANIFEST.json",
+      "manifestSha256": "d9072f8dd55c51fca5fff564d9b4b2b5050a7b20741b7b612fe79b378cd8589e",
+      "recorder": "benchmarks/rust-core/recorders/record-office-math.mjs",
+      "set": "office-math",
+      "totalBytes": 942613
+    },
+    {
       "command": "node benchmarks/rust-core/recorders/record-office-stats.mjs --tree <tree>",
       "fileCount": 1,
       "manifest": "office-stats/MANIFEST.json",
@@ -648,6 +657,15 @@
       "recorder": "benchmarks/rust-core/recorders/record-office-stats.mjs",
       "set": "office-stats",
       "totalBytes": 1008794
+    },
+    {
+      "command": "node benchmarks/rust-core/recorders/record-office-text-date.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "office-text-date/MANIFEST.json",
+      "manifestSha256": "f2d9806f54aa76d9490781e94d477f914791a53590bc631952698a495cae0265",
+      "recorder": "benchmarks/rust-core/recorders/record-office-text-date.mjs",
+      "set": "office-text-date",
+      "totalBytes": 328215
     },
     {
       "command": "node benchmarks/rust-core/recorders/record-openai-facts.mjs --tree <tree>",

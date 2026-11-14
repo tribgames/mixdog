@@ -1,0 +1,16 @@
+{
+  "set": "office-math",
+  "recorder": "benchmarks/rust-core/recorders/record-office-math.mjs",
+  "command": "node benchmarks/rust-core/recorders/record-office-math.mjs --tree <original tree>",
+  "formulajsVersion": "4.6.1",
+  "sourceSha256": "4d3b65138fcbe8c4f6e8cca02725f392f489e6e63f9336b965437a3b7b9f257e",
+  "fileCount": 1,
+  "totalBytes": 942613,
+  "files": [
+    {
+      "path": "golden.json",
+      "bytes": 942613,
+      "sha256": "a96291c36d633d05e8f6c71016286ccaeea8fcf1e16f2a7f94b070ebf7aa0246"
+    }
+  ]
+}
