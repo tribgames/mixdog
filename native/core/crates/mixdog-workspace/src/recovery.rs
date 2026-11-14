@@ -313,33 +313,110 @@ pub struct Record {
 /// migrated holds them there), relative to the data dir.
 const MIGRATED_JOURNALS: &str = "desktop/editor-recovery";
 
-/// Moves what `from` holds into `to` where `to` holds no file of that name (a file already there stays, and so does its
-/// counterpart), then removes the folders it emptied. Nothing is overwritten and a failed step leaves the rest where it was.
-pub(crate) fn adopt_missing(from: &Path, to: &Path) {
-    let Ok(entries) = fs::read_dir(from) else { return };
-    for entry in entries.flatten() {
-        let (source, target) = (entry.path(), to.join(entry.file_name()));
-        match entry.file_type() {
-            Ok(kind) if kind.is_dir() => adopt_missing(&source, &target),
-            Ok(kind) if kind.is_file() && fs::symlink_metadata(&target).is_err() => {
-                if fs::create_dir_all(to).is_ok() {
-                    let _ = fs::rename(&source, &target);
+/// Adoption is retried before store operations. A failed archive must block deletion of
+/// the current item; otherwise the leftover old item could be adopted on the next start.
+static ADOPTION: Mutex<()> = Mutex::new(());
+
+fn archive_path(from: &Path) -> PathBuf {
+    let mut name = from.file_name().unwrap_or_default().to_os_string();
+    name.push("-superseded");
+    from.with_file_name(name)
+}
+
+pub(crate) fn adopt_missing(from: &Path, to: &Path) -> WsResult<()> {
+    let _lock = ADOPTION.lock().expect("adoption lock");
+    adopt_units(from, to, &archive_path(from), false, &|_, _| Ok(()))
+}
+
+fn optional_entries(path: &Path) -> io::Result<Option<fs::ReadDir>> {
+    match fs::read_dir(path) {
+        Ok(entries) => Ok(Some(entries)),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+/// A backup file or a complete journal directory is the indivisible adoption unit.
+/// Never merge payloads or state from two journals, including owned/retired names
+/// that refer to the same logical record ID.
+fn adopt_units(
+    from: &Path, to: &Path, archive: &Path, records: bool,
+    before_move: &dyn Fn(&Path, &Path) -> io::Result<()>,
+) -> WsResult<()> {
+    let Some(entries) = optional_entries(from)? else { return Ok(()) };
+    for entry in entries {
+        let entry = entry?;
+        let source = entry.path();
+        let kind = entry.file_type()?;
+        if !(if records { kind.is_dir() } else { kind.is_file() }) || kind.is_symlink() {
+            return Err(recovery_err("RECOVERY_STORAGE", "Migrated storage contains an unexpected entry."));
+        }
+        let target = to.join(entry.file_name());
+        let mut conflict = match fs::symlink_metadata(&target) {
+            Ok(_) => true,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => false,
+            Err(error) => return Err(error.into()),
+        };
+        if records {
+            let location = location_name(&entry.file_name().to_string_lossy())
+                .ok_or_else(|| recovery_err("RECOVERY_STORAGE", "Migrated journal has an invalid name."))?;
+            if let Some(existing) = optional_entries(to)? {
+                for other in existing {
+                    let other = other?;
+                    if location_name(&other.file_name().to_string_lossy()).is_some_and(|other| other.id == location.id) {
+                        conflict = true;
+                    }
                 }
             }
-            _ => {}
         }
+        let destination = if conflict {
+            fs::create_dir_all(archive)?;
+            let slot = archive.join(uuid::Uuid::new_v4().to_string());
+            fs::create_dir(&slot)?;
+            sync_directory(archive)?;
+            slot.join(entry.file_name())
+        } else {
+            fs::create_dir_all(to)?;
+            target
+        };
+        before_move(&source, &destination)?;
+        fs::rename(&source, &destination)?;
+        sync_directory(destination.parent().expect("destination parent"))?;
+        sync_directory(from)?;
     }
-    let _ = fs::remove_dir(from);
+    fs::remove_dir(from)?;
+    sync_directory(from.parent().unwrap_or(from))?;
+    Ok(())
+}
+
+fn adopt_journals(from: &Path, to: &Path) -> WsResult<()> {
+    let _lock = ADOPTION.lock().expect("adoption lock");
+    let Some(projects) = optional_entries(from)? else { return Ok(()) };
+    let archive = archive_path(from);
+    for project in projects {
+        let project = project?;
+        if !project.file_type()?.is_dir() {
+            return Err(recovery_err("RECOVERY_STORAGE", "Migrated recovery root contains an unexpected entry."));
+        }
+        adopt_units(&project.path(), &to.join(project.file_name()), &archive.join(project.file_name()), true, &|_, _| Ok(()))?;
+    }
+    fs::remove_dir(from)?;
+    sync_directory(from.parent().unwrap_or(from))?;
+    Ok(())
 }
 
 impl RecoveryStore {
-    /// The store at `base`, after it has taken in the journals an earlier migration left beside it (`<data>/desktop/editor-recovery`,
-    /// `base` being `<data>/recovery`): an interrupted save of the old app is still offered.
+    /// The store at `base` (`<data>/recovery`). Its fallible operations first adopt
+    /// journals from `<data>/desktop/editor-recovery`; construction performs no I/O.
     pub fn new(base: PathBuf) -> Self {
-        if let Some(data) = base.parent() {
-            adopt_missing(&data.join(MIGRATED_JOURNALS), &base);
-        }
         Self { base, instance: uuid::Uuid::new_v4().to_string(), active: Mutex::new(HashSet::new()) }
+    }
+
+    fn adopt(&self) -> WsResult<()> {
+        if let Some(data) = self.base.parent() {
+            adopt_journals(&data.join(MIGRATED_JOURNALS), &self.base)?;
+        }
+        Ok(())
     }
 
     fn active_set(&self) -> std::sync::MutexGuard<'_, HashSet<PathBuf>> {
@@ -370,6 +447,7 @@ impl RecoveryStore {
     }
 
     fn locations(&self, root: &Path) -> WsResult<Vec<PathBuf>> {
+        self.adopt()?;
         let parent = self.store_path(root);
         match require_directory(parent.parent().unwrap_or(&parent)).and_then(|_| require_directory(&parent)) {
             Ok(()) => {}
@@ -412,6 +490,7 @@ impl RecoveryStore {
     /// Retirement lives in the directory name, outside the files being removed: a
     /// partial recursive deletion can never make a finished batch restorable again.
     pub fn retire(&self, directory: &Path) -> WsResult<PathBuf> {
+        self.adopt()?;
         validate_directory(directory)?;
         if Self::is_retired(directory) {
             return Ok(directory.to_path_buf());
@@ -425,6 +504,7 @@ impl RecoveryStore {
     }
 
     pub fn remove(&self, directory: &Path) -> WsResult<()> {
+        self.adopt()?;
         if !Self::is_retired(directory) {
             return Err(WsError::new(Reason::InvalidParams, "Recovery record must be retired before removal."));
         }
@@ -441,6 +521,7 @@ impl RecoveryStore {
 
     /// Bounded inventory of a record's flat store: regular files only.
     pub fn storage_inventory(&self, directory: &Path) -> WsResult<Vec<(String, String, String)>> {
+        self.adopt()?;
         validate_directory(directory)?;
         let mut entries = Vec::new();
         for entry in fs::read_dir(directory)? {
@@ -469,6 +550,7 @@ impl RecoveryStore {
     }
 
     pub fn write_state(&self, directory: &Path, state: &State) -> WsResult<()> {
+        self.adopt()?;
         validate_directory(directory)?;
         let mut clipped = state.clone();
         clipped.message = clipped.message.chars().take(8000).collect();
@@ -487,6 +569,7 @@ impl RecoveryStore {
     }
 
     pub fn read_record(&self, directory: &Path) -> WsResult<Record> {
+        self.adopt()?;
         validate_directory(directory)?;
         let id = location_name(&base_name(directory))
             .map(|l| l.id)
@@ -526,6 +609,7 @@ impl RecoveryStore {
     }
 
     pub fn read_payload(&self, directory: &Path, file: &RecoveryFile, index: usize, side: Side) -> WsResult<Vec<u8>> {
+        self.adopt()?;
         validate_directory(directory)?;
         let (name, expected) = match side {
             Side::Before => (format!("{index}.before"), &file.before),
@@ -588,6 +672,7 @@ impl RecoveryStore {
 
     /// Publishes a journal before the first target mutation.
     pub fn begin(&self, root: &Path, files: Vec<PreparedFile>) -> WsResult<Journal> {
+        self.adopt()?;
         self.prepare(root, files).map_err(storage_error)
     }
 
@@ -1227,4 +1312,108 @@ mod tests {
         assert_eq!(serde_json::to_value(&listed[0]).unwrap()["phase"], "interrupted");
         assert!(!data.path().join("desktop").join("editor-recovery").exists(), "no copy is left behind");
     }
+
+    #[test]
+    fn electron_journal_conflicts_are_preserved_without_resurrection() {
+        let (_project, _base, root, old, id, _case) = node_record("project-recovery", "a.txt", |raw| raw);
+        let data = tempfile::tempdir().unwrap();
+        let digest = old.store_path(&root).file_name().unwrap().to_owned();
+        let legacy = data.path().join("desktop/editor-recovery").join(&digest).join(&id);
+        let current = data.path().join(JOURNALS_DIR).join(&digest).join(&id);
+        fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+        fs::rename(old.store_path(&root).join(&id), &legacy).unwrap();
+        fs::create_dir_all(&current).unwrap();
+        for entry in fs::read_dir(&legacy).unwrap() {
+            let entry = entry.unwrap();
+            fs::copy(entry.path(), current.join(entry.file_name())).unwrap();
+        }
+        let store = RecoveryStore::new(data.path().join(JOURNALS_DIR));
+        assert_eq!(store.list(&root).unwrap().len(), 1);
+        let retired = store.retire(&current).unwrap();
+        store.remove(&retired).unwrap();
+        assert!(RecoveryStore::new(data.path().join(JOURNALS_DIR)).list(&root).unwrap().is_empty());
+        assert!(!legacy.exists());
+        let archive = data.path().join("desktop/editor-recovery-superseded").join(&digest);
+        let mut preserved = Vec::new();
+        for slot in fs::read_dir(archive).unwrap() {
+            for entry in fs::read_dir(slot.unwrap().path().join(&id)).unwrap() {
+                preserved.push(entry.unwrap().file_name());
+            }
+        }
+        assert!(preserved.iter().any(|name| name == "manifest.json"));
+        assert!(preserved.iter().any(|name| name == "0.before"));
+        assert!(preserved.iter().any(|name| name == "0.after"));
+    }
+
+    #[test]
+    fn journal_adoption_is_whole_and_resumes_after_archive_rename_failure() {
+        let data = tempfile::tempdir().unwrap();
+        let from = data.path().join("legacy");
+        let to = data.path().join("current");
+        let archive = data.path().join("archive");
+        let id = "11111111-1111-4111-8111-111111111111";
+        fs::create_dir_all(from.join(id)).unwrap();
+        fs::create_dir_all(to.join(id)).unwrap();
+        fs::write(from.join(id).join("manifest.json"), "old manifest").unwrap();
+        fs::write(from.join(id).join("0.before"), "old payload").unwrap();
+        fs::write(to.join(id).join("manifest.json"), "current manifest").unwrap();
+        // Force rename itself to fail after a slot is reserved, as an interrupted
+        // or obstructed move would. No file from the record may move separately.
+        let failure = |_: &Path, target: &Path| {
+            fs::write(target, "obstruction")?;
+            Ok(())
+        };
+        assert!(adopt_units(&from, &to, &archive, true, &failure).is_err());
+        assert_eq!(fs::read_to_string(from.join(id).join("0.before")).unwrap(), "old payload");
+        assert!(!to.join(id).join("0.before").exists());
+        adopt_units(&from, &to, &archive, true, &|_, _| Ok(())).unwrap();
+        assert!(!from.exists());
+        assert_eq!(fs::read_to_string(to.join(id).join("manifest.json")).unwrap(), "current manifest");
+        assert!(!to.join(id).join("0.before").exists());
+        let preserved = fs::read_dir(&archive).unwrap().map(|slot| slot.unwrap().path().join(id))
+            .find(|path| path.is_dir()).unwrap();
+        assert_eq!(fs::read_to_string(preserved.join("manifest.json")).unwrap(), "old manifest");
+        assert_eq!(fs::read_to_string(preserved.join("0.before")).unwrap(), "old payload");
+        fs::remove_dir_all(to.join(id)).unwrap();
+        adopt_units(&from, &to, &archive, true, &|_, _| Ok(())).unwrap();
+        assert!(!to.join(id).exists());
+    }
+
+    #[test]
+    fn journal_archive_obstruction_blocks_retirement_and_preserves_distinct_record() {
+        let (_project, _base, root, old, id, _case) = node_record("project-recovery", "a.txt", |raw| raw);
+        let data = tempfile::tempdir().unwrap();
+        let digest = old.store_path(&root).file_name().unwrap().to_owned();
+        let legacy = data.path().join(MIGRATED_JOURNALS).join(&digest).join(&id);
+        let current = data.path().join(JOURNALS_DIR).join(&digest).join(&id);
+        fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+        fs::rename(old.store_path(&root).join(&id), &legacy).unwrap();
+        fs::create_dir_all(&current).unwrap();
+        for entry in fs::read_dir(&legacy).unwrap() {
+            let entry = entry.unwrap();
+            fs::copy(entry.path(), current.join(entry.file_name())).unwrap();
+        }
+        let old_manifest = fs::read(legacy.join("manifest.json")).unwrap();
+        let mut current_manifest: serde_json::Value = serde_json::from_slice(&old_manifest).unwrap();
+        current_manifest["createdAt"] = serde_json::json!(current_manifest["createdAt"].as_i64().unwrap() + 1);
+        let current_bytes = serde_json::to_vec(&current_manifest).unwrap();
+        fs::write(current.join("manifest.json"), &current_bytes).unwrap();
+        let archive = data.path().join("desktop/editor-recovery-superseded");
+        fs::write(&archive, "obstruction").unwrap();
+        let store = RecoveryStore::new(data.path().join(JOURNALS_DIR));
+        assert!(store.list(&root).is_err());
+        assert!(store.retire(&current).is_err());
+        assert!(current.exists());
+        assert!(legacy.exists());
+        fs::remove_file(&archive).unwrap();
+        assert_eq!(store.list(&root).unwrap().len(), 1);
+        assert_eq!(fs::read(current.join("manifest.json")).unwrap(), current_bytes);
+        let retired = store.retire(&current).unwrap();
+        store.remove(&retired).unwrap();
+        assert!(RecoveryStore::new(data.path().join(JOURNALS_DIR)).list(&root).unwrap().is_empty());
+        let slot = fs::read_dir(archive.join(digest)).unwrap().next().unwrap().unwrap().path();
+        assert_eq!(fs::read(slot.join(&id).join("manifest.json")).unwrap(), old_manifest);
+        assert!(slot.join(&id).join("0.before").exists());
+    }
+
 }

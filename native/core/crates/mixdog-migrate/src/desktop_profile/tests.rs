@@ -414,7 +414,11 @@ fn a_receipt_in_each_phase_is_carried_over_and_what_is_no_receipt_retires() {
 fn an_editor_backup_of_the_old_app_is_offered_by_the_core_after_the_move() {
     let project = TempDir::new().unwrap();
     let source = project.path().join("notes.md").to_string_lossy().into_owned();
-    let old_name = mixdog_workspace::editorcfg::Backups::new(&project.path().join("userData")).path_of(&source).unwrap().file_name().unwrap().to_string_lossy().into_owned();
+    // Electron editor-backups.ts hashes the resolved path, lowercased on Windows.
+    // Compute its filename independently of the core reader being tested.
+    use sha2::Digest as _;
+    let old_key = if cfg!(windows) { source.to_lowercase() } else { source.clone() };
+    let old_name = format!("{:x}.json", sha2::Sha256::digest(old_key.as_bytes()));
     let draft = serde_json::json!({ "content": "unsaved words", "expectedContent": "on disk", "updatedAt": mixdog_workspace::editorcfg::now_ms() }).to_string();
     let run = Run::new(None, &[(&format!("editor-backups/{old_name}"), draft.as_bytes())], &BTreeSet::new());
     let report = run.migrate_all();
