@@ -13,7 +13,7 @@ import { type BrowserSurfaceSource, registerBrowserSurfaceReport } from './brows
 import { type BrowserTabsControl, createBrowserTabsReporter } from './browser-tabs';
 import { type BrowserViewControl, createBrowserView } from './browser-view';
 import { registerWindowHost, WINDOW_HOST_METHOD, type WindowHostDeps } from '../connections/window-host';
-import { COMPUTER_HOST_V2, CORE_WINDOWS, HOST_METHOD, type HostConnection } from './connection';
+import { HOST_METHOD, type HostConnection } from './connection';
 import { type FilesControl, registerFilesHost } from './files';
 import { createHostReports, type HostUpdater } from './lifecycle';
 import { createVisualizeHost, type VisualizeControl } from './visualize';
@@ -58,15 +58,13 @@ export interface DesktopHostOptions {
   computerAppInput: ComputerAppInputDeps;
   /** The operating-system grants (`host/computer/permissions`): `readComputerPermissions` / `requestComputerPermissions`. */
   computerPermissions: ComputerPermissionReads;
-  /** The legacy Windows host's bridge answer while Computer Use is on, else null (`host/computer/command`, dual path). */
+  /** The desktop's PowerShell Windows host's bridge answer while Computer Use is on, else null (`host/computer/command`, dual path). */
   computerCommand: ComputerCommandHostSource;
-  /** Serves the core computer host's handlers; COMPUTER_HOST_V2 (MIXDOG_COMPUTER_HOST_V2=1) when absent, until G4. */
-  computerHostV2?: boolean;
   notifications: NotificationPresenter;
   updater?: HostUpdater;
   /** An install that failed after `host/update/command` was answered: report it (diagnostics). */
   onUpdaterInstallFailed: (error: unknown) => void;
-  /** The server windows the core opens, closes and focuses (`host/window/*`); served only with CORE_WINDOWS. */
+  /** The server windows the core opens, closes and focuses (`host/window/*`); absent where a host has no server windows. */
   windows?: Omit<WindowHostDeps, 'report'>;
 }
 
@@ -105,12 +103,9 @@ export function createDesktopHost(options: DesktopHostOptions) {
   const visualize = createVisualizeHost(connection, options.visualize, options.onVisualizePublishFailed);
   registerFilesHost(connection, options.files);
   registerSystemProxyHost(connection, options.resolveProxy);
-  const computerHostV2 = options.computerHostV2 ?? COMPUTER_HOST_V2;
-  registerComputerHost(connection, options.computer, { enabled: computerHostV2, appInput: options.computerAppInput });
-  if (computerHostV2) {
-    registerComputerPermissions(connection, options.computerPermissions);
-    registerComputerCommand(connection, options.computerCommand);
-  }
+  registerComputerHost(connection, options.computer, { appInput: options.computerAppInput });
+  registerComputerPermissions(connection, options.computerPermissions);
+  registerComputerCommand(connection, options.computerCommand);
   // The browser host's own screen-displays path (the screen sources' displays, or "Remote screen is unavailable.").
   registerScreenDisplaysHost(connection, () => ({
     list: () => options.browser().remote('screenDisplays', []) as Promise<RemoteScreenDisplaySummary[]>,
@@ -119,7 +114,7 @@ export function createDesktopHost(options: DesktopHostOptions) {
   registerNotificationHost(connection, options.notifications);
   // host/state/set is a request, host/window/closed a notification.
   const windowHost =
-    CORE_WINDOWS && options.windows
+    options.windows
       ? registerWindowHost(connection, {
           ...options.windows,
           report: (method, params) => {
@@ -140,7 +135,7 @@ export function createDesktopHost(options: DesktopHostOptions) {
 
   return {
     reports,
-    /** `host/window/closed` and the windowFocus report; null unless CORE_WINDOWS (MIXDOG_CORE_WINDOWS=1) until G9. */
+    /** `host/window/closed` (only for windows the core asked for) and the windowFocus report; null without `windows`. */
     windowHost,
     /** Claims the host role; commands are served from here on. */
     async claim(): Promise<void> {

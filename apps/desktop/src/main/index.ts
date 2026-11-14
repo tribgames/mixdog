@@ -111,7 +111,7 @@ import {
   type GpuFallbackEnvironment,
 } from './gpu-recovery';
 import { registerDesktopIpc } from './ipc';
-import { COMPUTER_HOST_V2, HOST_CAPABILITIES } from './host/connection';
+import { HOST_CAPABILITIES } from './host/connection';
 import { bindComputerEnvironment } from './host/computer-environment';
 import { notifyHostListsChanged } from './host-lists-changed';
 import { createProtocolConnection } from './protocol/connection';
@@ -153,7 +153,7 @@ import { readComputerPermissions, requestComputerPermissions } from './computer/
 import { applyGnomeExtensionSetting } from './computer/host/gnome-extension';
 import { createComputerUseOverlay, type ComputerUseOverlay } from './computer/overlay';
 import { confirmComputerTurnsStopped } from './computer/overlay/stop-turns';
-import { createComputerPillControls, createCoreUserControl } from './host/computer-user-control';
+import { coreDrivesComputer, createComputerPillControls, createCoreUserControl } from './host/computer-user-control';
 import { MEDIA_SCHEME, registerMediaProtocol, registerMediaScheme } from './media-protocol';
 import { desktopPermissionAllowed } from './permission-policy';
 import { installNativeMenu } from './menu';
@@ -1162,15 +1162,15 @@ const localProtocol = localConnection.protocol;
 if (!localProtocol) throw new Error('This PC\'s connection has no protocol link.');
 onProtocolAttached(localProtocol, refreshCorePageOrigin);
 // Lock screen, suspend and display changes take the desktop from a core computer execution (computer/userControl
-// takeover), bound once the app is ready (powerMonitor and screen need it). Only with the core computer host
-// (MIXDOG_COMPUTER_HOST_V2=1) until G4; the in-process guard of the old path reports them meanwhile.
+// takeover), bound once the app is ready (powerMonitor and screen need it). Reported only while the core drives the
+// computer (the pill's section); while the desktop's own host runs Computer Use its in-process guard takes over instead.
 let unbindComputerEnvironment: () => void = () => {};
 function bindCoreComputerEnvironment(protocol: NonNullable<typeof localProtocol>): void {
-  if (!COMPUTER_HOST_V2) return;
   unbindComputerEnvironment = bindComputerEnvironment(
     powerMonitor,
     screen,
     (method, params) => protocol.call(method, params),
+    () => coreDrivesComputer(hostRole.computerPill),
     (error) => console.warn('[mixdog-computer] environment takeover report failed:', error)
   );
 }
@@ -1216,8 +1216,8 @@ const hostRole = createLocalHostRole({
       displays: readDisplays,
     };
   },
-  // Served with the core computer host (MIXDOG_COMPUTER_HOST_V2=1) until G4. The arrow follows the session (x, y are
-  // native physical pixels); the presence overlay's own showCursor replaces the coordinator's with s3-26.
+  // `host/computer/appInput` into the desktop's own windows, called only by a core that drives the computer. The arrow
+  // follows the session (x, y are native physical pixels); the presence overlay's own showCursor replaces the coordinator's with s3-26.
   computerAppInput: {
     showCursor: (sessionId, x, y, action) =>
       computerUseCoordinator.showCursor({
@@ -1299,7 +1299,7 @@ function focusConnectionWindow(connectionId: string, sessionId: string | undefin
   }
   if (!sessionId || !openDesktopNotificationSession(window, sessionId)) activateDesktopWindow(window);
 }
-/** Every window's state for the core's server notifier (`host/state/set` windowFocus); only with CORE_WINDOWS. */
+/** Every window's state for the core's server notifier (`host/state/set` windowFocus, a method every core serves). */
 function publishWindowFocus(): void {
   const windowHost = hostRole.host.windowHost;
   if (!windowHost) return;

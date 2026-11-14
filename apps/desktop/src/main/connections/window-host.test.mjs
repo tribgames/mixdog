@@ -56,14 +56,32 @@ test('close and focus reach the window layer; focus carries the session', async 
   assert.deepEqual(calls.focus, [['local', 's1'], ['c1', undefined]]);
 });
 
-test('closed reports byUser for a user close and false for a quit', () => {
-  const { host, calls } = build();
+test('closed is reported only for a window the core opened, byUser for a user close and false for a quit', async () => {
+  const { host, calls } = build({ open: async () => true });
+  // A core that never asked for a window (one without the connections service) is never told one closed.
+  host.windowClosed('c1', true);
+  assert.deepEqual(calls.report, []);
+  await host.handlers['host/window/open']({ connectionId: 'c1', kind: 'ssh', name: 'a' });
+  await host.handlers['host/window/open']({ connectionId: 'c2', kind: 'ssh', name: 'b' });
   host.windowClosed('c1', true);
   host.windowClosed('c2', false);
+  // Once: a second close of the same window is not a second report.
+  host.windowClosed('c1', true);
   assert.deepEqual(calls.report, [
     ['host/window/closed', { connectionId: 'c1', byUser: true }],
     ['host/window/closed', { connectionId: 'c2', byUser: false }],
   ]);
+});
+
+test('a window the core could not open, or opened on a closed connection, is not reported closed', async () => {
+  const { host, calls } = build({ open: async () => false });
+  await host.handlers['host/window/open'](open);
+  host.windowClosed('c1', true);
+  const reopened = build({ open: async () => true });
+  await reopened.host.handlers['host/window/open'](open);
+  reopened.host.dispose();
+  reopened.host.windowClosed('c1', true);
+  assert.deepEqual([...calls.report, ...reopened.calls.report], []);
 });
 
 test('a burst of focus changes is one windowFocus report, and an unchanged state is not re-sent', async () => {

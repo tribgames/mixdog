@@ -1,5 +1,5 @@
 /**
- * `host/computer/command` (dual path only): a whole bridge command the core relays to the legacy Windows PowerShell host, as
+ * `host/computer/command` (dual path only): a whole bridge command the core relays to the desktop's Windows PowerShell host, as
  * `computer-bridge/client.mjs` would have posted it to the loopback bridge. The same policy applies (`assertPublicComputerRequest`
  * through the host's `assertPublic`, as `host/computer/capture` does); a frame the host returns is uploaded as a blob.
  */
@@ -26,7 +26,7 @@ export interface ComputerCommandHost {
   >;
 }
 
-/** The host while the legacy Windows host runs, else null. */
+/** The host while the desktop's PowerShell Windows host runs, else null. */
 export type ComputerCommandHostSource = () => ComputerCommandHost | null;
 
 export function registerComputerCommand(connection: HostConnection, source: ComputerCommandHostSource): void {

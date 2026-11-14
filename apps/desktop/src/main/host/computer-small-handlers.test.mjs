@@ -5,7 +5,7 @@ import { test } from 'node:test';
 
 import { registerComputerPermissions } from './computer-permissions.ts';
 import { bindComputerEnvironment } from './computer-environment.ts';
-import { COMPUTER_USER_CONTROL } from './computer-user-control.ts';
+import { COMPUTER_USER_CONTROL, coreDrivesComputer } from './computer-user-control.ts';
 
 // computer-command.ts reaches Electron's screen and windows at import; outside Electron a stand-in answers.
 registerHooks({
@@ -70,7 +70,7 @@ test('environment: lock, suspend and display changes send a takeover; unrelated 
   const sent = [];
   const stop = bindComputerEnvironment(power, screen, async (method, params) => {
     sent.push([method, params]);
-  });
+  }, () => true);
   power.emit('lock-screen');
   power.emit('suspend');
   screen.emit('display-added');
@@ -90,7 +90,7 @@ test('environment: a failed send is reported, not thrown', async () => {
   const errors = [];
   bindComputerEnvironment(power, new EventEmitter(), async () => {
     throw new Error('core down');
-  }, (error) => errors.push(error.message));
+  }, () => true, (error) => errors.push(error.message));
   power.emit('suspend');
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(errors, ['core down']);
@@ -137,4 +137,28 @@ test('command: a failed answer is the result error; policy and a missing host re
   await assert.rejects(connection.serve('host/computer/command', 'x'), /object/);
   host = null;
   await assert.rejects(connection.serve('host/computer/command', { command: {} }), /unavailable/);
+});
+
+test("environment: nothing is reported while the core does not drive the computer (the desktop host's own guard takes over)", () => {
+  const power = new EventEmitter();
+  const screen = new EventEmitter();
+  const sent = [];
+  let drives = false;
+  bindComputerEnvironment(power, screen, async (method, params) => void sent.push([method, params]), () => drives);
+  power.emit('lock-screen');
+  screen.emit('display-added');
+  assert.deepEqual(sent, []);
+  drives = true;
+  power.emit('suspend');
+  assert.deepEqual(sent, [[COMPUTER_USER_CONTROL, { action: 'takeover', reason: 'desktop_unavailable' }]]);
+});
+
+test("coreDrivesComputer: the core's helper with a session, a hold or a pending cleanup; never the desktop's own host", () => {
+  const snap = (over = {}) => ({ presentSessionIds: [], userControlActive: false, cleanupState: 'ready', ...over });
+  const pill = (backend, snapshot) => ({ backend: () => backend, snapshot: () => snapshot });
+  assert.equal(coreDrivesComputer(pill('helper', snap())), false);
+  assert.equal(coreDrivesComputer(pill('helper', snap({ presentSessionIds: ['s1'] }))), true);
+  assert.equal(coreDrivesComputer(pill('helper', snap({ userControlActive: true }))), true);
+  assert.equal(coreDrivesComputer(pill('helper', snap({ cleanupState: 'pending' }))), true);
+  assert.equal(coreDrivesComputer(pill('desktopHost', snap({ presentSessionIds: ['s1'] }))), false);
 });

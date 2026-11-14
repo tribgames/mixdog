@@ -97,7 +97,7 @@ test("the core's Stop failing still ends the turns, and the Stop reports the fai
   assert.deepEqual(aborted, ['th1']);
 });
 
-test('with no core session the old desktop host keeps the pill actions', async () => {
+test("with no core session the desktop's own computer host keeps the pill actions", async () => {
   const { controls, sent, host } = pillControls(null);
   await controls.stop(['th1']);
   await controls.resume(3);

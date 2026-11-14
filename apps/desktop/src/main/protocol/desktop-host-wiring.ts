@@ -37,7 +37,7 @@ export function createLocalHostRole({ protocol, onClaimFailed, ...options }: Loc
   // The presence mirror: the pill and the arrow follow the core's section (the in-process coordinator while the section
   // names the desktop's own host as the backend); moving the real mouse releases the agent's pointer in the core.
   const computerPill = createComputerPillSource(Date.now, {
-    legacy: computerUseCoordinator,
+    coordinator: computerUseCoordinator,
     notifyPointerReleased: (sessionThreadId) => protocol.notify('computer/pointerReleased', { sessionThreadId }),
   });
   bindPointerPresence(computerPill);

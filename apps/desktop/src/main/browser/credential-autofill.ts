@@ -49,7 +49,7 @@ export function pageOfDocument(documentId: unknown): string {
  * Synchronous throughout: it refuses with -32010 reason `document` when, in engine mode, the call carries no
  * `expect` (it was bound to no state), or when an `expect` cannot be held to a live page; the returned guard
  * throws for the first part of `expect` that no longer holds (session children, https origin and main-frame
- * document included, checkPrecondition). `undefined` is the legacy forward path: no engine lane, no `expect`,
+ * document included, checkPrecondition). `undefined` is the forward path without an engine lane: no engine lane, no `expect`,
  * and the fill is bound by its own request binding alone.
  */
 export function fillGuard(

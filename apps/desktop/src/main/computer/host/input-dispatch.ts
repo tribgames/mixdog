@@ -134,7 +134,7 @@ export function createInputDispatch(host: DispatchHost, policy: ComputerExecutio
         target,
         renderer: electronTarget,
         authorizeDispatch,
-        // The agent's arrow on the old path (s3-21 moved the coordinator out of the Electron dispatchers).
+        // The agent's arrow while the desktop's own host runs Computer Use (s3-21 moved the coordinator out of the Electron dispatchers).
         showCursor: ({ action, ...cursor }: Parameters<NonNullable<ElectronTextDispatch['showCursor']>>[0]) =>
           computerUseCoordinator.showCursor({ ...cursor, action, effect: action, mode: 'background' }),
       };

@@ -20,7 +20,7 @@ export interface ComputerPillSource extends ComputerPresence {
 
 export function createComputerPillSource(
   now: () => number = Date.now,
-  deps: Partial<Pick<ComputerPresenceDeps, 'legacy' | 'notifyPointerReleased'>> = {}
+  deps: Partial<Pick<ComputerPresenceDeps, 'coordinator' | 'notifyPointerReleased'>> = {}
 ): ComputerPillSource {
   const presence = createComputerPresence({ notifyPointerReleased: () => {}, ...deps, now });
   return { ...presence, apply: presence.applySection };

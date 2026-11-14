@@ -147,13 +147,13 @@ interface ScreenInputHostOptions {
   commandTimeoutMs?: number;
   /** The app-data folder the retired PowerShell host kept its scripts and DLL cache in;
    *  swept once at the first start (nothing uses them any more). */
-  legacyDirectory?: string;
+  powerShellHostDirectory?: string;
   /** Bound for one abort cleanup. Default 5 s. */
   abortCleanupTimeoutMs?: number;
 }
 
 /** Removes what the retired PowerShell host left: its per-process scripts and compiled-assembly cache. */
-export function sweepLegacyScreenHostFiles(directory: string): void {
+export function sweepPowerShellScreenHostFiles(directory: string): void {
   try {
     for (const name of readdirSync(directory)) {
       if (/^remote-screen-host-\d+-[0-9a-f]+\.ps1$/u.test(name)) rmSync(join(directory, name), { force: true });
@@ -262,9 +262,9 @@ export function createScreenInputHost(options: ScreenInputHostOptions): ScreenIn
   const start = (): Promise<void> => {
     if (starting) return starting;
     stopping = false;
-    if (!swept && options.legacyDirectory) {
+    if (!swept && options.powerShellHostDirectory) {
       swept = true;
-      sweepLegacyScreenHostFiles(options.legacyDirectory);
+      sweepPowerShellScreenHostFiles(options.powerShellHostDirectory);
     }
     const launch = (): Promise<void> => new Promise<void>((resolve, reject) => {
       if (stopping) {

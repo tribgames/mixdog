@@ -83,7 +83,7 @@ export function createElectronScreenInputHost(
 ): ScreenInputHost {
   return createScreenInputHost({
     spawn,
-    ...(windowsWorker === 'powershell' ? {} : { legacyDirectory: mixdogDataDirectory() }),
+    ...(windowsWorker === 'powershell' ? {} : { powerShellHostDirectory: mixdogDataDirectory() }),
   });
 }
 

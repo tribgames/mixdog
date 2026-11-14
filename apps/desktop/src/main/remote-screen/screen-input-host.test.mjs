@@ -246,7 +246,7 @@ test('an unresponsive helper is cleaned up after its kill, and a hung cleanup is
 });
 
 test('the retired PowerShell host files are swept once at the first start', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-screen-legacy-'));
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-screen-powershell-'));
   try {
     const { writeFileSync, mkdirSync, existsSync } = await import('node:fs');
     writeFileSync(join(dir, 'remote-screen-host-1-abcd.ps1'), 'x');
@@ -254,7 +254,7 @@ test('the retired PowerShell host files are swept once at the first start', asyn
     mkdirSync(join(dir, 'remote-screen-cache'));
     writeFileSync(join(dir, 'remote-screen-cache', 'remote-screen-host-0123456789abcdef.dll'), 'x');
     const fake = fakeSpawn();
-    const host = createScreenInputHost({ binary: () => 'b', spawn: fake.spawn, legacyDirectory: dir });
+    const host = createScreenInputHost({ binary: () => 'b', spawn: fake.spawn, powerShellHostDirectory: dir });
     await host.start();
     assert.equal(existsSync(join(dir, 'remote-screen-host-1-abcd.ps1')), false);
     assert.equal(existsSync(join(dir, 'remote-screen-cache')), false);

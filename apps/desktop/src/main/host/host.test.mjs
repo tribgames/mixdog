@@ -344,8 +344,8 @@ test('the computer host answers the internal-window and pointer requests it does
   assert.equal(await wire.call('host/computer/pointerFeedback', { sessionId: 's1', events }), null);
 });
 
-test('the core computer host handlers are served only with computerHostV2 (MIXDOG_COMPUTER_HOST_V2=1 until G4)', async () => {
-  const v2Methods = [
+test('the core computer host handlers are always served: a core that does not drive the computer never calls them', async () => {
+  const coreComputerMethods = [
     'host/computer/cursorPrepare',
     'host/computer/appWindows',
     'host/computer/appInput',
@@ -353,17 +353,26 @@ test('the core computer host handlers are served only with computerHostV2 (MIXDO
     'host/computer/permissions',
     'host/computer/command',
   ];
-  const off = build({ computerHostV2: false });
-  assert.deepEqual(off.wire.connection.servedMethods().filter((method) => v2Methods.includes(method)), []);
-  const on = build({
-    computerHostV2: true,
+  const { wire } = build({
     computerAppInput: { showCursor: () => undefined },
     computerPermissions: { read: () => ({}), request: () => undefined },
     computerCommand: () => null,
   });
-  assert.deepEqual(on.wire.connection.servedMethods().filter((method) => v2Methods.includes(method)), [...v2Methods].sort());
+  const served = wire.connection.servedMethods();
+  assert.deepEqual(served.filter((method) => coreComputerMethods.includes(method)), [...coreComputerMethods].sort());
+  // The claim names them, so the core routes them here.
+  assert.ok(coreComputerMethods.every((method) => served.includes(method)));
   // No overlay is bound here, so the arrow cannot be prepared.
-  assert.deepEqual(await on.wire.call('host/computer/cursorPrepare', { sessionThreadId: 's1', x: 1, y: 2 }), { state: 'unavailable' });
+  assert.deepEqual(await wire.call('host/computer/cursorPrepare', { sessionThreadId: 's1', x: 1, y: 2 }), { state: 'unavailable' });
+});
+
+test('the server window handlers are served whenever the host has windows, and the windows capability is declared', async () => {
+  const { HOST_CAPABILITIES } = await import('./connection.ts');
+  assert.equal(HOST_CAPABILITIES.windows, true);
+  const { wire, host } = build({ windows: { open: async () => true, close() {}, focus() {} } });
+  const served = wire.connection.servedMethods();
+  for (const method of ['host/window/open', 'host/window/close', 'host/window/focus']) assert.ok(served.includes(method), method);
+  assert.ok(host.windowHost);
 });
 
 test('a shown notification plays its sound and a click reports the thread', () => {
