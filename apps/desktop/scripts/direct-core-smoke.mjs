@@ -319,11 +319,16 @@ async function run() {
     const rel = `.direct-core-smoke-${nonce()}.txt`;
     const text = '0123456789abcdef'.repeat(Math.ceil(FILE_BYTES / 16)).slice(0, FILE_BYTES - 1) + '\n';
     await windowA.client.call('projectFs/writeText', { root: workspace, rel, content: await blobText(windowA.client, text), expectedContent: '' });
-    const read = await main.client.call('projectFs/readText', { root: workspace, rel });
-    const back = typeof read === 'string' ? read : (read?.content ?? read?.text);
-    if (typeof back !== 'string') throw new Error(`projectFs/readText answered ${JSON.stringify(read).slice(0, 200)}`);
-    if (back !== text) throw new Error(`the file read back differs (${back.length} chars, wrote ${text.length})`);
-    return `${rel}, ${text.length} bytes`;
+    try {
+      const read = await main.client.call('projectFs/readText', { root: workspace, rel });
+      const back = typeof read === 'string' ? read : (read?.content ?? read?.text);
+      if (typeof back !== 'string') throw new Error(`projectFs/readText answered ${JSON.stringify(read).slice(0, 200)}`);
+      if (back !== text) throw new Error(`the file read back differs (${back.length} chars, wrote ${text.length})`);
+      return `${rel}, ${text.length} bytes`;
+    } finally {
+      // The file is the smoke's own: it does not stay in the workspace (a --core run may point at a real project).
+      await main.client.call('projectFs/trash', { root: workspace, rel }).catch((error) => console.error(`could not trash ${rel}: ${message(error)}`));
+    }
   });
 
   for (const link of [main, windowA]) {
