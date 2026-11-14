@@ -6,7 +6,7 @@
  */
 import assert from 'node:assert/strict';
 import { webContents, type WebContents } from 'electron';
-import type { BrowserHost } from './host';
+import type { BrowserHost } from './host-types';
 import { readyBrowserFrame } from './harness-frame';
 import { createPolling } from '../host-harness-poll';
 

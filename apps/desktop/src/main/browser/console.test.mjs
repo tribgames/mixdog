@@ -9,7 +9,7 @@ import {
   onLogEntryAdded,
 } from './cdp-events-console.ts';
 import { BrowserConsoleLedger } from './console.ts';
-import { BrowserGuestStateStore } from './guest-state.ts';
+import { BrowserGuestStateStore } from './host-state.ts';
 import { formatConsoleArguments, formatConsoleSource } from './console-format.ts';
 import { BrowserNetworkLedger } from './network.ts';
 import { validateBrowserToolArgs } from '../../shared/core-src/runtime/browser-bridge/action-schema.mjs';

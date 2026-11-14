@@ -10,7 +10,7 @@ import { basename, join } from 'node:path';
 
 import type { WebContents } from 'electron';
 
-import { boundedInteger } from './command';
+import { boundedInteger } from './host-types';
 import { redactBrowserText, redactBrowserUrl } from './redaction';
 
 export interface TrackedBrowserDownload {

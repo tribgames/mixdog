@@ -5,7 +5,7 @@
  * and are answered by the host before dispatch.
  */
 import { BROWSER_ACTIONS } from '../../../shared/core-src/runtime/browser-bridge/browser-action-contract.mjs';
-import { TABLESS_ACTIONS } from '../command';
+import { TABLESS_ACTIONS } from '../host-types';
 import { diagnosticActions } from './diagnostics';
 import { flowActions } from './flow';
 import { formActions } from './forms';

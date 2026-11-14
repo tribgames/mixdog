@@ -3,7 +3,7 @@ import type { WebContents } from 'electron';
 import { secretInputs } from '../secret-input';
 import type { BrowserCdpPort } from './cdp';
 import type { createBrowserCredentialFill } from './credential-autofill';
-import type { BrowserGuestStateStore } from './guest-state';
+import type { BrowserGuestStateStore } from './host-state';
 import { protectSecretNodes } from './visual-privacy';
 
 type Sessions = { sessionIdForGuest(guest: WebContents): string | undefined };

@@ -7,16 +7,10 @@
  */
 import type { WebContents } from 'electron';
 
-import {
-  type BrowserCommand,
-  type BrowserCommandResult,
-  type BrowserSnapshotResultOptions,
-  EFFECT_REPORT_ACTIONS,
-  normalizeBrowserAction,
-} from './command';
+import { type BrowserCommand, type BrowserCommandResult, type BrowserSnapshotResultOptions, EFFECT_REPORT_ACTIONS, normalizeBrowserAction } from './host-types';
 import { browserDocumentChanged } from './documents';
 import type { TrackedBrowserDownload } from './downloads';
-import type { BrowserGuestStateStore } from './guest-state';
+import type { BrowserGuestStateStore } from './host-state';
 import { type BrowserPostcondition, describeBrowserPostcondition } from './postcondition';
 import type { BrowserRefSet } from './ref-recovery';
 import { createRefRecovery, decorateRecovery, refRecoveryFor } from './reply-ref-recovery';

@@ -6,7 +6,7 @@
  */
 import type { WebContents } from 'electron';
 
-import { type BrowserCommand, type BrowserSnapshotResultOptions, POSTCONDITION_POLL_MS } from './command';
+import { type BrowserCommand, type BrowserSnapshotResultOptions, POSTCONDITION_POLL_MS } from './host-types';
 import { type BrowserPostcondition, normalizeBrowserPostcondition, normalizeBrowserSettleMs } from './postcondition';
 import type { BrowserReplyHost } from './reply';
 import { pause, throwIfBrowserCancelled } from './settle';

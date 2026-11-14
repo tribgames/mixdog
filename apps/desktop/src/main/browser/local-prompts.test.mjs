@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { BrowserGuestStateStore } from './guest-state.ts';
+import { BrowserGuestStateStore } from './host-state.ts';
 import { createBrowserLocalPrompts } from './local-prompts.ts';
 
 /** A state view over one record, as the record's own page sees it. */

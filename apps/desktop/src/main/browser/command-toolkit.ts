@@ -9,23 +9,14 @@ import { app } from 'electron';
 
 import { DESKTOP_IPC } from '../../shared/contract';
 import type { createBrowserGuestCdp } from './cdp';
-import {
-  CUSTOM_DROPDOWN_POLL_MS,
-  CUSTOM_DROPDOWN_TIMEOUT_MS,
-  DOWNLOAD_ATTACH_MAX_BYTES,
-  READ_MAX_CHARS,
-  SCREENSHOT_FALLBACK_TIMEOUT_MS,
-  SCREENSHOT_TIMEOUT_MS,
-  SNAPSHOT_MAX_ELEMENTS,
-  snapshotTextLimit,
-} from './command';
+import { CUSTOM_DROPDOWN_POLL_MS, CUSTOM_DROPDOWN_TIMEOUT_MS, DOWNLOAD_ATTACH_MAX_BYTES, READ_MAX_CHARS, SCREENSHOT_FALLBACK_TIMEOUT_MS, SCREENSHOT_TIMEOUT_MS, SNAPSHOT_MAX_ELEMENTS, snapshotTextLimit } from './host-types';
 import { createBrowserCredentialFill } from './credential-autofill';
 import { browserCredentialFillHost, rememberForSession } from './credential-fill-host';
 import { createBrowserDialogReport } from './dialog-report';
 import type { createBrowserDocuments } from './documents';
 import { createBrowserDownloads } from './downloads';
 import { createBrowserEmulation } from './emulation';
-import { browserDocumentId, type BrowserGuestStateStore } from './guest-state';
+import { browserDocumentId, type BrowserGuestStateStore } from './host-state';
 import { createBrowserInitScripts } from './init-scripts';
 import { createBrowserInputDriver } from './input';
 import { createBrowserInputDispatch } from './input-dispatch';

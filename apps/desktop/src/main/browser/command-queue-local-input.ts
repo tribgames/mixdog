@@ -1,7 +1,7 @@
 /** Local user input on a page outranks the agent: a takeover aborts the agent
  *  commands queued on that page and keeps new ones out until the user has
  *  been quiet for a moment. */
-import type { BrowserCommand } from './command';
+import type { BrowserCommand } from './host-types';
 
 const LOCAL_INPUT_QUIET_MS = 1_000;
 const LOCAL_INPUT_TAKEOVER =

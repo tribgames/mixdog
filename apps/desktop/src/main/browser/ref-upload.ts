@@ -16,7 +16,7 @@ import {
   BROWSER_DROP_GUARD_INSTALL,
   BROWSER_DROP_GUARD_TAKE,
 } from './file-drop';
-import type { PendingFileChooser } from './guest-state';
+import type { PendingFileChooser } from './host-types';
 import { browserRefElementSource } from './ref-access';
 import type { BrowserRefActionsHost } from './ref-actions';
 

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import test from 'node:test';
 
-import { BrowserGuestStateStore } from './guest-state.ts';
+import { BrowserGuestStateStore } from './host-state.ts';
 import { createBrowserPageOwner } from './page-owner.ts';
 import { createBrowserRemoteControl } from './remote-control.ts';
 import { BrowserSessionRegistry } from './session-registry.ts';

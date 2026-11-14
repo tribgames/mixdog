@@ -3,16 +3,7 @@
  * visual locator, plain text reads, and selector-driven extraction.
  */
 import { persistFrameImage } from '../../frame-files';
-import {
-  boundedInteger,
-  browserCharLimit,
-  EXTRACT_DEFAULT_CHARS,
-  EXTRACT_DEFAULT_LIMIT,
-  EXTRACT_MAX_LIMIT,
-  MAX_PRINTED_PDF_BYTES,
-  READ_DEFAULT_CHARS,
-  READ_MAX_CHARS,
-} from '../command';
+import { boundedInteger, browserCharLimit, EXTRACT_DEFAULT_CHARS, EXTRACT_DEFAULT_LIMIT, EXTRACT_MAX_LIMIT, MAX_PRINTED_PDF_BYTES, READ_DEFAULT_CHARS, READ_MAX_CHARS } from '../host-types';
 import { redactBrowserText, redactBrowserUrl } from '../redaction';
 import { browserVisualLocatorExpression, type BrowserVisualLocatorPayload } from '../visual-locator';
 import { actionRef } from './target';

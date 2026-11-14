@@ -9,7 +9,7 @@
 import type { WebContents } from 'electron';
 
 import type { BrowserCdpPort } from './cdp';
-import type { BrowserCommand, BrowserCommandResult } from './command';
+import type { BrowserCommand, BrowserCommandResult } from './host-types';
 
 const MAX_SCRIPTS_PER_PAGE = 10;
 const MAX_SCRIPT_CHARS = 20_000;

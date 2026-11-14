@@ -5,7 +5,7 @@ import { app, BrowserWindow, type WebContents } from 'electron';
 import { makeTempDirSync, removeTempDir } from '../../../../../scripts/lib/scoped-temp.mjs';
 import { createBrowserGuestCdp } from './cdp';
 import { createBrowserDocuments } from './documents';
-import { BrowserGuestStateStore } from './guest-state';
+import { BrowserGuestStateStore } from './host-state';
 import { browserRenderCheckpoint } from './render-checkpoint';
 
 // Live Chromium, hidden windows and a disposable profile only; never attaches

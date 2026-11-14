@@ -11,7 +11,7 @@ import type { Session, WebContents, WebFrameMain } from 'electron';
 import { app, ipcMain, session } from 'electron';
 
 import { rememberBrowserIdentity } from './browser-identity';
-import { BROWSER_PARTITION } from './command';
+import { BROWSER_PARTITION } from './host-types';
 import { createBrowserDownloadLedger } from './downloads';
 import { installBrowserPageZoom } from './page-zoom';
 import { type BrowserPermissionPolicyStore, createBrowserPermissions } from './permissions';

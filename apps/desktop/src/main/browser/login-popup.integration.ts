@@ -14,7 +14,7 @@ import { join } from 'node:path';
 import { app, BrowserWindow, session, webContents } from 'electron';
 
 import { createTakeoverGate } from '../takeover-gate';
-import { BROWSER_PARTITION } from './command';
+import { BROWSER_PARTITION } from './host-types';
 import { createBrowserLoginPopup } from './login-popup';
 
 const directory = process.env.MIXDOG_LOGIN_POPUP_ROOT || '';

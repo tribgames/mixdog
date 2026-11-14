@@ -2,7 +2,7 @@ import { browserPageResample } from '../../shared/browser-page-frame';
 import type { DesktopBrowserPageFrame } from '../../shared/contract';
 import { createBrowserDisplayHealth } from '../../renderer/browser-display-health';
 import { browserCaptureTransient, browserPageTransition } from '../../renderer/browser-page-recovery';
-import type { BrowserHost } from './host';
+import type { BrowserHost } from './host-types';
 
 const DEADLINE_MS = 20_000;
 

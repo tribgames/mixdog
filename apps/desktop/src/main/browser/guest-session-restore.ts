@@ -5,7 +5,7 @@
  */
 import type { WebContents } from 'electron';
 
-import { OFFSCREEN_VIEWPORT } from './command';
+import { OFFSCREEN_VIEWPORT } from './host-types';
 import { browserPageWindow } from './page-window';
 import { setBrowserPageZoom } from './page-zoom';
 import { restorablePages } from './restore-pages';

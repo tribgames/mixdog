@@ -22,7 +22,7 @@ import type {
   Precondition,
 } from '../../../../../../packages/protocol/src/index.ts';
 import type { BrowserFetchPattern, BrowserInterceptRule } from '../../browser/intercept';
-import type { GuestSlot } from '../../browser/guest-state';
+import type { GuestSlot } from '../../browser/host-types';
 import { downloadMimeType, MAX_BROWSER_DOWNLOAD_BYTES, type TrackedBrowserDownload } from '../../browser/downloads';
 import type { BrowserEmulationOwner } from '../../browser/host-policy';
 import { BrowserPerformanceTrace, type ActiveBrowserPerformanceTrace } from '../../browser/performance';

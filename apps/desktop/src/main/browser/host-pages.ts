@@ -6,12 +6,12 @@
 import type { BrowserWindow, WebContents } from 'electron';
 
 import { DESKTOP_IPC } from '../../shared/contract';
-import type { BrowserCommand } from './command';
+import type { BrowserCommand } from './host-types';
 import type { createBrowserDisplayTextures } from './display-textures';
 import type { createBrowserDisplayTracking } from './display-tracking';
 import { createBrowserGuestLifecycle } from './guest-lifecycle';
-import type { BrowserGuestStateStore } from './guest-state';
-import type { BrowserHostFoundation } from './host-foundation';
+import type { BrowserGuestStateStore } from './host-state';
+import type { BrowserHostFoundation } from './host-types';
 import type { createBrowserHostPageIdentity } from './host-page-identity';
 import type { createBrowserLeaveConfirmation } from './leave-confirmation';
 import { createBrowserNativeViews } from './native-view';

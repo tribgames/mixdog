@@ -23,7 +23,7 @@
 import type { WebContents } from 'electron';
 
 import type { Precondition } from '../../../../../../packages/protocol/src/index.ts';
-import { CDP_REQUEST_TIMEOUT_MS, MAX_PRINTED_PDF_BYTES } from '../../browser/command';
+import { CDP_REQUEST_TIMEOUT_MS, MAX_PRINTED_PDF_BYTES } from '../../browser/host-types';
 import type { BrowserVisualPrivacy } from '../../browser/visual-privacy';
 import { HOST_INVALID_PARAMS, type HostConnection, HostRpcError } from '../connection';
 import type { EngineContext } from './context';

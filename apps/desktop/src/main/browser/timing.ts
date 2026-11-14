@@ -2,7 +2,7 @@
  * phases may overlap, so their durations must not be added to commandMs. */
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { performance } from 'node:perf_hooks';
-import type { BrowserCommandResult } from './command';
+import type { BrowserCommandResult } from './host-types';
 
 type Phase = 'wait' | 'snapshot' | 'screenshot' | 'target' | 'actionability' | 'input';
 const PHASES: Phase[] = ['wait', 'snapshot', 'screenshot', 'target', 'actionability', 'input'];

@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import test from 'node:test';
 import { createBrowserGuestCdp } from './cdp.ts';
-import { BrowserGuestStateStore } from './guest-state.ts';
-import { CDP_REQUEST_TIMEOUT_MS } from './command.ts';
+import { BrowserGuestStateStore } from './host-state.ts';
+import { CDP_REQUEST_TIMEOUT_MS } from './host-types.ts';
 import { waitUntil } from '../../shared/core-src/runtime/shared/wait-until.test-support.mjs';
 
 function fixture(send) {

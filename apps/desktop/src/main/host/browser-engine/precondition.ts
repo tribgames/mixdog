@@ -7,7 +7,7 @@
  * synchronous step.
  */
 import type { PageFacts, Precondition } from '../../../../../../packages/protocol/src/index.ts';
-import type { PendingFileChooser } from '../../browser/guest-state';
+import type { PendingFileChooser } from '../../browser/host-types';
 import type { EnginePage } from './context';
 import { preconditionFailed } from './errors';
 

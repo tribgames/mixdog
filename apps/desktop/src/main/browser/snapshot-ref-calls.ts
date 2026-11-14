@@ -7,7 +7,7 @@
 import type { WebContents } from 'electron';
 
 import type { BrowserCdpPort } from './cdp';
-import type { GuestSlot } from './guest-state';
+import type { GuestSlot } from './host-types';
 import { redactBrowserText } from './redaction';
 import { browserRefElementSource } from './ref-access';
 

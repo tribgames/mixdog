@@ -1,7 +1,7 @@
 // Session list and lifecycle, prompt/abort/approval routing, model routes,
 // and the Settings → Connection remote-access controls.
 import { DESKTOP_IPC, type DesktopRemoteAccessInfo } from '../shared/contract';
-import type { BrowserHost } from './browser/host';
+import type { BrowserHost } from './browser/host-types';
 import { readAttachmentThumbnail } from './attachment-thumbnail';
 import { optionalSessionId, requiredSessionId } from './desktop-state';
 import { isSessionMissingError } from './session-final-answer';

@@ -1,6 +1,6 @@
 /** The queue a command belongs to: session metadata, the visible page, or one
  *  named background page. Commands on different keys run in parallel. */
-import { type BrowserCommand, normalizeBrowserAction } from './command';
+import { type BrowserCommand, normalizeBrowserAction } from './host-types';
 import { normalizeBackgroundTabName } from './tab-policy';
 
 export interface QueueKeyHost {

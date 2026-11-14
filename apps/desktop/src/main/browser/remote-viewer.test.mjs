@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import test from 'node:test';
 
-import { BrowserGuestStateStore, browserDocumentId } from './guest-state.ts';
+import { BrowserGuestStateStore, browserDocumentId } from './host-state.ts';
 import { createBrowserRemoteControl } from './remote-control.ts';
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));

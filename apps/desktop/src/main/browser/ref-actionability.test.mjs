@@ -4,7 +4,7 @@ import { JSDOM } from 'jsdom';
 import { createBrowserRefPoints } from './ref-points.ts';
 import { createBrowserRefActions } from './ref-actions.ts';
 import { createBrowserReply } from './reply.ts';
-import { BrowserGuestStateStore } from './guest-state.ts';
+import { BrowserGuestStateStore } from './host-state.ts';
 import { createBrowserRefSet } from './ref-recovery.ts';
 import { formActions } from './actions/forms.ts';
 

@@ -18,7 +18,8 @@ import {
   webContents,
   type WebContents,
 } from 'electron';
-import { createBrowserHost, type BrowserHost } from './host';
+import { type BrowserHost } from './host-types';
+import { createBrowserHost } from './host';
 import { createPolling } from '../host-harness-poll';
 import { registerBrowserIpc } from '../ipc-browser';
 import { DESKTOP_IPC } from '../../shared/contract';

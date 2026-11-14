@@ -5,8 +5,8 @@
  */
 import type { BaseWindow, BrowserWindow, WebContents } from 'electron';
 
-import type { BrowserGuestStateStore } from './guest-state';
-import { pushBounded } from './guest-state';
+import type { BrowserGuestStateStore } from './host-state';
+import { pushBounded } from './host-state';
 import type { adoptBrowserPageWindow, createBrowserPageWindow } from './page-window';
 import { popupTakesSelection, takeWindowOpenGesture } from './popup-focus';
 import { type BrowserUrlPolicy, normalizePageUrl } from './url-policy';

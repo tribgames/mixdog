@@ -6,7 +6,8 @@ import { join } from 'node:path';
 
 import { app, BrowserWindow, nativeImage, webContents, type WebContents } from 'electron';
 import { BROWSER_ACTIONS } from '../../shared/core-src/runtime/browser-bridge/browser-action-contract.mjs';
-import { createBrowserHost, type BrowserHost } from './host';
+import { type BrowserHost } from './host-types';
+import { createBrowserHost } from './host';
 import { readyBrowserFrame } from './harness-frame';
 import type { BrowserCommandTiming } from './timing';
 import { runBrowserLatencyScenarios } from './latency-scenarios';

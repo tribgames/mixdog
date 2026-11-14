@@ -7,7 +7,7 @@ import { createBrowserInputDriver } from './input';
 import { controlSessionTab, isSessionTabControl } from './tabs-close-result';
 import { normalizePageUrl } from './url-policy';
 import { BROWSER_DIALOG_BLOCKING, browserTypingInput } from '../../shared/browser-input-policy';
-import { browserDocumentId } from './guest-state';
+import { browserDocumentId } from './host-state';
 import type { BrowserPageSurfaceHost } from './page-surface';
 import type { PageSurfaceState } from './page-surface-state';
 import { setBrowserPageZoom } from './page-zoom';
