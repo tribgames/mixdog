@@ -6,6 +6,7 @@
 //! - `spin`: never returns and never looks at the cancel (CPU-bound code that ignores it).
 //! - `panic`: panics.
 //! - `pin {pin}`: answers the worker's process id and reports `pin`.
+//! - and the document methods the real worker serves (`register_document_methods`).
 #![allow(
     clippy::disallowed_methods,
     reason = "a test worker: its sleep method waits on the real clock, which no replay drives"
@@ -20,6 +21,7 @@ use serde_json::json;
 
 fn registry() -> Registry {
     let mut registry = Registry::new();
+    mixdog_exthost_worker::methods::register_document_methods(&mut registry);
     registry.register("echo", |ctx| async move {
         Ok(Outcome::value(
             json!({"params": ctx.params, "paths": ctx.paths, "thread": ctx.thread}),
