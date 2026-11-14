@@ -269,6 +269,13 @@ impl Harness {
 
     /// A connection dialled with the given header lines, initialized with `capabilities` (the answer is returned beside it).
     async fn connect(&self, headers: &[(&str, &str)], capabilities: Value) -> (Client, Value) {
+        let mut client = self.dial(headers).await;
+        let initialized = client.initialize(capabilities).await;
+        (client, initialized)
+    }
+
+    /// A connection dialled with the given header lines, not initialized yet.
+    async fn dial(&self, headers: &[(&str, &str)]) -> Client {
         let tcp = TcpStream::connect(self.addr).await.unwrap();
         let mut request = format!("ws://{}/rpc", self.addr).into_client_request().unwrap();
         request.headers_mut().insert("authorization", format!("Bearer {TOKEN}").parse().unwrap());
@@ -279,9 +286,7 @@ impl Harness {
             );
         }
         let (socket, _) = tokio_tungstenite::client_async(request, tcp).await.unwrap();
-        let mut client = Client { socket, next: 1 };
-        let initialized = client.initialize(capabilities).await;
-        (client, initialized)
+        Client { socket, next: 1 }
     }
 
     /// A connection that names no window: the loopback client main's own lane was.
@@ -493,13 +498,19 @@ async fn a_window_is_refused_the_host_role_methods_only() {
     assert_ne!(open["error"]["data"]["reason"], json!("permissionDenied"), "{open}");
 
     // `initialize` that claims the host or the model proxy is refused and latches nothing: the window then initializes without it.
-    let (mut claimant, _) = harness.connect(&[(WINDOW_HEADER, "w-2")], json!({})).await;
+    // The claimant is dialled uninitialized: a second `initialize` is refused as already initialized, before any window rule.
+    let mut claimant = harness.dial(&[(WINDOW_HEADER, "w-2")]).await;
     for capabilities in [json!({ "host": {} }), json!({ "modelProxy": true })] {
         let refused = claimant.initialize(capabilities).await;
         assert!(denied(&refused, "initialize"), "{refused}");
     }
     let initialized = claimant.initialize(json!({ "approvalsInbox": true })).await;
     assert_eq!(initialized["result"]["connection"]["window"], json!("w-2"), "{initialized}");
+
+    // A connection that names no window initializes as the host as it does today.
+    let (_, as_host) = harness.connect(&[], json!({ "host": {} })).await;
+    assert!(as_host.get("result").is_some(), "{as_host}");
+    assert!(as_host["result"]["connection"].get("window").is_none(), "{as_host}");
 }
 
 /// A server window is held to its own server connection: another `connectionId` is refused, its own and none are the window's.
