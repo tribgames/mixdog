@@ -109,7 +109,6 @@ interface PageState {
   timer?: unknown;
   /** The last input's tail: the next input starts after it. */
   tail: Promise<unknown>;
-  seq: number;
   leases: number;
   published?: { held: boolean; until?: number };
   reason: UserInputReason;
@@ -118,6 +117,8 @@ interface PageState {
 export function createLeases(connection: HostConnection, ctx: EngineContext, clock: Clock = systemClock): Leases {
   const pages = new Map<string, PageState>();
   let closed = false;
+  /** Rises with every `userInput` sent, for the connection's life: a page's state is dropped when idle, its order is not. */
+  let seq = 0;
 
   const state = (pageId: string): PageState => {
     let page = pages.get(pageId);
@@ -129,7 +130,6 @@ export function createLeases(connection: HostConnection, ctx: EngineContext, clo
         gestureUntil: 0,
         until: 0,
         tail: Promise.resolve(),
-        seq: 0,
         leases: 0,
         reason: 'takeover',
       };
@@ -148,6 +148,7 @@ export function createLeases(connection: HostConnection, ctx: EngineContext, clo
     page.pending > 0 || page.holds > 0 || clock.now() < page.gestureUntil ? undefined : page.until;
 
   const idle = (pageId: string, page: PageState): void => {
+    if (pages.get(pageId) !== page) return;
     if (!page.lease && !page.calls.size && !page.pending && !page.holds && !page.published?.held && !page.timer) {
       pages.delete(pageId);
     }
@@ -158,10 +159,10 @@ export function createLeases(connection: HostConnection, ctx: EngineContext, clo
     const last = page.published;
     if (last && last.held === held && (!held || (until ?? 0) - (last.until ?? 0) < UNTIL_REPUBLISH_MS)) return;
     page.published = { held, ...(until === undefined ? {} : { until }) };
-    page.seq += 1;
+    seq += 1;
     connection.notify('host/browser/userInput', {
       pageId,
-      seq: page.seq,
+      seq,
       held,
       ...(until === undefined ? {} : { until }),
       reason: page.reason,
@@ -201,9 +202,17 @@ export function createLeases(connection: HostConnection, ctx: EngineContext, clo
       call.controller.abort(takeoverError(page.until));
       aborted.push(call.settled);
     }
+    if (closed) return aborted;
     publish(pageId, page, true);
     schedule(pageId, page);
     return aborted;
+  }
+
+  /** An input ended: the quiet window restarts from now (after the connection closed, nothing is left to tell). */
+  function settle(pageId: string, page: PageState): void {
+    page.until = clock.now() + LOCAL_INPUT_QUIET_MS;
+    if (closed) idle(pageId, page);
+    else schedule(pageId, page);
   }
 
   const leases: Leases = {
@@ -261,11 +270,12 @@ export function createLeases(connection: HostConnection, ctx: EngineContext, clo
     },
 
     onUserInput(pageId, reason) {
-      if (!closed) take(pageId, reason);
+      // Like the queue's interrupt: an input other than the pointer's own lets go of a pressed pointer.
+      if (!closed) take(pageId, reason, false);
     },
 
     executeLocal(pageId, operation, options) {
-      if (closed) return Promise.reject(new Error('The host connection closed.'));
+      // The person's input is never refused: after the connection closed it still runs in order, unannounced.
       const page = state(pageId);
       // Hover is expendable and must not cancel automation or build a backlog.
       if (options.dropIfBusy && page.calls.size) return Promise.resolve(undefined);
@@ -304,13 +314,12 @@ export function createLeases(connection: HostConnection, ctx: EngineContext, clo
         if (!options.takeover) return;
         page.pending -= 1;
         if (options.held === false) page.gestureUntil = 0;
-        page.until = clock.now() + LOCAL_INPUT_QUIET_MS;
-        schedule(pageId, page);
+        settle(pageId, page);
       });
     },
 
     hold(pageId, reason) {
-      take(pageId, reason);
+      take(pageId, reason, false);
       const page = state(pageId);
       page.holds += 1;
       let released = false;
@@ -318,8 +327,7 @@ export function createLeases(connection: HostConnection, ctx: EngineContext, clo
         if (released) return;
         released = true;
         page.holds -= 1;
-        page.until = clock.now() + LOCAL_INPUT_QUIET_MS;
-        schedule(pageId, page);
+        settle(pageId, page);
       };
     },
 

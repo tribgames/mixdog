@@ -200,3 +200,30 @@ test('the connection closing drops every lease, stops the timers and ends the ca
   h.leases.onUserInput('p1', 'key');
   assert.equal(h.notes.length, before);
 });
+
+test('person input still runs after the connection closed, unannounced', async () => {
+  const h = harness();
+  h.close();
+  assert.equal(await h.leases.executeLocal('p1', async () => 'typed', { takeover: true, reason: 'key' }), 'typed');
+  h.leases.hold('p1', 'dialog')();
+  assert.equal(h.notes.length, 0);
+  assert.equal(h.clock.pending(), 0);
+});
+
+test('an immediate input or a picker lets go of a pressed pointer, as the queue does', async () => {
+  const h = harness();
+  await h.leases.executeLocal('p1', async () => 1, { takeover: true, held: true, reason: 'pointer' });
+  h.leases.onUserInput('p1', 'takeover');
+  h.clock.advance(LOCAL_INPUT_QUIET_MS + 1);
+  assert.equal(h.notes.at(-1).params.held, false);
+  h.leases.beginCall('p1').end();
+});
+
+test('userInput seq keeps rising after an idle page state is dropped', () => {
+  const h = harness();
+  h.leases.onUserInput('p1', 'key');
+  h.clock.advance(LOCAL_INPUT_QUIET_MS + 1);
+  h.leases.onUserInput('p1', 'key');
+  const seqs = h.notes.map((note) => note.params.seq);
+  assert.deepEqual(seqs, [1, 2, 3]);
+});
