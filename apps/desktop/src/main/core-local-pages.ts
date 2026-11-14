@@ -41,12 +41,13 @@ export function createCoreLocalPages(invoke: Invoke): CoreLocalPages {
     async url(root, rel, access = {}) {
       const { owner, accessToken } = access;
       if (owner?.isDestroyed()) throw new LocalAccessDeniedError('The preview owner is closed.');
-      const ownerId = access.ownerId ?? (owner ? ownerIdOf(owner) : '');
-      if (owner && !watched.has(owner)) {
+      const ownerId = access.ownerId || (owner ? ownerIdOf(owner) : undefined);
+      if (owner && ownerId && !watched.has(owner)) {
         watched.add(owner);
         owner.once('destroyed', () => void sendRevoke(ownerId));
       }
-      return invoke<string>('localPageUrlIn', [root, rel, accessToken ?? '', ownerId]);
+      // An empty token is no grant (the core reads any accessToken as a one-file grant), as main treated it.
+      return invoke<string>('localPageUrlIn', [root, rel, accessToken || undefined, ownerId]);
     },
     origin() {
       if (!cachedOrigin) {

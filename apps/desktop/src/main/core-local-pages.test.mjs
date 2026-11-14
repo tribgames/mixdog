@@ -51,6 +51,15 @@ test('url passes root, rel, token and owner id; destroy listener registered once
   assert.deepEqual(core.calls.at(-1), ['localPageRevokeOwner', ['uuid-1']]);
 });
 
+test('no token and no owner send no token or owner id (an empty token is not a grant)', async () => {
+  const core = fakeCore();
+  const pages = createCoreLocalPages(core.invoke);
+  await pages.url('/r', 'a.html', { accessToken: '' });
+  await pages.url('/r', 'b.html');
+  assert.deepEqual(core.calls[0], ['localPageUrlIn', ['/r', 'a.html', undefined, undefined]]);
+  assert.deepEqual(core.calls[1], ['localPageUrlIn', ['/r', 'b.html', undefined, undefined]]);
+});
+
 test('a revoke that fails is queued and flushed by the next refresh', async () => {
   const core = fakeCore();
   const pages = createCoreLocalPages(core.invoke);
