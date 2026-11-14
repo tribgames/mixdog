@@ -212,7 +212,9 @@ export function createBrowserCdpEventRouter(host: BrowserCdpEventRouterHost) {
     sessionId: string | undefined,
     diagnostics: GuestRecord
   ): boolean {
-    if (NETWORK_LEDGER_ROUTES[name] || name === 'Network.loadingFailed') {
+    // Every network event the lane carries reaches the core, also those the
+    // host's own ledger never read (cache hits, data chunks, extra info).
+    if (name.startsWith('Network.')) {
       if (engine.carries(name)) engine.forward(guest, name, params, sessionId);
       return true;
     }

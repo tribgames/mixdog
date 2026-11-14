@@ -139,9 +139,10 @@ test('engine mode forwards console, network and log events instead of recording 
   route(guest, {}, 'Runtime.consoleAPICalled', { type: 'log', args: [] }, undefined);
   route(guest, {}, 'Network.requestWillBeSent', { requestId: '1' }, undefined);
   route(guest, {}, 'Log.entryAdded', { entry: { level: 'error', text: 'x' } }, undefined);
+  route(guest, {}, 'Network.dataReceived', { requestId: '1', dataLength: 10 }, undefined);
   assert.deepEqual(
     forwarded.map(([method]) => method),
-    ['Runtime.consoleAPICalled', 'Network.requestWillBeSent', 'Log.entryAdded']
+    ['Runtime.consoleAPICalled', 'Network.requestWillBeSent', 'Log.entryAdded', 'Network.dataReceived']
   );
   assert.equal(state.for(guest).console.errorCount(), 0);
 });
