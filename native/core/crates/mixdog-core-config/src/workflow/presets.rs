@@ -41,6 +41,15 @@ pub(crate) fn default_maintenance() -> Map<String, Value> {
     slots
 }
 
+/// `withDefaultPresets(stored)`: the stored presets, then the shipped ones whose id none of them has.
+pub fn with_default_presets(stored: Option<&Value>) -> Vec<Value> {
+    let mut list: Vec<Value> = stored.and_then(Value::as_array).cloned().unwrap_or_default();
+    let key = |preset: &Value| first_text(preset, &["id", "name"]);
+    let present: Vec<String> = list.iter().map(key).collect();
+    list.extend(default_presets().into_iter().filter(|shipped| !present.contains(&key(shipped))));
+    list
+}
+
 /// `DEFAULT_PRESETS`.
 pub(crate) fn default_presets() -> Vec<Value> {
     let preset = |id: &str, name: &str, family: &str, effort: Option<&str>| {

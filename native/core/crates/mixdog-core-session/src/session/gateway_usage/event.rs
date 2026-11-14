@@ -24,7 +24,7 @@ pub struct RouteSection {
 }
 
 /// JavaScript truthiness of a present value.
-fn truthy(value: Option<&Value>) -> bool {
+pub(crate) fn truthy(value: Option<&Value>) -> bool {
     match value {
         None | Some(Value::Null) => false,
         Some(Value::Bool(flag)) => *flag,
@@ -43,12 +43,12 @@ fn or_null(value: Option<&Value>) -> Value {
     if truthy(value) { value.cloned().unwrap_or(Value::Null) } else { Value::Null }
 }
 
-fn finite(n: f64) -> Option<f64> {
+pub(crate) fn finite(n: f64) -> Option<f64> {
     n.is_finite().then_some(n)
 }
 
 /// `num(value, fallback)`.
-fn num(value: Option<&Value>, fallback: f64) -> f64 {
+pub(crate) fn num(value: Option<&Value>, fallback: f64) -> f64 {
     match value {
         None | Some(Value::Null) => fallback,
         Some(Value::String(text)) if text.is_empty() => fallback,
@@ -66,7 +66,7 @@ fn num_or_null(value: Option<&Value>) -> Value {
 }
 
 /// `round(value, digits)`: `None` is Node's `null`.
-fn round(value: f64, digits: i32) -> Option<f64> {
+pub(crate) fn round(value: f64, digits: i32) -> Option<f64> {
     finite(value).map(|n| {
         let scale = 10f64.powi(digits);
         math::round(n * scale) / scale
@@ -74,7 +74,7 @@ fn round(value: f64, digits: i32) -> Option<f64> {
 }
 
 /// `cleanString(value)`.
-fn clean_string(value: Option<&Value>) -> Option<String> {
+pub(crate) fn clean_string(value: Option<&Value>) -> Option<String> {
     match value {
         Some(Value::String(text)) => Some(js_trim(text).to_owned()).filter(|text| !text.is_empty()),
         _ => None,
@@ -86,7 +86,7 @@ fn text_or_null(text: Option<String>) -> Value {
 }
 
 /// `providerKind(provider)`.
-fn provider_kind(provider: Option<&Value>) -> &'static str {
+pub(crate) fn provider_kind(provider: Option<&Value>) -> &'static str {
     let name = if truthy(provider) { mixdog_js::js_to_lowercase(&value_to_string(provider.unwrap_or(&Value::Null))) } else { String::new() };
     if name.is_empty() {
         "unknown"
@@ -114,7 +114,7 @@ fn is_inclusive(provider: Option<&Value>) -> bool {
 }
 
 /// `routeIdentityKey(routeInfo)`.
-fn route_identity_key(route: &Value) -> String {
+pub(crate) fn route_identity_key(route: &Value) -> String {
     let part = |key: &str| if truthy(get(route, key)) { value_to_string(&route[key]) } else { String::new() };
     let fast = if get(route, "fast") == Some(&Value::Bool(true)) { "fast" } else { "" };
     [part("provider"), part("model"), part("effort"), fast.to_owned()].join("\u{1}")
@@ -122,7 +122,7 @@ fn route_identity_key(route: &Value) -> String {
 
 /// `ensureRouteSection(routeInfo)`: the identity key and when its section began. A key made only of
 /// separators is `trim`med to nothing in Node too, but `\u{1}` is not white space, so it never is.
-fn ensure_route_section(section: &mut RouteSection, route: &Value, now: i64) -> i64 {
+pub(crate) fn ensure_route_section(section: &mut RouteSection, route: &Value, now: i64) -> i64 {
     let key = route_identity_key(route);
     if section.key.as_deref() != Some(&key) {
         section.key = Some(key);
@@ -132,7 +132,7 @@ fn ensure_route_section(section: &mut RouteSection, route: &Value, now: i64) -> 
 }
 
 /// `compactBoundaryDenominator(routeInfo, compact)`.
-fn compact_boundary_denominator(route: &Value, compact: &Value) -> f64 {
+pub(crate) fn compact_boundary_denominator(route: &Value, compact: &Value) -> f64 {
     fn first<'a>(a: Option<&'a Value>, b: Option<&'a Value>, c: Option<&'a Value>) -> Option<&'a Value> {
         [a, b, c].into_iter().find(|v| !matches!(v, None | Some(Value::Null))).flatten()
     }
