@@ -20,13 +20,19 @@ type SubscribeTermData = (listener: (event: { id: string; data: string; reset?: 
  *  or re-parented terminal keeps parsing and acknowledging output, so main's
  *  flow control never counts IPC chunks nobody consumed and the shell is never
  *  paused behind a closed pane. */
-export function attachTerminalOutput(view: TerminalOutputOwner, subscribe: SubscribeTermData | undefined): void {
+export function attachTerminalOutput(
+  view: TerminalOutputOwner,
+  subscribe: SubscribeTermData | undefined,
+  acknowledge?: (id: string, charCount: number) => void
+): void {
   if (view.unsubscribeOutput || !subscribe) return;
   view.unsubscribeOutput = subscribe((event) => {
     if (event.id !== view.id) return;
     if (event.reset === true) {
       // The host redraws from a clean screen: clear the view, then write the
-      // replay as a replay write (unacknowledged, ordered before later output).
+      // replay as a replay write (ordered before later output). Main counts the
+      // replay in flight (TerminalDataBufferer.reset), so it is acknowledged
+      // once written; unacknowledged it would hold main's window shut.
       view.localEcho?.reset?.();
       try {
         view.term?.reset();
@@ -34,7 +40,8 @@ export function attachTerminalOutput(view: TerminalOutputOwner, subscribe: Subsc
         /* disposed mid-reset */
       }
       if (event.data && view.writer.writeReplay) {
-        trackReplay(view as Parameters<typeof trackReplay>[0], event.data);
+        const { id, data } = event;
+        void trackReplay(view as Parameters<typeof trackReplay>[0], data).then(() => acknowledge?.(id, data.length));
       }
       return;
     }
