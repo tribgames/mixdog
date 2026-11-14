@@ -112,7 +112,7 @@ fn v145_to_current_one_start() {
 
     assert_all_moved(base);
     let marker = marker(&roots);
-    assert_eq!(marker["generation"], 2);
+    assert_eq!(marker["generation"], supplement::GENERATION);
     let mut seen: Vec<(String, bool)> = marker["items"]
         .as_array()
         .expect("items")
@@ -153,7 +153,7 @@ fn v145_gen1_then_gen2_next_start() {
     start(&roots);
 
     assert_all_moved(base);
-    assert_eq!(marker(&roots)["generation"], 2);
+    assert_eq!(marker(&roots)["generation"], supplement::GENERATION);
     // The port forwards' backup moved with them: the desktop's reader restores from it.
     assert_eq!(desktop(&roots, "port-forwards.json.bak"), Some(vector("port-forwards.json.bak")));
     let tree = tree_digest(&roots);
@@ -179,7 +179,7 @@ fn tui_first_then_adopt() {
     // The desktop tells the core its profile: generation 2 only, never the first pass's late pass.
     let adopted = supplement::run(&named).expect("adopt");
 
-    assert_eq!(adopted.generation, 2);
+    assert_eq!(adopted.generation, supplement::GENERATION);
     let mut moved = adopted.moved;
     moved.sort();
     assert_eq!(moved, FILES);
@@ -202,7 +202,7 @@ fn adopt_after_gen2_noop() {
 
     let again = supplement::run(&roots).expect("adopt again");
 
-    assert_eq!((again.generation, again.moved.is_empty()), (2, true));
+    assert_eq!((again.generation, again.moved.is_empty()), (supplement::GENERATION, true));
     assert_eq!(tree_digest(&roots), tree);
     assert_eq!(profile_files(base), ["ssh-hosts.json"]);
     assert_eq!(desktop(&roots, "ssh-hosts.json"), Some(vector("ssh-hosts.json")));

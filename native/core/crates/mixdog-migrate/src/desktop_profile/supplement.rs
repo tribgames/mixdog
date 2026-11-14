@@ -1,10 +1,10 @@
-//! Generation 2 of the desktop-profile move: the files a profile holds that the first pass did not list (the saved SSH
-//! hosts, their port forwards, the paired PCs, the server windows to restore) move from `<P>` to `<D>/desktop/` once the
-//! first pass has completed with a profile, in the same start or a later one.
+//! Supplemental desktop-profile moves: generation 2 imports SSH hosts, port forwards, paired PCs and server windows
+//! into `<D>/desktop/`; generation 3 adds the JSONC user editor settings at `<D>/userdata/User/settings.json`.
+//! An older journal is extended in place and resumed against its recorded profile.
 //!
 //! The pass is journaled in `migration/profile-gen.json` (one file, republished after every item step): an item goes
 //! planned -> staged (copied, hashed) -> published (renamed into `<D>`) -> disposed (source removed), and a crash at any
-//! point resumes from the recorded state. It is idempotent: a marker at generation 2 ends the call before anything is
+//! point resumes from the recorded state. It is idempotent: a marker at generation 3 ends the call before anything is
 //! read. Only the names in [`FILES`] (and their `.bak`, the copy the desktop's atomic writer keeps) are ever looked at.
 //! A target that already holds other bytes is kept as it is; the source is then set aside as `<name>.superseded`
 //! in the profile, never deleted, so nothing the person had is lost. Bytes are never changed; a secret is copied with
@@ -25,7 +25,7 @@ use crate::error::Result;
 use crate::framework::MigrationRoots;
 
 /// The generation this pass brings a profile to.
-pub const GENERATION: u32 = 2;
+pub const GENERATION: u32 = 3;
 
 /// Where the staged copies wait (outside `migration/stage`, which a first pass removes when it completes).
 const STAGE_DIR: &str = "migration/profile-gen-stage";
@@ -44,6 +44,7 @@ struct File {
 /// The whole source set of the pass. `window-state*.json`, `pane-layout.json`, `desktop-pet.json` and the vault files are
 /// not here: they are never opened.
 const FILES: &[File] = &[
+    File { name: "User/settings.json", kind: ItemKind::UserEditorSettings, target: "userdata/User/settings.json", secret: false },
     File { name: "ssh-hosts.json", kind: ItemKind::SshHosts, target: "desktop/ssh-hosts.json", secret: false },
     File { name: "port-forwards.json", kind: ItemKind::PortForwards, target: "desktop/port-forwards.json", secret: false },
     File { name: "remote-hosts.json", kind: ItemKind::RemoteHosts, target: "desktop/remote-hosts.json", secret: true },
@@ -127,11 +128,18 @@ fn regular(path: &Path) -> Result<bool> {
 }
 
 /// The items of a profile: each listed file and its `.bak`, when it is a regular file.
-fn plan(profile: &Path) -> Result<Vec<Item>> {
+/// Existing markers need only the generation-3 addition, not a new generation-2 scan.
+fn plan(profile: &Path, settings_only: bool, known: &[Item]) -> Result<Vec<Item>> {
     let mut items = Vec::new();
     for file in FILES {
+        if settings_only && file.kind != ItemKind::UserEditorSettings {
+            continue;
+        }
         for suffix in ["", BACKUP_SUFFIX] {
             let name = format!("{}{suffix}", file.name);
+            if known.iter().any(|item| item.file == name) {
+                continue;
+            }
             let path = resolve(profile, &name);
             if !regular(&path)? {
                 continue;
@@ -151,7 +159,7 @@ fn plan(profile: &Path) -> Result<Vec<Item>> {
     Ok(items)
 }
 
-/// Brings the profile named by `roots.profile` to generation 2; does nothing when no profile is named and no pass is under way.
+/// Brings the profile named by `roots.profile` to generation 3; does nothing when no profile is named and no pass is under way.
 pub fn run(roots: &MigrationRoots) -> Result<SupplementOutcome> {
     run_with(roots, &|_| Ok(()))
 }
@@ -170,7 +178,7 @@ pub fn run_with(roots: &MigrationRoots, fault: &dyn Fn(&str) -> Result<()>) -> R
             let Some(profile) = roots.profile.as_deref() else {
                 return Ok(SupplementOutcome { generation: 1, moved: Vec::new() });
             };
-            let items = plan(profile)?;
+            let items = plan(profile, false, &[])?;
             let marker = Marker {
                 generation: if items.is_empty() { GENERATION } else { 1 },
                 profile: profile.to_string_lossy().into_owned(),
@@ -182,6 +190,14 @@ pub fn run_with(roots: &MigrationRoots, fault: &dyn Fn(&str) -> Result<()>) -> R
         }
     };
     let profile = PathBuf::from(&marker.profile);
+    // Old markers contain only the generation-2 plan, including when interrupted.
+    // Extend that exact plan without resetting states or importing newly-created SSH files.
+    let additions = plan(&profile, true, &marker.items)?;
+    if !additions.is_empty() {
+        marker.items.extend(additions);
+        fault("supplement:extend:before")?;
+        save(&marker_path, &marker)?;
+    }
     for index in 0..marker.items.len() {
         while !marker.items[index].state.done() {
             step(data, &profile, &marker_path, &mut marker, index, fault)?;
@@ -237,6 +253,20 @@ fn step(
                 // Something else stands there: it stays; what the profile held is set aside, not deleted.
                 let mut aside = source.clone().into_os_string();
                 aside.push(SUPERSEDED_SUFFIX);
+                // Preserve a conflict an earlier migration already set aside as well.
+                let first_aside = aside.clone();
+                let mut suffix = 0u64;
+                loop {
+                    match std::fs::symlink_metadata(Path::new(&aside)) {
+                        Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
+                        Err(error) => return Err(Blocked::io("stat", Path::new(&aside), error)),
+                        Ok(_) => {
+                            suffix += 1;
+                            aside = first_aside.clone();
+                            aside.push(format!(".{suffix}"));
+                        }
+                    }
+                }
                 // A source already set aside by a run that was cut before it recorded it stays where it is.
                 if regular(&source)? {
                     durable::durable_rename(&source, Path::new(&aside))?;
