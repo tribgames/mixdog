@@ -1,0 +1,801 @@
+[
+  {
+    "case": "api_key query",
+    "input": {
+      "fn": "containsSecret",
+      "value": "https://example.com/?api_key=value"
+    },
+    "expect": true
+  },
+  {
+    "case": "encoded ghp token",
+    "input": {
+      "fn": "containsSecret",
+      "value": "https://example.com/%67%68%70%5Fabcdefghijklmnopqrstuvwxyz"
+    },
+    "expect": true
+  },
+  {
+    "case": "ordinary key",
+    "input": {
+      "fn": "containsSecret",
+      "value": "https://example.com/docs?key=keyboard"
+    },
+    "expect": false
+  },
+  {
+    "case": "double encoded",
+    "input": {
+      "fn": "containsSecret",
+      "value": "https://example.test/%2567%2568%2570%255Fabcdefghijklmnopqrstuvwxyz"
+    },
+    "expect": true
+  },
+  {
+    "case": "triple encoded stays bounded",
+    "input": {
+      "fn": "containsSecret",
+      "value": "https://example.test/%252567%252568%252570%25255Fabcdefghijklmnopqrstuvwxyz"
+    },
+    "expect": false
+  },
+  {
+    "case": "plus read as space",
+    "input": {
+      "fn": "containsSecret",
+      "value": "https://example.test/Bearer+abcdefghijklmnop"
+    },
+    "expect": true
+  },
+  {
+    "case": "malformed escape",
+    "input": {
+      "fn": "containsSecret",
+      "value": "https://example.test/%zz"
+    },
+    "expect": false
+  },
+  {
+    "case": "malformed escape beside a token",
+    "input": {
+      "fn": "containsSecret",
+      "value": "https://example.test/%zz/ghp_abcdefghijklmnopqrstuvwxyz"
+    },
+    "expect": true
+  },
+  {
+    "case": "truncated escape",
+    "input": {
+      "fn": "containsSecret",
+      "value": "https://example.test/%2"
+    },
+    "expect": false
+  },
+  {
+    "case": "escape with a plus sign",
+    "input": {
+      "fn": "containsSecret",
+      "value": "https://example.test/%+1/ghp_abcdefghijklmnopqrstuvwxyz"
+    },
+    "expect": true
+  },
+  {
+    "case": "invalid utf-8 escape",
+    "input": {
+      "fn": "containsSecret",
+      "value": "https://example.test/%C0%80/sk-abcdefghijklmnopqrstu"
+    },
+    "expect": true
+  },
+  {
+    "case": "valid utf-8 escape",
+    "input": {
+      "fn": "containsSecret",
+      "value": "https://example.test/%E2%82%AC?x=1"
+    },
+    "expect": false
+  },
+  {
+    "case": "empty",
+    "input": {
+      "fn": "containsSecret",
+      "value": ""
+    },
+    "expect": false
+  },
+  {
+    "case": "not a url with a token",
+    "input": {
+      "fn": "containsSecret",
+      "value": "ghp_abcdefghijklmnopqrstuvwxyz"
+    },
+    "expect": true
+  },
+  {
+    "case": "not a url without one",
+    "input": {
+      "fn": "containsSecret",
+      "value": "just some words"
+    },
+    "expect": false
+  },
+  {
+    "case": "password param",
+    "input": {
+      "fn": "containsSecret",
+      "value": "https://example.com/?password=x"
+    },
+    "expect": true
+  },
+  {
+    "case": "Password param upper case",
+    "input": {
+      "fn": "containsSecret",
+      "value": "https://example.com/?PASSWORD=x"
+    },
+    "expect": true
+  },
+  {
+    "case": "session-id param",
+    "input": {
+      "fn": "containsSecret",
+      "value": "https://example.com/?session-id=abc"
+    },
+    "expect": true
+  },
+  {
+    "case": "sessionToken param",
+    "input": {
+      "fn": "containsSecret",
+      "value": "https://example.com/?sessionToken=abc"
+    },
+    "expect": true
+  },
+  {
+    "case": "session_token param",
+    "input": {
+      "fn": "containsSecret",
+      "value": "https://example.com/?session_token=abc"
+    },
+    "expect": true
+  },
+  {
+    "case": "empty secret value",
+    "input": {
+      "fn": "containsSecret",
+      "value": "https://example.com/?secret="
+    },
+    "expect": false
+  },
+  {
+    "case": "code of seven",
+    "input": {
+      "fn": "containsSecret",
+      "value": "https://example.com/?code=1234567"
+    },
+    "expect": false
+  },
+  {
+    "case": "code of eight",
+    "input": {
+      "fn": "containsSecret",
+      "value": "https://example.com/?code=12345678"
+    },
+    "expect": true
+  },
+  {
+    "case": "CODE of eight",
+    "input": {
+      "fn": "containsSecret",
+      "value": "https://example.com/?CODE=12345678"
+    },
+    "expect": true
+  },
+  {
+    "case": "code of four astral characters counts utf-16 units",
+    "input": {
+      "fn": "containsSecret",
+      "value": "https://example.com/?code=%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80"
+    },
+    "expect": true
+  },
+  {
+    "case": "code of three astral characters",
+    "input": {
+      "fn": "containsSecret",
+      "value": "https://example.com/?code=%F0%9F%98%80%F0%9F%98%80%F0%9F%98%80"
+    },
+    "expect": false
+  },
+  {
+    "case": "token key inside another word is not exact",
+    "input": {
+      "fn": "containsSecret",
+      "value": "https://example.com/?mytoken=abc"
+    },
+    "expect": false
+  },
+  {
+    "case": "plus in query key",
+    "input": {
+      "fn": "containsSecret",
+      "value": "https://example.com/?api+key=abc"
+    },
+    "expect": false
+  },
+  {
+    "case": "github pat",
+    "input": {
+      "fn": "containsSecret",
+      "value": "https://example.com/github_pat_abcdefghijklmnopqrstuvwxyz"
+    },
+    "expect": true
+  },
+  {
+    "case": "slack token",
+    "input": {
+      "fn": "containsSecret",
+      "value": "https://example.com/xoxb-1234567890-abcdef"
+    },
+    "expect": true
+  },
+  {
+    "case": "aws key",
+    "input": {
+      "fn": "containsSecret",
+      "value": "https://example.com/AKIAABCDEFGHIJKLMNOP"
+    },
+    "expect": true
+  },
+  {
+    "case": "jwt",
+    "input": {
+      "fn": "containsSecret",
+      "value": "https://example.com/eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl"
+    },
+    "expect": true
+  },
+  {
+    "case": "word boundary is ascii only",
+    "input": {
+      "fn": "containsSecret",
+      "value": "https://example.com/éghp_abcdefghijklmnopqrstuvwxyz"
+    },
+    "expect": true
+  },
+  {
+    "case": "no boundary inside a word",
+    "input": {
+      "fn": "containsSecret",
+      "value": "https://example.com/xghp_abcdefghijklmnopqrstuvwxyz"
+    },
+    "expect": false
+  },
+  {
+    "case": "basic auth in path",
+    "input": {
+      "fn": "containsSecret",
+      "value": "https://example.com/Basic%20QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo="
+    },
+    "expect": true
+  },
+  {
+    "case": "bearer with feff",
+    "input": {
+      "fn": "containsSecret",
+      "value": "https://example.com/Bearer﻿abcdefghijklmnop"
+    },
+    "expect": true
+  },
+  {
+    "case": "credentials and token",
+    "input": {
+      "fn": "redactText",
+      "value": "https://alice:secret@example.com/?access_token=abc123 sk-proj-abcdefghijklmnop ghp_abcdefghijklmnopqrstuvwxyz"
+    },
+    "expect": "https://alice:***@example.com/?access_token=[REDACTED] [REDACTED_KEY] [REDACTED_GITHUB_TOKEN]"
+  },
+  {
+    "case": "json access_token",
+    "input": {
+      "fn": "redactText",
+      "value": "{\"access_token\":\"opaque-value\",\"name\":\"safe\"}"
+    },
+    "expect": "{\"access_token\":[REDACTED],\"name\":\"safe\"}"
+  },
+  {
+    "case": "json password with spaces",
+    "input": {
+      "fn": "redactText",
+      "value": "{ \"password\" : \"synthetic test value\", \"name\": \"public\" }"
+    },
+    "expect": "{ \"password\" : [REDACTED], \"name\": \"public\" }"
+  },
+  {
+    "case": "single quoted",
+    "input": {
+      "fn": "redactText",
+      "value": "{'token': 'abc def', 'x': 1}"
+    },
+    "expect": "{'token': [REDACTED], 'x': 1}"
+  },
+  {
+    "case": "auth bearer header",
+    "input": {
+      "fn": "redactText",
+      "value": "Authorization: Bearer MIXDOG_SYNTHETIC_ONLY_0123456789"
+    },
+    "expect": "Authorization: [REDACTED]"
+  },
+  {
+    "case": "auth basic header",
+    "input": {
+      "fn": "redactText",
+      "value": "authorization = Basic QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo="
+    },
+    "expect": "authorization = [REDACTED]"
+  },
+  {
+    "case": "token assignment",
+    "input": {
+      "fn": "redactText",
+      "value": "token=synthetic-test-value"
+    },
+    "expect": "token=[REDACTED]"
+  },
+  {
+    "case": "password json",
+    "input": {
+      "fn": "redactText",
+      "value": "{\"password\":\"synthetic-test-value\",\"name\":\"public\"}"
+    },
+    "expect": "{\"password\":[REDACTED],\"name\":\"public\"}"
+  },
+  {
+    "case": "token in url",
+    "input": {
+      "fn": "redactText",
+      "value": "https://example.test/?token=synthetic-test-value"
+    },
+    "expect": "https://example.test/?token=[REDACTED]"
+  },
+  {
+    "case": "stored credential marker kept as is",
+    "input": {
+      "fn": "redactText",
+      "value": "Authorization: [REDACTED STORED CREDENTIAL]"
+    },
+    "expect": "Authorization: [REDACTED]"
+  },
+  {
+    "case": "redacted marker with suffix",
+    "input": {
+      "fn": "redactText",
+      "value": "token: [REDACTED_KEY] tail"
+    },
+    "expect": "token: [REDACTED] tail"
+  },
+  {
+    "case": "already redacted text is stable",
+    "input": {
+      "fn": "redactText",
+      "value": "Authorization: [REDACTED]"
+    },
+    "expect": "Authorization: [REDACTED]"
+  },
+  {
+    "case": "set-cookie line",
+    "input": {
+      "fn": "redactText",
+      "value": "Set-Cookie: sid=abc; Path=/; HttpOnly\nContent-Type: text/html"
+    },
+    "expect": "Set-Cookie: [REDACTED]\nContent-Type: text/html"
+  },
+  {
+    "case": "cookie line upper case",
+    "input": {
+      "fn": "redactText",
+      "value": "COOKIE:   a=b; c=d"
+    },
+    "expect": "COOKIE:   [REDACTED]"
+  },
+  {
+    "case": "cookie line in the middle of a text",
+    "input": {
+      "fn": "redactText",
+      "value": "before\r\nCookie: a=b\r\nafter"
+    },
+    "expect": "before\r\nCookie: [REDACTED]\r\nafter"
+  },
+  {
+    "case": "cookie word inside a line is kept",
+    "input": {
+      "fn": "redactText",
+      "value": "my cookie: a=b"
+    },
+    "expect": "my cookie: a=b"
+  },
+  {
+    "case": "cookie with line separators",
+    "input": {
+      "fn": "redactText",
+      "value": "x Set-Cookie: a=b y"
+    },
+    "expect": "x Set-Cookie: [REDACTED] y"
+  },
+  {
+    "case": "query secrets",
+    "input": {
+      "fn": "redactText",
+      "value": "GET /cb?code=abc&state=public&key=k1&auth=a2#frag"
+    },
+    "expect": "GET /cb?code=[REDACTED]&state=public&key=[REDACTED]&auth=[REDACTED]#frag"
+  },
+  {
+    "case": "query secret stops at whitespace",
+    "input": {
+      "fn": "redactText",
+      "value": "see ?token=abc def"
+    },
+    "expect": "see ?token=[REDACTED] def"
+  },
+  {
+    "case": "url credentials without a password are kept",
+    "input": {
+      "fn": "redactText",
+      "value": "https://alice@example.com/"
+    },
+    "expect": "https://alice@example.com/"
+  },
+  {
+    "case": "url credentials user colon password",
+    "input": {
+      "fn": "redactText",
+      "value": "visit http://bob:hunter2@host.test:8080/x now"
+    },
+    "expect": "visit http://bob:***@host.test:8080/x now"
+  },
+  {
+    "case": "two url credentials",
+    "input": {
+      "fn": "redactText",
+      "value": "http://a:b@x.test/ and HTTPS://c:d@y.test/"
+    },
+    "expect": "http://a:***@x.test/ and HTTPS://c:***@y.test/"
+  },
+  {
+    "case": "github tokens of every prefix",
+    "input": {
+      "fn": "redactText",
+      "value": "ghp_aaaaaaaaaaaaaaaaaaaa gho_aaaaaaaaaaaaaaaaaaaa ghu_aaaaaaaaaaaaaaaaaaaa ghs_aaaaaaaaaaaaaaaaaaaa ghr_aaaaaaaaaaaaaaaaaaaa"
+    },
+    "expect": "[REDACTED_GITHUB_TOKEN] [REDACTED_GITHUB_TOKEN] [REDACTED_GITHUB_TOKEN] [REDACTED_GITHUB_TOKEN] [REDACTED_GITHUB_TOKEN]"
+  },
+  {
+    "case": "github pat text",
+    "input": {
+      "fn": "redactText",
+      "value": "use github_pat_11AAAAAAA0abcdefghijklmnop please"
+    },
+    "expect": "use [REDACTED_GITHUB_TOKEN] please"
+  },
+  {
+    "case": "slack and aws",
+    "input": {
+      "fn": "redactText",
+      "value": "xoxp-1234567890-abc AKIAABCDEFGHIJKLMNOP"
+    },
+    "expect": "[REDACTED_SLACK_TOKEN] [REDACTED_AWS_KEY]"
+  },
+  {
+    "case": "jwt text",
+    "input": {
+      "fn": "redactText",
+      "value": "jwt eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl end"
+    },
+    "expect": "jwt [REDACTED_JWT] end"
+  },
+  {
+    "case": "openai style keys",
+    "input": {
+      "fn": "redactText",
+      "value": "sk-abcdefghijklmnopqrstu rk-abcdefghijklmnopqrstu pk-proj-abcdefghijklmnopqrstu"
+    },
+    "expect": "[REDACTED_KEY] [REDACTED_KEY] [REDACTED_KEY]"
+  },
+  {
+    "case": "short sk is kept",
+    "input": {
+      "fn": "redactText",
+      "value": "sk-short and task-abcdefghijklmnopqrstu"
+    },
+    "expect": "sk-short and task-abcdefghijklmnopqrstu"
+  },
+  {
+    "case": "boundary after a non-ascii letter",
+    "input": {
+      "fn": "redactText",
+      "value": "éghp_abcdefghijklmnopqrstuvwxyz"
+    },
+    "expect": "é[REDACTED_GITHUB_TOKEN]"
+  },
+  {
+    "case": "bearer separated by feff and nbsp",
+    "input": {
+      "fn": "redactText",
+      "value": "Bearer﻿abcdefghijklmnop Bearer abcdefghijklmnop"
+    },
+    "expect": "[REDACTED_AUTH] [REDACTED_AUTH]"
+  },
+  {
+    "case": "bearer separated by next line",
+    "input": {
+      "fn": "redactText",
+      "value": "Bearerabcdefghijklmnop"
+    },
+    "expect": "Bearerabcdefghijklmnop"
+  },
+  {
+    "case": "bearer lower case",
+    "input": {
+      "fn": "redactText",
+      "value": "bearer abcdefghijklmnop"
+    },
+    "expect": "[REDACTED_AUTH]"
+  },
+  {
+    "case": "short bearer kept",
+    "input": {
+      "fn": "redactText",
+      "value": "Bearer short"
+    },
+    "expect": "Bearer short"
+  },
+  {
+    "case": "secret key names",
+    "input": {
+      "fn": "redactText",
+      "value": "api-key=1 apikey: 2 id_token = 3 refresh-token=4 secret:5 passwd=6 session-id=7 sessionToken=8"
+    },
+    "expect": "api-key=[REDACTED] apikey: [REDACTED] id_token = [REDACTED] refresh-token=[REDACTED] secret:[REDACTED] passwd=[REDACTED] session-id=[REDACTED] sessionToken=[REDACTED]"
+  },
+  {
+    "case": "colon assignment to a long value",
+    "input": {
+      "fn": "redactText",
+      "value": "password: correct horse battery staple"
+    },
+    "expect": "password: [REDACTED] horse battery staple"
+  },
+  {
+    "case": "assignment value stops at a comma",
+    "input": {
+      "fn": "redactText",
+      "value": "token=abc,next=1;other=2"
+    },
+    "expect": "token=[REDACTED],next=1;other=2"
+  },
+  {
+    "case": "quoted value keeps the rest",
+    "input": {
+      "fn": "redactText",
+      "value": "secret: \"a b c\", other: 1"
+    },
+    "expect": "secret: [REDACTED], other: 1"
+  },
+  {
+    "case": "unicode text is untouched",
+    "input": {
+      "fn": "redactText",
+      "value": "日本語のテキスト 😀"
+    },
+    "expect": "日本語のテキスト 😀"
+  },
+  {
+    "case": "empty text",
+    "input": {
+      "fn": "redactText",
+      "value": ""
+    },
+    "expect": ""
+  },
+  {
+    "case": "known secret masks",
+    "input": {
+      "fn": "redactText",
+      "value": "a password can be short: a",
+      "secrets": [
+        "a",
+        "*"
+      ]
+    },
+    "expect": "• p•ssword c•n be short: •"
+  },
+  {
+    "case": "known long secret becomes the marker",
+    "input": {
+      "fn": "redactText",
+      "value": "value is hunter2hunter2hunter2hunter2 ok",
+      "secrets": [
+        "hunter2hunter2hunter2hunter2"
+      ]
+    },
+    "expect": "value is [REDACTED STORED CREDENTIAL] ok"
+  },
+  {
+    "case": "known secret of exactly marker length",
+    "input": {
+      "fn": "redactText",
+      "value": "x 123456789012345678901234567A x",
+      "secrets": [
+        "123456789012345678901234567A"
+      ]
+    },
+    "expect": "x [REDACTED STORED CREDENTIAL] x"
+  },
+  {
+    "case": "known asterisks become bullets",
+    "input": {
+      "fn": "redactText",
+      "value": "a ***** b",
+      "secrets": [
+        "*****"
+      ]
+    },
+    "expect": "a ••••• b"
+  },
+  {
+    "case": "known empty secret is skipped",
+    "input": {
+      "fn": "redactText",
+      "value": "abc",
+      "secrets": [
+        "",
+        "b"
+      ]
+    },
+    "expect": "a*c"
+  },
+  {
+    "case": "known astral secret counts utf-16 units",
+    "input": {
+      "fn": "redactText",
+      "value": "x 😀😀 y",
+      "secrets": [
+        "😀😀"
+      ]
+    },
+    "expect": "x **** y"
+  },
+  {
+    "case": "known secret repeats",
+    "input": {
+      "fn": "redactText",
+      "value": "pw pw pw",
+      "secrets": [
+        "pw"
+      ]
+    },
+    "expect": "** ** **"
+  },
+  {
+    "case": "url with user and password",
+    "input": {
+      "fn": "redactUrl",
+      "value": "https://alice:secret@example.com/path?x=1"
+    },
+    "expect": "https://%5BREDACTED%5D:***@example.com/path?x=1"
+  },
+  {
+    "case": "url with user only",
+    "input": {
+      "fn": "redactUrl",
+      "value": "https://alice@example.com/"
+    },
+    "expect": "https://%5BREDACTED%5D@example.com/"
+  },
+  {
+    "case": "url with code",
+    "input": {
+      "fn": "redactUrl",
+      "value": "https://example.test/callback?code=opaque-code&state=public"
+    },
+    "expect": "https://example.test/callback?code=[REDACTED]&state=public"
+  },
+  {
+    "case": "url with repeated secret key",
+    "input": {
+      "fn": "redactUrl",
+      "value": "https://example.test/?token=a&x=1&token=b"
+    },
+    "expect": "https://example.test/?token=[REDACTED]&x=1"
+  },
+  {
+    "case": "url with secret keys of several shapes",
+    "input": {
+      "fn": "redactUrl",
+      "value": "https://example.test/?Access_Token=a&API-KEY=b&mykey=c&author=d&plain=e"
+    },
+    "expect": "https://example.test/?Access_Token=[REDACTED]&API-KEY=[REDACTED]&mykey=%5BREDACTED%5D&author=%5BREDACTED%5D&plain=e"
+  },
+  {
+    "case": "url with plus and percent in values",
+    "input": {
+      "fn": "redactUrl",
+      "value": "https://example.test/?q=a+b%20c&token=z&r=%C3%A9"
+    },
+    "expect": "https://example.test/?q=a+b+c&token=[REDACTED]&r=%C3%A9"
+  },
+  {
+    "case": "url without secrets keeps its query spelling",
+    "input": {
+      "fn": "redactUrl",
+      "value": "https://example.test/?q=a+b&r=%7e"
+    },
+    "expect": "https://example.test/?q=a+b&r=%7e"
+  },
+  {
+    "case": "url with an empty secret value",
+    "input": {
+      "fn": "redactUrl",
+      "value": "https://example.test/?token=&x=1"
+    },
+    "expect": "https://example.test/?token=[REDACTED]&x=1"
+  },
+  {
+    "case": "url with fragment",
+    "input": {
+      "fn": "redactUrl",
+      "value": "https://example.test/p?token=a#section"
+    },
+    "expect": "https://example.test/p?token=[REDACTED]#section"
+  },
+  {
+    "case": "url with a token shape in the path",
+    "input": {
+      "fn": "redactUrl",
+      "value": "https://example.test/ghp_abcdefghijklmnopqrstuvwxyz/x"
+    },
+    "expect": "https://example.test/[REDACTED_GITHUB_TOKEN]/x"
+  },
+  {
+    "case": "url with no query",
+    "input": {
+      "fn": "redactUrl",
+      "value": "https://example.test"
+    },
+    "expect": "https://example.test/"
+  },
+  {
+    "case": "not a url",
+    "input": {
+      "fn": "redactUrl",
+      "value": "plain text token=abc"
+    },
+    "expect": "plain text token=[REDACTED]"
+  },
+  {
+    "case": "relative reference",
+    "input": {
+      "fn": "redactUrl",
+      "value": "/cb?token=abc"
+    },
+    "expect": "/cb?token=[REDACTED]"
+  },
+  {
+    "case": "mailto",
+    "input": {
+      "fn": "redactUrl",
+      "value": "mailto:someone@example.com?subject=hi"
+    },
+    "expect": "mailto:someone@example.com?subject=hi"
+  },
+  {
+    "case": "empty url",
+    "input": {
+      "fn": "redactUrl",
+      "value": ""
+    },
+    "expect": ""
+  }
+]

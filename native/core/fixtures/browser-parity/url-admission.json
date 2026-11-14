@@ -1,0 +1,887 @@
+[
+  {
+    "case": "public name",
+    "input": {
+      "mode": "url",
+      "url": "https://example.test/",
+      "policy": {},
+      "lookup": {
+        "example.test": [
+          "93.184.216.34"
+        ]
+      }
+    },
+    "expect": {
+      "ok": true
+    }
+  },
+  {
+    "case": "rebinding to lan",
+    "input": {
+      "mode": "url",
+      "url": "https://rebind.example.test/private",
+      "policy": {},
+      "lookup": {
+        "example.test": [
+          "93.184.216.34"
+        ],
+        "rebind.example.test": [
+          "192.168.1.10"
+        ]
+      }
+    },
+    "expect": {
+      "error": "navigation to rebind.example.test resolved to blocked private or internal address 192.168.1.10"
+    }
+  },
+  {
+    "case": "lan name allowed in a local session",
+    "input": {
+      "mode": "url",
+      "url": "https://nas.example.test/",
+      "policy": {
+        "allowPrivateNetwork": true
+      },
+      "lookup": {
+        "example.test": [
+          "93.184.216.34"
+        ],
+        "nas.example.test": [
+          "192.168.1.10"
+        ]
+      }
+    },
+    "expect": {
+      "ok": true
+    }
+  },
+  {
+    "case": "tailscale name refused remote",
+    "input": {
+      "mode": "url",
+      "url": "https://ts.example.test/",
+      "policy": {
+        "allowPrivateNetwork": false
+      },
+      "lookup": {
+        "example.test": [
+          "93.184.216.34"
+        ],
+        "ts.example.test": [
+          "100.101.102.103"
+        ]
+      }
+    },
+    "expect": {
+      "error": "navigation to ts.example.test resolved to blocked private or internal address 100.101.102.103"
+    }
+  },
+  {
+    "case": "tailscale name allowed local",
+    "input": {
+      "mode": "url",
+      "url": "https://ts.example.test/",
+      "policy": {
+        "allowPrivateNetwork": true
+      },
+      "lookup": {
+        "example.test": [
+          "93.184.216.34"
+        ],
+        "ts.example.test": [
+          "100.101.102.103"
+        ]
+      }
+    },
+    "expect": {
+      "ok": true
+    }
+  },
+  {
+    "case": "metadata answer local",
+    "input": {
+      "mode": "url",
+      "url": "https://meta.example.test/",
+      "policy": {
+        "allowPrivateNetwork": true
+      },
+      "lookup": {
+        "example.test": [
+          "93.184.216.34"
+        ],
+        "meta.example.test": [
+          "169.254.169.254"
+        ]
+      }
+    },
+    "expect": {
+      "error": "navigation to meta.example.test resolved to a blocked cloud metadata endpoint"
+    }
+  },
+  {
+    "case": "metadata answer remote",
+    "input": {
+      "mode": "url",
+      "url": "https://meta.example.test/",
+      "policy": {
+        "allowPrivateNetwork": false
+      },
+      "lookup": {
+        "example.test": [
+          "93.184.216.34"
+        ],
+        "meta.example.test": [
+          "169.254.169.254"
+        ]
+      }
+    },
+    "expect": {
+      "error": "navigation to meta.example.test resolved to a blocked cloud metadata endpoint"
+    }
+  },
+  {
+    "case": "one private address of several",
+    "input": {
+      "mode": "url",
+      "url": "https://mixed.example.test/",
+      "policy": {},
+      "lookup": {
+        "example.test": [
+          "93.184.216.34"
+        ],
+        "mixed.example.test": [
+          "93.184.216.34",
+          "10.0.0.1"
+        ]
+      }
+    },
+    "expect": {
+      "error": "navigation to mixed.example.test resolved to blocked private or internal address 10.0.0.1"
+    }
+  },
+  {
+    "case": "one metadata address of several",
+    "input": {
+      "mode": "url",
+      "url": "https://mixed-meta.example.test/",
+      "policy": {
+        "allowPrivateNetwork": true
+      },
+      "lookup": {
+        "example.test": [
+          "93.184.216.34"
+        ],
+        "meta.example.test": [
+          "169.254.169.254"
+        ],
+        "mixed-meta.example.test": [
+          "93.184.216.34",
+          "169.254.169.254"
+        ]
+      }
+    },
+    "expect": {
+      "error": "navigation to mixed-meta.example.test resolved to a blocked cloud metadata endpoint"
+    }
+  },
+  {
+    "case": "mapped private answer",
+    "input": {
+      "mode": "url",
+      "url": "https://mapped.example.test/",
+      "policy": {},
+      "lookup": {
+        "example.test": [
+          "93.184.216.34"
+        ],
+        "mapped.example.test": [
+          "::ffff:10.0.0.1"
+        ]
+      }
+    },
+    "expect": {
+      "error": "navigation to mapped.example.test resolved to blocked private or internal address ::ffff:10.0.0.1"
+    }
+  },
+  {
+    "case": "public v6 answer",
+    "input": {
+      "mode": "url",
+      "url": "https://v6.example.test/",
+      "policy": {},
+      "lookup": {
+        "example.test": [
+          "93.184.216.34"
+        ],
+        "v6.example.test": [
+          "2606:4700::1111"
+        ]
+      }
+    },
+    "expect": {
+      "ok": true
+    }
+  },
+  {
+    "case": "ula answer",
+    "input": {
+      "mode": "url",
+      "url": "https://v6ula.example.test/",
+      "policy": {},
+      "lookup": {
+        "example.test": [
+          "93.184.216.34"
+        ],
+        "v6ula.example.test": [
+          "fd00::1"
+        ]
+      }
+    },
+    "expect": {
+      "error": "navigation to v6ula.example.test resolved to blocked private or internal address fd00::1"
+    }
+  },
+  {
+    "case": "empty answer",
+    "input": {
+      "mode": "url",
+      "url": "https://empty.example.test/",
+      "policy": {},
+      "lookup": {
+        "example.test": [
+          "93.184.216.34"
+        ],
+        "empty.example.test": []
+      }
+    },
+    "expect": {
+      "error": "navigation to empty.example.test returned no addresses for private-network validation"
+    }
+  },
+  {
+    "case": "failed lookup",
+    "input": {
+      "mode": "url",
+      "url": "https://fail.example.test/",
+      "policy": {},
+      "lookup": {
+        "example.test": [
+          "93.184.216.34"
+        ],
+        "fail.example.test": null
+      }
+    },
+    "expect": {
+      "error": "navigation to fail.example.test could not be resolved for private-network validation"
+    }
+  },
+  {
+    "case": "unknown name fails to resolve",
+    "input": {
+      "mode": "url",
+      "url": "https://nowhere.example.test/",
+      "policy": {},
+      "lookup": {
+        "example.test": [
+          "93.184.216.34"
+        ]
+      }
+    },
+    "expect": {
+      "error": "navigation to nowhere.example.test could not be resolved for private-network validation"
+    }
+  },
+  {
+    "case": "64 addresses are fine",
+    "input": {
+      "mode": "url",
+      "url": "https://sixty-four.example.test/",
+      "policy": {},
+      "lookup": {
+        "example.test": [
+          "93.184.216.34"
+        ],
+        "sixty-four.example.test": [
+          "93.184.216.1",
+          "93.184.216.2",
+          "93.184.216.3",
+          "93.184.216.4",
+          "93.184.216.5",
+          "93.184.216.6",
+          "93.184.216.7",
+          "93.184.216.8",
+          "93.184.216.9",
+          "93.184.216.10",
+          "93.184.216.11",
+          "93.184.216.12",
+          "93.184.216.13",
+          "93.184.216.14",
+          "93.184.216.15",
+          "93.184.216.16",
+          "93.184.216.17",
+          "93.184.216.18",
+          "93.184.216.19",
+          "93.184.216.20",
+          "93.184.216.21",
+          "93.184.216.22",
+          "93.184.216.23",
+          "93.184.216.24",
+          "93.184.216.25",
+          "93.184.216.26",
+          "93.184.216.27",
+          "93.184.216.28",
+          "93.184.216.29",
+          "93.184.216.30",
+          "93.184.216.31",
+          "93.184.216.32",
+          "93.184.216.33",
+          "93.184.216.34",
+          "93.184.216.35",
+          "93.184.216.36",
+          "93.184.216.37",
+          "93.184.216.38",
+          "93.184.216.39",
+          "93.184.216.40",
+          "93.184.216.41",
+          "93.184.216.42",
+          "93.184.216.43",
+          "93.184.216.44",
+          "93.184.216.45",
+          "93.184.216.46",
+          "93.184.216.47",
+          "93.184.216.48",
+          "93.184.216.49",
+          "93.184.216.50",
+          "93.184.216.51",
+          "93.184.216.52",
+          "93.184.216.53",
+          "93.184.216.54",
+          "93.184.216.55",
+          "93.184.216.56",
+          "93.184.216.57",
+          "93.184.216.58",
+          "93.184.216.59",
+          "93.184.216.60",
+          "93.184.216.61",
+          "93.184.216.62",
+          "93.184.216.63",
+          "93.184.216.64"
+        ]
+      }
+    },
+    "expect": {
+      "ok": true
+    }
+  },
+  {
+    "case": "65 addresses are too many",
+    "input": {
+      "mode": "url",
+      "url": "https://sixty-five.example.test/",
+      "policy": {},
+      "lookup": {
+        "example.test": [
+          "93.184.216.34"
+        ],
+        "sixty-five.example.test": [
+          "93.184.216.1",
+          "93.184.216.2",
+          "93.184.216.3",
+          "93.184.216.4",
+          "93.184.216.5",
+          "93.184.216.6",
+          "93.184.216.7",
+          "93.184.216.8",
+          "93.184.216.9",
+          "93.184.216.10",
+          "93.184.216.11",
+          "93.184.216.12",
+          "93.184.216.13",
+          "93.184.216.14",
+          "93.184.216.15",
+          "93.184.216.16",
+          "93.184.216.17",
+          "93.184.216.18",
+          "93.184.216.19",
+          "93.184.216.20",
+          "93.184.216.21",
+          "93.184.216.22",
+          "93.184.216.23",
+          "93.184.216.24",
+          "93.184.216.25",
+          "93.184.216.26",
+          "93.184.216.27",
+          "93.184.216.28",
+          "93.184.216.29",
+          "93.184.216.30",
+          "93.184.216.31",
+          "93.184.216.32",
+          "93.184.216.33",
+          "93.184.216.34",
+          "93.184.216.35",
+          "93.184.216.36",
+          "93.184.216.37",
+          "93.184.216.38",
+          "93.184.216.39",
+          "93.184.216.40",
+          "93.184.216.41",
+          "93.184.216.42",
+          "93.184.216.43",
+          "93.184.216.44",
+          "93.184.216.45",
+          "93.184.216.46",
+          "93.184.216.47",
+          "93.184.216.48",
+          "93.184.216.49",
+          "93.184.216.50",
+          "93.184.216.51",
+          "93.184.216.52",
+          "93.184.216.53",
+          "93.184.216.54",
+          "93.184.216.55",
+          "93.184.216.56",
+          "93.184.216.57",
+          "93.184.216.58",
+          "93.184.216.59",
+          "93.184.216.60",
+          "93.184.216.61",
+          "93.184.216.62",
+          "93.184.216.63",
+          "93.184.216.64",
+          "93.184.216.65"
+        ]
+      }
+    },
+    "expect": {
+      "error": "navigation to sixty-five.example.test returned too many resolved addresses"
+    }
+  },
+  {
+    "case": "loopback ipv6 literal needs no lookup",
+    "input": {
+      "mode": "url",
+      "url": "http://[::1]:8080/fixture",
+      "policy": {},
+      "lookup": {}
+    },
+    "expect": {
+      "ok": true
+    }
+  },
+  {
+    "case": "localhost needs no lookup",
+    "input": {
+      "mode": "url",
+      "url": "http://localhost:3000/",
+      "policy": {},
+      "lookup": {}
+    },
+    "expect": {
+      "ok": true
+    }
+  },
+  {
+    "case": "subdomain of localhost needs no lookup",
+    "input": {
+      "mode": "url",
+      "url": "http://app.localhost:3000/",
+      "policy": {},
+      "lookup": {}
+    },
+    "expect": {
+      "ok": true
+    }
+  },
+  {
+    "case": "trailing-dot localhost is looked up",
+    "input": {
+      "mode": "url",
+      "url": "http://localhost./",
+      "policy": {},
+      "lookup": {
+        "localhost.": [
+          "127.0.0.1"
+        ]
+      }
+    },
+    "expect": {
+      "ok": true
+    }
+  },
+  {
+    "case": "private literal refused",
+    "input": {
+      "mode": "url",
+      "url": "http://192.168.1.10/",
+      "policy": {},
+      "lookup": {}
+    },
+    "expect": {
+      "error": "navigation to private or internal address 192.168.1.10 is blocked"
+    }
+  },
+  {
+    "case": "private literal allowed local",
+    "input": {
+      "mode": "url",
+      "url": "http://192.168.1.10/",
+      "policy": {
+        "allowPrivateNetwork": true
+      },
+      "lookup": {}
+    },
+    "expect": {
+      "ok": true
+    }
+  },
+  {
+    "case": "tailscale literal refused remote",
+    "input": {
+      "mode": "url",
+      "url": "http://100.101.102.103/",
+      "policy": {
+        "allowPrivateNetwork": false
+      },
+      "lookup": {}
+    },
+    "expect": {
+      "error": "navigation to private or internal address 100.101.102.103 is blocked"
+    }
+  },
+  {
+    "case": "metadata literal",
+    "input": {
+      "mode": "url",
+      "url": "http://169.254.169.254/",
+      "policy": {},
+      "lookup": {}
+    },
+    "expect": {
+      "error": "navigation to cloud metadata endpoints is blocked"
+    }
+  },
+  {
+    "case": "metadata literal local",
+    "input": {
+      "mode": "url",
+      "url": "http://169.254.169.254/",
+      "policy": {
+        "allowPrivateNetwork": true
+      },
+      "lookup": {}
+    },
+    "expect": {
+      "error": "navigation to cloud metadata endpoints is blocked"
+    }
+  },
+  {
+    "case": "agent URL with a token is refused before any lookup",
+    "input": {
+      "mode": "url",
+      "url": "https://example.test/?token=abc",
+      "policy": {},
+      "lookup": {
+        "example.test": [
+          "93.184.216.34"
+        ]
+      }
+    },
+    "expect": {
+      "error": "navigation URLs may not contain credential-like query values or secret tokens"
+    }
+  },
+  {
+    "case": "page-generated URL keeps its token",
+    "input": {
+      "mode": "url",
+      "url": "https://example.test/?token=abc",
+      "policy": {},
+      "lookup": {
+        "example.test": [
+          "93.184.216.34"
+        ]
+      },
+      "pageGenerated": true
+    },
+    "expect": {
+      "ok": true
+    }
+  },
+  {
+    "case": "credentials refused",
+    "input": {
+      "mode": "url",
+      "url": "https://u:p@example.test/",
+      "policy": {},
+      "lookup": {
+        "example.test": [
+          "93.184.216.34"
+        ]
+      }
+    },
+    "expect": {
+      "error": "URLs containing embedded credentials are not allowed"
+    }
+  },
+  {
+    "case": "scheme refused",
+    "input": {
+      "mode": "url",
+      "url": "ftp://example.test/",
+      "policy": {},
+      "lookup": {
+        "example.test": [
+          "93.184.216.34"
+        ]
+      }
+    },
+    "expect": {
+      "error": "only http(s) navigation is allowed (got ftp:)"
+    }
+  },
+  {
+    "case": "allow-list refusal comes first",
+    "input": {
+      "mode": "url",
+      "url": "https://example.test/",
+      "policy": {
+        "allowedDomains": [
+          "example.com"
+        ]
+      },
+      "lookup": {
+        "example.test": [
+          "93.184.216.34"
+        ]
+      }
+    },
+    "expect": {
+      "error": "navigation to example.test is blocked by the Browser Use domain policy"
+    }
+  },
+  {
+    "case": "validated agent url is normalized",
+    "input": {
+      "mode": "agent",
+      "url": "example.test",
+      "policy": {},
+      "lookup": {
+        "example.test": [
+          "93.184.216.34"
+        ]
+      }
+    },
+    "expect": {
+      "ok": "https://example.test/"
+    }
+  },
+  {
+    "case": "validated agent url refused by resolution",
+    "input": {
+      "mode": "agent",
+      "url": "rebind.example.test",
+      "policy": {},
+      "lookup": {
+        "example.test": [
+          "93.184.216.34"
+        ],
+        "rebind.example.test": [
+          "192.168.1.10"
+        ]
+      }
+    },
+    "expect": {
+      "error": "navigation to rebind.example.test resolved to blocked private or internal address 192.168.1.10"
+    }
+  },
+  {
+    "case": "validated agent url keeps a mail link token",
+    "input": {
+      "mode": "agent",
+      "url": "https://example.test/v?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl",
+      "policy": {},
+      "lookup": {
+        "example.test": [
+          "93.184.216.34"
+        ]
+      },
+      "mailLink": {
+        "url": "https://example.test/v?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl",
+        "from_domain": "example.test",
+        "ageMs": 0
+      }
+    },
+    "expect": {
+      "ok": "https://example.test/v?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl"
+    }
+  },
+  {
+    "case": "validated agent url, token without a mail link",
+    "input": {
+      "mode": "agent",
+      "url": "https://example.test/v?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl",
+      "policy": {},
+      "lookup": {
+        "example.test": [
+          "93.184.216.34"
+        ]
+      }
+    },
+    "expect": {
+      "error": "navigation URLs may not contain credential-like query values or secret tokens"
+    }
+  },
+  {
+    "case": "validated agent url on a literal",
+    "input": {
+      "mode": "agent",
+      "url": "http://10.0.0.1/",
+      "policy": {},
+      "lookup": {}
+    },
+    "expect": {
+      "error": "navigation to private or internal address 10.0.0.1 is blocked"
+    }
+  },
+  {
+    "case": "websocket over tls",
+    "input": {
+      "mode": "resource",
+      "url": "wss://socket.example.test/live",
+      "policy": {},
+      "lookup": {
+        "example.test": [
+          "93.184.216.34"
+        ],
+        "socket.example.test": [
+          "93.184.216.34"
+        ]
+      }
+    },
+    "expect": {
+      "ok": true
+    }
+  },
+  {
+    "case": "websocket to metadata",
+    "input": {
+      "mode": "resource",
+      "url": "ws://169.254.169.254/latest/meta-data",
+      "policy": {},
+      "lookup": {}
+    },
+    "expect": {
+      "error": "navigation to cloud metadata endpoints is blocked"
+    }
+  },
+  {
+    "case": "websocket to a private name",
+    "input": {
+      "mode": "resource",
+      "url": "ws://rebind.example.test/",
+      "policy": {},
+      "lookup": {
+        "example.test": [
+          "93.184.216.34"
+        ],
+        "rebind.example.test": [
+          "192.168.1.10"
+        ]
+      }
+    },
+    "expect": {
+      "error": "navigation to rebind.example.test resolved to blocked private or internal address 192.168.1.10"
+    }
+  },
+  {
+    "case": "https resource",
+    "input": {
+      "mode": "resource",
+      "url": "https://example.test/app.js?token=abc",
+      "policy": {},
+      "lookup": {
+        "example.test": [
+          "93.184.216.34"
+        ]
+      }
+    },
+    "expect": {
+      "ok": true
+    }
+  },
+  {
+    "case": "resource with another scheme",
+    "input": {
+      "mode": "resource",
+      "url": "ftp://example.test/",
+      "policy": {},
+      "lookup": {
+        "example.test": [
+          "93.184.216.34"
+        ]
+      }
+    },
+    "expect": {
+      "error": "unsupported browser network protocol ftp:"
+    }
+  },
+  {
+    "case": "resource data scheme",
+    "input": {
+      "mode": "resource",
+      "url": "data:text/plain,hello",
+      "policy": {},
+      "lookup": {}
+    },
+    "expect": {
+      "error": "unsupported browser network protocol data:"
+    }
+  },
+  {
+    "case": "resource blob scheme",
+    "input": {
+      "mode": "resource",
+      "url": "blob:https://example.test/id",
+      "policy": {},
+      "lookup": {
+        "example.test": [
+          "93.184.216.34"
+        ]
+      }
+    },
+    "expect": {
+      "error": "unsupported browser network protocol blob:"
+    }
+  },
+  {
+    "case": "resource not a url",
+    "input": {
+      "mode": "resource",
+      "url": "not a url",
+      "policy": {},
+      "lookup": {}
+    },
+    "expect": {
+      "error": "Invalid URL"
+    }
+  },
+  {
+    "case": "resource with credentials",
+    "input": {
+      "mode": "resource",
+      "url": "wss://u:p@socket.example.test/",
+      "policy": {},
+      "lookup": {
+        "example.test": [
+          "93.184.216.34"
+        ],
+        "socket.example.test": [
+          "93.184.216.34"
+        ]
+      }
+    },
+    "expect": {
+      "error": "URLs containing embedded credentials are not allowed"
+    }
+  }
+]

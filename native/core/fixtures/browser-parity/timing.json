@@ -1,0 +1,103 @@
+[
+  {
+    "case": "a command with no work has an empty record",
+    "input": { "queueMs": 5, "ops": [] },
+    "expect": { "snapshots": 0, "screenshots": 0, "steps": null, "mouse": null, "failed": false, "queueMs": 5 }
+  },
+  {
+    "case": "snapshot and screenshot are counted each time they begin",
+    "input": {
+      "queueMs": 12,
+      "ops": [
+        { "phase": "snapshot", "do": [] },
+        { "phase": "snapshot", "do": [] },
+        { "phase": "screenshot", "do": [] },
+        { "phase": "wait", "do": [ { "phase": "snapshot", "do": [] } ] }
+      ]
+    },
+    "expect": { "snapshots": 3, "screenshots": 1, "steps": null, "mouse": null, "failed": false, "queueMs": 12 }
+  },
+  {
+    "case": "nested phases of one kind count once in time and each in number",
+    "input": {
+      "queueMs": 0,
+      "ops": [
+        { "phase": "snapshot", "do": [ { "phase": "snapshot", "do": [ { "phase": "snapshot", "do": [] } ] } ] }
+      ]
+    },
+    "expect": { "snapshots": 3, "screenshots": 0, "steps": null, "mouse": null, "failed": false, "queueMs": 0 }
+  },
+  {
+    "case": "steps are recorded in order with their own index",
+    "input": {
+      "queueMs": 0,
+      "ops": [
+        { "step": 1, "do": [ { "phase": "target", "do": [ { "phase": "snapshot", "do": [] } ] } ] },
+        { "step": 2, "do": [ { "phase": "input", "do": [] } ] },
+        { "step": 3, "do": [ { "phase": "actionability", "do": [] } ] }
+      ]
+    },
+    "expect": { "snapshots": 1, "screenshots": 0, "steps": [1, 2, 3], "mouse": null, "failed": false, "queueMs": 0 }
+  },
+  {
+    "case": "a step outside 1 to 6 is not recorded and at most six are kept",
+    "input": {
+      "queueMs": 0,
+      "ops": [
+        { "step": 0, "do": [] },
+        { "step": 7, "do": [] },
+        { "step": 1, "do": [] },
+        { "step": 2, "do": [] },
+        { "step": 3, "do": [] },
+        { "step": 4, "do": [] },
+        { "step": 5, "do": [] },
+        { "step": 6, "do": [] },
+        { "step": 6, "do": [] },
+        { "step": 1, "do": [] }
+      ]
+    },
+    "expect": { "snapshots": 0, "screenshots": 0, "steps": [1, 2, 3, 4, 5, 6], "mouse": null, "failed": false, "queueMs": 0 }
+  },
+  {
+    "case": "only out-of-range steps leave no steps member",
+    "input": { "queueMs": 0, "ops": [ { "step": 0, "do": [] }, { "step": 9, "do": [] } ] },
+    "expect": { "snapshots": 0, "screenshots": 0, "steps": null, "mouse": null, "failed": false, "queueMs": 0 }
+  },
+  {
+    "case": "mouse events are counted by kind",
+    "input": {
+      "queueMs": 0,
+      "ops": [
+        { "mouse": "mouseMoved" },
+        { "mouse": "mouseMoved" },
+        { "mouse": "mousePressed" },
+        { "mouse": "mouseReleased" },
+        { "mouse": "mouseMoved" }
+      ]
+    },
+    "expect": { "snapshots": 0, "screenshots": 0, "steps": null, "mouse": { "mouseMoved": 3, "mousePressed": 1, "mouseReleased": 1 }, "failed": false, "queueMs": 0 }
+  },
+  {
+    "case": "a failure keeps the timing it had and the phases it left open",
+    "input": {
+      "queueMs": 4,
+      "ops": [
+        { "mouse": "mousePressed" },
+        { "step": 1, "do": [ { "phase": "wait", "do": [ { "throw": true } ] } ] },
+        { "phase": "snapshot", "do": [] }
+      ]
+    },
+    "expect": { "snapshots": 0, "screenshots": 0, "steps": [1], "mouse": { "mousePressed": 1 }, "failed": true, "queueMs": 4 }
+  },
+  {
+    "case": "a failure inside a nested step",
+    "input": {
+      "queueMs": 1,
+      "ops": [
+        { "phase": "screenshot", "do": [] },
+        { "step": 2, "do": [ { "phase": "input", "do": [ { "throw": true } ] } ] }
+      ]
+    },
+    "expect": { "snapshots": 0, "screenshots": 1, "steps": [2], "mouse": null, "failed": true, "queueMs": 1 }
+  }
+]
