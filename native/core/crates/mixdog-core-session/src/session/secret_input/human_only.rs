@@ -286,10 +286,10 @@ impl DomainService for HumanOnlyService {
 }
 
 /// No session holds a takeover.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 struct NoTakeovers;
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 impl TakeoverHolds for NoTakeovers {
     fn hold(&self, _: &mixdog_core_api::ids::ThreadId) -> super::TakeoverHold {
         super::TakeoverHold::default()
@@ -301,7 +301,7 @@ impl TakeoverHolds for NoTakeovers {
 }
 
 /// A lock no takeover holds, for a test that holds it itself.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub(super) fn free_lock() -> Arc<HumanOnlyLock> {
     Arc::new(HumanOnlyLock::new(Arc::new(NoTakeovers)))
 }
