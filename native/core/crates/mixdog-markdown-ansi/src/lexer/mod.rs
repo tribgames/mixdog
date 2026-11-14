@@ -160,6 +160,22 @@ pub(crate) fn skip_chars(src: &str, n: usize) -> &str {
     }
 }
 
+/// `src.slice(n)` for a count of UTF-16 units. A cut inside a surrogate pair leaves the pair's low half, which no rule
+/// reads as a space or a marker: it is U+FFFF here (as in `last_unit` of the inline lexer).
+pub(crate) fn skip_units(src: &str, n: usize) -> String {
+    let mut units = 0;
+    for (at, c) in src.char_indices() {
+        if units >= n {
+            return src[at..].to_owned();
+        }
+        units += c.len_utf16();
+        if units > n {
+            return format!("\u{FFFF}{}", &src[at + c.len_utf8()..]);
+        }
+    }
+    String::new()
+}
+
 /// `src.slice(n, -n)`: without `n` characters at each end.
 pub(crate) fn trim_ends(src: &str, n: usize) -> &str {
     let total = src.chars().count();
@@ -270,6 +286,10 @@ mod tests {
         assert_eq!(find_closing_bracket("a(b)c)d", '(', ')'), Some(5));
         assert_eq!(find_closing_bracket("a\\)b)", '(', ')'), Some(4));
         assert_eq!(find_closing_bracket("abc", '(', ')'), None);
+        assert_eq!(skip_units("ab", 1), "b");
+        assert_eq!(skip_units("😀x", 2), "x");
+        assert_eq!(skip_units("😀x", 1), "\u{FFFF}x");
+        assert_eq!(skip_units("a", 3), "");
     }
 
     #[test]

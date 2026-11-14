@@ -4,7 +4,7 @@ use mixdog_js::{js_to_lowercase, js_trim, js_trim_end};
 
 use super::rules::{Re, item_rule, list_lookahead};
 use super::token::{Align, ListStart, TableCell, Token, TokenKind};
-use super::{Lexer, advance, first_non_space, prefix, rtrim_char, skip_chars};
+use super::{Lexer, advance, first_non_space, prefix, rtrim_char, skip_chars, skip_units};
 
 lazy_re!(INDENT_STRIP, r"^(?: {1,4}| {0,3}\t)", "gm");
 lazy_re!(INDENT_TO_CODE, r"^(\s+)(?:```)");
@@ -476,7 +476,7 @@ impl Lexer {
                     raw.push_str(raw_line);
                     raw.push('\n');
                     src = advance(src, raw_line.len() + 1);
-                    line = skip_chars(&next_line_without_tabs, indent).to_owned();
+                    line = skip_units(&next_line_without_tabs, indent);
                 }
             }
             if !loose {
@@ -673,6 +673,17 @@ mod tests {
         assert_eq!(loose.tokens[0].loose, Some(true));
         let items = loose.tokens[0].items.as_deref().unwrap_or(&[]);
         assert!(items.iter().all(|item| item.loose == Some(true)));
+    }
+
+    #[test]
+    fn a_lazy_line_is_cut_by_utf16_units_as_marked_cuts_it() {
+        // marked keeps `line = nextLine.slice(indent)` in UTF-16 units: the emoji's two units go, "```" is left and
+        // ends the item before "b".
+        let lexed = lex("- a\n😀```\nb\n");
+        assert_eq!(kinds("- a\n😀```\nb\n"), [TokenKind::List, TokenKind::Paragraph]);
+        let items = lexed.tokens[0].items.as_deref().unwrap_or(&[]);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].text.as_deref(), Some("a\n😀```"));
     }
 
     #[test]
