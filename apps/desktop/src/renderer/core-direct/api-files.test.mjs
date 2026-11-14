@@ -104,7 +104,7 @@ test('file calls resolve the project folder first', async () => {
   const calls = sent().filter(([m]) => m !== 'project/directory');
   assert.deepEqual(calls, [
     ['projectFs/listDir', { root: 'F:/proj', rel: 'src' }],
-    ['projectFs/readText', { root: 'F:/proj', rel: 'a.txt', maxChars: 60000 }],
+    ['projectFs/readText', { root: 'F:/proj', rel: 'a.txt', maxChars: 80000 }],
     ['projectFs/writeText', { root: 'F:/proj', rel: 'a.txt', content: 'new', expectedContent: 'old', encoding: 'utf8' }],
     ['projectFs/stat', { root: 'F:/proj', rel: 'a.txt' }],
     ['projectFs/create', { root: 'F:/proj', relDir: '', name: 'n', directory: true }],
@@ -124,9 +124,9 @@ test('a file larger than one answer is read a window at a time from one read and
   const { api, sent } = await world((method, params) => (method === 'projectFs/readText' ? windows[params.fromChar === undefined ? 0 : params.fromChar / 2] : defaults(method, params)));
   assert.deepEqual(await api.readProjectFile('C:/outside', 'big.txt', 'tok'), { content: 'abcde', encoding: 'utf8' });
   assert.deepEqual(sent(), [
-    ['projectFs/readText', { root: 'C:/outside', rel: 'big.txt', accessToken: 'tok', maxChars: 60000 }],
-    ['projectFs/readText', { root: 'C:/outside', rel: 'big.txt', accessToken: 'tok', readId: 'r1', fromChar: 2, maxChars: 60000 }],
-    ['projectFs/readText', { root: 'C:/outside', rel: 'big.txt', accessToken: 'tok', readId: 'r1', fromChar: 4, maxChars: 60000 }],
+    ['projectFs/readText', { root: 'C:/outside', rel: 'big.txt', accessToken: 'tok', maxChars: 80000 }],
+    ['projectFs/readText', { root: 'C:/outside', rel: 'big.txt', accessToken: 'tok', readId: 'r1', fromChar: 2, maxChars: 80000 }],
+    ['projectFs/readText', { root: 'C:/outside', rel: 'big.txt', accessToken: 'tok', readId: 'r1', fromChar: 4, maxChars: 80000 }],
   ]);
 });
 
@@ -137,7 +137,7 @@ test('a one-file token goes to the core with the project path', async () => {
   await api.statProjectFile('C:/outside', 'a.txt', 'tok');
   await api.captureFileSnapshot('C:/outside', 'a.txt', 'tok');
   assert.deepEqual(sent(), [
-    ['projectFs/readText', { root: 'C:/outside', rel: 'a.txt', accessToken: 'tok', maxChars: 60000 }],
+    ['projectFs/readText', { root: 'C:/outside', rel: 'a.txt', accessToken: 'tok', maxChars: 80000 }],
     ['projectFs/writeText', { root: 'C:/outside', rel: 'a.txt', content: 'n', expectedContent: 'o', accessToken: 'tok' }],
     ['projectFs/stat', { root: 'C:/outside', rel: 'a.txt', accessToken: 'tok' }],
     ['projectFs/captureSnapshot', { root: 'C:/outside', rel: 'a.txt', accessToken: 'tok' }],
@@ -318,4 +318,21 @@ test('a converted document PDF is read in ranges into a blob URL; a file preview
   } finally {
     URL.createObjectURL = realCreate;
   }
+});
+
+test('a converted document PDF in a PC window is the hosts ranged mixdog-media URL, read by nothing here', async () => {
+  const asked = [];
+  const host = { previewProjectFile: async (...args) => (asked.push(args), { url: 'mixdog-media://preview/t/a.pdf', kind: 'pdf', mime: 'application/pdf', mtimeMs: 1, size: 3 }) };
+  const client = fakeClient((method) => {
+    if (method === 'project/directory') return { path: 'F:/proj', standalone: false };
+    if (method === 'document/preview') return { path: 'C:/cache/a.pdf', format: 'docx', mtimeMs: 1, size: 3 };
+    return {};
+  });
+  const connection = createRendererConnection({ open: async () => client });
+  await connection.start();
+  const api = createFilesApi(createDirectContext(connection), { host });
+  const preview = await api.previewDocumentFile('proj', 'a.docx');
+  assert.equal(preview.url, 'mixdog-media://preview/t/a.pdf');
+  assert.deepEqual(asked, [['C:/cache', 'a.pdf']]);
+  assert.equal(client.calls.some((c) => c.method === 'projectFs/previewRange'), false);
 });
