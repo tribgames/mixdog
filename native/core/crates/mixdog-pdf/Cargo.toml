@@ -1,0 +1,15 @@
+[package]
+name = "mixdog-pdf"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "PDF reader of the read path: structure (lexer, parser, xref with repair), following pdf.js 6.4.299"
+
+[lints]
+workspace = true
+
+[dependencies]
+tracing = { workspace = true }
+
+[dev-dependencies]
+flate2 = { workspace = true }
