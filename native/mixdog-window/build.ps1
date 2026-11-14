@@ -8,7 +8,7 @@ param(
 )
 
 # Reproducible build of the desktop window Node-API module into dist/.
-# Same shape as native/mixdog-secure-desktop/build.ps1: in-repo source only, no dependencies.
+# Same shape as native/mixdog-secure-desktop/build.ps1: in-repo source plus the crates pinned in Cargo.lock.
 # Runs cargo at Idle priority so a build never makes the workstation sluggish.
 
 $ErrorActionPreference = 'Stop'
