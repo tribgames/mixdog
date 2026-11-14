@@ -1,0 +1,95 @@
+# x-residual-moves: six desktop methods of mixdog-core-domains domains/desktop_residual.rs (DesktopResidualService): the logic of the desktop's
+# session-attachments.ts, transcript-file-links.ts, workflow-config.ts and system-fonts.ts. Header: add `pub mod desktop_residual;` to
+# src/v2/mod.rs (alphabetical) and `use crate::v2::desktop_residual::*;` where the methods.rs row types are imported. The wiring task creates
+# src/v2/desktop_residual.rs with the usual codegen derives, camelCase, deny_unknown_fields:
+#   DesktopLinkResolveParams { href: String, cwd: Option<String> }            (answer {path: string|null}: the absolute host path)
+#   DesktopLinkResolvePathParams { path: String, cwd: Option<String> }        (answer {path: string|null})
+#   DesktopAttachmentParams { session_id: String, attachment_id: String }     (resolve answers {attachment: {id,name,mimeType,kind,size}, bytes: number};
+#                                                                              stage answers {path: string, attachment: {...}})
+#   DesktopWorkflowConfigReadParams { path: String }                          (answer {config: object|null})
+#   DesktopFontsListParams {}                                                 (answer {families: string[]})
+# The service decodes the params with its own serde shape (the same field names) and answers untyped JSON, so the results are JsonValue.
+
+[methods]
+# Paste after the row `MigrateProfileAdopt => "migrate/profile/adopt"` in client_request_definitions!.
+    /// The absolute host path a conversation link's href names (decoded as MarkdownLink decodes it, `:line`/`#L` dropped, relative to the session's folder); `path` is null for a web link, a UNC target or a relative link with no folder.
+    DesktopLinkResolve => "desktop/link/resolve" {
+        params: DesktopLinkResolveParams,
+        result: JsonValue,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Local, Ssh, Relay],
+    },
+    /// The same resolution for an already decoded path (`resolveLinkedPath`).
+    DesktopLinkResolvePath => "desktop/link/resolvePath" {
+        params: DesktopLinkResolvePathParams,
+        result: JsonValue,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Local, Ssh, Relay],
+    },
+    /// An attachment of a session by content hash: served only when THIS session's transcript (the window, else the whole stored conversation) names the id and the stored bytes hash to it. Refusals carry code `file-download:not-linked`, `file-download:not-found` or `file-download:changed`.
+    DesktopAttachmentResolve => "desktop/attachment/resolve" {
+        params: DesktopAttachmentParams,
+        result: JsonValue,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Local, Ssh, Relay],
+    },
+    /// The same check, then the bytes written to `<temp>/mixdog-attachments/<id16>-<name>` on the PC; answers the path.
+    DesktopAttachmentStage => "desktop/attachment/stage" {
+        params: DesktopAttachmentParams,
+        result: JsonValue,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Local, Ssh, Relay],
+    },
+    /// The object a JSONC settings file holds; `config` is null when the file is missing, empty or NUL-filled.
+    DesktopWorkflowConfigRead => "desktop/workflowConfig/read" {
+        params: DesktopWorkflowConfigReadParams,
+        result: JsonValue,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Local],
+    },
+    /// The installed font families of the PC (one OS listing per process, cached); an empty list when the OS cannot list them.
+    DesktopFontsList => "desktop/fonts/list" {
+        params: DesktopFontsListParams,
+        result: JsonValue,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Local, Ssh, Relay],
+    },
+
+[server_requests]
+none
+
+[notifications]
+none
+
+[inventory]
+none: the inventory is the frozen 1.4.5 list; these are new methods (the desktop's own main-process files had no wire name).
+
+[free_text]
+# Every string field of the schema must be in exactly one class of tests/it/free_text_fields.json.
+#   desktop/link/resolve /href, /cwd and desktop/link/resolvePath /path, /cwd: text copied from a conversation (a model's markdown link) and a folder
+#     path: use the class that does NOT refuse a lone surrogate (the one of /input/message): a link of a transcript can hold one and the desktop
+#     resolved it without refusing.
+#   desktop/attachment/* /sessionId, /attachmentId: ids (a malformed attachmentId is refused by the service as invalid params): the class of other ids.
+#   desktop/workflowConfig/read /path: a path the core opens: the class that holds path strings (e.g. the one of migrate/profile/adopt /userData).
+# Answers are JsonValue and carry no class of their own. No FREE_TEXT row.
+
+[type_edits]
+none
+
+[remove]
+none
+
+[window]
+desktop/workflowConfig/read deny host-role: the core opens the file named; only the desktop main process names a settings file (the old read was main-process only)
