@@ -1,0 +1,53 @@
+# s2b-stores -> CORE-WIRE-G2 (lead applies, then deletes this file)
+
+## native/core/crates/mixdog-connections/Cargo.toml
+
+`[dependencies]` (merge with the lines other s2b tasks add; mixdog-ssh, mixdog-core-api, mixdog-protocol and reqwest are there already):
+
+    mixdog-rt = { workspace = true }
+    mixdog-statefile = { workspace = true }
+    serde = { workspace = true }
+    serde_json = { workspace = true }
+    sha2 = { workspace = true }
+    tokio = { workspace = true, features = ["rt", "sync", "macros"] }
+    tracing = { workspace = true }
+    url = { workspace = true }
+    uuid = { workspace = true, features = ["v4"] }
+
+`[dev-dependencies]` (merge with the section other s2b tasks add):
+
+    mixdog-rt = { workspace = true, features = ["test-support"] }
+    mixdog-testkit = { workspace = true }
+    tempfile = { workspace = true }
+    tokio = { workspace = true, features = ["rt", "sync", "macros", "net", "io-util", "time"] }
+
+(`url` and `uuid` are `[workspace.dependencies]` entries already, both in the lock; `uuid` has `v4` on in mixdog-core-session. `reqwest`
+needs no `json` feature: the redeem and presence calls send and read bytes. No new crate in the lock; `cargo hakari generate` after.)
+
+## native/core/crates/mixdog-connections/src/lib.rs
+
+After `pub mod service;`:
+
+    #[cfg(test)]
+    mod stores_tests;
+
+## Calls into other tasks (names to reconcile, not edited here)
+
+host_store.rs calls `mixdog_ssh::command::parse_ssh_target(&str) -> Result<SshTarget, SshTargetError>` and reads
+`SshTarget.display` (String), `SshTarget::key()` and `SshTarget::label()` (as s2b-ssh-base defines them in command.rs).
+If that shape changes, only `target_id` in host_store.rs changes.
+
+remote_hosts.rs `fetch_host_presence` answers `HashMap<host id, bool>` (not the `HashSet<id>` the plan wrote): `false` is a
+host its relay reports offline, an absent id a relay that could not answer, as the desktop's `Map<string, boolean>` did
+(the remote window shows `online: null` for unknown).
+
+host_store.rs keeps its own `SshHostSettings` (the parse/validate of `parseHostSettings` and the file's field order live with the store
+that persists them). s2b-ssh-base lists `context::HostSettings`: the connection code should convert from `SshHostSettings` (or
+`HostSettings` should become a re-export of it) so there is one definition of the fields.
+
+Stores take the `DurabilityIo` lane token the composition root holds: `SshHostStore::load(&paths, io).await`,
+`RemoteHostStore::load(&paths, io).await`, `PortForwardStore::new(&paths, io)`, `WindowRestoreStore::new(&paths, io)`.
+
+## Registration / SERVICE_PENDING
+
+None: this task registers no protocol method and composes no service (s2b-service does).
