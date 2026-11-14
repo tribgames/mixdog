@@ -1,0 +1,20 @@
+# s3-10 core wire (applied by CORE-WIRE-G2)
+
+## native/core/crates/mixdog-tools/src/desktop/mod.rs
+After `mod computer_ocr;` add (the trait ComputerBlobs is implemented outside this crate, so the module is public):
+- `pub mod computer_pixels;`
+
+## native/core/crates/mixdog-tools/Cargo.toml
+`[dependencies]`, after `mixdog-core-api = { workspace = true }`: this crate now names `mixdog_app_protocol::v2::host::HostComputerDisplay`
+(computer_pixels.rs, computer_frames.rs, computer_env.rs). It was a dev-dependency only; mixdog-app-protocol depends on
+mixdog-js and mixdog-protocol only, so the edge makes no cycle.
+- `mixdog-app-protocol = { workspace = true }`
+Then `cargo update --workspace --offline` and `cargo hakari generate` (Cargo.lock gets the edge).
+
+## compose_flip.rs SERVICE_PENDING
+Nothing to remove: s3-10 registers no service and no protocol method.
+
+## Compose call
+None. `capture_display`, `zoom_display`, `FrameStore::assert_display_unchanged` and `desktop_bounds_env` are called by the screen capture
+path of s3-18, with a `ComputerBlobs` over the core blob store (s3-18 / s3-12). Their `expect(dead_code)` attributes (module-level in
+computer_pixels.rs, item-level in computer_frames.rs, computer_zoom.rs, computer_env.rs) are removed by that task when it calls them.
