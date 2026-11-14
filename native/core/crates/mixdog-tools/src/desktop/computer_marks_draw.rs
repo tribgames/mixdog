@@ -189,6 +189,14 @@ fn draw_mark(raster: &mut Raster, mark: &Mark, scale: (f64, f64)) {
     }
 }
 
+/// The pixels of a JPEG or PNG (by `mime`) as 8-bit RGB: width, height and the rows. For the callers that have no decoder of their own
+/// (the attachment thumbnail): the workspace has one PNG reader, this one.
+pub fn decode_rgb(image: &[u8], mime: &str) -> Result<(u32, u32, Vec<u8>), PaintError> {
+    let raster = decode(image, mime)?;
+    let side = |length: usize| u32::try_from(length).map_err(|_| PaintError::Decode("the picture is too large".to_owned()));
+    Ok((side(raster.width)?, side(raster.height)?, raster.rgb))
+}
+
 fn is_png(mime: &str) -> bool {
     mime.eq_ignore_ascii_case("image/png")
 }

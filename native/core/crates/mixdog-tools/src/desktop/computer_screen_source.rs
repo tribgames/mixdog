@@ -53,7 +53,9 @@ use super::installer::Credential;
 use super::installer::InstallState;
 use super::installer::Timers;
 use super::installer::TokioTimers;
+use super::installer_port::ChildProcesses;
 use super::installer_port::PcAccessHelper;
+use super::installer_port::ProcessRunner;
 use super::lease::Grant;
 use super::lease::HelperFrame;
 use super::lease::Listener;
@@ -191,6 +193,60 @@ pub trait ScreenIndicatorPort: Send + Sync {
     /// Whether the viewer now controls. The pill does not tell viewing from controlling, so a port may ignore it.
     fn update(&self, controlling: bool);
     fn hide(&self);
+}
+
+/// The SID of the Administrators group.
+const ADMINISTRATORS_SID: &str = "S-1-5-32-544";
+/// `whoami` is read for at most this long (`account-admin.ts`).
+const WHOAMI_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Whether `whoami /groups /fo csv /nh` output lists the Administrators group, by SID (whatever the group is called in this Windows
+/// language, enabled or for deny only: a filtered token of an administrator lists it, a standard account's lacks it); `None` when the
+/// output has no group SID at all (a failed or unrecognizable run): not known, never "not an administrator"
+/// (`groupsListAdministrators`).
+fn groups_list_administrators(csv: &str) -> Option<bool> {
+    let is_sid = |field: &str| {
+        let mut parts = field.split('-');
+        parts.next().is_some_and(|first| first.eq_ignore_ascii_case("S"))
+            && parts.next() == Some("1")
+            && parts.clone().count() >= 2
+            && parts.all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit()))
+    };
+    let sids: Vec<String> = csv
+        .lines()
+        .flat_map(|row| row.trim_end_matches('\r').split("\",\"").map(|field| field.trim_matches('"').to_owned()).collect::<Vec<_>>())
+        .filter(|field| is_sid(field))
+        .map(|field| field.to_ascii_uppercase())
+        .collect();
+    (!sids.is_empty()).then(|| sids.iter().any(|sid| sid == ADMINISTRATORS_SID))
+}
+
+/// Whether the Windows account running the core is an administrator, for the phone's Windows-password sheet (only a standard account's
+/// sheet asks for an administrator account name too): the process token's groups (`createAccountAdminCheck`). Read once per run, since
+/// the account does not change; a failed read is not kept and answers `None`, read again next time.
+pub struct AccountAdmin {
+    runner: Arc<dyn ProcessRunner>,
+    known: tokio::sync::OnceCell<bool>,
+}
+
+impl Default for AccountAdmin {
+    fn default() -> Self {
+        Self { runner: Arc::new(ChildProcesses), known: tokio::sync::OnceCell::new() }
+    }
+}
+
+impl AccountAdmin {
+    pub async fn is_admin(&self) -> Option<bool> {
+        let read = async {
+            let args = ["/groups", "/fo", "csv", "/nh"].map(str::to_owned).to_vec();
+            let exit = tokio::time::timeout(WHOAMI_TIMEOUT, self.runner.run("whoami".into(), args, None)).await.ok()?.ok()?;
+            if exit.code != 0 {
+                return None;
+            }
+            groups_list_administrators(&exit.stdout)
+        };
+        self.known.get_or_try_init(|| async { read.await.ok_or(()) }).await.ok().copied()
+    }
 }
 
 /// How a password request ended: the installer's key-change outcome name, or `busy`.
@@ -1087,6 +1143,51 @@ mod tests {
     use super::super::installer::InstallResult;
     use super::super::lease::InstallPort;
     use super::*;
+
+    struct Whoami(Mutex<Vec<Result<super::super::installer_port::Exit, String>>>);
+
+    impl ProcessRunner for Whoami {
+        fn run(&self, _program: std::path::PathBuf, _args: Vec<String>, _stdin: Option<String>) -> BoxFuture<Result<super::super::installer_port::Exit, String>> {
+            let next = self.0.lock().expect("the script").remove(0);
+            Box::pin(async move { next })
+        }
+    }
+
+    fn whoami(reads: Vec<Result<super::super::installer_port::Exit, String>>) -> AccountAdmin {
+        AccountAdmin { runner: Arc::new(Whoami(Mutex::new(reads))), known: tokio::sync::OnceCell::new() }
+    }
+
+    fn listed(csv: &str) -> Result<super::super::installer_port::Exit, String> {
+        Ok(super::super::installer_port::Exit { code: 0, stdout: csv.to_owned() })
+    }
+
+    const STANDARD: &str = "\"Everyone\",\"Well-known group\",\"S-1-1-0\",\"Mandatory group, Enabled by default, Enabled group\"\r\n\"BUILTIN\\Users\",\"Alias\",\"S-1-5-32-545\",\"Mandatory group\"\r\n";
+    const FILTERED_ADMIN: &str = "\"Everyone\",\"Well-known group\",\"S-1-1-0\",\"Mandatory group\"\r\n\"BUILTIN\\Administrators\",\"Alias\",\"S-1-5-32-544\",\"Group used for deny only\"\r\n";
+
+    #[test]
+    fn the_administrators_group_is_found_by_its_sid_in_any_state_and_unreadable_output_is_unknown() {
+        assert_eq!(groups_list_administrators(FILTERED_ADMIN), Some(true));
+        assert_eq!(groups_list_administrators(&FILTERED_ADMIN.replace("S-1-5-32-544", "s-1-5-32-544")), Some(true));
+        assert_eq!(groups_list_administrators(STANDARD), Some(false));
+        assert_eq!(groups_list_administrators(""), None);
+        assert_eq!(groups_list_administrators("ERROR: access denied"), None);
+    }
+
+    #[tokio::test]
+    async fn the_account_check_is_read_once_and_a_failed_read_is_read_again() {
+        let admin = whoami(vec![Err("not started".to_owned()), listed("garbage"), listed(FILTERED_ADMIN)]);
+        assert_eq!(admin.is_admin().await, None);
+        assert_eq!(admin.is_admin().await, None);
+        assert_eq!(admin.is_admin().await, Some(true));
+        // Known now: the script has nothing left to read.
+        assert_eq!(admin.is_admin().await, Some(true));
+    }
+
+    #[tokio::test]
+    async fn a_whoami_that_fails_is_not_an_answer() {
+        let admin = whoami(vec![Ok(super::super::installer_port::Exit { code: 1, stdout: STANDARD.to_owned() })]);
+        assert_eq!(admin.is_admin().await, None);
+    }
 
     fn done<T: Send + 'static>(value: T) -> BoxFuture<T> {
         Box::pin(async move { value })
