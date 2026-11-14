@@ -7,6 +7,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::OnceLock;
+use std::sync::Weak;
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -25,6 +26,7 @@ use mixdog_browser_engine::types::FileFacts;
 use mixdog_browser_policy::url_policy::UrlPolicy;
 use mixdog_core::run_host::compose_parts::LateDirectory;
 use mixdog_core::run_host::mcp_seams::AllowAllActions;
+use mixdog_core::run_host::run_approvals::RunApprovals;
 use mixdog_core_api::HostCapability;
 use mixdog_core_api::domain::approval::ApprovalGate;
 use mixdog_core_api::ids::ConnectionId;
@@ -168,6 +170,45 @@ impl ClaimantProbe for OutgoingClaimants {
     }
 }
 
+/// The approval gate of every run, remembered while the run holds it: `RunApprovals` in front of the held-request layer, which
+/// keeps the gate each run's policy gate asks through (the run's session port or the held hold in front of it) for as long as the
+/// run lives. A command no tool call made reaches the card of the turn its session is running through [`RunGates::live`].
+pub struct RunGates {
+    inner: Arc<dyn RunApprovals>,
+    gates: std::sync::Mutex<std::collections::HashMap<ThreadId, Vec<Weak<dyn ApprovalGate>>>>,
+}
+
+impl RunGates {
+    pub fn new(inner: Arc<dyn RunApprovals>) -> Self {
+        Self { inner, gates: Default::default() }
+    }
+
+    /// The newest gate of `thread` whose run still holds it.
+    pub fn live(&self, thread: &ThreadId) -> Option<Arc<dyn ApprovalGate>> {
+        let mut gates = self.gates.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let held = gates.get_mut(thread)?;
+        held.retain(|gate| gate.strong_count() > 0);
+        let live = held.iter().rev().find_map(Weak::upgrade);
+        if held.is_empty() {
+            gates.remove(thread);
+        }
+        live
+    }
+}
+
+impl RunApprovals for RunGates {
+    fn gate_for(&self, thread: &ThreadId, own: Arc<dyn ApprovalGate>) -> Arc<dyn ApprovalGate> {
+        let gate = self.inner.gate_for(thread, own);
+        let mut gates = self.gates.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        gates.retain(|_, held| {
+            held.retain(|gate| gate.strong_count() > 0);
+            !held.is_empty()
+        });
+        gates.entry(thread.clone()).or_default().push(Arc::downgrade(&gate));
+        gate
+    }
+}
+
 /// What a Browser Use card is decided and named by: the session's life mark, the "Allow all actions" option, the session's
 /// allowances (the one registry the sessions' gates read), the requester's name, and the human-only hold of the card.
 pub struct BrowserApprovalContext {
@@ -178,6 +219,8 @@ pub struct BrowserApprovalContext {
     pub names: Arc<dyn MemberNames>,
     /// The session catalog, bound once it is opened (after the engine is built); unbound, the card is raised unnamed.
     pub catalog: Arc<OnceLock<Arc<mixdog_store::sqlite::SqliteStore>>>,
+    /// The approval gates of the runs under way: where a command no tool call made raises its card.
+    pub run_gates: Arc<RunGates>,
 }
 
 impl BrowserApprovalContext {
@@ -224,9 +267,11 @@ impl ApprovalContext for BrowserApprovalContext {
     }
 
     /// A browser tool call raises its card through the call's own gate (`BrowserTool::call` runs inside `with_call_approvals`); a
-    /// command no tool call made has no gate.
-    fn session_gate(&self, _thread: &ThreadId) -> Option<Arc<dyn ApprovalGate>> {
-        None
+    /// command no tool call made (a bridge command) raises it on the session's running turn, where that session's own card of the
+    /// turn is shown. A session with no loaded thread or no turn under way has none.
+    fn session_gate(&self, thread: &ThreadId) -> Option<Arc<dyn ApprovalGate>> {
+        self.late.live_header(thread.as_str())?;
+        self.run_gates.live(thread)
     }
 
     fn hold_card(&self, request_id: &str, thread: &ThreadId) -> CardHold {
@@ -423,5 +468,68 @@ mod turn_tests {
         let release = EngineSessionRelease::new(Arc::new(Shells(log.clone())), Arc::new(Events(log.clone())));
         release.cancel_owned(&ThreadId::from("s1"));
         assert_eq!(*log.0.lock().unwrap(), ["cancel s1", "session s1"]);
+    }
+}
+
+#[cfg(test)]
+mod run_gate_tests {
+    use mixdog_core_api::domain::approval::ApprovalAsk;
+    use mixdog_protocol::ApprovalResolution;
+
+    use super::*;
+
+    struct Cards(std::sync::Mutex<Vec<String>>);
+
+    #[async_trait]
+    impl ApprovalGate for Cards {
+        async fn request(&self, ask: ApprovalAsk) -> ApprovalResolution {
+            self.0.lock().unwrap().push(ask.tool.unwrap_or_default());
+            ApprovalResolution::Cancelled { at: 0 }
+        }
+    }
+
+    struct Passes;
+
+    impl RunApprovals for Passes {
+        fn gate_for(&self, _: &ThreadId, own: Arc<dyn ApprovalGate>) -> Arc<dyn ApprovalGate> {
+            own
+        }
+    }
+
+    fn ask() -> ApprovalAsk {
+        ApprovalAsk {
+            kind: mixdog_core_api::domain::approval::ApprovalKind::Browser,
+            call_id: None,
+            tool: Some("browser".to_owned()),
+            action_kind: None,
+            reason: None,
+            payload: serde_json::Value::Null,
+            remember: Vec::new(),
+            expires_after: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_command_no_tool_call_made_asks_through_the_gate_of_the_running_turn_and_none_after_it() {
+        let gates = RunGates::new(Arc::new(Passes));
+        let (s1, s2) = (ThreadId::from("s1"), ThreadId::from("s2"));
+        let cards = Arc::new(Cards(Default::default()));
+        let run = gates.gate_for(&s1, cards.clone());
+        assert!(gates.live(&s2).is_none());
+        gates.live(&s1).expect("the turn is running").request(ask()).await;
+        assert_eq!(*cards.0.lock().unwrap(), ["browser"]);
+        drop(run);
+        drop(cards);
+        assert!(gates.live(&s1).is_none());
+    }
+
+    #[test]
+    fn the_newest_live_gate_of_a_session_is_the_one_asked() {
+        let gates = RunGates::new(Arc::new(Passes));
+        let s1 = ThreadId::from("s1");
+        let (older, newer) = (Arc::new(Cards(Default::default())), Arc::new(Cards(Default::default())));
+        let (_a, _b) = (gates.gate_for(&s1, older.clone()), gates.gate_for(&s1, newer.clone()));
+        let live = gates.live(&s1).unwrap();
+        assert!(std::ptr::addr_eq(Arc::as_ptr(&live), Arc::as_ptr(&newer)));
     }
 }
