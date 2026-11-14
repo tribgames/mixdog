@@ -1,7 +1,8 @@
 //! Who is asked about a Browser Use submit, post or upload, and what answers it without asking: the engine's [`ApprovalPort`] over
 //! the core's one approval path. The card is `item/browser/requestApproval` raised through the asking turn's approval gate
 //! (`orch::service::call_approvals`, else the session's own gate), the standing allows, the saved `block`s, the "Allow all
-//! actions" option and the session's allowances are read through `policy::gate::decide` per kind of step, and the card holds the
+//! actions" option and the session's allowances are read straight from the grant store and the session's registry per kind of step
+//! (one audit line per kind for the verdict the step ends in; a failed audit write decides nothing), and the card holds the
 //! human-only lock for as long as it is open.
 //!
 //! Outcome parity with the desktop's `approval-dialog.ts` for the same caller: a session that is no bot's own runs unasked; a bot's
@@ -69,7 +70,8 @@ pub const BLOCKED_BY_PERMISSION: &str = "Browser Use step blocked by this bot's 
 const NO_APPROVAL_SURFACE: &str = "approval required but no approval UI is available";
 /// What the person is told when an "always" allow could not be saved: the step ran once and the next one asks again.
 pub const SAVE_FAILED_NOTICE: &str = "Allowed this once. The setting could not be saved.";
-/// The longest denial note that reaches the agent (`approval-dialog.ts`: `reason.trim().slice(0, 4_000)`).
+/// The longest denial note that reaches the agent, in UTF-16 units as JavaScript counts them (`approval-dialog.ts`:
+/// `reason.trim().slice(0, 4_000)`).
 const NOTE_LIMIT: usize = 4_000;
 
 /// The human-only lock held while a card is open: released when this is dropped.
@@ -130,9 +132,22 @@ fn action_kind_of(kind: BrowserApprovalRememberKind) -> Option<ActionKind> {
     }
 }
 
-/// The person's note of a denial as the agent gets it: trimmed, and cut to [`NOTE_LIMIT`] characters.
+/// The person's note of a denial as the agent gets it: trimmed, and cut to [`NOTE_LIMIT`] UTF-16 units (a pair the cut would split
+/// is left out whole).
 fn note_of(reason: Option<&str>) -> String {
-    reason.map(|reason| reason.trim().chars().take(NOTE_LIMIT).collect()).unwrap_or_default()
+    let mut units = 0;
+    reason
+        .map(|reason| {
+            reason
+                .trim()
+                .chars()
+                .take_while(|c| {
+                    units += c.len_utf16();
+                    units <= NOTE_LIMIT
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// What the policy makes of a step.
@@ -929,14 +944,14 @@ mod tests {
         assert!(rig.ask(step(MARKETER, &[Submit, Post]), decided(false, None, None)).await.0);
         assert_eq!(rig.decisions(), ["deny", "deny"], "only the answer of the card is audited");
         // A block with the option off asks, and writes no "blocked" line.
-        let rig = rig();
-        rig.allow("marketer", ActionKind::BrowserPost, PermissionMode::Block);
-        assert!(rig.ask(step(MARKETER, &[Post]), decided(false, None, None)).await.0);
-        assert_eq!(rig.decisions(), ["deny"]);
+        let blocking = self::rig();
+        blocking.allow("marketer", ActionKind::BrowserPost, PermissionMode::Block);
+        assert!(blocking.ask(step(MARKETER, &[Post]), decided(false, None, None)).await.0);
+        assert_eq!(blocking.decisions(), ["deny"]);
         // With the option on, a block refuses with one "blocked" line per kind and no "dev-allow-all" line.
-        rig.ctx.allow_all.store(true, Ordering::SeqCst);
-        assert!(rig.ask(step(MARKETER, &[Submit, Post]), decided(false, None, None)).await.1.is_err());
-        assert_eq!(rig.decisions(), ["deny", "blocked", "blocked"]);
+        blocking.ctx.allow_all.store(true, Ordering::SeqCst);
+        assert!(blocking.ask(step(MARKETER, &[Submit, Post]), decided(false, None, None)).await.1.is_err());
+        assert_eq!(blocking.decisions(), ["deny", "blocked", "blocked"]);
     }
 
     #[tokio::test]
@@ -955,6 +970,8 @@ mod tests {
         let long = format!("  {}  ", "\u{ac00}".repeat(4_500));
         let (_, denied) = rig.ask(step(MARKETER, &[Submit]), decided(false, None, Some(long.as_str()))).await;
         assert_eq!(denied.unwrap(), ApprovalAnswer::Deny { reason: "\u{ac00}".repeat(4_000) });
+        let (_, paired) = rig.ask(step(MARKETER, &[Submit]), decided(false, None, Some("\u{1f600}".repeat(2_001).as_str()))).await;
+        assert_eq!(paired.unwrap(), ApprovalAnswer::Deny { reason: "\u{1f600}".repeat(2_000) }, "counted in UTF-16 units");
         let (_, padded) = rig.ask(step(MARKETER, &[Submit]), decided(false, None, Some("  no  \n"))).await;
         assert_eq!(padded.unwrap(), ApprovalAnswer::Deny { reason: "no".to_owned() });
     }
