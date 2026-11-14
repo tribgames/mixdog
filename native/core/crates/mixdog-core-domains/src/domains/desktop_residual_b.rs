@@ -700,8 +700,12 @@ fn remove_tree(path: &Path) -> std::io::Result<()> {
 pub fn write_user_file(lane: &InLane<DurabilityIo>, path: &Path, data: &[u8]) -> Result<(), String> {
     let target = match std::fs::canonicalize(path) {
         Ok(target) => target,
+        // A new file takes the ordinary creation mode (0o666 minus the umask), not the owner-only mode of a state file.
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return write_atomic(lane, path, data, false).map_err(|failure| format!("{}: {}", path.display(), failure.error));
+            let opts = mixdog_statefile::Opts { mode: 0o666, ..mixdog_statefile::Opts::default() };
+            return mixdog_statefile::write_file_stepped(lane, path, data, &opts)
+                .map(drop)
+                .map_err(|failure| format!("{}: {}", path.display(), failure.error));
         }
         Err(error) => return Err(format!("{}: {error}", path.display())),
     };
@@ -869,8 +873,12 @@ impl InputAccessRequests {
                 pending
             }
         };
-        let result = pending.await;
-        *self.in_flight.lock().unwrap_or_else(PoisonError::into_inner) = None;
+        let result = pending.clone().await;
+        // Only this repair's slot is cleared: a waiter that resumes late must not clear a newer repair's slot.
+        let mut slot = self.in_flight.lock().unwrap_or_else(PoisonError::into_inner);
+        if slot.as_ref().is_some_and(|current| current.ptr_eq(&pending)) {
+            *slot = None;
+        }
         result
     }
 }

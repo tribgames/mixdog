@@ -470,6 +470,8 @@ fn job(id: &str, seq: u64, state: &str, processed: u64) -> Value {
 
 #[tokio::test]
 async fn a_changed_job_is_published_once_and_polled_while_it_runs() {
+    // The poll runs as a mixdog-rt task: the test backend must be installed.
+    mixdog_rt::testing::tokens();
     let source = Arc::new(Jobs { jobs: Mutex::new(vec![]), published: Mutex::new(vec![]), fail: AtomicBool::new(false) });
     let progress = ImportProgress::new(source.clone(), Duration::from_millis(20));
     let published = || source.published.lock().unwrap().len();
@@ -526,6 +528,8 @@ fn the_leg_redials_when_the_network_returns_or_changes_while_online() {
 
 #[tokio::test]
 async fn the_watcher_fires_on_a_change_and_stops() {
+    // The poll runs as a mixdog-rt task: the test backend must be installed.
+    mixdog_rt::testing::tokens();
     let current = Arc::new(Mutex::new(NetworkSnapshot { online: true, signature: "a".to_owned() }));
     let fired = Arc::new(AtomicUsize::new(0));
     let watcher = NetworkWatcher::start(
