@@ -14,6 +14,7 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use mixdog_core_api::CoreError;
 use mixdog_core_api::HostCapability;
 use mixdog_core_api::HostChannel;
 use mixdog_core_api::HostError;
@@ -157,16 +158,16 @@ impl DesktopHostBackend {
     async fn post(&self, command: Map<String, Value>, cancel: &CancellationToken, timeout: Duration) -> Result<Posted, ComputerError> {
         let uncertain = may_have_executed(&command);
         let params = json!({ "sessionThreadId": self.session_id, "command": command });
+        let timed_out = || if uncertain { uncertain_mutation() } else { reported("Error: computer bridge timed out") };
         let asked = tokio::time::timeout(timeout, self.desktop.request_scoped(HostCapability::Computer, Method(METHOD), params, cancel)).await;
-        let answer = match asked {
-            Err(_) => return Err(if uncertain { uncertain_mutation() } else { reported("Error: computer bridge timed out") }),
-            Ok(answer) => answer,
-        };
+        let Ok(answer) = asked else { return Err(timed_out()) };
         match answer {
             Ok(body) => self.read_body(&body, uncertain).await,
             Err(_) if cancel.is_cancelled() => Err(ComputerError::Cancelled),
             Err(HostError::Rpc { code: METHOD_NOT_FOUND, .. }) => Err(bridge_unavailable()),
             Err(HostError::Rpc { message, .. }) => Ok(Posted::Refused(message)),
+            // The channel's own deadline for the computer capability is the client's request timeout.
+            Err(HostError::Core(CoreError::CapabilityUnavailable { detail, .. })) if &*detail == "timedOut" => Err(timed_out()),
             Err(HostError::Core(_)) => Err(if uncertain { uncertain_mutation() } else { bridge_unavailable() }),
         }
     }
@@ -494,7 +495,7 @@ fn canonical_text(reply: &str, action: &str, input: &Value) -> String {
         }
         if fields.get("ok") == Some(&Value::Bool(false))
             && !fields.contains_key("recovery")
-            && let Some(found) = result_recovery(fields, input)
+            && let Some(found) = result_recovery(fields, action, input)
         {
             fields.insert("recovery".into(), json!({ "code": found.0, "next": found.1, "guidance": found.2 }));
         }
@@ -518,7 +519,8 @@ fn canonicalize_act(value: &mut Map<String, Value>, input: &Value) {
     let step = |index: usize, row: &Value| {
         let mut normalized = row.as_object().cloned().unwrap_or_default();
         let named = input.get("actions").and_then(|actions| actions.get(index)).and_then(|row| row.get("type")).filter(|kind| truthy(kind));
-        match named.or_else(|| normalized.get("action").filter(|kind| truthy(kind))).cloned() {
+        // `type || action`: the step's own action, whatever it is, when the call named none.
+        match named.or_else(|| normalized.get("action")).cloned() {
             Some(kind) => {
                 normalized.insert("type".into(), kind);
             }
@@ -672,7 +674,7 @@ fn render_observation_lines(frame: &mut Map<String, Value>) {
         {
             *added = added.iter().map(element_line).collect();
         }
-        if truthy(delta) {
+        if delta.is_object() || delta.is_array() {
             // The delta already says what changed; the host's count summary repeats it.
             frame.shift_remove("changes");
         }
@@ -687,7 +689,7 @@ fn render_observation_lines(frame: &mut Map<String, Value>) {
 }
 
 /// `computerResultRecovery`: the recovery of an `ok:false` reply that names its code.
-fn result_recovery(result: &Map<String, Value>, input: &Value) -> Option<(String, &'static str, String)> {
+fn result_recovery(result: &Map<String, Value>, action: &str, input: &Value) -> Option<(String, &'static str, String)> {
     let code = result.get("code").filter(|code| truthy(code)).map(value_to_string).unwrap_or_default();
     let flag = |key: &str| result.get(key) == Some(&Value::Bool(true));
     let label = || {
@@ -714,8 +716,9 @@ fn result_recovery(result: &Map<String, Value>, input: &Value) -> Option<(String
     if let Some((next, guidance)) = found {
         return Some((code, next, guidance));
     }
-    // The remaining categories are the code's own: the same table that words a failed call's recovery.
-    let recovery = tool_error_recovery(&format!("{}:", code.to_lowercase()), &json!({ "action": "", "input": input }))?;
+    // The remaining categories are the code's own: the same table that words a failed call's recovery (a timeout of a
+    // read-only action reads the call's action).
+    let recovery = tool_error_recovery(&format!("{}:", code.to_lowercase()), &json!({ "action": action, "input": input }))?;
     Some((recovery.code, recovery.next, recovery.guidance))
 }
 
@@ -772,11 +775,12 @@ impl ComputerBackend for DesktopHostBackend {
             return Err(reported("Error: computer request exceeds byte limit; no input was dispatched"));
         }
         self.bound.store(true, Ordering::SeqCst);
-        let posted = match self.post(command.clone(), &cancel, REQUEST_TIMEOUT).await {
-            Err(ComputerError::Cancelled) => return Err(self.aborted(&command).await),
-            Err(error) => return Err(error),
-            Ok(posted) => posted,
-        };
+        let posted = self.post(command.clone(), &cancel, REQUEST_TIMEOUT).await;
+        // A call cancelled while its request was out ends as aborted, whatever came back (`readComputerBridgeBody`).
+        if cancel.is_cancelled() {
+            return Err(self.aborted(&command).await);
+        }
+        let posted = posted?;
         let action = request.action.wire_name();
         match posted {
             Posted::Refused(message) => Err(self.refused(message, &request, &cancel).await),
@@ -819,7 +823,6 @@ mod tests {
     use std::collections::VecDeque;
     use std::sync::Mutex;
 
-    use mixdog_core_api::CoreError;
     use mixdog_core_api::domain::computer::ComputerAction;
 
     use super::*;
@@ -827,6 +830,7 @@ mod tests {
     enum Answer {
         Reply(Value),
         Rpc(i64, &'static str),
+        Unavailable(&'static str),
         Hang,
     }
 
@@ -855,6 +859,9 @@ mod tests {
             match answer {
                 Some(Answer::Reply(value)) => Ok(value),
                 Some(Answer::Rpc(code, message)) => Err(HostError::Rpc { code, message: message.into(), data: None }),
+                Some(Answer::Unavailable(detail)) => {
+                    Err(HostError::Core(CoreError::CapabilityUnavailable { capability: "desktopHost".into(), detail: detail.into() }))
+                }
                 Some(Answer::Hang) => std::future::pending().await,
                 None => Err(HostError::Core(CoreError::CapabilityUnavailable { capability: "desktopHost".into(), detail: "noClaimant".into() })),
             }
@@ -991,6 +998,17 @@ mod tests {
         let host = FakeHost::new(vec![]);
         let click = ComputerRequest { action: ComputerAction::Window, input: json!({ "window_id": "hwnd:0x2", "operation": "focus" }) };
         let (_, message) = failure(backend(&host).run(click, CancellationToken::new()).await.unwrap_err());
+        assert!(message.contains("may have executed and was not replayed"));
+    }
+
+    #[tokio::test]
+    async fn the_channels_deadline_is_the_clients_timeout() {
+        let host = FakeHost::new(vec![Answer::Unavailable("timedOut")]);
+        let (_, message) = failure(backend(&host).run(capture(), CancellationToken::new()).await.unwrap_err());
+        assert_eq!(message, "Error: computer bridge timed out");
+        let host = FakeHost::new(vec![Answer::Unavailable("timedOut")]);
+        let focus = ComputerRequest { action: ComputerAction::Window, input: json!({ "window_id": "hwnd:0x2", "operation": "focus" }) };
+        let (_, message) = failure(backend(&host).run(focus, CancellationToken::new()).await.unwrap_err());
         assert!(message.contains("may have executed and was not replayed"));
     }
 
