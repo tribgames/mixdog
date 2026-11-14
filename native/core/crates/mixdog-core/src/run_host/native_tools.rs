@@ -304,7 +304,7 @@ impl ComputerPresence {
             lane: None,
             backend: mixdog_protocol::ComputerBackendSection::Helper,
             cleanup_state: mixdog_protocol::ComputerCleanupState::Ready,
-            idle_resume_seconds: 5,
+            idle_resume_seconds: self.control.idle_resume_seconds(),
         };
         self.publisher.publish(SectionName::Computer, None, change_of(&section));
     }

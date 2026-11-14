@@ -4044,6 +4044,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "mixdog-askpass"
+version = "1.5.0"
+
+[[package]]
+name = "mixdog-browser-engine"
+version = "1.5.0"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "mixdog-app-protocol",
+ "mixdog-browser-policy",
+ "mixdog-core-api",
+ "mixdog-protocol",
+ "mixdog-rt",
+ "mixdog-testkit",
+ "mixdog-workspace-hack",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "mixdog-browser-policy"
 version = "1.5.0"
 dependencies = [
@@ -4328,6 +4350,7 @@ dependencies = [
  "mixdog-agent",
  "mixdog-ai",
  "mixdog-app-protocol",
+ "mixdog-app-server",
  "mixdog-core-api",
  "mixdog-core-base",
  "mixdog-core-config",
@@ -4338,6 +4361,7 @@ dependencies = [
  "mixdog-js",
  "mixdog-ledger",
  "mixdog-mcp",
+ "mixdog-migrate",
  "mixdog-protocol",
  "mixdog-remote",
  "mixdog-rt",
@@ -5374,6 +5398,9 @@ dependencies = [
  "crossbeam-channel",
  "flate2",
  "grep",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
  "ignore",
  "libc",
  "mixdog-app-protocol",

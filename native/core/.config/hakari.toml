@@ -33,3 +33,8 @@ platforms = [
 third-party = [
     { name = "fancy-regex", path = "vendor/fancy-regex" },
 ]
+
+# mixdog-askpass is the std-only SSH_ASKPASS helper binary (s2b-scaffold): it shares no dependency with the workspace,
+# so it does not take the workspace-hack (a -p build of it would otherwise compile the whole unified graph).
+[final-excludes]
+workspace-members = ["mixdog-askpass"]

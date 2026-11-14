@@ -22,6 +22,7 @@ members = [
     "crates/mixdog-testkit",
     "crates/mixdog-js",
     "crates/mixdog-browser-policy",
+    "crates/mixdog-browser-engine",
     "crates/mixdog-trace",
     "crates/mixdog-statefile",
     "crates/mixdog-store",
@@ -56,6 +57,7 @@ members = [
     "crates/mixdog-app-server-transport",
     "crates/mixdog-app-server-daemon",
     "crates/mixdog-app-server-client",
+    "crates/mixdog-askpass",
     "crates/mixdog-cli",
     "crates/mixdog-workspace-hack",
 ]
@@ -116,6 +118,7 @@ mixdog-fsio = { path = "crates/mixdog-fsio" }
 mixdog-testkit = { path = "crates/mixdog-testkit" }
 mixdog-js = { path = "crates/mixdog-js" }
 mixdog-browser-policy = { path = "crates/mixdog-browser-policy" }
+mixdog-browser-engine = { path = "crates/mixdog-browser-engine" }
 mixdog-trace = { path = "crates/mixdog-trace" }
 # The patch engine Node runs, linked as a library (WP-TOOLS-FS apply_patch). Default features off:
 # the Windows version resource belongs to the standalone helper executable, not to the core.

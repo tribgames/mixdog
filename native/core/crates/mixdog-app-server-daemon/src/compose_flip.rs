@@ -40,10 +40,6 @@ const SERVICE_PENDING: &[&str] = &[
     "projectFs/grant/redeem",
     "projectFs/localPage/revokeOwner",
     "projectFs/localPage/origin",
-    // pcAccess: the domain is built; its registration waits for the production secure-desktop installer
-    // (native/core/crates/pending-wire/deferred-g1.md).
-    "pcAccess/readiness",
-    "pcAccess/approve",
     // s4-core-events-service (wave 5) / CORE-WIRE-G7: the browser engine composed into mixdogd.
     "test/browserEngine/run",
     "host/browser/events",
@@ -51,9 +47,6 @@ const SERVICE_PENDING: &[&str] = &[
     "host/browser/userInput",
     // s2b-service (wave 9): the connections service (window host notification included).
     "host/window/closed",
-    // x-migrate-adopt-core / CORE-WIRE-G2 (wave 2): MigrateProfileService.
-    "migrate/profile/status",
-    "migrate/profile/adopt",
     // s3-08 / s3-19 (wave 3): ComputerPointerService over the pool's pointer hold.
     "computer/pointerReleased",
     // s3-13 / s3-19 (wave 3): DevComputerRun, registered only by a `test-hooks` build started with MIXDOGD_TEST_HOOKS=1.
@@ -1514,6 +1507,24 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         pool.attach_desktop(b.host.clone());
     }
     late_computer_hosts.bind(computer_pool.clone()).map_err(|_| ComposeError::AlreadyBound("computer hosts"))?;
+    {
+        // GNOME window control comes from Mixdog's own shell extension: keep it installed and enabled exactly while Computer Use
+        // is on (port of the desktop's applyGnomeExtensionSetting; a no-op off GNOME).
+        let (config, manager, cancel) = (config.clone(), b.process_manager.clone(), b.cancel.clone());
+        let mut changes = config.changes();
+        tokio::spawn(async move {
+            use mixdog_tools::desktop::computer_gnome_extension::{apply_gnome_extension, bundled_dir};
+            let exe_dir = std::env::current_exe().ok().and_then(|exe| exe.parent().map(std::path::Path::to_path_buf)).unwrap_or_default();
+            loop {
+                let enabled = config.desktop_settings().computer_control;
+                let env: mixdog_tools::desktop::computer_linux::Env = std::env::vars().collect();
+                apply_gnome_extension(manager.clone(), enabled, &env, bundled_dir(&env, &exe_dir).as_deref(), &cancel).await;
+                if !matches!(cancel.run_until_cancelled(changes.changed()).await, Some(Ok(()))) {
+                    break;
+                }
+            }
+        });
+    }
     // Directory-side inputs of the pool, bound after `TurnPath::new` (true cycles, `flip-brief.md`): the `call_tool` dispatcher resolves through the pool it sits in, the session catalog reads the surface
     // host that holds the pool, the react tool's reactions open threads on the directory, and the `agent` tool needs the `AgentPort` of `assemble(AgentParts{..})` (flip-agent-worlds-15 `LateAgentPort`).
     let late_dispatcher = Arc::new(crate::late_session::LateDispatcher::default());
@@ -2780,6 +2791,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         }))
         .map_err(|_| ComposeError::AlreadyBound("device cleanup"))?;
     builder.register(workspace.clone() as Arc<dyn mixdog_core_api::service::DomainService>)?;
+    builder.register(Arc::new(mixdog_core_domains::domains::migrate_profile::MigrateProfileService::new(b.data_dir.clone(), mixdog_home.clone(), &b.tokens)))?; // `migrate/profile/*`
     // A phone's pages: a registered project's entry or its device's granted file (the workspace's catalog and grant
     // store), or a visualize pane's own file (the tabs the desktop set).
     builder.register(Arc::new(
@@ -2803,6 +2815,20 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         built_remote.runtime.clone(),
         built_remote.registry.clone(),
         domain_inputs.scopes.scopes("remoteAccess").map_err(ComposeError::ComposeDomains)?,
+    )))?;
+    // PC access: the one secure-desktop installer over the bridge executable (Node: `secureDesktopExePath`: `native-tools/` of the package, else the crate's release build).
+    let secure_desktop_exe = {
+        let exists = mixdog_core::run_host::native_tools::FileServiceExists { files: b.files.clone(), lane: b.tokens.interactive_io };
+        let packaged = b.package_root.join("native-tools").join("mixdog-secure-desktop.exe");
+        if mixdog_core::run_host::native_tools::PathExists::exists(&exists, &packaged).await {
+            packaged
+        } else {
+            b.package_root.join("native").join("mixdog-secure-desktop").join("target").join("release").join("mixdog-secure-desktop.exe")
+        }
+    };
+    builder.register(Arc::new(mixdog_core_domains::domains::pc_access::PcAccessService::new(
+        mixdog_core_domains::domains::pc_access_installer::production_installer(secure_desktop_exe),
+        Arc::new(mixdog_core_domains::domains::pc_access::RuntimeRoster(built_remote.runtime.clone())),
     )))?;
     builder.register(screen.clone())?;
     builder.register(Arc::new(mixdog_core_domains::notify::timeline::ConnectionTimeline::new(built_remote.registry.clone(), {

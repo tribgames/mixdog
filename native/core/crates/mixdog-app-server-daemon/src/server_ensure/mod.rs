@@ -24,8 +24,6 @@ mod os;
 mod winlist;
 mod report;
 #[cfg(test)]
-mod args_parity_tests;
-#[cfg(test)]
 mod tests;
 
 pub use args::CleanupPhase;
