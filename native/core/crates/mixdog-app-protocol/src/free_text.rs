@@ -177,6 +177,11 @@ pub static FREE_TEXT: &[(Kind, &str, &[&str])] = &[
     (Kind::Answer, "host/screen/displays", &["/*/label"]),
     // The text of a Computer Use screen capture reply: the model reads it as the tool's result.
     (Kind::Answer, "host/computer/capture", &["/text"]),
+    // A window's title as the desktop reports it, a bridge reply's text and error: the model reads them as the tool's result.
+    (Kind::Answer, "host/computer/appWindows", &["/windows/*/title"]),
+    (Kind::Answer, "host/computer/command", &["/text", "/error"]),
+    // The Computer Use command the live harness sends (dev/computer/run, a test hook): its text and keys are what the model typed.
+    (Kind::Request, "dev/computer/run", &["/command/**"]),
     // What a human-only hold is for: the model reads it in Computer Use's refusal.
     (Kind::Request, "host/humanOnly/begin", &["/label"]),
     // Language-server params, per field (tests/it/free_text_fields.json `payloads` lsp/request): document text, messages,
