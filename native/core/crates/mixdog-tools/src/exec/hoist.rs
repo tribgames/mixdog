@@ -50,8 +50,7 @@ impl ExtSyntax {
 impl ScriptSyntax for ExtSyntax {
     async fn compiles_as_commonjs(&self, _thread: &ThreadId, body: &str) -> Result<bool, ExtError> {
         // The wrapper is Node's `nodeBodyNeedsModuleSyntax`.
-        let source = format!("(function (exports, require, module, __filename, __dirname) {{{body}
-}})");
+        let source = format!("(function (exports, require, module, __filename, __dirname) {{{body}\n}})");
         Ok(mixdog_jssyntax::check_commonjs_script(&source).is_ok())
     }
 }
