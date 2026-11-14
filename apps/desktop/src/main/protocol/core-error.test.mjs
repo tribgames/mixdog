@@ -3,8 +3,9 @@ import test from 'node:test';
 
 import { ipcErrorEnvelope, ipcErrorFromEnvelope } from '../../shared/coded-error.ts';
 import { worktreeFailure } from '../../renderer/worktree-branch-model.ts';
-import { worktreeErrorWithCode } from '../worktree-validation.ts';
-import { coreErrorForWindow } from './core-error.ts';
+import { createCapabilityLane } from '../../shared/core-lanes/capability-route.ts';
+import { coreErrorForWindow } from '../../shared/core-lanes/core-error.ts';
+import { worktreeErrorWithCode } from '../../shared/worktree-error.ts';
 
 // The client library's failure shape: `message` is `<code> <reason> <jsonrpc message>`, `detail.data` the ErrorData.
 const rpcFailure = (data) =>
@@ -126,4 +127,27 @@ test('a coded refusal of another family goes through the IPC envelope with its c
   const rebuilt = ipcErrorFromEnvelope(ipcErrorEnvelope(shown));
   assert.equal(rebuilt.code, 'PROJECT_UNAVAILABLE');
   assert.equal(rebuilt.message, 'Project is not registered.');
+});
+
+test('a window call that the core refuses with a plain-Error text rejects with that text', async () => {
+  const failure = rpcFailure({
+    reason: 'domainError',
+    domain: 'update',
+    message: 'update check failed: offline',
+  });
+  const lane = createCapabilityLane({
+    protocol: {
+      snapshot: () => ({ status: 'ready', entries: [] }),
+      noteUserInput() {},
+      respond() {},
+      pendingServerRequests: () => [],
+      onEvent: () => () => {},
+      call: async () => {
+        throw failure;
+      },
+    },
+  });
+  await assert.rejects(lane.invoke('getLeadStatus', [], undefined), {
+    message: 'update check failed: offline',
+  });
 });

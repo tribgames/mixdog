@@ -1,57 +1,49 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { DESKTOP_IPC } from '../shared/contract.ts';
-import { registerWindowSettingsIpc } from './ipc-window-settings.ts';
+import { HOST_EXTRAS_IPC, registerHostExtrasIpc } from './ipc-host-extras.ts';
 
-function setup(withPc) {
+// A quota answer of null means "not this PC's quota": the caller sends the call to the window's own host.
+function extras({ pcHost } = {}) {
   const handlers = new Map();
-  const calls = [];
-  const service = (name) => ({
-    invokeCapability: async (capability, args, sessionId) => {
-      calls.push([name, 'invoke', capability, sessionId]);
-      return { value: `${name}:${capability}` };
-    },
-    readCapabilities: async (requests) =>
-      requests.map((request) => {
-        calls.push([name, 'read', request.capability]);
-        return { ok: true, value: `${name}:${request.capability}` };
-      }),
-    getSnapshot: () => ({}),
-  });
-  registerWindowSettingsIpc({
-    window: { webContents: { setZoomFactor() {}, send() {} }, setTitleBarOverlay() {} },
-    app: {},
-    host: service('server'),
-    ...(withPc ? { pcHost: service('pc') } : {}),
+  registerHostExtrasIpc({
     handle: (channel, handler) => handlers.set(channel, handler),
-    invokeDesktopOperation: async () => undefined,
-    readsLocalOnboardingStatus: false,
+    removeHandler: (channel) => handlers.delete(channel),
+    host: { invokeCapability: async () => ({}) },
+    pcHost,
+    confirmAllowAllActions: async () => false,
+    signInFocus: null,
   });
-  return { handlers, calls };
+  return {
+    invoke: (input) => handlers.get(HOST_EXTRAS_IPC.pcQuotaInvoke)({}, input),
+    read: (input) => handlers.get(HOST_EXTRAS_IPC.pcQuotaRead)({}, input),
+  };
 }
 
+const pcService = (extra = {}) => ({
+  invokeCapability: async (capability) => ({ value: `pc:${capability}` }),
+  readCapabilities: async (requests) => requests.map((request) => ({ ok: true, value: `pc:${request.capability}` })),
+  ...extra,
+});
+
 test('a server window reads provider quota from this PC, everything else from the server', async () => {
-  const { handlers, calls } = setup(true);
-  const read = await handlers.get(DESKTOP_IPC.readCapabilities)({}, [
+  const { invoke, read } = extras({ pcHost: pcService() });
+  const answers = await read([
     { capability: 'getLeadStatus' },
     { capability: 'getUsageDashboard', args: [{}] },
     { capability: 'getQuotaHistory' },
     { capability: 'getUsageStats' },
   ]);
   assert.deepEqual(
-    read.map((entry) => entry.value),
-    ['server:getLeadStatus', 'pc:getUsageDashboard', 'pc:getQuotaHistory', 'server:getUsageStats']
+    answers.map((entry) => entry?.value ?? null),
+    [null, 'pc:getUsageDashboard', 'pc:getQuotaHistory', null]
   );
-  const invoked = await handlers.get(DESKTOP_IPC.invokeCapability)({}, { capability: 'getUsageDashboard' });
-  assert.equal(invoked.value, 'pc:getUsageDashboard');
+  assert.equal((await invoke({ capability: 'getUsageDashboard' })).value, 'pc:getUsageDashboard');
   // A session-addressed call stays with the session's own server.
-  const scoped = await handlers.get(DESKTOP_IPC.invokeCapability)(
-    {},
-    { capability: 'getUsageDashboard', sessionId: 's1' }
-  );
-  assert.equal(scoped.value, 'server:getUsageDashboard');
-  assert.ok(calls.length >= 6);
+  assert.equal(await invoke({ capability: 'getUsageDashboard', sessionId: 's1' }), null);
+  // A server that runs models with its own logins keeps its own quota.
+  const own = extras({ pcHost: pcService({ inUse: () => false }) });
+  assert.equal(await own.invoke({ capability: 'getUsageDashboard' }), null);
 });
 
 // Connection kinds: the desktop has `local` (no pcHost: its own sign-ins) and
@@ -60,42 +52,20 @@ test('a server window reads provider quota from this PC, everything else from th
 // Phones, browsers and another PC's window are not Electron connections here;
 // they reach a host's own daemon through remote-methods and its own accounts.
 test('a server window shows only the providers its proxy lets the server use', async () => {
-  const handlers = new Map();
-  const pc = {
+  const pc = pcService({
     isProviderAllowed: (provider) => provider !== 'xai',
     invokeCapability: async (capability, args) => ({
       value: { rows: [{ id: 'anthropic-oauth' }, { id: 'xai' }], total: {}, capability, args },
     }),
     readCapabilities: async (requests) =>
       requests.map(() => ({ ok: true, value: { rows: [{ id: 'xai' }, { id: 'openai-oauth' }] } })),
-  };
-  const server = {
-    invokeCapability: async (capability) => ({ value: `server:${capability}` }),
-    readCapabilities: async (requests) => requests.map((r) => ({ ok: true, value: `server:${r.capability}` })),
-    getSnapshot: () => ({}),
-  };
-  registerWindowSettingsIpc({
-    window: { webContents: { setZoomFactor() {}, send() {} }, setTitleBarOverlay() {} },
-    app: {},
-    host: server,
-    pcHost: pc,
-    handle: (channel, handler) => handlers.set(channel, handler),
-    invokeDesktopOperation: async () => undefined,
-    readsLocalOnboardingStatus: false,
   });
-  const invoke = handlers.get(DESKTOP_IPC.invokeCapability);
-  const read = handlers.get(DESKTOP_IPC.readCapabilities);
-  assert.deepEqual((await invoke({}, { capability: 'getUsageDashboard' })).value.rows, [{ id: 'anthropic-oauth' }]);
-  assert.deepEqual((await read({}, [{ capability: 'getUsageDashboard' }]))[0].value.rows, [{ id: 'openai-oauth' }]);
+  const { invoke, read } = extras({ pcHost: pc });
+  assert.deepEqual((await invoke({ capability: 'getUsageDashboard' })).value.rows, [{ id: 'anthropic-oauth' }]);
+  assert.deepEqual((await read([{ capability: 'getUsageDashboard' }]))[0].value.rows, [{ id: 'openai-oauth' }]);
   // A history read naming a provider the server cannot use stays on the server.
-  assert.equal(
-    (await invoke({}, { capability: 'getQuotaHistory', args: [{ provider: 'xai' }] })).value,
-    'server:getQuotaHistory'
-  );
-  assert.notEqual(
-    (await invoke({}, { capability: 'getQuotaHistory', args: [{ provider: 'anthropic-oauth' }] })).value,
-    'server:getQuotaHistory'
-  );
+  assert.equal(await invoke({ capability: 'getQuotaHistory', args: [{ provider: 'xai' }] }), null);
+  assert.notEqual(await invoke({ capability: 'getQuotaHistory', args: [{ provider: 'anthropic-oauth' }] }), null);
 });
 
 // A fake PC ledger mirroring pickSelection: the asked provider when recorded,
@@ -121,25 +91,7 @@ function historyWindow(series, allowed) {
     readCapabilities: async (requests) =>
       Promise.all(requests.map((r) => pc.invokeCapability(r.capability, r.args).then((x) => ({ ok: true, ...x })))),
   };
-  const handlers = new Map();
-  registerWindowSettingsIpc({
-    window: { webContents: { setZoomFactor() {}, send() {} }, setTitleBarOverlay() {} },
-    app: {},
-    host: {
-      invokeCapability: async (capability) => ({ value: `server:${capability}` }),
-      readCapabilities: async (requests) => requests.map((r) => ({ ok: true, value: `server:${r.capability}` })),
-      getSnapshot: () => ({}),
-    },
-    pcHost: pc,
-    handle: (channel, handler) => handlers.set(channel, handler),
-    invokeDesktopOperation: async () => undefined,
-    readsLocalOnboardingStatus: false,
-  });
-  return {
-    calls,
-    invoke: (input) => handlers.get(DESKTOP_IPC.invokeCapability)({}, input),
-    read: (input) => handlers.get(DESKTOP_IPC.readCapabilities)({}, input),
-  };
+  return { calls, ...extras({ pcHost: pc }) };
 }
 const notXai = (provider) => provider !== 'xai';
 const providersOf = (value) => value.subscriptions.map((row) => row.provider);
@@ -191,14 +143,11 @@ test('a Codex reset returns its nested dashboard filtered, and stays on the serv
   const reset = (await allowedCodex.invoke({ capability: 'consumeCodexRateLimitResetCredit', args: [{}] })).value;
   assert.deepEqual(reset.dashboard.rows, [{ id: 'openai-oauth' }]);
   const blocked = historyWindow([], (provider) => provider !== 'openai-oauth');
-  assert.equal(
-    (await blocked.invoke({ capability: 'consumeCodexRateLimitResetCredit', args: [{}] })).value,
-    'server:consumeCodexRateLimitResetCredit'
-  );
+  assert.equal(await blocked.invoke({ capability: 'consumeCodexRateLimitResetCredit', args: [{}] }), null);
 });
 
 test('without a PC host (this PC window) quota reads stay on the window host', async () => {
-  const { handlers } = setup(false);
-  const read = await handlers.get(DESKTOP_IPC.readCapabilities)({}, [{ capability: 'getUsageDashboard' }]);
-  assert.equal(read[0].value, 'server:getUsageDashboard');
+  const { invoke, read } = extras();
+  assert.equal(await invoke({ capability: 'getUsageDashboard' }), null);
+  assert.equal((await read([{ capability: 'getUsageDashboard' }]))[0], null);
 });
