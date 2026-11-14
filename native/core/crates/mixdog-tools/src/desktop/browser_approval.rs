@@ -26,6 +26,7 @@ use mixdog_browser_engine::FilePort;
 use mixdog_browser_engine::approval::binding::mark_outside;
 use mixdog_browser_engine::approval::classify::origin_of_url;
 use mixdog_browser_engine::approval::requester::Requester;
+use mixdog_browser_engine::approval::requester::own_bot_of_session;
 use mixdog_browser_engine::types::ApprovalAnswer;
 use mixdog_browser_engine::types::BrowserApprovalPrompt;
 use mixdog_browser_engine::types::Remember;
@@ -92,8 +93,8 @@ impl Drop for CardHold {
 /// What the core knows of the asking session, read where the composition holds it.
 #[async_trait]
 pub trait ApprovalContext: Send + Sync {
-    /// Who acts for the session (`acting_bot`, the agent whose permissions govern it, its life mark). An unknown session is no
-    /// bot's: [`SessionFacts::default`].
+    /// The session's facts as the turn path reads them; the port keeps their life mark. Whose own session it is comes from the
+    /// session id alone ([`own_bot_of_session`]), as the desktop read it: a run's owner never makes another session a bot's.
     fn facts(&self, thread: &ThreadId) -> SessionFacts;
 
     /// The "Allow all actions" developer option as it stands now.
@@ -153,7 +154,9 @@ impl BrowserApprovals {
     /// operator `confirm` and a step with no kind that can be remembered ask once.
     async fn judge(&self, facts: &SessionFacts, grants: &SessionGrants, settings: PolicySettings, prompt: &BrowserApprovalPrompt, kinds: &[ActionKind]) -> Verdict {
         // A payment is a floor: no allowance, no option and no block is read for it.
-        if prompt.payment {
+        // A step with a kind that always asks reads no allowance either (only "Allow all actions" reads its blocks).
+        let rememberable = !kinds.is_empty() && kinds.len() == prompt.kinds.len();
+        if prompt.payment || (!rememberable && !settings.allow_all_actions) {
             return Verdict::Ask { remember: vec![ApprovalRemember::Once] };
         }
         let cx = GateCx { facts, settings, store: &*self.store, session_grants: grants, enricher: None, mcp_scope: None };
@@ -174,11 +177,10 @@ impl BrowserApprovals {
         if settings.allow_all_actions {
             return if blocked { Verdict::Refuse } else { Verdict::Run };
         }
-        let rememberable = !kinds.is_empty() && kinds.len() == prompt.kinds.len();
-        if rememberable && every_run {
+        if every_run {
             return Verdict::Run;
         }
-        Verdict::Ask { remember: if rememberable { Self::offered(facts) } else { vec![ApprovalRemember::Once] } }
+        Verdict::Ask { remember: Self::offered(facts) }
     }
 
     async fn audit(&self, agent: &str, kinds: &[ActionKind], decision: &str) {
@@ -245,6 +247,8 @@ impl BrowserApprovals {
             },
         };
         let grantable = remember.len() > 1;
+        // "For this session" answers as such only where it was offered (the session has a life mark); else it is a single allow.
+        let session_offered = remember.contains(&ApprovalRemember::Session);
         let requester = mixdog_rt::time::timeout(REQUESTER_TIMEOUT, self.context.requester(thread)).await.unwrap_or_default();
         let id = uuid::Uuid::new_v4().to_string();
         let offer = grantable.then(|| BrowserApprovalRemember { kinds: prompt.kinds.clone(), session: facts.life.is_some().then_some(true) });
@@ -266,7 +270,7 @@ impl BrowserApprovals {
         let (answer, device) = match resolution {
             ApprovalResolution::Decided { decision, device, .. } if decision.approved => {
                 let scope = match decision.remember {
-                    Some(ApprovalRemember::Session) if grantable => Remember::Session,
+                    Some(ApprovalRemember::Session) if session_offered => Remember::Session,
                     Some(ApprovalRemember::Agent | ApprovalRemember::Always) if grantable => Remember::Always,
                     _ => Remember::Once,
                 };
@@ -319,13 +323,17 @@ impl BrowserApprovals {
 impl ApprovalPort for BrowserApprovals {
     async fn ask(&self, prompt: BrowserApprovalPrompt) -> Result<ApprovalAnswer, ToolError> {
         let thread = prompt.thread_id.clone().unwrap_or_else(|| ThreadId::from(prompt.session_id.as_str()));
+        // A standing allow is a bot's own (its home chat or room seat, read from the session id alone); nothing else (a sub-agent, a
+        // task session, a coding session, a session a run owns) is asked.
+        let bot = own_bot_of_session(&prompt.session_id);
+        if bot.is_empty() {
+            return Ok(ApprovalAnswer::Allow { remember: Remember::Once });
+        }
         let mut facts = self.context.facts(&thread);
         // What a core-hosted session sent the desktop made it an attended turn: the run that owns the session changes nothing here.
         facts.run = None;
-        // A standing allow is a bot's own; nothing else (a sub-agent, a task session, a coding session) is asked.
-        if facts.acting_bot.is_none() {
-            return Ok(ApprovalAnswer::Allow { remember: Remember::Once });
-        }
+        facts.agent_id = bot.clone();
+        facts.acting_bot = Some(bot);
         let kinds: Vec<ActionKind> = prompt.kinds.iter().filter_map(|kind| action_kind_of(*kind)).collect();
         let grants = self.context.session_grants(&thread);
         let settings = self.context.settings();
@@ -410,6 +418,7 @@ mod tests {
         allow_all: AtomicBool,
         life: Mutex<Option<String>>,
         run: Mutex<Option<RunKind>>,
+        run_owner: Mutex<Option<String>>,
         held: Arc<AtomicUsize>,
         released: Arc<AtomicUsize>,
     }
@@ -417,8 +426,10 @@ mod tests {
     #[async_trait]
     impl ApprovalContext for Ctx {
         fn facts(&self, thread: &ThreadId) -> SessionFacts {
-            // `sess_home_<bot>` is a bot's own chat; any other session is no bot's.
-            let bot = thread.as_str().strip_prefix("sess_home_").map(str::to_owned);
+            // `sess_home_<bot>` is a bot's own chat; any other session is no bot's, unless a run's owner acts for it (the turn path's
+            // facts name the run's owner for every session the run owns).
+            let owner = self.run_owner.lock().unwrap().clone();
+            let bot = owner.or_else(|| thread.as_str().strip_prefix("sess_home_").map(str::to_owned));
             SessionFacts {
                 agent_id: bot.clone().unwrap_or_else(|| "lead".to_owned()),
                 acting_bot: bot,
@@ -480,6 +491,7 @@ mod tests {
             allow_all: AtomicBool::new(false),
             life: Mutex::new(None),
             run: Mutex::new(None),
+            run_owner: Mutex::new(None),
             held: Arc::default(),
             released: Arc::default(),
         });
@@ -681,9 +693,26 @@ mod tests {
             let (shown, outcome) = rig.ask(step(session, kinds), decided(false, None, None)).await;
             assert!(!shown && allowed(&outcome), "{session} {kinds:?}");
         }
+        // A session a bot's run owns is still no bot's own: the desktop read the bot from the session id alone.
+        *rig.ctx.run.lock().unwrap() = Some(RunKind::Schedule);
+        *rig.ctx.run_owner.lock().unwrap() = Some("marketer".to_owned());
+        let (shown, outcome) = rig.ask(step("sess_task", &[Submit]), decided(false, None, None)).await;
+        assert!(!shown && allowed(&outcome), "a run's task session");
+        *rig.ctx.run.lock().unwrap() = None;
+        *rig.ctx.run_owner.lock().unwrap() = None;
         rig.allow("marketer", ActionKind::BrowserSubmit, PermissionMode::Allow);
         let (shown, outcome) = rig.ask(step(MARKETER, &[Submit]), decided(false, None, None)).await;
         assert!(!shown && allowed(&outcome), "a saved allow runs it unasked");
+        assert!(rig.store.audit().iter().all(|row| row.decision == "remembered"), "no session that is no bot's own was read or audited");
+    }
+
+    #[tokio::test]
+    async fn a_step_that_always_asks_reads_no_allowance() {
+        let rig = rig();
+        rig.allow("marketer", ActionKind::BrowserSubmit, PermissionMode::Allow);
+        rig.allow("marketer", ActionKind::BrowserPost, PermissionMode::Block);
+        assert!(rig.ask(step(MARKETER, &[Submit, Post, Confirm]), decided(false, None, None)).await.0);
+        assert!(rig.store.audit().is_empty(), "no remembered or blocked line for a step that asked: {:?}", rig.decisions());
     }
 
     /// A bot's session an unattended run owns, whose command carries no unattended field (as a core-hosted one never did), is
