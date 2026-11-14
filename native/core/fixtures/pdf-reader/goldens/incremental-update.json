@@ -1,0 +1,70 @@
+{
+  "bytes": 1294,
+  "file": "files/incremental-update.pdf",
+  "group": "assembled",
+  "name": "incremental-update",
+  "outcome": {
+    "numPages": 1,
+    "ok": true,
+    "pages": [
+      {
+        "number": 1,
+        "rotate": 0,
+        "text": {
+          "items": [
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f1",
+              "hasEOL": false,
+              "height": 18,
+              "str": "Third revision text",
+              "transform": [
+                18,
+                0,
+                0,
+                18,
+                40,
+                700
+              ],
+              "width": 142.03799999999998
+            }
+          ],
+          "styles": {
+            "g_d#_f1": {
+              "ascent": 0.718,
+              "descent": -0.207,
+              "fontFamily": "sans-serif",
+              "vertical": false
+            }
+          }
+        },
+        "userUnit": 1,
+        "view": [
+          0,
+          0,
+          612,
+          792
+        ],
+        "viewport": {
+          "height": 792,
+          "offsetX": 0,
+          "offsetY": 0,
+          "rotation": 0,
+          "transform": [
+            1,
+            0,
+            0,
+            -1,
+            0,
+            792
+          ],
+          "width": 612
+        }
+      }
+    ]
+  },
+  "sha256": "ec36667bcb45b09db5ac5b15cfaff794726afd04081647f985dee8dff63371d5",
+  "withReadableDataUrls": {
+    "sameAsReference": true
+  }
+}

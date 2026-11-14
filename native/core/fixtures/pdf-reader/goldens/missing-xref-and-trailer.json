@@ -1,0 +1,18 @@
+{
+  "bytes": 476,
+  "file": "files/missing-xref-and-trailer.pdf",
+  "group": "assembled",
+  "name": "missing-xref-and-trailer",
+  "outcome": {
+    "error": {
+      "code": null,
+      "message": "Invalid PDF structure.",
+      "name": "InvalidPDFException"
+    },
+    "ok": false
+  },
+  "sha256": "a2f61eb3a45a2de1b1eaeccf114f6dd2e5523d52a5f37f0de485b3f9eaee130b",
+  "withReadableDataUrls": {
+    "sameAsReference": true
+  }
+}

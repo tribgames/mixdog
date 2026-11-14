@@ -1,0 +1,18 @@
+{
+  "bytes": 9,
+  "file": "files/header-only.pdf",
+  "group": "assembled",
+  "name": "header-only",
+  "outcome": {
+    "error": {
+      "code": null,
+      "message": "Invalid PDF structure.",
+      "name": "InvalidPDFException"
+    },
+    "ok": false
+  },
+  "sha256": "0716f9264c9fe19f5d7455276107f3ddcc1d3497f63d60689a73558ae8a1bf5e",
+  "withReadableDataUrls": {
+    "sameAsReference": true
+  }
+}

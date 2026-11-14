@@ -1,0 +1,2846 @@
+{
+  "bytes": 3162,
+  "file": "files/std14-fonts-all.pdf",
+  "group": "pdf-lib",
+  "name": "std14-fonts-all",
+  "outcome": {
+    "numPages": 1,
+    "ok": true,
+    "pages": [
+      {
+        "number": 1,
+        "rotate": 0,
+        "text": {
+          "items": [
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f1",
+              "hasEOL": false,
+              "height": 11,
+              "str": "Courier: The quick brown fox jumps",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                36,
+                760
+              ],
+              "width": 224.39999999999986
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f1",
+              "hasEOL": false,
+              "height": 0,
+              "str": " ",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                260.39999999999986,
+                760
+              ],
+              "width": 6.600000000000023
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f1",
+              "hasEOL": false,
+              "height": 11,
+              "str": "over",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                266.9999999999999,
+                760
+              ],
+              "width": 26.4
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f1",
+              "hasEOL": false,
+              "height": 0,
+              "str": " ",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                293.4,
+                760
+              ],
+              "width": 6.600000000000023
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f1",
+              "hasEOL": false,
+              "height": 11,
+              "str": "the",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                300,
+                760
+              ],
+              "width": 19.799999999999997
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f1",
+              "hasEOL": false,
+              "height": 0,
+              "str": " ",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                319.80000000000007,
+                760
+              ],
+              "width": 6.600000000000023
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f1",
+              "hasEOL": false,
+              "height": 11,
+              "str": "lazy",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                326.4000000000001,
+                760
+              ],
+              "width": 26.4
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f1",
+              "hasEOL": false,
+              "height": 0,
+              "str": " ",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                352.8000000000002,
+                760
+              ],
+              "width": 6.600000000000023
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f1",
+              "hasEOL": false,
+              "height": 11,
+              "str": "dog",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                359.4000000000002,
+                760
+              ],
+              "width": 19.799999999999997
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f1",
+              "hasEOL": false,
+              "height": 0,
+              "str": " ",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                379.2000000000003,
+                760
+              ],
+              "width": 6.600000000000023
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f1",
+              "hasEOL": false,
+              "height": 11,
+              "str": "0123456789",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                385.8000000000003,
+                760
+              ],
+              "width": 66
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f1",
+              "hasEOL": false,
+              "height": 0,
+              "str": " ",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                451.8000000000005,
+                760
+              ],
+              "width": 6.600000000000023
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f1",
+              "hasEOL": false,
+              "height": 11,
+              "str": "(){}",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                458.40000000000055,
+                760
+              ],
+              "width": 26.4
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f3",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                36,
+                738
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f3",
+              "hasEOL": false,
+              "height": 11,
+              "str": "CourierBold: The quick brown fox jumps",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                36,
+                738
+              ],
+              "width": 250.79999999999984
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f3",
+              "hasEOL": false,
+              "height": 0,
+              "str": " ",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                286.79999999999995,
+                738
+              ],
+              "width": 6.600000000000023
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f3",
+              "hasEOL": false,
+              "height": 11,
+              "str": "over",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                293.4,
+                738
+              ],
+              "width": 26.4
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f3",
+              "hasEOL": false,
+              "height": 0,
+              "str": " ",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                319.80000000000007,
+                738
+              ],
+              "width": 6.600000000000023
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f3",
+              "hasEOL": false,
+              "height": 11,
+              "str": "the",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                326.4000000000001,
+                738
+              ],
+              "width": 19.799999999999997
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f3",
+              "hasEOL": false,
+              "height": 0,
+              "str": " ",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                346.20000000000016,
+                738
+              ],
+              "width": 6.600000000000023
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f3",
+              "hasEOL": false,
+              "height": 11,
+              "str": "lazy",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                352.8000000000002,
+                738
+              ],
+              "width": 26.4
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f3",
+              "hasEOL": false,
+              "height": 0,
+              "str": " ",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                379.2000000000003,
+                738
+              ],
+              "width": 6.600000000000023
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f3",
+              "hasEOL": false,
+              "height": 11,
+              "str": "dog",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                385.8000000000003,
+                738
+              ],
+              "width": 19.799999999999997
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f3",
+              "hasEOL": false,
+              "height": 0,
+              "str": " ",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                405.60000000000036,
+                738
+              ],
+              "width": 6.600000000000023
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f3",
+              "hasEOL": false,
+              "height": 11,
+              "str": "0123456789",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                412.2000000000004,
+                738
+              ],
+              "width": 66
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f3",
+              "hasEOL": false,
+              "height": 0,
+              "str": " ",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                478.2000000000006,
+                738
+              ],
+              "width": 6.600000000000023
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f3",
+              "hasEOL": false,
+              "height": 11,
+              "str": "(){}",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                484.80000000000064,
+                738
+              ],
+              "width": 26.4
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f5",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                36,
+                716
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f5",
+              "hasEOL": false,
+              "height": 11,
+              "str": "CourierOblique: The quick brown fox",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                36,
+                716
+              ],
+              "width": 230.99999999999986
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f5",
+              "hasEOL": false,
+              "height": 0,
+              "str": " ",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                266.9999999999999,
+                716
+              ],
+              "width": 6.600000000000023
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f5",
+              "hasEOL": false,
+              "height": 11,
+              "str": "jumps",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                273.5999999999999,
+                716
+              ],
+              "width": 33
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f5",
+              "hasEOL": false,
+              "height": 0,
+              "str": " ",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                306.6,
+                716
+              ],
+              "width": 6.600000000000023
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f5",
+              "hasEOL": false,
+              "height": 11,
+              "str": "over",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                313.20000000000005,
+                716
+              ],
+              "width": 26.4
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f5",
+              "hasEOL": false,
+              "height": 0,
+              "str": " ",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                339.60000000000014,
+                716
+              ],
+              "width": 6.600000000000023
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f5",
+              "hasEOL": false,
+              "height": 11,
+              "str": "the",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                346.20000000000016,
+                716
+              ],
+              "width": 19.799999999999997
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f5",
+              "hasEOL": false,
+              "height": 0,
+              "str": " ",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                366.0000000000002,
+                716
+              ],
+              "width": 6.600000000000023
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f5",
+              "hasEOL": false,
+              "height": 11,
+              "str": "lazy",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                372.60000000000025,
+                716
+              ],
+              "width": 26.4
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f5",
+              "hasEOL": false,
+              "height": 0,
+              "str": " ",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                399.00000000000034,
+                716
+              ],
+              "width": 6.600000000000023
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f5",
+              "hasEOL": false,
+              "height": 11,
+              "str": "dog",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                405.60000000000036,
+                716
+              ],
+              "width": 19.799999999999997
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f5",
+              "hasEOL": false,
+              "height": 0,
+              "str": " ",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                425.40000000000043,
+                716
+              ],
+              "width": 6.600000000000023
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f5",
+              "hasEOL": false,
+              "height": 11,
+              "str": "0123456789",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                432.00000000000045,
+                716
+              ],
+              "width": 66
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f5",
+              "hasEOL": false,
+              "height": 0,
+              "str": " ",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                498.0000000000007,
+                716
+              ],
+              "width": 6.600000000000023
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f5",
+              "hasEOL": false,
+              "height": 11,
+              "str": "(){}",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                504.6000000000007,
+                716
+              ],
+              "width": 26.4
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f7",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                36,
+                694
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f7",
+              "hasEOL": false,
+              "height": 11,
+              "str": "CourierBoldOblique: The quick brown",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                36,
+                694
+              ],
+              "width": 230.99999999999986
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f7",
+              "hasEOL": false,
+              "height": 0,
+              "str": " ",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                266.9999999999999,
+                694
+              ],
+              "width": 6.600000000000023
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f7",
+              "hasEOL": false,
+              "height": 11,
+              "str": "fox",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                273.5999999999999,
+                694
+              ],
+              "width": 19.799999999999997
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f7",
+              "hasEOL": false,
+              "height": 0,
+              "str": " ",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                293.4,
+                694
+              ],
+              "width": 6.600000000000023
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f7",
+              "hasEOL": false,
+              "height": 11,
+              "str": "jumps",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                300,
+                694
+              ],
+              "width": 33
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f7",
+              "hasEOL": false,
+              "height": 0,
+              "str": " ",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                333.0000000000001,
+                694
+              ],
+              "width": 6.600000000000023
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f7",
+              "hasEOL": false,
+              "height": 11,
+              "str": "over",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                339.60000000000014,
+                694
+              ],
+              "width": 26.4
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f7",
+              "hasEOL": false,
+              "height": 0,
+              "str": " ",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                366.0000000000002,
+                694
+              ],
+              "width": 6.600000000000023
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f7",
+              "hasEOL": false,
+              "height": 11,
+              "str": "the",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                372.60000000000025,
+                694
+              ],
+              "width": 19.799999999999997
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f7",
+              "hasEOL": false,
+              "height": 0,
+              "str": " ",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                392.4000000000003,
+                694
+              ],
+              "width": 6.600000000000023
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f7",
+              "hasEOL": false,
+              "height": 11,
+              "str": "lazy",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                399.00000000000034,
+                694
+              ],
+              "width": 26.4
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f7",
+              "hasEOL": false,
+              "height": 0,
+              "str": " ",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                425.40000000000043,
+                694
+              ],
+              "width": 6.600000000000023
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f7",
+              "hasEOL": false,
+              "height": 11,
+              "str": "dog",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                432.00000000000045,
+                694
+              ],
+              "width": 19.799999999999997
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f7",
+              "hasEOL": false,
+              "height": 0,
+              "str": " ",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                451.8000000000005,
+                694
+              ],
+              "width": 6.600000000000023
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f7",
+              "hasEOL": false,
+              "height": 11,
+              "str": "0123456789",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                458.40000000000055,
+                694
+              ],
+              "width": 66
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f7",
+              "hasEOL": false,
+              "height": 0,
+              "str": " ",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                524.4000000000008,
+                694
+              ],
+              "width": 6.600000000000023
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f7",
+              "hasEOL": false,
+              "height": 11,
+              "str": "(){}",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                531.0000000000008,
+                694
+              ],
+              "width": 26.4
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f9",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                36,
+                672
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f9",
+              "hasEOL": false,
+              "height": 11,
+              "str": "Helvetica: The quick brown fox jumps over the lazy dog 0123456789 (){}",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                36,
+                672
+              ],
+              "width": 350.9439999999996
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f11",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                36,
+                650
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f11",
+              "hasEOL": false,
+              "height": 11,
+              "str": "HelveticaBold: The quick brown fox jumps over the lazy dog 0123456789 (){}",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                36,
+                650
+              ],
+              "width": 397.95799999999974
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f13",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                36,
+                628
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f13",
+              "hasEOL": false,
+              "height": 11,
+              "str": "HelveticaOblique: The quick brown fox jumps over the lazy dog 0123456789 (){}",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                36,
+                628
+              ],
+              "width": 388.84999999999957
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f15",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                36,
+                606
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f15",
+              "hasEOL": false,
+              "height": 11,
+              "str": "HelveticaBoldOblique: The quick brown fox jumps over the lazy dog 0123456789 (){}",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                36,
+                606
+              ],
+              "width": 438.91099999999966
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f17",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                36,
+                584
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f17",
+              "hasEOL": false,
+              "height": 11,
+              "str": "TimesRoman: The quick brown fox jumps over the lazy dog 0123456789 (){}",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                36,
+                584
+              ],
+              "width": 344.49799999999993
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f19",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                36,
+                562
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f19",
+              "hasEOL": false,
+              "height": 11,
+              "str": "TimesRomanBold: The quick brown fox jumps over the lazy dog 0123456789 (){}",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                36,
+                562
+              ],
+              "width": 380.534
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f21",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                36,
+                540
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f21",
+              "hasEOL": false,
+              "height": 11,
+              "str": "TimesRomanItalic: The quick brown fox jumps over the lazy dog 0123456789 (){}",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                36,
+                540
+              ],
+              "width": 361.0749999999999
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f23",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                36,
+                518
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f23",
+              "hasEOL": false,
+              "height": 11,
+              "str": "TimesRomanBoldItalic: The quick brown fox jumps over the lazy dog 0123456789 (){}",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                36,
+                518
+              ],
+              "width": 391.1489999999999
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f25",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                36,
+                496
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f25",
+              "hasEOL": false,
+              "height": 11,
+              "str": "αβγδεζ ∑ ∏ ∫ ≤ ≥ ≠ ∞",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                36,
+                496
+              ],
+              "width": 98.31800000000001
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f27",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                36,
+                474
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f27",
+              "hasEOL": false,
+              "height": 11,
+              "str": "!\"#$%&'(",
+              "transform": [
+                11,
+                0,
+                0,
+                11,
+                36,
+                474
+              ],
+              "width": 76.758
+            }
+          ],
+          "styles": {
+            "g_d#_f1": {
+              "ascent": 0.629,
+              "descent": -0.157,
+              "fontFamily": "monospace",
+              "vertical": false
+            },
+            "g_d#_f11": {
+              "ascent": 0.718,
+              "descent": -0.207,
+              "fontFamily": "sans-serif",
+              "vertical": false
+            },
+            "g_d#_f13": {
+              "ascent": 0.718,
+              "descent": -0.207,
+              "fontFamily": "sans-serif",
+              "vertical": false
+            },
+            "g_d#_f15": {
+              "ascent": 0.718,
+              "descent": -0.207,
+              "fontFamily": "sans-serif",
+              "vertical": false
+            },
+            "g_d#_f17": {
+              "ascent": 0.683,
+              "descent": -0.217,
+              "fontFamily": "serif",
+              "vertical": false
+            },
+            "g_d#_f19": {
+              "ascent": 0.683,
+              "descent": -0.217,
+              "fontFamily": "serif",
+              "vertical": false
+            },
+            "g_d#_f21": {
+              "ascent": 0.683,
+              "descent": -0.217,
+              "fontFamily": "serif",
+              "vertical": false
+            },
+            "g_d#_f23": {
+              "ascent": 0.683,
+              "descent": -0.217,
+              "fontFamily": "serif",
+              "vertical": false
+            },
+            "g_d#_f25": {
+              "ascent": null,
+              "descent": null,
+              "fontFamily": "sans-serif",
+              "vertical": false
+            },
+            "g_d#_f27": {
+              "ascent": null,
+              "descent": null,
+              "fontFamily": "sans-serif",
+              "vertical": false
+            },
+            "g_d#_f3": {
+              "ascent": 0.629,
+              "descent": -0.157,
+              "fontFamily": "monospace",
+              "vertical": false
+            },
+            "g_d#_f5": {
+              "ascent": 0.629,
+              "descent": -0.157,
+              "fontFamily": "monospace",
+              "vertical": false
+            },
+            "g_d#_f7": {
+              "ascent": 0.629,
+              "descent": -0.157,
+              "fontFamily": "monospace",
+              "vertical": false
+            },
+            "g_d#_f9": {
+              "ascent": 0.718,
+              "descent": -0.207,
+              "fontFamily": "sans-serif",
+              "vertical": false
+            }
+          }
+        },
+        "userUnit": 1,
+        "view": [
+          0,
+          0,
+          612,
+          792
+        ],
+        "viewport": {
+          "height": 792,
+          "offsetX": 0,
+          "offsetY": 0,
+          "rotation": 0,
+          "transform": [
+            1,
+            0,
+            0,
+            -1,
+            0,
+            792
+          ],
+          "width": 612
+        }
+      }
+    ]
+  },
+  "sha256": "67b9dca50ce1fd3be54517d2e9493e3c0e56c15c1ef1a6384a215768aff8128a",
+  "withReadableDataUrls": {
+    "outcome": {
+      "numPages": 1,
+      "ok": true,
+      "pages": [
+        {
+          "number": 1,
+          "rotate": 0,
+          "text": {
+            "items": [
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f1",
+                "hasEOL": false,
+                "height": 11,
+                "str": "Courier: The quick brown fox jumps",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  36,
+                  760
+                ],
+                "width": 224.39999999999986
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f1",
+                "hasEOL": false,
+                "height": 0,
+                "str": " ",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  260.39999999999986,
+                  760
+                ],
+                "width": 6.600000000000023
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f1",
+                "hasEOL": false,
+                "height": 11,
+                "str": "over",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  266.9999999999999,
+                  760
+                ],
+                "width": 26.4
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f1",
+                "hasEOL": false,
+                "height": 0,
+                "str": " ",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  293.4,
+                  760
+                ],
+                "width": 6.600000000000023
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f1",
+                "hasEOL": false,
+                "height": 11,
+                "str": "the",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  300,
+                  760
+                ],
+                "width": 19.799999999999997
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f1",
+                "hasEOL": false,
+                "height": 0,
+                "str": " ",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  319.80000000000007,
+                  760
+                ],
+                "width": 6.600000000000023
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f1",
+                "hasEOL": false,
+                "height": 11,
+                "str": "lazy",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  326.4000000000001,
+                  760
+                ],
+                "width": 26.4
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f1",
+                "hasEOL": false,
+                "height": 0,
+                "str": " ",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  352.8000000000002,
+                  760
+                ],
+                "width": 6.600000000000023
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f1",
+                "hasEOL": false,
+                "height": 11,
+                "str": "dog",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  359.4000000000002,
+                  760
+                ],
+                "width": 19.799999999999997
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f1",
+                "hasEOL": false,
+                "height": 0,
+                "str": " ",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  379.2000000000003,
+                  760
+                ],
+                "width": 6.600000000000023
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f1",
+                "hasEOL": false,
+                "height": 11,
+                "str": "0123456789",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  385.8000000000003,
+                  760
+                ],
+                "width": 66
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f1",
+                "hasEOL": false,
+                "height": 0,
+                "str": " ",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  451.8000000000005,
+                  760
+                ],
+                "width": 6.600000000000023
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f1",
+                "hasEOL": false,
+                "height": 11,
+                "str": "(){}",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  458.40000000000055,
+                  760
+                ],
+                "width": 26.4
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f3",
+                "hasEOL": true,
+                "height": 0,
+                "str": "",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  36,
+                  738
+                ],
+                "width": 0
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f3",
+                "hasEOL": false,
+                "height": 11,
+                "str": "CourierBold: The quick brown fox jumps",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  36,
+                  738
+                ],
+                "width": 250.79999999999984
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f3",
+                "hasEOL": false,
+                "height": 0,
+                "str": " ",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  286.79999999999995,
+                  738
+                ],
+                "width": 6.600000000000023
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f3",
+                "hasEOL": false,
+                "height": 11,
+                "str": "over",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  293.4,
+                  738
+                ],
+                "width": 26.4
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f3",
+                "hasEOL": false,
+                "height": 0,
+                "str": " ",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  319.80000000000007,
+                  738
+                ],
+                "width": 6.600000000000023
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f3",
+                "hasEOL": false,
+                "height": 11,
+                "str": "the",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  326.4000000000001,
+                  738
+                ],
+                "width": 19.799999999999997
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f3",
+                "hasEOL": false,
+                "height": 0,
+                "str": " ",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  346.20000000000016,
+                  738
+                ],
+                "width": 6.600000000000023
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f3",
+                "hasEOL": false,
+                "height": 11,
+                "str": "lazy",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  352.8000000000002,
+                  738
+                ],
+                "width": 26.4
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f3",
+                "hasEOL": false,
+                "height": 0,
+                "str": " ",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  379.2000000000003,
+                  738
+                ],
+                "width": 6.600000000000023
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f3",
+                "hasEOL": false,
+                "height": 11,
+                "str": "dog",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  385.8000000000003,
+                  738
+                ],
+                "width": 19.799999999999997
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f3",
+                "hasEOL": false,
+                "height": 0,
+                "str": " ",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  405.60000000000036,
+                  738
+                ],
+                "width": 6.600000000000023
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f3",
+                "hasEOL": false,
+                "height": 11,
+                "str": "0123456789",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  412.2000000000004,
+                  738
+                ],
+                "width": 66
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f3",
+                "hasEOL": false,
+                "height": 0,
+                "str": " ",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  478.2000000000006,
+                  738
+                ],
+                "width": 6.600000000000023
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f3",
+                "hasEOL": false,
+                "height": 11,
+                "str": "(){}",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  484.80000000000064,
+                  738
+                ],
+                "width": 26.4
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f5",
+                "hasEOL": true,
+                "height": 0,
+                "str": "",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  36,
+                  716
+                ],
+                "width": 0
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f5",
+                "hasEOL": false,
+                "height": 11,
+                "str": "CourierOblique: The quick brown fox",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  36,
+                  716
+                ],
+                "width": 230.99999999999986
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f5",
+                "hasEOL": false,
+                "height": 0,
+                "str": " ",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  266.9999999999999,
+                  716
+                ],
+                "width": 6.600000000000023
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f5",
+                "hasEOL": false,
+                "height": 11,
+                "str": "jumps",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  273.5999999999999,
+                  716
+                ],
+                "width": 33
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f5",
+                "hasEOL": false,
+                "height": 0,
+                "str": " ",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  306.6,
+                  716
+                ],
+                "width": 6.600000000000023
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f5",
+                "hasEOL": false,
+                "height": 11,
+                "str": "over",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  313.20000000000005,
+                  716
+                ],
+                "width": 26.4
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f5",
+                "hasEOL": false,
+                "height": 0,
+                "str": " ",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  339.60000000000014,
+                  716
+                ],
+                "width": 6.600000000000023
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f5",
+                "hasEOL": false,
+                "height": 11,
+                "str": "the",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  346.20000000000016,
+                  716
+                ],
+                "width": 19.799999999999997
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f5",
+                "hasEOL": false,
+                "height": 0,
+                "str": " ",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  366.0000000000002,
+                  716
+                ],
+                "width": 6.600000000000023
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f5",
+                "hasEOL": false,
+                "height": 11,
+                "str": "lazy",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  372.60000000000025,
+                  716
+                ],
+                "width": 26.4
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f5",
+                "hasEOL": false,
+                "height": 0,
+                "str": " ",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  399.00000000000034,
+                  716
+                ],
+                "width": 6.600000000000023
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f5",
+                "hasEOL": false,
+                "height": 11,
+                "str": "dog",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  405.60000000000036,
+                  716
+                ],
+                "width": 19.799999999999997
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f5",
+                "hasEOL": false,
+                "height": 0,
+                "str": " ",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  425.40000000000043,
+                  716
+                ],
+                "width": 6.600000000000023
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f5",
+                "hasEOL": false,
+                "height": 11,
+                "str": "0123456789",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  432.00000000000045,
+                  716
+                ],
+                "width": 66
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f5",
+                "hasEOL": false,
+                "height": 0,
+                "str": " ",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  498.0000000000007,
+                  716
+                ],
+                "width": 6.600000000000023
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f5",
+                "hasEOL": false,
+                "height": 11,
+                "str": "(){}",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  504.6000000000007,
+                  716
+                ],
+                "width": 26.4
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f7",
+                "hasEOL": true,
+                "height": 0,
+                "str": "",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  36,
+                  694
+                ],
+                "width": 0
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f7",
+                "hasEOL": false,
+                "height": 11,
+                "str": "CourierBoldOblique: The quick brown",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  36,
+                  694
+                ],
+                "width": 230.99999999999986
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f7",
+                "hasEOL": false,
+                "height": 0,
+                "str": " ",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  266.9999999999999,
+                  694
+                ],
+                "width": 6.600000000000023
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f7",
+                "hasEOL": false,
+                "height": 11,
+                "str": "fox",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  273.5999999999999,
+                  694
+                ],
+                "width": 19.799999999999997
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f7",
+                "hasEOL": false,
+                "height": 0,
+                "str": " ",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  293.4,
+                  694
+                ],
+                "width": 6.600000000000023
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f7",
+                "hasEOL": false,
+                "height": 11,
+                "str": "jumps",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  300,
+                  694
+                ],
+                "width": 33
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f7",
+                "hasEOL": false,
+                "height": 0,
+                "str": " ",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  333.0000000000001,
+                  694
+                ],
+                "width": 6.600000000000023
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f7",
+                "hasEOL": false,
+                "height": 11,
+                "str": "over",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  339.60000000000014,
+                  694
+                ],
+                "width": 26.4
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f7",
+                "hasEOL": false,
+                "height": 0,
+                "str": " ",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  366.0000000000002,
+                  694
+                ],
+                "width": 6.600000000000023
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f7",
+                "hasEOL": false,
+                "height": 11,
+                "str": "the",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  372.60000000000025,
+                  694
+                ],
+                "width": 19.799999999999997
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f7",
+                "hasEOL": false,
+                "height": 0,
+                "str": " ",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  392.4000000000003,
+                  694
+                ],
+                "width": 6.600000000000023
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f7",
+                "hasEOL": false,
+                "height": 11,
+                "str": "lazy",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  399.00000000000034,
+                  694
+                ],
+                "width": 26.4
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f7",
+                "hasEOL": false,
+                "height": 0,
+                "str": " ",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  425.40000000000043,
+                  694
+                ],
+                "width": 6.600000000000023
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f7",
+                "hasEOL": false,
+                "height": 11,
+                "str": "dog",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  432.00000000000045,
+                  694
+                ],
+                "width": 19.799999999999997
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f7",
+                "hasEOL": false,
+                "height": 0,
+                "str": " ",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  451.8000000000005,
+                  694
+                ],
+                "width": 6.600000000000023
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f7",
+                "hasEOL": false,
+                "height": 11,
+                "str": "0123456789",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  458.40000000000055,
+                  694
+                ],
+                "width": 66
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f7",
+                "hasEOL": false,
+                "height": 0,
+                "str": " ",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  524.4000000000008,
+                  694
+                ],
+                "width": 6.600000000000023
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f7",
+                "hasEOL": false,
+                "height": 11,
+                "str": "(){}",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  531.0000000000008,
+                  694
+                ],
+                "width": 26.4
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f9",
+                "hasEOL": true,
+                "height": 0,
+                "str": "",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  36,
+                  672
+                ],
+                "width": 0
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f9",
+                "hasEOL": false,
+                "height": 11,
+                "str": "Helvetica: The quick brown fox jumps over the lazy dog 0123456789 (){}",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  36,
+                  672
+                ],
+                "width": 350.9439999999996
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f11",
+                "hasEOL": true,
+                "height": 0,
+                "str": "",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  36,
+                  650
+                ],
+                "width": 0
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f11",
+                "hasEOL": false,
+                "height": 11,
+                "str": "HelveticaBold: The quick brown fox jumps over the lazy dog 0123456789 (){}",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  36,
+                  650
+                ],
+                "width": 397.95799999999974
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f13",
+                "hasEOL": true,
+                "height": 0,
+                "str": "",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  36,
+                  628
+                ],
+                "width": 0
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f13",
+                "hasEOL": false,
+                "height": 11,
+                "str": "HelveticaOblique: The quick brown fox jumps over the lazy dog 0123456789 (){}",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  36,
+                  628
+                ],
+                "width": 388.84999999999957
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f15",
+                "hasEOL": true,
+                "height": 0,
+                "str": "",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  36,
+                  606
+                ],
+                "width": 0
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f15",
+                "hasEOL": false,
+                "height": 11,
+                "str": "HelveticaBoldOblique: The quick brown fox jumps over the lazy dog 0123456789 (){}",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  36,
+                  606
+                ],
+                "width": 438.91099999999966
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f17",
+                "hasEOL": true,
+                "height": 0,
+                "str": "",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  36,
+                  584
+                ],
+                "width": 0
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f17",
+                "hasEOL": false,
+                "height": 11,
+                "str": "TimesRoman: The quick brown fox jumps over the lazy dog 0123456789 (){}",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  36,
+                  584
+                ],
+                "width": 344.49799999999993
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f19",
+                "hasEOL": true,
+                "height": 0,
+                "str": "",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  36,
+                  562
+                ],
+                "width": 0
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f19",
+                "hasEOL": false,
+                "height": 11,
+                "str": "TimesRomanBold: The quick brown fox jumps over the lazy dog 0123456789 (){}",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  36,
+                  562
+                ],
+                "width": 380.534
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f21",
+                "hasEOL": true,
+                "height": 0,
+                "str": "",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  36,
+                  540
+                ],
+                "width": 0
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f21",
+                "hasEOL": false,
+                "height": 11,
+                "str": "TimesRomanItalic: The quick brown fox jumps over the lazy dog 0123456789 (){}",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  36,
+                  540
+                ],
+                "width": 361.0749999999999
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f23",
+                "hasEOL": true,
+                "height": 0,
+                "str": "",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  36,
+                  518
+                ],
+                "width": 0
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f23",
+                "hasEOL": false,
+                "height": 11,
+                "str": "TimesRomanBoldItalic: The quick brown fox jumps over the lazy dog 0123456789 (){}",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  36,
+                  518
+                ],
+                "width": 391.1489999999999
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f25",
+                "hasEOL": true,
+                "height": 0,
+                "str": "",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  36,
+                  496
+                ],
+                "width": 0
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f25",
+                "hasEOL": false,
+                "height": 11,
+                "str": "αβγδεζ ∑ ∏ ∫ ≤ ≥ ≠ ∞",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  36,
+                  496
+                ],
+                "width": 98.31800000000001
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f26",
+                "hasEOL": true,
+                "height": 0,
+                "str": "",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  36,
+                  474
+                ],
+                "width": 0
+              },
+              {
+                "dir": "ltr",
+                "fontName": "g_d#_f26",
+                "hasEOL": false,
+                "height": 11,
+                "str": "!\"#$%&'(",
+                "transform": [
+                  11,
+                  0,
+                  0,
+                  11,
+                  36,
+                  474
+                ],
+                "width": 76.758
+              }
+            ],
+            "styles": {
+              "g_d#_f1": {
+                "ascent": 0.629,
+                "descent": -0.157,
+                "fontFamily": "monospace",
+                "vertical": false
+              },
+              "g_d#_f11": {
+                "ascent": 0.718,
+                "descent": -0.207,
+                "fontFamily": "sans-serif",
+                "vertical": false
+              },
+              "g_d#_f13": {
+                "ascent": 0.718,
+                "descent": -0.207,
+                "fontFamily": "sans-serif",
+                "vertical": false
+              },
+              "g_d#_f15": {
+                "ascent": 0.718,
+                "descent": -0.207,
+                "fontFamily": "sans-serif",
+                "vertical": false
+              },
+              "g_d#_f17": {
+                "ascent": 0.683,
+                "descent": -0.217,
+                "fontFamily": "serif",
+                "vertical": false
+              },
+              "g_d#_f19": {
+                "ascent": 0.683,
+                "descent": -0.217,
+                "fontFamily": "serif",
+                "vertical": false
+              },
+              "g_d#_f21": {
+                "ascent": 0.683,
+                "descent": -0.217,
+                "fontFamily": "serif",
+                "vertical": false
+              },
+              "g_d#_f23": {
+                "ascent": 0.683,
+                "descent": -0.217,
+                "fontFamily": "serif",
+                "vertical": false
+              },
+              "g_d#_f25": {
+                "ascent": null,
+                "descent": null,
+                "fontFamily": "sans-serif",
+                "vertical": false
+              },
+              "g_d#_f26": {
+                "ascent": null,
+                "descent": null,
+                "fontFamily": "sans-serif",
+                "vertical": false
+              },
+              "g_d#_f3": {
+                "ascent": 0.629,
+                "descent": -0.157,
+                "fontFamily": "monospace",
+                "vertical": false
+              },
+              "g_d#_f5": {
+                "ascent": 0.629,
+                "descent": -0.157,
+                "fontFamily": "monospace",
+                "vertical": false
+              },
+              "g_d#_f7": {
+                "ascent": 0.629,
+                "descent": -0.157,
+                "fontFamily": "monospace",
+                "vertical": false
+              },
+              "g_d#_f9": {
+                "ascent": 0.718,
+                "descent": -0.207,
+                "fontFamily": "sans-serif",
+                "vertical": false
+              }
+            }
+          },
+          "userUnit": 1,
+          "view": [
+            0,
+            0,
+            612,
+            792
+          ],
+          "viewport": {
+            "height": 792,
+            "offsetX": 0,
+            "offsetY": 0,
+            "rotation": 0,
+            "transform": [
+              1,
+              0,
+              0,
+              -1,
+              0,
+              792
+            ],
+            "width": 612
+          }
+        }
+      ]
+    },
+    "sameAsReference": false
+  }
+}

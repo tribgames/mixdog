@@ -1,0 +1,720 @@
+{
+  "bytes": 89991,
+  "file": "samples/libreoffice-writer-report.pdf",
+  "group": "samples",
+  "name": "sample-libreoffice-writer-report",
+  "outcome": {
+    "numPages": 1,
+    "ok": true,
+    "pages": [
+      {
+        "number": 1,
+        "rotate": 0,
+        "text": {
+          "items": [
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f1",
+              "hasEOL": false,
+              "height": 20,
+              "str": "Quarterly operations report",
+              "transform": [
+                20,
+                0,
+                0,
+                20,
+                56.8,
+                766.439
+              ],
+              "width": 259.79999999999995
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                12,
+                0,
+                0,
+                12,
+                56.8,
+                750.939
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 12,
+              "str": "Night shift throughput rose 12",
+              "transform": [
+                12,
+                0,
+                0,
+                12,
+                56.8,
+                750.939
+              ],
+              "width": 157.21199999999996
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f3",
+              "hasEOL": false,
+              "height": 7,
+              "str": "th",
+              "transform": [
+                7,
+                0,
+                0,
+                7,
+                214.2,
+                755.689
+              ],
+              "width": 5.788999999999998
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f3",
+              "hasEOL": false,
+              "height": 0,
+              "str": " ",
+              "transform": [
+                7,
+                0,
+                0,
+                7,
+                219.98899999999998,
+                755.689
+              ],
+              "width": 3.261000000000024
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 12,
+              "str": "percent; see the table below. Ligatures: office, fifty, waffle.",
+              "transform": [
+                12,
+                0,
+                0,
+                12,
+                223.25,
+                750.939
+              ],
+              "width": 305.7480000000002
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                12,
+                0,
+                0,
+                12,
+                56.8,
+                737.139
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 12,
+              "str": "Hub",
+              "transform": [
+                12,
+                0,
+                0,
+                12,
+                56.8,
+                737.139
+              ],
+              "width": 21.971999999999998
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 0,
+              "str": " ",
+              "transform": [
+                12,
+                0,
+                0,
+                12,
+                78.77199999999999,
+                737.139
+              ],
+              "width": 138.62800000000001
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 12,
+              "str": "Orders",
+              "transform": [
+                12,
+                0,
+                0,
+                12,
+                217.4,
+                737.139
+              ],
+              "width": 36.623999999999995
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 0,
+              "str": " ",
+              "transform": [
+                12,
+                0,
+                0,
+                12,
+                254.02400000000003,
+                737.139
+              ],
+              "width": 124.02599999999998
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 12,
+              "str": "Rate",
+              "transform": [
+                12,
+                0,
+                0,
+                12,
+                378.05,
+                737.139
+              ],
+              "width": 25.308
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                12,
+                0,
+                0,
+                12,
+                56.8,
+                723.339
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 12,
+              "str": "North",
+              "transform": [
+                12,
+                0,
+                0,
+                12,
+                56.8,
+                723.339
+              ],
+              "width": 29.304
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 0,
+              "str": " ",
+              "transform": [
+                12,
+                0,
+                0,
+                12,
+                86.10399999999998,
+                723.339
+              ],
+              "width": 131.29600000000002
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 12,
+              "str": "128400",
+              "transform": [
+                12,
+                0,
+                0,
+                12,
+                217.4,
+                723.339
+              ],
+              "width": 39.983999999999995
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 0,
+              "str": " ",
+              "transform": [
+                12,
+                0,
+                0,
+                12,
+                257.384,
+                723.339
+              ],
+              "width": 120.666
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f2",
+              "hasEOL": false,
+              "height": 12,
+              "str": "97.5%",
+              "transform": [
+                12,
+                0,
+                0,
+                12,
+                378.05,
+                723.339
+              ],
+              "width": 33.984
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f4",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                10,
+                0,
+                0,
+                10,
+                56.8,
+                707.739
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f4",
+              "hasEOL": false,
+              "height": 10,
+              "str": "한국어 문장입니다",
+              "transform": [
+                10,
+                0,
+                0,
+                10,
+                56.8,
+                707.739
+              ],
+              "width": 83.5
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f5",
+              "hasEOL": false,
+              "height": 12,
+              "str": ".",
+              "transform": [
+                12,
+                0,
+                0,
+                12,
+                140.3,
+                707.739
+              ],
+              "width": 2.616
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f5",
+              "hasEOL": false,
+              "height": 0,
+              "str": " ",
+              "transform": [
+                12,
+                0,
+                0,
+                12,
+                142.91600000000003,
+                707.739
+              ],
+              "width": 4.183999999999969
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f4",
+              "hasEOL": false,
+              "height": 10,
+              "str": "야간 근무 처리량이 증가했습니다",
+              "transform": [
+                10,
+                0,
+                0,
+                10,
+                147.1,
+                707.739
+              ],
+              "width": 150.5
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f5",
+              "hasEOL": false,
+              "height": 12,
+              "str": ".",
+              "transform": [
+                12,
+                0,
+                0,
+                12,
+                297.6,
+                707.739
+              ],
+              "width": 2.616
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f4",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                10,
+                0,
+                0,
+                10,
+                56.8,
+                693.939
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f4",
+              "hasEOL": false,
+              "height": 10,
+              "str": "日本語の文章です。夜勤の",
+              "transform": [
+                10,
+                0,
+                0,
+                10,
+                56.8,
+                693.939
+              ],
+              "width": 120
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f4",
+              "hasEOL": false,
+              "height": 0,
+              "str": " ",
+              "transform": [
+                10,
+                0,
+                0,
+                10,
+                176.8,
+                693.939
+              ],
+              "width": 9.990000000000009
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f4",
+              "hasEOL": false,
+              "height": 10,
+              "str": "理量が",
+              "transform": [
+                10,
+                0,
+                0,
+                10,
+                186.79000000000002,
+                693.939
+              ],
+              "width": 30
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f4",
+              "hasEOL": false,
+              "height": 0,
+              "str": " ",
+              "transform": [
+                10,
+                0,
+                0,
+                10,
+                216.79000000000002,
+                693.939
+              ],
+              "width": 9.990000000000009
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f4",
+              "hasEOL": false,
+              "height": 10,
+              "str": "加しました。",
+              "transform": [
+                10,
+                0,
+                0,
+                10,
+                226.78000000000003,
+                693.939
+              ],
+              "width": 60
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f6",
+              "hasEOL": false,
+              "height": 10,
+              "str": "処",
+              "transform": [
+                10,
+                0,
+                0,
+                10,
+                176.8,
+                693.939
+              ],
+              "width": 10
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f6",
+              "hasEOL": false,
+              "height": 0,
+              "str": " ",
+              "transform": [
+                10,
+                0,
+                0,
+                10,
+                186.8,
+                693.939
+              ],
+              "width": 29.99000000000001
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f6",
+              "hasEOL": false,
+              "height": 10,
+              "str": "増",
+              "transform": [
+                10,
+                0,
+                0,
+                10,
+                216.79000000000002,
+                693.939
+              ],
+              "width": 10
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f4",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                10,
+                0,
+                0,
+                10,
+                66.8,
+                680.639
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f4",
+              "hasEOL": false,
+              "height": 10,
+              "str": "是中文句子。夜班",
+              "transform": [
+                10,
+                0,
+                0,
+                10,
+                66.8,
+                680.639
+              ],
+              "width": 80
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f4",
+              "hasEOL": false,
+              "height": 0,
+              "str": " ",
+              "transform": [
+                10,
+                0,
+                0,
+                10,
+                146.8,
+                680.639
+              ],
+              "width": 9.990000000000009
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f4",
+              "hasEOL": false,
+              "height": 10,
+              "str": "吐量有所增加。",
+              "transform": [
+                10,
+                0,
+                0,
+                10,
+                156.79000000000002,
+                680.639
+              ],
+              "width": 70
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f7",
+              "hasEOL": false,
+              "height": 10,
+              "str": "吞",
+              "transform": [
+                10,
+                0,
+                0,
+                10,
+                146.8,
+                680.639
+              ],
+              "width": 10
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f8",
+              "hasEOL": false,
+              "height": 10,
+              "str": "这",
+              "transform": [
+                10,
+                0,
+                0,
+                10,
+                56.8,
+                680.639
+              ],
+              "width": 10
+            }
+          ],
+          "styles": {
+            "g_d#_f1": {
+              "ascent": 0.9052734375,
+              "descent": -0.2119140625,
+              "fontFamily": "sans-serif",
+              "vertical": false
+            },
+            "g_d#_f2": {
+              "ascent": 0.9052734375,
+              "descent": -0.2119140625,
+              "fontFamily": "sans-serif",
+              "vertical": false
+            },
+            "g_d#_f3": {
+              "ascent": 0.9052734375,
+              "descent": -0.2119140625,
+              "fontFamily": "sans-serif",
+              "vertical": false
+            },
+            "g_d#_f4": {
+              "ascent": 1.08837890625,
+              "descent": -0.24169921875,
+              "fontFamily": "sans-serif",
+              "vertical": false
+            },
+            "g_d#_f5": {
+              "ascent": 1.08837890625,
+              "descent": -0.24169921875,
+              "fontFamily": "sans-serif",
+              "vertical": false
+            },
+            "g_d#_f6": {
+              "ascent": 1.16,
+              "descent": -0.288,
+              "fontFamily": "monospace",
+              "vertical": false
+            },
+            "g_d#_f7": {
+              "ascent": 1.16,
+              "descent": -0.288,
+              "fontFamily": "monospace",
+              "vertical": false
+            },
+            "g_d#_f8": {
+              "ascent": 1.05810546875,
+              "descent": -0.26171875,
+              "fontFamily": "monospace",
+              "vertical": false
+            }
+          }
+        },
+        "userUnit": 1,
+        "view": [
+          0,
+          0,
+          595.303937007874,
+          841.889763779528
+        ],
+        "viewport": {
+          "height": 841.889763779528,
+          "offsetX": 0,
+          "offsetY": 0,
+          "rotation": 0,
+          "transform": [
+            1,
+            0,
+            0,
+            -1,
+            0,
+            841.889763779528
+          ],
+          "width": 595.303937007874
+        }
+      }
+    ]
+  },
+  "sha256": "bdf8e568d78a8972b30c49f81f0c9681fcfc0e606dc01940910cf52deb9ac54f",
+  "withReadableDataUrls": {
+    "sameAsReference": true
+  }
+}

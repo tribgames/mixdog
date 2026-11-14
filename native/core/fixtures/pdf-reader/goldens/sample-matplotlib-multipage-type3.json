@@ -1,0 +1,175 @@
+{
+  "bytes": 7707,
+  "file": "samples/matplotlib-multipage-type3.pdf",
+  "group": "samples",
+  "name": "sample-matplotlib-multipage-type3",
+  "outcome": {
+    "numPages": 3,
+    "ok": true,
+    "pages": [
+      {
+        "number": 1,
+        "rotate": 0,
+        "text": {
+          "items": [
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f1",
+              "hasEOL": false,
+              "height": 10,
+              "str": "Page 1 of three",
+              "transform": [
+                10,
+                0,
+                0,
+                10,
+                28.8,
+                72
+              ],
+              "width": 76.1834765625
+            }
+          ],
+          "styles": {
+            "g_d#_f1": {
+              "ascent": 0.929,
+              "descent": -0.236,
+              "fontFamily": "sans-serif"
+            }
+          }
+        },
+        "userUnit": 1,
+        "view": [
+          0,
+          0,
+          288,
+          144
+        ],
+        "viewport": {
+          "height": 144,
+          "offsetX": 0,
+          "offsetY": 0,
+          "rotation": 0,
+          "transform": [
+            1,
+            0,
+            0,
+            -1,
+            0,
+            144
+          ],
+          "width": 288
+        }
+      },
+      {
+        "number": 2,
+        "rotate": 0,
+        "text": {
+          "items": [
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f1",
+              "hasEOL": false,
+              "height": 10,
+              "str": "Page 2 of three",
+              "transform": [
+                10,
+                0,
+                0,
+                10,
+                28.8,
+                72
+              ],
+              "width": 76.1834765625
+            }
+          ],
+          "styles": {
+            "g_d#_f1": {
+              "ascent": 0.929,
+              "descent": -0.236,
+              "fontFamily": "sans-serif"
+            }
+          }
+        },
+        "userUnit": 1,
+        "view": [
+          0,
+          0,
+          288,
+          144
+        ],
+        "viewport": {
+          "height": 144,
+          "offsetX": 0,
+          "offsetY": 0,
+          "rotation": 0,
+          "transform": [
+            1,
+            0,
+            0,
+            -1,
+            0,
+            144
+          ],
+          "width": 288
+        }
+      },
+      {
+        "number": 3,
+        "rotate": 0,
+        "text": {
+          "items": [
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f1",
+              "hasEOL": false,
+              "height": 10,
+              "str": "Page 3 of three",
+              "transform": [
+                10,
+                0,
+                0,
+                10,
+                28.8,
+                72
+              ],
+              "width": 76.1834765625
+            }
+          ],
+          "styles": {
+            "g_d#_f1": {
+              "ascent": 0.929,
+              "descent": -0.236,
+              "fontFamily": "sans-serif"
+            }
+          }
+        },
+        "userUnit": 1,
+        "view": [
+          0,
+          0,
+          288,
+          144
+        ],
+        "viewport": {
+          "height": 144,
+          "offsetX": 0,
+          "offsetY": 0,
+          "rotation": 0,
+          "transform": [
+            1,
+            0,
+            0,
+            -1,
+            0,
+            144
+          ],
+          "width": 288
+        }
+      }
+    ]
+  },
+  "sha256": "dbf7726649e4001876b4b9201d2131f68a3e043b42cc113e9b41db0a881132d9",
+  "withReadableDataUrls": {
+    "sameAsReference": true
+  }
+}

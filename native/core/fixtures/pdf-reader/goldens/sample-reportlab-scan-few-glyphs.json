@@ -1,0 +1,86 @@
+{
+  "bytes": 2545,
+  "file": "samples/reportlab-scan-few-glyphs.pdf",
+  "group": "samples",
+  "name": "sample-reportlab-scan-few-glyphs",
+  "outcome": {
+    "numPages": 1,
+    "ok": true,
+    "pages": [
+      {
+        "number": 1,
+        "rotate": 0,
+        "text": {
+          "items": [
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f1",
+              "hasEOL": true,
+              "height": 12,
+              "str": "No. 17",
+              "transform": [
+                12,
+                0,
+                0,
+                12,
+                60,
+                500
+              ],
+              "width": 35.352
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f1",
+              "hasEOL": false,
+              "height": 12,
+              "str": "Total",
+              "transform": [
+                12,
+                0,
+                0,
+                12,
+                60,
+                485.6
+              ],
+              "width": 26.676000000000002
+            }
+          ],
+          "styles": {
+            "g_d#_f1": {
+              "ascent": 0.718,
+              "descent": -0.207,
+              "fontFamily": "sans-serif",
+              "vertical": false
+            }
+          }
+        },
+        "userUnit": 1,
+        "view": [
+          0,
+          0,
+          419.5276,
+          595.2756
+        ],
+        "viewport": {
+          "height": 595.2756,
+          "offsetX": 0,
+          "offsetY": 0,
+          "rotation": 0,
+          "transform": [
+            1,
+            0,
+            0,
+            -1,
+            0,
+            595.2756
+          ],
+          "width": 419.5276
+        }
+      }
+    ]
+  },
+  "sha256": "004dc4f443124b9f8334fda90d065ea3008f806d96ed38c5e666f223d84458df",
+  "withReadableDataUrls": {
+    "sameAsReference": true
+  }
+}

@@ -1,0 +1,101 @@
+{
+  "bytes": 1046,
+  "file": "files/type3-font.pdf",
+  "group": "assembled",
+  "name": "type3-font",
+  "outcome": {
+    "numPages": 1,
+    "ok": true,
+    "pages": [
+      {
+        "number": 1,
+        "rotate": 0,
+        "text": {
+          "items": [
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f1",
+              "hasEOL": false,
+              "height": 24,
+              "str": "ABBA",
+              "transform": [
+                24,
+                0,
+                0,
+                24,
+                60,
+                700
+              ],
+              "width": 76.8
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f1",
+              "hasEOL": true,
+              "height": 0,
+              "str": "",
+              "transform": [
+                12,
+                0,
+                0,
+                12,
+                60,
+                650
+              ],
+              "width": 0
+            },
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f1",
+              "hasEOL": false,
+              "height": 12,
+              "str": "AB BA",
+              "transform": [
+                12,
+                0,
+                0,
+                12,
+                60,
+                650
+              ],
+              "width": 38.4
+            }
+          ],
+          "styles": {
+            "g_d#_f1": {
+              "ascent": null,
+              "descent": null,
+              "fontFamily": "monospace"
+            }
+          }
+        },
+        "userUnit": 1,
+        "view": [
+          0,
+          0,
+          612,
+          792
+        ],
+        "viewport": {
+          "height": 792,
+          "offsetX": 0,
+          "offsetY": 0,
+          "rotation": 0,
+          "transform": [
+            1,
+            0,
+            0,
+            -1,
+            0,
+            792
+          ],
+          "width": 612
+        }
+      }
+    ]
+  },
+  "sha256": "4081a6f7e6899cb879f05d2a527ff42b5be3e5d1b8c734de47744996afaa2ca9",
+  "withReadableDataUrls": {
+    "sameAsReference": true
+  }
+}
