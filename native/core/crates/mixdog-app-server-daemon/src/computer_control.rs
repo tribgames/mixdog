@@ -115,8 +115,7 @@ mod tests {
         assert_eq!(ask(&service, json!({"action": "resume"})).await, json!({"ok": true}));
         assert_eq!(ask(&service, json!({"action": "pause"})).await, json!({"ok": true}));
         assert_eq!(control.section().map(|section| section.reason), Some("user_pause".to_owned()));
-        let request = CoreRequest { method: Method("computer/userControl"), params: json!({"action": "takeover"}), op: None, ctx: CallContext::internal("test") };
-        assert!(matches!(service.call(request).await, Err(CoreError::InvalidParams { .. })), "a takeover names its reason");
+        assert_eq!(ask(&service, json!({"action": "takeover"})).await, json!({"ok": false}), "a takeover that names no reason changes nothing");
     }
 
     #[tokio::test]

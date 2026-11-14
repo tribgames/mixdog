@@ -22,18 +22,18 @@ edit:     computer_host.clone(),
 edit: ));
 # (`config` is `let (config, _config_changes) = Config::open(..)` of the same function, opened before this point.)
 
-# 2. The pool, the desktop channel binding and the GNOME extension follower: one call. REPLACES everything from
-#    `// The helper binary (`MIXDOG_COMPUTER_BIN`, else bundled ...` through the end of the `{ // GNOME window control ... }` block, i.e.
-#    `let native_paths = ..`, `let computer_pool = native_paths.computer_sessions(..).await;`, `if let Some(pool) = &computer_pool { pool.attach_desktop(..) }`
-#    and the `tokio::spawn` GNOME block. KEEP `late_computer_hosts.bind(computer_pool.clone()).map_err(..)?;` right after it.
+# 2. The pool, the desktop channel binding and the GNOME extension follower: one call. KEEP the comment `// The helper binary (..)` and
+#    `let native_paths = Arc::new(mixdog_core::run_host::native_tools::NativeToolPaths::new(..));` as they are (the tidy host's
+#    `native: native_paths.clone()` reads it too). REPLACE `let computer_pool = native_paths.computer_sessions(..).await;`,
+#    `if let Some(pool) = &computer_pool { pool.attach_desktop(..) }` and the `{ // GNOME window control ... tokio::spawn .. }` block.
+#    KEEP `late_computer_hosts.bind(computer_pool.clone()).map_err(..)?;` (it stands between the attach and the GNOME block): it follows the call below.
 #    The `wrap` closure is the existing `Arc::new({ let (human_only, redactor, saved_logins, saved_login_turns, late_computer_hosts, host) = ..; move |session, inner| { .. } })`
 #    unchanged, given as `wrap`.
 file: native/core/crates/mixdog-app-server-daemon/src/compose_flip.rs
-place: fn real_core, where `let native_paths = Arc::new(mixdog_core::run_host::native_tools::NativeToolPaths::new(` stands
+place: fn real_core, right after the `let native_paths = Arc::new(mixdog_core::run_host::native_tools::NativeToolPaths::new(..));` statement
 edit: let computer = crate::compose_computer::compose_computer(crate::compose_computer::ComputerInputs {
 edit:     env: b.env.clone(),
-edit:     package_root: b.package_root.clone(),
-edit:     files: b.files.clone(),
+edit:     paths: native_paths.clone(),
 edit:     manager: b.process_manager.clone(),
 edit:     wrap: <the existing wrap closure, as `Arc::new({ ... })`>,
 edit:     publisher: pre.state.publisher.clone(),
@@ -46,7 +46,7 @@ edit:     cancel: b.cancel.clone(),
 edit: })
 edit: .await;
 edit: let computer_pool: Option<Arc<mixdog_core::run_host::native_tools::ComputerSessionPool>> = computer.pool.clone();
-# `blobs` is `let blobs = mixdog_store::blobs::BlobStore::new(&b.data_dir);` (earlier in the same function). `NativeToolPaths` is no longer named in compose_flip.rs.
+# `blobs` is `let blobs = mixdog_store::blobs::BlobStore::new(&b.data_dir);` (earlier in the same function). `native_paths` stays for the tidy host.
 
 # 3. The services. `Composed::register` registers computer/userControl, computer/pointerReleased and (test-hooks + MIXDOGD_TEST_HOOKS=1) dev/computer/run.
 file: native/core/crates/mixdog-app-server-daemon/src/compose_flip.rs

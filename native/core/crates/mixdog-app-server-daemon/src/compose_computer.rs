@@ -14,14 +14,12 @@ use std::sync::atomic::Ordering;
 use async_trait::async_trait;
 use mixdog_core::run_host::native_tools::ComputerSessionPool;
 use mixdog_core::run_host::native_tools::ComputerSettings;
-use mixdog_core::run_host::native_tools::FileServiceExists;
 use mixdog_core::run_host::native_tools::NativeTool;
 use mixdog_core::run_host::native_tools::NativeToolPaths;
 use mixdog_core::run_host::native_tools::WrapBackend;
 use mixdog_core_api::HostCapability;
 use mixdog_core_api::HostChannel;
 use mixdog_core_api::domain::computer::ComputerError;
-use mixdog_core_api::domain::fs::FileService;
 use mixdog_core_api::domain::process::ProcessManager;
 use mixdog_core_api::state::StatePublisher;
 use mixdog_core_base::support::on_lane;
@@ -111,8 +109,9 @@ impl HostPresence for ComputerHostPresence {
 /// What [`compose_computer`] needs of the composition.
 pub struct ComputerInputs<'a> {
     pub env: EnvReader,
-    pub package_root: PathBuf,
-    pub files: Arc<dyn FileService>,
+    /// Where the helper binary is found (`MIXDOG_COMPUTER_BIN`, else bundled `native-tools/`, else the local build); the same
+    /// value the tidy host resolves its native tools with.
+    pub paths: Arc<NativeToolPaths>,
     pub manager: Arc<dyn ProcessManager>,
     /// Decorates each session's backend as it is made (the secret redaction, the human-only lock, the saved-login fill).
     pub wrap: WrapBackend,
@@ -139,10 +138,7 @@ pub struct Composed {
 /// Builds the pool over the resolved helper (or the desktop host), binds the desktop channel to it, tells `presence` whether the helper resolved, and starts the follower of
 /// `desktop.computerControl` that installs and enables Mixy's GNOME shell extension.
 pub async fn compose_computer(inputs: ComputerInputs<'_>) -> Composed {
-    let ComputerInputs { env, package_root, files, manager, wrap, publisher, data_dir, config, presence, blobs, tokens, cancel } = inputs;
-    // The helper binary (`MIXDOG_COMPUTER_BIN`, else bundled `native-tools/`, else the local build); `cached` is `None`: nothing in this
-    // core downloads a native tool.
-    let paths = NativeToolPaths::new(env.clone(), package_root, Arc::new(FileServiceExists { files, lane: tokens.interactive_io }), None);
+    let ComputerInputs { env, paths, manager, wrap, publisher, data_dir, config, presence, blobs, tokens, cancel } = inputs;
     presence.helper_resolvable.store(paths.resolve(NativeTool::Computer).await.is_some(), Ordering::SeqCst);
     let host_blobs: Arc<dyn HostBlobs> = Arc::new(CoreComputerBlobs::new(blobs.clone(), tokens.interactive_io));
     let settings = ComputerSettings::from_config(data_dir, config.clone(), Some(host_blobs));
