@@ -283,18 +283,13 @@ fn refuse(path: &str, expected: &str) -> Option<Result<(), ErrorData>> {
 }
 
 /// `None`: this group does not own `method`, or accepts `params` (a group after it may still refuse them).
-pub fn check(method: &str, params: Option<&Value>) -> Option<Result<(), ErrorData>> {
+pub fn check(method: &str, given: Option<&Value>) -> Option<Result<(), ErrorData>> {
     let &(_, capability, required) = CAPABILITIES.iter().find(|(name, _, _)| *name == method)?;
     let empty = Map::new();
-    let params = params.and_then(Value::as_object).unwrap_or(&empty);
-    for name in required {
-        if !params.contains_key(*name) {
-            return refuse(
-                &format!("/{name}"),
-                &format!("capability {capability} received an invalid number of arguments."),
-            );
-        }
-    }
+    let params = given.and_then(Value::as_object).unwrap_or(&empty);
+    // An argument left out reads as `undefined` to the host's typed checks, which name it in their own message (`turn key
+    // must be a string.`); only a call that no check types has too few arguments (below, once every check has had its say).
+    let missing = required.iter().find(|name| !params.contains_key(**name));
     let mut state = Structured { strings: 0, nodes: 1 };
     for (key, value) in params {
         if key == "opId" || key == "threadId" {
@@ -342,12 +337,18 @@ pub fn check(method: &str, params: Option<&Value>) -> Option<Result<(), ErrorDat
     }
     // The addressed session: an empty or absent one is the control session.
     match params.get("threadId") {
-        None | Some(Value::Null) => None,
-        Some(Value::String(id)) if id.is_empty() => None,
-        thread => match required_session_id(thread) {
-            Ok(()) => None,
-            Err(expected) => refuse("/threadId", expected),
-        },
+        None | Some(Value::Null) => {}
+        Some(Value::String(id)) if id.is_empty() => {}
+        thread => {
+            if let Err(expected) = required_session_id(thread) {
+                return refuse("/threadId", expected);
+            }
+        }
+    }
+    let name = missing?;
+    match super::typed_refusal(method, given) {
+        Some(error) => Some(Err(error)),
+        None => refuse(&format!("/{name}"), &format!("capability {capability} received an invalid number of arguments.")),
     }
 }
 
@@ -383,11 +384,12 @@ impl Structured {
                 if entries.len() > MAX_STRUCTURED_ENTRIES {
                     return Err("structured input contains too many fields.");
                 }
-                for (key, entry) in entries {
+                // `Object.entries`: integer keys first, so the first refusal is the one JavaScript reports.
+                for key in mixdog_js::js_object_keys(entries) {
                     if matches!(key.as_str(), "__proto__" | "prototype" | "constructor") {
                         return Err("structured input contains an invalid field.");
                     }
-                    self.check(entry, depth + 1)?;
+                    self.check(&entries[key], depth + 1)?;
                 }
                 Ok(())
             }
@@ -627,5 +629,54 @@ mod tests {
         let text = |count: usize| Value::Array(vec![Value::String("a".repeat(1_000_000)); count]);
         assert_eq!(run("config/createWorkflow", &params(text(32))), Ok(()));
         assert_eq!(run("config/createWorkflow", &params(text(33))), too_large("/payload"));
+    }
+
+    /// An argument the call left out reads as `undefined` to the host's typed check, which names it; a capability no check
+    /// types still has too few arguments.
+    #[test]
+    fn a_missing_typed_argument_takes_the_typed_message() {
+        let params = |fields: Value| {
+            let mut object = serde_json::json!({ "opId": "o1" });
+            object.as_object_mut().unwrap().extend(fields.as_object().unwrap().clone());
+            object
+        };
+        let refused = |path: &str, expected: &str| Err(ErrorData::InvalidParams { path: path.to_owned(), expected: expected.to_owned() });
+        assert_eq!(
+            run("turn/retryFailed", &params(serde_json::json!({ "threadId": "t1" }))),
+            refused("/turnKey", "turn key must be a string.")
+        );
+        assert_eq!(run("thread/askSide", &params(serde_json::json!({}))), refused("/question", "side question must be a string."));
+        // Typed by another group of this folder.
+        assert_eq!(
+            run("account/checkCustomProviderKeyEnv", &params(serde_json::json!({}))),
+            refused("/name", "environment variable name must be a string.")
+        );
+        assert_eq!(
+            run("account/saveCustomProviderKey", &params(serde_json::json!({ "providerId": "custom-0190f3c2-7a31-7c00-8000-000000000001" }))),
+            refused("/secret", "provider secret is invalid.")
+        );
+        assert_eq!(
+            run("account/removeCustomProvider", &params(serde_json::json!({}))),
+            refused("/providerId", "custom provider id must be a string.")
+        );
+        // No check types it: the argument count.
+        assert_eq!(
+            run("thread/rewind", &params(serde_json::json!({ "threadId": "t1" }))),
+            refused("/itemId", "capability rewindToItem received an invalid number of arguments.")
+        );
+    }
+
+    /// `Object.entries` lists integer keys first, so a structured value reports the refusal JavaScript reaches first.
+    #[test]
+    fn a_structured_value_is_walked_in_object_key_order() {
+        // Written first, the invalid field would be met before the too long list under the key `0`.
+        let payload: Value = serde_json::from_str(&format!(r#"{{"constructor": 1, "0": [{}0]}}"#, "0,".repeat(5_000))).unwrap();
+        assert_eq!(
+            run("config/createWorkflow", &serde_json::json!({ "opId": "o1", "payload": payload })),
+            Err(ErrorData::InvalidParams {
+                path: "/payload".to_owned(),
+                expected: "structured input contains too many entries.".to_owned()
+            })
+        );
     }
 }

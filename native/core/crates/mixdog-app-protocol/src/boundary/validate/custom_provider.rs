@@ -57,7 +57,8 @@ pub fn check(method: &str, params: Option<&Value>) -> Option<Result<(), ErrorDat
     let Some(params) = params.and_then(Value::as_object) else { return Some(Ok(())) };
     let text_field = |key: &str, name: &str, maximum: usize| match params.get(key) {
         Some(value) => required_string(value, &at("", key), name, maximum).map(drop),
-        None => Ok(()),
+        // An absent argument is `undefined` to the host's `requiredString`.
+        None => Err(fail(&at("", key), &format!("{name} must be a string."))),
     };
     Some(match method {
         "account/saveCustomProvider" | "account/testCustomProvider" => provider_input(params, false),
@@ -212,7 +213,7 @@ fn header_map(value: &Value, path: &str, name: &str, too_large: &str) -> Check {
 }
 
 fn provider_input(params: &Map<String, Value>, models_optional: bool) -> Check {
-    let Some(value) = params.get("input") else { return Ok(()) };
+    let Some(value) = params.get("input") else { return Err(fail("/input", "custom provider is invalid.")) };
     let path = "/input";
     // No field at all is the placeholder the generic clients send; the runtime refuses it for its own missing fields.
     if value.as_object().is_some_and(Map::is_empty) {
@@ -291,7 +292,8 @@ fn provider_input(params: &Map<String, Value>, models_optional: bool) -> Check {
         if map.len() > MAX_OVERRIDES {
             return Err(fail(&wires_path, "custom provider modelWires are too large."));
         }
-        for (model_id, wire) in map {
+        for model_id in mixdog_js::js_object_keys(map) {
+            let wire = &map[model_id];
             safe_model_id(model_id, &at(&wires_path, model_id))?;
             if !wire.as_str().is_some_and(|w| WIRES.contains(&w)) {
                 return Err(fail(&at(&wires_path, model_id), "custom provider modelWires are invalid."));
@@ -316,10 +318,10 @@ fn provider_input(params: &Map<String, Value>, models_optional: bool) -> Check {
         if map.len() > MAX_OVERRIDES {
             return Err(fail(&overrides_path, "custom provider modelOverrides are too large."));
         }
-        for (model_id, row) in map {
+        for model_id in mixdog_js::js_object_keys(map) {
             let row_path = at(&overrides_path, model_id);
             safe_model_id(model_id, &row_path)?;
-            model_override(row, &row_path, false, Some(protocol))?;
+            model_override(&map[model_id], &row_path, false, Some(protocol))?;
         }
     }
     let models = field("models");
@@ -428,23 +430,24 @@ fn model_override(value: &Value, path: &str, patch: bool, protocol: Option<&str>
 /// `saveCustomProviderKey`: the secret is a string with something in it, at most 65536 units. The provider id is not matched against
 /// the custom id form here: the service finds no such provider and says so, as it does for the other id-keyed methods.
 fn save_key(params: &Map<String, Value>) -> Check {
-    if let Some(secret) = params.get("secret") {
-        let valid = secret.as_str().is_some_and(|text| !js_trim(text).is_empty() && utf16_len(text) <= MAX_API_KEY);
-        if !valid {
-            return Err(fail("/secret", "provider secret is invalid."));
-        }
+    // An absent secret is `undefined` to the host's `validateSecret`.
+    let valid = params
+        .get("secret")
+        .and_then(Value::as_str)
+        .is_some_and(|text| !js_trim(text).is_empty() && utf16_len(text) <= MAX_API_KEY);
+    if !valid {
+        return Err(fail("/secret", "provider secret is invalid."));
     }
     Ok(())
 }
 
 /// `updateCustomProviderModel`: provider id, model id and the patch (null deletes the override).
 fn model_patch(params: &Map<String, Value>) -> Check {
-    if let Some(id) = params.get("providerId") {
-        required_string(id, "/providerId", "custom provider id", 128)?;
-    }
-    if let Some(model) = params.get("modelId") {
-        safe_model_id(required_string(model, "/modelId", "custom provider model id", MAX_MODEL_ID)?, "/modelId")?;
-    }
+    // An absent argument is `undefined` to the host's `requiredString`.
+    let absent = Value::Null;
+    required_string(params.get("providerId").unwrap_or(&absent), "/providerId", "custom provider id", 128)?;
+    let model = params.get("modelId").unwrap_or(&absent);
+    safe_model_id(required_string(model, "/modelId", "custom provider model id", MAX_MODEL_ID)?, "/modelId")?;
     match params.get("patch") {
         Some(patch) if !patch.is_null() => model_override(patch, "/patch", true, None),
         _ => Ok(()),
@@ -453,10 +456,10 @@ fn model_patch(params: &Map<String, Value>) -> Check {
 
 /// `setModelPreferences`: a list of `{ model, hidden?, favorite? }`; an empty object stands for no changes.
 fn model_preferences(params: &Map<String, Value>) -> Check {
-    if let Some(provider) = params.get("providerId") {
-        required_string(provider, "/providerId", "provider id", 128)?;
-    }
-    let Some(changes) = params.get("changes") else { return Ok(()) };
+    required_string(params.get("providerId").unwrap_or(&Value::Null), "/providerId", "provider id", 128)?;
+    let Some(changes) = params.get("changes") else {
+        return Err(fail("/changes", "model preference changes are invalid."));
+    };
     if changes.as_object().is_some_and(Map::is_empty) {
         return Ok(());
     }
