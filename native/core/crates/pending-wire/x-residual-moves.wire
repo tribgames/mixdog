@@ -1,0 +1,16 @@
+# x-residual-moves core wire
+
+file: native/core/crates/mixdog-core-domains/src/domains/mod.rs
+place: the `pub mod` list, after `pub mod client;`
+add: pub mod desktop_residual;
+note: no Cargo change: the module uses only crates mixdog-core-domains already depends on (async-trait, regex, serde, serde_json, sha2, mixdog-js, mixdog-rt, mixdog-core-base, mixdog-core-api); its tests use tempfile, a dev-dependency already. No new dependency edge between workspace crates.
+
+file: native/core/crates/mixdog-app-server-daemon/src/compose_flip.rs
+place: fn real_core, after the `migrate_profile::MigrateProfileService` registration
+add: builder.register(Arc::new(mixdog_core_domains::domains::desktop_residual::DesktopResidualService::new(<attachment_host>, &b.tokens)))?; // `desktop/link/*`, `desktop/attachment/*`, `desktop/workflowConfig/read`, `desktop/fonts/list`
+note: <attachment_host> is an `Arc<dyn mixdog_core_domains::domains::desktop_residual::AttachmentHost>`: three reads over the session directory and the attachment store
+  (session_transcript(session_id) -> the transcript window as the `thread/items` rows the desktop's snapshot holds, with `kind`, `attachments`, `images`, `imageRefs`, `routine`, `room`;
+  session_history(session_id) -> the whole stored conversation, archived rows included; attachment_bytes(id) -> the blob store's bytes of that content hash). No implementation exists in
+  the tree yet (see the .rows header): until one does, add the six names below to SERVICE_PENDING instead of registering.
+remove from SERVICE_PENDING (when registered): "desktop/link/resolve", "desktop/link/resolvePath", "desktop/attachment/resolve", "desktop/attachment/stage", "desktop/workflowConfig/read", "desktop/fonts/list"
+add to SERVICE_PENDING (until the AttachmentHost implementation lands): the same six names. The task that supplies the implementation (the client half, x-residual-moves-client, or the wiring of the wave that composes the session directory) registers the service and removes them.
