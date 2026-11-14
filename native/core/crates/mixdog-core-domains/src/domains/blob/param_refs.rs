@@ -28,11 +28,23 @@ use mixdog_core_base::support::on_lane;
 
 use super::store_error;
 
-/// The most characters one request may have expanded from blobs: `MAX_STRUCTURED_STRING_TOTAL`
-/// (`ipc-validation.ts:316`), the bound the prompt validators keep for everything a submit carries
-/// (its images stay within `MAX_PROMPT_IMAGE_BASE64_TOTAL` = 30,000,000 of it, each method's own
-/// validator then applies its finer bounds to what was expanded).
-const MAX_EXPANDED_CHARS: u64 = 32_000_000;
+/// The characters every string a capability call carries may add up to: `MAX_STRUCTURED_STRING_TOTAL`
+/// (`capability-request.ts`), which also bounds submit options; a workspace text is at most `MAX_TEXT_FILE_LENGTH`.
+const MAX_STRUCTURED_STRING_TOTAL: u64 = 32_000_000;
+const MAX_TEXT_FILE_LENGTH: u64 = 4_194_304;
+
+/// The most characters `method` may have expanded from blobs: the sum of what its validators accept today in the listed
+/// fields, so the expansion refuses no input that is accepted and the method's own validator applies the finer bounds.
+fn expansion_bound(method: &str) -> u64 {
+    match method {
+        // The prompt (text `MAX_PROMPT_LENGTH`, images `MAX_PROMPT_IMAGE_BASE64_TOTAL`, files
+        // `MAX_PROMPT_FILE_BASE64_TOTAL`, prompt-limits.ts) and the submit options validated apart.
+        "turn/start" | "thread/start" | "room/send" => 1_000_000 + 30_000_000 + 28_000_000 + MAX_STRUCTURED_STRING_TOTAL,
+        // Up to 100 files, each with content and expected content (`requiredWorkspaceTextWrites`).
+        "projectFs/writeTextBatch" => 100 * 2 * MAX_TEXT_FILE_LENGTH,
+        _ => MAX_STRUCTURED_STRING_TOTAL,
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Encoding {
@@ -61,13 +73,13 @@ struct Found {
 pub struct BlobParamRefs {
     store: BlobStore,
     interactive: InteractiveIo,
-    max_chars: u64,
+    bound: fn(&str) -> u64,
 }
 
 impl BlobParamRefs {
     /// `store` is the data dir's blob store, the one `blob/put` publishes to.
     pub fn new(store: BlobStore, tokens: &LaneTokens, _limits: &Limits) -> Arc<Self> {
-        Arc::new(Self { store, interactive: tokens.interactive_io, max_chars: MAX_EXPANDED_CHARS })
+        Arc::new(Self { store, interactive: tokens.interactive_io, bound: expansion_bound })
     }
 
     async fn stored_len(&self, found: &Found, cancel: &CancellationToken) -> Result<u64, CoreError> {
@@ -161,12 +173,13 @@ impl ParamRefs for BlobParamRefs {
             return Ok(());
         }
         // Every size is known before the first blob is read, so a request over the bound allocates none of it.
+        let bound = (self.bound)(method);
         let mut total = 0u64;
         for reference in &found {
             let bytes = self.stored_len(reference, cancel).await?;
             total = total.saturating_add(reference.encoding.chars(bytes));
-            if total > self.max_chars {
-                return Err(CoreError::ItemTooLarge { limit: self.max_chars });
+            if total > bound {
+                return Err(CoreError::ItemTooLarge { limit: bound });
             }
         }
         for reference in found {
@@ -219,7 +232,7 @@ mod tests {
             assert!(matches!(service.call(req).await.unwrap(), Reply::Value(_)));
             digests.push(digest);
         }
-        let refs = BlobParamRefs { store: BlobStore::new(dir.path()), interactive: tokens.interactive_io, max_chars: MAX_EXPANDED_CHARS };
+        let refs = BlobParamRefs { store: BlobStore::new(dir.path()), interactive: tokens.interactive_io, bound: expansion_bound };
         (Fixture { _dir: dir, refs }, digests)
     }
 
@@ -312,7 +325,7 @@ mod tests {
     async fn over_limit_refused() {
         let (mut fixture, digests) = fixture(&[b"0123456789", b"abcdef"]).await;
         // 10 text characters and 8 base64 characters: each within a bound of 17, together over it.
-        fixture.refs.max_chars = 17;
+        fixture.refs.bound = |_| 17;
         let mut one = json!({ "content": { "$blobRef": digests[0], "as": "text" } });
         expand(&fixture, "projectFs/writeText", &mut one).await.unwrap();
         let mut both = json!({
@@ -322,5 +335,14 @@ mod tests {
         let error = expand(&fixture, "projectFs/writeText", &mut both).await.unwrap_err();
         assert!(matches!(error, CoreError::ItemTooLarge { limit: 17 }));
         assert!(both["content"].is_object(), "nothing was expanded");
+    }
+
+    #[test]
+    fn bound_is_what_the_method_accepts_today() {
+        assert_eq!(expansion_bound("turn/start"), 91_000_000);
+        assert_eq!(expansion_bound("room/send"), expansion_bound("thread/start"));
+        assert_eq!(expansion_bound("projectFs/writeTextBatch"), 838_860_800);
+        assert!(expansion_bound("projectFs/writeText") >= 2 * MAX_TEXT_FILE_LENGTH);
+        assert_eq!(expansion_bound("voice/transcribeAudio"), 32_000_000);
     }
 }

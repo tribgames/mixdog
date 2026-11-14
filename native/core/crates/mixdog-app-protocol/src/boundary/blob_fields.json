@@ -12,6 +12,8 @@
     "projectFs/writeText": ["/content", "/expectedContent"],
     "projectFs/writeTextBatch": ["/files/*/content", "/files/*/expectedContent"],
     "projectFs/backup/write": ["/content", "/expectedContent"],
-    "lsp/document": ["/document/content"]
+    "projectFs/replaceText": ["/replacement"],
+    "lsp/document": ["/document/content"],
+    "git/applyPatch": ["/patch"]
   }
 }
