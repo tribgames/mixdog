@@ -1,0 +1,56 @@
+# nr-office-crypto: the new crate mixdog-office-crypto (bounded compound-file reader, password-protection probes, MS-OFFCRYPTO
+# decryption). Nothing else consumes it yet: the document-preview port (a later office task) calls it.
+
+## native/core/Cargo.toml
+
+[workspace] members: add, after "crates/mixdog-fsio" (any place in the list):
+
+    "crates/mixdog-office-crypto",
+
+[workspace.dependencies]: add, next to `mixdog-fsio = { path = "crates/mixdog-fsio" }`:
+
+    mixdog-office-crypto = { path = "crates/mixdog-office-crypto" }
+
+The crate's own Cargo.toml names three registry dependencies by version, not through [workspace.dependencies] (nothing else in
+the workspace uses them yet); move them into the table if a later crate shares them:
+
+    aes = "0.8.4"            # already in Cargo.lock (0.8.4)
+    md-5 = "0.10.6"          # already in Cargo.lock (0.10.6); the library name is `md5`
+    quick-xml = { version = "0.38.4", default-features = false }   # cached, NOT yet in Cargo.lock
+
+## native/core/Cargo.lock
+
+A new package `mixdog-office-crypto` with dependencies: aes, base64, md-5, mixdog-fsio, mixdog-workspace-hack, quick-xml,
+sha1, sha2 (dev: serde_json, tempfile). Every one is in the lock already except `quick-xml 0.38.4` (cached in
+C:/Users/tempe/.cargo/registry/cache; its only dependency is memchr, already locked), so one offline
+`cargo update -w --offline` (or `cargo metadata --offline` without --locked, once) adds the two entries; the wave builds
+`--locked` afterwards.
+
+## native/core/crates/mixdog-workspace-hack/Cargo.toml
+
+Run the repository's hakari check after the member is added and take its output (features of aes, md-5, quick-xml/memchr
+are the ones it asks for). Nothing by hand.
+
+## native/core/fixtures/MANIFEST.json
+
+The set `office-crypto` (native/core/fixtures/office-crypto/golden.json and its MANIFEST.json, both added in this commit) is
+indexed by `node benchmarks/rust-core/recorders/verify-manifests.mjs --write-index` over the full fixtures tree (the task
+worktree has no fixtures checkout, so the index line is the lead's to regenerate).
+
+## SERVICE_PENDING (compose_flip.rs)
+
+No name to remove: this task registers no service and no protocol method.
+
+## What was not compiled
+
+cargo was not run (the crate is not a workspace member yet). Syntax was checked with `rustfmt --check` only. The crates the
+code uses and their cached versions: aes 0.8.4 (cipher 0.4), md-5 0.10.6, sha1 0.10, sha2 0.10, base64 0.22, quick-xml 0.38.4
+(NsReader::read_resolved_event, resolve_attribute, quick_xml::escape::unescape, BytesDecl::encoding, BytesPI::target,
+BytesRef::decode: all read in the 0.38.4 source), mixdog-fsio (File::open, write, read_to_string with `Unlaned` in tests).
+
+## Later tasks
+
+The preview port calls, in this order: `read_encrypted_ooxml(proof, path)` -> `ooxml_encryption(&info)` ->
+`KeyDerivation::start(&descriptor, password, &cancel)` / `password_key(..)` -> `package_intact(..)` -> `decrypt_package(..)`;
+and `is_encrypted_ooxml`, `is_encrypted_word_document`, `is_encrypted_binary_presentation` for the verdicts. All of them block:
+the caller runs them from a lane job.
