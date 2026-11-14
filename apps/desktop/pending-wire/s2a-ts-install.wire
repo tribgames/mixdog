@@ -1,5 +1,9 @@
 # s2a-ts-install
-apps/desktop/src/renderer/main.tsx: at the top, after `import './process-shim';` and before any import that reads window.mixdogDesktop (the bootstrap import), add
-  import { installDirectDesktopApi } from './core-direct/install';
-  and, in the Electron branch (not remoteBrowser), `await installDirectDesktopApi();` (a no-op when a preload already supplied window.mixdogDesktop).
+apps/desktop/src/renderer/main.tsx: in the `try` block of the `if (launchApplication)` branch, right after
+  `await Promise.all([remoteShimReady, languageReady]);`
+  and before the `if (!remoteBrowser) { void import('./boot-session-read')... }` read and `await import('./bootstrap');`, add
+    if (!remoteBrowser) await import('./core-direct/install').then((module) => module.installDirectDesktopApi());
+  It is a dynamic import on purpose: install.ts pulls in about 200 renderer modules (i18n, transcript formatting), which must
+  not evaluate before the UI language is in place nor ride the first-paint chunk (the order main.tsx's header requires). It is a
+  no-op when a preload already supplied window.mixdogDesktop.
 apps/desktop/src/preload/index.ts: expose window.mixdogDesktopHost = createHostApi(...) plus the optional `bootContext` and `connection` values (read from the launch arguments as today), and window.mixdogCorePort (installCorePort); stop building the direct members there (the preload-host-api task owns this).
