@@ -27,17 +27,16 @@ CORE-WIRE-G9 add them, deferred-g1.md), so none of this code or its tests has be
 - s3-06: applied by G2.5-WIRE (g25-fu-cu-a gave the turn clock `SavedLoginTurnClock` and `SettlingSavedLogins`, which call
   `SavedLoginRegistry::settle/forget`): the `SavedLoginComputerBackend` wrap, `FullRedactor` for the computer backends and the
   browser channel, and `SettlingSavedLogins` around `SessionDeps.snapshots` are in compose_flip.rs.
-- s3-08 -> s3-19 (wave 3): `builder.register(ComputerPointerService::new(pointer_hold))` needs the pool's `PointerHost`;
-  `computer/pointerReleased` stays in SERVICE_PENDING.
-- s3-13: applied by G2.5-WIRE with the g25-fu-cu-b snippet (`#[cfg(feature = "test-hooks")]` DevComputerRun over the pool,
-  registered only with MIXDOGD_TEST_HOOKS=1); `dev/computer/run` stays in SERVICE_PENDING so an ordinary start leaves it unclaimed.
-- s3-11 -> FEATURE-FACTS (G3) / s3-19: the `HostPresence` call site.
-- s2a-core-blob-refs -> s2a-core-server-wiring (wave 3): `param_refs::expand` in server.rs and
-  `mixdog_app_server::param_refs::install(BlobParamRefs::new(..))` in the daemon composition (install returns a Result).
-- s1-page-http -> s1-ws-wire (wave 3): mounting `PageServer`.
+- s3-08 -> s3-19: applied by CORE-WIRE-G3 (`compose_computer::Composed::register` registers `ComputerPointerService` over the
+  pool's pointer hold; `computer/pointerReleased` is out of SERVICE_PENDING).
+- s3-13: applied by G2.5-WIRE with the g25-fu-cu-b snippet; since CORE-WIRE-G3 `Composed::register` registers DevComputerRun
+  (test-hooks build with MIXDOGD_TEST_HOOKS=1 only); `dev/computer/run` stays in SERVICE_PENDING so an ordinary start leaves it unclaimed.
+- s3-11 -> FEATURE-FACTS / s3-19: applied by CORE-WIRE-G3 (`ToolBridges` over the host claims inside `ComputerGatedBridges`
+  with `ComputerHostPresence`).
+- s2a-core-blob-refs -> s2a-core-server-wiring: applied by CORE-WIRE-G3 (`crate::server::install_param_refs` in compose_domains/rows.rs).
+- s1-page-http -> s1-ws-wire: applied by CORE-WIRE-G3 (`compose_desktop_files` after `workspace.set_phone_grants`).
 - s2b-model-proxy-relay -> s2b-service (wave 9): the relay composition.
-- s3-03, s3-05, s3-09, s3-10, s3-12 -> s3-18 / s3-19 (wave 3): the consumer notes of their fragments (capture path, run log,
-  app-owned routing, display pixels, backend selection); no line here.
+- s3-03, s3-05, s3-09, s3-10, s3-12 -> s3-18 / s3-19: consumer notes, carried out by those tasks; no line.
 - s3-15: packaging of the extension payload (packaging task) and the desktop removal (s3-26). The compose loop is applied.
 
 ## g2x-pcaccess-installer: behaviours carried by g25-fu-x (applied by G2.5-WIRE)
@@ -48,5 +47,5 @@ binds the runtime events (`SectionEvents::bind_pc_access`) and gives RemoteAcces
 - s3-screen-source (G7): the phone screen control's ScreenPcAccess port calls `approve_with_credential` (mapping in the deleted
   fragment's block 6: `cancelled` = the session's abort, outcome by `KeyOutcome::name()`, `busy` for Busy, the same
   production_installer instance for the lease's InstallPort).
-- x-pcaccess-desktop (G3): the desktop maps needsEnroll / revocations-unknown and stops its TS createPcAccess queue (until then
-  the TS queue and the core queue both drive the installer exe, review-g25-fu-x).
+- x-pcaccess-desktop (G3, desktop side, no core line): the desktop maps needsEnroll / revocations-unknown and stops its TS
+  createPcAccess queue (until then the TS queue and the core queue both drive the installer exe, review-g25-fu-x).
