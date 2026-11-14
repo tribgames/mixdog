@@ -1,0 +1,39 @@
+# DESKTOP-WIRE-G1: apply this hunk to apps/desktop/src/main/index.ts (anchors: the `if (app.isPackaged)` block that defines nativeToolsDir, and the MIXDOG_COMPUTER_BIN selection). It hoists executableSuffix to module level and drops the win32 exclusion. computer-native-package.test.mjs test 2 fails until applied.
+diff --git a/apps/desktop/src/main/index.ts b/apps/desktop/src/main/index.ts
+index 150b30211e..1ccbb6309e 100644
+--- a/apps/desktop/src/main/index.ts
++++ b/apps/desktop/src/main/index.ts
+@@ -323,9 +323,9 @@ function startCrashHandlerWatch(): void {
+   });
+ }
+ 
++const executableSuffix = process.platform === 'win32' ? '.exe' : '';
+ if (app.isPackaged) {
+   const nativeToolsDir = join(process.resourcesPath, 'native-tools');
+-  const executableSuffix = process.platform === 'win32' ? '.exe' : '';
+   const graphPath = join(nativeToolsDir, `mixdog-graph${executableSuffix}`);
+   const nativeOverrides = [
+     { kind: 'graph', names: ['MIXDOG_GRAPH_BIN', 'MIXDOG_SEARCH_SERVER_BIN'], path: graphPath },
+@@ -357,12 +357,17 @@ if (app.isPackaged) {
+   });
+ }
+ 
+-// The native Computer Use backend for macOS and Linux: bundled with packaged
+-// builds, built from native/mixdog-computer during development.
+-if (process.platform !== 'win32' && !process.env.MIXDOG_COMPUTER_BIN) {
++// The native Computer Use helper (mixdog-computer[.exe]): bundled with packaged
++// builds (prepare-runtime.mjs), built from native/mixdog-computer during
++// development. The core this app starts inherits the variable and drives the
++// desktop through the helper on every platform (run_host/native_tools.rs). On
++// Windows the app's own computer host still runs its PowerShell worker
++// (computer/backend/host-worker-process.ts) and does not read it.
++if (!process.env.MIXDOG_COMPUTER_BIN) {
++  const computerHelperName = `mixdog-computer${executableSuffix}`;
+   const computerBackend = app.isPackaged
+-    ? join(process.resourcesPath, 'native-tools', 'mixdog-computer')
+-    : join(app.getAppPath(), '..', '..', 'native', 'mixdog-computer', 'target', 'release', 'mixdog-computer');
++    ? join(process.resourcesPath, 'native-tools', computerHelperName)
++    : join(app.getAppPath(), '..', '..', 'native', 'mixdog-computer', 'target', 'release', computerHelperName);
+   if (existsSync(computerBackend)) process.env.MIXDOG_COMPUTER_BIN = computerBackend;
+ }
+ 
