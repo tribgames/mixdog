@@ -1219,8 +1219,11 @@ mod tests {
 
         arrivals.watch(&reader, "s").await;
 
-        assert_eq!(arrivals.read(&reader, true, &cancel).await.unwrap(), vec![popup], "gone from the list, still named once");
-        assert!(arrivals.read(&reader, true, &cancel).await.unwrap().is_empty());
+        let arrived = arrivals.read(&reader, true, &cancel).await.unwrap();
+        assert_eq!(arrived, vec![popup], "gone from the list, still named");
+        let mut parts = reply(r#"{"ok":true}"#);
+        arrivals.report(&reader, "s", arrived, &mut parts, false, &cancel).await.unwrap();
+        assert!(arrivals.read(&reader, true, &cancel).await.unwrap().is_empty(), "a reply named it once");
     }
 
     #[tokio::test(start_paused = true)]
