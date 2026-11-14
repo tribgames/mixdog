@@ -23,7 +23,7 @@ const RECAPTURE_CODE: &str = "computer_foreground_available_recapture_required";
 const ACTIVE_PHASE: &str = "active_foreground";
 
 /// Actions that always take the lane (`computerActionHas(action, 'foreground')`).
-const FOREGROUND_ACTIONS: [&str; 10] = [
+const FOREGROUND_ACTIONS: [&str; 12] = [
     "clipboard_read",
     "clipboard_write",
     "focus_window",
@@ -34,6 +34,9 @@ const FOREGROUND_ACTIONS: [&str; 10] = [
     "launch",
     "invoke_menu",
     "fill_saved_login",
+    // The two steps a saved-login fill is made of, which the core sends to the helper itself.
+    "saved_login_check",
+    "saved_login_type",
 ];
 /// Recovery reads that are not host reads (`recovery-reads.ts`); with the host reads they make `observesOnly`.
 const RECOVERY_READS: [&str; 1] = ["diagnose"];

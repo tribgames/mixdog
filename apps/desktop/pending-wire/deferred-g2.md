@@ -49,3 +49,10 @@ from nativeDisplayGeometry (computer/host/display-reads.ts).
   loader exported from window-mica.ts would remove the duplicate registration.
 - native/mixdog-window/Cargo.toml (napi4 for ThreadsafeFunction) and cargo test there are the core/native wiring's lines
   of s3-fglease-rust.wire, not desktop lines.
+- appInput answer contract (s3-09.wire as amended by g25-fu-cu-a, applied to the core by G2.5-WIRE; the desktop handler is
+  s3-21's, none exists yet): answer `{delivered, effect: delivered|not_editable|click_unconfirmed|window_gone|refused,
+  evidence?, cursor?, presses?, pid?, code?, text?, deliveryAccepted?, inputMayHaveExecuted?}`; `presses` (key steps) and
+  `pid` (renderer process) ride a delivered answer; `click_unconfirmed` is the preparatory click of a `type` not confirmed
+  (`preparatoryClickFailure`, `code` default `typing_target_unconfirmed`, `deliveryAccepted: false`); only key, type and
+  scroll steps are routed (no click/move op). Per-step re-authorization (`authorizeDispatch`) and the unmappable-key refusal
+  (`electronKeyPresses`, `background_unsupported`) are s3-18's preflight plus this handler.

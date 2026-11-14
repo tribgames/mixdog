@@ -1486,6 +1486,11 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         Some(timing) => fill.with_timing(Arc::clone(timing)),
         None => fill,
     });
+    // Saved-login fills (s3-06, g25-fu-cu-a): the one registry of filled passwords, the redactor that hides them and the session
+    // secrets from every computer reply, and the turn clock that settles them (`SettlingSavedLogins` in `SessionDeps.snapshots`).
+    let saved_logins = mixdog_core_session::session::secret_input::SavedLoginRegistry::new();
+    let saved_login_turns = mixdog_core_session::session::secret_input::SavedLoginTurnClock::new(saved_logins.clone());
+    let redactor: Arc<dyn mixdog_core_session::session::secret_input::Redact> = Arc::new(mixdog_core_session::session::secret_input::FullRedactor { saved: saved_logins.clone(), sessions: fill.clone() });
     // The helper binary (`MIXDOG_COMPUTER_BIN`, else bundled `native-tools/`, else the local build); `cached` is `None`: nothing in this core downloads a native tool (the Computer places do not include the download).
     let native_paths = Arc::new(mixdog_core::run_host::native_tools::NativeToolPaths::new(
         b.env.clone(),
@@ -1495,10 +1500,21 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     ));
     let computer_pool: Option<Arc<mixdog_core::run_host::native_tools::ComputerSessionPool>> = native_paths
         .computer_sessions(b.process_manager.clone(), Arc::new({
-            let (fill, human_only) = (fill.clone(), human_only.clone());
+            let (human_only, redactor, saved_logins, saved_login_turns, late_computer_hosts, host) =
+                (human_only.clone(), redactor.clone(), saved_logins.clone(), saved_login_turns.clone(), late_computer_hosts.clone(), b.host.clone());
             move |session: &str, inner: Arc<dyn mixdog_core_api::domain::computer::ComputerBackend>| {
-                let redacted = Arc::new(mixdog_core_session::session::secret_input::RedactingComputerBackend::new(inner, mixdog_core_api::ids::ThreadId::from(session), fill.clone()));
-                Arc::new(mixdog_core_session::session::secret_input::GatedComputerBackend::new(redacted, human_only.clone())) as Arc<dyn mixdog_core_api::domain::computer::ComputerBackend>
+                let redacted = Arc::new(mixdog_core_session::session::secret_input::RedactingComputerBackend::new(inner, mixdog_core_api::ids::ThreadId::from(session), redactor.clone()));
+                let gated = Arc::new(mixdog_core_session::session::secret_input::GatedComputerBackend::new(redacted, human_only.clone()));
+                // The vault's answer is consumed by the fill and never reaches a model, so the desktop channel needs no redaction.
+                Arc::new(mixdog_core_session::session::secret_input::SavedLoginComputerBackend::new(
+                    gated,
+                    mixdog_core_api::ids::ThreadId::from(session),
+                    mixdog_tools::desktop::host::ChannelHostCommands::new(host.clone()),
+                    Arc::new(mixdog_core_session::session::secret_input::HostComputerCommands::new(late_computer_hosts.clone(), human_only.clone())),
+                    saved_logins.clone(),
+                    redactor.clone(),
+                    saved_login_turns.clone(),
+                )) as Arc<dyn mixdog_core_api::domain::computer::ComputerBackend>
             }
         }), pre.state.publisher.clone(), mixdog_core::run_host::native_tools::ComputerSettings::from_config(b.data_dir.clone(), config.clone()))
         .await;
@@ -1556,7 +1572,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         None => mixdog_tools::desktop::host::ChannelHostCommands::new(b.host.clone()),
     };
     let pool_host: Arc<dyn mixdog_tools::desktop::host::HostCommands> = Arc::new(mixdog_core_session::session::secret_input::SecretHostCommands::new(
-        Arc::new(mixdog_core_session::session::secret_input::RedactingHostCommands::new(browser_channel, fill.clone())),
+        Arc::new(mixdog_core_session::session::secret_input::RedactingHostCommands::new(browser_channel, redactor.clone())),
         fill.clone(),
     ));
     // The explorer (flip-agent-worlds-15): `AgentExplorer::standalone` over the shared lanes; the host is bound to the finished pool below.
@@ -2392,7 +2408,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 empty_surface: surface_host.clone(), // `thread/clear` with `rebuildPrompt` rebuilds the emptied thread's surface and prompt through it
                 new_route: late_new_route.clone(), // `thread/start` settles its route first (the draft's pick, else the default) and seats it once created
                 draft_settings: late_draft_settings.clone(), // the new task's draft workflow and mode, through `thread/setWorkflow` / `thread/setOrchestrationMode` (bound below)
-        snapshots: { let worktree_snapshots: Arc<dyn mixdog_core_session::session::turn_snapshots::TurnSnapshots> = Arc::new(mixdog_core_session::session::turn_snapshots::WorktreeTurnSnapshots::new(snapshot_cleanups.clone(), worktrees.clone())); match &computer_pool { Some(pool) => Arc::new(mixdog_core::run_host::native_tools::SettlingSnapshots::new(worktree_snapshots, pool.clone())), None => worktree_snapshots } }, // wp-session-30; `directory.shutdown()` ends with `snapshots.dispose()`
+        snapshots: Arc::new(mixdog_core_session::session::secret_input::SettlingSavedLogins::new({ let worktree_snapshots: Arc<dyn mixdog_core_session::session::turn_snapshots::TurnSnapshots> = Arc::new(mixdog_core_session::session::turn_snapshots::WorktreeTurnSnapshots::new(snapshot_cleanups.clone(), worktrees.clone())); match &computer_pool { Some(pool) => Arc::new(mixdog_core::run_host::native_tools::SettlingSnapshots::new(worktree_snapshots, pool.clone())), None => worktree_snapshots } }, saved_login_turns.clone())), // wp-session-30; `directory.shutdown()` ends with `snapshots.dispose()`
                 lanes: mixdog_core_session::session::SessionLanes { cpu: tokens.cpu_interactive, io: tokens.interactive_io, durability: tokens.durability_io },
                 limits: Default::default(),
                 gateway_usage,
