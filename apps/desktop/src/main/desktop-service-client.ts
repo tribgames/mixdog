@@ -192,7 +192,7 @@ export class DesktopServiceClient implements DesktopService {
     relPath: string,
     content: string,
     expectedContent: string,
-    encoding?: import('./project-files').ProjectTextEncoding
+    encoding?: import('../shared/project-text-encoding').ProjectTextEncoding
   ): Promise<unknown> {
     return this.invoke('writeProjectTextFile', [projectPath, relPath, content, expectedContent, encoding]);
   }
