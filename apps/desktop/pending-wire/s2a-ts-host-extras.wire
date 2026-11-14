@@ -1,0 +1,9 @@
+# s2a-ts-host-extras: apps/desktop wiring for the lead
+[contract-ipc.ts] DESKTOP_IPC (shared/contract-ipc.ts): add four channels with the values of HOST_EXTRAS_IPC in main/ipc-host-extras.ts
+  enableAllowAllActions: 'desktop:enableAllowAllActions'   (no args; returns the getDeveloperSettings result)
+  observeSignIn: 'desktop:observeSignIn'                   (args: capability request, result value; returns void)
+  pcQuotaInvoke: 'desktop:pcQuotaInvoke'                   (arg: capability request; null when not the PC's quota)
+  pcQuotaRead: 'desktop:pcQuotaRead'                       (arg: read requests; positional, null where not the PC's quota)
+  (then replace HOST_EXTRAS_IPC's literals with DESKTOP_IPC members, and mirror them in preload/index.ts)
+[main/ipc.ts] after registerWindowSettingsIpc: registerHostExtrasIpc({ handle, removeHandler, host, pcHost, confirmAllowAllActions, signInFocus }) and call its disposer with the window's other disposers. signInFocus = raiseOnSignIn ? createSignInFocus({ activate: () => raiseDesktopWindow(window) }) : null. `host` is main's own connection's capability invoker (Local, not Window).
+[main/index.ts] after the connection is open: const off = observeCoreForMain({ connection, applyDesktopSettings, releaseBrowserSession: (id) => browserHost?.releaseSession(id) }); dispose at quit.
