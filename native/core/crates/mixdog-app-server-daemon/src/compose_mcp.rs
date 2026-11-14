@@ -101,6 +101,34 @@ pub trait BridgeFeatures: Send + Sync {
     }
 }
 
+/// [`BridgeFeatures`] where `computer` no longer reads a bridge file: Computer Use is present when `desktop.computerControl` is on
+/// and a host can serve it (`computer_feature_present`: a desktop that claimed `host.computer`, or a resolvable helper for a
+/// TUI-hosted core). Every other feature, and which tools were registered, stay the wrapped value's.
+pub struct ComputerGatedBridges {
+    inner: Arc<dyn BridgeFeatures>,
+    config: mixdog_core_config::config::Config,
+    host: Arc<dyn crate::computer_gate::HostPresence>,
+}
+
+impl ComputerGatedBridges {
+    pub fn new(inner: Arc<dyn BridgeFeatures>, config: mixdog_core_config::config::Config, host: Arc<dyn crate::computer_gate::HostPresence>) -> Self {
+        Self { inner, config, host }
+    }
+}
+
+impl BridgeFeatures for ComputerGatedBridges {
+    fn present(&self, feature: &str) -> bool {
+        if feature == "computer" {
+            return crate::computer_gate::computer_feature_present(&self.config.desktop_settings(), &*self.host);
+        }
+        self.inner.present(feature)
+    }
+
+    fn registered(&self, feature: &str) -> bool {
+        self.inner.registered(feature)
+    }
+}
+
 /// A bridge-gated feature (`browser`, `computer`, `terminal`, `visualize`) as the skill gate and the setup status both decide it:
 /// off when this core did not register its tool, else the `MIXDOG_FEATURE_*` override, else `bridge_up` (the bridge fact).
 fn bridge_feature_on(env: &dyn Fn(&str) -> Option<String>, bridges: &dyn BridgeFeatures, id: &str, bridge_up: impl FnOnce() -> bool) -> bool {
@@ -742,6 +770,46 @@ mod tests {
         assert!(gate.active_features.contains("browser") && !gate.active_features.contains("computer"));
         let activity = BridgeActivity::new(env, Arc::new(NoComputerTool));
         assert!(activity.active("browser") && !activity.active("computer"));
+    }
+
+    struct Claim(bool, bool);
+
+    impl crate::computer_gate::HostPresence for Claim {
+        fn computer_claimed(&self) -> bool {
+            self.0
+        }
+        fn tui_helper_resolvable(&self) -> bool {
+            self.1
+        }
+    }
+
+    /// With no bridge file the `computer` feature is the user switch and a host that serves it; the other features keep asking the bridge.
+    #[tokio::test]
+    async fn computer_follows_the_gate_and_the_rest_the_bridge() {
+        struct Files;
+        impl BridgeFeatures for Files {
+            fn present(&self, feature: &str) -> bool {
+                feature == "terminal"
+            }
+        }
+        let tokens = mixdog_rt::testing::tokens();
+        let mut configs = Vec::new();
+        let dir = tempfile::tempdir().unwrap();
+        for (index, on) in [true, false].into_iter().enumerate() {
+            let path = dir.path().join(format!("config-{index}.json"));
+            std::fs::write(&path, serde_json::json!({ "desktop": { "computerControl": on } }).to_string()).unwrap();
+            let lanes = mixdog_core_config::config::ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
+            configs.push(Config::open(path, Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), lanes).await.unwrap().0);
+        }
+        let gated = |on: bool, claimed: bool, helper: bool| {
+            let config = configs[if on { 0 } else { 1 }].clone();
+            ComputerGatedBridges::new(Arc::new(Files), config, Arc::new(Claim(claimed, helper)))
+        };
+        assert!(gated(true, true, false).present("computer"), "a desktop claimed host.computer");
+        assert!(gated(true, false, true).present("computer"), "a TUI-hosted core with a helper");
+        assert!(!gated(true, false, false).present("computer"), "nothing serves it");
+        assert!(!gated(false, true, true).present("computer"), "the user switch is off");
+        assert!(gated(false, false, false).present("terminal") && !gated(true, true, true).present("browser"));
     }
 
     struct Memory(std::sync::Mutex<std::collections::HashMap<String, String>>);

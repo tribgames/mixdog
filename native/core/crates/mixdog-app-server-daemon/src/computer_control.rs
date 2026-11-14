@@ -49,7 +49,7 @@ impl DomainService for ComputerUserControlService {
                 ComputerUserControlAction::Resume => control.resume_verified(params.session_thread_id.as_ref().map(|session| session.as_str())).await,
                 ComputerUserControlAction::Stop => control.stop_verified().await,
                 ComputerUserControlAction::Pause => control.pause(),
-                // PROTO-WIRE-G2: the actions s3-02 added; s3-19 (wave 3) owns this service and may refine them.
+                // The environment guard's takeover (the screen locked, the machine slept, a display changed) and the idle-resume setting.
                 ComputerUserControlAction::Takeover => match params.reason {
                     Some(ComputerTakeoverReason::DesktopUnavailable) => control.take_over_environment("desktop_unavailable"),
                     Some(ComputerTakeoverReason::DisplayChanged) => control.take_over_environment("display_changed"),
@@ -99,6 +99,23 @@ mod tests {
         assert_eq!(control.section(), None);
         assert_eq!(ask(&service, json!({"action": "resume"})).await, json!({"ok": false}), "nothing is held");
         assert_eq!(ask(&ComputerUserControlService::new(None), json!({"action": "resume"})).await, json!({"ok": false}));
+    }
+
+    /// The environment takeover holds the desktop until Resume; the idle-resume interval is the pill's setting; a takeover with no
+    /// reason, and a pause, are answered as the control answers them.
+    #[tokio::test]
+    async fn the_takeover_and_the_idle_resume_are_applied() {
+        let control = Arc::new(UserControlState::new(Duration::ZERO));
+        let service = ComputerUserControlService::new(Some(control.clone()));
+        control.session_began("t1");
+        assert_eq!(ask(&service, json!({"action": "takeover", "reason": "display_changed"})).await, json!({"ok": true}));
+        assert_eq!(control.section().map(|section| section.reason), Some("display_changed".to_owned()));
+        assert_eq!(ask(&service, json!({"action": "configureIdleResume", "seconds": 12})).await, json!({"ok": true}));
+        assert_eq!(control.idle_resume_seconds(), 12);
+        assert_eq!(ask(&service, json!({"action": "resume"})).await, json!({"ok": true}));
+        assert_eq!(ask(&service, json!({"action": "pause"})).await, json!({"ok": true}));
+        assert_eq!(control.section().map(|section| section.reason), Some("user_pause".to_owned()));
+        assert_eq!(ask(&service, json!({"action": "takeover"})).await, json!({"ok": false}), "a takeover that names no reason changes nothing");
     }
 
     #[tokio::test]
