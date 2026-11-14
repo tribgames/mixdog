@@ -511,8 +511,14 @@ impl ComputerBridgeRun {
                 Ok(Answer::text("computer execution ended"))
             }
             "session_release" => {
-                let _released = self.host.release(session).await;
+                // `releaseComputerSession` ends in the abort, whose unconfirmed cleanup fails it (a session that never reached the helper
+                // has nothing to confirm).
+                let had_helper = self.host.has_helper(session);
+                let released = self.host.release(session).await;
                 self.forget_session(session).await;
+                if !released && had_helper {
+                    return Err("computer_abort_cleanup_unconfirmed: input cleanup did not finish successfully".into());
+                }
                 Ok(Answer::text("computer session released"))
             }
             _ => {
@@ -1000,7 +1006,7 @@ mod tests {
         }
         async fn release(&self, session: &str) -> bool {
             locked(&self.events).push(format!("release:{session}"));
-            true
+            self.abort_confirms
         }
     }
 
@@ -1307,6 +1313,8 @@ mod tests {
         assert_eq!(*locked(&f.host.events), ["abort:s1", "end:s1", "end:s1", "release:s1"].map(str::to_owned));
         let stuck = fixture_with(Host { helper_up: true, abort_confirms: false, ..Host::default() }, Saved::default());
         let answer = run(&stuck, "s1", json!({ "action": "session_abort" })).await;
+        assert_eq!(error_of(&answer), "computer_abort_cleanup_unconfirmed: input cleanup did not finish successfully");
+        let answer = run(&stuck, "s1", json!({ "action": "session_release" })).await;
         assert_eq!(error_of(&answer), "computer_abort_cleanup_unconfirmed: input cleanup did not finish successfully");
     }
 

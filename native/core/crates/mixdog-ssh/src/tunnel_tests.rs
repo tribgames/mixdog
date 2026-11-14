@@ -243,6 +243,22 @@ async fn state_is(tunnel: &SshTunnel, wanted: impl Fn(&TunnelState) -> bool) -> 
 }
 
 #[tokio::test]
+async fn a_forward_is_one_ssh_l_child_bound_to_this_pcs_loopback_and_never_asks_for_a_login() {
+    let (_listener, port) = open_port().await;
+    let spawner = Spawner::new(false);
+    let tunnel = SshTunnel::start_with(env_of(spawner.clone()), None, spec(Some(port), vec![forward(41001)]), timing());
+    state_is(&tunnel, |state| *state == TunnelState::Up).await;
+    // One child carries the forward, and its local end is on this PC's loopback only.
+    assert_eq!(spawner.count(), 1);
+    let args = spawner.probe(0).args.clone();
+    let forwards: Vec<&String> = args.windows(2).filter(|pair| pair[0] == "-L").map(|pair| &pair[1]).collect();
+    assert_eq!(forwards, [&format!("127.0.0.1:{port}:127.0.0.1:41001")]);
+    // A forward is a background child: it never stops to ask for a password.
+    assert!(args.iter().any(|arg| arg == "BatchMode=yes"));
+    tunnel.stop().await;
+}
+
+#[tokio::test]
 async fn same_port_after_restart() {
     let (_listener, port) = open_port().await;
     let spawner = Spawner::new(false);
