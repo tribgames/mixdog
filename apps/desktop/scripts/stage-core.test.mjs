@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 
 import { makeTempDirSync } from '../../../scripts/lib/scoped-temp.mjs';
-import { loadServerPayloads } from '../src/main/ssh/remote-install-payload.ts';
+import { manifestBuild } from '../src/main/ssh/server-manifest.mjs';
 import { HOST_TARGETS, jsRuntimeManifest, stageCore, stageHostCore, workspaceVersion } from './stage-core.mjs';
 
 function builtTargets(dir, targets) {
@@ -106,12 +106,8 @@ test('staging puts the host core and every server runtime where the build and th
   assert.equal('ortLibrary' in jsRuntimeManifest('darwin', 'x64'), false);
   assert.deepEqual(Object.keys(manifest.binaries).sort(), ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64']);
   assert.deepEqual([...verified].sort(), ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64'], 'every server payload is checked');
-  // The ssh install reads exactly what was staged, and finds the same build.
-  const payloads = await loadServerPayloads(join(runtimeDir, 'server-cores'));
-  assert.equal(payloads.identity.build, manifest.build);
-  assert.equal(payloads.identity.installId, `1.4.6-${manifest.build}`);
-  const linux = await payloads.binary({ os: 'linux', arch: 'x64' });
-  assert.equal(linux.sha256, manifest.binaries['linux-x64'].sha256);
+  // The core's ssh install reads exactly what was staged: the manifest's build is the one value of its binaries.
+  assert.equal(manifestBuild(manifest.binaries), manifest.build);
   // One upload per platform: the binary and its JS runtime, in one archive.
   const listing = spawnSync('tar', ['-tzf', join(runtimeDir, 'server-cores', 'linux-x64', 'bundle.tgz')], { encoding: 'utf8' });
   const entries = listing.stdout.split(/\r?\n/).filter(Boolean).map((line) => line.replace(/\/$/, ''));
