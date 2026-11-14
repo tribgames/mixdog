@@ -29,6 +29,8 @@ use crate::settle::postcondition::Expected;
 use crate::settle::postcondition::PageSample;
 use crate::settle::postcondition::describe;
 use crate::settle::postcondition::matches;
+use crate::settle::reply_wait::POSTCONDITION_READ_CHARS;
+use crate::settle::reply_wait::POSTCONDITION_READ_PARTS;
 use crate::settle::settle::Cancelled;
 use crate::settle::settle::Page;
 use crate::settle::settle::cancelled;
@@ -38,8 +40,6 @@ use crate::settle::settle::throw_if_cancelled;
 const DEFAULT_WAIT_MS: i64 = 10_000;
 const MIN_WAIT_MS: i64 = 500;
 const MAX_WAIT_MS: i64 = 30_000;
-/// The most text one read returns over the wire (`READ_MAX_CHARS_WIRE` of the host): a phrase past it cannot be found.
-const OBSERVATION_READ_CHARS: u32 = 120_000;
 
 /// The page report a wait ends with: the runner's snapshot reply (`reply.snapshotResult`), taken only when the command is not an
 /// internal step of a sequence.
@@ -59,22 +59,43 @@ enum Observation {
     Failed(String),
 }
 
+/// The whole text of the page, read in parts when it is longer than one read returns. A text still cut after the last part is
+/// reported as `truncated`.
 async fn observe_text(page: &Page<'_>, cancel: &CancelView) -> Result<Observation, Cancelled> {
-    let params = HostBrowserPageReadParams {
-        page_id: page.id.to_owned(),
-        kind: BrowserPageReadKind::Text,
-        options: Some(BrowserPageReadOptions { max_chars: Some(OBSERVATION_READ_CHARS), frame: None, selector: None, include_hidden: None, offset: None }),
-    };
-    let read = page.host.page_read(params, cancel.token()).await;
-    throw_if_cancelled(cancel)?;
-    match read {
-        Err(HostCallError::Cancelled) => Err(cancelled(cancel)),
-        Err(error) => Ok(Observation::Failed(format!("Page observation failed: {error}"))),
-        Ok(read) => match read.payload.get("text").and_then(Value::as_str) {
-            Some(text) => Ok(Observation::Text { text: text.to_owned(), truncated: read.truncated }),
-            None => Ok(Observation::Failed("Page observation failed: the page answered no text".to_owned())),
-        },
+    let mut text = String::new();
+    // How much has been read, in the UTF-16 units the host counts in.
+    let mut taken: u64 = 0;
+    for _ in 0..POSTCONDITION_READ_PARTS {
+        let offset = (taken > 0).then(|| u32::try_from(taken).unwrap_or(u32::MAX));
+        let params = HostBrowserPageReadParams {
+            page_id: page.id.to_owned(),
+            kind: BrowserPageReadKind::Text,
+            options: Some(BrowserPageReadOptions { max_chars: Some(POSTCONDITION_READ_CHARS), frame: None, selector: None, include_hidden: None, offset, attributes: None, limit: None }),
+        };
+        let read = page.host.page_read(params, cancel.token()).await;
+        throw_if_cancelled(cancel)?;
+        let read = match read {
+            Err(HostCallError::Cancelled) => return Err(cancelled(cancel)),
+            Err(error) => return Ok(Observation::Failed(format!("Page observation failed: {error}"))),
+            Ok(read) => read,
+        };
+        let Some(part) = read.payload.get("text").and_then(Value::as_str) else {
+            return Ok(Observation::Failed("Page observation failed: the page answered no text".to_owned()));
+        };
+        taken += mixdog_js::utf16_len(part) as u64;
+        text.push_str(part);
+        let finished = match read.payload.get("total").and_then(Value::as_u64) {
+            Some(total) => taken >= total,
+            None => !read.truncated,
+        };
+        if finished {
+            return Ok(Observation::Text { text, truncated: false });
+        }
+        if part.is_empty() {
+            break;
+        }
     }
+    Ok(Observation::Text { text, truncated: true })
 }
 
 /// `wait`: `text`, `textGone` and/or `url` (substrings) to wait for, `timeoutMs` (500 ms to 30 s, 10 s by default). `internalStep`
@@ -105,7 +126,7 @@ pub async fn wait(page: &Page<'_>, cancel: &CancelView, command: &Value, report:
                 Observation::Text { .. } if page.probe.state().url != url => {
                     observation_failure = "Page URL changed during condition observation".to_owned();
                 }
-                // The rest of a cut text was not observed: it cannot prove that a phrase is gone.
+                // The rest of a text cut after every part was not observed: it cannot prove that a phrase is gone.
                 Observation::Text { truncated: true, .. } if !want_gone.is_empty() => {
                     observation_failure = "Page observation failed: the page holds more text than one read carries".to_owned();
                 }

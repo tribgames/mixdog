@@ -397,14 +397,16 @@ test('the emulation method answers what the agent now has and refuses a stale pa
   const seen = [];
   const h = harness({
     emulation: {
-      applyAgent: async (_guest, overrides) => {
+      applyAgent: async (_guest, overrides, _signal, labelled) => {
         seen.push(overrides);
+        if (overrides) labelled?.(['userAgent', 'locale=fr']);
         return overrides;
       },
     },
   });
   const out = await h.call('host/browser/emulation', { pageId: 'p1', overrides: { locale: 'fr' } });
   assert.deepEqual(out.applied, { locale: 'fr' });
+  assert.deepEqual(out.labels, ['userAgent', 'locale=fr'], 'the labels name the siblings the page kept');
   const cleared = await h.call('host/browser/emulation', { pageId: 'p1', overrides: null });
   assert.equal(cleared.applied, null);
   assert.deepEqual(seen, [{ locale: 'fr' }, null]);

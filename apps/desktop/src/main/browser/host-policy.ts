@@ -91,11 +91,13 @@ export function createBrowserEmulationOwner(host: {
     },
     /** The agent's overrides on top of what the page has; `null` clears them
      *  and the pane's viewport is what remains. The returned spec is what the
-     *  agent now has in force. */
+     *  agent now has in force; `labelled` is given what was configured, in the
+     *  command's words, the siblings of a group the page kept included. */
     async applyAgent(
       guest: WebContents,
       overrides: EmulationSpec | null,
-      signal?: AbortSignal
+      signal?: AbortSignal,
+      labelled?: (labels: string[]) => void
     ): Promise<EmulationSpec | null> {
       const pane = panes.get(guest) ?? null;
       if (overrides === null) {
@@ -103,7 +105,8 @@ export function createBrowserEmulationOwner(host: {
         return null;
       }
       const command = mergeEmulationOverrides(overrides, pane);
-      await host.configure(guest, command, signal);
+      const labels = await host.configure(guest, command, signal);
+      labelled?.(labels);
       const { action: _action, ...applied } = command;
       return applied as EmulationSpec;
     },

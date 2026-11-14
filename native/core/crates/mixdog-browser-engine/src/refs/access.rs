@@ -127,6 +127,18 @@ pub async fn call_ref_in_frame(
     args: Vec<Value>,
     cancel: &CancellationToken,
 ) -> Result<(Value, Point), RefError> {
+    call_ref_within(host, target, declaration, args, None, cancel).await
+}
+
+/// [`call_ref_in_frame`] with the longest the page script may run, in milliseconds (the host's own default when `None`).
+pub async fn call_ref_within(
+    host: &dyn BrowserHost,
+    target: &RefTarget<'_>,
+    declaration: &str,
+    args: Vec<Value>,
+    timeout_ms: Option<u32>,
+    cancel: &CancellationToken,
+) -> Result<(Value, Point), RefError> {
     let params = HostBrowserRefCallParams {
         page_id: target.page_id.to_string(),
         snapshot_id: target.snapshot_id.to_string(),
@@ -134,7 +146,7 @@ pub async fn call_ref_in_frame(
         function_declaration: declaration.to_string(),
         args: Some(args),
         return_by_value: Some(true),
-        timeout_ms: None,
+        timeout_ms,
         expect: target.expect.cloned(),
     };
     let result = host.ref_call(params, cancel).await?;
@@ -219,6 +231,15 @@ mod tests {
         assert_eq!(call_ref(&host, &target(), "function() {}", Vec::new(), &cancel).await, Err(RefError::Failed("boom".into())));
         assert_eq!(call_ref(&host, &target(), "function() {}", Vec::new(), &cancel).await, Ok(Value::Null));
         assert_eq!(call_ref(&host, &target(), "function() {}", Vec::new(), &cancel).await, Err(RefError::Host(HostCallError::StaleSnapshot)));
+    }
+
+    #[tokio::test]
+    async fn a_call_can_bound_how_long_the_page_script_runs() {
+        let host = FakeHost::scripted(vec![
+            Expect::ok("host/browser/ref/call", json!({"value": 1, "facts": page_facts("p1", 4)})).with_params(json!({"timeoutMs": 5_000})),
+        ]);
+        let answered = call_ref_within(&host, &target(), "function() {}", Vec::new(), Some(5_000), &CancellationToken::new()).await;
+        assert_eq!(answered.map(|(value, _)| value), Ok(json!(1)));
     }
 
     #[test]

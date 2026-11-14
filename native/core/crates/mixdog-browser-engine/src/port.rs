@@ -102,6 +102,8 @@ host_methods! {
     emulation, "host/browser/emulation", HostBrowserEmulationParams, HostBrowserEmulationResult;
     downloads, "host/browser/downloads", HostBrowserDownloadsParams, HostBrowserDownloadsResult;
     upload, "host/browser/upload", HostBrowserUploadParams, HostBrowserUploadResult;
+    /// `host/browser/upload/receiver`: the frame document an upload to a ref (or to the open chooser) would land in now.
+    upload_receiver, "host/browser/upload/receiver", HostBrowserUploadReceiverParams, HostBrowserUploadReceiverResult;
 }
 
 /// What the host pushes, in the order its writer sent it (`host/browser/events`, `page/facts`, `userInput`). Synchronous:

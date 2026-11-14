@@ -34,7 +34,7 @@ use crate::port::BrowserHost;
 use crate::refs::access::ActionabilityReason;
 use crate::refs::access::RefError;
 use crate::refs::access::RefTarget;
-use crate::refs::access::call_ref;
+use crate::refs::access::call_ref_within;
 use crate::refs::points::ref_point;
 use crate::refs::points::with_covered_guidance;
 use crate::refs::probes::Point;
@@ -70,6 +70,8 @@ const MATCH_MARKER: &str = "//@@ browserScrollTextMatchExpression\n";
 const APPLY_MARKER: &str = "\n//@@ browserScrollTextApplyExpression\n";
 /// Frames a complete observation may cover (the top document and its child frames).
 const MAX_FRAME_TARGETS: usize = 32;
+/// How long the page script that scrolls inside a ref's element may run (`evaluateRefScript(.., 5_000)` of the old engine).
+const SCROLL_SCRIPT_TIMEOUT_MS: u32 = 5_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Pointer {
@@ -431,7 +433,7 @@ pub async fn scroll(cx: &mut ActionContext<'_>) -> Result<ActionOutput, ActionEr
         let moved = mutate_ref(cx, &source, false, |ref_id| async move {
             let expect = expect_for(page, Some(&ref_id));
             let target = RefTarget { page_id: &page_id, snapshot_id: snapshot_of_ref(&ref_id), ref_id: &ref_id, expect: Some(&expect) };
-            call_ref(host, &target, &declaration, Vec::new(), cancel.token()).await
+            call_ref_within(host, &target, &declaration, Vec::new(), Some(SCROLL_SCRIPT_TIMEOUT_MS), cancel.token()).await.map(|(value, _)| value)
         })
         .await?;
         if moved.get("changed").and_then(Value::as_bool) == Some(true) {

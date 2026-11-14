@@ -95,6 +95,11 @@ interface Run {
   mouseEvents: number;
 }
 
+/** `ControlOrMeta` is the shortcut modifier of the machine the page is on: Command on macOS, Control elsewhere (the core does not know which it is). */
+function modifierOfThisHost(modifier: string): string {
+  return modifier === 'ControlOrMeta' ? (process.platform === 'darwin' ? 'Meta' : 'Control') : modifier;
+}
+
 export function registerInputBatch(connection: HostConnection, ctx: EngineContext): void {
   // A gesture's routing and a held button outlive one batch: a `down` in one and its `up` in the next belong together.
   const states = new WeakMap<WebContents, GuestState>();
@@ -272,7 +277,7 @@ export function registerInputBatch(connection: HostConnection, ctx: EngineContex
           await send(guest, 'Input.insertText', { text: step.text }, work);
           return;
         case 'press': {
-          const chord = [...(step.modifiers ?? []), step.key].join('+');
+          const chord = [...(step.modifiers ?? []).map(modifierOfThisHost), step.key].join('+');
           for (let n = 0; n < Math.max(1, step.repeat ?? 1); n += 1) {
             await driver.pressKey(guest, chord, work);
             if (run.dialog && stopOnDialog) return;

@@ -41,8 +41,10 @@ import { type EnginePageCall, type EngineParams, registerEngineMethod } from './
 const READ_MAX_CHARS_WIRE = 120_000;
 /** The page text the observation reads is cut at a million characters; no read starts past it. */
 const READ_MAX_OFFSET = 1_000_000;
-/** Page attributes `read` with a selector brings back beside each match's text. */
+/** Page attributes `read` with a selector brings back beside each match's text when the command names none. */
 const READ_SELECTOR_ATTRIBUTES = ['href', 'src', 'alt', 'title', 'name', 'value'];
+/** The most attributes one selector read brings back (the old `extract` took up to twelve). */
+const READ_SELECTOR_MAX_ATTRIBUTES = 12;
 const EVAL_MIN_TIMEOUT_MS = 500;
 const EVAL_MAX_TIMEOUT_MS = 30_000;
 const DOM_QUIET_MAX_MS = 30_000;
@@ -83,6 +85,12 @@ function isObject(value: unknown): value is Record<string, unknown> {
 function clamp(value: unknown, fallback: number, min: number, max: number): number {
   const number = typeof value === 'number' && Number.isFinite(value) ? Math.trunc(value) : fallback;
   return Math.min(max, Math.max(min, number));
+}
+
+/** `text` without a high surrogate left at its end by a cut. */
+function withoutLoneHalf(text: string): string {
+  const last = text.charCodeAt(text.length - 1);
+  return text.length > 1 && last >= 0xd800 && last <= 0xdbff ? text.slice(0, -1) : text;
 }
 
 function toWireDialog(dialog: NonNullable<EnginePageCall['state']['pendingDialog']>): BrowserPendingDialog {
@@ -377,11 +385,16 @@ async function read(host: PageHost, ctx: EngineContext, params: EngineParams, si
   };
   if (kind === 'text') {
     if (typeof options.selector === 'string' && options.selector.trim()) {
+      const named = Array.isArray(options.attributes)
+        ? options.attributes
+            .filter((name): name is string => typeof name === 'string' && name.trim() !== '')
+            .slice(0, READ_SELECTOR_MAX_ATTRIBUTES)
+        : [];
       const rows = await host.documents.extractPage(
         guest,
         options.selector.trim(),
-        READ_SELECTOR_ATTRIBUTES,
-        EXTRACT_MAX_LIMIT,
+        named.length ? named : READ_SELECTOR_ATTRIBUTES,
+        clamp(options.limit, EXTRACT_MAX_LIMIT, 1, EXTRACT_MAX_LIMIT),
         signal
       );
       return {
@@ -392,13 +405,16 @@ async function read(host: PageHost, ctx: EngineContext, params: EngineParams, si
     if (frameId || options.includeHidden === true) {
       const texts = await inFrame<string>(options.includeHidden === true ? HIDDEN_TEXT_OF_FRAME : TEXT_OF_FRAME);
       const joined = texts.map(([, value]) => value).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+      const part = withoutLoneHalf(joined.slice(offset, offset + maxChars));
       return {
-        payload: { url: guest.getURL(), title: guest.getTitle(), text: joined.slice(offset, offset + maxChars), total: joined.length, offset },
-        truncated: joined.length > offset + maxChars,
+        payload: { url: guest.getURL(), title: guest.getTitle(), text: part, total: joined.length, offset },
+        truncated: joined.length > offset + part.length,
       };
     }
     const result = await host.documents.readPage(guest, '', maxChars, offset, signal);
-    return { payload: result, truncated: result.total > result.offset + result.text.length };
+    // A part never ends inside a surrogate pair: the next part starts where this one ends, and a lone half does not survive JSON.
+    const text = withoutLoneHalf(result.text);
+    return { payload: { ...result, text }, truncated: result.total > result.offset + text.length };
   }
   if (kind === 'documents') {
     const documents = await inFrame<Record<string, unknown>>(DOCUMENT_OF_FRAME);
