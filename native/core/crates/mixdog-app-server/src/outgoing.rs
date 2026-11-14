@@ -330,6 +330,11 @@ impl Outgoing {
         });
     }
 
+    /// Whether `id` is a connection that holds a host claim now (a claim ends with its connection).
+    pub(crate) fn is_host_claimant(&self, id: ConnectionId) -> bool {
+        lock(&self.hosts).iter().any(|claim| claim.conn.id == id)
+    }
+
     fn next_host_id(&self) -> RequestId {
         RequestId::String(format!(
             "host-{}",
