@@ -1755,11 +1755,28 @@
   },
   {
     "client": "desktop",
+    "method": "desktop/attachment/resolve",
+    "params": {
+      "attachmentId": "attachmentId-1",
+      "sessionId": "sessionId-1"
+    },
+    "source": "apps/desktop/src/main/ipc-sessions.ts:desktop/attachment/resolve",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
     "method": "ui/terminalRun/claimed",
     "params": {
       "requestId": "requestId-1"
     },
     "source": "apps/desktop/src/main/ipc-terminal.ts:ui/terminalRun/claimed",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "desktop/fonts/list",
+    "params": {},
+    "source": "apps/desktop/src/main/ipc-window-settings.ts:desktop/fonts/list",
     "case": "required fields"
   },
   {
@@ -2368,16 +2385,6 @@
       "root": "root-1"
     },
     "source": "apps/desktop/src/renderer/core-direct/api-files.ts:projectFs/writeText",
-    "case": "required fields"
-  },
-  {
-    "client": "desktop",
-    "method": "desktop/attachment/resolve",
-    "params": {
-      "attachmentId": "attachmentId-1",
-      "sessionId": "sessionId-1"
-    },
-    "source": "apps/desktop/src/renderer/core-direct/api-sessions.ts:desktop/attachment/resolve",
     "case": "required fields"
   },
   {
@@ -5633,11 +5640,28 @@
   },
   {
     "client": "desktop",
+    "method": "desktop/attachment/resolve",
+    "params": {
+      "attachmentId": "attachmentId-1",
+      "sessionId": "sessionId-1"
+    },
+    "source": "apps/desktop/src/main/ipc-sessions.ts:desktop/attachment/resolve",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
     "method": "ui/terminalRun/claimed",
     "params": {
       "requestId": "requestId-1"
     },
     "source": "apps/desktop/src/main/ipc-terminal.ts:ui/terminalRun/claimed",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
+    "method": "desktop/fonts/list",
+    "params": {},
+    "source": "apps/desktop/src/main/ipc-window-settings.ts:desktop/fonts/list",
     "case": "every optional field"
   },
   {
@@ -6097,16 +6121,6 @@
       "scope": "desktop"
     },
     "source": "apps/desktop/src/renderer/core-direct/api-capabilities.ts:ui/settings/announce",
-    "case": "every optional field"
-  },
-  {
-    "client": "desktop",
-    "method": "desktop/attachment/resolve",
-    "params": {
-      "attachmentId": "attachmentId-1",
-      "sessionId": "sessionId-1"
-    },
-    "source": "apps/desktop/src/renderer/core-direct/api-sessions.ts:desktop/attachment/resolve",
     "case": "every optional field"
   },
   {
