@@ -227,4 +227,8 @@ test('a hit guard on a page with DOM refs only finds its element in the page ref
     other.call({ steps: [{ ...step, hitGuard: { snapshotId: 'old', ref: 'e1' } }] }),
     (e) => e.code === -32010 && e.data.reason === 'snapshot'
   );
+  // DOM refs left behind by an accessibility snapshot taken since are not the page's current refs.
+  const superseded = harness({ stateOverride: { refSet: { snapshotId: 'd1' } } });
+  await assert.rejects(superseded.call({ steps: [step] }), (e) => e.code === -32010 && e.data.reason === 'snapshot');
+  assert.equal(superseded.sent.length, 0);
 });
