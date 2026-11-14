@@ -4,9 +4,13 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use mixdog_core_api::ConnectionNotifier;
 use mixdog_core_api::DesktopPresence;
+use mixdog_core_api::ids::ConnectionId;
+use mixdog_core_api::ids::Method;
 use mixdog_core_base::state::SectionFeedState;
 use mixdog_tools::desktop::reveal::OpenFeed;
+use mixdog_tools::desktop::reveal::RevealFeed;
 use mixdog_tools::desktop::reveal::SessionCwds;
 use serde_json::Value;
 
@@ -57,6 +61,48 @@ impl OpenFeed for AppFeedOpen {
     }
 }
 
+/// One connection live on the app feed, as far as a terminal reveal needs to know it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Audience {
+    pub id: ConnectionId,
+    /// A paired phone (origin relay): it is told the reveal without a path or an ack id.
+    pub relay: bool,
+    /// A desktop window: it can take the request, and its claim is the reveal's answer.
+    pub window: bool,
+}
+
+/// The connections live on the app feed, asked of the connection table as they are.
+pub trait AppFeedAudience: Send + Sync {
+    fn audience(&self) -> Vec<Audience>;
+}
+
+/// The terminal reveal on the connections of the app feed: every one but a paired phone gets the
+/// whole `ui/openRequested` request, a phone the projection without `requestId` and `cwd`
+/// (`run-dispatch.ts`). The request goes out whether or not a desktop window is attached; with
+/// none attached the caller reports the terminal as not shown at once.
+pub struct AudienceReveal {
+    audience: Arc<dyn AppFeedAudience>,
+    notifier: Arc<dyn ConnectionNotifier>,
+}
+
+impl AudienceReveal {
+    pub fn new(audience: Arc<dyn AppFeedAudience>, notifier: Arc<dyn ConnectionNotifier>) -> Self {
+        Self { audience, notifier }
+    }
+}
+
+impl RevealFeed for AudienceReveal {
+    fn publish_reveal(&self, full: Value, relay: Value) -> bool {
+        let mut taken = false;
+        for member in self.audience.audience() {
+            let params = if member.relay { &relay } else { &full };
+            let sent = self.notifier.notify(member.id, Method("ui/openRequested"), params.clone()).is_ok();
+            taken |= sent && member.window;
+        }
+        taken
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::AtomicBool;
@@ -79,7 +125,6 @@ mod tests {
 
     use super::super::FeedFactory;
     use super::super::testing::RecFeeds;
-    use crate::eventually_on;
     use super::*;
 
     struct Stored(Option<Header>);
@@ -133,7 +178,7 @@ mod tests {
         let feeds = RecFeeds::default();
         let ui = Arc::new(Ui(AtomicBool::new(false)));
         let open = AppFeedOpen::new(app_feed(&feeds), ui.clone());
-        let params = json!({ "kind": "terminal", "sessionId": "s1", "requestId": "r1" });
+        let params = json!({ "kind": "browser", "sessionId": "s1" });
 
         // No desktop window: the phones still get it (Node relays first), and the caller is told no one took it.
         assert!(!open.publish_open(params.clone()));
@@ -146,52 +191,103 @@ mod tests {
         assert_eq!((frames[1].1.as_str(), &frames[1].2), ("ui/openRequested", &params));
     }
 
-    /// The whole reveal: the host publishes the request on the app feed, a pane's
+    struct Table(Vec<Audience>);
+
+    impl AppFeedAudience for Table {
+        fn audience(&self) -> Vec<Audience> {
+            self.0.clone()
+        }
+    }
+
+    #[derive(Default)]
+    struct Sent(std::sync::Mutex<Vec<(u64, Value)>>);
+
+    impl ConnectionNotifier for Sent {
+        fn notify(&self, to: ConnectionId, method: Method, params: Value) -> Result<(), mixdog_core_api::CoreError> {
+            assert_eq!(method.as_str(), "ui/openRequested");
+            if to.0 == 9 {
+                return Err(mixdog_core_api::CoreError::ConnectionClosed);
+            }
+            self.0.lock().unwrap().push((to.0, params));
+            Ok(())
+        }
+    }
+
+    fn member(id: u64, relay: bool, window: bool) -> Audience {
+        Audience { id: ConnectionId(id), relay, window }
+    }
+
+    #[test]
+    fn paired_phones_get_the_reveal_without_any_path_or_ack_id_while_the_window_keeps_the_full_request() {
+        let sent = Arc::new(Sent::default());
+        let table = Table(vec![member(1, false, true), member(2, true, false), member(3, false, false)]);
+        let reveal = AudienceReveal::new(Arc::new(table), sent.clone());
+        let full = json!({ "kind": "terminal", "sessionId": "s1", "requestId": "r1", "tabs": [{ "id": "t", "tab": 1, "cwd": "/home/secret" }] });
+        let relay = mixdog_tools::desktop::reveal::relay_projection(&full);
+        assert!(reveal.publish_reveal(full.clone(), relay.clone()));
+        let sent = sent.0.lock().unwrap();
+        assert_eq!(*sent, vec![(1, full.clone()), (2, relay.clone()), (3, full)]);
+        assert!(!sent[1].1.to_string().contains("secret") && sent[1].1.get("requestId").is_none());
+    }
+
+    #[test]
+    fn a_reveal_no_window_took_is_not_shown_though_the_phones_are_told() {
+        let sent = Arc::new(Sent::default());
+        let table = Table(vec![member(2, true, false), member(9, false, true)]);
+        let reveal = AudienceReveal::new(Arc::new(table), sent.clone());
+        assert!(!reveal.publish_reveal(json!({ "kind": "terminal" }), json!({ "kind": "terminal" })), "a window that is gone took nothing");
+        assert_eq!(sent.0.lock().unwrap().len(), 1, "the phone is still told");
+    }
+
+    /// The whole reveal: the host sends the request to the connections of the app feed, a window's
     /// `ui/terminalRun/claimed` reaches the one `PendingWaits`, and the run is shown.
     #[tokio::test(start_paused = true)]
     async fn the_reveal_is_shown_when_the_pane_claims_the_request_and_not_otherwise() {
         mixdog_rt::testing::tokens();
-        let feeds = RecFeeds::default();
-        let ui = Arc::new(Ui(AtomicBool::new(false)));
+        let sent = Arc::new(Sent::default());
         let waits = PendingWaits::new(Ticker::start(), Duration::from_secs(5), Duration::from_millis(150));
-        let host = RevealingTerminalHost::new(
-            Arc::new(DirectoryCwds::new(Arc::new(Stored(Some(header(json!({ "cwd": "/w" }))))))),
-            Arc::new(AppFeedOpen::new(app_feed(&feeds), ui.clone())),
-            waits.clone(),
-        );
-        assert_eq!(host.session_cwd("s1").await.as_deref(), Some("/w"));
-        let target = tab();
-
-        // No UI attached: false at once, the phones are still told.
-        assert!(!host.reveal("s1", &target, std::slice::from_ref(&target)).await);
-        assert_eq!(feeds.frames("app").len(), 1);
-
-        // A UI that never claims: the wait ends and the terminal runs in the background.
-        ui.0.store(true, Ordering::SeqCst);
-        assert!(!host.reveal("s1", &target, std::slice::from_ref(&target)).await);
-        assert_eq!(feeds.frames("app").len(), 2);
-
-        // A pane that claims what it was asked to show.
-        let claimer = {
-            let (feeds_ref, waits) = (&feeds, waits.clone());
-            let targets = std::slice::from_ref(&target);
-            let mut reveal = std::pin::pin!(host.reveal("s1", &target, targets));
-            let claim = async {
-                // A reveal that ends without publishing its request is the failure, not a wait for a frame that never comes.
-                let wakes: [&tokio::sync::Notify; 1] = [&feeds_ref.published];
-                let (_, _, params) = tokio::select! {
-                    biased;
-                    frame = eventually_on!(&wakes, || feeds_ref.frames("app").into_iter().nth(2)) => frame,
-                    shown = reveal.as_mut() => panic!("the reveal ended before it published its request: {shown}"),
-                };
-                let request = params["requestId"].as_str().unwrap().to_owned();
-                assert_eq!(params["kind"], "terminal");
-                assert_eq!(params["terminalId"], "session-terminal:s1");
-                waits.notify(Method("ui/terminalRun/claimed"), json!({ "requestId": request }), ConnectionId(1));
-            };
-            claim.await;
-            crate::session::testing::awaiting(|| "the reveal to end once its request is claimed".to_owned(), reveal).await
+        let host_with = |audience: Vec<Audience>| {
+            RevealingTerminalHost::new(
+                Arc::new(DirectoryCwds::new(Arc::new(Stored(Some(header(json!({ "cwd": "/w" }))))))),
+                Arc::new(AudienceReveal::new(Arc::new(Table(audience)), sent.clone())),
+                waits.clone(),
+            )
         };
-        assert!(claimer, "a claimed request is shown");
+        let target = tab();
+        let targets = std::slice::from_ref(&target);
+
+        // No window attached: false at once, the phone is still told.
+        let host = host_with(vec![member(2, true, false)]);
+        assert_eq!(host.session_cwd("s1").await.as_deref(), Some("/w"));
+        assert!(!host.reveal("s1", &target, targets).await);
+        assert_eq!(sent.0.lock().unwrap().len(), 1);
+
+        // A window that never claims: the wait ends and the terminal runs in the background.
+        let host = host_with(vec![member(1, false, true), member(2, true, false)]);
+        assert!(!host.reveal("s1", &target, targets).await);
+        assert_eq!(sent.0.lock().unwrap().len(), 3);
+
+        // A window that claims what it was asked to show.
+        let reveal = host.reveal("s1", &target, targets);
+        let claim = async {
+            let params = crate::session::testing::awaiting(
+                || "the request to reach the window".to_owned(),
+                async {
+                    loop {
+                        if let Some((_, params)) = sent.0.lock().unwrap().get(3).cloned() {
+                            return params;
+                        }
+                        tokio::time::sleep(Duration::from_millis(1)).await;
+                    }
+                },
+            )
+            .await;
+            let request = params["requestId"].as_str().unwrap().to_owned();
+            assert_eq!(params["kind"], "terminal");
+            assert_eq!(params["terminalId"], "session-terminal:s1");
+            waits.notify(Method("ui/terminalRun/claimed"), json!({ "requestId": request }), ConnectionId(1));
+        };
+        let ((), shown) = crate::session::testing::awaiting(|| "the reveal to end once its request is claimed".to_owned(), async { tokio::join!(claim, reveal) }).await;
+        assert!(shown, "a claimed request is shown");
     }
 }
