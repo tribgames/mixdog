@@ -7,6 +7,9 @@
 //! op digest of a short code would let it be guessed), persisted or sent back; the answer says
 //! only that it was taken.
 
+mod card_holds;
+#[cfg(test)]
+mod card_holds_tests;
 mod computer;
 mod fill;
 mod gates;
@@ -47,6 +50,10 @@ use mixdog_core_base::support::wrong_method;
 use serde_json::Value;
 use serde_json::json;
 
+pub use card_holds::CardHolds;
+pub use card_holds::CardScope;
+pub use card_holds::HoldId;
+pub use card_holds::HumanOnlyCard;
 pub use computer::ComputerSecretHosts;
 pub use computer::HostComputerCommands;
 pub use computer::SavedLoginComputerBackend;

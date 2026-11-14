@@ -1,0 +1,37 @@
+# SINGLETONS-CORE: takeover/ready (renderer -> core): the renderer reports a login takeover ready (replaces the IPC takeoverReady).
+# Types live in src/v2/takeover.rs (new, owned by this task). PROTO-WIRE adds `pub mod takeover;` to src/v2/mod.rs (alphabetical) and nothing
+# to the methods.rs imports: the row names the types as `v2::takeover::...` (methods.rs already has `use crate::v2;`).
+# approval/provideSecret already exists (methods.rs) and replaces the IPC provideSecretInput: no new row.
+
+[methods]
+# Paste after the HostHumanOnlyEnd row in src/methods.rs (symbol: HostHumanOnlyEnd => "host/humanOnly/end").
+    /// The renderer reports that login takeover `takeoverId` of session `sessionId` is ready for the person, or never will be (the core's takeover owner, Node's `takeoverReady`).
+    TakeoverReady => "takeover/ready" {
+        params: v2::takeover::TakeoverReadyParams,
+        result: v2::feed::EmptyResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local, Ssh],
+    },
+
+[server_requests]
+# none
+
+[notifications]
+# none
+
+[inventory]
+# none. The inventory is the frozen 1.4.5 list (tests/fixtures/parity-inventory.json); takeover/ready was desktop-only
+# (the takeoverReady IPC), never a daemon operation, so it gets no row.
+
+[free_text]
+# none to FREE_TEXT: both strings are ids. tests/it/free_text_fields.json `classes`: add to the refused class whose reason starts
+# "an id, cursor, revision or digest the core, a client or a service generated:":
+#   "request takeover/ready /sessionId", "request takeover/ready /takeoverId"
+
+[type_edits]
+# none
+
+[window]
+takeover/ready allow the renderer reports its own login takeover card ready: the desktop's takeoverReady IPC moved onto the protocol, no new prompt or refusal
