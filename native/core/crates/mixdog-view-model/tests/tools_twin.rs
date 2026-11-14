@@ -12,9 +12,7 @@ use serde_json::Value;
 use serde_json::json;
 
 fn golden() -> Value {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/goldens/tools.json");
-    let text = std::fs::read_to_string(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
-    serde_json::from_str(&text).expect("the golden is JSON")
+    serde_json::from_str(mixdog_testkit::fixture!("tests/goldens/tools.json")).expect("the golden is JSON")
 }
 
 /// The recorded output for `key` of a case, or `None` when Node did not give one (absent) or threw.

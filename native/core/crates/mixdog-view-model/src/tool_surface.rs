@@ -691,7 +691,11 @@ pub fn aggregate_done_categories_steps(calls: &[Value], mut yield_point: impl Fn
         let args = field(rec, "args").cloned().unwrap_or(Value::Null);
         for entry in aggregate_tool_category_entries(&name, &args, &category) {
             match tallies.iter_mut().find(|known| known.key == entry.key) {
-                Some(known) => known.count += if entry.count == 0.0 { 1.0 } else { entry.count },
+                // Node spreads the later entry over the tally: its `effect` wins (the key does not hold it).
+                Some(known) => {
+                    known.count += if entry.count == 0.0 { 1.0 } else { entry.count };
+                    known.effect = entry.effect;
+                }
                 None => tallies.push(entry),
             }
         }
@@ -864,5 +868,14 @@ mod tests {
         let many = vec![json!({ "name": "read", "args": {} }); 40];
         aggregate_done_categories_steps(&many, || yields += 1);
         assert_eq!(yields, 2);
+    }
+
+    #[test]
+    fn a_merged_tally_keeps_the_later_entry_effect() {
+        // `load_tool` with a selection is an effect; a call filed under `Load` by its category is not, with the same key.
+        let calls = vec![json!({ "name": "load_tool", "args": { "select": "x" } }), json!({ "name": "mystery", "category": "Load", "args": {} })];
+        let tallies = aggregate_done_categories(&calls);
+        assert_eq!(tallies.len(), 1);
+        assert_eq!((tallies[0].count, tallies[0].effect), (2.0, false));
     }
 }
