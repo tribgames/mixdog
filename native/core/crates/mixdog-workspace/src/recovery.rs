@@ -309,8 +309,36 @@ pub struct Record {
     pub fingerprint: String,
 }
 
+/// Where the profile migration put the journals before it moved them to [`JOURNALS_DIR`] (a data dir the first pass already
+/// migrated holds them there), relative to the data dir.
+const MIGRATED_JOURNALS: &str = "desktop/editor-recovery";
+
+/// Moves what `from` holds into `to` where `to` holds no file of that name (a file already there stays, and so does its
+/// counterpart), then removes the folders it emptied. Nothing is overwritten and a failed step leaves the rest where it was.
+pub(crate) fn adopt_missing(from: &Path, to: &Path) {
+    let Ok(entries) = fs::read_dir(from) else { return };
+    for entry in entries.flatten() {
+        let (source, target) = (entry.path(), to.join(entry.file_name()));
+        match entry.file_type() {
+            Ok(kind) if kind.is_dir() => adopt_missing(&source, &target),
+            Ok(kind) if kind.is_file() && fs::symlink_metadata(&target).is_err() => {
+                if fs::create_dir_all(to).is_ok() {
+                    let _ = fs::rename(&source, &target);
+                }
+            }
+            _ => {}
+        }
+    }
+    let _ = fs::remove_dir(from);
+}
+
 impl RecoveryStore {
+    /// The store at `base`, after it has taken in the journals an earlier migration left beside it (`<data>/desktop/editor-recovery`,
+    /// `base` being `<data>/recovery`): an interrupted save of the old app is still offered.
     pub fn new(base: PathBuf) -> Self {
+        if let Some(data) = base.parent() {
+            adopt_missing(&data.join(MIGRATED_JOURNALS), &base);
+        }
         Self { base, instance: uuid::Uuid::new_v4().to_string(), active: Mutex::new(HashSet::new()) }
     }
 
@@ -1173,5 +1201,30 @@ mod tests {
         let id = id.to_owned();
         let case = case.clone();
         (project, base, root, store, id, case)
+    }
+
+    /// A journal of the old app's interrupted save, left by an earlier migration under `desktop/editor-recovery`, is found by the
+    /// store at `recovery`, and what the store already holds stays.
+    #[test]
+    fn journals_an_earlier_migration_left_under_desktop_are_found_by_the_core_store() {
+        let data = tempfile::tempdir().unwrap();
+        let project = tempfile::tempdir().unwrap();
+        let root = canonical(project.path()).unwrap();
+        let file = PreparedFile { rel_path: "a.txt".to_owned(), destination: root.join("a.txt"), parent: identity_of(&root).unwrap(), mode: 0o644, before: b"before".to_vec(), after: b"after".to_vec() };
+        let old = RecoveryStore::new(data.path().join("old-store"));
+        let journal = old.begin(&root, vec![file]).unwrap();
+        // The process that began it is gone: its journal carries the plain id.
+        let plain = journal.directory.with_file_name(&journal.id);
+        fs::rename(&journal.directory, &plain).unwrap();
+        let left = data.path().join("desktop").join("editor-recovery").join(plain.parent().unwrap().file_name().unwrap());
+        fs::create_dir_all(&left).unwrap();
+        fs::rename(&plain, left.join(&journal.id)).unwrap();
+
+        let store = RecoveryStore::new(data.path().join(JOURNALS_DIR));
+        let listed = store.list(&root).unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].id, journal.id);
+        assert_eq!(serde_json::to_value(&listed[0]).unwrap()["phase"], "interrupted");
+        assert!(!data.path().join("desktop").join("editor-recovery").exists(), "no copy is left behind");
     }
 }

@@ -137,6 +137,7 @@ fn family_of(item: &ManifestItem) -> Step<Family> {
         | ItemKind::SelectedFileGrants
         | ItemKind::EditorBackups
         | ItemKind::EditorRecovery
+        | ItemKind::UserEditorSettings
         | ItemKind::NewTaskReceipts => Ok(Family::Preserve),
         ItemKind::SessionMetadata => Ok(Family::SessionMetadata),
         ItemKind::SetAside => Ok(Family::SetAside),
