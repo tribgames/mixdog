@@ -2,7 +2,6 @@
 // and the Settings → Connection remote-access controls.
 import { DESKTOP_IPC, type DesktopRemoteAccessInfo } from '../shared/contract';
 import type { BrowserHost } from './browser/host-types';
-import { readAttachmentThumbnail } from './attachment-thumbnail';
 import { optionalSessionId, requiredSessionId } from './desktop-state';
 import { isSessionMissingError } from './session-final-answer';
 import type { DesktopService } from './desktop-service-contract';
@@ -24,10 +23,9 @@ import type { IpcHandle as Handle } from './ipc';
 import { hostDeviceName } from './session-device';
 import { sessionSidebarActions } from './session-sidebar-actions';
 import type { RemoteHostWindows } from './remote-host-windows';
-import { requiredAgentMemoryEntry } from './agent-memory';
-import { resolveToolApprovalAnnouncingGrant } from './approval-grant-change';
 import type { ProtocolConnection } from './protocol/connection';
 import { coreFailure } from '../shared/core-error';
+import { coreErrorForWindow } from './protocol/core-error';
 import { FileDownloadError, fileDownloadErrorReason } from '../shared/file-downloads';
 
 interface SessionIpcOptions {
@@ -78,13 +76,16 @@ export function registerSessionIpc({
     const { viewName, attachment, dataUrl, bytes } = resolved;
     return { name: viewName, mimeType: attachment.mimeType, size: bytes, dataUrl };
   });
-  handle(DESKTOP_IPC.readAttachmentThumbnail, (_event, attachmentRef) =>
-    readAttachmentThumbnail(
-      attachmentRef,
-      (ref) => host.readAttachmentImage(ref),
-      async (buffer) => (await import('electron')).nativeImage.createFromBuffer(buffer)
-    )
-  );
+  handle(DESKTOP_IPC.readAttachmentThumbnail, async (_event, attachmentRef) => {
+    if (!core) throw new Error('The core connection is not available.');
+    try {
+      // `desktop/attachment/thumbnail`: a content hash names the stored image; the core scales it to a 320 px JPEG, hands a small
+      // PNG/GIF/WebP it cannot decode over as it is, and answers `dataUrl: null` for anything else.
+      return ((await core.call('desktop/attachment/thumbnail', { attachmentRef })) as { dataUrl: string | null }).dataUrl;
+    } catch (error) {
+      throw coreErrorForWindow(error);
+    }
+  });
   handle(DESKTOP_IPC.markSessionRead, (_event, sessionId, messageCount, consumedUnread) => {
     if (consumedUnread !== undefined && typeof consumedUnread !== 'boolean') {
       throw new TypeError('consumedUnread must be a boolean.');
@@ -120,7 +121,8 @@ export function registerSessionIpc({
     host.listAgentMemory(requiredString(agentId, 'agentId', 200))
   );
   handle(DESKTOP_IPC.deleteAgentMemory, (_event, agentId, entry) =>
-    host.deleteAgentMemory(requiredString(agentId, 'agentId', 200), requiredAgentMemoryEntry(entry))
+    // The core validates the entry's list address (a positive id and its list version) as `agent/memory/delete`.
+    host.deleteAgentMemory(requiredString(agentId, 'agentId', 200), entry as Parameters<typeof host.deleteAgentMemory>[1])
   );
   handle(DESKTOP_IPC.agentRoomAction, (_event, action, args) =>
     host.agentRoomAction(requiredString(action, 'action', 32), Array.isArray(args) ? args : [])
@@ -143,7 +145,7 @@ export function registerSessionIpc({
     browserHost?.releaseSession(ownerSessionId);
     return snapshot;
   });
-  registerSessionRoutingIpc({ handle, host, invokeDesktopOperation });
+  registerSessionRoutingIpc({ handle, host });
 }
 
 function registerRemoteAccessIpc({
@@ -217,11 +219,7 @@ function registerRemoteAccessIpc({
   });
 }
 
-function registerSessionRoutingIpc({
-  handle,
-  host,
-  invokeDesktopOperation,
-}: Pick<SessionIpcOptions, 'handle' | 'host' | 'invokeDesktopOperation'>): void {
+function registerSessionRoutingIpc({ handle, host }: Pick<SessionIpcOptions, 'handle' | 'host'>): void {
   handle(DESKTOP_IPC.submitNewTask, (_event, prompt, options, draft) =>
     host.submitNewTask(requiredPromptContent(prompt), requiredSubmitOptions(options), requiredNewTaskDraft(draft))
   );
@@ -235,9 +233,8 @@ function registerSessionRoutingIpc({
   );
   handle(DESKTOP_IPC.resolveToolApprovalForSession, async (_event, sessionId, id, input) => {
     const decision = requiredToolApprovalDecision(input);
-    return resolveToolApprovalAnnouncingGrant(
-      host,
-      invokeDesktopOperation,
+    // The core announces the `permissions` settings change itself when the answer stored a standing grant (`remember` agent or always).
+    return host.resolveToolApprovalForSession(
       requiredSessionId(sessionId),
       requiredString(id, 'approval id', 1_024),
       // This PC answered: every other device names it ("Allowed from <PC>").

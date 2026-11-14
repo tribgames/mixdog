@@ -14,7 +14,9 @@ import { requiredSaveSource, requiredString, requiredWorkspaceFolders, sanitized
 import type { ConnectionKind } from './connections/contract';
 import { remotePickerRequired } from './connections/feature-gates';
 import { absoluteServerPath } from './server-file-access';
-import { writeUserFile } from './user-file-write';
+import { putBlobRef } from './core-blob-ref';
+import { coreErrorForWindow } from './protocol/core-error';
+import type { ProtocolConnection } from './protocol/connection';
 
 interface FileDialogIpcOptions {
   window: BrowserWindow;
@@ -27,6 +29,8 @@ interface FileDialogIpcOptions {
   invokeDesktopOperation: <T>(method: string, args: unknown[]) => Promise<T>;
   nativeT: (key: string) => string;
   describeLocalPaths: (value: unknown, sessionId?: unknown, options?: unknown) => Promise<unknown[]>;
+  /** This PC's core connection: "Save as" data is written by its `desktop/userFile/write`; without one that fails. */
+  core?: Pick<ProtocolConnection, 'call'> | null;
 }
 
 const SAVE_DOWNLOAD_MAX_BYTES = 512 * 1024 * 1024;
@@ -90,6 +94,7 @@ export function registerFileDialogIpc({
   invokeDesktopOperation,
   nativeT,
   describeLocalPaths,
+  core,
 }: FileDialogIpcOptions): void {
   const { startIn, remember } = createDialogFolderMemory();
   const defaultPathOption = (defaultPath: unknown) =>
@@ -116,7 +121,16 @@ export function registerFileDialogIpc({
     });
     if (result.canceled || !remember(result.filePath)) return false;
     if (target.kind === 'data') {
-      await writeUserFile(result.filePath, target.bytes);
+      if (!core) throw new Error('The core connection is not available.');
+      try {
+        // The core flushes the file before it answers and rewrites an existing one in place, so a crash leaves no NUL-filled file.
+        await core.call('desktop/userFile/write', {
+          path: result.filePath,
+          dataBase64: await putBlobRef(core, target.bytes, 'base64'),
+        });
+      } catch (error) {
+        throw coreErrorForWindow(error);
+      }
       return true;
     }
     await downloadToFile(target.url, result.filePath);
