@@ -345,6 +345,58 @@ const ANNOUNCEMENTS = [
   ['notifyProviderModelsChanged', ['win-1'], { origin: 'win-1' }],
 ];
 
+/** The operations of the grant, standalone-folder, local-page and terminal-resume routes: not rows of the spec map yet. */
+const ROOTED = [
+  ['termAttach', ['t1', { epoch: 'e1', seq: 7 }], 'terminal/attach', { tabId: 't1', resumeFrom: { epoch: 'e1', seq: 7 } }],
+  ['grantDescribe', [['/a', '/b']], 'projectFs/grant/describe', { paths: ['/a', '/b'], mint: true }],
+  ['grantDescribe', [['/a'], false], 'projectFs/grant/describe', { paths: ['/a'], mint: false }],
+  ['grantDescribe', [['/a'], true], 'projectFs/grant/describe', { paths: ['/a'], mint: true }],
+  ['grantRedeem', ['tok', '/p', 'a.txt'], 'projectFs/grant/redeem', { accessToken: 'tok', projectPath: '/p', relPath: 'a.txt' }],
+  ['standaloneRoot', ['/folder'], 'project/directory', { path: '/folder', standalone: true }],
+  ['listProjectDirIn', [R, 'src'], 'projectFs/listDir', { root: R, rel: 'src' }],
+  ['createProjectEntryIn', [R, 'src', 'n.txt', false], 'projectFs/create', { root: R, relDir: 'src', name: 'n.txt', directory: false }],
+  ['renameProjectEntryIn', [R, 'a', 'b'], 'projectFs/rename', { root: R, rel: 'a', newName: 'b' }],
+  ['moveProjectEntryIn', [R, 'a', 'd'], 'projectFs/move', { root: R, rel: 'a', targetDirRel: 'd' }],
+  ['copyProjectEntryIn', [R, 'a', 'd'], 'projectFs/copy', { root: R, rel: 'a', targetDirRel: 'd' }],
+  ['trashProjectEntryIn', [R, 'a'], 'projectFs/trash', { root: R, rel: 'a', viaHost: true }],
+  ['projectEntryPathIn', [R, 'a'], 'projectFs/entryPath', { root: R, rel: 'a' }],
+  ['localPageUrlIn', [R, 'p.html', 'tok', 'owner1'], 'projectFs/localPageUrl', { root: R, rel: 'p.html', accessToken: 'tok', ownerId: 'owner1' }],
+  ['localPageUrlIn', [R, 'p.html'], 'projectFs/localPageUrl', { root: R, rel: 'p.html' }],
+  ['localPageRevokeOwner', ['owner1'], 'projectFs/localPage/revokeOwner', { ownerId: 'owner1' }],
+  ['localPageOrigin', [], 'projectFs/localPage/origin', {}],
+];
+const ROOTED_NAMES = new Set(ROOTED.map(([name]) => name).filter((name) => name !== 'termAttach'));
+
+for (const [name, args, method, params] of ROOTED) {
+  test(`${name}(${args.length} args) is ${method} with its named params`, () => {
+    assert.deepEqual(routeDesktopOperation(name, args), { method, params });
+    assert.equal('opId' in params, false);
+  });
+}
+
+test('termAttach without resumeFrom sends no resumeFrom key', () => {
+  assert.deepEqual(routeDesktopOperation('termAttach', ['t1']).params, { tabId: 't1' });
+  assert.deepEqual(routeDesktopOperation('termAttach', ['t1', undefined]).params, { tabId: 't1' });
+});
+
+test('the rooted operations answer the core reply, the path of an entry, or null', async () => {
+  const listing = [{ name: 'a' }];
+  const { lane } = laneWith({
+    'projectFs/listDir': listing,
+    'projectFs/entryPath': { path: '/r/a' },
+    'project/directory': { path: '/folder' },
+    'projectFs/trash': {},
+    'projectFs/localPage/revokeOwner': {},
+    'projectFs/localPage/origin': { origin: 'http://127.0.0.1:1' },
+  });
+  assert.equal(await lane.invoke('listProjectDirIn', [R, '']), listing);
+  assert.equal(await lane.invoke('projectEntryPathIn', [R, 'a']), '/r/a');
+  assert.equal(await lane.invoke('standaloneRoot', ['/folder']), '/folder');
+  assert.equal(await lane.invoke('trashProjectEntryIn', [R, 'a']), null);
+  assert.equal(await lane.invoke('localPageRevokeOwner', ['o']), null);
+  assert.deepEqual(await lane.invoke('localPageOrigin', []), { origin: 'http://127.0.0.1:1' });
+});
+
 for (const [name, args, method, params] of CASES) {
   test(`${name}(${args.length} args) is ${method} with its named params`, () => {
     assert.deepEqual(routeDesktopOperation(name, args), { method, params });
@@ -388,7 +440,7 @@ test('the routed operations are the spec map targets with params the Rust schema
   assert.deepEqual(
     [...wantedMethods].filter(([, methods]) => methods).map(([name]) => name).sort(),
     [
-      ...ROUTED_DESKTOP_OPERATIONS,
+      ...ROUTED_DESKTOP_OPERATIONS.filter((name) => !ROOTED_NAMES.has(name)),
       ...UNROUTED_DESKTOP_OPERATIONS,
       ...ANNOUNCEMENTS.map(([name]) => name),
       'visualizeRemoteViewing',
@@ -397,7 +449,7 @@ test('the routed operations are the spec map targets with params the Rust schema
   );
   assert.throws(() => routeDesktopOperation('browserRemoteWebrtcSignal', ['client-1', {}]), { code: 'unknownMethod' });
   const covered = new Set(CASES.map(([name]) => name));
-  assert.deepEqual(ROUTED_DESKTOP_OPERATIONS.filter((name) => !covered.has(name)), []);
+  assert.deepEqual(ROUTED_DESKTOP_OPERATIONS.filter((name) => !covered.has(name) && !ROOTED_NAMES.has(name)), []);
   for (const [name, args, method, params] of CASES) {
     assert.ok(wantedMethods.get(name).includes(method), `${name} -> ${method}`);
     const schema = paramsSchema(method);
