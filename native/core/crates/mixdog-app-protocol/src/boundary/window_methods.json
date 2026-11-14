@@ -2,11 +2,13 @@
   "version": 2,
   "methods": [
     "connections/endpoint",
+    "dev/computer/run",
     "host/claim",
     "host/humanOnly/begin",
     "host/humanOnly/end",
     "host/remoteTarget/set",
     "host/state/set",
+    "migrate/profile/adopt",
     "modelProxy/run",
     "process/kill",
     "process/resizePty",

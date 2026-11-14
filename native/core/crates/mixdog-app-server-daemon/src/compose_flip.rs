@@ -49,7 +49,8 @@ const SERVICE_PENDING: &[&str] = &[
     "host/window/closed",
     // s3-08 / s3-19 (wave 3): ComputerPointerService over the pool's pointer hold.
     "computer/pointerReleased",
-    // s3-13 / s3-19 (wave 3): DevComputerRun, registered only by a `test-hooks` build started with MIXDOGD_TEST_HOOKS=1.
+    // s3-13 (registered by G2.5-WIRE): DevComputerRun, served only by a `test-hooks` build started with MIXDOGD_TEST_HOOKS=1,
+    // so an ordinary start leaves the name unclaimed.
     "dev/computer/run",
 ];
 
@@ -2850,6 +2851,15 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         domain_inputs.scopes.scopes("remoteAccess").map_err(ComposeError::ComposeDomains)?,
     ).with_pc_access(pc_access.clone())))?;
     builder.register(pc_access)?;
+    // dev/computer/run (s3-13, g25-fu-cu-b): a `test-hooks` build started with MIXDOGD_TEST_HOOKS=1 serves the harness over the pool,
+    // which is both the sessions and the host (helper pid, abort, authorization windows). The name stays in SERVICE_PENDING: an
+    // ordinary start registers nothing for it.
+    #[cfg(feature = "test-hooks")]
+    if let Some(pool) = &computer_pool {
+        if let Some(service) = crate::dev_computer::DevComputerRun::if_enabled(&*b.env, pool.clone(), pool.clone(), blobs.clone(), &b.tokens) {
+            builder.register(service)?;
+        }
+    }
     builder.register(screen.clone())?;
     builder.register(Arc::new(mixdog_core_domains::notify::timeline::ConnectionTimeline::new(built_remote.registry.clone(), {
         let log = b.log.clone();

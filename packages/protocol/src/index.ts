@@ -2454,7 +2454,18 @@ export type HostComputerPixelsParams = { sessionThreadId?: ThreadId, target: Hos
 /**
  * 1..=100.
  */
-quality: number, };
+quality: number,
+/**
+ * The part of the display to capture, in physical pixels of the screen (the display's origin included): the core's display
+ * zoom asks for the region at full resolution and answers `source` with the rectangle delivered, which must equal the region.
+ * Absent = the whole display (g25-fu-cu-b, s3-10).
+ */
+region?: HostComputerPixelsRegion, };
+
+/**
+ * A rectangle of a display in physical pixels of the screen.
+ */
+export type HostComputerPixelsRegion = { x: number, y: number, width: number, height: number, };
 
 /**
  * Result of `host/computer/pixels`.
@@ -3050,7 +3061,12 @@ export type LocalProviderSearchLocalProviderModelsParams = { threadId?: ThreadId
 /**
  * Params of `localProvider/setLocalProviderContext`.
  */
-export type LocalProviderSetLocalProviderContextParams = { opId: OpId, threadId?: ThreadId, modelId: string, tokens: number, };
+export type LocalProviderSetLocalProviderContextParams = { opId: OpId, threadId?: ThreadId, modelId: string,
+/**
+ * `null` is the automatic context size (the old main process accepted it: boundary/validate/capability_settings.rs
+ * refuses only a size below 16384; boundary/validate/capability.rs still requires the field to be present).
+ */
+tokens: number | null, };
 
 /**
  * Params of `localProvider/setLocalProviderIdleTtl`.
@@ -3682,7 +3698,12 @@ supported: boolean,
 /**
  * Another Windows account owns the service (informational: Approve changes nothing).
  */
-otherUser: boolean, };
+otherUser: boolean,
+/**
+ * A paired phone's delegated enroll was refused in a way only elevation fixes (delegation off or denied)
+ * and no delegated enroll of it is running: the row offers Approve for the new phone.
+ */
+needsEnroll: boolean, };
 
 /**
  * Params of `pcAccess/readiness`: none.
