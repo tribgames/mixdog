@@ -226,9 +226,14 @@ const IDLE_RELEASE: Duration = Duration::from_secs(2 * 60);
 /// `SHUTDOWN_SESSION_RELEASE_TIMEOUT_MS` (`client.mjs:43`).
 const SHUTDOWN_RELEASE: Duration = Duration::from_secs(5);
 
-/// How long a session-level command (`execution_end`, `session_abort`, `session_release`) waits for the desktop's own computer host
-/// (`SESSION_ABORT_TIMEOUT_MS` of the client).
-const HOST_CONTROL: Duration = Duration::from_secs(15);
+/// How long `session_abort` waits for the desktop's own computer host (`SESSION_ABORT_TIMEOUT_MS` of the client).
+const HOST_ABORT: Duration = Duration::from_secs(15);
+
+/// How long `execution_end` waits for the desktop's own computer host (`EXECUTION_END_TIMEOUT_MS` of the client).
+const HOST_EXECUTION_END: Duration = Duration::from_secs(3);
+
+/// How long `session_release` waits for the desktop's own computer host (`SESSION_RELEASE_TIMEOUT_MS` of the client).
+const HOST_RELEASE: Duration = Duration::from_secs(60);
 
 /// How long the helper may take to give the cursor back; a helper that does not answer restores it itself (its watchdog).
 const CURSOR_RELEASE: Duration = Duration::from_secs(5);
@@ -342,7 +347,7 @@ impl Process {
         match self {
             Self::Helper(process) => process.abort_session().await,
             Self::Host(host) => {
-                let confirmed = host.backend.session_control("session_abort", Map::new(), HOST_CONTROL).await;
+                let confirmed = host.backend.session_control("session_abort", Map::new(), HOST_ABORT).await;
                 host.presence.ended();
                 confirmed
             }
@@ -356,7 +361,7 @@ impl Process {
                 if !host.presence.is_open() {
                     return false;
                 }
-                let confirmed = host.backend.session_control("execution_end", Map::new(), HOST_CONTROL).await;
+                let confirmed = host.backend.session_control("execution_end", Map::new(), HOST_EXECUTION_END).await;
                 host.presence.ended();
                 confirmed
             }
@@ -367,7 +372,7 @@ impl Process {
         match self {
             Self::Helper(process) => process.release_session().await,
             Self::Host(host) => {
-                let confirmed = host.backend.session_control("session_release", Map::new(), HOST_CONTROL).await;
+                let confirmed = host.backend.session_control("session_release", Map::new(), HOST_RELEASE).await;
                 host.presence.ended();
                 confirmed
             }
@@ -1454,6 +1459,12 @@ mod tests {
         assert!(paths(&[], &[bundled(tool)], None).computer_sessions(manager(), plain(), quiet(), settings()).await.is_some());
         assert!(paths(&[("MIXDOG_COMPUTER_BIN", "/x/c")], &[PathBuf::from("/x/c")], None).computer_sessions(manager(), plain(), quiet(), settings()).await.is_some());
         assert!(paths(&[], &[], None).computer_sessions(manager(), plain(), quiet(), settings()).await.is_none());
+    }
+
+    /// The desktop host's session commands wait as long as the client's own limits did.
+    #[test]
+    fn the_host_session_commands_keep_the_clients_limits() {
+        assert_eq!((HOST_ABORT, HOST_EXECUTION_END, HOST_RELEASE), (Duration::from_secs(15), Duration::from_secs(3), Duration::from_secs(60)));
     }
 
     struct Shells(Mutex<Vec<String>>);
