@@ -7,6 +7,9 @@
 //   payload/js/pkg/node_modules/<dependencies>    the root lockfile's production tree for that platform
 //   payload/js/pkg/node_modules/onnxruntime-node  only that platform's binary directory (the ONNX Runtime
 //                                                 library js-runtime.json's `ortLibrary` names, with its siblings)
+// What stays JavaScript beside the interpreter is only what user and plugin scripts need: the skill launcher
+// entry with the small files it imports (`launcherRuntimeFiles`, no npm package) and the pptxgenjs bundle as
+// data files (`copyPptxgenjsData`) for the model-written authoring scripts.
 // The layout itself is core-layout.mjs. The desktop ships the same package root and lockfile pins inside runtime.asar; only the interpreter
 // differs (there: the app in node mode, here: this Node), which js-runtime.json says.
 // Network and npm steps are injected so the layout is testable offline; the defaults are the release ones.
@@ -27,6 +30,19 @@ import {
   trimOrtBinaries,
 } from './core-layout.mjs';
 import { deriveRemoteRoots, pruneInapplicable, trimManifest, verifyInstalledTree } from './remote-js-roots.mjs';
+
+/** The entry every `mixdog-skill-node` launcher runs (relative to the package root). */
+export const SKILL_LAUNCHER_ENTRY = 'src/skill-script-entry.mjs';
+/** Where the pptxgenjs files sit, relative to the package root: plain data the core reads, not a package. */
+export const PPTXGENJS_DATA_DIR = 'data/pptxgenjs';
+/** [file in the installed `node_modules`, name in `PPTXGENJS_DATA_DIR`]: the CommonJS build with its one
+ *  dependency (JSZip's standalone build) and the two licenses that travel with them. */
+const PPTXGENJS_DATA_FILES = Object.freeze([
+  ['pptxgenjs/dist/pptxgen.cjs.js', 'pptxgen.cjs.js'],
+  ['pptxgenjs/LICENSE', 'LICENSE-pptxgenjs'],
+  ['jszip/dist/jszip.min.js', 'jszip.min.js'],
+  ['jszip/LICENSE.markdown', 'LICENSE-jszip.markdown'],
+]);
 
 const execFileAsync = promisify(execFile);
 const desktopDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -77,6 +93,22 @@ export async function fetchPinnedNode(key, cacheDir, { pin, fetchImpl = fetch } 
   await cp(join(dir, 'bin', 'node'), node);
   await rm(join(dir, 'bin'), { recursive: true, force: true });
   return { node, license, version: wanted.version };
+}
+
+/** The product JavaScript a skill launcher needs beside the interpreter, relative to `packageRootDir`: the
+ *  entry and every file it imports, which is a handful of helpers and no npm package. Throws when the entry
+ *  starts to reach a package (a user script resolves its own packages from its own directory, never from here). */
+export function launcherRuntimeFiles(packageRootDir = rootDir) {
+  const { roots, reached } = deriveRemoteRoots({ packageRootDir, entries: [SKILL_LAUNCHER_ENTRY] });
+  if (roots.size) throw new Error(`the skill launcher entry reaches npm packages: ${[...roots.keys()].join(', ')}`);
+  return reached;
+}
+
+/** Copies the pptxgenjs files from the installed tree `modulesDir` into `<packageDir>/data/pptxgenjs`. */
+export async function copyPptxgenjsData({ modulesDir, packageDir }) {
+  const target = join(packageDir, PPTXGENJS_DATA_DIR);
+  await mkdir(target, { recursive: true });
+  for (const [source, name] of PPTXGENJS_DATA_FILES) await cp(join(modulesDir, source), join(target, name));
 }
 
 const npm = (args, cwd) =>
@@ -150,6 +182,7 @@ export async function buildJsPayload({
   installModules = installProductionModules,
   listPackageFiles = packedFiles,
   recordClosure = recordCoreClosure,
+  copyPptxgenjs = copyPptxgenjsData,
   packageRootDir = rootDir,
 }) {
   await rm(payloadDir, { recursive: true, force: true });
@@ -166,6 +199,10 @@ export async function buildJsPayload({
     await mkdir(dirname(join(packageDir, file)), { recursive: true });
     await cp(join(packageRootDir, file), join(packageDir, file));
   }
+  // The launcher's own files are under src/, so they travel with the package; this stops the stage when the
+  // entry has come to need an npm package.
+  launcherRuntimeFiles(packageRootDir);
+  await copyPptxgenjs({ modulesDir: join(pkgDir, 'node_modules'), packageDir });
   // Which optional packages of the extension host's closure the install left out for this platform; the
   // integrity check of the finished payload (and of the bundle's unpacked copy) accepts exactly those.
   recordClosure(join(pkgDir, 'node_modules'));
