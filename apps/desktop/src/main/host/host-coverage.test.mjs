@@ -4,9 +4,6 @@ import { test } from 'node:test';
 
 import { methodTable } from '../../../../../packages/protocol/src/index.ts';
 
-// host/window/* is served only while the core owns the server windows (CORE_WINDOWS reads the
-// environment when connection.ts loads), so the flag is set before the host module is imported.
-process.env.MIXDOG_CORE_WINDOWS = '1';
 // The core computer host's modules read Electron's screen and windows at import; outside Electron stand-ins answer.
 registerHooks({
   resolve(specifier, context, next) {
@@ -52,12 +49,6 @@ const PENDING = {
   'host/browser/downloads': 's4-host-session-methods (wired by s4-wire-desktop)',
   'host/browser/upload': 's4-host-session-methods (wired by s4-wire-desktop)',
   'host/browser/lease/release': 's4-host-lease (wired by s4-wire-desktop)',
-  'host/computer/pixels': 's3-22 (wired by DESKTOP-WIRE-G4)',
-  'host/computer/appWindows': 's3-21 (wired by DESKTOP-WIRE-G4)',
-  'host/computer/appInput': 's3-21 (wired by DESKTOP-WIRE-G4)',
-  'host/computer/permissions': 's3-23 (wired by DESKTOP-WIRE-G4)',
-  'host/computer/command': 's3-23 (wired by DESKTOP-WIRE-G4)',
-  'host/computer/cursorPrepare': 's3-20 (wired by DESKTOP-WIRE-G4)',
 };
 
 function served() {

@@ -145,7 +145,7 @@ test('engine mode refuses a secret fill without expect with -32010 document, not
   await assert.rejects(fillWith(w, 'p1:1'), (e) => e.code === -32010);
 });
 
-test('the legacy forward path (no engine lane) fills without expect', async () => {
+test('the forward path without an engine lane fills without expect', async () => {
   const w = world();
   const out = await fillWith(w, undefined, { engine: undefined });
   assert.deepEqual(out, { text: 'entered' });

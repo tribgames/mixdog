@@ -1,6 +1,6 @@
 /** Publishes a worker's pointer progress as the shared cursor overlay. */
 import type { createWorkerPool } from '../backend/worker-pool';
-import { type ComputerPresence, legacyPointerProgress } from '../presence/mirror';
+import { type ComputerPresence, coordinatorPointerProgress } from '../presence/mirror';
 import { computerUseCoordinator } from '../session/coordinator';
 
 type PointerProgressListener = NonNullable<Parameters<typeof createWorkerPool>[0]['onPointerProgress']>;
@@ -19,5 +19,5 @@ export function bindPointerPresence(presence: Pick<ComputerPresence, 'pointerPro
 export const publishPointerProgress: PointerProgressListener = (sessionId, x, y, held, mode, phase, windowId) => {
   const event = { x, y, held, mode, phase, windowId };
   if (bound) bound.pointerProgress(sessionId, event);
-  else legacyPointerProgress(computerUseCoordinator, sessionId, event);
+  else coordinatorPointerProgress(computerUseCoordinator, sessionId, event);
 };

@@ -7,10 +7,6 @@ s4-host-secret-precondition. Every fragment file is deleted; the lines below are
 
 ## Defaults that stay off
 
-- MIXDOG_COMPUTER_HOST_V2=1 (COMPUTER_HOST_V2 in host/connection.ts, `computerHostV2` of DesktopHostOptions) serves
-  host/computer/cursorPrepare, appWindows, appInput, pixels, permissions and command and binds bindComputerEnvironment
-  (computer/userControl takeover reports). DESKTOP-WIRE-G4 (s3-26) serves them unconditionally and removes the gate.
-- MIXDOG_CORE_WINDOWS=1 still gates host/window/* until DESKTOP-WIRE-G9 (unchanged).
 - The renderer direct lane (preload mixdogDesktopHost / mixdogCorePort) stays off until DESKTOP-WIRE-G5 (unchanged).
 
 ## s3-20 / s3-21 / s3-22 / s3-23: lines for DESKTOP-WIRE-G4 (s3-26, G4)
@@ -24,13 +20,11 @@ s4-host-secret-precondition. Every fragment file is deleted; the lines below are
   deps. The host connection does not expose the initialize limits; without it every chunk is 96 KiB, under every core's
   limit. Unblocked when the host connection carries the initialize answer (s3-26 or later).
 - s3-23 item 4: the in-process bindComputerEnvironmentGuard (computer/host/powershell-host.ts) goes with the legacy path
-  (s3-30/s3-31, owner-gated); with MIXDOG_COMPUTER_HOST_V2=1 both report, which is harmless (the core holds only while a
-  core computer execution is open).
+  (s3-30/s3-31, owner-gated); meanwhile bindComputerEnvironment reports to the core only while the core drives the
+  computer (coreDrivesComputer), so one transition is taken over by one path.
 - s3-21 protocol note (protocol lead, not desktop): HostComputerAppInputResult lacks effect `click_unconfirmed`, `presses`,
   `pid`, `code`, `text`, `deliveryAccepted`, `inputMayHaveExecuted`, and HostComputerAppInputParams lacks `modifiers`
   (computer-app-input.ts types them locally as ComputerAppInputAnswer). No pending-rows fragment was written.
-- s3-20 note: host.test.mjs pins the six handlers behind `computerHostV2` (cursorPrepare answers `unavailable` with no
-  overlay bound); s3-26 drops the gate and the `computerHostV2: false` half of that test.
 
 ## x-pcaccess-desktop: for s3-screen-source / x-screen-source-desktop (G7 / G8)
 
@@ -58,7 +52,7 @@ the core's. s1-page-virtual-client moves them; DESKTOP-WIRE-G4 drops the Electro
   beside the started mixdogd: coreBinaryPath's folder).
 - s3-15 desktop section (drop applyGnomeExtensionSetting from index.ts, delete computer/host/gnome-extension.ts and its
   test): DESKTOP-WIRE-G4 (s3-26), unchanged.
-- The notes of deferred-g2.md (CORE_WINDOWS until G9, windowFocus sessionId, window-mica / foreground-lock-host shared
+- The notes of deferred-g2.md (windowFocus sessionId, window-mica / foreground-lock-host shared
   loader, native Cargo lines) stand. The appInput answer contract note is now implemented by s3-21's handler
   (host/computer-app-input.ts).
 

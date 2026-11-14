@@ -42,16 +42,22 @@ export function createCoreUserControl(call: CallCore) {
 }
 
 /** Whether the core's computer sessions are the ones the pill shows: it draws the core's `computer` section, so the core owns the
- *  computer while that section has a session, a hold of the user's or a cleanup pending. Otherwise the old desktop host does. */
+ *  computer while that section has a session, a hold of the user's or a cleanup pending. Otherwise the desktop's own computer host does. */
 export function coreOwnsComputer(snapshot: ComputerUseSnapshot): boolean {
   return (snapshot.presentSessionIds ?? []).length > 0 || snapshot.userControlActive || snapshot.cleanupState !== 'ready';
+}
+
+/** Whether the core drives the computer now: the section names the core's helper as the backend (not the desktop's own host,
+ *  whose in-process sessions the pill then shows) and the core owns the computer (`coreOwnsComputer`). */
+export function coreDrivesComputer(pill: { backend(): 'helper' | 'desktopHost'; snapshot(): ComputerUseSnapshot }): boolean {
+  return pill.backend() === 'helper' && coreOwnsComputer(pill.snapshot());
 }
 
 export interface ComputerPillControlsOptions {
   core: ReturnType<typeof createCoreUserControl>;
   /** The pill's current snapshot, which says who owns the computer. */
   snapshot(): ComputerUseSnapshot;
-  /** The desktop computer host (the old TypeScript path), which serves the pill while the core does not own the computer. */
+  /** The desktop's own computer host (the TypeScript PowerShell host), which serves the pill while the core does not own the computer. */
   host: ComputerUseOverlayControls & Required<Pick<ComputerUseOverlayControls, 'pause' | 'resume'>>;
   /** Ends a session's agent turn; Stop confirms it for every session the pill names. */
   abortSession(sessionId: string): Promise<unknown>;
@@ -59,8 +65,8 @@ export interface ComputerPillControlsOptions {
 
 /**
  * The pill's Stop and Resume, the pause when the control renderer dies and the emergency shortcut (which is Stop), sent to the
- * core while it owns the computer and to the old host otherwise. The core's hold is one for all sessions, so its Resume carries
- * no generation and its pause is the core's `user_pause` hold; the idle-resume interval is the old host's alone.
+ * core while it owns the computer and to the desktop's own host otherwise. The core's hold is one for all sessions, so its Resume carries
+ * no generation and its pause is the core's `user_pause` hold; the idle-resume interval is the desktop host's alone.
  */
 export function createComputerPillControls(options: ComputerPillControlsOptions): ComputerUseOverlayControls {
   const { core, host } = options;
@@ -71,7 +77,7 @@ export function createComputerPillControls(options: ComputerPillControlsOptions)
     configureIdleResume: (seconds) => host.configureIdleResume?.(seconds),
     async stop(sessionIds) {
       if (!owned()) return host.stop(sessionIds);
-      // The hold and the turns' end are independent (the old host's Stop): a late or failed reply to one never holds back the other.
+      // The hold and the turns' end are independent (the desktop host's Stop): a late or failed reply to one never holds back the other.
       await Promise.all([core.stop(), confirmComputerTurnsStopped(sessionIds, options.abortSession)]);
     },
   };

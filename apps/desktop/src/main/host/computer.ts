@@ -42,13 +42,14 @@ export interface ComputerControl {
 /** The control while Computer Use is on, else null (the bridge Node would not have published). */
 export type ComputerControlSource = () => ComputerControl | null;
 
-/** The core computer host's handlers, served only when `enabled` (COMPUTER_HOST_V2 until DESKTOP-WIRE-G4). */
-export interface ComputerHostV2 {
-  enabled: boolean;
+/** What the core computer host's handlers need beyond the control (`host/computer/appInput`'s arrow). */
+export interface ComputerHostDeps {
   appInput: ComputerAppInputDeps;
 }
 
-export function registerComputerHost(connection: HostConnection, source: ComputerControlSource, v2: ComputerHostV2): void {
+/** Every `host/computer/*` handler, always: a core that does not drive Computer Use (or runs it through the desktop's own
+ *  host) never calls cursorPrepare, appWindows, appInput or pixels, so serving them changes nothing for it. */
+export function registerComputerHost(connection: HostConnection, source: ComputerControlSource, deps: ComputerHostDeps): void {
   const running = (): ComputerControl => {
     const control = source();
     if (!control) throw new HostRpcError(HOST_COMMAND_FAILED, COMPUTER_UNAVAILABLE);
@@ -74,9 +75,8 @@ export function registerComputerHost(connection: HostConnection, source: Compute
   registerComputerLease(connection);
   registerComputerInternalWindows(connection);
   registerComputerPointer(connection);
-  if (!v2.enabled) return;
   registerComputerCursor(connection);
   registerComputerAppWindows(connection);
-  registerComputerAppInput(connection, v2.appInput);
+  registerComputerAppInput(connection, deps.appInput);
   registerComputerPixels(connection, { callCore: (method, params) => connection.request(method, params) });
 }

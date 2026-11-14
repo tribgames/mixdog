@@ -36,7 +36,9 @@ export interface WindowHostDeps {
 
 export interface WindowHost {
   handlers: Record<string, (params: unknown) => Promise<unknown>>;
-  /** A window the core asked for is gone: `byUser` unless the app is quitting. */
+  /** A window the core asked for is gone: `byUser` unless the app is quitting. Sent only for a window the core opened
+   *  through `host/window/open` on this connection: a core that does not drive the server windows never opens one, so it is
+   *  never told (it does not take `host/window/closed`), and a window the person opened is not the core's to hear about. */
   windowClosed(connectionId: string, byUser: boolean): void;
   /** The current state of every window; reported to the core once the burst settles, and only when it changed. */
   publishFocus(windows: WindowFocusEntry[]): void;
@@ -60,6 +62,8 @@ function windowsKey(windows: readonly WindowFocusEntry[]): string {
 
 export function createWindowHost(deps: WindowHostDeps): WindowHost {
   const opening = new Map<string, Promise<HostWindowOpenResult>>();
+  /** The windows the core asked for (an open it was answered `opened: true`); what `windowClosed` reports. */
+  const asked = new Set<string>();
   const debounceMs = deps.debounceMs ?? FOCUS_DEBOUNCE_MS;
   let pending: WindowFocusEntry[] | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -87,7 +91,10 @@ export function createWindowHost(deps: WindowHostDeps): WindowHost {
       if (inflight) return inflight;
       const request = deps
         .open({ connectionId, kind: p.kind, name: p.name })
-        .then((opened): HostWindowOpenResult => ({ opened }))
+        .then((opened): HostWindowOpenResult => {
+          if (opened) asked.add(connectionId);
+          return { opened };
+        })
         .catch((): HostWindowOpenResult => ({ opened: false }))
         .finally(() => {
           if (opening.get(connectionId) === request) opening.delete(connectionId);
@@ -109,7 +116,10 @@ export function createWindowHost(deps: WindowHostDeps): WindowHost {
 
   return {
     handlers,
-    windowClosed: (connectionId, byUser) => deps.report(WINDOW_HOST_METHOD.closed, { connectionId, byUser }),
+    windowClosed: (connectionId, byUser) => {
+      if (!asked.delete(connectionId)) return;
+      deps.report(WINDOW_HOST_METHOD.closed, { connectionId, byUser });
+    },
     publishFocus: (windows) => {
       pending = windows;
       if (timer) clearTimeout(timer);
@@ -119,8 +129,9 @@ export function createWindowHost(deps: WindowHostDeps): WindowHost {
       if (timer) clearTimeout(timer);
       timer = null;
       pending = null;
-      // The next connection starts from nothing: its core has not been told.
+      // The next connection starts from nothing: its core has not been told, and has asked for no window.
       reported = null;
+      asked.clear();
     },
   };
 }

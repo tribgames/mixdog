@@ -202,45 +202,45 @@ test('a cleanup latch is carried, and an idle section is settled', () => {
   assert.equal(presence.snapshot().cleanupState, 'ready');
 });
 
-test('while the desktop host is the backend the legacy coordinator is the source of everything', () => {
-  const legacy = new ComputerUseCoordinator();
-  const { presence, released } = rig({ legacy });
+test('while the desktop host is the backend the in-process coordinator is the source of everything', () => {
+  const coordinator = new ComputerUseCoordinator();
+  const { presence, released } = rig({ coordinator });
   const seen = [];
   const off = presence.subscribe((snapshot) => seen.push(snapshot.presentSessionIds));
   presence.applySection(section([session('a')], { backend: 'desktopHost' }));
   assert.equal(presence.backend(), 'desktopHost');
   assert.deepEqual(presence.snapshot().presentSessionIds, []);
-  legacy.beginCommand({ sessionId: 'a', action: 'click', mode: 'background' });
+  coordinator.beginCommand({ sessionId: 'a', action: 'click', mode: 'background' });
   assert.deepEqual(presence.snapshot().presentSessionIds, ['a']);
   assert.deepEqual(seen.at(-1), ['a']);
   presence.pointerProgress('a', move(5, 6));
   assert.deepEqual(
-    legacy.snapshot().cursors.map((c) => [c.x, c.y]),
+    coordinator.snapshot().cursors.map((c) => [c.x, c.y]),
     [[5, 6]]
   );
   presence.pointerProgress('ghost', move());
-  assert.equal(legacy.snapshot().cursors.length, 1);
+  assert.equal(coordinator.snapshot().cursors.length, 1);
   assert.deepEqual(presence.windowIdsWithActiveCommand(), []);
   presence.releasePointer('a');
-  assert.deepEqual(legacy.snapshot().releasedPointerSessionIds, ['a']);
+  assert.deepEqual(coordinator.snapshot().releasedPointerSessionIds, ['a']);
   assert.deepEqual(released, []);
   off();
   presence.applySection(section([session('a')]));
   assert.equal(presence.backend(), 'helper');
   assert.deepEqual(presence.snapshot().cursors, []);
-  legacy.reset();
+  coordinator.reset();
 });
 
-test('the legacy coordinator is not listened to once the last subscriber has left', () => {
-  const legacy = new ComputerUseCoordinator();
-  const { presence } = rig({ legacy });
+test('the in-process coordinator is not listened to once the last subscriber has left', () => {
+  const coordinator = new ComputerUseCoordinator();
+  const { presence } = rig({ coordinator });
   presence.applySection(section([], { backend: 'desktopHost' }));
   let calls = 0;
   const off = presence.subscribe(() => {
     calls += 1;
   });
   off();
-  legacy.beginCommand({ sessionId: 'x', action: 'click', mode: 'background' });
+  coordinator.beginCommand({ sessionId: 'x', action: 'click', mode: 'background' });
   assert.equal(calls, 0);
-  legacy.reset();
+  coordinator.reset();
 });

@@ -38,9 +38,10 @@ from nativeDisplayGeometry (computer/host/display-reads.ts).
 
 ## Notes for later tasks (not fragment lines)
 
-- MIXDOG_CORE_WINDOWS=1 gates `host/window/*` (CORE_WINDOWS in host/connection.ts: the capability, registerWindowHost in
-  host/index.ts, and so the windowFocus/closed reports). DESKTOP-WIRE-G9 removes the gate; host/window/open builds the
-  window from the saved ssh host store until s2b-electron-wiring (G9) replaces DesktopConnection with ServerWindowRecord.
+- `host/window/*` is always served and the `windows` capability always declared; `host/window/closed` is sent only for a
+  window the core opened through host/window/open (a core without the connections service opens none). host/window/open
+  builds the window from the saved ssh host store until s2b-electron-wiring (G9) replaces DesktopConnection with
+  ServerWindowRecord.
 - windowFocus `sessionId` is the first session screen-sessions.ts reports for a window and, as isSessionOnScreen, only
   while the window is up and focused (the entry carries one session; a split pane shows more).
 - `report` of WindowHostDeps is built in host/index.ts from the host connection (host/state/set as a request,

@@ -70,7 +70,7 @@ export interface ComputerPresence extends ComputerPresenceSource {
 
 export interface ComputerPresenceDeps {
   /** The in-process coordinator, which is the source while the desktop's own host runs Computer Use. */
-  legacy?: Pick<
+  coordinator?: Pick<
     ComputerUseCoordinator,
     'snapshot' | 'subscribe' | 'showCursor' | 'releasePointer' | 'windowIdsWithActiveCommand'
   >;
@@ -112,7 +112,7 @@ function pointerDropReason(state: ComputerUseSnapshot, sessionId: string): strin
 
 /** The in-process coordinator's way, for the desktop's own host: paints only while the session is actively driving the
  *  desktop, so a takeover, a pending cleanup or a session without activity drops the update. */
-export function legacyPointerProgress(
+export function coordinatorPointerProgress(
   coordinator: Pick<ComputerUseCoordinator, 'snapshot' | 'showCursor'>,
   sessionId: string,
   event: PointerProgressEvent
@@ -136,7 +136,7 @@ export function legacyPointerProgress(
 }
 
 export function createComputerPresence(deps: ComputerPresenceDeps): ComputerPresence {
-  const { legacy, notifyPointerReleased } = deps;
+  const { coordinator, notifyPointerReleased } = deps;
   const now = deps.now ?? Date.now;
   const listeners = new Set<(snapshot: ComputerUseSnapshot) => void>();
   let revision = 0;
@@ -150,7 +150,7 @@ export function createComputerPresence(deps: ComputerPresenceDeps): ComputerPres
   let cursorSequence = 0;
 
   const backend = (): 'helper' | 'desktopHost' => (section?.backend === 'desktopHost' ? 'desktopHost' : 'helper');
-  const delegating = (): boolean => legacy !== undefined && backend() === 'desktopHost';
+  const delegating = (): boolean => coordinator !== undefined && backend() === 'desktopHost';
 
   const sessionsOf = (): ComputerSectionSession[] => (section?.active ? section.sessions : []);
 
@@ -215,7 +215,7 @@ export function createComputerPresence(deps: ComputerPresenceDeps): ComputerPres
   };
 
   const snapshot = (): ComputerUseSnapshot => {
-    if (legacy && delegating()) return legacy.snapshot();
+    if (coordinator && delegating()) return coordinator.snapshot();
     current ??= build();
     return current;
   };
@@ -228,28 +228,28 @@ export function createComputerPresence(deps: ComputerPresenceDeps): ComputerPres
     for (const listener of [...listeners]) listener(value);
   };
 
-  let detachLegacy: (() => void) | null = null;
-  const attachLegacy = (): void => {
-    if (!legacy || detachLegacy) return;
+  let detachCoordinator: (() => void) | null = null;
+  const attachCoordinator = (): void => {
+    if (!coordinator || detachCoordinator) return;
     let initial = true;
-    const off = legacy.subscribe((value) => {
+    const off = coordinator.subscribe((value) => {
       if (initial || !delegating()) return;
       for (const listener of [...listeners]) listener(value);
     });
     initial = false;
-    detachLegacy = off;
+    detachCoordinator = off;
   };
 
   return {
     snapshot,
     subscribe(listener): () => void {
       listeners.add(listener);
-      attachLegacy();
+      attachCoordinator();
       return () => {
         listeners.delete(listener);
         if (listeners.size === 0) {
-          detachLegacy?.();
-          detachLegacy = null;
+          detachCoordinator?.();
+          detachCoordinator = null;
         }
       };
     },
@@ -292,8 +292,8 @@ export function createComputerPresence(deps: ComputerPresenceDeps): ComputerPres
       changed();
     },
     pointerProgress(sessionId, event): void {
-      if (legacy && delegating()) {
-        legacyPointerProgress(legacy, sessionId, event);
+      if (coordinator && delegating()) {
+        coordinatorPointerProgress(coordinator, sessionId, event);
         return;
       }
       const dropped = pointerDropReason(snapshot(), sessionId);
@@ -321,8 +321,8 @@ export function createComputerPresence(deps: ComputerPresenceDeps): ComputerPres
     /** The session's pointer is the user's again: its arrow hides until the session's next pointer event, and the core
      *  ends its pointer hold. */
     releasePointer(sessionId): void {
-      if (legacy && delegating()) {
-        legacy.releasePointer(sessionId);
+      if (coordinator && delegating()) {
+        coordinator.releasePointer(sessionId);
         return;
       }
       if (!sessionsOf().some((session) => session.sessionThreadId === sessionId) || released.has(sessionId)) return;
@@ -336,7 +336,7 @@ export function createComputerPresence(deps: ComputerPresenceDeps): ComputerPres
       }
     },
     windowIdsWithActiveCommand(): string[] {
-      if (legacy && delegating()) return legacy.windowIdsWithActiveCommand();
+      if (coordinator && delegating()) return coordinator.windowIdsWithActiveCommand();
       return [...new Set(sessionsOf().flatMap((session) => session.windowIds ?? []))];
     },
     backend,

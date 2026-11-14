@@ -58,15 +58,6 @@ export const HOST_COMMAND_FAILED = -32000;
 /** JSON-RPC invalid params. */
 export const HOST_INVALID_PARAMS = -32602;
 
-/** The core opens, closes and focuses this desktop's server windows (`host/window/*`) only with
- *  MIXDOG_CORE_WINDOWS=1, until the server windows come from the core (G9). */
-export const CORE_WINDOWS = process.env.MIXDOG_CORE_WINDOWS === '1';
-
-/** The core computer host's handlers (`host/computer/cursorPrepare|appWindows|appInput|pixels|permissions|command`) and
- *  the environment takeover reports are served only with MIXDOG_COMPUTER_HOST_V2=1, until DESKTOP-WIRE-G4 (s3-26)
- *  serves them unconditionally. */
-export const COMPUTER_HOST_V2 = process.env.MIXDOG_COMPUTER_HOST_V2 === '1';
-
 /** `capabilities.host` declared at `initialize` (DS §12.2). */
 export const HOST_CAPABILITIES = {
   browser: true,
@@ -80,12 +71,12 @@ export const HOST_CAPABILITIES = {
   updater: true,
   files: true,
   // `host/computer/*`: capture and displays (computer.ts), foregroundLease, internalWindows and pointerFeedback
-  // (computer-lease.ts, computer-internal-windows.ts, computer-pointer.ts); with COMPUTER_HOST_V2 also cursorPrepare,
-  // appWindows, appInput, pixels, permissions and command (computer-cursor.ts, computer-app-windows.ts,
-  // computer-app-input.ts, computer-pixels.ts, computer-permissions.ts, computer-command.ts).
+  // (computer-lease.ts, computer-internal-windows.ts, computer-pointer.ts), cursorPrepare, appWindows, appInput, pixels,
+  // permissions and command (computer-cursor.ts, computer-app-windows.ts, computer-app-input.ts, computer-pixels.ts,
+  // computer-permissions.ts, computer-command.ts). A core that does not drive Computer Use never calls the latter six.
   computer: true,
-  // `host/window/open|close|focus` (connections/window-host.ts).
-  windows: CORE_WINDOWS,
+  // `host/window/open|close|focus` (connections/window-host.ts); a core without the connections service never calls them.
+  windows: true,
 } as const satisfies HostCapabilities;
 
 /** The fields of a generated protocol params type, each still to be checked (a wire value is unknown). */
