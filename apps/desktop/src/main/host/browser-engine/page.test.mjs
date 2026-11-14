@@ -36,6 +36,7 @@ function harness({ policy, loadURL, dialog = null } = {}) {
     documentGeneration: 1,
     cdpSessions: new Map([['s1', { type: 'iframe', frameId: 'f1' }]]),
     pendingDialog: dialog,
+    openedPopups: [],
   };
   let revisions = 0;
   const ctx = {
@@ -96,7 +97,7 @@ function harness({ policy, loadURL, dialog = null } = {}) {
   };
   registerPage(connection, ctx, host);
   const call = (method, params) => handlers.get(`host/browser/page/${method}`)(params, new AbortController().signal);
-  return { call, log, sent, ctx, state };
+  return { call, log, sent, ctx, state, host };
 }
 
 test('navigate to a url the policy refuses is -32015 with the reason, and nothing loads', async () => {
@@ -200,6 +201,26 @@ test('an exception of the script is answered as exception details and invalidate
   const result = await h.call('eval', { pageId: 'p1', expression: 'throw 1', timeoutMs: 1000 });
   assert.deepEqual(result.exception, { text: 'Error: x', line: 2, column: 5 });
   assert.ok(h.log.includes('invalidate'));
+});
+
+test('a successful eval keeps the refs only when the page provably did not change', async () => {
+  const h = harness();
+  h.ctx.replies['Runtime.evaluate'] = () => ({ result: { value: 1 } });
+  await h.call('eval', { pageId: 'p1', expression: '1', timeoutMs: 1000 });
+  assert.ok(h.log.includes('invalidate'), 'no refs held: nothing proves the page unchanged');
+
+  const changed = harness();
+  changed.state.refSet = { snapshotId: 's1' };
+  changed.ctx.replies['Runtime.evaluate'] = () => ({ result: { value: 1 } });
+  await changed.call('eval', { pageId: 'p1', expression: 'document.body.append("x")', timeoutMs: 1000 });
+  assert.ok(changed.log.includes('invalidate'), 'the revision moved');
+
+  const same = harness();
+  same.state.refSet = { snapshotId: 's1' };
+  same.host.documents.revision = async () => '0:1:1:1:0:0:4:0';
+  same.ctx.replies['Runtime.evaluate'] = () => ({ result: { value: 1 } });
+  await same.call('eval', { pageId: 'p1', expression: '1', timeoutMs: 1000 });
+  assert.ok(!same.log.includes('invalidate'), 'same document, url and revision keep the refs');
 });
 
 test('eval in the utility world runs in an isolated world of the frame', async () => {

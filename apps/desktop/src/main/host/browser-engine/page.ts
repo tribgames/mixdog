@@ -266,6 +266,22 @@ async function navigate(host: PageHost, ctx: EngineContext, params: EngineParams
   throw new HostRpcError(HOST_INVALID_PARAMS, 'navigate kind must be url, reload, back or forward.');
 }
 
+/** The page's revision once its frames confirmed a render checkpoint; undefined when that is not proven. */
+async function settledRevision(
+  host: Pick<PageHost, 'documents' | 'isBackground'>,
+  guest: EnginePageCall['guest'],
+  signal: AbortSignal
+): Promise<string | undefined> {
+  try {
+    // A frame that never confirmed the checkpoint may still be changing: its silence is not proof.
+    if ((await host.documents.renderCheckpoint(guest, host.isBackground(guest), signal)) === false) return undefined;
+    return await host.documents.revision(guest, signal);
+  } catch {
+    // The script may already have run: an unreadable page only costs the caller its refs.
+    return undefined;
+  }
+}
+
 interface EvaluateResponse {
   result?: { value?: unknown; description?: string; objectId?: string };
   exceptionDetails?: { text?: string; lineNumber?: number; columnNumber?: number; exception?: { description?: string } };
@@ -309,6 +325,10 @@ async function evaluate(host: PageHost, ctx: EngineContext, params: EngineParams
   } else if (frameId && !sessionId) {
     throw failed('eval in the main world of a frame needs the sessionId of the frame target; use world "utility" for a frame id');
   }
+  // A script that provably leaves the page alone keeps the refs the caller holds (the old evaluate action).
+  const keepsRefs = (params.expect === undefined || params.expect === null) && Boolean(page.state.refSet);
+  const url = guest.getURL();
+  const before = keepsRefs ? await settledRevision(host, guest, signal) : undefined;
   let response: EvaluateResponse;
   try {
     response = await send<EvaluateResponse>('Runtime.evaluate', runtime, guardBeforeDispatch(page, params.expect));
@@ -332,6 +352,13 @@ async function evaluate(host: PageHost, ctx: EngineContext, params: EngineParams
   }
   const remote = response.result;
   if (!returnByValue && remote?.objectId) ctx.cdp.releaseObject(guest, remote.objectId, sessionId);
+  const unchanged =
+    before !== undefined &&
+    guest.getURL() === url &&
+    !page.state.pendingDialog &&
+    !page.state.openedPopups.length &&
+    before === (await settledRevision(host, guest, signal));
+  if (!unchanged) host.store.invalidateInteraction(guest);
   return { value: remote && 'value' in remote ? remote.value : (remote?.description ?? null) };
 }
 
