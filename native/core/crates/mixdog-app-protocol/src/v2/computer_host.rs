@@ -265,6 +265,9 @@ pub struct HostComputerAppInputParams {
     pub dx: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dy: Option<f64>,
+    /// `wheel`: the modifiers held while it turns, e.g. `ctrl+shift`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub modifiers: Option<String>,
 }
 
 /// What became of an `appInput`.
@@ -274,6 +277,8 @@ pub struct HostComputerAppInputParams {
 pub enum HostComputerAppInputEffect {
     Delivered,
     NotEditable,
+    /// The click that focuses the typing point before the text was not confirmed: nothing was typed.
+    ClickUnconfirmed,
     WindowGone,
     Refused,
 }
@@ -311,6 +316,24 @@ pub struct HostComputerAppInputResult {
     /// Where the arrow now stands.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cursor: Option<HostComputerPoint>,
+    /// `key`, delivered: the key presses sent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub presses: Option<u32>,
+    /// Delivered: the renderer's process.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pid: Option<u32>,
+    /// `click_unconfirmed` and `refused`: the code the refusal carries (`typing_target_unconfirmed`, `background_unsupported`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+    /// `click_unconfirmed` and `refused`: the desktop's words for it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    /// `click_unconfirmed`: whether input was accepted for delivery; absent when unknown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delivery_accepted: Option<bool>,
+    /// `click_unconfirmed`: whether input may have gone out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_may_have_executed: Option<bool>,
 }
 
 /// Params of `host/computer/cursorPrepare` (core -> host): ready the agent's arrow before the first pointer input of a
@@ -592,6 +615,25 @@ mod tests {
         let result: HostComputerAppInputResult = serde_json::from_value(value.clone()).expect("result");
         assert_eq!(result.effect, HostComputerAppInputEffect::NotEditable);
         assert_eq!(serde_json::to_value(&result).expect("value"), value);
+    }
+
+    #[test]
+    fn app_input_result_carries_what_the_core_reads_beyond_the_effect() {
+        let value = json!({
+            "delivered": false,
+            "effect": "click_unconfirmed",
+            "code": "typing_target_unconfirmed",
+            "text": "The preparatory click was not confirmed; no text was sent.",
+            "deliveryAccepted": false,
+            "inputMayHaveExecuted": false
+        });
+        let result: HostComputerAppInputResult = serde_json::from_value(value.clone()).expect("result");
+        assert_eq!(result.effect, HostComputerAppInputEffect::ClickUnconfirmed);
+        assert_eq!(serde_json::to_value(&result).expect("value"), value);
+        let delivered = json!({ "delivered": true, "effect": "delivered", "presses": 2, "pid": 4242 });
+        let result: HostComputerAppInputResult = serde_json::from_value(delivered.clone()).expect("result");
+        assert_eq!((result.presses, result.pid), (Some(2), Some(4242)));
+        assert_eq!(serde_json::to_value(&result).expect("value"), delivered);
     }
 
     #[test]

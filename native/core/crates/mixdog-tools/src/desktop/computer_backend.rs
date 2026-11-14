@@ -240,6 +240,10 @@ impl Default for ComputerShared {
     }
 }
 
+/// The actions whose reply carries the observation that follows them (`autoCapture` of the action table): the window operations,
+/// a launch and a menu. The steps of an `act` are observed once, after the last (`computer_act`).
+const AUTO_CAPTURE_ACTIONS: [&str; 7] = ["focus_window", "move_window", "window_state", "close_window", "terminate_process", "launch", "invoke_menu"];
+
 /// A helper's `{"ok":false}` reply: its error text, and the `result` it carried (a capture's `capture_cleanup`, the codes of a
 /// refusal), which the reply's readers keep.
 #[derive(Clone, Debug, PartialEq)]
@@ -523,6 +527,8 @@ pub trait ExecutionObserver: Send + Sync {
     fn began(&self, observe_only: bool);
     /// The open execution ended: `execution_end`, an abort, a release or a cancelled call.
     fn ended(&self);
+    /// A helper cleanup started or finished, which the section's `cleanupState` shows.
+    fn cleanup_changed(&self) {}
 }
 
 impl ProcessComputerBackend {
@@ -922,10 +928,22 @@ impl ProcessComputerBackend {
 
     /// One `--abort-cleanup` run with this session's restore points and ledger; true when it exited 0.
     async fn run_cleanup(&self) -> bool {
-        let (_job, _live) = (Tally::up(&self.cleaning), self.shared.live.hold());
-        match self.cleanup() {
-            Ok(request) => run_to_exit(&*self.manager, request).await,
-            Err(_) => false,
+        let confirmed = {
+            let (_job, _live) = (Tally::up(&self.cleaning), self.shared.live.hold());
+            self.cleanup_changed();
+            match self.cleanup() {
+                Ok(request) => run_to_exit(&*self.manager, request).await,
+                Err(_) => false,
+            }
+        };
+        self.cleanup_changed();
+        confirmed
+    }
+
+    /// Tells the observer that the cleanup state moved, between two command events.
+    fn cleanup_changed(&self) {
+        if let Some(observer) = &self.observer {
+            observer.cleanup_changed();
         }
     }
 
@@ -1088,9 +1106,14 @@ impl ProcessComputerBackend {
     /// A single helper action: its result, settled against the windows it started from, shaped as the tool's reply.
     async fn single(&self, action: &str, command: Map<String, Value>, cancel: &CancellationToken) -> Result<Vec<ToolPart>, ComputerError> {
         let before = computer_settle::before(self, action, &command, cancel).await?;
+        let asked = AUTO_CAPTURE_ACTIONS.contains(&action).then(|| command.clone());
         let mut result = self.call(command, cancel).await?;
         computer_settle::after(self, action, before, &mut result, cancel).await?;
-        computer_reply::single(action, &result)
+        let mut parts = computer_reply::single(action, &result)?;
+        if let Some(command) = asked {
+            self.capture_after_semantic(action, &command, &result, &mut parts, cancel).await?;
+        }
+        Ok(parts)
     }
 
     /// A read the Node desktop host makes of the helper (`callPowerShell` with `read_only`): under `session`, or the backend's own.

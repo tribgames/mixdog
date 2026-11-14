@@ -120,7 +120,12 @@ pub struct Lane {
     /// Requests in or waiting for the lane (`foregroundQueueDepth`).
     depth: AtomicUsize,
     claims: StdMutex<Claims>,
+    /// Told when the queue grows or shrinks, so the section is published between command events.
+    listener: StdMutex<Option<Listener>>,
 }
+
+/// Tells the pool the lane changed.
+type Listener = std::sync::Arc<dyn Fn() + Send + Sync>;
 
 /// The sessions using the desktop, and the windows the sessions that ended before the last one held
 /// (`sessionDesktopAnchor`, `handedWindowIds`).
@@ -148,11 +153,12 @@ pub struct Entered<'a> {
 }
 
 /// One request's place in the queue, given back when it leaves or is dropped while waiting.
-struct Place<'a>(&'a AtomicUsize);
+struct Place<'a>(&'a Lane);
 
 impl Drop for Place<'_> {
     fn drop(&mut self) {
-        self.0.fetch_sub(1, Ordering::SeqCst);
+        self.0.depth.fetch_sub(1, Ordering::SeqCst);
+        self.0.changed();
     }
 }
 
@@ -163,7 +169,8 @@ impl Lane {
             return Ok(Entered { _place: None, _turn: None });
         }
         let position = self.depth.fetch_add(1, Ordering::SeqCst);
-        let place = Place(&self.depth);
+        self.changed();
+        let place = Place(self);
         let turn = tokio::select! {
             turn = self.turn.lock() => turn,
             () = cancel.cancelled() => return Err(ComputerError::Cancelled),
@@ -174,6 +181,18 @@ impl Lane {
             return Err(ComputerError::Failed { code: RECAPTURE_CODE.into(), message: format!("{RECAPTURE_CODE}: desktop lane changed; capture fresh state") });
         }
         Ok(Entered { _place: Some(place), _turn: Some(turn) })
+    }
+
+    /// Calls `listener` after each change of the queue, which publishes the section.
+    pub fn on_change(&self, listener: Listener) {
+        *self.listener.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(listener);
+    }
+
+    fn changed(&self) {
+        let listener = self.listener.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+        if let Some(listener) = listener {
+            listener();
+        }
     }
 
     fn claims(&self) -> std::sync::MutexGuard<'_, Claims> {
@@ -341,5 +360,21 @@ mod tests {
         assert_eq!(lane.section().map(|section| section.queued), Some(0));
         drop(first);
         assert_eq!(lane.section(), None);
+    }
+
+    #[tokio::test]
+    async fn the_listener_hears_the_queue_grow_and_shrink() {
+        let lane = Lane::default();
+        let heard = Arc::new(AtomicUsize::new(0));
+        let counted = heard.clone();
+        lane.on_change(Arc::new(move || {
+            counted.fetch_add(1, Ordering::SeqCst);
+        }));
+        let entered = lane.enter(Kind::Command, &CancellationToken::new()).await.unwrap();
+        assert_eq!(heard.load(Ordering::SeqCst), 1);
+        drop(entered);
+        assert_eq!(heard.load(Ordering::SeqCst), 2);
+        lane.enter(Kind::Background, &CancellationToken::new()).await.unwrap();
+        assert_eq!(heard.load(Ordering::SeqCst), 2, "a background command never waits");
     }
 }

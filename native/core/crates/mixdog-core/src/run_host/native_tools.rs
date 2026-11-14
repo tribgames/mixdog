@@ -205,7 +205,10 @@ impl NativeToolPaths {
         if binary.is_none() && !host_serves {
             return None;
         }
-        Some(Arc::new(ComputerSessionPool::new(binary, manager, wrap, publisher, settings)))
+        let pool = Arc::new(ComputerSessionPool::new(binary, manager, wrap, publisher, settings));
+        // The pointer holds exist before the first session's helper does, so every helper shares them.
+        let _holds = pool.pointer_hold();
+        Some(pool)
     }
 
     async fn present(&self, path: PathBuf) -> Option<PathBuf> {
@@ -570,6 +573,10 @@ impl ExecutionObserver for SessionPresence {
         self.presence.publish(&mut state);
     }
 
+    fn cleanup_changed(&self) {
+        self.presence.republish();
+    }
+
     fn ended(&self) {
         self.presence.control.session_ended(&self.session);
         let mut state = self.presence.state();
@@ -729,6 +736,13 @@ impl ComputerSessionPool {
                 }
             }
         }));
+        // The queue behind the desktop's one keyboard and pointer changes between command events: the section shows it as it does.
+        let queued = Arc::downgrade(&presence);
+        shared.lane.on_change(Arc::new(move || {
+            if let Some(presence) = queued.upgrade() {
+                presence.republish();
+            }
+        }));
         // The ledgers a crashed core left are replayed now rather than at the first session's first helper: the windows it left
         // without activation are restored before anyone uses `computer`. A session's first helper waits for this sweep.
         if let (Some(binary), Ok(runtime)) = (&binary, tokio::runtime::Handle::try_current()) {
@@ -821,7 +835,9 @@ impl ComputerSessionPool {
                 }
                 let mut config = ComputerConfig::new(binary.clone(), key);
                 config.data_dir = Some(self.data_dir.clone());
-                let mut helper = ProcessComputerBackend::new(config, self.manager.clone()).with_shared(self.shared.clone()).with_observer(observer);
+                // The helpers read the pixels of a display from the core's blob store and keep the pointer between a session's commands.
+                let shared = ComputerShared { blobs: self.host_blobs.clone(), pointer_hold: self.presence.pointer.get().cloned(), ..self.shared.clone() };
+                let mut helper = ProcessComputerBackend::new(config, self.manager.clone()).with_shared(shared).with_observer(observer);
                 if let Some(desktop) = self.desktop.get() {
                     helper = helper.with_desktop(desktop.clone());
                 }

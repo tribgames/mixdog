@@ -149,11 +149,13 @@ fn refused(message: String) -> ComputerError {
     ComputerError::Failed { code: "computer_failed".into(), message }
 }
 
-/// An OCR word's click point in its frame's pixels (`ElementAliasTarget` of kind `point`).
+/// An OCR word's click point in its frame's pixels (`ElementAliasTarget` of kind `point`), and the box the word was read in
+/// (`[x, y, width, height]`, which the set-of-marks overlay outlines).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct OcrMark {
     pub(super) x: i64,
     pub(super) y: i64,
+    pub(super) bounds: [i64; 4],
 }
 
 /// The OCR marks the latest capture published, by number, and the frame they belong to.
@@ -259,6 +261,15 @@ impl FrameStore {
     pub(super) fn remember_marks(&self, frame: &Frame, by_number: BTreeMap<i64, OcrMark>) {
         if locked(&self.latest).as_ref().is_some_and(|(latest, _)| latest.id == frame.id) {
             *locked(&self.marks) = Some(Marks { frame_id: frame.id.clone(), window_id: frame.window_id.clone(), by_number });
+        }
+    }
+
+    /// The OCR words the capture of `frame` listed as marks: each number with the box its word was read in.
+    pub(super) fn ocr_boxes(&self, frame: &Frame) -> Vec<(i64, [i64; 4])> {
+        let marks = locked(&self.marks);
+        match marks.as_ref().filter(|marks| marks.frame_id == frame.id) {
+            Some(marks) => marks.by_number.iter().map(|(number, mark)| (*number, mark.bounds)).collect(),
+            None => Vec::new(),
         }
     }
 
@@ -644,7 +655,7 @@ mod tests {
     fn marked_store() -> FrameStore {
         let store = FrameStore::default();
         store.remember(frame("frame-1"));
-        store.remember_marks(&frame("frame-1"), BTreeMap::from([(4, OcrMark { x: 1, y: 3 }), (5, OcrMark { x: 100, y: 50 })]));
+        store.remember_marks(&frame("frame-1"), BTreeMap::from([(4, OcrMark { x: 1, y: 3, bounds: [0; 4] }), (5, OcrMark { x: 100, y: 50, bounds: [0; 4] })]));
         store
     }
 
@@ -699,7 +710,7 @@ mod tests {
         map_step(&store, &mut click).unwrap();
         assert!(click.contains_key("element"), "the helper's snapshot answers a mark this capture did not publish");
         let store = marked_store();
-        store.remember_marks(&frame("frame-7"), BTreeMap::from([(4, OcrMark { x: 0, y: 0 })]));
+        store.remember_marks(&frame("frame-7"), BTreeMap::from([(4, OcrMark { x: 0, y: 0, bounds: [0; 4] })]));
         store.clear();
         assert!(refusal(&store, json!({"action":"click","ref":"ocr:frame-1:4"})).contains("stale_element: ref=4"));
     }

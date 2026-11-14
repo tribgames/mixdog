@@ -235,7 +235,6 @@ mod tests {
     use mixdog_core_base::support::testing::request;
     use mixdog_core_session::session::secret_input::GatedComputerBackend;
     use mixdog_core_base::support::testing::value;
-    use mixdog_core_session::session::secret_input::TakeoverHold;
 
     use super::*;
 

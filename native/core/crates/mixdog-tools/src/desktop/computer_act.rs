@@ -20,6 +20,7 @@ use super::computer_backend::ProcessComputerBackend;
 use super::computer_backend::error_text;
 use super::computer_command::DEFAULT_DELIVERY;
 use super::computer_command::text;
+use super::computer_delta;
 use super::computer_frames;
 use super::computer_pixels::read_displays;
 use super::computer_pointer::prepare_cursor;
@@ -541,6 +542,107 @@ impl ProcessComputerBackend {
         }
     }
 
+    /// `captureAfterSemanticAction` (`host/action-reply.ts`) for one window operation, launch or menu: the observation of the window
+    /// the action ended on joins its reply as `capture_after`, with the frame after it. The target is the transition's successor, else
+    /// the window the action named; a launch waits for its window's layout to settle first (`awaitSettledLayout`). Skipped, and
+    /// said so, when the target closed or a launch has no proven successor window (it never authorizes capturing the foreground app).
+    pub(super) async fn capture_after_semantic(
+        &self,
+        action: &str,
+        command: &Map<String, Value>,
+        result: &Map<String, Value>,
+        parts: &mut Vec<ToolPart>,
+        cancel: &CancellationToken,
+    ) -> Result<(), ComputerError> {
+        let Some(Value::Object(mut payload)) = parts.first().and_then(|part| match part {
+            ToolPart::Text(text) => serde_json::from_str::<Value>(text).ok(),
+            _ => None,
+        }) else {
+            return Ok(());
+        };
+        let named = |source: &Map<String, Value>| source.get("window_id").and_then(Value::as_str).filter(|id| !id.is_empty()).map(str::to_owned);
+        let original = named(command).or_else(|| named(result)).unwrap_or_default();
+        let transition = result.get("window_transition").filter(|transition| transition.is_object());
+        let code = payload.get("code").and_then(Value::as_str).filter(|code| !code.is_empty()).map(str::to_owned);
+        let successor = transition.and_then(|transition| transition.pointer("/next_target/id")).and_then(Value::as_str).filter(|id| !id.is_empty());
+        let skipped = |reason: &str, window: Option<&str>| {
+            let mut skipped = object(json!({ "ok": true, "action": "capture", "skipped": true, "target_reason": reason }));
+            if let Some(window) = window {
+                skipped.insert("window_id".into(), json!(window));
+            }
+            skipped
+        };
+        if action == "launch" && result.get("delivery_accepted") == Some(&json!(true)) && code.is_none() && original.is_empty() && successor.is_none() {
+            // Shell brokers can launch a different process (a packaged app hosted by ApplicationFrameHost): no proven successor is not a
+            // failed launch.
+            payload.insert("capture_after".into(), Value::Object(skipped("launch_target_unresolved", None)));
+            payload.insert("verdict".into(), json!({ "decision": "verify_fresh_state", "recommended": "list_windows" }));
+            let message = payload.get("message").and_then(Value::as_str).unwrap_or_default();
+            let message = format!("{message}; the shell accepted the launch, but its window is unresolved. List windows and capture the exact target; do not launch again.");
+            payload.insert("message".into(), json!(message));
+            parts[0] = ToolPart::Text(Value::Object(payload).to_string());
+            return Ok(());
+        }
+        let closed = action == "close_window"
+            && result.get("verified") == Some(&json!(true))
+            && transition
+                .and_then(|transition| transition.get("closed_windows"))
+                .and_then(Value::as_array)
+                .is_some_and(|closed| closed.iter().any(|window| window.get("id").and_then(Value::as_str) == Some(original.as_str())));
+        if closed {
+            payload.insert("capture_after".into(), Value::Object(skipped("target_closed", Some(original.as_str()))));
+            parts[0] = ToolPart::Text(Value::Object(payload).to_string());
+            return Ok(());
+        }
+        let target = successor.unwrap_or(original.as_str());
+        let (mut capture_after, observed) = if target.is_empty() {
+            (object(json!({ "ok": false, "error": "exact target window is unavailable; no screen fallback was captured" })), Vec::new())
+        } else {
+            if action == "launch" {
+                self.settle_launch_layout(target, cancel).await?;
+            }
+            // A window that opened or closed, or a successor target, changes what the refs the model holds refer to: the whole list.
+            let full = transition.is_some_and(retargets);
+            self.observe_after(command, target, full, cancel).await?
+        };
+        let reason = capture_after.get("capture_target_reason").and_then(Value::as_str).filter(|reason| !reason.is_empty()).map(str::to_owned);
+        let reason = reason.or_else(|| transition.and_then(|transition| transition.get("next_target_reason")).and_then(Value::as_str).map(str::to_owned));
+        capture_after.insert("target_reason".into(), json!(reason.unwrap_or_else(|| "original_target".to_owned())));
+        if !original.is_empty() && target != original {
+            capture_after.insert("previous_window_id".into(), json!(original));
+        }
+        // `applyObservationOutcome`: the action's delivery and the requested observation are separate obligations.
+        if capture_after.get("ok") == Some(&json!(false)) {
+            payload.insert("ok".into(), json!(false));
+            if payload.get("code").and_then(Value::as_str).is_none_or(str::is_empty) {
+                payload.insert("code".into(), json!("observation_unavailable"));
+            }
+            payload.insert("goal_verified".into(), json!(false));
+            payload.insert("escalation".into(), json!("recapture"));
+            payload.insert("verdict".into(), json!({ "decision": "escalate", "recommended": "recapture" }));
+        } else if capture_after.get("pixel_status") == Some(&json!("unavailable"))
+            && let Some(Value::Object(verdict)) = payload.get_mut("verdict")
+            && verdict.get("decision") != Some(&json!("done"))
+        {
+            verdict.insert("recommended".into(), json!("use_semantic_target"));
+        }
+        payload.insert("capture_after".into(), Value::Object(capture_after));
+        parts[0] = ToolPart::Text(Value::Object(payload).to_string());
+        parts.extend(observed);
+        Ok(())
+    }
+
+    /// `awaitSettledLayout`: a launched window is listed before its content finishes laying out, so the observation waits, within a
+    /// bound, until two read-only reads of its accessible roles and names agree. The reads touch none of the session's refs.
+    async fn settle_launch_layout(&self, window_id: &str, cancel: &CancellationToken) -> Result<(), ComputerError> {
+        let read = move || async move {
+            let reads = vec![("window_id", json!(window_id)), ("max_elements", json!(400))];
+            let reply = self.host_read("window_predicates", reads, Some(self.config.session_id.as_str()), cancel).await.ok()?;
+            computer_delta::layout_fingerprint(reply.get("elements"))
+        };
+        computer_delta::launch_layout_reread(read, || if cancel.is_cancelled() { Err(ComputerError::Cancelled) } else { Ok(()) }).await.map(|_| ())
+    }
+
     /// `releaseSequenceHolds`: ends the no-activate holds the helper kept across the steps. `Some(message)` when it did not
     /// confirm (`sequenceHoldReleaseError`); a cancel is the call's own.
     async fn release_holds(&self, cancel: &CancellationToken) -> Result<Option<String>, ComputerError> {
@@ -968,5 +1070,52 @@ mod tests {
         let second = backend.run(ask(), CancellationToken::new()).await.unwrap();
         let shown = text_at(&second, 1);
         assert!(shown.contains("Elements delta: ") && !shown.contains("[s2:e0] Button \"Item 0\""), "the rows that did not change are named, not listed: {shown}");
+    }
+
+    /// A helper that names the action it took and shows one window when asked to observe it.
+    fn window_helper(reply: Value) -> Arc<Scripted> {
+        Scripted::new(move |request| {
+            Ok(match request["action"].as_str() {
+                Some("focus_window" | "close_window" | "launch") => reply.clone(),
+                Some("snapshot") => json!({ "text": "Window: T [hwnd:0x2]
+Elements: total=0", "window_id": "hwnd:0x2", "total_elements": 0, "elements": [] }),
+                Some("window_predicates") => json!({ "elements": [{ "role": "Button", "name": "a" }] }),
+                _ => json!({ "text": "ok" }),
+            })
+        })
+    }
+
+    /// `autoCapture`: a window operation's reply carries the observation of the window it named.
+    #[tokio::test]
+    async fn a_window_operation_is_followed_by_the_observation_of_its_window() {
+        let manager = window_helper(json!({ "action": "focus_window", "text": "focused", "window_id": "hwnd:0x2", "delivery_accepted": true }));
+        let request = ComputerRequest { action: ComputerAction::Window, input: json!({ "operation": "focus", "window_id": "hwnd:0x2" }) };
+        let reply = payload(&backend(&manager).run(request, CancellationToken::new()).await.unwrap());
+        assert_eq!(reply["action"], "focus_window");
+        assert_eq!(reply["capture_after"]["target_reason"], "original_target");
+        assert_eq!(sent(&manager, "snapshot").len(), 1);
+    }
+
+    /// A launch the shell accepted but whose window is not known is not a failed launch, and nothing is captured for it.
+    #[tokio::test]
+    async fn a_launch_without_a_window_is_not_followed_by_a_capture() {
+        let manager = window_helper(json!({ "action": "launch", "text": "launched", "delivery_accepted": true }));
+        let request = ComputerRequest { action: ComputerAction::Launch, input: json!({ "app": "notepad" }) };
+        let reply = payload(&backend(&manager).run(request, CancellationToken::new()).await.unwrap());
+        assert_eq!(reply["capture_after"], json!({ "ok": true, "action": "capture", "skipped": true, "target_reason": "launch_target_unresolved" }));
+        assert_eq!(reply["verdict"], json!({ "decision": "verify_fresh_state", "recommended": "list_windows" }));
+        assert!(reply["message"].as_str().unwrap().ends_with("do not launch again."));
+        assert!(sent(&manager, "snapshot").is_empty() && sent(&manager, "window_predicates").is_empty());
+    }
+
+    /// A launch with a window waits for its layout to settle: two reads that agree, then the capture.
+    #[tokio::test]
+    async fn a_launch_waits_for_the_layout_of_its_window() {
+        let manager = window_helper(json!({ "action": "launch", "text": "launched", "window_id": "hwnd:0x2", "delivery_accepted": true }));
+        let request = ComputerRequest { action: ComputerAction::Launch, input: json!({ "app": "notepad" }) };
+        let reply = payload(&backend(&manager).run(request, CancellationToken::new()).await.unwrap());
+        assert_eq!(sent(&manager, "window_predicates").len(), 2);
+        assert_eq!(sent(&manager, "snapshot").len(), 1);
+        assert_eq!(reply["capture_after"]["target_reason"], "original_target");
     }
 }
