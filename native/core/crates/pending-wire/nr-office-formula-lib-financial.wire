@@ -1,0 +1,117 @@
+# nr-office-formula-lib-financial
+
+## Registration (lead-owned functions/mod.rs)
+
+Add `mod financial;` after the existing library module declarations.
+Append `financial::FUNCTIONS,` to TABLES, preserving other tasks' entries.
+The table contains all 33 Financial-category exported paths discovered from the
+installed @formulajs/formulajs 4.6.1 namespace. Its actual exports end at XNPV;
+YIELD*, ACCRINTM and the other absent spreadsheet names mentioned by the plan are
+not exports or stubs in this installed version and are not fabricated here.
+
+No new crate or Cargo edge. Existing coerce, mixdog-js V8 math and radix helpers
+are reused. Calendar prerequisites, resolved from the production registry:
+YEARFRAC, DATEDIF, DAYS360, DAYS (owned by nr-office-formula-lib-text-date).
+Register those before financial_calendar_results_equal_original_bits. The pure
+financial test needs no datetime table. Neither test silently skips a missing
+function; together they cover every normal recorded output.
+
+Remove the ignore attribute from financial_exports_are_registered_in_the_production_library
+when the production table is wired. twin_live_financial stays opt-in because it
+runs Node and the bounded nontermination diagnostic.
+
+## Source and output coverage
+
+Implementation: mixdog-xlsx-formula/src/functions/financial.rs
+Original: node_modules/@formulajs/formulajs/lib/esm/index.mjs, 11473-13050,
+plus validDate/ensureDate/lastCoupDateBeforeSettlement immediately before it.
+Recorder enumerates Financial JSDoc function identities against the actual export
+namespace and traverses nested aliases, rejecting any unhandled export.
+
+Recorded 3,299 returning cases, all 33 exports, original Node 22.20.0.
+Each case preserves float bits (NaN/sign/payload included), Error identity label,
+throw message, undefined/null/arrays/dates and time zone. No tolerance or NaN
+normalization. Numeric/date inputs are encoded before calling the mutation-prone
+reference. Dates include UTC, America/New_York and Asia/Seoul. Coverage includes
+missing arguments, truthy vs undefined defaults, bad types, multiple errors,
+raw/string CUM periods, nonfinite values where the original terminates,
+DB's toFixed(3), scientific-notation parseInt conversions, all day-count bases,
+COUPDAYS overflowed month ends, IRR/RATE/XIRR guesses and cashflow shapes.
+
+Node command (executed, reference read-only, outputs only owned fixtures):
+node benchmarks/rust-core/recorders/record-office-financial.mjs --tree C:/Project/mixdog --write
+Without --write the recorder emits JSON and does not change fixtures.
+Index office-financial/MANIFEST.json in the root fixture manifest. It carries the
+source SHA-256, exact export roster, case count and golden byte/hash metadata.
+
+Strict tests:
+- every_original_financial_export_has_one_body
+- financial_noncalendar_results_equal_original_bits
+- financial_calendar_results_equal_original_bits
+- financial_exports_are_registered_in_the_production_library (enable after wiring)
+- twin_live_financial (opt-in Node rerecord/compare)
+
+No Rust compilation/tests, applications, dependency downloads or commits were run.
+Rustfmt parsed/formatted the source only. Exact numerical replay is NOT declared
+verified; root must compile, run both replay partitions and clippy offline.
+
+## Iteration behavior and required process containment
+
+IRR preserves its 10-decimal SameValueZero NPV cache, manual power accumulation,
+1000 Newton iterations, original bracket expansion and 1000 bisection iterations.
+RATE preserves 100 iterations and its two small-rate derivative branches.
+XIRR has NO iteration count in the installed source; its AND-based epsilon/value
+termination is preserved. CUM/DB/DDB preserve their original period loops.
+
+An actual original IRR(cashflows, +Infinity) call did not terminate within the
+recorder's 1-second VM limit. The source's bisection lower bound stays Infinity
+when subtracting 0.1. The recorder verifies this as a separate nontermination
+item, not a financial output/error and not an unbounded test case. Raw +Infinity
+CUM end periods are likewise outside the bounded output corpus because the
+source's period loop cannot end. No new production limit/refusal was invented.
+
+Containment found in this base (read directly):
+- mixdog-tools/src/orch/office.rs:192 sends office.run via ExtPool; cancellation
+  drops its call stream.
+- mixdog-exthost/src/stream.rs:57 Drop reports the abandoned call to the pool.
+- mixdog-exthost/src/pool.rs:54 CANCEL_GRACE is 5 seconds; on_dropped sends CANCEL
+  while retaining the busy slot; CancelGrace at ~408 calls stop(io), which at
+  ~632 calls io.kill.kill(), ending the owned worker process/job/group.
+- Current original src/ext-host/methods.mjs officeRun invokes executeOfficeTool;
+  portable/xlsx-recalculate.mjs synchronously evaluates formula cells in that
+  worker process, so even an event-loop-blocking formula is externally killable.
+- Native mixdog-exthost-worker/src/registry.rs::register_blocking runs synchronous
+  work on a worker-process thread. run.rs CANCEL cancels the link token but does
+  not synthesize RESULT while its handler is still running. Thus an uncooperative
+  formula leaves the pool slot Busy and the same grace can kill the child.
+
+In this base, no production Rust caller of mixdog_xlsx_formula was found outside
+the crate/tests, and office.run is NOT yet in native_methods (only document/image
+methods). Therefore native financial-loop containment is not yet exercised.
+Mandatory integration: native Office recalculation must execute inside that
+owned ext-worker process, with the blocking registry path and pool cancellation
+retained. Never call these synchronous potentially nonterminating formulas on a
+daemon task/thread (including daemon spawn_blocking), which cannot be killed by
+this pool boundary. A cooperative cancellation API may be added separately if
+approved; it is not a replacement for the owned process boundary.
+Before enabling native office.run, exercise cancellation of the actual IRR
+Infinity case in an isolated child and verify its PID is gone after grace; do
+not run it directly in a unit-test/daemon process. Existing pool regression
+`a_parser_that_ignores_the_cancel_is_ended_after_the_grace` covers the mechanism
+but is not evidence that the future native Office handler is wired through it.
+
+## Incoming shared UTF-16 Value integration
+
+This base has Value::Text(String), not the additive Value::Utf16 contract.
+Do not change shared Value/coerce concurrently. On integration, update:
+- financial.rs::primitive: Array/Error default string primitives must use
+  V::from_utf16(coerce::to_js_utf16(value)), not lossy to_js_string.
+- financial.rs::less/less_equal: compare is_text()/text_units() lexicographically
+  when both operands are text; raw CUM period comparisons preserve JS string order.
+- financial.rs::ensure_date: explicit V::Utf16 text arm must follow Date(string),
+  not fall through to numeric milliseconds. Use the shared raw-text date parsing
+  contract; retain non-well-formed inputs rather than silently sanitizing them.
+- tests/twin_financial.rs::encode is an exhaustive Value match and must gain a
+  Utf16/raw-code-unit encoding arm when that variant lands. Decoder should use
+  Value::from_utf16 for future raw-unit fixture input. Existing recorded financial
+  outputs are numeric/error; no surrogate mismatch has been waived.
