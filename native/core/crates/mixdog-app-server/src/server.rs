@@ -562,17 +562,19 @@ impl Shared {
             self.reject(conn, &id, &data);
             return Inbound::Continue;
         }
+        // A lone surrogate in a field that is not free text refuses the frame naming that field, before any validator reads
+        // the field (a validator would refuse the U+FFFD it reads with its own, less precise, reason).
+        if let Some(at) = free_text::refused(free_text::Kind::Request, spec.method, &request.lone_surrogates) {
+            drop(slot);
+            self.reject(conn, &id, &lone_refusal(&format!("{}.params", spec.method), at));
+            return Inbound::Continue;
+        }
         if spec.method != INITIALIZE {
             if let Err(data) = validate::check(spec.method, request.params.as_ref()) {
                 drop(slot);
                 self.reject(conn, &id, &data);
                 return Inbound::Continue;
             }
-        }
-        if let Some(at) = free_text::refused(free_text::Kind::Request, spec.method, &request.lone_surrogates) {
-            drop(slot);
-            self.reject(conn, &id, &lone_refusal(&format!("{}.params", spec.method), at));
-            return Inbound::Continue;
         }
         // The owner decodes its own params from the raw value; the table decode below only
         // validates them and yields the scope and op.

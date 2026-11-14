@@ -7,6 +7,53 @@ use serde_json::json;
 
 const SCHEMA: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../mixdog-app-protocol/schema/client_methods.json");
 
+/// What the protocol boundary's validators (mixdog-app-protocol boundary/validate) require beyond the schema: a word of a closed
+/// vocabulary, a well-formed id, the members a field is checked together with. `(method, pattern prefix, value)`: the value is
+/// merged into the schema's minimal sample of `method` (objects member by member, anything else replaced), for every sample
+/// when the prefix is empty, else only for a field placed under it. The sample is then what a real client sends.
+const VALID: &[(&str, &str, &str)] = &[
+    ("instructions/setInstructionFiles", "", r#"{"mode":"all"}"#),
+    ("config/setHeartbeatInterval", "", r#"{"minutes":30}"#),
+    ("config/setAutoEffortBase", "", r#"{"level":"low"}"#),
+    ("config/setBuiltinToolEnabled", "", r#"{"name":"git"}"#),
+    ("config/installBuiltinFeature", "", r#"{"name":"git"}"#),
+    ("config/setNetworkProxy", "", r#"{"patch":{"mode":"system"}}"#),
+    ("media/setMediaAssetBoard", "", r#"{"ids":["x"],"boardId":"x"}"#),
+    ("account/saveCustomProviderKey", "", r#"{"providerId":"custom-00000000-0000-0000-0000-000000000000","secret":"x"}"#),
+    ("account/consumeCodexRateLimitResetCredit", "", r#"{"options":{}}"#),
+    ("localProvider/startLocalProviderInstallation", "", r#"{"phase":"runtime"}"#),
+    ("localProvider/discardLocalProviderInstallation", "", r#"{"phase":"runtime"}"#),
+    ("localProvider/setLocalProviderContext", "", r#"{"modelId":"x","tokens":16384}"#),
+    ("localProvider/startLocalProviderModelMaintenance", "", r#"{"operation":"verify"}"#),
+    ("account/saveCustomProvider", "", r#"{"input":{"schemaVersion":2,"name":"x","protocol":"openai-chat","baseURL":"https://example.invalid"}}"#),
+    ("account/testCustomProvider", "", r#"{"input":{"schemaVersion":2,"name":"x","protocol":"openai-chat","baseURL":"https://example.invalid"}}"#),
+    ("account/discoverCustomProviderModels", "", r#"{"input":{"schemaVersion":2,"name":"x","protocol":"openai-chat","baseURL":"https://example.invalid"}}"#),
+    ("account/saveCustomProvider", "/input/headers", r#"{"input":{"headers":{}}}"#),
+    ("account/saveCustomProvider", "/input/requestBody", r#"{"input":{"requestBody":{}}}"#),
+    ("account/testCustomProvider", "/input/headers", r#"{"input":{"headers":{}}}"#),
+    ("account/testCustomProvider", "/input/requestBody", r#"{"input":{"requestBody":{}}}"#),
+    ("account/discoverCustomProviderModels", "/input/headers", r#"{"input":{"headers":{}}}"#),
+    ("account/discoverCustomProviderModels", "/input/requestBody", r#"{"input":{"requestBody":{}}}"#),
+    ("import/listImportableConversations", "", r#"{"params":{"source":"codex"}}"#),
+    ("projectFs/workspaceFile/write", "", r#"{"folders":[{"path":"/a"}]}"#),
+    ("projectFs/writeTextBatch", "", r#"{"files":[{"relPath":"a.txt","content":"x","expectedContent":"x"}]}"#),
+    ("lsp/document", "", r#"{"document":{"kind":"open","version":1,"relPath":"a.rs","languageId":"rust"}}"#),
+    ("lsp/request", "", r#"{"request":{"method":"textDocument/hover","relPath":"a.rs","languageId":"rust"}}"#),
+    ("thread/approval/answer", "/result/answers", r#"{"result":{"answers":[{"selected":[]}]}}"#),
+    ("thread/approval/answer", "/result/editedArgs", r#"{"result":{"editedArgs":{}}}"#),
+];
+
+fn merge(into: &mut Value, from: &Value) {
+    match (into, from) {
+        (Value::Object(into), Value::Object(from)) => {
+            for (key, value) in from {
+                merge(into.entry(key.clone()).or_insert(Value::Null), value);
+            }
+        }
+        (into, from) => *into = from.clone(),
+    }
+}
+
 pub(crate) struct Samples {
     schema: Value,
 }
@@ -19,8 +66,19 @@ impl Samples {
     }
 
     pub(crate) fn params(&self, method: &str) -> Value {
+        self.valid(method, None)
+    }
+
+    /// The schema's minimal sample of `method` with what its validator needs ([`VALID`]) for a field at `pattern`.
+    fn valid(&self, method: &str, pattern: Option<&str>) -> Value {
         let row = &self.schema["methods"][method]["params"];
-        self.sample(row, "")
+        let mut params = self.sample(row, "");
+        for (of, prefix, value) in VALID {
+            if *of == method && (prefix.is_empty() || pattern.is_some_and(|pattern| pattern.starts_with(prefix))) {
+                merge(&mut params, &serde_json::from_str(value).expect("a VALID value parses"));
+            }
+        }
+        params
     }
 
     fn sample(&self, schema: &Value, name: &str) -> Value {
@@ -87,7 +145,7 @@ impl Samples {
     /// untyped, objects (arrays for `*`).
     pub(crate) fn with_text(&self, method: &str, pattern: &str, text: &str) -> Value {
         let row = &self.schema["methods"][method]["params"];
-        let mut params = self.sample(row, "");
+        let mut params = self.valid(method, Some(pattern));
         self.put(&mut params, Some(row), &segments(pattern), text);
         params
     }
@@ -139,7 +197,8 @@ impl Samples {
             *at = self.sample(alternative, "");
         }
         let part = held.map(|(part, _)| part);
-        if part.map_or(segment == "*" || segment.parse::<usize>().is_ok(), is_array) {
+        // Untyped, `*` is an array's first item unless the sample already holds a map there.
+        if part.map_or((segment == "*" || segment.parse::<usize>().is_ok()) && !at.is_object(), is_array) {
             if !at.is_array() {
                 *at = json!([]);
             }
