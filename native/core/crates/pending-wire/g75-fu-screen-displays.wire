@@ -1,0 +1,22 @@
+# g75-fu-screen-displays: the core half of the phone's per-monitor display list and display-change source.
+
+## 1. Surface (nothing to apply)
+
+`mixdog_tools::desktop::screen_source` now also exports `DisplayLister`, `HostDisplays` (over the claimed host's `Arc<dyn HostChannel>`:
+`host/computer/displays`, every monitor with id, label, primary, scale and native rectangle) and `Monitor`. `ScreenSourcesDeps` has a new
+field `displays: Option<Arc<dyn DisplayLister>>`; `ScreenSources::displays()` and `displays_changed()` are now `async`.
+
+## 2. The compose hookup (deferred-g7.md item 4, same place), replacing its "Displays" and "Display changes" bullets
+
+- `ScreenSourcesDeps { displays: Some(Arc::new(HostDisplays::new(host_channel))), .. }` where `host_channel` is the claimed desktop host
+  channel the computer pool already uses (`with_desktop`). No in-process enumerator is written: the desktop's list is the one that exists
+  (Electron `screen`), and a monitor it lists is captured through `DisplayPixels` (`host/computer/pixels`), never in process.
+- Before the screen `ready` of a granted client is forwarded (where `screen_sources.grant(..)` is called), `screen_sources.displays().await`
+  fills the list (grant itself stays synchronous and reads only a backend list). The live view's `RelayDeps::screen_displays` is
+  `screen_sources.displays().await`.
+- Display changes: mixdog-core-domains `domains/host.rs` `HostService` gets a port `pub trait DisplayChanges: Send + Sync { fn changed(&self); }`
+  (constructor argument beside `surfaces: Arc<dyn BrowserSurfaces>`), `"host/screen/displaysChanged"` is added to `methods()`, and `notify`
+  gets the arm `"host/screen/displaysChanged" => self.display_changes.changed(),` (params carry nothing). The compose's implementation
+  spawns `screen_sources.displays_changed()` on the runtime (it re-reads the monitors and renews every session's geometry). A compose
+  without screen sources passes a port that does nothing.
+- SERVICE_PENDING: nothing to remove (a notification, not a service method).

@@ -143,8 +143,12 @@ async fn ask(desktop: &dyn HostChannel, method: &'static str, params: Value, can
 
 /// `host/computer/displays`: the attached displays, in the host's order.
 pub(super) async fn read_displays(desktop: &dyn HostChannel, cancel: &CancellationToken) -> Result<Vec<HostComputerDisplay>, ComputerError> {
-    let reply = ask(desktop, DISPLAYS, json!({}), cancel).await?;
-    serde_json::from_value(reply).map_err(|_| invalid_reply("the display list is malformed"))
+    serde_json::from_value(read_display_values(desktop, cancel).await?).map_err(|_| invalid_reply("the display list is malformed"))
+}
+
+/// The display list as the host sent it, for a reader that takes more of a display than [`HostComputerDisplay`] names (its label).
+pub(super) async fn read_display_values(desktop: &dyn HostChannel, cancel: &CancellationToken) -> Result<Value, ComputerError> {
+    ask(desktop, DISPLAYS, json!({}), cancel).await
 }
 
 /// The capture of a frame's shape must be that of the rectangle it shows (`frameQualityIssue`): pixels of another shape never become a

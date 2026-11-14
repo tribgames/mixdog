@@ -45,3 +45,19 @@ test('non-object params are refused with -32602', async () => {
     await assert.rejects(call(bad), (error) => error.code === -32602);
   }
 });
+
+test('a display added, removed or rescaled is reported to the core, until reporting stops', async () => {
+  const { reportScreenDisplayChanges, HOST_SCREEN_DISPLAYS_CHANGED } = await import('./screen-displays.ts');
+  const listeners = new Map();
+  const screen = {
+    on: (event, listener) => listeners.set(event, listener),
+    removeListener: (event, listener) => listeners.get(event) === listener && listeners.delete(event),
+  };
+  const told = [];
+  const stop = reportScreenDisplayChanges({ notify: (method, params) => told.push([method, params]) }, screen);
+  assert.deepEqual([...listeners.keys()].sort(), ['display-added', 'display-metrics-changed', 'display-removed']);
+  for (const listener of listeners.values()) listener();
+  assert.deepEqual(told, Array(3).fill([HOST_SCREEN_DISPLAYS_CHANGED, {}]));
+  stop();
+  assert.equal(listeners.size, 0);
+});
