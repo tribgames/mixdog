@@ -7,7 +7,9 @@ use serde::Serialize;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 pub struct UiRelayPayloadRefusedParams {
+    #[cfg_attr(feature = "codegen", ts(type = "number | null"))]
     pub bytes: Option<u64>,
+    #[cfg_attr(feature = "codegen", ts(type = "number | null"))]
     pub limit: Option<u64>,
 }
 
