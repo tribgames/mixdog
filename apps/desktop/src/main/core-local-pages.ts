@@ -11,10 +11,12 @@ export interface PageOwner {
 export interface CoreLocalPages {
   url(root: string, rel: string, access?: { accessToken?: string; ownerId?: string; owner?: PageOwner }): Promise<string>;
   /** An in-memory page (visualize): `index.html` is required; the lease is revoked with its owner as url()'s is. */
-  virtualUrl(
+  virtual(
     files: Record<string, { type: string; body: Buffer }>,
     access?: { ownerId?: string; owner?: PageOwner }
   ): Promise<string>;
+  /** The mime of a web asset `file` the page server serves from under `root` ('' when it would not): the core's page policy. */
+  assetType(root: string, file: string, dataRoot?: string): Promise<string>;
   origin(): Promise<string>;
   refresh(): Promise<string>;
   revokeOwner(ownerId: string): Promise<void>;
@@ -60,7 +62,7 @@ export function createCoreLocalPages(invoke: Invoke): CoreLocalPages {
       // An empty token is no grant (the core reads any accessToken as a one-file grant), as main treated it.
       return invoke<string>('localPageUrlIn', [root, rel, access.accessToken || undefined, ownerId]);
     },
-    async virtualUrl(files, access = {}) {
+    async virtual(files, access = {}) {
       const ownerId = ownerFor(access);
       const list = Object.entries(files).map(([path, file]) => ({
         path,
@@ -68,6 +70,9 @@ export function createCoreLocalPages(invoke: Invoke): CoreLocalPages {
         type: file.type,
       }));
       return invoke<string>('localPageVirtualIn', [list, ownerId]);
+    },
+    async assetType(root, file, dataRoot) {
+      return invoke<string>('localPageAssetType', [root, file, dataRoot]);
     },
     origin() {
       if (!cachedOrigin) {

@@ -1,0 +1,19 @@
+[methods]
+    /// The mime the core page server serves `file` as from under `root` (`type` is empty when it would not): Node's `pageAssetType`, used by the visualize version snapshot to decide which page assets to keep.
+    ProjectFsLocalPageAssetType => "projectFs/localPage/assetType" {
+        params: v2::desktop_files::ProjectFsLocalPageAssetTypeParams,
+        result: JsonValue,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Local],
+    },
+
+[type_edits]
+In v2/desktop_files.rs add (derives and attrs exactly as ProjectFsLocalPageOriginParams, camelCase, ts(optional_fields)):
+
+    /// Params of `projectFs/localPage/assetType` (Node's `pageAssetType`): `root` and `file` are absolute; `dataRoot` (inside root, default root) is where data and document types are served.
+    pub struct ProjectFsLocalPageAssetTypeParams { pub root: String, pub file: String, #[serde(default, skip_serializing_if = "Option::is_none")] pub data_root: Option<String> }
+
+[window]
+projectFs/localPage/assetType: same scope as projectFs/localPage/origin (window_methods.json row, window_scope.rs)

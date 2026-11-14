@@ -4,7 +4,7 @@ import type { BrowserWindow } from 'electron';
 
 import { filePreviewTypeForPath } from '../../shared/file-preview';
 import type { VisualizePaneView, VisualizeTabView } from '../../shared/visualize';
-import { localVirtualPageUrl } from '../local-page-server';
+import { coreLocalPages } from '../core-local-pages';
 import {
   bundledMermaidSource,
   type ExportDocument,
@@ -46,7 +46,7 @@ export const exportRenderers: ExportRenderers = {
   readFile: (path) => readFile(path),
   mermaidSource: bundledMermaidSource,
   async document({ files, ready }) {
-    const url = await localVirtualPageUrl(files, { authorize: async () => {} });
+    const url = await coreLocalPages().virtual(files);
     return (await renderPageExportDetailed(url, 'png', false, { ...(ready ? { ready } : {}) })).data;
   },
 };
@@ -64,7 +64,7 @@ export function thumbnailRenderers(base: ExportRenderers, signal: AbortSignal): 
       return { pageCount: 1, pages: first.pages.slice(0, 1) };
     },
     async document({ files, ready }) {
-      const url = await localVirtualPageUrl(files, { authorize: async () => {} });
+      const url = await coreLocalPages().virtual(files);
       return renderPageThumbnail(url, false, { signal, ...(ready ? { ready } : {}) });
     },
   };
