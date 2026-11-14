@@ -60,12 +60,21 @@ const SPAWN_PREP_TIMED_OUT: &str = "agent spawn prep timed out before session bi
 
 /// What `prepareWithDeadline` does with the work it stops waiting for: it goes on in its own task, and what it
 /// produces then goes to `late`, which tears it down.
-struct Unclaimed<T, W: Future<Output = Result<T, String>>, L> {
+/// The struct states the bounds its `Drop` needs (a `Drop` impl may not add any), and names the value type `T`
+/// and `late`'s future `F` through `produces`.
+struct Unclaimed<T, W, L, F>
+where
+    T: Send + 'static,
+    W: Future<Output = Result<T, String>> + Send + 'static,
+    L: FnOnce(T) -> F + Send + 'static,
+    F: Future<Output = ()> + Send + 'static,
+{
     work: Option<std::pin::Pin<Box<W>>>,
     late: Option<L>,
+    produces: std::marker::PhantomData<fn() -> (T, F)>,
 }
 
-impl<T, W, L, F> Drop for Unclaimed<T, W, L>
+impl<T, W, L, F> Drop for Unclaimed<T, W, L, F>
 where
     T: Send + 'static,
     W: Future<Output = Result<T, String>> + Send + 'static,
@@ -94,7 +103,7 @@ where
     L: FnOnce(T) -> F + Send + 'static,
     F: Future<Output = ()> + Send + 'static,
 {
-    let mut pending = Unclaimed { work: Some(Box::pin(work)), late: Some(late) };
+    let mut pending = Unclaimed { work: Some(Box::pin(work)), late: Some(late), produces: std::marker::PhantomData };
     let waited = mixdog_rt::time::timeout(deadline, pending.work.as_mut().expect("the work is held until it ends")).await;
     match waited {
         Ok(outcome) => {
