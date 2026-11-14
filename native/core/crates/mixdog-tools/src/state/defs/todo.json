@@ -1,7 +1,7 @@
 {
   "name": "todo",
   "title": "Todo",
-  "description": "The step list for this request; the Lead and each agent keep their own. set: the whole plan in order, each step a short outcome (it replaces the previous list; the first open step is in progress). advance: closes the step in progress and starts the next. done, start and drop take a 1-based step number, for work out of order or given up. view shows the list.",
+  "description": "The step list for this request; the Lead and each agent keep their own. set (or init): the whole plan in order, each step a short outcome (it replaces the previous list; the first open step is in progress); phases name groups of steps. advance: closes the step in progress and starts the next. done, start, drop and rm take a 1-based step number or the step's exact wording (item), for work out of order, given up or removed. append adds steps at the end of the list (or of the phase named). view shows the list.",
   "annotations": {
     "title": "Todo",
     "readOnlyHint": false,
@@ -17,10 +17,13 @@
         "type": "string",
         "enum": [
           "set",
+          "init",
           "advance",
           "done",
           "start",
           "drop",
+          "append",
+          "rm",
           "view"
         ]
       },
@@ -30,8 +33,8 @@
           "type": "string"
         },
         "minItems": 1,
-        "maxItems": 15,
-        "description": "set: the steps, in order."
+        "maxItems": 50,
+        "description": "set/init/append: the steps, in order."
       },
       "done": {
         "type": "integer",
@@ -41,11 +44,45 @@
       "index": {
         "type": "integer",
         "minimum": 1,
-        "description": "done/start/drop: the step number."
+        "description": "done/start/drop/rm: the step number."
       },
       "note": {
         "type": "string",
         "description": "advance/done: optional one-line evidence."
+      },
+      "phases": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "maxItems": 50
+            }
+          },
+          "required": [
+            "name",
+            "items"
+          ],
+          "additionalProperties": false
+        },
+        "description": "set/init: named phases of steps instead of items."
+      },
+      "phase": {
+        "type": "string",
+        "description": "set/init/append: the phase for items (append default: the last; a new name adds one)."
+      },
+      "item": {
+        "type": "string",
+        "description": "done/start/drop/rm: the step's exact wording (instead of index)."
       }
     },
     "required": [

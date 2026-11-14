@@ -28,6 +28,8 @@ use mixdog_rt::InteractiveIo;
 use mixdog_tools::exec::session_scratch_dir;
 use regex::Regex;
 use serde_json::Value;
+use sha2::Digest;
+use sha2::Sha256;
 
 use super::probes::StartupObservations;
 use super::sources::PromptSources;
@@ -39,6 +41,10 @@ use mixdog_core_config::config::mixy_identity_dir;
 use mixdog_core_config::workflow::pack::read_document;
 
 const MIXY_BOT_ID: &str = "mixy";
+/// `CODING_LEAD_PROFILE_REVISION`: the stamp of a session whose prompt embeds no profile file.
+pub const CODING_LEAD_PROFILE_REVISION: &str = "coding-lead";
+/// The files an agent's prompt sections are read from.
+const PROFILE_FILES: [&str; 3] = ["agent.json", "AGENT.md", "PERSONA.md"];
 const BOTS_DIR: &str = "bots";
 const PERSONA_MAX_UTF16: usize = 4000;
 const PERSONA_TRUNCATION_MARKER: &str = "\n\n[persona truncated]";
@@ -89,6 +95,35 @@ impl<'a> RealSources<'a> {
     /// `storeBotDir(agent)`: the bot's own folder, `None` for an agent that is no store bot.
     fn store_bot_dir(&self, agent: &str) -> Option<PathBuf> {
         is_store_bot(self.lane, self.host.data_dir, agent).then(|| self.host.data_dir.join(BOTS_DIR).join(agent))
+    }
+
+    /// `agentProfileRevision(agent, { mixy })` (`role-instructions.mjs`): the files an agent's prompt sections are read
+    /// from (its `agent.json`, `AGENT.md` and `PERSONA.md` in the data folder and the shipped tree, and a store bot's or
+    /// Mixy's own folder) as one hash, so an edit of any of them is another stamp. A coding Lead (`lead` outside Mixy's
+    /// own thread) embeds no profile file, so its stamp is a constant. Empty for an invalid id.
+    pub fn agent_profile_revision(&self, agent: &str, mixy: bool) -> String {
+        if !valid_agent_id(agent) {
+            return String::new();
+        }
+        if agent == "lead" && !mixy {
+            return CODING_LEAD_PROFILE_REVISION.to_owned();
+        }
+        let mut hash = Sha256::new();
+        let mut take = |root: &Path, dir: &Path| {
+            for file in PROFILE_FILES {
+                let text = read_safe(&dir.join(file)).unwrap_or_else(|| "\u{1}".to_owned());
+                hash.update(format!("{}\0{file}\0{text}\0", root.display()));
+            }
+        };
+        let roots = [self.agents_dir(), self.host.plugin_root.join("agents")];
+        for root in &roots {
+            take(root, &root.join(agent));
+        }
+        let own = if agent == "lead" { Some(self.mixy_dir()) } else { self.store_bot_dir(agent) };
+        if let Some(own) = own.filter(|own| *own != roots[0].join(agent)) {
+            take(&own, &own);
+        }
+        hash.finalize().iter().take(12).map(|byte| format!("{byte:02x}")).collect()
     }
 
     /// `agentSectionDirs(pluginRoot)`, in precedence order.

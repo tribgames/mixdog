@@ -108,6 +108,9 @@ pub struct SessionPrompt {
     pub sections: OwnedSections,
     /// `{ id, name }` or null.
     pub response_language: Value,
+    /// `agentProfileRevision`: the stamp of the profile files the prompt was composed from; empty where no stamp is
+    /// kept (an agent's own session, an invalid agent id) and until a rebuild that reads the files fills it.
+    pub profile_revision: String,
 }
 
 impl SessionPrompt {
@@ -377,6 +380,7 @@ pub fn compose_session_prompt(input: &SessionPromptInput, paths: &PromptPaths, s
             response_language: response_language.clone(),
         },
         response_language,
+        profile_revision: String::new(),
     }
 }
 

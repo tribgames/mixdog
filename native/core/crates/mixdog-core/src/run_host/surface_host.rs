@@ -1090,6 +1090,7 @@ impl LeadSurfaceHost {
             has_git_tool: routing.iter().any(|tool| tool.spec().name == "git"),
         };
         let composed = s.prompt.rebuild(request).await?;
+        let profile_revision = composed.profile_revision.clone();
         session["messages"] = Value::Array(composed.blocks.node_messages());
         // `deferredSurfaceModeForLead(mode)` of the mode the spec was made from.
         let mode = if header.get("toolSpec") == Some(&tool_spec_for_mode("readonly")) { "readonly" } else { "lead" };
@@ -1109,6 +1110,13 @@ impl LeadSurfaceHost {
         seeded.shift_remove("messages");
         // `buildSessionRecord`'s remaining fields, and the stamps of the profile and bot roster the prompt was composed from.
         write_lead_record(&mut seeded, s.clock.now_ms(), std::process::id());
+        // The stamp of the profile files the prompt was composed from (`agentProfileRevision`): Mixy's own thread and a
+        // bot's home thread change with their `agent.json`, `AGENT.md` and `PERSONA.md`; a coding Lead's is a constant.
+        if profile_revision.is_empty() {
+            seeded.shift_remove("agentProfileRevision");
+        } else {
+            seeded.insert("agentProfileRevision".to_owned(), json!(profile_revision));
+        }
         seeded.insert("agentRosterRevision".to_owned(), json!(roster));
         Ok(seeded)
     }
