@@ -1,0 +1,61 @@
+# g9-screen-switch: the on-PC pill of a phone's screen session, driven by the core (the screen sessions live in the core now): the core tells the
+# desktop what the pill shows (host/screen/indicator) and the desktop reports the pill's Stop button (host/screen/indicator/stop).
+# Types: the new module native/core/crates/mixdog-app-protocol/src/v2/screen_indicator.rs (written in this task; its module line is in [type_edits]).
+# The core no longer asks the desktop for `host/screen/displays` (the phone's picker is the screen sources' own list, read from `host/computer/displays`):
+# that row is removed (see [remove]).
+
+[methods]
+# none
+
+[server_requests]
+Beside HostScreenDisplays (server_requests.rs):
+
+    /// One phone's screen session on the on-PC pill: shown, relabelled or hidden. The desktop keeps one pill for every active phone (screenId keys the session).
+    HostScreenIndicator => "host/screen/indicator" {
+        params: v2::screen_indicator::ScreenIndicatorParams,
+        result: v2::screen_indicator::ScreenIndicatorResult,
+        requires: Some("host.browser"),
+    },
+
+[notifications]
+Beside HostScreenDisplaysChanged (notifications.rs, the client notification enum and its NotificationSpec list):
+
+    /// The pill's Stop was pressed: the core ends the screen session of `screenId` (the desktop sends one per session the pill shows).
+    #[serde(rename = "host/screen/indicator/stop")]
+    #[cfg_attr(feature = "codegen", ts(rename = "host/screen/indicator/stop"))]
+    HostScreenIndicatorStop(crate::v2::screen_indicator::ScreenIndicatorStopParams),
+
+    crate::common::NotificationSpec {
+        method: "host/screen/indicator/stop",
+        params: "ScreenIndicatorStopParams",
+        delivery: None,
+    },
+
+[inventory]
+# none (a new host -> core notification and a new core -> host request; Node had no name for either: the pill was a window of the same process)
+
+[free_text]
+# tests/it/free_text_fields.json: "host/screen/indicator/stop" is a notification whose only string, /screenId, is an identifier (refused with a lone surrogate:
+# add "notification host/screen/indicator/stop /screenId" to the identifier list beside "notification host/browser/surface /sessionId"). The request
+# host/screen/indicator goes core -> desktop and is never read from a client, so it has no row.
+# src/free_text.rs: none.
+
+[type_edits]
+# src/v2/mod.rs, beside `pub mod pc_access;`:
+
+pub mod screen_indicator;
+
+# (the types are new: v2/screen_indicator.rs, written in this task, with its own unit tests; nothing else of v2 changes)
+
+[remove]
+# The core's live view answers the phone's `browser/screenDisplays` from its screen sources (`PhoneScreens::displays`, compose_screen) and no longer sends
+# `host/screen/displays` to the desktop, which therefore stops serving it (apps/desktop/pending-wire/g9-screen-switch.wire):
+#   - server_requests.rs: `HostScreenDisplays => "host/screen/displays"` (its params type `ScreenDisplaysParams` stays: `browser/screenDisplays` and
+#     `host/screen/displaysChanged` take it);
+#   - free_text.rs: `(Kind::Answer, "host/screen/displays", &["/*/label"])`;
+#   - tests/it/free_text_fields.json: the three `host/screen/displays` entries (the `"host/screen/displays"` object with its `source`, the
+#     `answer host/screen/displays /*/label` line and the `answer host/screen/displays /*/screenId` line);
+#   - the doc comment of `ScreenDisplaysParams` in v2/host.rs that names `host/screen/displays`.
+
+[window]
+# none

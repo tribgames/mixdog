@@ -13,6 +13,18 @@ struct Spy {
     power: Mutex<Vec<PowerEvent>>,
     clicks: Mutex<Vec<String>>,
     surfaces: Mutex<Vec<UiOpenBrowser>>,
+    display_changes: Mutex<u32>,
+    stops: Mutex<Vec<String>>,
+}
+
+impl ScreenEvents for Spy {
+    fn displays_changed(&self) {
+        *self.display_changes.lock().unwrap() += 1;
+    }
+
+    fn indicator_stopped(&self, screen_id: &str) {
+        self.stops.lock().unwrap().push(screen_id.to_owned());
+    }
 }
 
 impl BrowserSurfaces for Spy {
@@ -49,7 +61,7 @@ fn rig_with_panes() -> (Arc<HostService>, Arc<MockStatePublisher>, Arc<Spy>, Arc
     let spy = Arc::new(Spy::default());
     let panes = Arc::new(mixdog_exthost::VisualizePanes::default());
     (
-        HostService::new(publisher.clone(), spy.clone(), spy.clone(), spy.clone(), spy.clone(), panes.clone()),
+        HostService::new(publisher.clone(), spy.clone(), spy.clone(), spy.clone(), spy.clone(), spy.clone(), panes.clone()),
         publisher,
         spy,
         panes,
@@ -255,4 +267,19 @@ fn the_bridge_binding_is_published_as_host_state_remote_session() {
     let published = publisher.published();
     assert_eq!(published.len(), 1);
     assert_eq!((published[0].0, published[0].1.as_deref()), (SectionName::HostState, Some("remoteSession")));
+}
+
+/// A display change carries no params and reaches the screen sessions once each; the pill's Stop names the session it ends, and a stop
+/// without a session id ends nothing.
+#[test]
+fn the_screen_reports_of_the_desktop_reach_the_screen_sessions() {
+    let (service, _, spy) = rig();
+    let from = ConnectionId(1);
+    service.notify(Method("host/screen/displaysChanged"), json!({}), from);
+    service.notify(Method("host/screen/displaysChanged"), json!({}), from);
+    service.notify(Method("host/screen/indicator/stop"), json!({ "screenId": "2" }), from);
+    service.notify(Method("host/screen/indicator/stop"), json!({}), from);
+    assert_eq!(*spy.display_changes.lock().unwrap(), 2);
+    assert_eq!(*spy.stops.lock().unwrap(), vec!["2".to_owned()]);
+    assert!(service.methods().contains(&"host/screen/displaysChanged") && service.methods().contains(&"host/screen/indicator/stop"));
 }

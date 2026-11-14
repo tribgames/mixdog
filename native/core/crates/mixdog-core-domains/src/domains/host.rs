@@ -21,6 +21,7 @@ use mixdog_app_protocol::v2::host::HostRemoteTargetSetParams;
 use mixdog_app_protocol::v2::host::HostStateSetParams;
 use mixdog_app_protocol::v2::host::HostUpdateReportParams;
 use mixdog_app_protocol::v2::host::PowerEvent;
+use mixdog_app_protocol::v2::screen_indicator::ScreenIndicatorStopParams;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::CoreRequest;
 use mixdog_core_api::Reply;
@@ -119,12 +120,22 @@ pub trait BrowserSurfaces: Send + Sync {
     fn requested(&self, request: UiOpenBrowser);
 }
 
+/// What the desktop reports about this PC's screen: a display added, removed or rescaled (`host/screen/displaysChanged`) and the
+/// on-PC pill's Stop button (`host/screen/indicator/stop`, once per session the pill shows). The phone's screen sessions act on both.
+pub trait ScreenEvents: Send + Sync {
+    /// The monitors changed: the list is read again and every session renews its geometry.
+    fn displays_changed(&self);
+    /// The pill's Stop ended the session of `screen_id`.
+    fn indicator_stopped(&self, screen_id: &str);
+}
+
 pub struct HostService {
     publisher: Arc<dyn StatePublisher>,
     bridge: Arc<dyn RemoteBridge>,
     power: Arc<dyn PowerSink>,
     clicks: Arc<dyn NotificationClicks>,
     surfaces: Arc<dyn BrowserSurfaces>,
+    screens: Arc<dyn ScreenEvents>,
     /// The core's copy of the visualize tabs, folded from every `visualize` value the desktop sets (the section may hold
     /// only a stub of a large one).
     visualize: Arc<mixdog_exthost::VisualizePanes>,
@@ -137,6 +148,7 @@ impl HostService {
         power: Arc<dyn PowerSink>,
         clicks: Arc<dyn NotificationClicks>,
         surfaces: Arc<dyn BrowserSurfaces>,
+        screens: Arc<dyn ScreenEvents>,
         visualize: Arc<mixdog_exthost::VisualizePanes>,
     ) -> Arc<Self> {
         Arc::new(Self {
@@ -145,6 +157,7 @@ impl HostService {
             power,
             clicks,
             surfaces,
+            screens,
             visualize,
         })
     }
@@ -211,6 +224,8 @@ impl DomainService for HostService {
             "host/update/report",
             "host/notification/clicked",
             "host/browser/surface",
+            "host/screen/displaysChanged",
+            "host/screen/indicator/stop",
         ]
     }
 
@@ -231,6 +246,13 @@ impl DomainService for HostService {
             "host/browser/surface" => {
                 if let Ok(request) = serde_json::from_value::<HostBrowserSurfaceParams>(params) {
                     self.surfaces.requested(request.into());
+                }
+            }
+            // The params carry nothing.
+            "host/screen/displaysChanged" => self.screens.displays_changed(),
+            "host/screen/indicator/stop" => {
+                if let Ok(ScreenIndicatorStopParams { screen_id }) = serde_json::from_value(params) {
+                    self.screens.indicator_stopped(&screen_id);
                 }
             }
             "host/notification/clicked" => {
