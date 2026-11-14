@@ -362,23 +362,29 @@ struct ReportedDisplay {
     label: Option<String>,
 }
 
-/// The monitors of a `host/computer/displays` answer. A display id that is not a number of the capture's id space takes its index.
+/// The monitors of a `host/computer/displays` answer. The host reports each display's size in DIPs (Electron `display.size`) and its
+/// origin in native pixels: the monitor's rectangle is that size times the scale (`nativeDisplayGeometry`, `dipToScreenRect`). A
+/// scale that is not a positive number reads as 1. A display id that is not a number of the capture's id space takes its index.
 fn monitors(reply: Value) -> Result<Vec<Monitor>, ComputerError> {
     let reported: Vec<ReportedDisplay> =
         serde_json::from_value(reply).map_err(|_| ComputerError::Failed { code: "computer_failed".into(), message: "the display list is malformed".into() })?;
     Ok(reported
         .into_iter()
-        .map(|display| Monitor {
-            info: DisplayInfo {
-                id: DisplayId(display.id.parse().unwrap_or(display.index)),
-                x: display.x,
-                y: display.y,
-                width: display.width,
-                height: display.height,
-                scale_percent: (display.scale_factor * 100.0).round().max(1.0) as u32,
-            },
-            label: display.label.filter(|label| !label.is_empty()),
-            primary: Some(display.primary),
+        .map(|display| {
+            let scale = if display.scale_factor.is_finite() && display.scale_factor > 0.0 { display.scale_factor } else { 1.0 };
+            let physical = |edge: u32| (f64::from(edge) * scale).round() as u32;
+            Monitor {
+                info: DisplayInfo {
+                    id: DisplayId(display.id.parse().unwrap_or(display.index)),
+                    x: display.x,
+                    y: display.y,
+                    width: physical(display.width),
+                    height: physical(display.height),
+                    scale_percent: (scale * 100.0).round().max(1.0) as u32,
+                },
+                label: display.label.filter(|label| !label.is_empty()),
+                primary: Some(display.primary),
+            }
         })
         .collect())
 }
@@ -1596,10 +1602,10 @@ mod tests {
         ]);
         let listed = monitors(reply).expect("a list");
         assert_eq!(listed.len(), 3);
-        assert_eq!(listed[0].info, DisplayInfo { id: DisplayId(2528732444), x: 0, y: 0, width: 2560, height: 1440, scale_percent: 150 });
+        assert_eq!(listed[0].info, DisplayInfo { id: DisplayId(2528732444), x: 0, y: 0, width: 3840, height: 2160, scale_percent: 150 }, "the DIP size times the scale");
         assert_eq!((listed[0].label.as_deref(), listed[0].primary), (Some("Built-in"), Some(true)));
         assert_eq!((listed[1].info.id, listed[1].info.x, listed[1].info.y, listed[1].label.clone()), (DisplayId(1), -1920, -200, None));
-        assert_eq!(listed[2].info.scale_percent, 1, "a scale is never zero");
+        assert_eq!((listed[2].info.scale_percent, listed[2].info.width), (100, 800), "a scale that is not positive reads as 1");
         assert!(matches!(monitors(json!({"not": "a list"})), Err(ComputerError::Failed { .. })));
     }
 
