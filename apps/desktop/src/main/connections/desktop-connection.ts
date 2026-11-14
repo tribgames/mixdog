@@ -93,6 +93,10 @@ export interface DesktopConnectionDependencies {
 
 export interface DesktopConnectionSpec extends ConnectionIdentity {
   target?: string | null;
+  /** A server whose connection (the ssh session, the tunnel, the link, the model proxy) is this PC's core's: the window's
+   *  service client dials the server's core where this PC's core says it listens (`createProtocol` resolves that), and
+   *  nothing of the ssh half is built here. */
+  throughPcCore?: boolean;
   /** Server working directory (`~`, `~/x` or absolute); the home by default. */
   remoteCwd?: string | null;
   /** The host's "reconnect automatically" setting; on unless false. */
@@ -379,7 +383,8 @@ function createConnectionModelProxy({
   /** The server runs models with its own logins now. */
   serverLogins(): boolean;
 }): ModelProxyHost {
-  if (spec.kind !== 'ssh') return { running: 0, revoke: () => undefined, dispose: () => undefined };
+  // A server reached through this PC's core runs its model calls there (this PC's core relays them).
+  if (spec.kind !== 'ssh' || spec.throughPcCore) return { running: 0, revoke: () => undefined, dispose: () => undefined };
   const local = deps.localProtocol?.() ?? null;
   if (!local) throw new Error('A server core can use this PC\'s model sign-ins only through this PC\'s own core.');
   return createCoreModelProxy(protocol, local, () => deps.allowedProviders?.(identity) ?? null, {
@@ -404,7 +409,7 @@ export function createDesktopConnection(
   options: DesktopConnectionOptions = {}
 ): DesktopConnection {
   const identity: ConnectionIdentity = { id: spec.id, kind: spec.kind, name: spec.name };
-  const binding = spec.kind === 'ssh' ? bindRemote(spec, options) : null;
+  const binding = spec.kind === 'ssh' && !spec.throughPcCore ? bindRemote(spec, options) : null;
   const graceMs = spec.graceMs ?? remoteClientGraceMs(deps.remoteGraceMs);
   const protocol = deps.createProtocol?.(identity, binding?.connector ?? null) ?? null;
   if (!protocol) throw new Error('A connection is carried by its core connection: it needs createProtocol.');

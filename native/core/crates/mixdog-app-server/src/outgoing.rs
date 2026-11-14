@@ -236,6 +236,11 @@ impl Outgoing {
         self.connections.shard(&id).get(&id).cloned()
     }
 
+    /// The version the connection announced in its `initialize` (`clientInfo.version`); `None` before the handshake or for a connection that is gone.
+    pub fn client_version(&self, id: ConnectionId) -> Option<String> {
+        self.connection(id)?.session().map(|session| session.client.version.clone())
+    }
+
     pub(crate) fn desktop_attached_on(&self, app_feed: &FeedId) -> bool {
         self.all_connections().iter().any(|conn| conn.is_desktop_on(app_feed))
     }

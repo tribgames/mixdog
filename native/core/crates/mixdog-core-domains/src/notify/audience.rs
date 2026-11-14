@@ -144,6 +144,11 @@ fn decision_override(entry: &ConversationNotificationOverride) -> ConversationOv
     }
 }
 
+/// This PC's own preferences and the conversation overrides, as the decision reads them (a server's sessions notify by the same rules).
+pub fn pc_view(preferences: &dyn Preferences) -> PreferencesView {
+    PreferencesView { preferences: decision_prefs(&preferences.pc()), overrides: preferences.overrides().iter().map(decision_override).collect() }
+}
+
 pub struct LiveAudience {
     preferences: Arc<dyn Preferences>,
     presence: Arc<dyn Presence>,

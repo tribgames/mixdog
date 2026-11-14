@@ -1,0 +1,45 @@
+# g9-compose-connections: what the lead still applies (everything else is in this commit)
+
+Applied here (not repeated as lines): `mixdog-app-server-daemon/src/compose_connections.rs` (+ its tests file) and `pub mod compose_connections;` in lib.rs;
+daemon Cargo.toml `mixdog-connections` (normal dependency), `mixdog-ssh` and `mixdog-fsio` moved from dev to normal dependencies, tokio feature `io-util`;
+Cargo.lock: the one `"mixdog-connections"` line in the daemon's dependency list (no new package; run `cargo update --workspace --offline`
+if the merge disagrees, then unify-test-features and `cargo hakari generate`); compose_flip.rs: `SERVICE_PENDING` lost `host/window/closed`, the constant
+`SERVICE_PENDING_NAMESPACES` and its use are gone, one `compose_connections(..).await?` call + `builder.register(connections.service().clone())?` after the
+model proxy registration, `Real.connections` (+ `stop_step()` first of `runtime_stop_steps`), `.with_owner(connections.service().clone())` on the
+`ConnectionOwners::new(..)` bind; mixdog-app-server `Outgoing::client_version(id)` (the version a connection announced in `initialize`);
+mixdog-core-domains notify/audience.rs `pc_view(&dyn Preferences)`; connection_close.rs `ConnectionOwners::with_owner`.
+
+## 1. host/power reaches the connections service (the only calling that is NOT wired)
+
+`HostService` (registered from compose_domains/rows.rs) takes one `PowerSink`: `RemotePower`. The connections service must be told too (the links
+pause on suspend and are probed on resume), and it is composed later in `real_core`. compose_connections.rs has the two types for it:
+`LateConnectionsPower` (a bind-once cell that is a `PowerSink`) and `PowerSinks` (a `PowerSink` over a list). The lines:
+
+  - compose_domains.rs `DomainSeams`: add `pub connections_power: Arc<crate::compose_connections::LateConnectionsPower>,` (and the field in the struct literal of
+    compose_domains/tests.rs `local_target: Arc::new(NoDial),` beside it: `connections_power: Arc::default(),`).
+  - compose_domains/rows.rs line `services.push(HostService::new(publisher, power.clone(), power, ..` becomes
+    `services.push(HostService::new(publisher, power.clone(), Arc::new(crate::compose_connections::PowerSinks(vec![power, seams.connections_power.clone()])), ..`.
+  - compose_flip.rs where `DomainSeams { .. local_target: late_dialer.clone(), ..}` is built: `connections_power: connections_power.clone(),` with
+    `let connections_power: Arc<crate::compose_connections::LateConnectionsPower> = Arc::default();` before it; after `builder.register(connections.service().clone())?;`:
+    `connections_power.bind(connections.service().clone()).map_err(|_| ComposeError::AlreadyBound("connections power"))?;`
+
+Without it `host/power` suspend/resume does not reach the server links (the relay leg is told as before).
+
+## 2. Other calls the daemon makes on the service (wired, how)
+
+- `host_presence(bool)`: `watch_presence` samples `HostChannel::serves(HostCapability::Windows)` once a second (a task that is aborted by the stop step; the
+  timer is `sleep_unrefed`) and tells the service on each change. A `ClaimHook` was not used: `Outgoing` has one slot, which is empty today
+  (system_proxy_claim.rs is never set), and a hook fires before the claim is recorded, so the reopening of the windows would ask a host that is not there yet.
+- `connection_closed`: `ConnectionOwners` (the 9th owner). `dispose().await`: the `connections` stop step.
+
+## 3. Caveats for the test batch
+
+- Every composition (every test that runs `real_core`) now prepares Mixdog's ssh folder in `<data_dir>/ssh` (`MixdogSshConfig::configure`; the process
+  environment's `MIXDOG_DATA_DIR` is overridden with the composed data dir) and, on Windows, locks it to the user with `icacls` through the process
+  spawner. A failure there fails the composition (`ComposeError::Remote("the ssh configuration folder could not be prepared: ..")`).
+- `SshHostStore` / `RemoteHostStore` / `WindowRestoreStore` / `PortForwardStore` live in `ComposeConfig::user_data_dir`, the desktop's profile folder
+  (the same files the TypeScript wrote: ssh-hosts.json, remote-hosts.json, server-windows.json, port-forwards.json).
+- The notifier's toasts carry the English fixed texts (the core has no UI language); the desktop translates the fixed ones where it shows them
+  (connections/server-notice-text.ts). The attachment placeholder in a session title ("Image", "Video", "File") is English in a server's toast.
+- Protocol rows this wiring's desktop needs: pending-rows/s2b-electron-wiring.rows (`RemoteHostRedeemed`, the redeem answer with the ticket) and
+  g85-fu-ssh.rows (`remoteHosts/touch`). The service must answer `remoteHosts/redeemCode` with the ticket (service.rs, g85-fu-ssh's file).
