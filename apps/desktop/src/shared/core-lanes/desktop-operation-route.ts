@@ -220,8 +220,8 @@ const OPERATION_ROUTES: Readonly<Record<string, Mapper>> = {
 
 /** Operations with a Rust op that the window serves over its own connection, so no operation call carries them. */
 const NEEDS_RULING: Readonly<Record<string, string>> = {
-  // Not one request: a reference-counted watch. A window holds its own (protocol/window-ipc.ts, renderer/
-  // project-file-changes.ts); the operation lane serves the callers without a window (the relay) before routing.
+  // Not one request: a reference-counted watch. A window holds its own (renderer/core-direct/renderer-connection.ts,
+  // renderer/project-file-changes.ts); the operation lane serves the callers without a window (the relay) before routing.
   folderWatch: 'fs/watch is owned by the window that watches (ProtocolConnection.watchFiles)',
   folderUnwatch: 'fs/unwatch is owned by the window that watches (ProtocolConnection.unwatchFiles)',
   listListeningPorts: 'system/ports/subscribe is owned by the viewing window (ProtocolConnection.viewPorts)',

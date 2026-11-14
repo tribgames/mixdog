@@ -80,22 +80,6 @@ export const isScopedSectionFeed = (feedId: unknown): feedId is string =>
   typeof feedId === 'string' && SCOPED_SECTION_FEED_PREFIXES.some((prefix) => feedId.startsWith(prefix));
 export type RendererProtocolMethod = (typeof RENDERER_PROTOCOL_METHODS)[number];
 
-export const SECTIONS_IPC = {
-  /** Whether this window's connection has a core endpoint (the per-connection source of the replaced session capabilities). */
-  core: 'mixdog:sections:core',
-  snapshot: 'mixdog:sections:snapshot',
-  push: 'mixdog:sections:push',
-  call: 'mixdog:protocol:call',
-  /** `fs/changed` notifications for the watches this window opened. */
-  fsChanged: 'mixdog:protocol:fs-changed',
-  /** `login/updated`: progress of a GitHub CLI or provider sign-in (scoped feed `login:<flowId>`). */
-  loginUpdated: 'mixdog:protocol:login-updated',
-  /** A sign-in flow's feed was lost (it could not be subscribed, or the link to the core went down). */
-  loginFeedLost: 'mixdog:protocol:login-feed-lost',
-  /** What the connection holds of a sign-in flow's feed: its last state and whether it was lost. */
-  loginFeed: 'mixdog:protocol:login-feed',
-} as const;
-
 export interface DesktopSectionsApi {
   /** True when this window's connection has a core endpoint; false on a Node-hosted connection. */
   core(): Promise<boolean>;
