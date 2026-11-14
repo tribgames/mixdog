@@ -62,11 +62,21 @@ pub struct ReplyImage {
     pub bytes: Bytes,
 }
 
+/// A file the reply carries whole (a `downloads` attach): decoded bytes, with the name it was saved under.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ReplyFile {
+    pub mime_type: String,
+    pub name: String,
+    pub bytes: Bytes,
+}
+
 /// What a command answers with (`BrowserCommandResult`).
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ToolReply {
     pub text: String,
     pub image: Option<ReplyImage>,
+    /// A file attached inline (`downloads` with `attach`).
+    pub file: Option<ReplyFile>,
     pub outcome: Option<ReplyOutcome>,
     /// Set by the runner, which owns the command's clock.
     pub timing: Option<CommandTiming>,

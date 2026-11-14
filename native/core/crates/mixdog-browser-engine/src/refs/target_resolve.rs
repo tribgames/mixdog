@@ -326,7 +326,7 @@ struct SelectorMatch {
 }
 
 /// A selector match the snapshot did not list, as an element carrying its minted ref.
-fn css_element(ref_id: String, role: String, name: String) -> BrowserSnapshotElement {
+pub(crate) fn css_element(ref_id: String, role: String, name: String) -> BrowserSnapshotElement {
     BrowserSnapshotElement { ref_id, role, name, tag: "css".to_string(), href: None, value: None, sensitive: None, filled: None, states: None, in_viewport: None, depth: None, match_field: None }
 }
 

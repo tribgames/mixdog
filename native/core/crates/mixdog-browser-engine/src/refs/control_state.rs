@@ -20,36 +20,9 @@ use crate::settle::actionability::ActionabilityError;
 use crate::settle::actionability::ProbeFailure;
 use crate::settle::actionability::wait_for_actionable;
 
-const READ_SELECT_OPTIONS: &str = r##"function() {
-  const el = this;
-  if (!el || !el.isConnected) return { error: 'stale' };
-  if ((el.tagName || '').toLowerCase() !== 'select') return { custom: true };
-  const options = Array.from(
-    { length: Math.min(el.options.length, 200) },
-    (_, index) => el.options[index],
-  )
-    .map((option) => {
-      const label = String(option.label || option.text || option.value || '').trim().slice(0, 200);
-      if (!label) return '';
-      const group = option.parentElement;
-      const disabled = option.disabled || Boolean(group && group.tagName === 'OPTGROUP' && group.disabled);
-      const marks = [option.selected && 'selected', disabled && 'disabled'].filter(Boolean);
-      return marks.length ? label + ' [' + marks.join(', ') + ']' : label;
-    })
-    .filter(Boolean);
-  return { options, total: el.options.length > 200 ? el.options.length : undefined };
-}"##;
+const READ_SELECT_OPTIONS: &str = include_str!("../../assets/page/read-select-options.js");
 
-const READ_CHECKED: &str = r##"function() {
-  const el = this;
-  if (!el || !el.isConnected) return { error: 'stale' };
-  const tag = (el.tagName || '').toLowerCase();
-  const type = String(el.type || '').toLowerCase();
-  if (tag !== 'input' || !['checkbox', 'radio'].includes(type)) {
-    return { error: 'element is not a checkbox or radio button' };
-  }
-  return { checked: Boolean(el.checked), radio: type === 'radio' };
-}"##;
+const READ_CHECKED: &str = include_str!("../../assets/page/read-checked.js");
 
 /// The options a native select lists, with how many it has when the list was cut short.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

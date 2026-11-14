@@ -100,9 +100,9 @@ impl TaskPages {
     }
 
     /// A close that failed gives the page back to its turn: it stays owned for a later cleanup (`task-lifecycle.ts`: a close that
-    /// throws never reaches the release).
+    /// throws never reaches the release). A page newer work has used meanwhile keeps that newer owner.
     pub fn reown(&mut self, session: &str, turn: u64, page: &str) {
-        self.owned.insert(page.to_owned(), Owner { session: session.to_owned(), turn });
+        self.owned.entry(page.to_owned()).or_insert(Owner { session: session.to_owned(), turn });
     }
 
     /// The session is released: its marks and its pages are forgotten.
@@ -194,5 +194,28 @@ mod tests {
         tasks.forget("s1");
         assert!(!tasks.owns("p2"));
         assert_eq!(tasks.begin("s1", 1), Ok(true));
+    }
+
+    #[test]
+    fn a_failed_close_keeps_the_page_owned_for_a_retry_that_closes_it_once_and_never_overrides_newer_work() {
+        let mut tasks = TaskPages::default();
+        for page in ["first", "second", "third"] {
+            tasks.use_page("s", 1, page, true).unwrap();
+        }
+        // The close of `second` failed: the others were released, it is handed back.
+        let closing = tasks.finish("s", 1, true, |_| true);
+        assert_eq!(closing, ["first", "second", "third"]);
+        tasks.reown("s", 1, "second");
+        assert!(tasks.owns("second") && !tasks.owns("first") && !tasks.owns("third"));
+        assert_eq!(tasks.finish("s", 1, true, |_| true), ["second"], "a retry closes only what is still owned");
+        assert!(tasks.finish("s", 1, true, |_| true).is_empty(), "and never closes a released page twice");
+
+        // Newer work used the page after its close failed: the handing back does not move it back to the old turn.
+        tasks.use_page("s", 2, "scratch", true).unwrap();
+        assert_eq!(tasks.finish("s", 2, true, |_| true), ["scratch"]);
+        tasks.use_page("s", 3, "scratch", true).unwrap();
+        tasks.reown("s", 2, "scratch");
+        assert!(tasks.finish("s", 2, true, |_| true).is_empty());
+        assert_eq!(tasks.finish("s", 3, true, |_| true), ["scratch"]);
     }
 }
