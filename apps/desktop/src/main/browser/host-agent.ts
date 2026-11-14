@@ -14,7 +14,12 @@ import { browserDocumentId } from './guest-state';
 import { createBrowserCommandQueue } from './command-queue';
 import { createBrowserCommandRunner } from './command-runner';
 import type { createBrowserCommandToolkit } from './command-toolkit';
-import { BrowserPageChangedError, type BrowserCredentialFillResult } from './credential-autofill';
+import {
+  BrowserPageChangedError,
+  type BrowserCredentialFillResult,
+  type FillEngine,
+  fillGuard,
+} from './credential-autofill';
 import type { createBrowserGuestLifecycle } from './guest-lifecycle';
 import type { BrowserHostFoundation } from './host-foundation';
 import { LINKED_FIELD_READ, type LinkedFieldFacts } from './linked-sign-in';
@@ -24,6 +29,7 @@ import { browserSessionId } from './session-registry';
 import type { createBrowserTabs } from './tabs';
 import { createBrowserTargetResolver } from './target-resolve';
 import type { createBrowserTaskLifecycle } from './task-lifecycle';
+import { HostRpcError } from '../host/connection';
 import { takeoverGate } from '../takeover-gate';
 import {
   type SecretFillOutcome,
@@ -76,6 +82,8 @@ export interface SecretFillValue {
   value: string;
   username: string;
   save: boolean;
+  /** The call's `input.expect` (a `Precondition`): the page state the core decided the fill against. */
+  expect?: unknown;
 }
 
 interface SecretFillHost {
@@ -84,6 +92,8 @@ interface SecretFillHost {
   pageById(sessionId: string, pageId: string): WebContents | null | undefined;
   fill: Toolkit['credentialFill']['fillSecretField'];
   assertFree?: (sessionId: string) => void;
+  /** The engine lane, when the core drives the browser through it: an engine call without `expect` is refused. */
+  engine?: FillEngine;
   saveLogin?: (login: { origin: string; username: string; password: string }) => Promise<void>;
 }
 
@@ -134,7 +144,13 @@ export function precheckSecretFill(
  *  elements of the page the request was bound to through the isolated-world fill (which keeps it
  *  registered for redaction). The target is checked again as the value arrives, since the page
  *  can move between the phases; the binding is dropped, so a value is written at most once and is
- *  never logged. A sign-in the user chose to save is stored for the origin after it was entered. */
+ *  never logged. A sign-in the user chose to save is stored for the origin after it was entered.
+ *
+ *  With the call's `expect` the binding is held to the state the core decided against, and nothing is
+ *  awaited between a check and the dispatch it guards: the guard (takeover free, https origin, then
+ *  checkPrecondition: main-frame document, child sessions) runs inside the fill before every CDP send,
+ *  the write included. In engine mode a call without `expect`, or one that cannot be held to a live page,
+ *  is refused with -32010 reason `document` and nothing is typed (a HostRpcError, not an outcome). */
 export async function runSecretFill(
   host: SecretFillHost,
   sessionId: string,
@@ -149,10 +165,16 @@ export async function runSecretFill(
   const { guest, binding, onOrigin } = target;
   if (!secret.value) return { text: 'blocked' };
   const { value, username, save } = secret;
+  const bound = fillGuard(host.engine, binding.pageId, secret.expect);
+  const guard = bound && (() => {
+    (host.assertFree || ((id: string) => takeoverGate.assertFree(id)))(sessionId);
+    if (!onOrigin(guest)) throw new BrowserPageChangedError();
+    bound();
+  });
   try {
     const result = await host.fill(
       guest,
-      { form: binding.form, value, username, targets: binding.targets!, document: binding.document },
+      { form: binding.form, value, username, targets: binding.targets!, document: binding.document, guard },
       signal
     );
     // A bound element gone or changed (stale) is no field: nothing was typed.
@@ -164,6 +186,7 @@ export async function runSecretFill(
     }
     return { text: 'entered' };
   } catch (error) {
+    if (error instanceof HostRpcError) throw error;
     return { text: error instanceof BrowserPageChangedError || !onOrigin(guest) ? 'page_changed' : 'blocked' };
   }
 }
@@ -518,6 +541,9 @@ export function createBrowserHostAgent(options: {
   autoSignInEnabled?: () => boolean;
   /** The computer host, for the worker steps of a saved-login fill the core runs. */
   savedLoginWorker?: SavedLoginWorkerPort;
+  /** The engine lane's view of the pages (the wiring builds it from the engine context): the core's secret
+   *  and saved-login writes are held to their `expect` through it. Absent without the lane. */
+  engine?: FillEngine;
 }) {
   const { base, tools, lifecycle, taskLifecycle } = options;
   const autoSignIn = createBrowserAutoSignIn(
@@ -646,9 +672,9 @@ export function createBrowserHostAgent(options: {
     secretFill: {
       precheck: (sessionId, requestId) => precheckSecretFill({ hostId: options.hostId, pageById, fill: tools.credentialFill.fillSecretField }, sessionId, requestId),
       fill: (sessionId, requestId, secret, signal) =>
-        runSecretFill({ hostId: options.hostId, pageById, fill: tools.credentialFill.fillSecretField }, sessionId, requestId, secret, signal),
+        runSecretFill({ hostId: options.hostId, pageById, fill: tools.credentialFill.fillSecretField, engine: options.engine }, sessionId, requestId, secret, signal),
     },
-    savedLogin: createSavedLoginHost({ autoSignIn: options.autoSignInEnabled || (() => true), credentials: base.profileImporter, worker: options.savedLoginWorker ?? NO_COMPUTER_HOST, text: () => import('./credential-vault') }),
+    savedLogin: createSavedLoginHost({ autoSignIn: options.autoSignInEnabled || (() => true), credentials: base.profileImporter, worker: options.savedLoginWorker ?? NO_COMPUTER_HOST, engine: options.engine, text: () => import('./credential-vault') }),
     handoffPage: (sessionId, action, input, signal) =>
       handoffPageFacts(
         {
