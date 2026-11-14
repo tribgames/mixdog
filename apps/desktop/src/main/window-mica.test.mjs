@@ -56,7 +56,7 @@ test('with the native window procedure, deactivation is not hooked and closing r
   ]);
 });
 
-test('a missing native module is reported and the window falls back to the deferred repaint', async () => {
+test('a missing native module is reported, its bindings do nothing, and the window keeps the deferred-repaint hooks', async () => {
   const reports = [];
   const library = join(import.meta.dirname, 'missing', MICA_LIBRARY_FILE);
   const native = nativeMica(library, (event, details) => reports.push({ event, ...details }));

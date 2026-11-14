@@ -3,7 +3,9 @@
 
 [native/mixdog-window/Cargo.toml]
 # [dependencies] (new), napi crates already in the offline registry cache:
-#   napi = { version = "=3.12.2", default-features = false, features = ["napi4", "dyn-symbols"] }
+#   napi = { version = "=3.12.2", default-features = false, features = ["napi6", "dyn-symbols"] }
+#   (napi6: napi::bindgen_prelude::BigInt, which lib.rs takes the HWND as, exists only
+#   from that feature; dyn-symbols resolves the Node-API symbols from electron.exe.)
 #   napi-derive = "=3.6.3"
 # [build-dependencies] (new):
 #   napi-build = "=2.4.1"
@@ -19,10 +21,16 @@
 #   }
 
 [native/mixdog-window/.cargo/config.toml]
-# Delete the "-C link-arg=/NODEFAULTLIB" rustflags lines (std needs the C
-# runtime now; keep or drop linker = "rust-lld" only if the cargo build still
-# links for x64 and arm64 without the MSVC tools; otherwise delete the file).
-# Rewrite the header comment: the library imports comctl32 and user32 as raw-dylib.
+# Replace the "-C link-arg=/NODEFAULTLIB" rustflags of both targets with
+#   rustflags = ["-C", "target-feature=+crt-static"]
+# std needs the C runtime now (and napi's ctor registration runs from the CRT's
+# DLL entry point), and the static CRT keeps the module free of a
+# vcruntime140.dll import, which Windows does not ship and native-tools does not
+# carry: the module still loads without the VC++ Redistributable, as the
+# no_std library did. Linking now needs the MSVC libraries and the Windows SDK
+# for x64 and arm64 (rust-lld may stay as the linker if it finds them).
+# Rewrite the header comment: the library imports comctl32 and user32 as
+# raw-dylib and links the C runtime statically.
 
 [native/mixdog-window/build.ps1]
 # $library = ... 'mixdog_window.dll' stays (cargo's output name).
@@ -39,12 +47,18 @@
 [.github/workflows/desktop-package.yml]
 # line ~447: native-tools/mixdog_window.dll  ->  native-tools/mixdog_window.node
 # (the window-library cache key v1 -> v2)
+# desktop-prepared-runtime key (hashFiles list, after 'native/mixdog-window/build.ps1'):
+#   add 'native/mixdog-window/build.rs' 
 
 [apps/desktop/scripts/dev-profile.mjs]
 # buildWindowLibrary: unchanged. window-mica.ts loads the dev build from
 # native/mixdog-window/target/release/mixdog_window.dll (MICA_BUILD_FILE) with
-# process.dlopen, so no copy step is needed in dev. The comment above it may
-# say "Node-API module" instead of "library".
+# process.dlopen, so no copy step is needed in dev. The comment above it says
+# "Node-API module" instead of "library", and its "without it the window falls
+# back to a repaint after each deactivation" becomes "without it the frame is
+# painted inactive while another window has the focus" (activate lives in the
+# module now). The console.warn text: "the fallback is used" -> "the frame is
+# painted inactive while another window has the focus".
 
 [apps/desktop/package.json]
 # Nothing for s1-mica: koffi is still used by the real-window probe in
