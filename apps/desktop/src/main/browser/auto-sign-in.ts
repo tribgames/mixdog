@@ -72,7 +72,7 @@
  */
 import type { WebContents } from 'electron';
 
-import type { BrowserCommandResult } from './command';
+import type { BrowserCommandResult } from './host-types';
 import { BROWSER_DOCUMENT_ROOTS } from './documents';
 import type { BrowserCredentialFillResult } from './credential-autofill';
 import type { VaultSignInAccount } from './credential-vault';

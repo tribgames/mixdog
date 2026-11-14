@@ -1,8 +1,8 @@
 /** Live Chromium checks for pre-dispatch waiting and selected-page takeover. */
 import assert from 'node:assert/strict';
 import { webContents } from 'electron';
-import type { BrowserHost } from './host';
-import type { BrowserCommand } from './command';
+import type { BrowserHost } from './host-types';
+import type { BrowserCommand } from './host-types';
 import { readyBrowserFrame } from './harness-frame';
 import { pause } from './settle';
 

@@ -7,7 +7,7 @@ import type { BrowserWindow, WebContents } from 'electron';
 
 import { DESKTOP_IPC, type DesktopBrowserOpenRequest } from '../../shared/contract';
 import type { BrowserSurfaceChange } from '../host/browser-surface-report';
-import type { BrowserGuestStateStore } from './guest-state';
+import type { BrowserGuestStateStore } from './host-state';
 import { type BrowserOpenDetail, browserOpenRequest, revealBrowserPage } from './page-reveal';
 import type { BrowserSessionRegistry } from './session-registry';
 

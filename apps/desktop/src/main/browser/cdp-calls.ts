@@ -2,9 +2,9 @@
  *  dispatch, and `Runtime.evaluate` with page exceptions turned into errors. */
 import type { WebContents } from 'electron';
 
-import { CDP_REQUEST_TIMEOUT_MS } from './command';
+import { CDP_REQUEST_TIMEOUT_MS } from './host-types';
 import type { BrowserCdpSend } from './cdp-session-init';
-import type { BrowserGuestStateStore } from './guest-state';
+import type { BrowserGuestStateStore } from './host-state';
 import { redactBrowserText } from './redaction';
 import { pause } from './settle';
 import { withAgentInput } from './agent-input';

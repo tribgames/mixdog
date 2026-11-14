@@ -16,7 +16,7 @@ import {
 } from '../../shared/remote-browser';
 import { requiredSessionId } from '../desktop-state';
 import { type BrowserRemoteMethod, normalizeRemoteTabUrl } from '../remote-browser-methods';
-import type { BrowserCommand } from '../browser/command';
+import type { BrowserCommand } from '../browser/host-types';
 import { redactBrowserText } from '../browser/redaction';
 import { browserFailureTiming } from '../browser/timing';
 import {

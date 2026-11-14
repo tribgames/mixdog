@@ -1,6 +1,6 @@
 /** A deterministic same-page batch. Dispatch is never replayed, and a
  * partial result always hands the caller a fresh observation for recovery. */
-import { SEQUENCE_STEP_ACTIONS } from '../command';
+import { SEQUENCE_STEP_ACTIONS } from '../host-types';
 import { throwIfBrowserCancelled } from '../settle';
 import { measureBrowserStep } from '../timing';
 import { defineBrowserActions } from './types';

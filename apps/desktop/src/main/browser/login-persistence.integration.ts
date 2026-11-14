@@ -17,7 +17,7 @@ import { app, BrowserWindow, safeStorage, session } from 'electron';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 
 import { createBrowserSessionStore, safeStorageEncrypt, watchBrowserSessionCookies } from './browser-session-store';
-import { BROWSER_PARTITION } from './command';
+import { BROWSER_PARTITION } from './host-types';
 import { createBrowserCookieJar } from './cookie-jar';
 import { CredentialVault } from './credential-vault';
 import { createPartitionSignIns } from './host-foundation';

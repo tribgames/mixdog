@@ -9,7 +9,7 @@ import type {
   DesktopRemoteBrowserStreamOptions,
 } from '../../shared/contract';
 import type { RemoteWebrtcGeometry, RemoteWebrtcResize, RemoteWebrtcVideoLimit } from '../../shared/remote-webrtc';
-import { browserDocumentId } from './guest-state';
+import { browserDocumentId } from './host-state';
 import { navigatePage } from './page-surface-control';
 import { isPageInputControl, pageInputGuard } from './remote-input';
 import { createRemoteStreamEngine } from './remote-stream-engine';

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { browserDocumentId, BrowserGuestStateStore } from './guest-state.ts';
+import { browserDocumentId, BrowserGuestStateStore } from './host-state.ts';
 import { unreportedDownloads } from './reply.ts';
 
 const guest = () => ({ id: Math.random() });

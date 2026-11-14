@@ -13,7 +13,7 @@
  */
 import { BROWSER_INPUT_EXPIRED, browserTypingInput } from '../../../shared/browser-input-policy';
 import type { DesktopBrowserPageControl } from '../../../shared/contract';
-import { COMMAND_TIMEOUT_MS } from '../../browser/command';
+import { COMMAND_TIMEOUT_MS } from '../../browser/host-types';
 import { HOST_INVALID_PARAMS, type HostConnection, HostRpcError, objectParams } from '../connection';
 import type { EngineContext } from './context';
 import { ENGINE_ERROR, pageGone } from './errors';

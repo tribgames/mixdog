@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
-import { BrowserGuestStateStore } from './guest-state.ts';
+import { BrowserGuestStateStore } from './host-state.ts';
 import { createBrowserSettle } from './settle.ts';
 import { flowActions } from './actions/flow.ts';
 import { timeBrowserCommand } from './timing.ts';

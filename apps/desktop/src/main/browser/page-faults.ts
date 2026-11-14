@@ -5,7 +5,7 @@
  */
 import type { WebContents } from 'electron';
 
-import type { BrowserGuestStateStore } from './guest-state';
+import type { BrowserGuestStateStore } from './host-state';
 import { reportPageFault } from './page-fault-diagnostics';
 import { redactBrowserUrl } from './redaction';
 

@@ -15,7 +15,7 @@ import { createGuestDebuggerAttachment } from './cdp-debugger-attach';
 import { createBrowserCdpEventRouter, type EngineEventSink } from './cdp-event-router';
 import { createBrowserCdpExecution } from './cdp-execution';
 import { createBrowserCdpSessionInit } from './cdp-session-init';
-import type { BrowserGuestStateStore } from './guest-state';
+import type { BrowserGuestStateStore } from './host-state';
 import type { BrowserFetchPattern, BrowserInterceptRule } from './intercept';
 import type { UserWaitClock } from './user-wait';
 

@@ -6,7 +6,7 @@
 import type { WebContents } from 'electron';
 
 import type { BrowserGuestCdp } from './cdp';
-import { type BrowserGuestStateStore, pushBounded } from './guest-state';
+import { type BrowserGuestStateStore, pushBounded } from './host-state';
 import { watchPageFaults } from './page-faults';
 import { injectJsonViewerTweaks } from './page-json-viewer';
 import { injectPageScrollbarCss } from './page-scrollbar-css';

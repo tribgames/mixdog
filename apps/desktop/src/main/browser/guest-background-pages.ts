@@ -8,7 +8,7 @@ import type { BaseWindow, WebContents } from 'electron';
 
 import { createBackgroundReclaimer } from './background-reclaim';
 import type { GuestAttach } from './guest-initialize';
-import { type BrowserGuestStateStore, pushBounded } from './guest-state';
+import { type BrowserGuestStateStore, pushBounded } from './host-state';
 import { pageHasEditedFields } from './login-takeover';
 import { type BrowserSessionRegistry, DEFAULT_BROWSER_SESSION_ID } from './session-registry';
 import { normalizeBackgroundTabName } from './tab-policy';

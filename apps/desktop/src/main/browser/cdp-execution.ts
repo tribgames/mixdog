@@ -1,7 +1,7 @@
 /** A cancelled reply is not proof that Chromium stopped. Fence subsequent
  * commands until the original dispatch and any termination request settle. */
 import type { Debugger, WebContents } from 'electron';
-import { CDP_REQUEST_TIMEOUT_MS } from './command';
+import { CDP_REQUEST_TIMEOUT_MS } from './host-types';
 
 interface BrowserCdpExecutionHost {
   bounded<T>(

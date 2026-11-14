@@ -5,7 +5,7 @@
  */
 import type { WebContents } from 'electron';
 
-import { OFFSCREEN_VIEWPORT } from '../command';
+import { OFFSCREEN_VIEWPORT } from '../host-types';
 import { normalizeModifierMask, normalizeMouseButton } from '../input';
 import { redactBrowserText } from '../redaction';
 import {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { BrowserGuestStateStore, browserDocumentId } from './guest-state.ts';
+import { BrowserGuestStateStore, browserDocumentId } from './host-state.ts';
 import { closePage, createBrowserLeaveConfirmation } from './leave-confirmation.ts';
 import { createPageInputDispatcher, navigatePage } from './page-surface-control.ts';
 

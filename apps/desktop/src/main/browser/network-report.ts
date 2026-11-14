@@ -1,7 +1,7 @@
 import type { WebContents } from 'electron';
 
 import type { BrowserCdpPort } from './cdp';
-import { browserCharLimit } from './command';
+import { browserCharLimit } from './host-types';
 import { type BrowserNetworkLedger, type BrowserNetworkRequest, retainedNetworkText } from './network';
 import { redactBrowserText, redactBrowserUrl } from './redaction';
 

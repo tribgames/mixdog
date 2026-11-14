@@ -9,7 +9,7 @@ import {
   normalizeBrowserImportRequest,
   normalizeRemoteBrowserTabId,
 } from '../shared/remote-browser';
-import type { BrowserHost } from './browser/host';
+import type { BrowserHost } from './browser/host-types';
 import { requiredSessionId } from './desktop-state';
 
 const BROWSER_REMOTE_METHOD_NAMES = [

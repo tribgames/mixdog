@@ -6,7 +6,7 @@
  */
 import type { Session, WebContents } from 'electron';
 
-import type { BrowserCommand, BrowserCommandResult } from './command';
+import type { BrowserCommand, BrowserCommandResult } from './host-types';
 import { redactBrowserText, redactBrowserUrl } from './redaction';
 import { type BrowserUrlPolicy, normalizeAgentUrl } from './url-policy';
 

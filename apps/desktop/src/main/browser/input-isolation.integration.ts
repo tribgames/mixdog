@@ -3,7 +3,8 @@ import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { join } from 'node:path';
 import { app, BrowserWindow, webContents, type WebContents } from 'electron';
-import { createBrowserHost, type BrowserHost } from './host';
+import { type BrowserHost } from './host-types';
+import { createBrowserHost } from './host';
 import { createPolling } from '../host-harness-poll';
 import { exerciseBrowserInputSurface, readyBrowserFrame } from './input-surface.integration';
 

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { buildAccessibilitySnapshot } from '../../browser/accessibility.ts';
-import { snapshotTextLimit } from '../../browser/command.ts';
+import { snapshotTextLimit } from '../../browser/host-types.ts';
 import { createBrowserSnapshotCapture } from '../../browser/snapshot-capture.ts';
 import { registerRefCall } from './ref-call.ts';
 import { registerSnapshot, revisionNumber } from './snapshot.ts';

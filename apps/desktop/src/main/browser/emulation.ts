@@ -6,7 +6,7 @@
 import type { WebContents } from 'electron';
 
 import type { BrowserCdpPort } from './cdp';
-import type { BrowserCommand, BrowserCommandResult, BrowserSnapshotResultOptions } from './command';
+import type { BrowserCommand, BrowserCommandResult, BrowserSnapshotResultOptions } from './host-types';
 import {
   applyContextOverrides,
   applyIdentityOverrides,

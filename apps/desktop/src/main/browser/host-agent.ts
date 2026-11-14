@@ -8,9 +8,9 @@ import type { WebContents } from 'electron';
 import type { BrowserActionServices } from './actions';
 import { type BrowserAutoSignInDeps, createBrowserAutoSignIn, httpsOrigin } from './auto-sign-in';
 import { createBrowserAgentBridge } from './agent-bridge';
-import { type BrowserCommand, COMMAND_TIMEOUT_MS, READ_ONLY_ACTIONS } from './command';
+import { type BrowserCommand, COMMAND_TIMEOUT_MS, READ_ONLY_ACTIONS } from './host-types';
 import { ownBotOfSession } from './approval-requester';
-import { browserDocumentId } from './guest-state';
+import { browserDocumentId } from './host-state';
 import { createBrowserCommandQueue } from './command-queue';
 import { createBrowserCommandRunner } from './command-runner';
 import type { createBrowserCommandToolkit } from './command-toolkit';
@@ -21,7 +21,7 @@ import {
   fillGuard,
 } from './credential-autofill';
 import type { createBrowserGuestLifecycle } from './guest-lifecycle';
-import type { BrowserHostFoundation } from './host-foundation';
+import type { BrowserHostFoundation } from './host-types';
 import { LINKED_FIELD_READ, type LinkedFieldFacts } from './linked-sign-in';
 import type { BrowserProfileImportService } from './profile-import';
 import { createSavedLoginHost, type SavedLoginWorkerPort } from './saved-login-host';

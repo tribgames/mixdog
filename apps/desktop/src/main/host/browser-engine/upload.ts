@@ -18,7 +18,7 @@ import type {
   BrowserUploadReceiver,
   Precondition,
 } from '../../../../../../packages/protocol/src/index.ts';
-import type { PendingFileChooser } from '../../browser/guest-state';
+import type { PendingFileChooser } from '../../browser/host-types';
 import { createRefUpload } from '../../browser/ref-upload';
 import { HOST_INVALID_PARAMS, type HostConnection, HostRpcError } from '../connection';
 import type { EngineContext } from './context';

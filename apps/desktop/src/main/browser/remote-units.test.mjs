@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { BrowserGuestStateStore, browserDocumentId } from './guest-state.ts';
+import { BrowserGuestStateStore, browserDocumentId } from './host-state.ts';
 import { buildFrame, frameSignature } from './remote-frame.ts';
 import { schedulePublish } from './remote-frame-publish.ts';
 import { isPageInputControl, pageInputGuard } from './remote-input.ts';

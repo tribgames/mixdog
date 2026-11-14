@@ -12,8 +12,8 @@ import {
   type BrowserSnapshotPayload as SnapshotPayload,
 } from './accessibility';
 import type { BrowserCdpPort } from './cdp';
-import { boundedInteger, type BrowserCommand } from './command';
-import type { GuestSlot } from './guest-state';
+import { boundedInteger, type BrowserCommand } from './host-types';
+import type { GuestSlot } from './host-types';
 import { redactBrowserText } from './redaction';
 import { createBrowserRefSet, type BrowserRefSet } from './ref-recovery';
 import { type BrowserTargetSession, readAccessibilityTargets } from './snapshot-accessibility-read';
