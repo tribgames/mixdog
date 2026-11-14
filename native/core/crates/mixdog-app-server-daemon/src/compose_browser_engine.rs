@@ -314,6 +314,11 @@ impl EngineTurnSnapshots {
 }
 
 impl TurnSnapshots for EngineTurnSnapshots {
+    fn turn_begun(&self, thread: &ThreadId) {
+        self.turns.turn_begun(thread);
+        self.inner.turn_begun(thread);
+    }
+
     fn turn_aborted(&self, thread: &ThreadId) {
         self.aborted.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(thread.clone());
         self.inner.turn_aborted(thread);

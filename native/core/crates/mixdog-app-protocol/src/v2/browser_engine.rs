@@ -1769,6 +1769,8 @@ pub struct HostBrowserCredentialsFillResult {
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum BrowserTurnOp {
+    /// A turn of the session started: the host keeps the session's pages out of reclaim while it is live.
+    Begin,
     /// The session's running turn ended.
     End,
     /// The session was released.
