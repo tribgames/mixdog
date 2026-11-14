@@ -12,8 +12,8 @@ import { installShellUpdateState, recoverShellBootstrap } from './shell-update-s
 import { preloadMarkdownBody } from './markdown-body-loader';
 import { installKeyboardFlick, installTouchGestures } from './touch-gestures';
 // Browser-served remote sessions install a WebSocket-backed DesktopApi before
-// any module reads window.mixdogDesktop; inside Electron the preload bridge
-// already exists and this is a no-op.
+// any module reads window.mixdogDesktop; inside Electron the window composes it
+// from the preload's host half and its own core port (core-direct/install).
 const remoteBrowser = typeof navigator !== 'undefined' && !/Electron/i.test(navigator.userAgent);
 if (remoteBrowser) installShellUpdateState();
 // Start the remote transport immediately. On the installed web app, mobile
@@ -65,6 +65,9 @@ if (launchApplication) {
   }
   try {
     await Promise.all([remoteShimReady, languageReady]);
+    // window.mixdogDesktop: the preload's host half plus the core methods over this window's own core port. A dynamic import:
+    // install.ts pulls in renderer modules that must not evaluate before the language is in place nor ride the first paint.
+    if (!remoteBrowser) await import('./core-direct/install').then((module) => module.installDirectDesktopApi());
     // The restored session's transcript read starts here, next to the app
     // bundle's load instead of behind its evaluation, first commit and
     // catalog check. The language is in place, as the order above requires.
