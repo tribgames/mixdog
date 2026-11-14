@@ -1,0 +1,33 @@
+# s4-host-page-methods (desktop wiring; applied by the wave's wiring task, which deletes this file)
+
+In apps/desktop/src/main/host/index.ts (or the module that builds the EngineContext, after registerEngineMethod's
+scaffold is wired), beside the other register calls of host/browser-engine, with `connection` and the `ctx: EngineContext`:
+
+  registerPages(connection, ctx, pagesHost);
+  registerPage(connection, ctx, pageHost);
+  registerCdpSend(connection, ctx);
+
+imports: registerPages / PagesHost / PageLeases from './browser-engine/pages', registerPage / PageHost from
+'./browser-engine/page', registerCdpSend from './browser-engine/cdp-send'.
+
+pageHost (PageHost) is built from the live browser host:
+  store         = the BrowserGuestStateStore (state)
+  urls          = createBrowserUrlAdmission({ policy }) of the host (its validatedAgentUrl)
+  documents     = the createBrowserDocuments(...) of the host (readPage, extractPage, renderCheckpoint, revision, collect)
+  handleDialog  = createBrowserDialogReport(...).handleDialog
+  downloadsForSession = partition.downloadLedger.downloadsForSession
+  sessionIdOf   = (guest) => sessions.sessionIdForGuest(guest)
+  isBackground  = (guest) => Boolean(sessions.backgroundPageForGuest(sessions.sessionIdForGuest(guest) ?? '', guest)) && its kind !== 'user'
+  consoleFloor  = (pageId) => the console ledger floor createEngineEvents (s4-host-facts-events) keeps for the page
+
+pagesHost (PagesHost) = { sessions (BrowserSessionRegistry), tabs (createBrowserTabs(...)), lifecycle
+(createBrowserGuestLifecycle(...): restoreSession, ensureGuest, requestBrowserSurface, revealPage, discardCreatedPage,
+discardUntouchedBlank, recoverCrashedGuest, backgroundEntryByPageId, destroyBackgroundPage), taskLifecycle
+(createBrowserHostTaskLifecycle's task lifecycle: retain), store (same BrowserGuestStateStore), leases (createLeases(...) of
+s4-host-lease: acquire(pageId, commandId, ttlMs) -> leaseId), page: { urls, downloadsForSession, sessionIdOf } of pageHost }.
+
+host/browser/surface: pages/surface goes through lifecycle.requestBrowserSurface, which notifies the listeners of
+lifecycle.onSurfaceChanged; registerBrowserSurfaceReport(connection, lifecycle) must be registered (it already is for the
+legacy forward path) so the reveal, hide and handoff reach the core as host/browser/surface. Nothing is sent twice.
+
+The lease a resolve acquires must be released when the connection closes (createLeases does, s4-host-lease).
