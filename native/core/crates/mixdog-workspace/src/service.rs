@@ -235,7 +235,11 @@ impl crate::pageserver::PageAuthority for DesktopPageAuthority {
     async fn check(&self, scope: &crate::pageserver::lease::PageScope, absolute: &Path) -> Result<(), crate::pageserver::Refusal> {
         use crate::pageserver::Refusal;
         match scope {
-            crate::pageserver::lease::PageScope::Project | crate::pageserver::lease::PageScope::File { grant_token: None } => Ok(()),
+            // A virtual page is the caller's own content (the visualize page): no grant or folder to check; a closed owner's
+            // leases end through `projectFs/localPage/revokeOwner`.
+            crate::pageserver::lease::PageScope::Project
+            | crate::pageserver::lease::PageScope::File { grant_token: None }
+            | crate::pageserver::lease::PageScope::Virtual { .. } => Ok(()),
             crate::pageserver::lease::PageScope::File { grant_token: Some(token) } => match self.grants.still_granted(token, absolute).await {
                 Ok(true) => Ok(()),
                 Ok(false) => Err(Refusal::Denied),
@@ -915,6 +919,33 @@ impl WorkspaceService {
                 value(json!({}))
             }
             "projectFs/localPage/origin" => value(Value::String(self.page_server()?.origin().await?)),
+            "projectFs/localPage/virtual" => {
+                #[derive(serde::Deserialize)]
+                #[serde(rename_all = "camelCase")]
+                struct VirtualFileParam {
+                    path: String,
+                    #[serde(default)]
+                    data_base64: Option<String>,
+                    #[serde(default)]
+                    text: Option<String>,
+                    #[serde(rename = "type")]
+                    content_type: String,
+                }
+                let files: Vec<VirtualFileParam> =
+                    serde_json::from_value(params.get("files").cloned().unwrap_or(Value::Null)).map_err(|_| WsError::invalid("files are invalid."))?;
+                let owner_id = match params.get("ownerId") {
+                    None | Some(Value::Null) => None,
+                    Some(owner) => Some(owner.as_str().ok_or_else(|| WsError::invalid("ownerId is invalid."))?.to_owned()),
+                };
+                let files = crate::pageserver::virtual_pages::build_files(files.into_iter().map(|file| crate::pageserver::virtual_pages::VirtualFileInput {
+                    path: file.path,
+                    data_base64: file.data_base64,
+                    text: file.text,
+                    content_type: file.content_type,
+                }))?;
+                let url = self.page_server()?.lease_virtual(files, owner_id).await?;
+                value(json!({ "url": url }))
+            }
             "project/recoveryDirectory" => {
                 let root = self.catalog.resolve(s(params, "path")?).await?;
                 value(json!({ "path": self.fs.recovery.store_path(&root).to_string_lossy() }))
@@ -1788,6 +1819,7 @@ impl DomainService for WorkspaceService {
             "projectFs/grant/redeem",
             "projectFs/localPage/revokeOwner",
             "projectFs/localPage/origin",
+            "projectFs/localPage/virtual",
             "projectFs/writeText",
             "projectFs/writeTextBatch",
             "projectFs/create",
