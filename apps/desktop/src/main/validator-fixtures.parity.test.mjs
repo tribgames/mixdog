@@ -500,20 +500,14 @@ const COVERAGE = {
   // The core has no param for the sign-in options (the route's `null` slot, input_tests.rs): the shared scm-input.ts check runs in the
   // host and the phone's adapter before the call, so a malformed options value never reaches the core and there is no Rust check to name.
   optionalGithubLoginOptions: ['mixdog-scm/src/input_tests.rs', '"githubCliLoginOpenBrowser" => positional("github/login/openBrowser"'],
-  optionalSessionId: [`${GROUPS}capability_settings.rs`, 'session id is invalid.'],
   projectDisplayName: [`${GROUPS}workspace_names.rs`, 'alias must be a string.'],
-  requiredAbortOptions: [`${GROUPS}prompt.rs`, 'abort restorePrompt is invalid.'],
   normalizeDesktopFeedback: ['mixdog-core-domains/src/domains/feedback.rs', 'const INVALID_REPLY: &str = "Reply email is invalid."'],
-  requiredAgentMemoryEntry: ['mixdog-core-rooms/src/rooms/memory.rs', 'memory id is invalid.'],
   requiredAttachmentFile: ['mixdog-core-domains/src/domains/desktop_residual_b.rs', 'attachment type cannot be opened.'],
-  requiredBrowserPermissionPolicy: [CONFIG_SCHEMA, 'key("desktop.browserPermissions", Kind::BrowserPermissions'],
   requiredCommitHash: [SCM_INPUT, 'A commit hash is required.'],
   requiredConversationNotificationSetting: [CONFIG_SCHEMA, 'Kind::NotificationOverrides'],
   requiredDesktopCapabilityReadRequests: [`${GROUPS}capability.rs`, 'const CAPABILITIES'],
   requiredDesktopCapabilityRequest: [`${GROUPS}capability.rs`, 'const CAPABILITIES'],
   requiredDesktopSettingKey: [CONFIG_SCHEMA, 'key("desktop.computerInstalled"'],
-  requiredDeviceAlias: ['mixdog-remote/src/access/settings.rs', 'pub fn set_device_alias'],
-  requiredFileSearchLimit: [`${GROUPS}workspace_names.rs`, '"limit is invalid."'],
   requiredGitBranchName: [SCM_INPUT, 'git branch is invalid.'],
   requiredGitDiscardMode: [SCM_INPUT, 'git discard mode is invalid.'],
   requiredGitGlobalConfigKey: [SCM_INPUT, 'key must be user.name, user.email, or init.defaultBranch'],
@@ -528,34 +522,19 @@ const COVERAGE = {
   requiredGitRequestContextInput: [SCM_INPUT, 'git request input is invalid.'],
   requiredGitResetMode: [SCM_INPUT, 'Git reset mode is invalid.'],
   requiredGitRevision: [SCM_INPUT, 'A git revision is required.'],
-  requiredLspDocumentInput: [`${GROUPS}workspace_names.rs`, 'LSP document input is invalid.'],
-  requiredLspRequestInput: [`${GROUPS}workspace_names.rs`, 'LSP request input is invalid.'],
-  requiredModelCatalogOptions: [`${GROUPS}model.rs`, 'model catalog options are invalid.'],
   requiredModelSelection: [`${GROUPS}model.rs`, 'model selection is invalid.'],
-  requiredNewTaskDraft: [`${GROUPS}prompt.rs`, 'new task draft is invalid.'],
   requiredNotificationDeviceId: [CONFIG_SCHEMA, 'Kind::NotificationDevices'],
   requiredNotificationPreferencesPatch: [CONFIG_SCHEMA, 'Kind::NotificationDevice =>'],
   requiredNotificationTarget: [CONFIG_SCHEMA, 'Kind::NotificationOverrides'],
-  requiredNotificationVolume: [CONFIG_SCHEMA, 'Kind::IntRange(0, NOTIFICATION_VOLUME_MAX)'],
   requiredProjectRecoveryRequest: ['mixdog-workspace/src/recovery.rs', 'Invalid recovery ID.'],
-  requiredPromptContent: [`${GROUPS}prompt.rs`, 'prompt is invalid.'],
   requiredRepositoryCwd: [SCM_INPUT, 'A project directory is required.'],
   requiredReviewDiffFiles: [SCM_INPUT, 'git review files are invalid.'],
   requiredReviewSource: [SCM_INPUT, 'Git review source is invalid.'],
-  requiredSessionContentQuery: ['mixdog-services/src/memory/thread_search.rs', 'session search query is invalid.'],
   requiredSessionId: [`${GROUPS}capability_settings.rs`, 'session id is invalid.'],
-  requiredSessionMessageCount: [`${GROUPS}workspace_names.rs`, 'session message count is invalid.'],
-  requiredSessionRetentionSetting: [CONFIG_SCHEMA, 'Kind::IntChoice(SESSION_AUTO_ARCHIVE_DAY_CHOICES)'],
   requiredString: [`${GROUPS}workspace_names.rs`, 'fn required_string'],
-  requiredSubmitOptions: [`${GROUPS}prompt.rs`, 'submit options are invalid.'],
-  requiredTextFileContent: [`${GROUPS}workspace_names.rs`, 'fn text_file_content'],
-  requiredTextFileEncoding: ['mixdog-workspace/src/fsops.rs', 'File encoding is invalid.'],
   requiredToolApprovalDecision: [`${GROUPS}model.rs`, 'decision is invalid.'],
   requiredTranscriptHistoryRequest: [`${GROUPS}workspace_names.rs`, 'transcript history request is invalid.'],
   requiredTranscriptItemLimit: [`${GROUPS}workspace_names.rs`, 'transcript item limit is invalid.'],
-  requiredWorkspaceSearchOptions: [`${GROUPS}workspace_names.rs`, 'Workspace search options are invalid.'],
-  requiredWorkspaceTextWrites: [`${GROUPS}workspace_names.rs`, 'Workspace edit files are invalid.'],
-  sessionDisplayName: [`${GROUPS}workspace_names.rs`, 'title must be a string.'],
   validateGithubRequest: ['mixdog-scm/src/gh/contract.rs', 'A supported GitHub action is required.'],
   validatedRelayUrl: ['mixdog-remote/src/leg/socket.rs', 'MIXDOG_RELAY_URL must not contain credentials.'],
 };
@@ -630,6 +609,24 @@ test('coverage: every validator a direct key calls is answered by a rule of the 
   // A covered validator is stale when no handler calls it. A key the host serves itself (the attachment staging) is not a
   // direct key, but its handler still calls the validator the core twin answers for.
   const used = new Set([...handlers.values()].flatMap((names) => [...names]));
+  // The renderer's remote adapters (the phone's calls) and the host's own closures call validators too, outside the handlers of main's
+  // ipc files: a call anywhere in the desktop's sources is the desktop still calling it.
+  const sources = fileURLToPath(new URL('../', import.meta.url));
+  const scan = (directory) => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const path = `${directory}${entry.name}`;
+      if (entry.isDirectory()) scan(`${path}/`);
+      else if (/[.]tsx?$/.test(entry.name) && !/[.](test|d)[.]/.test(entry.name)) {
+        const file = ts.createSourceFile(path, fs.readFileSync(path, 'utf8'), ts.ScriptTarget.ES2022, true);
+        const visit = (node) => {
+          if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && VALIDATOR_NAME.test(node.expression.text)) used.add(node.expression.text);
+          ts.forEachChild(node, visit);
+        };
+        visit(file);
+      }
+    }
+  };
+  scan(sources);
   let withValidators = 0;
   for (const key of Object.values(DIRECT_KEYS).flat()) {
     const validators = handlers.get(key);
@@ -639,7 +636,8 @@ test('coverage: every validator a direct key calls is answered by a rule of the 
       if (!Object.hasOwn(COVERAGE, name)) unmapped.add(`${key}: ${name}`);
     }
   }
-  assert.ok(withValidators > 60, `only ${withValidators} direct keys have a validating handler: the scan is broken`);
+  // The core validates most direct keys now (their handlers in main are gone); main keeps the handlers of the keys it serves itself.
+  assert.ok(handlers.size > 80 && withValidators >= 2, `only ${handlers.size} handlers and ${withValidators} direct keys with a validating one: the scan is broken`);
   assert.deepEqual([...unmapped], [], 'a validator with no rule in the core');
   assert.deepEqual(
     Object.keys(COVERAGE).filter((name) => !used.has(name)),
