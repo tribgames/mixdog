@@ -391,7 +391,7 @@ fn receipt_path(ledger: &Path) -> PathBuf {
     ledger.with_extension("receipt")
 }
 
-/// Whether no process has `path` open: a receipt a live helper (or the core holding its mapping) keeps is not a leftover.
+/// Whether no process has `path` open: a receipt a live helper keeps open is not a leftover.
 fn unclaimed(path: &Path) -> bool {
     #[cfg(windows)]
     {
