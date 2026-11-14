@@ -12,7 +12,7 @@ import type { WebContents } from 'electron';
 import { bounded } from './cdp-bounded';
 import { createBrowserCdpCalls, type BrowserCdpCallOptions } from './cdp-calls';
 import { createGuestDebuggerAttachment } from './cdp-debugger-attach';
-import { createBrowserCdpEventRouter } from './cdp-event-router';
+import { createBrowserCdpEventRouter, type EngineEventSink } from './cdp-event-router';
 import { createBrowserCdpExecution } from './cdp-execution';
 import { createBrowserCdpSessionInit } from './cdp-session-init';
 import type { BrowserGuestStateStore } from './guest-state';
@@ -31,6 +31,8 @@ interface BrowserGuestCdpHost {
   /** Policy-driven guards installed into every document and child frame,
    *  alongside the dialog bridge. Empty unless an operator restricts the page. */
   pageGuardScripts?(): string[];
+  /** Where the engine lane takes the page's events while the core drives the browser through it. */
+  engine?: EngineEventSink;
   /** How long driving domains outlive the last agent command (tests). */
   lingerMs?: number;
 }
@@ -133,6 +135,7 @@ export function createBrowserGuestCdp(host: BrowserGuestCdpHost): BrowserGuestCd
     permissionRefused: host.permissionRefused,
     initializeTargetSession: sessions.initializeTargetSession,
     lifetimeSignal: attachment.lifetimeSignal,
+    engine: host.engine,
   });
   const calls = createBrowserCdpCalls({ state, sendCdp, guestDebugger: attachment.guestDebugger });
 
