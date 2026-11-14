@@ -10,6 +10,7 @@ import type { DirectKey } from '../../shared/desktop-api-split.ts';
 import { createOperationLane } from '../../shared/core-lanes/desktop-operation-route.ts';
 import { createServiceLane } from '../../shared/core-lanes/service-route.ts';
 import type { DesktopSectionsPush } from '../../shared/contract-sections.ts';
+import { isSshConnectionWindow } from '../desktop-connection.ts';
 import type { DirectContext } from './context.ts';
 import { withDirectErrors } from './errors.ts';
 
@@ -68,7 +69,12 @@ export function createFilesApi(ctx: DirectContext): FilesApi {
   const op = <T = never>(name: string, args: unknown[]): Promise<T> => operations.invoke(name, args) as Promise<T>;
   /** One key's work, its failure shown as the IPC path showed it. */
   const direct = <T>(run: () => Promise<T>): Promise<T> => withDirectErrors(Promise.resolve().then(run));
-  const serverWindow = (): boolean => ctx.window()?.role?.startsWith('server:') === true;
+  // A server (ssh) window, as main's handlers knew it (their `server` files): the preload's connection identity.
+  const serverWindow = (): boolean => isSshConnectionWindow();
+  // The core's search sessions are shared by every connection (a second `search/start` of an id in use is refused, a
+  // consumer's search supersedes that consumer's others): this window's searches carry a key of their own, as main's
+  // `mention:<webContents id>` was.
+  const searchKey = Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(16).padStart(2, '0')).join('');
 
   // A path that is not a registered Project but is an existing folder answers every file call as its own root. A Project
   // always keeps the first route; only when it refuses does the core classify the path. A server window never gets this:
@@ -191,7 +197,7 @@ export function createFilesApi(ctx: DirectContext): FilesApi {
     replaceWorkspaceText: (projectPath, options, replacement, relPaths) =>
       direct(async () => op('replaceWorkspaceTextIn', [await projectFolder(projectPath), options, replacement, relPaths])),
     // The @ palette (the only caller listing folders) is one search at a time per window: its next keystroke supersedes
-    // the previous one. The connection is this window's, so the key needs no window id.
+    // the previous one. Every other search of this window has its own session too.
     searchProjectFiles: (projectIdOrWorkspaceId, query, limit, includeIgnored, includeDirectories) =>
       direct(() =>
         svc('searchProjectFiles', [
@@ -200,7 +206,7 @@ export function createFilesApi(ctx: DirectContext): FilesApi {
           limit ?? 50,
           includeIgnored === true,
           includeDirectories === true,
-          includeDirectories === true ? 'mention' : undefined,
+          includeDirectories === true ? `mention:${searchKey}` : `files:${searchKey}`,
         ])
       ),
     libreOfficeStatus: (refresh) => direct(() => op('libreOfficeStatus', [refresh === true])),
