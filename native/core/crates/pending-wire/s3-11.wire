@@ -1,0 +1,8 @@
+# s3-11 -> CORE-WIRE-G2
+
+- `native/core/crates/mixdog-app-server-daemon/src/lib.rs`, after `pub mod computer_control;`: `pub mod computer_gate;`
+- No Cargo change: only mixdog-core-config (already a dependency) and serde_json (test only; already used by this crate).
+- No compose call yet: the call site (`feature_probes.rs` / `mcp_surface.rs` replacing `bridges.present("computer")`)
+  is written by FEATURE-FACTS (G3) / s3-19, which implements `HostPresence` over the host claim registry
+  (`HostCapability::Computer`) and the helper resolution at compose_flip.rs `computer_pool`.
+- SERVICE_PENDING: no names to remove.
