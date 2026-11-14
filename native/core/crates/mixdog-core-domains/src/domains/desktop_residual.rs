@@ -772,11 +772,18 @@ impl DesktopResidualService {
     }
 
     async fn attachment(&self, params: &AttachmentParams) -> Result<(SessionAttachment, Vec<u8>), CoreError> {
-        read_session_attachment(&*self.attachments, &params.session_id, &params.attachment_id).await.map_err(|error| match error {
+        let session_id = required_session_id(&params.session_id).ok_or_else(|| invalid("sessionId", "a session id"))?;
+        read_session_attachment(&*self.attachments, session_id, &params.attachment_id).await.map_err(|error| match error {
             AttachmentError::InvalidId => invalid("attachmentId", "a 64-character lowercase hex attachment id"),
             AttachmentError::Refused { reason, message } => coded(DOMAIN, &format!("file-download:{reason}"), message),
         })
     }
+}
+
+/// `requiredSessionId` (desktop-state.ts): the trimmed id, 1 to 256 characters of letters, digits, `_` and `-`.
+fn required_session_id(value: &str) -> Option<&str> {
+    let id = value.trim();
+    (!id.is_empty() && id.len() <= 256 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')).then_some(id)
 }
 
 fn reply(value: Value) -> Result<Reply, CoreError> {

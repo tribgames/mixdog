@@ -441,5 +441,36 @@ async fn a_damaged_profile_file_is_copied_and_reads_as_the_default() {
 async fn another_method_is_not_this_services() {
     let rig = Rig::new(false);
     assert!(rig.service.call(request("desktopPet/other", json!({}), None)).await.is_err());
-    assert_eq!(rig.service.methods(), &["desktopPet/state/read", "desktopPet/state/write"]);
+    assert_eq!(rig.service.methods(), &["desktopPet/state/read", "desktopPet/state/write", "desktopPet/placement/resolve"]);
+}
+
+// ---- The placement method ----------------------------------------------------------------------
+
+#[test]
+fn the_placement_method_answers_each_rule_as_the_function_does() {
+    let ask = |params: Value| resolve_placement(serde_json::from_value(params).expect("placement params"));
+    let rect = |r: PetRect| json!({ "x": r.x, "y": r.y, "width": r.width, "height": r.height });
+    let point = |p: PetPos| json!({ "x": p.x, "y": p.y });
+    let geometry = ask(json!({ "op": "geometry", "scale": 150 }));
+    assert_eq!(geometry["window"]["width"], json!(size(150).window.width));
+    assert_eq!(geometry["sprite"]["size"], json!(size(150).sprite.size));
+    assert_eq!(geometry["coreWidth"], json!(size(150).core_width));
+    let pinned = ask(json!({ "op": "pinned", "content": rect(CONTENT), "composer": { "rect": rect(CARD), "island": 580.0 }, "zoom": 1.25, "scale": 100 }));
+    assert_eq!(pinned, point(pinned_pet_position(CONTENT, &composer(Some(580.0), None), 1.25, &size(100))));
+    let at = PetPos { x: -40.0, y: 2000.0 };
+    let free = ask(json!({ "op": "clampFree", "point": point(at), "scale": 100, "workArea": rect(PRIMARY.work_area) }));
+    assert_eq!(free, point(clamp_free_pet_position(at, &size(100), PRIMARY.work_area)));
+    let boxed = ask(json!({ "op": "clamp", "point": point(at), "size": { "width": 384.0, "height": 336.0 }, "workArea": rect(PRIMARY.work_area) }));
+    assert_eq!(boxed, point(clamp_pet_position(at, PetSize { width: 384.0, height: 336.0 }, PRIMARY.work_area)));
+    let sprite = PetRect { x: 900.0, y: 700.0, width: 56.0, height: 56.0 };
+    let anchor = ask(json!({ "op": "hereAnchor", "point": point(at), "sprite": rect(sprite), "content": rect(CONTENT) }));
+    let expected = pet_here_anchor(at, sprite, CONTENT);
+    assert_eq!(anchor, serde_json::to_value(&expected).unwrap());
+    assert_eq!(ask(json!({ "op": "herePosition", "anchor": anchor, "content": rect(CONTENT) })), point(pet_here_position(&expected, CONTENT)));
+    let displays = json!([{ "id": 1, "workArea": rect(PRIMARY.work_area) }, { "id": 2, "workArea": rect(SECOND.work_area) }]);
+    assert_eq!(ask(json!({ "op": "displayFor", "point": { "x": 2100.0, "y": 100.0 }, "size": { "width": 512.0, "height": 336.0 }, "displays": displays })), json!(2));
+    assert_eq!(ask(json!({ "op": "displayFor", "point": { "x": 0.0, "y": 0.0 }, "size": { "width": 512.0, "height": 336.0 }, "displays": [] })), Value::Null);
+    let prefs = serde_json::to_value(default_prefs()).unwrap();
+    let on = ask(json!({ "op": "positionOn", "display": { "id": 1, "workArea": rect(PRIMARY.work_area) }, "prefs": prefs, "scale": 100 }));
+    assert_eq!(on, point(pet_position_on(&PRIMARY, &default_prefs(), &size(100))));
 }

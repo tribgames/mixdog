@@ -1,0 +1,18 @@
+# g35-fu-x core wiring
+
+## 1. DesktopResidualService registration (compose_flip.rs real_core)
+Place: right after the `MigrateProfileService::new(...)` registration (the line ending `// `migrate/profile/*``), where `directory`
+(the SessionDirectory Arc) and `blobs` (the one BlobStore, built in section 3 of the compose) are in scope. If `directory` is built after
+that line, put the registration after the line that builds it instead; the order of registrations does not matter.
+
+    builder.register(Arc::new(mixdog_core_domains::domains::desktop_residual::DesktopResidualService::new(
+        Arc::new(mixdog_core_session::session::attachments::DesktopAttachmentHost::new(directory.clone(), blobs.clone(), &b.tokens)),
+        &b.tokens,
+    )))?; // `desktop/link/*`, `desktop/attachment/*`, `desktop/workflowConfig/read`, `desktop/fonts/list`
+
+and REMOVE from SERVICE_PENDING the six names `desktop/link/resolve`, `desktop/link/resolvePath`, `desktop/attachment/resolve`,
+`desktop/attachment/stage`, `desktop/workflowConfig/read`, `desktop/fonts/list` (and their comment lines).
+
+## 2. desktopPet/placement/resolve
+DesktopPetService (already registered) now also claims `desktopPet/placement/resolve`; it needs the row in pending-rows/g35-fu-x.rows.
+Nothing else to wire. SERVICE_PENDING does not list it.

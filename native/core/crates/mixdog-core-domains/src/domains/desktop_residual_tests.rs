@@ -335,3 +335,12 @@ async fn the_service_answers_links_attachments_and_settings() {
     assert_eq!(ask("desktop/workflowConfig/read", json!({ "path": file })).await.unwrap(), json!({ "config": { "a": 1 } }));
     assert_eq!(ask("desktop/workflowConfig/read", json!({ "path": dir.path().join("none.jsonc") })).await.unwrap(), json!({ "config": null }));
 }
+
+#[test]
+fn a_session_id_is_trimmed_and_holds_only_id_characters() {
+    assert_eq!(required_session_id("  s_1-A "), Some("s_1-A"));
+    for bad in ["", "   ", "a b", "a/b", "..", "é", &"x".repeat(257)] {
+        assert_eq!(required_session_id(bad), None, "{bad:?}");
+    }
+    assert!(required_session_id(&"x".repeat(256)).is_some());
+}
