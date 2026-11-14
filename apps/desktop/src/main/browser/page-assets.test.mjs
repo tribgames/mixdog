@@ -133,7 +133,7 @@ test('ref-point-probe asset equals the probe function of ref-point-probe.ts', ()
 test('every asset parses as page JavaScript once its placeholders are filled', () => {
   const filled = (text) => text.replace(/__MIXDOG_[A-Z_]+__/g, '(function() {})');
   const files = fs.readdirSync(ASSETS).filter((name) => name.endsWith('.js'));
-  assert.equal(files.length, 10);
+  assert.equal(files.length, 18);
   for (const name of files) {
     const bodies = asset(name).includes('//@@ ') ? Object.values(sections(name)) : [asset(name)];
     for (const body of bodies) {
