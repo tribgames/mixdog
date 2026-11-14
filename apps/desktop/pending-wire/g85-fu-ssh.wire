@@ -1,0 +1,6 @@
+# g85-fu-ssh desktop wiring
+
+Main-process code that opens the window of a saved remote PC (the replacement of remote-host-windows.ts openWindow): after `window.loadURL(...)` resolves, call
+`client.call('remoteHosts/touch', { id })` (the line that was `await store.touch(id)`), so the saved PC's lastConnectedAt moves as before.
+The method is added by native/core/crates/mixdog-app-protocol/pending-rows/g85-fu-ssh.rows and served by the connections service.
+connections-core-api.ts (renderer) now also sends feed/unsubscribe for the connections feed; nothing to wire for it.
