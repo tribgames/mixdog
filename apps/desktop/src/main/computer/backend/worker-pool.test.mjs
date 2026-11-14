@@ -14,6 +14,7 @@ import {
 } from './foreground-lock-host.ts';
 import { RESPONSE_MARKER } from './program.ts';
 import { WINDOW_ARRIVALS_SESSION_ID } from '../shared/common.ts';
+import { windowsWorkerFromEnvironment } from './host-worker-process.ts';
 
 // macOS and Linux spawn the native backend: the pool names its binary before
 // handing the spawn to these tests' fakes, which never run it.
@@ -49,6 +50,7 @@ async function fakePool(t, options = {}) {
     isDisposed: () => false,
     maxWorkers: options.maxWorkers,
     foregroundLock: options.foregroundLock,
+    windowsWorker: options.windowsWorker,
     onSessionRetired: (...args) => retired.push(args),
     spawnProcess: (command, args, spawnOptions) => {
       spawns.push({ command, args, options: spawnOptions });
@@ -347,6 +349,53 @@ test('a Windows host request is read-only unless it releases what the helper hol
   );
   pool.retirePowerShell(workers[0], new Error('fixture cleanup'));
   await Promise.allSettled([read, mutation, input]);
+});
+
+test('the PowerShell worker is selected only by the rollback switch', () => {
+  assert.equal(windowsWorkerFromEnvironment({}), 'helper');
+  assert.equal(windowsWorkerFromEnvironment({ MIXDOG_COMPUTER_WINDOWS_WORKER: 'helper' }), 'helper');
+  assert.equal(windowsWorkerFromEnvironment({ MIXDOG_COMPUTER_WINDOWS_WORKER: ' PowerShell ' }), 'powershell');
+});
+
+test('the PowerShell worker mode launches the published script with its own ledger', windowsOnly, async (t) => {
+  const { pool, directory, workers, spawns } = await fakePool(t, {
+    windowsWorker: 'powershell',
+    foregroundLock: { handle() {}, workerGone() {}, takeFacts: () => null },
+  });
+  pool.ensurePowerShell('a');
+  const [{ command, args, options }] = spawns;
+  assert.equal(command, 'powershell.exe');
+  assert.deepEqual(args, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', pool.ensureHostScript()]);
+  assert.equal(options.windowsHide, true);
+  assert.equal(options.env.MIXDOG_COMPUTER_HOST_CACHE, join(directory, 'host-cache'));
+  assert.match(options.env.MIXDOG_COMPUTER_HOST_BUILD, /^[0-9a-f]{16}$/);
+  assert.equal(options.env.MIXDOG_COMPUTER_INPUT_MARKER, pool.inputMarker);
+  assert.equal(options.env.MIXDOG_COMPUTER_HOST_FOREGROUND_LOCK, '1');
+  const ledger = options.env.MIXDOG_COMPUTER_INACTIVE_LEDGER;
+  assert.match(ledger, /computer-inactive-[0-9a-f]{24}\.ledger$/);
+  writeFileSync(ledger, 'held');
+  pool.retirePowerShell(workers[0], new Error('fixture cleanup'));
+  workers[0].exitCode = 0;
+  workers[0].emit('exit', 0);
+  assert.equal(pool.windowsWorker, 'powershell');
+});
+
+test('a PowerShell worker is sent the request as it stands, with no read_only added', windowsOnly, async (t) => {
+  const { pool, workers } = await fakePool(t, { windowsWorker: 'powershell' });
+  const read = pool.callPowerShell({ action: 'window_bounds', session_id: 'a' });
+  const input = pool.callPowerShell({ action: 'restore_input_state', read_only: false, session_id: 'a' });
+  const sent = workers[0].stdin.read().toString().trim().split('\n').map((line) => JSON.parse(line));
+  assert.equal('read_only' in sent[0], false);
+  assert.equal(sent[1].read_only, false);
+  pool.retirePowerShell(workers[0], new Error('fixture cleanup'));
+  await Promise.allSettled([read, input]);
+});
+
+test('the helper stays the default Windows worker', windowsOnly, async (t) => {
+  const { pool, spawns } = await fakePool(t);
+  assert.equal(pool.windowsWorker, 'helper');
+  pool.ensurePowerShell('a');
+  assert.equal(spawns[0].command, process.env.MIXDOG_COMPUTER_BIN);
 });
 
 function exitLauncher(code, stdout) {
