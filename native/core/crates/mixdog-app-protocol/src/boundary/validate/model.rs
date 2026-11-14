@@ -97,7 +97,8 @@ fn route(params: Option<&Value>, nullable: bool) -> Checked {
     }
 }
 
-fn model_selection(value: &Value, path: &str) -> Checked {
+/// `requiredModelSelection`, also the check of a new task draft's `route` (prompt group).
+pub(super) fn model_selection(value: &Value, path: &str) -> Checked {
     let Some(object) = value.as_object() else {
         return refuse(path, "model selection is invalid.");
     };

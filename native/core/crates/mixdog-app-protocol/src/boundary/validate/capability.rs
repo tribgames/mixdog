@@ -274,6 +274,9 @@ const MAX_SIDE_QUESTION_LENGTH: usize = 1_000_000;
 const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
 const CONTEXT_INSPECTION_KEYS: &[&str] = &["inspect", "entryId", "revision"];
 const SKILLS_STATUS_OPTION_KEYS: &[&str] = &["projectPath"];
+const STARTER_GUIDE_KEYS: &[&str] = &["closed", "welcomed", "visited"];
+/// `STARTER_GUIDE_STEPS` of `ipc-validation.ts` (the runtime schema `starter-guide-state.mjs`).
+const STARTER_GUIDE_STEPS: &[&str] = &["provider", "project", "workflow", "extensions", "remote"];
 
 fn refuse(path: &str, expected: &str) -> Option<Result<(), ErrorData>> {
     Some(Err(ErrorData::InvalidParams { path: path.to_owned(), expected: expected.to_owned() }))
@@ -328,6 +331,11 @@ pub fn check(method: &str, params: Option<&Value>) -> Option<Result<(), ErrorDat
         "revertTurnChanges" | "reapplyTurnChanges" => {
             if let Err((path, expected)) = turn_changes_target(params) {
                 return refuse(path, &expected);
+            }
+        }
+        "saveStarterGuideState" => {
+            if let Err(expected) = starter_guide_state(params.get("state")) {
+                return refuse("/state", expected);
             }
         }
         _ => {}
@@ -385,6 +393,31 @@ impl Structured {
             }
         }
     }
+}
+
+/// `requiredStarterGuideState`, for the fields a state carries. The protocol client sends `{}` (the state is
+/// merged by the runtime: fixtures/clients-accepted.json), so a field that is absent is not required; a field that
+/// is present, an unknown field and a state that is not an object are refused as the desktop refused them.
+fn starter_guide_state(value: Option<&Value>) -> Result<(), &'static str> {
+    let Some(Value::Object(state)) = value else {
+        return Err("starter guide state must be an object.");
+    };
+    if state.keys().any(|key| !STARTER_GUIDE_KEYS.contains(&key.as_str())) {
+        return Err("starter guide state contains an unsupported field.");
+    }
+    if ["closed", "welcomed"].iter().any(|name| state.get(*name).is_some_and(|flag| !flag.is_boolean())) {
+        return Err("starter guide closed and welcomed must be booleans.");
+    }
+    let known_steps = |steps: &Value| {
+        steps.as_array().is_some_and(|list| {
+            list.len() <= STARTER_GUIDE_STEPS.len() * 2
+                && list.iter().all(|step| step.as_str().is_some_and(|name| STARTER_GUIDE_STEPS.contains(&name)))
+        })
+    };
+    if state.get("visited").is_some_and(|steps| !known_steps(steps)) {
+        return Err("starter guide visited must list known steps.");
+    }
+    Ok(())
 }
 
 /// `requiredString`: the trimmed text of a non-empty string no longer than `maximum` UTF-16 units.
@@ -554,6 +587,30 @@ mod tests {
             assert_eq!(run(&row.method, &row.params), Ok(()), "{} {}: {}", row.client, row.method, row.case);
         }
         assert!(owned > 0);
+    }
+
+    #[test]
+    fn validate_capability_starter_guide_state() {
+        let state = |state: Value| serde_json::json!({ "opId": "o1", "state": state });
+        let refused = |expected: &str| Err(ErrorData::InvalidParams { path: "/state".to_owned(), expected: expected.to_owned() });
+        assert_eq!(run("config/saveStarterGuideState", &state(serde_json::json!({}))), Ok(()));
+        assert_eq!(
+            run("config/saveStarterGuideState", &state(serde_json::json!({ "closed": false, "welcomed": true, "visited": ["provider", "remote"] }))),
+            Ok(())
+        );
+        assert_eq!(run("config/saveStarterGuideState", &state(serde_json::json!([]))), refused("starter guide state must be an object."));
+        assert_eq!(
+            run("config/saveStarterGuideState", &state(serde_json::json!({ "extra": 1 }))),
+            refused("starter guide state contains an unsupported field.")
+        );
+        assert_eq!(
+            run("config/saveStarterGuideState", &state(serde_json::json!({ "closed": "yes" }))),
+            refused("starter guide closed and welcomed must be booleans.")
+        );
+        assert_eq!(
+            run("config/saveStarterGuideState", &state(serde_json::json!({ "visited": ["nope"] }))),
+            refused("starter guide visited must list known steps.")
+        );
     }
 
     /// The bounds a fixture file would be too large to hold: the node count and the string total.
