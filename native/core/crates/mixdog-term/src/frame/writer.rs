@@ -252,7 +252,7 @@ impl<'a> Encoder<'a> {
         let differs = |x: usize| match base {
             Base::Unknown => true,
             Base::Blank => !cells[x].is_plain_blank(),
-            Base::Previous(prev) => prev.cell(x as u16, y).is_none_or(|old| *old != cells[x]),
+            Base::Previous(prev) => prev.cell(x as u16, y).is_none_or(|old| !same_cell(old, prev, &cells[x], grid)),
         };
         let mut runs: Vec<(usize, usize)> = Vec::new();
         let mut x = 0;
@@ -400,6 +400,15 @@ impl<'a> Encoder<'a> {
     }
 }
 
+/// Whether a cell of the last frame shows what a cell of the new one does. Link ids are per grid (each frame interns its
+/// own table), so the urls are compared, not the ids.
+fn same_cell(old: &Cell, previous: &Grid, new: &Cell, grid: &Grid) -> bool {
+    old.symbol == new.symbol
+        && old.width == new.width
+        && old.style == new.style
+        && previous.link_url(old.link) == grid.link_url(new.link)
+}
+
 /// What a style comes to at a colour level: at level 0 chalk writes no styling at all (the selection highlight, which
 /// is a literal colour, still shows).
 fn at_level(style: Style, level: i32) -> Style {
@@ -503,6 +512,21 @@ mod tests {
         let mut writer = FrameWriter::new(Vec::new(), 3);
         let bytes = String::from_utf8(write(&grid, &mut writer, None)).unwrap();
         assert!(bytes.contains("\x1b]8;;https://example.com/\x1b\\ab\x1b]8;;\x1b\\c"), "{bytes:?}");
+    }
+
+    #[test]
+    fn a_cell_whose_link_id_now_names_another_url_is_rewritten() {
+        let mut writer = FrameWriter::new(Vec::new(), 3);
+        let mut first = Grid::new(4, 1);
+        let link = first.intern_link("https://a.example/");
+        first.put_glyph(0, 0, "x", 1, Style::default(), link);
+        write(&first, &mut writer, None);
+        let mut second = Grid::new(4, 1);
+        let link = second.intern_link("https://b.example/");
+        second.put_glyph(0, 0, "x", 1, Style::default(), link);
+        let bytes = String::from_utf8(write(&second, &mut writer, None)).unwrap();
+        assert!(bytes.contains("\x1b]8;;https://b.example/\x1b\\x"), "{bytes:?}");
+        assert!(write(&second, &mut writer, None).is_empty());
     }
 
     #[test]
