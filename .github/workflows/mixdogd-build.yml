@@ -73,9 +73,9 @@ jobs:
       - name: Build mixdogd
         if: ${{ !matrix.image }}
         run: |
-          cargo build --locked --release --manifest-path native/core/Cargo.toml -p mixdog-cli --bin mixdogd --target ${{ matrix.target }}
+          cargo build --locked --release --manifest-path native/core/Cargo.toml -p mixdog-cli --bin mixdogd -p mixdog-askpass --bin mixdog-askpass --target ${{ matrix.target }}
           mkdir -p out
-          cp "native/core/target/${{ matrix.target }}/release/mixdogd${{ matrix.exe }}" out/
+          cp "native/core/target/${{ matrix.target }}/release/mixdogd${{ matrix.exe }}" "native/core/target/${{ matrix.target }}/release/mixdog-askpass${{ matrix.exe }}" out/
       - name: Build mixdogd (glibc 2.28)
         if: ${{ matrix.image }}
         run: |
@@ -101,6 +101,8 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: mixdogd-${{ matrix.target }}
-          path: out/mixdogd${{ matrix.exe }}
+          path: |
+            out/mixdogd${{ matrix.exe }}
+            out/mixdog-askpass${{ matrix.exe }}
           if-no-files-found: error
           retention-days: 2
