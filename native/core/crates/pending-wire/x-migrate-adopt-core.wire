@@ -1,0 +1,15 @@
+# x-migrate-adopt-core core wire
+
+file: native/core/crates/mixdog-core-domains/Cargo.toml
+place: [dependencies], after `mixdog-js = { workspace = true }`
+add: mixdog-migrate = { workspace = true }
+note: mixdog-migrate does not depend on mixdog-core-domains (its deps are core-api, agent, js, mcp, store, statefile, ledger, protocol, ...), so no cycle. Then `cargo update --workspace --offline` / hakari as usual.
+
+file: native/core/crates/mixdog-core-domains/src/domains/mod.rs
+place: the `pub mod` list, after `pub mod instructions;`
+add: pub mod migrate_profile;
+
+file: native/core/crates/mixdog-app-server-daemon/src/compose_flip.rs
+place: fn real_core, after the registration of the other core-domains services (data dir `D` and home dir `H` are the roots of `mixdogd migrate`, the ones boot.rs builds MigrationRoots from)
+add: builder.register(Arc::new(mixdog_core_domains::domains::migrate_profile::MigrateProfileService::new(data_dir.clone(), home_dir.clone(), &tokens)))?;
+remove from SERVICE_PENDING: "migrate/profile/status", "migrate/profile/adopt" (if listed)
