@@ -38,33 +38,25 @@ import { observeCoreForMain } from './core-observers';
 import { createTakeoverStateHandler } from './takeover-state';
 import { secretInputs } from './secret-input';
 import { remoteSessionConfigFromEnv } from './ssh/remote-session';
-import { allowedProvidersForHost, loadSshHostStore } from './ssh/ssh-host-store';
-import { currentSshContext, runWithSshContext } from './ssh/ssh-context';
-import { parseSshTarget } from './ssh/ssh-command';
-import { SshTunnel } from './ssh/tunnel';
-import { openCallbackForward } from './ssh/callback-forward';
 import {
   ConnectionPool,
   LOCAL_CONNECTION_ID,
   WindowRouteRegistry,
   createConnectionIpcRouter,
-  createConnectionManager,
+  ConnectionError,
   createConnectionWindowOpener,
   createDesktopConnection,
-  createPortForwardStore,
-  createServerNotifier,
-  createServerPortForwards,
-  createServerWindowRestore,
-  hostGraceMs,
   forwardConnectionLink,
   registerConnectionLinkIpc,
-  registerServerPortsIpc,
   resolveWindowConnection,
-  type ServerNotifier,
   type ConnectionIdentity,
   type DesktopConnection,
   type DesktopConnectionDependencies,
 } from './connections';
+import { createServerConnections } from './connections/server-connections';
+import { createServerHostSettings } from './connections/server-host-settings';
+import { localizeServerNotice } from './connections/server-notice-text';
+import { createServerWindows, openEnvSshTarget } from './connections/server-window-record';
 import { readDesktopModelBootstrapSnapshot } from './model-bootstrap';
 import { AgentAwakeService } from './agent-awake';
 import { createBackgroundWindow } from './background-window';
@@ -114,10 +106,9 @@ import {
 import { registerDesktopIpc } from './ipc';
 import { HOST_CAPABILITIES } from './host/connection';
 import { notifyHostListsChanged } from './host-lists-changed';
+import { watchHostListsFeed } from './remote-hosts';
 import { createProtocolConnection } from './protocol/connection';
-import { loginUpdateOf } from './protocol/login-feed';
 import { readOrCreateHostId, createLocalHostRole } from './protocol/desktop-host-wiring';
-import { resolveTunnelEndpoint } from './protocol/discovery';
 import { openCore } from './protocol/open-core';
 import type { WsEndpoint } from './protocol/ws-connector';
 import { type CoreProcess, coreBinaryPath, coreEnvironment, coreExit, coreLaunchPath, requestCoreStop, resolveLocalCore } from './protocol/local-core';
@@ -127,7 +118,6 @@ import type { VisualizeHostEvent } from '../shared/visualize';
 import { createBootTimeline } from './boot-timeline';
 import { reportDefaultsSeparation } from './protocol/defaults-separation';
 import { resolveRuntimeRoot } from '../shared/core-src/runtime/shared/runtime-root.mjs';
-import { registerSshHostIpc } from './ipc-ssh-hosts';
 import { createBrowserHost, type BrowserHost } from './browser/host';
 import { BROWSER_PARTITION } from './browser/command';
 import { browserUrlPolicyFromEnvironment } from './browser/host-policy';
@@ -146,7 +136,7 @@ import { VisualizeBridgeServer } from './visualize/bridge-server';
 import { createDesktopVisualize } from './visualize/host';
 import { coreLocalPages, createCoreLocalPages, setCoreLocalPages } from './core-local-pages';
 import { windowIdFor } from './core-port/window-ids';
-import { CorePortRelay, type CoreEndpoint } from './core-port/relay';
+import { CorePortRelay } from './core-port/relay';
 import { createTerminalCommandExecutor, type TerminalBridgeCommand } from './terminal/commands';
 import { createTerminalRunRequests } from './terminal/run-requests';
 import { createTerminalBridgeBackend } from './terminal/bridge-backend';
@@ -521,14 +511,6 @@ function adoptLoginShellEnvironment(): Promise<void> {
 // paths are remapped to the server once its home is known (RemoteSession →
 // remoteSessionOptions), while sessionOptions() stays local because this
 // process still imports the local session client.
-// Port forwards of each saved server, started again when it reconnects.
-const portForwardStore = createPortForwardStore(desktopUserData);
-/** Ssh work started outside a connect attempt (a port forward) runs under the
- *  server's saved settings (identity file), in batch mode: it never prompts. */
-async function runWithHostSettings<T>(hostId: string, run: () => Promise<T>): Promise<T> {
-  const host = (await loadSshHostStore(desktopUserData)).list().find((entry) => entry.id === hostId);
-  return runWithSshContext(host?.settings ? { settings: host.settings } : {}, run);
-}
 /** Where each connection's core listens (the same resolver its own link dials with), by connection id: a window's
  *  direct port to its core (core-port/relay.ts) opens with it. */
 const coreEndpoints = new Map<string, () => Promise<WsEndpoint>>();
@@ -537,10 +519,11 @@ const coreInitialized = new Map<string, InitializeResponse>();
 const connectionDependencies: DesktopConnectionDependencies = {
   // This PC's core reads the discovery file; a server's core is reached through its SSH tunnel. Both use the
   // header token and re-resolve on every dial.
-  createProtocol: (connection, connector) => {
-    const resolve = connector
-      ? () => resolveTunnelEndpoint(connector)
-      : connection.kind === 'local'
+  createProtocol: (connection) => {
+    // This PC's core reads the discovery file; a server's core is where this PC's core says the server's tunnel ends
+    // (`connections/endpoint`, asked on every dial). Both use the header token and re-resolve on every dial.
+    const resolve =
+      connection.kind === 'local'
         ? resolveLocalCore({
             runtimeRoot: resolveRuntimeRoot(),
             bin: coreLaunchPath(app.isPackaged, process.resourcesPath),
@@ -550,11 +533,14 @@ const connectionDependencies: DesktopConnectionDependencies = {
               localCoreProcess = child;
             },
           })
-        : null;
-    if (!resolve) return null;
-    coreEndpoints.set(connection.id, resolve);
+        : async () => {
+            const record = serverWindows.get(connection.id);
+            if (!record) throw new Error(`The server window "${connection.id}" is not open.`);
+            return record.endpoint();
+          };
+    if (connection.kind === 'local') coreEndpoints.set(connection.id, resolve);
     // Only this PC's core separates this PC's defaults; Node recorded it for the local profile alone.
-    const reportsDefaults = connection.kind === 'local' && !connector;
+    const reportsDefaults = connection.kind === 'local';
     return createProtocolConnection({
       open: openCore({
         resolve,
@@ -579,31 +565,10 @@ const connectionDependencies: DesktopConnectionDependencies = {
   }),
   appVersion: app.getVersion(),
   remoteGraceMs: process.env.MIXDOG_REMOTE_CLIENT_GRACE_MS?.trim() || '',
-  // A server's turns use only the providers its host entry allows (no list:
-  // every provider).
-  createPortForwards: (connection, target) => {
-    const sshTarget = parseSshTarget(target);
-    return createServerPortForwards({
-      hostId: connection.id,
-      store: portForwardStore,
-      runSsh: (run) => runWithHostSettings(connection.id, run),
-      createTunnel: ({ freePort, onChange }) =>
-        new SshTunnel(sshTarget, {
-          freePort,
-          log: (line) => {
-            diagnostics?.write('port-forward', { connection: 'ssh', detail: line.slice(0, 300) });
-            onChange();
-          },
-        }),
-    });
-  },
-  allowedProviders: (connection) => allowedProvidersForHost(connection.id),
   operationHost: () => ({
     pcNotificationsSupported: () => Promise.resolve(Notification.isSupported()),
     readDisplayPreferences: () => readHostWindowDisplayPreferences(mainWindow, app.getLocale()),
   }),
-  // Read when a server connection is created, which is after this PC's own connection exists.
-  localProtocol: () => localConnection.protocol,
   onDiagnostic: (connection, event, data) => {
     const entry =
       event === 'desktop-transport-error'
@@ -649,18 +614,11 @@ const ipcRouter = createConnectionIpcRouter({
 // MessagePort over it. A server window gets its server's core (`primary`) and this PC's (`pc`), both under its role.
 const corePortRelay = new CorePortRelay({
   endpointFor: async (webContentsId) => {
-    const connection = resolveWindowConnection(windowRoutes, connectionPool, webContentsId);
-    const local = connection.kind === 'local';
-    const role: CoreEndpoint['role'] = local ? 'main' : `server:${connection.id}`;
-    const endpoint = async (slot: CoreEndpoint['slot'], connectionId: string, target: CoreEndpoint['target']) => {
-      const resolve = coreEndpoints.get(connectionId);
-      if (!resolve) throw new Error(`The connection "${connectionId}" has no core link.`);
-      const { url, token } = await resolve();
-      return { slot, url, token, target, role } satisfies CoreEndpoint;
-    };
-    return local
-      ? [await endpoint('primary', connection.id, 'local')]
-      : [await endpoint('primary', connection.id, 'server'), await endpoint('pc', LOCAL_CONNECTION_ID, 'local')];
+    const connectionId = windowRoutes.connectionIdFor(webContentsId);
+    if (connectionId === undefined) {
+      throw new ConnectionError('connection-route-missing', 'This window is not attached to a Mixdog connection.');
+    }
+    return serverWindows.endpointsFor(connectionId);
   },
   coreWindowScope: async () => {
     const scope = coreInitialized.get(LOCAL_CONNECTION_ID)?.capabilities?.windowScope;
@@ -684,65 +642,8 @@ setCoreLocalPages(
 );
 // MIXDOG_SSH_TARGET (development and tests): the main window stays on this PC
 // and a server window for that target opens beside it at startup.
-const ENV_SSH_CONNECTION_ID = 'ssh-env-target';
 const envSshConfig = remoteSessionConfigFromEnv(process.env);
 const connectionWindows = new Map<string, BrowserWindow>();
-const withGrace = (graceMs: number | null): { graceMs?: number } => (graceMs === null ? {} : { graceMs });
-const sshConnections = createConnectionManager<DesktopConnection>({
-  pool: connectionPool,
-  createConnection: (spec, onProgress, options) => {
-    // The connect attempt's per-host settings (default folder, reconnect).
-    const context = currentSshContext();
-    const settings = context?.settings;
-    return createDesktopConnection(
-      {
-        id: spec.id,
-        kind: 'ssh',
-        name: spec.name,
-        target: spec.target,
-        remoteCwd:
-          spec.id === ENV_SSH_CONNECTION_ID ? (envSshConfig?.remoteCwd ?? null) : settings?.remoteCwd?.trim() || null,
-        ...(settings?.autoReconnect === false ? { autoReconnect: false } : {}),
-        // The host's opt-in: its daemon runs models with the server's own logins.
-        ...(spec.id !== ENV_SSH_CONNECTION_ID && settings?.modelLogin === 'server'
-          ? { modelLogin: 'server' as const }
-          : {}),
-        // The host's grace (minutes) caps the reconnect backoff and tells the
-        // server how long to keep its daemon for this PC.
-        ...withGrace(hostGraceMs((settings as { graceMinutes?: unknown } | undefined)?.graceMinutes)),
-      },
-      connectionDependencies,
-      {
-        ...(onProgress ? { onProgress } : {}),
-        ...(options?.forceRestart || context?.forceRestart ? { forceRestart: true } : {}),
-      }
-    );
-  },
-  showWindow: (connection) => showConnectionWindow(connection),
-  closeWindows: (connectionId) => {
-    const window = connectionWindows.get(connectionId);
-    if (window && !window.isDestroyed()) window.close();
-  },
-});
-// The server windows open at quit come back at the next launch (a setting in
-// this PC's window), connecting in the background with their progress shown
-// there.
-const serverWindowRestore = createServerWindowRestore({
-  userDataPath: desktopUserData,
-  savedServers: async () => (await loadSshHostStore(desktopUserData)).list(),
-  // Automatic, so ssh runs in batch mode: a server that now needs a password
-  // fails here and is reconnected from Settings → Connection.
-  open: (spec, onProgress, server) =>
-    runWithSshContext({ ...(server.settings ? { settings: server.settings } : {}) }, () =>
-      sshConnections.open(spec, onProgress)
-    ),
-  onProgress: (progress) => {
-    if (mainWindow && !mainWindow.isDestroyed())
-      mainWindow.webContents.send(DESKTOP_IPC.serverRestoreProgress, progress);
-  },
-});
-/** Each server window's OS notifications (final answers, approvals, link). */
-const serverNotifiers = new Map<BrowserWindow, ServerNotifier>();
 // The daemon handshake starts before app.whenReady, when the diagnostics sink
 // does not exist yet; the first start is stamped here and written as soon as
 // the sink opens, so the boot timeline keeps its daemon-service-start entry.
@@ -1032,48 +933,6 @@ setBrowserApprovalHooks({
   },
 });
 let unsubscribeTurnNotifier: (() => void) | null = null;
-/** A server window's notifications fire on this PC, labeled with the server
- *  and following this PC's notification preferences; a click brings that
- *  window (and the session) to the front. */
-function createServerWindowNotifier(window: BrowserWindow, connection: DesktopConnection): ServerNotifier {
-  const client = connection.client;
-  const link = connection.link;
-  return createServerNotifier({
-    serverName: connection.name,
-    sources: {
-      subscribeSessions: (listener) => client.subscribeSessions(listener),
-      subscribeAgentPool: (listener) => client.subscribeAgentPool(listener),
-      subscribeSessionStates: (listener) => client.subscribeSessionStates(listener),
-      subscribeLink: (listener) => link?.subscribe(listener) ?? (() => {}),
-      readFinalAnswer: (sessionId, startedAt, signal) => client.readSessionFinalAnswer(sessionId, startedAt, signal),
-    },
-    preferences: pcNotificationView,
-    isSupported: () => Notification.isSupported(),
-    isForeground: () => !window.isDestroyed() && window.isVisible() && window.isFocused(),
-    isSessionOnScreen: (sessionId) => isSessionOnScreen(window, sessionId),
-    createNotification: (content) =>
-      new Notification({
-        ...content,
-        ...(process.platform === 'win32' ? {} : { icon: trayIconPath() ?? undefined }),
-        silent: process.platform === 'win32',
-      }),
-    ...(process.platform === 'win32' ? { playSound: playNotificationSound } : {}),
-    focus: (sessionId) => {
-      if (sessionId) openDesktopNotificationSession(window, sessionId);
-      else activateDesktopWindow(window);
-    },
-    text: {
-      approvalWaiting: () => nativeT('A tool is waiting for your approval.'),
-      lostTitle: () => nativeT('Connection to {{name}} lost'),
-      lostReconnecting: () => nativeT('Mixdog is reconnecting automatically.'),
-      lostStopped: () => nativeT('Open the server window to reconnect.'),
-      restoredTitle: () => nativeT('Reconnected to {{name}}'),
-      restoredBody: () => nativeT('The server window is working again.'),
-    },
-    titleLabels: nativeSessionTitleLabels,
-    diagnostic: (event, details) => diagnostics?.write(event, { ...details, connection: 'ssh' }),
-  });
-}
 const applyDesktopSettings = (settings: DesktopSettings): void => {
   awakeService.setEnabled(settings.keepAwake !== false);
   notificationVolume = settings.notificationVolume;
@@ -1249,9 +1108,10 @@ const hostRole = createLocalHostRole({
     },
   },
   notifications: {
+    // A server's fixed words arrive in English (its core has no UI language): shown in this PC's.
     createNotification: (content) =>
       new Notification({
-        ...content,
+        ...localizeServerNotice(content, nativeT),
         ...(process.platform === 'win32' ? {} : { icon: trayIconPath() ?? undefined }),
         silent: process.platform === 'win32',
       }),
@@ -1263,20 +1123,8 @@ const hostRole = createLocalHostRole({
     focusConnection: (connectionId, threadId) => focusConnectionWindow(connectionId, threadId),
   },
   windows: {
-    // The core asks for a saved server's window: the server attaches (or is already attached) and its window opens.
-    open: async ({ connectionId, name }) => {
-      const attached = connectionPool.get(connectionId);
-      if (attached) {
-        await showConnectionWindow(attached);
-        return true;
-      }
-      const server = (await loadSshHostStore(desktopUserData)).list().find((entry) => entry.id === connectionId);
-      if (!server) return false;
-      await runWithSshContext({ ...(server.settings ? { settings: server.settings } : {}) }, () =>
-        sshConnections.open({ id: server.id, name, target: server.target })
-      );
-      return true;
-    },
+    // The core asks for a saved server's window (it has connected the server already): a record is made from the params and its window opens.
+    open: (params) => serverWindows.open(params),
     close: (connectionId) => {
       const window = connectionWindows.get(connectionId);
       if (window && !window.isDestroyed()) window.close();
@@ -1600,22 +1448,10 @@ function showLocalConnectionSettings(): void {
 let remoteHostWindows: Promise<RemoteHostWindows> | null = null;
 function remoteHostsHandle(): RemoteHostWindows {
   remoteHostWindows ??= (async () => {
-    const [{ loadRemoteHostStore, relayHttpOrigin }, { createRemoteHostWindows }] = await Promise.all([
-      import('./remote-hosts'),
-      import('./remote-host-windows'),
-    ]);
-    const { resolveRelayUrl } = await import('./remote-relay-device');
-    return createRemoteHostWindows(
-      await loadRemoteHostStore(desktopUserData),
-      join(import.meta.dirname, '../preload/remote-window.js'),
-      {
-        relayOrigin: () => {
-          const relayUrl = resolveRelayUrl(process.env);
-          return relayUrl ? relayHttpOrigin(relayUrl) : null;
-        },
-        showConnectionSettings: showLocalConnectionSettings,
-      }
-    );
+    const { createRemoteHostWindows } = await import('./remote-host-windows');
+    return createRemoteHostWindows(localProtocol, join(import.meta.dirname, '../preload/remote-window.js'), {
+      showConnectionSettings: showLocalConnectionSettings,
+    });
   })();
   const ready = remoteHostWindows;
   return {
@@ -1706,9 +1542,10 @@ function disposeDesktopResources(): Promise<void> {
     })();
     const cleanup = Promise.all([
       browserAndComputerCleanup,
-      // Quit detaches from every server: the tunnels close, the servers'
-      // daemons keep running.
-      sshConnections.closeAll(),
+      // Quit detaches from every server: this process's connections to their cores close (the core closes the tunnels; the servers'
+      // daemons keep running).
+      serverConnections.closeAll(),
+      Promise.resolve(stopHostListsFeed()),
       Promise.resolve(corePortRelay.dispose()),
       localConnection.dispose(),
       windowStateFlush,
@@ -2574,6 +2411,38 @@ const showConnectionWindow = createConnectionWindowOpener<DesktopConnection, Bro
   create: (connection) => createWindow(connection),
 });
 
+/** The server windows the core asked for (`host/window/open`): one record each (its endpoint is asked of this PC's core), and
+ *  for as long as the window lives this process's service connection to that server's core (the window's desktop
+ *  operations, terminals, uploads and previews). The ssh session, the tunnel and the link are the core's. */
+const serverHostSettings = createServerHostSettings(localProtocol);
+const serverConnections = createServerConnections<DesktopConnection>({
+  pool: connectionPool,
+  create: (record) => createDesktopConnection({ id: record.id, kind: record.kind, name: record.name, throughPcCore: true }, connectionDependencies),
+});
+const serverWindows = createServerWindows({
+  core: localProtocol,
+  showWindow: async (record) => {
+    // The window's quota rules read the saved server as it is now.
+    await serverHostSettings.refresh().catch(() => undefined);
+    await showConnectionWindow(await serverConnections.attach(record));
+  },
+  localEndpoint: async () => {
+    const resolve = coreEndpoints.get(LOCAL_CONNECTION_ID);
+    if (!resolve) throw new Error('This PC has no core link.');
+    const { url, token } = await resolve();
+    return { url, token };
+  },
+});
+// The saved hosts changed in another window or on the core: every window is told, and the settings the quota rules read are read again.
+const stopHostListsFeed = watchHostListsFeed(
+  localProtocol,
+  () => {
+    notifyHostListsChanged();
+    void serverHostSettings.refresh().catch(() => undefined);
+  },
+  (message) => console.error(`[mixdog] ${message}`)
+);
+
 async function createWindow(connection: DesktopConnection): Promise<void> {
   const local = connection.kind === 'local';
   // The main window measures against process start; a server window opens later.
@@ -2651,13 +2520,9 @@ async function createWindow(connection: DesktopConnection): Promise<void> {
     window.webContents.setZoomFactor(1);
   });
   const disposeWindowIpc = installWindowIpc(window, connection, windowBrowserHost);
-  // A server window hears its own link and notices, raises its own OS
-  // notifications, and is reopened at the next launch while it stays open.
-  const stopLinkForward = local ? () => {} : forwardConnectionLink(connection, window.webContents);
-  if (!local) {
-    serverNotifiers.set(window, createServerWindowNotifier(window, connection));
-    if (connection.id !== ENV_SSH_CONNECTION_ID) void serverWindowRestore.remember(connection.id).catch(() => {});
-  }
+  // A server window hears that the saved hosts changed; its link and notices, its OS notifications and its reopening at the
+  // next launch are the core's.
+  const stopLinkForward = local ? () => {} : forwardConnectionLink(window.webContents);
   windowIpcDisposers.set(window, () => {
     disposeWindowIpc();
     stopLinkForward();
@@ -2746,9 +2611,9 @@ function installWindowIpc(
       invokeCapability: (capability, args, sessionId) => localService.invokeCapability(capability, args, sessionId),
       readCapabilities: (requests) => localService.readCapabilities(requests),
       // A server on its own logins reads its own quota.
-      inUse: () => connection.modelLogin !== 'server',
+      inUse: () => !serverHostSettings.modelAccess(connection.id).serverLogin,
       isProviderAllowed: (provider) => {
-        const allowed = allowedProvidersForHost(connection.id);
+        const allowed = serverHostSettings.modelAccess(connection.id).allowedProviders;
         return allowed === null || allowed.includes(provider);
       },
     },
@@ -2845,18 +2710,16 @@ function installWindowCloseCleanup(
     windowIpcDisposers.delete(window);
     if (connectionWindows.get(connection.id) === window) connectionWindows.delete(connection.id);
     publishWindowFocus();
-    serverNotifiers.get(window)?.dispose();
-    serverNotifiers.delete(window);
-    // Closing a server window detaches: its tunnel closes, the server's
-    // daemon keeps running. Only the user's close forgets it for the next
-    // launch; quitting keeps it.
+    // Closing a server window detaches: this process's connection to the server's core closes, and the core is told its
+    // window is gone (by the user unless the app is quitting): it closes the tunnel and keeps the server's daemon running,
+    // and forgets the window for the next launch only when the user closed it. The record goes first: the core may answer by
+    // opening the window again, which makes a new one.
     if (connection.kind !== 'local') {
-      if (!quitApproved) void serverWindowRestore.forget(connection.id).catch(() => {});
-      // The core is told its window is gone; by the user unless the app is quitting (the same rule as forget).
-      hostRole.host.windowHost?.windowClosed(connection.id, !quitApproved);
-      void sshConnections.close(connection.id).catch((error: unknown) => {
+      serverWindows.release(connection.id);
+      void serverConnections.detach(connection.id).catch((error: unknown) => {
         console.error(`Failed to detach from ${connection.name}:`, error);
       });
+      hostRole.host.windowHost?.windowClosed(connection.id, !quitApproved);
     }
   });
 }
@@ -2945,13 +2808,10 @@ function watchPowerAndNetwork(): void {
     // A window's core socket may have died silently across sleep: each window's port closes and the window reopens it,
     // reading its state afresh (what the old state bridge's resume resend did).
     corePortRelay.closeAll('system resume');
-    // Server links probe before touching their tunnel: a live one stays.
-    for (const connection of connectionPool.list()) void connection.link?.resume();
   });
-  // Sleep pauses the server links: no attempts, no failure shown.
+  // The core pauses the server links (host/power): no attempts, no failure shown; on resume each probes before it touches its tunnel.
   powerMonitor.on('suspend', () => {
     hostRole.host.reports.power('suspend');
-    for (const connection of connectionPool.list()) connection.link?.suspend();
   });
   // A dead network is otherwise noticed only by the ping cycle: redial the
   // relay leg the moment the machine is back online or its network changes.
@@ -2970,58 +2830,6 @@ function watchPowerAndNetwork(): void {
     5 * 60 * 1000
   );
   diagnosticsMemoryTimer.unref();
-}
-
-/** The SSH host IPC, with the server-login bridge to the connection pool. */
-function registerLocalSshHostIpc(): void {
-  registerSshHostIpc({
-    ipcMain,
-    routes: windowRoutes,
-    userDataPath: desktopUserData,
-    connections: sshConnections,
-    serverLogins: {
-      connection: (id) => {
-        const connection = id === LOCAL_CONNECTION_ID ? undefined : connectionPool.get(id);
-        if (connection?.kind !== 'ssh') return null;
-        const modelLogin = connection.modelLogin;
-        return {
-          modelLogin,
-          invoke: async (capability, args) => (await connection.client.invokeCapability(capability, args)).value,
-          busySessions: async () => (await connection.remote?.busySessions(3_000)) ?? null,
-          onEnd: (listener) => connection.onModelLoginEnd(modelLogin, listener),
-          ...(connection.protocol
-            ? {
-                onLoginUpdated: (listener) =>
-                  connection.protocol!.onEvent((event) => {
-                    if (event.type !== 'notification') return;
-                    const { method, params } = (event as { notification: { method: string; params?: unknown } })
-                      .notification;
-                    const update = loginUpdateOf(method, params);
-                    if (update) listener(update);
-                  }),
-              }
-            : {}),
-        };
-      },
-      onAttach: (listener) =>
-        connectionPool.onAdd((connection) => {
-          if (connection.kind === 'ssh') listener(connection.id);
-        }),
-      openExternal: (url) => shell.openExternal(url),
-      // The provider's callback port, the same on both ends, while one
-      // server login is pending: this PC's own bind of it is the check,
-      // so a port taken here is never forwarded. Its ssh runs under the
-      // server's saved settings (its key file).
-      forwardCallback: (host, port) =>
-        runWithHostSettings(host.id, () =>
-          openCallbackForward({
-            target: parseSshTarget(host.target),
-            port,
-            log: (line) => diagnostics?.write('ssh-login-forward', { connection: 'ssh', detail: line.slice(0, 300) }),
-          })
-        ),
-    },
-  });
 }
 
 if (!app.requestSingleInstanceLock()) {
@@ -3107,38 +2915,18 @@ if (!app.requestSingleInstanceLock()) {
       // cacheable, range-able resources fetched straight by the DOM. The lane
       // reads this PC's files, so only this PC's window session has it.
       registerMediaProtocol(localService);
-      registerLocalSshHostIpc();
-      registerServerPortsIpc({
-        ipcMain,
-        routes: windowRoutes,
-        pool: connectionPool,
-        openExternal: (url) => shell.openExternal(url),
-      });
       registerConnectionLinkIpc({
         ipcMain,
         routes: windowRoutes,
-        pool: connectionPool,
-        restore: serverWindowRestore,
         closeWindow: (sender) => BrowserWindow.fromWebContents(sender)?.close(),
         showConnectionSettings: showLocalConnectionSettings,
-        requestSignIn: (connection) => {
-          if (!mainWindow || mainWindow.isDestroyed() || !connection.target) return;
-          activateDesktopWindow(mainWindow);
-          mainWindow.webContents.send(DESKTOP_IPC.connectionSignIn, {
-            id: connection.id,
-            name: connection.name,
-            target: connection.target,
-          });
-        },
       });
       await showConnectionWindow(localConnection);
-      void serverWindowRestore.restore().catch((error: unknown) => {
-        console.error('Failed to reopen the server windows:', error);
-      });
-      // MIXDOG_SSH_TARGET: the server window opens beside this PC's.
+      // The core reopens the windows it remembers once the host has claimed (host/window/open).
+      // MIXDOG_SSH_TARGET: the core connects the target and asks this desktop for its window, beside this PC's.
       if (envSshConfig) {
-        void sshConnections
-          .open({ id: ENV_SSH_CONNECTION_ID, name: envSshConfig.target, target: envSshConfig.target })
+        void hostRole.firstClaim
+          .then(() => openEnvSshTarget(localProtocol, envSshConfig.target))
           .catch((error: unknown) => {
             diagnostics?.write('ssh-target-window-failed', {
               errorName: error instanceof Error ? error.name : typeof error,

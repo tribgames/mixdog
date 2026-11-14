@@ -81,6 +81,13 @@ impl ConnectionOwners {
         Self { owners: vec![terminal, screen, workspace, system, devices, live_view, scm, browser_engine] }
     }
 
+    /// One more owner of per-connection state, released after the others (the connections service: a window's connect attempts and
+    /// its view of a server's ports).
+    pub fn with_owner(mut self, owner: Arc<dyn ConnectionOwner>) -> Self {
+        self.owners.push(owner);
+        self
+    }
+
     /// Every owner releases what `connection` held, in a fixed order.
     pub fn connection_closed(&self, connection: ConnectionId) {
         for owner in &self.owners {

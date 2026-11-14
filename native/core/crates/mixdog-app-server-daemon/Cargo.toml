@@ -21,6 +21,7 @@ mixdog-app-server-transport = { workspace = true }
 mixdog-app-server-client = { workspace = true }
 mixdog-browser-engine = { workspace = true }
 mixdog-browser-policy = { workspace = true }
+mixdog-connections = { workspace = true }
 mixdog-core-base = { workspace = true }
 mixdog-core = { workspace = true }
 mixdog-core-run = { workspace = true }
@@ -38,6 +39,8 @@ mixdog-js = { workspace = true }
 mixdog-remote = { workspace = true }
 mixdog-tools = { workspace = true }
 mixdog-workspace = { workspace = true }
+mixdog-ssh = { workspace = true }
+mixdog-fsio = { workspace = true }
 mixdog-scm = { workspace = true }
 mixdog-exthost = { workspace = true }
 mixdog-services = { workspace = true }
@@ -66,7 +69,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["sync", "signal", "rt", "time"] }
+tokio = { workspace = true, features = ["sync", "signal", "rt", "time", "io-util"] }
 tracing = { workspace = true }
 uuid = { workspace = true, features = ["v7"] }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
@@ -91,7 +94,6 @@ windows-sys = { workspace = true, features = [
 
 [dev-dependencies]
 mixdog-testkit = { workspace = true }
-mixdog-ssh = { workspace = true }
 # The credential-read counter (`mixdog_ai::work`) seen from a crate that only depends on the crates that read: the
 # `credential_reads_tests` integration test. Only this crate's test builds turn the features on.
 mixdog-core = { workspace = true, features = ["count-work", "replay-bytes", "test-support"] }

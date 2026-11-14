@@ -52,7 +52,12 @@ export function createLocalHostRole({ protocol, onClaimFailed, computer, ...opti
   // The mirror exists before the host: the computer handlers draw the app input's arrow through it and ask it who drives the computer.
   const host = createDesktopHost({ ...options, connection: createHostConnection(protocol), computer: { ...computer, mirror: computerPill } });
   let wasReady = false;
-  const claim = (): void => void host.claim().catch(onClaimFailed);
+  let claimed!: () => void;
+  /** Settles once the host role is claimed for the first time (the core's windows of saved servers ask for this desktop's from then on). */
+  const firstClaim = new Promise<void>((resolve) => {
+    claimed = resolve;
+  });
+  const claim = (): void => void host.claim().then(claimed, onClaimFailed);
   protocol.onEvent((event) => {
     if (event.type !== 'status') return;
     const ready = (event as { status: { state: string } }).status.state === 'ready';
@@ -62,6 +67,7 @@ export function createLocalHostRole({ protocol, onClaimFailed, computer, ...opti
   return {
     host,
     computerPill,
+    firstClaim,
     /** The first claim, once `protocol.start()` resolved. */
     claimNow(): void {
       wasReady = true;

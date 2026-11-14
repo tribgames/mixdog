@@ -70,12 +70,15 @@ stay with that task's follow-up.
 
 - previewProjectFile stays the host's (preload/host-api.ts, main/ipc-project-files.ts registerPreviewIpc, mixdog-media://preview).
 - The main IPC handlers of the channels the renderer no longer calls (DESKTOP_IPC.ssh*, connectionLink*, connectionNotice,
-  connectionRetry*, reopenServerWindows*, serverRestoreProgress*, serverPorts*, serverPort*, connectionSignIn, listSystemFonts,
-  getNotificationPreferences, sendTestNotification) stay registered until s2b-delete-ts / x-del-notify-ts (G11).
+  connectionRetry*, reopenServerWindows*, serverRestoreProgress*, serverPorts*, serverPort*, connectionSignIn) were removed with their
+  channel names by g9-compose-connections (main no longer registers them: the core serves the connections methods); listSystemFonts,
+  getNotificationPreferences, sendTestNotification stay registered until x-del-notify-ts (G11).
 
 ## Carried over unchanged (reason and wave as before)
 
-- deferred-g5: the claim's `resources` ({serverCoresDir, askpassHelper}) -> DESKTOP-WIRE-G9; ipc-state-bridge.ts reduction -> the
+- deferred-g5: the claim's `resources` ({serverCoresDir, askpassHelper}): g9-compose-connections reads `MIXDOG_SERVER_CORES_DIR` /
+  `MIXDOG_ASKPASS_HELPER`, else the `server-cores` folder and the `mixdog-askpass` beside the core's own folder (the packaged layout), in
+  the daemon (compose_connections.rs); the claim's `resources` field has still no core reader; ipc-state-bridge.ts reduction -> the
   s2a-del-* deletion tasks (G11).
 - deferred-g4: s3-23 item 4 bindComputerEnvironmentGuard -> s3-31; s3-21 protocol note (protocol lead); optional
   registerComputerHost rename; x-residual-moves-client notes (readSessionHistory members, the recorder script).
