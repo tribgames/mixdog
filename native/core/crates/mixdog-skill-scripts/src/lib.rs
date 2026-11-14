@@ -6,12 +6,20 @@
 //! - [`validate_skill`]: `skill-creator/scripts/validate-skill.mjs`.
 //! - [`inventory`]: `test-suite/scripts/inventory.mjs`.
 //! - [`shipped`]: which script a path names, by location under the built-in skills root or by content.
+//! - [`run`]: [`skill_run`], the program `mixdog-skill-node` starts (`mixdogd skill-run`): the replacement of
+//!   `skill-script-entry.mjs`.
+//! - [`user`]: [`UserScriptRuntime`], what runs a script that is not shipped.
 
 pub mod argv;
 pub mod inventory;
 pub mod parse_args;
+pub mod run;
 pub mod shipped;
+pub mod user;
 pub mod validate_skill;
+
+pub use run::skill_run;
+pub use user::UserScriptRuntime;
 
 /// What a script run leaves behind: the text it printed on each stream and its exit code.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
