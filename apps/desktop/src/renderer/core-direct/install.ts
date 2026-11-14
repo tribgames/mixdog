@@ -9,6 +9,7 @@ import { createFilesApi } from './api-files.ts';
 import { createScmApi } from './api-scm.ts';
 import { createSessionsApi } from './api-sessions.ts';
 import { createSettingsApi } from './api-settings.ts';
+import { createTakeoverApi } from './api-takeover.ts';
 import { createTerminalApi } from './api-terminal.ts';
 import { connectionsApi } from '../connections-core-api.ts';
 import { openDirectClient } from './client.ts';
@@ -63,6 +64,7 @@ export async function installDirectDesktopApi(options: InstallOptions = {}): Pro
     ...createCapabilitiesApi(ctx, { host }),
     ...createSectionsApi(ctx),
     ...Object.fromEntries(DIRECT_KEYS.connections.map((key) => [key, connectionsApi[key]])),
+    ...createTakeoverApi(ctx),
   };
   // A terminal reveal comes from the core (ui/openRequested) or from main's own agent `terminal` bridge.
   const onTerminalRunRequested: DesktopApi['onTerminalRunRequested'] = (listener) => {
