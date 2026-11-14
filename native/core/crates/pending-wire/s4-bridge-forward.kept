@@ -1,8 +1,0 @@
-# s4-bridge-forward (core): BrowserApprovalContext::session_gate
-
-deferred-g95.md item 7: native/core/crates/mixdog-app-server-daemon/src/compose_browser_engine.rs, impl BrowserApprovalContext, fn session_gate answers None, so a
-bridge command (no tool call, no call_approvals scope) whose step needs a card fails with NO_APPROVAL_SURFACE once the desktop bridge calls browser/bridge/run.
-Bind it the way run_host/tool_pool/dispatcher.rs builds a session's gate (SessionGate::new(thread.clone(), directory.live_header(thread), surface, gate_env)) for
-the session the command names; a session with no live header stays None (nothing is raised for it). The bridge's old asking place was the desktop approval
-dialog (approval-dialog.ts); this fragment does NOT choose between it and the renderer card for a runtime session with no core thread: that is the lead's call.
-No SERVICE_PENDING name is affected (browser/bridge/* are registered in compose_flip.rs already).
