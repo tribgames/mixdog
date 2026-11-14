@@ -1,0 +1,59 @@
+# nr-office-pdf-glyphs wiring (core): glyph outlines for rendering in the crate `mixdog-pdf` (ported from pdf.js 6.4.299 font_renderer.js, cff_parser.js, type1_parser.js, type1_font.js, standard_fonts.js).
+
+No new crate, no protocol row, no registration and no SERVICE_PENDING entry: nothing in the daemon calls the glyph module yet (the PDF renderer task does).
+`ttf-parser` is NOT used and must not be added: pdf.js reads `glyf`, `loca`, `cmap` and `head` with its own small parsers, and the port follows them
+(including their errors), so the crate needs no font parsing dependency.
+
+## 1. native/core/crates/mixdog-pdf/src/lib.rs
+
+After the line `pub mod fonts;` add
+
+    pub mod glyph;
+
+(the module is `src/glyph/{mod,truetype,type2,type1,substitute}.rs`, all in this task's tree).
+
+## 2. native/core/crates/mixdog-pdf/Cargo.toml
+
+`[dev-dependencies]` (the library itself gets no new dependency: it does no file I/O, the substitute font files come in through a reader the rendering
+configuration supplies), after `flate2 = { workspace = true }` add
+
+    mixdog-fsio = { workspace = true }
+    serde_json = { workspace = true }
+
+## 3. native/core/Cargo.lock
+
+In the `[[package]] name = "mixdog-pdf"` entry the dependency list becomes (alphabetical):
+
+    dependencies = [
+     "flate2",
+     "mixdog-fsio",
+     "serde_json",
+     "tracing",
+    ]
+
+Both are already workspace members / registry crates present in the lock; nothing is downloaded.
+
+## 4. Fixture index
+
+The set `native/core/fixtures/office-glyphs/` (golden.json, fonts/*.otf, MANIFEST.json) is written by `benchmarks/rust-core/recorders/record-office-glyphs.mjs`.
+Refresh the top-level index with
+
+    node benchmarks/rust-core/recorders/verify-manifests.mjs --write-index
+
+The set was recorded with pdfjs-dist 6.4.299 on Node 22.20 (no `Float16Array`, and the recorder removes it anyway: paths are Float32 words). Its manifest's
+`product` block names the tree the recorder was pointed at (this task's worktree, whose `node_modules/pdfjs-dist` is the owner's); re-record against
+`C:\Project\mixdog` with `MIXDOG_BENCH_TREE=<tree> cargo test -p mixdog-pdf --test twin_glyphs -- --ignored` if the identity block must name it.
+
+## 5. What the rendering configuration must do (the PDF renderer task)
+
+The standard fonts are the files of `native/core/crates/mixdog-pdf/assets/standard_fonts/` (fourteen font files and the two licences, copied unchanged
+from pdfjs-dist). They are loaded only by the rendering configuration:
+
+    let fonts = mixdog_pdf::glyph::substitute::StandardFonts::new(Box::new(move |file| mixdog_fsio::read(&proof, dir.join(file))));
+
+`dir` is the shipped copy of that folder (pdf.js `standardFontDataUrl`). The office analysis configuration never creates a `StandardFonts`.
+Packaging must ship the folder next to the binary or embed it; that is the packaging task's line (no packaging file is touched here).
+
+The sanitised font program pdf.js hands its renderer (TrueType repair, OpenType wrapping of CFF and of converted Type 1, the `cmap` it builds) is the
+font-object task's: `FontRenderer::create(sfnt_bytes, font_matrix)` takes its result, and `FontRenderer::from_type2(Type1Font::parse(..)?.to_type2(), cmap,
+font_matrix)` takes a Type 1 program with the cmap the font object built for it.
