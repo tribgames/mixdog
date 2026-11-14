@@ -190,10 +190,12 @@ pub fn format_success(value: &Value) -> String {
 }
 
 /// Structured tool meta of a result drawn in the panel of the conversation another session works for (a sub-agent, a
-/// room member): the desktop names that owner in its answer, and a chat card opens the owner's panel with it.
+/// room member): the desktop names that owner in its answer, and a chat card opens the owner's panel with it. Only an
+/// id of 1-128 of `[A-Za-z0-9_.:-]` is a session id (`visualizeOwnerMetaSessionId`); anything else carries no meta.
 fn owner_meta(value: &Value) -> Option<Value> {
-    let owner = value.get("ownerSessionId").and_then(Value::as_str).filter(|o| !o.is_empty())?;
-    Some(serde_json::json!({ "code": "visualize_owner", "ownerSessionId": owner }))
+    let is_session_id = |o: &&str| (1..=128).contains(&o.len()) && o.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.:-".contains(&b));
+    let owner = value.get("ownerSessionId").and_then(Value::as_str).filter(is_session_id)?;
+    Some(serde_json::json!({ "code": "visualize_owner", "missing": [], "ownerSessionId": owner }))
 }
 
 pub struct VisualizeTool {
@@ -415,10 +417,12 @@ mod tests {
             (out.meta, host.seen.lock().unwrap()[0].clone())
         };
         let (meta, seen) = call(json!({"text": "shown", "ownerSessionId": "sess_lead1x"})).await;
-        assert_eq!(meta, Some(json!({"code": "visualize_owner", "ownerSessionId": "sess_lead1x"})));
+        assert_eq!(meta, Some(json!({"code": "visualize_owner", "missing": [], "ownerSessionId": "sess_lead1x"})));
         assert_eq!(seen["callId"], "c");
         assert_eq!(call(json!({"text": "shown"})).await.0, None);
         assert_eq!(call(json!({"text": "shown", "ownerSessionId": ""})).await.0, None);
+        assert_eq!(call(json!({"text": "shown", "ownerSessionId": "../evil"})).await.0, None);
+        assert_eq!(call(json!({"text": "shown", "ownerSessionId": "a".repeat(129)})).await.0, None);
     }
 
     #[test]
