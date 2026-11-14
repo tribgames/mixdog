@@ -1902,7 +1902,8 @@ impl SessionDirectory {
             params
                 .project_path
                 .clone()
-                .or_else(|| params.draft.as_ref().and_then(|draft| draft.project_path.clone()))
+                // `requiredNewTaskDraft` kept the draft's path trimmed.
+                .or_else(|| params.draft.as_ref().and_then(|draft| draft.project_path.as_deref()).map(|path| mixdog_js::js_trim(path).to_owned()))
                 .filter(|path| !path.trim().is_empty())
         };
         if let Some(path) = &project {
@@ -1951,7 +1952,8 @@ impl SessionDirectory {
                 let closing = self.inner.deps.new_tasks.closing();
                 let draft = params.draft.as_ref();
                 let settings = &self.inner.deps.draft_settings;
-                if let Some(workflow) = draft.and_then(|draft| draft.workflow_id.as_deref()).filter(|_| configure) {
+                // `requiredNewTaskDraft` kept the draft's workflow id trimmed.
+                if let Some(workflow) = draft.and_then(|draft| draft.workflow_id.as_deref()).map(mixdog_js::js_trim).filter(|workflow| configure && !workflow.is_empty()) {
                     step.set(super::new_task::Step::Configuring);
                     super::new_task::quit_gate("setWorkflow", &closing).await;
                     if let Err(error) = settings.set_workflow(&id, workflow).await {
