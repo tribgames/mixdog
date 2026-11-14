@@ -58,13 +58,12 @@ test('a null stored document reads as defaults', async () => {
   assert.equal(state.preferences.phone.scope, 'all');
 });
 
-test('setNotificationPreferences writes the key, announces, then answers the state', async () => {
+test('setNotificationPreferences writes the key announcing notifications once, then answers the state', async () => {
   const { handlers, calls } = setup({ notifications: { version: 1, migratedAt: 100, devices: {}, overrides: [] } });
   await handlers.get(DESKTOP_IPC.setNotificationPreferences)({}, 'phone', { scope: 'all' });
   const methods = calls.map(([method]) => method);
-  assert.deepEqual(methods.slice(2), ['config/value/write', 'ui/settings/announce', 'remoteAccess/state', 'notify/state']);
-  assert.deepEqual(calls[2][1], { path: 'notifications.devices.phone', value: { scope: 'all' }, mode: 'mergePatchBots' });
-  assert.deepEqual(calls[3][1], { scope: 'notifications' });
+  assert.deepEqual(methods.slice(2), ['config/value/write', 'remoteAccess/state', 'notify/state']);
+  assert.deepEqual(calls[2][1], { path: 'notifications.devices.phone', value: { scope: 'all' }, mode: 'mergePatchBots', announce: 'notifications' });
 });
 
 test('a device that is not paired is refused before anything is written', async () => {

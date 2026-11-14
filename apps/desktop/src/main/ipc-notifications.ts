@@ -2,8 +2,8 @@
 //   getNotificationPreferences  -> `remoteAccess/state` (the paired devices) and `notify/state` (whether this PC shows OS
 //                                  notifications and the stored document, every listed device's default written)
 //   setNotificationPreferences  -> `config/value/write` on `notifications.devices.<id>` (the key of
-//                                  mixdog_protocol::config::desktop_files::NOTIFICATION_PREFERENCES, merged in the core),
-//                                  then `ui/settings/announce` { scope: 'notifications' }
+//                                  mixdog_protocol::config::desktop_files::NOTIFICATION_PREFERENCES, merged in the core)
+//                                  with `announce: 'notifications'` (the one `ui/settings/changed` Node's store raised)
 //   sendTestNotification        -> `notify/test` (this PC's window through the host, a paired device through the relay)
 // The conversation overrides stay desktop operations (already routed to the core). A server window refuses these channels
 // (connections/feature-gates.ts): they are this PC's.
@@ -79,8 +79,8 @@ export function registerNotificationIpc({
     const value = requiredNotificationPreferencesPatch(patch);
     const { remote, notifications } = await read();
     const mode = notificationWriteMode(id, remote, notifications);
-    await call('config/value/write', { path: `notifications.devices.${id}`, value, mode });
-    await call('ui/settings/announce', { scope: 'notifications' });
+    // Announced by the write itself, once, changed or not (Node's store announced every setDevice once).
+    await call('config/value/write', { path: `notifications.devices.${id}`, value, mode, announce: 'notifications' });
     return stateOf();
   });
   handle(
