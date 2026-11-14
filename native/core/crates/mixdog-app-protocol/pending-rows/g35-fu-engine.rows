@@ -1,0 +1,27 @@
+# g35-fu-engine: PageFacts (src/v2/browser_engine.rs, already edited by the task) gains one optional field, and the engine event allowlist
+# gains four WebSocket events (BROWSER_ENGINE_EVENT_METHODS, already edited). No method, notification or inventory row.
+[methods]
+none
+
+[server_requests]
+none
+
+[notifications]
+none
+
+[inventory]
+none
+
+[free_text]
+none
+
+[type_edits]
+PageFacts: after `documentId: string,` add `loadId?: string,` (Rust: `pub load_id: Option<String>` with serde default and skip_serializing_if). Regenerate
+schema/*.json, packages/protocol/src/index.ts (export type PageFacts) and the golden of host/browser/page/facts. The desktop host (host/browser-engine/facts.ts)
+already sends `loadId`; apps/desktop tsc (tsconfig.node.json) fails with TS2353 on facts.ts until the generated type has it.
+
+[remove]
+none
+
+[window]
+none

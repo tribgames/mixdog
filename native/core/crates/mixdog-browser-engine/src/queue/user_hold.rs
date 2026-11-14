@@ -104,6 +104,11 @@ impl UserHold {
         lock(&self.state).holds.clear();
     }
 
+    /// `releaseLocal`: the page's session was released, so its hold ends at once (the agent commands on it stay as they are).
+    pub fn release(&self, key: &QueueKey) {
+        lock(&self.state).holds.remove(key.hold_key());
+    }
+
     /// `takeoverError`: what an agent command on `key` is refused with right now; a quiet, released hold is forgotten instead.
     pub fn takeover_error(&self, key: &QueueKey) -> Result<(), QueueError> {
         let mut state = lock(&self.state);
