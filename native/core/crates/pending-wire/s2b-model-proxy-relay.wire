@@ -1,0 +1,33 @@
+# s2b-model-proxy-relay -> CORE-WIRE-G2 (lead applies, then deletes this file)
+
+## native/core/crates/mixdog-connections/Cargo.toml
+
+`[dependencies]`, after `mixdog-protocol = { workspace = true }`:
+
+    mixdog-app-protocol = { workspace = true }
+    mixdog-app-server-client = { workspace = true }
+    mixdog-rt = { workspace = true }
+    async-trait = { workspace = true }
+    serde = { workspace = true }
+    serde_json = { workspace = true }
+    tokio = { workspace = true, features = ["rt", "sync", "macros"] }
+    tokio-util = { workspace = true }
+
+New `[dev-dependencies]` section (or merge with the one other s2b tasks add), after `[dependencies]`:
+
+    [dev-dependencies]
+    tokio = { workspace = true, features = ["rt", "sync", "macros", "time", "test-util"] }
+
+(`mixdog-app-server-client` has no dependency on `mixdog-connections`: no cycle. `mixdog-connections` is not yet a workspace
+member, see deferred-g1.md; the edges and `cargo update --workspace --offline` + `cargo hakari generate` go in with it.)
+
+## native/core/crates/mixdog-connections/src/lib.rs
+
+`pub mod model_proxy_relay;` is already declared. Nothing to add.
+
+## Registration / SERVICE_PENDING
+
+None: this task registers no protocol method. `model/proxy/execute` is a server request already in server_requests.rs.
+The composition (the code that builds `Arc<dyn LocalModelProxy>` over `ModelProxyService::run_local` of
+mixdog-core-domains `ai_admin::model_proxy_service`, calls `ModelProxyRelay::new(client, local, allowed)`, `serve()` and
+`serving(bool)` per server link, and `abandon_all()`/`revoke()`) belongs to s2b-service (wave 9).
