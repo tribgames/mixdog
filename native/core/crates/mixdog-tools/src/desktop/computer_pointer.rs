@@ -19,7 +19,6 @@ use std::time::Duration;
 use async_trait::async_trait;
 use mixdog_core_api::HostCapability;
 use mixdog_core_api::HostChannel;
-use mixdog_core_api::HostError;
 use mixdog_core_api::ids::Method;
 use serde_json::Value;
 use serde_json::json;
@@ -235,10 +234,12 @@ impl PointerHold {
         runtime.spawn(async move { inner.release(&session).await });
     }
 
-    /// The user's hold of the desktop began (a pause): the holds end without a release, the helpers restore the cursor.
+    /// The user's hold of the desktop began (a pause): the holds end without a release, the helpers restore the cursor. The
+    /// overlay hides the arrows while paused, so a held session's next pointer action asks for its arrow again.
     pub fn paused(&self) {
         for session in self.inner.held() {
             self.inner.drop_timer(&session);
+            forget_ready(&session);
         }
     }
 }
@@ -248,6 +249,7 @@ mod tests {
     use std::sync::atomic::AtomicBool;
 
     use mixdog_core_api::CoreError;
+    use mixdog_core_api::HostError;
     use tokio::sync::mpsc;
 
     use super::*;
@@ -358,7 +360,9 @@ mod tests {
         let (hold, _, mut seen) = hold();
         hold.command_ended("a");
         hold.command_ended("b");
+        mark_ready("a");
         hold.paused();
+        assert!(!is_ready("a"), "the paused overlay hid the arrow");
         assert!(quiet(&mut seen).await);
         hold.released_by_user("a");
         assert!(quiet(&mut seen).await);
