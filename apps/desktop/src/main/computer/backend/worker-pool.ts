@@ -9,7 +9,7 @@ import { randomBytes } from 'node:crypto';
 
 import { createHostScriptPublisher } from './host-script';
 import { createElevatedRequests } from './elevated-requests';
-import type { HostForegroundLock } from './foreground-lock-host';
+import { type HostForegroundLock, nextLeaseInstance } from './foreground-lock-host';
 import { launchHostProcess, watchHostWorker } from './host-worker-process';
 import { createResidentWorkers } from './resident-workers';
 import { createWorkerLedgers } from './worker-ledgers';
@@ -139,6 +139,10 @@ export interface WorkerPoolHost {
   foregroundLock?: HostForegroundLock;
 }
 
+/** The mutations the desktop host may still send its Windows helper: each
+ *  releases only input or session state that helper holds. */
+const HOST_RELEASE_ACTIONS = new Set(['release_held_input', 'release_sequence_holds', 'release_cursor_theme', 'release_session']);
+
 export function createWorkerPool(host: WorkerPoolHost) {
   const { dataDirectory, onSessionRetired } = host;
 
@@ -151,14 +155,14 @@ export function createWorkerPool(host: WorkerPoolHost) {
   const spawnProcess = host.spawnProcess || spawn;
   assertComputerWorkerCapacity(0, maxWorkers);
   const inputMarker = String(randomBytes(4).readUInt32LE() & 0x7fffffff || 1);
-  // The lease channel's own number for each worker, never reused, so an answer
-  // or a lease can never reach a later worker that happens to reuse a pid.
-  let nextInstance = 1;
+  // The lease channel's own number for each worker, never reused (one counter
+  // for every user of the process's owner), so an answer or a lease can never
+  // reach a later worker that happens to reuse a pid.
   const instanceOf = new WeakMap<ChildProcessWithoutNullStreams, number>();
-  const ledgers = createWorkerLedgers(dataDirectory);
+  const ledgers = createWorkerLedgers(dataDirectory, inputMarker, spawnProcess);
   const elevated = createElevatedRequests({
     dataDirectory,
-    hostScriptPath: hostScript.path,
+    hostScriptPath: hostScript.ensure,
     ensureWorker: ensurePowerShell,
     // An elevated run keeps `live + slots + 2` below the cap, so it needs three
     // free slots; the reader gives way.
@@ -177,8 +181,6 @@ export function createWorkerPool(host: WorkerPoolHost) {
     elevated.assertClear();
     assertComputerWorkerCapacity(residents.liveCount() + elevated.slots(), maxWorkers);
     const child = launchHostProcess({
-      dataDirectory,
-      hostScript,
       ledgers,
       inputMarker,
       nativeEnvironment: () => host.nativeEnvironment?.(),
@@ -186,7 +188,7 @@ export function createWorkerPool(host: WorkerPoolHost) {
       hostForegroundLock: Boolean(host.foregroundLock),
     });
     residents.add(child);
-    const instance = nextInstance++;
+    const instance = nextLeaseInstance();
     instanceOf.set(child, instance);
     const leaseWorker = {
       instance,
@@ -247,6 +249,15 @@ export function createWorkerPool(host: WorkerPoolHost) {
     requests.retire(reader, new Error('computer_reader_yielded: a session needed the worker slot'));
   }
 
+  /** The Windows helper this host starts never injects input a core helper
+   *  would read as the user's (the core's own helper does every action): each
+   *  request is read_only, whatever it says, except the releases of what this
+   *  helper itself holds, which lift nothing when it holds nothing. */
+  function hostRequestScope(request: Record<string, unknown>): { read_only?: boolean } {
+    if (process.platform !== 'win32') return {};
+    return { read_only: !HOST_RELEASE_ACTIONS.has(String(request.action)) };
+  }
+
   function callPowerShell(
     request: Record<string, unknown>,
     timeoutMs = COMMAND_TIMEOUT_MS
@@ -255,7 +266,7 @@ export function createWorkerPool(host: WorkerPoolHost) {
     const sessionId = classified.sessionId;
     const id = nextId++;
     const pointerFeedback = classified.pointerAction && Boolean(host.onPointerProgress);
-    const line = `${JSON.stringify({ ...request, id, pointer_feedback: pointerFeedback })}\n`;
+    const line = `${JSON.stringify({ ...request, ...hostRequestScope(request), id, pointer_feedback: pointerFeedback })}\n`;
     if (requests.inFlight() >= 32 || Buffer.byteLength(line) > MAX_COMPUTER_INTERNAL_REQUEST_BYTES) {
       return Promise.reject(
         new Error('computer_capacity_exhausted: worker request budget exceeded; input was not dispatched')

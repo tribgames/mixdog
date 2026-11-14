@@ -857,7 +857,8 @@ export function createRemoteScreenSource(deps: ScreenSourceDeps): RemoteScreenSo
       ),
       stopDeadlinePassed().then(() => true),
     ]);
-    if (timedOut) current.kill();
+    // The killed helper's abort cleanup (bounded) lifts what it held before the stop resolves.
+    if (timedOut) await current.kill();
   }
 
   return {

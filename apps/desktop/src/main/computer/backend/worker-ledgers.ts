@@ -8,10 +8,16 @@ import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { INACTIVE_LEDGER_RECOVERY_PROGRAM } from './program';
+import { computerNativeBinary, computerNativeEnvironment } from './native-host';
 import { createInactiveLedgerRegistry } from './inactive-ledger-registry';
 
-export function createWorkerLedgers(dataDirectory: () => string) {
+/** `inputMarker` is the pool's: its helpers never hold input (the desktop's
+ *  Windows helper is read_only), so the recovery's release lifts nothing. */
+export function createWorkerLedgers(
+  dataDirectory: () => string,
+  inputMarker?: string,
+  spawnProcess: typeof spawn = spawn
+) {
   const registry = createInactiveLedgerRegistry();
   const ledgerByWorker = new Map<ChildProcessWithoutNullStreams, string>();
 
@@ -28,11 +34,17 @@ export function createWorkerLedgers(dataDirectory: () => string) {
       registry.forget(path);
       return;
     }
-    const recovery = spawn(
-      'powershell.exe',
-      ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', INACTIVE_LEDGER_RECOVERY_PROGRAM],
-      { windowsHide: true, stdio: 'ignore', env: { ...process.env, MIXDOG_ABORT_LEDGERS: path } }
-    );
+    let recovery: ChildProcessWithoutNullStreams | ReturnType<typeof spawn>;
+    try {
+      // mixdog-computer's --abort-cleanup undoes the ledgers it is named (MIXDOG_ABORT_LEDGERS).
+      recovery = spawnProcess(computerNativeBinary(), ['--abort-cleanup'], {
+        windowsHide: true,
+        stdio: 'ignore',
+        env: computerNativeEnvironment(inputMarker, { MIXDOG_ABORT_LEDGERS: path }),
+      });
+    } catch {
+      return; // the ledger stays pending for the abort cleanup
+    }
     recovery.once('error', () => {
       /* the ledger stays pending for the abort cleanup */
     });
