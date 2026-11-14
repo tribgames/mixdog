@@ -19,10 +19,11 @@ fn table() -> &'static Table<'static> {
 
 /// The params fields of `method` that carry blob references; none for a method the table does not list.
 pub fn fields(method: &str) -> &'static [&'static str] {
-    table().methods.get(method).map_or(&[], Vec::as_slice)
+    table().methods.get(method).map(Vec::as_slice).unwrap_or_default()
 }
 
 /// Every method the table names.
+#[cfg(test)]
 pub(super) fn table_methods() -> impl Iterator<Item = &'static str> {
     table().methods.keys().copied()
 }
