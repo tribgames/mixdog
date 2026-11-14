@@ -4,7 +4,9 @@
 //!
 //! - [`AppServer`] / [`ConnectionHandle`]: one handle per accepted connection; the transport
 //!   passes every inbound message to it. Initialize latch and version gate, origin rules,
-//!   request classes and admission, keyed serialization, dispatch, subscriptions.
+//!   request classes and admission, the window gate (a desktop window's socket may not call the host-role methods), blob
+//!   references expanded and the per-method validators run before a method is routed, keyed serialization, dispatch,
+//!   subscriptions.
 //! - [`Outgoing`]: the connection table, server-request fan-out and re-delivery, and the host
 //!   channel. Built first, given to the core as its `ServerRequestSink` and `HostChannel`.
 //! - [`error_data`] / [`error_frame`]: the single mapping of `CoreError` to the wire.
@@ -26,6 +28,8 @@ mod sharded;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod window_tests;
 
 pub use config::ServerConfig;
 pub use config::VersionGate;
@@ -47,5 +51,6 @@ pub use server::ConnectionHandle;
 pub use server::Inbound;
 pub use server::is_control;
 pub use server::OriginOf;
+pub use server::WindowOf;
 #[cfg(feature = "replay-controls")]
 pub use server::REPLAY_STORES_SETTLED;

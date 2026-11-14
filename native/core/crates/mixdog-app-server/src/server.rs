@@ -34,6 +34,8 @@ use mixdog_app_protocol::MethodSpec;
 use mixdog_app_protocol::Mutation;
 use mixdog_app_protocol::RequestClass;
 use mixdog_app_protocol::RequestId;
+use mixdog_app_protocol::boundary::validate;
+use mixdog_app_protocol::boundary::window_scope;
 use mixdog_app_protocol::decode_inbound_text;
 use mixdog_app_protocol::free_text;
 use mixdog_app_protocol::limits::CloseCode;
@@ -57,6 +59,8 @@ use mixdog_core_api::HostError;
 use mixdog_core_api::Reply;
 use mixdog_core_api::Subscribe;
 use mixdog_core_api::ThreadHandle;
+use mixdog_core_api::call::WindowRole;
+use mixdog_core_api::call::WindowScope;
 use mixdog_core_api::feed::AttachMode;
 use mixdog_core_api::feed::FeedPosition;
 use mixdog_core_api::feed::ResumeFrom;
@@ -183,6 +187,10 @@ pub const REPLAY_STORES_SETTLED: &str = "replay/storesSettled";
 /// never registered (the transport's `ConnectionHub::origin_of`). Asked on every request.
 pub type OriginOf = Arc<dyn Fn(ConnectionId) -> Option<Origin> + Send + Sync>;
 
+/// The desktop window a registered connection is the socket of, `None` for any other connection (the transport's
+/// `ConnectionHub::connection_origin(id)` read as a [`WindowScope`]). Asked on every request.
+pub type WindowOf = Arc<dyn Fn(ConnectionId) -> Option<WindowScope> + Send + Sync>;
+
 /// The server: shared by every connection.
 #[derive(Clone)]
 pub struct AppServer {
@@ -205,12 +213,19 @@ impl AppServer {
                 core,
                 outgoing,
                 origin_of,
+                window_of: OnceLock::new(),
                 config,
                 queues: KeyedQueues::new(),
                 lanes: Mutex::new(CallLanes::new()),
                 checking: AtomicBool::new(false),
             }),
         })
+    }
+
+    /// Tells the server which connections are desktop windows' sockets; set once, before the first connection is accepted.
+    /// The second call is refused and hands its argument back.
+    pub fn set_window_of(&self, window_of: WindowOf) -> Result<(), WindowOf> {
+        self.shared.window_of.set(window_of)
     }
 
     /// Registers an accepted, authenticated connection.
@@ -310,6 +325,8 @@ pub(crate) struct Shared {
     core: Arc<dyn CoreHandle>,
     outgoing: Arc<Outgoing>,
     origin_of: OriginOf,
+    /// Set once by the composition; a server without it has no window connections.
+    window_of: OnceLock<WindowOf>,
     config: ServerConfig,
     lifecycle: watch::Receiver<CoreState>,
     queues: KeyedQueues,
@@ -400,6 +417,13 @@ impl Shared {
             self.reject_core(conn, &id, &denied);
             return Inbound::Continue;
         }
+        if let Some(window) = self.window(conn.id) {
+            if let Err(denied) = window_gate(&window, spec.method, request.params.as_ref()) {
+                let denied = CoreError::PermissionDenied { method: denied.method.into(), origin };
+                self.reject_core(conn, &id, &denied);
+                return Inbound::Continue;
+            }
+        }
         if let Err(error) = self.lifecycle_gate(spec) {
             self.reject_core(conn, &id, &error);
             return Inbound::Continue;
@@ -483,8 +507,48 @@ impl Shared {
         });
     }
 
-    /// A request that holds its in-flight slot: checked, decoded and dispatched.
+    /// The desktop window `id` is the socket of.
+    fn window(&self, id: ConnectionId) -> Option<WindowScope> {
+        self.window_of.get().and_then(|window_of| window_of(id))
+    }
+
+    /// The context of a call `conn` makes: its origin, its window and whether it is the host claimant.
+    fn context(&self, conn: &Connection, origin: Origin) -> CallContext {
+        let mut ctx = CallContext::connection(conn.id, origin, conn.cancel.clone()).with_window(self.window(conn.id));
+        ctx.host_claimant = self.outgoing.is_host_claimant(conn.id);
+        ctx
+    }
+
+    /// A request that holds its in-flight slot: its blob references are expanded (off the reader's turn, as a blob is read from
+    /// disk), then it is checked, decoded and dispatched.
     fn admitted(
+        self: &Arc<Self>,
+        conn: &Arc<Connection>,
+        mut request: JsonRpcRequest,
+        spec: &'static MethodSpec,
+        origin: Origin,
+        slot: crate::connection::Slot,
+    ) -> Inbound {
+        if spec.method == INITIALIZE || !request.params.as_ref().is_some_and(has_blob_ref) {
+            return self.checked(conn, request, spec, origin, slot);
+        }
+        let shared = Arc::clone(self);
+        let conn = Arc::clone(conn);
+        mixdog_rt::spawn("param-refs", TaskClass::Work, async move {
+            if let Some(params) = request.params.as_mut() {
+                if let Err(error) = crate::param_refs::expand(spec.method, params, &conn.cancel).await {
+                    drop(slot);
+                    shared.reject_core(&conn, &request.id, &error);
+                    return;
+                }
+            }
+            let _ = shared.checked(&conn, request, spec, origin, slot);
+        });
+        Inbound::Continue
+    }
+
+    /// A request whose params are final: checked, decoded and dispatched.
+    fn checked(
         self: &Arc<Self>,
         conn: &Arc<Connection>,
         mut request: JsonRpcRequest,
@@ -497,6 +561,13 @@ impl Shared {
             drop(slot);
             self.reject(conn, &id, &data);
             return Inbound::Continue;
+        }
+        if spec.method != INITIALIZE {
+            if let Err(data) = validate::check(spec.method, request.params.as_ref()) {
+                drop(slot);
+                self.reject(conn, &id, &data);
+                return Inbound::Continue;
+            }
         }
         if let Some(at) = free_text::refused(free_text::Kind::Request, spec.method, &request.lone_surrogates) {
             drop(slot);
@@ -577,7 +648,7 @@ impl Shared {
             method: Method(REPLAY_STORES_SETTLED),
             params: empty_result(),
             op: None,
-            ctx: CallContext::connection(conn.id, origin, conn.cancel.clone()),
+            ctx: self.context(conn, origin),
         };
         mixdog_rt::spawn("replay-stores-settled", TaskClass::Work, async move {
             let outcome = match core.domain_for(REPLAY_STORES_SETTLED) {
@@ -650,6 +721,13 @@ impl Shared {
         if conn.session().is_some() {
             self.reject(conn, id, &ErrorData::AlreadyInitialized);
             return Inbound::Continue;
+        }
+        let window = self.window(conn.id);
+        if window.is_some() {
+            if let Err(denied) = window_scope::allows_initialize(&params) {
+                self.reject_core(conn, id, &CoreError::PermissionDenied { method: denied.method.into(), origin });
+                return Inbound::Continue;
+            }
         }
         let core_state = match self.core_state() {
             Ok(state) => state,
@@ -725,6 +803,7 @@ impl Shared {
             connection: v1::ConnectionInfo {
                 origin,
                 device,
+                window: window.map(|window| window.id.to_string()),
             },
         };
         let result = serde_json::to_value(response).expect("initialize response serializes");
@@ -796,14 +875,14 @@ impl Shared {
                 Dispatch::Ready(self.unsubscribe(conn, &feed))
             }
             ClientRequest::TurnInterrupt { params, .. } => {
-                self.interrupt(CallContext::connection(conn.id, origin, conn.cancel.clone()), params)
+                self.interrupt(self.context(conn, origin), params)
             }
             ClientRequest::TurnSteer { params, .. } => {
                 Dispatch::Ready(self.steer(conn.id, id, params))
             }
             ClientRequest::OpStatus { params, .. } => {
                 let core = Arc::clone(&self.core);
-                let ctx = CallContext::connection(conn.id, origin, conn.cancel.clone());
+                let ctx = self.context(conn, origin);
                 // A rejection read back carries the text of a call whose secrets are no longer at hand: a relay is not told it.
                 let relay = crate::relay_answer::RelayAnswer::stored(Some(origin));
                 Dispatch::Later(
@@ -824,9 +903,14 @@ impl Shared {
             ClientRequest::HostClaim { params, .. } => {
                 let shared = Arc::clone(self);
                 let conn = Arc::clone(conn);
+                // A window is never the host: the method table refuses it already, and this is the second line.
+                let window = self.window(conn.id).is_some();
                 Dispatch::Later(
                     TaskClass::Work,
                     Box::pin(async move {
+                        if window {
+                            return Err(CoreError::PermissionDenied { method: spec.method.into(), origin });
+                        }
                         let declared = conn.session().is_some_and(|session| session.host.is_some());
                         if !declared {
                             return Err(CoreError::CapabilityUnavailable {
@@ -860,7 +944,7 @@ impl Shared {
         op: Option<OpId>,
         after: &AfterAnswer,
     ) -> Dispatch {
-        let mut ctx = CallContext::connection(conn.id, origin, conn.cancel.clone());
+        let mut ctx = self.context(conn, origin);
         ctx.after_answer = after.clone();
         ctx.lone_surrogates = lone_surrogates;
         let namespace = namespace(spec.method);
@@ -1190,6 +1274,28 @@ fn unclaimed(method: &str) -> CoreError {
     CoreError::CapabilityUnavailable {
         capability: method.into(),
         detail: "unclaimed".into(),
+    }
+}
+
+/// Whether a window-scoped connection may call `method`: refused are the host-role methods, and for a server-role window a
+/// `connectionId` that is not its own connection.
+fn window_gate(window: &WindowScope, method: &str, params: Option<&Value>) -> Result<(), window_scope::WindowDenial> {
+    window_scope::allows(method)?;
+    match &window.role {
+        WindowRole::Server { connection_id } => {
+            let requested = params.and_then(|params| params.get("connectionId")).and_then(Value::as_str);
+            window_scope::server_window_allows(connection_id, requested)
+        }
+        WindowRole::Main => Ok(()),
+    }
+}
+
+/// Whether a `{"$blobRef": ..}` object is anywhere in `value` (object keys and array entries only: no string is read).
+fn has_blob_ref(value: &Value) -> bool {
+    match value {
+        Value::Object(object) => object.contains_key("$blobRef") || object.values().any(has_blob_ref),
+        Value::Array(entries) => entries.iter().any(has_blob_ref),
+        _ => false,
     }
 }
 
