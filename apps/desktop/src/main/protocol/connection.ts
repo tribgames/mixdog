@@ -1,6 +1,6 @@
 // The one protocol connection of this Electron process to one core (a target: this PC's core, or a server's
 // through its SSH tunnel). Main owns the socket and the client library's fold store; windows get the pushed
-// sections mirrored (section-relay.ts) and call the closed list of detail methods (window-ipc.ts). Nothing here
+// the held sections readable as a snapshot and the scoped feeds they open. Nothing here
 // polls: state arrives as sections, liveness is the connection's own ticker (protocol.md §4.7).
 import type {
   DesktopProtocolStatus,
@@ -10,7 +10,6 @@ import type {
   DesktopSectionsSnapshot,
 } from '../../shared/contract-sections';
 import { SECTION_NAMES } from '../../shared/contract-sections';
-import { createSectionRelay, type RelayedStore, type SectionRelay } from './section-relay';
 import { loginFeedId, loginUpdateOf, LOGIN_CANCEL_METHODS, LOGIN_START_METHODS } from './login-feed';
 import { scopedSectionChanges, type ScopedFeedRoute } from './scoped-sections';
 
@@ -30,9 +29,18 @@ const isFinalLoginState = (state: unknown): boolean => {
   return typeof name === 'string' && name !== 'pending';
 };
 
+/** The part of the client library's `FoldStore` the connection reads. */
+export interface ConnectionStore {
+  section(section: string, key?: string | null): DesktopSectionEntry | undefined;
+  sections(section: string): readonly DesktopSectionEntry[];
+  subscribe(listener: (change: { type: string; section?: string; key?: string | null }) => void): () => void;
+  /** The app feed the store was last folded from (its epoch changes when the core restarts). */
+  appFeed(): { readonly epoch: string } | undefined;
+}
+
 /** What the connection needs from the client library's `ProtocolClient`. */
 export interface ConnectionClient {
-  readonly store: RelayedStore;
+  readonly store: ConnectionStore;
   readonly status: { readonly state: string };
   call(method: string, params: unknown): Promise<unknown>;
   notify(method: string, params: unknown): void;
@@ -80,7 +88,6 @@ export interface ConnectionStoreChange {
 export interface ProtocolConnectionOptions {
   /** Opens the transport and performs `initialize`; the library's `connect` bound to this target. */
   open(): Promise<ConnectionClient>;
-  defer?(flush: () => void): void;
 }
 
 /** A window of this connection: where pushes are delivered. */
@@ -181,7 +188,7 @@ const isAbsentFeed = (error: unknown): boolean => {
 const toStatus =(state: string): DesktopProtocolStatus =>
   state === 'ready' ? 'ready' : state === 'closed' ? 'closed' : 'reconnecting';
 
-export function createProtocolConnection({ open, defer }: ProtocolConnectionOptions): ProtocolConnection {
+export function createProtocolConnection({ open }: ProtocolConnectionOptions): ProtocolConnection {
   const windows = new Set<ProtocolWindow>();
   const portViewers = new Set<ProtocolWindow>();
   const eventListeners = new Set<(event: ConnectionClientEvent) => void>();
@@ -190,13 +197,8 @@ export function createProtocolConnection({ open, defer }: ProtocolConnectionOpti
   const fsWatches = new Map<string, { window: ProtocolWindow; params: { watchId: string } & Record<string, unknown> }>();
   // Scoped feeds that carry sections, by feed id: who watches them and the sections each holds.
   const feedWatches = new Map<string, ScopedFeedRoute>();
-  // Set when the link came back: the windows' whole store is replaced once the restored app subscription's snapshot
-  // has been folded and swapped in (`appSnapshot` comes last; the section changes before it announce the removed
-  // sections too).
-  let awaitingAppSnapshot = false;
   let unsubscribeStore: (() => void) | null = null;
   let client: ConnectionClient | null = null;
-  let relay: SectionRelay | null = null;
   let status: DesktopProtocolStatus = 'reconnecting';
   let closedByOwner = false;
   // The owner of the client's lifetime is the newest open or reopen: every client it opened, and every handler of
@@ -242,9 +244,6 @@ export function createProtocolConnection({ open, defer }: ProtocolConnectionOpti
   };
   pendingSync();
 
-  const broadcast = (push: DesktopSectionsPush): void => {
-    for (const window of [...windows]) window.push(push);
-  };
   const connected = (): ConnectionClient => {
     if (!client) throw new Error('The core connection is not open.');
     return client;
@@ -273,17 +272,6 @@ export function createProtocolConnection({ open, defer }: ProtocolConnectionOpti
         const message = error instanceof Error ? error.message : String(error);
         for (const window of [...(feedWatches.get(feedId)?.windows ?? [])]) window.push({ kind: 'feedError', feedId, message });
       });
-    }
-  };
-  /** The one place scoped state meets a replace: the windows' store is swapped for the app's, which holds no scoped
-   *  section, so the held ones go into the replace itself, just before its commit, and the swap keeps them. */
-  const sendWithScoped = (push: DesktopSectionsPush): void => {
-    if (push.kind !== 'replace' || push.stage !== 'commit') return broadcast(push);
-    for (const window of [...windows]) {
-      const entries: DesktopSectionEntry[] = [];
-      for (const route of feedWatches.values()) if (route.windows.has(window)) entries.push(...route.held.values());
-      if (entries.length) window.push({ kind: 'replace', stage: 'chunk', entries });
-      window.push(push);
     }
   };
   const removalsOf = (route: ScopedFeedRoute): DesktopSectionChange[] =>
@@ -361,23 +349,17 @@ export function createProtocolConnection({ open, defer }: ProtocolConnectionOpti
   };
 
   /** Drops the current client and everything bound to it; the windows and their registrations stay. They are told
-   *  `next`, since the relay that told them the client's status goes with it. The followed sign-in flows are lost:
-   *  their feeds ended with the client, and unsubscribing first keeps its closing from reaching them. */
+   *  The followed sign-in flows are lost: their feeds ended with the client, and unsubscribing first keeps its
+   *  closing from reaching them. */
   const release = async (next: DesktopProtocolStatus): Promise<void> => {
     unsubscribeClient?.();
     unsubscribeStore?.();
-    relay?.dispose();
     unsubscribeClient = null;
     unsubscribeStore = null;
-    relay = null;
-    awaitingAppSnapshot = false;
     for (const [flowId, feed] of loginFeeds) loseLoginFeed(flowId, feed);
     const closing = client;
     client = null;
-    if (status !== next) {
-      status = next;
-      broadcast({ kind: 'status', status });
-    }
+    status = next;
     await closing?.close().catch(() => undefined);
   };
 
@@ -391,28 +373,11 @@ export function createProtocolConnection({ open, defer }: ProtocolConnectionOpti
     client = opened;
     status = toStatus(opened.status.state);
     const owns = (): boolean => mine === epoch && client === opened;
-    relay = createSectionRelay({
-      store: opened.store,
-      sectionNames: SECTION_NAMES,
-      send: sendWithScoped,
-      ...(defer ? { defer } : {}),
-    });
     unsubscribeStore = opened.store.subscribe((change) => {
       if (!owns()) return;
       for (const listener of [...storeListeners]) listener(change);
       // A listener may have reopened: this client is superseded then.
       if (!owns()) return;
-      if (change.type === 'appSnapshot' && awaitingAppSnapshot) {
-        awaitingAppSnapshot = false;
-        relay?.reconnected();
-        return;
-      }
-      // The core refused to restore the app subscription: the store keeps the previous app state whole, and no
-      // snapshot is coming to wait for.
-      if (change.type === 'subscription' && (change as { feedId?: string }).feedId === 'app' && (change as { state?: string }).state === 'lost') {
-        awaitingAppSnapshot = false;
-        return;
-      }
       if (change.type !== 'section' || change.section === undefined) return;
       const entry = opened.store.section(change.section, change.key ?? null);
       for (const watcher of [...(sectionWatchers.get(change.section) ?? [])]) watcher(entry);
@@ -426,12 +391,8 @@ export function createProtocolConnection({ open, defer }: ProtocolConnectionOpti
         const next = toStatus((event as { status: { state: string } }).status.state);
         const wasReady = status === 'ready';
         status = next;
-        if (next === 'ready' && !wasReady) {
-          awaitingAppSnapshot = true;
-          restoreScopedFeeds(opened);
-        }
+        if (next === 'ready' && !wasReady) restoreScopedFeeds(opened);
         if (next !== 'ready') for (const [flowId, feed] of loginFeeds) loseLoginFeed(flowId, feed);
-        relay?.status(next);
       } else if (event.type === 'notification') {
         const { method, params } = (event as { notification: { method: string; params?: unknown } }).notification;
         const login = loginUpdateOf(method, params);
@@ -497,8 +458,6 @@ export function createProtocolConnection({ open, defer }: ProtocolConnectionOpti
       const run = (async (): Promise<void> => {
         await release('reconnecting');
         if (mine !== epoch) return supersededBy();
-        // The windows hold the old client's store: they are sent the new one once its app snapshot is folded.
-        awaitingAppSnapshot = true;
         try {
           await connect(mine);
         } catch (error) {
@@ -506,7 +465,6 @@ export function createProtocolConnection({ open, defer }: ProtocolConnectionOpti
           throw error;
         }
         if (mine !== epoch) return;
-        relay?.status(status);
         if (client) restoreScopedFeeds(client);
         settleSynced();
         for (const listener of [...replacedListeners]) listener();
@@ -518,7 +476,14 @@ export function createProtocolConnection({ open, defer }: ProtocolConnectionOpti
       replacedListeners.add(listener);
       return () => void replacedListeners.delete(listener);
     },
-    snapshot: () => (relay ? relay.snapshot(status) : { status, entries: [] as DesktopSectionEntry[] }),
+    snapshot: () =>
+      client
+        ? {
+            status,
+            entries: SECTION_NAMES.flatMap((name) => client!.store.sections(name)),
+            epoch: client.store.appFeed()?.epoch,
+          }
+        : { status, entries: [] as DesktopSectionEntry[] },
     attach(window) {
       windows.add(window);
       return () => {
@@ -601,7 +566,6 @@ export function createProtocolConnection({ open, defer }: ProtocolConnectionOpti
     async close() {
       unsubscribeClient?.();
       unsubscribeStore?.();
-      relay?.dispose();
       windows.clear();
       loginFeeds.clear();
       feedWatches.clear();
@@ -615,7 +579,6 @@ export function createProtocolConnection({ open, defer }: ProtocolConnectionOpti
       if (!syncedSettled) settleSynced(new Error('The core connection is closed.'));
       const closing = client;
       client = null;
-      relay = null;
       status = 'closed';
       await closing?.close();
     },
