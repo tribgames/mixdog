@@ -274,12 +274,6 @@ impl LaunchPolicy {
         self.check(action, now_ms).map(|_| ())
     }
 
-    /// `assertElevated`: input that asks for elevation.
-    pub fn admit_elevated(&self, now_ms: f64) -> Result<(), ComputerError> {
-        self.assert_current(now_ms)?;
-        if self.elevated { Ok(()) } else { Err(failed("computer_policy_denied: elevated input is not authorized")) }
-    }
-
     /// `dispatchAuthority`: what a request carries for the helper to enforce at the moment of input.
     fn authority(&self, window_id: Option<&str>) -> Map<String, Value> {
         let mut out = Map::new();
@@ -351,12 +345,6 @@ impl AuthorizationSettings {
     /// Whether elevation may be asked for: every policy in force allows it, and none is being replaced.
     pub fn allows_elevated_input(&self) -> bool {
         self.assert_ready().is_ok() && self.policies().iter().all(LaunchPolicy::allows_elevated_input)
-    }
-
-    /// `assertElevated` of every policy in force.
-    pub fn admit_elevated(&self, now_ms: f64) -> Result<(), ComputerError> {
-        self.assert_ready()?;
-        self.policies().iter().try_for_each(|policy| policy.admit_elevated(now_ms))
     }
 
     /// The fields a request carries for the helper to enforce (`dispatchAuthority`): the narrowing's window and process win over the
@@ -610,16 +598,17 @@ mod tests {
         let window = on("hwnd:0x1", None);
         assert_eq!(policy.admit("capture", Some(&window), None, NOW + 59_999.0), Ok(()));
         denied(policy.admit("capture", Some(&window), None, NOW + 60_000.0), "computer_policy_expired");
-        denied(policy.admit_elevated(NOW + 60_000.0), "computer_policy_expired");
         assert_eq!(policy.expires_at(), Some(NOW + 60_000.0));
     }
 
     #[test]
-    fn elevated_input_needs_the_policy_to_allow_it() {
+    fn elevated_input_needs_every_policy_to_allow_it() {
         let closed = LaunchPolicy::parse(&policy(json!({}))).unwrap();
-        denied(closed.admit_elevated(NOW), "computer_policy_denied");
+        assert!(!closed.allows_elevated_input());
         let open = LaunchPolicy::parse(&policy(json!({"allowElevatedInput": true}))).unwrap();
-        assert_eq!(open.admit_elevated(NOW), Ok(()));
+        assert!(open.allows_elevated_input());
+        assert!(AuthorizationSettings::new(Some(open)).allows_elevated_input());
+        assert!(!AuthorizationSettings::new(Some(closed)).allows_elevated_input());
     }
 
     #[test]
