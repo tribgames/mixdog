@@ -495,8 +495,8 @@ mod tests {
         assert_eq!(offered.len(), 1);
         let manifest = build_manifest(&offered, MANIFEST_LIMIT, MANIFEST_CHAR_BUDGET);
         assert!(manifest.contains("- browser-use: ") && manifest.contains("[tools: browser, handoff_user]"), "{manifest}");
-        let envelope = result_envelope(&skill.name, &document.body, Some(Path::new("C:\s\browser-use")));
-        assert!(envelope.starts_with("<skill>\n<name>browser-use</name>\n"));
+        let envelope = result_envelope(&skill.name, &document.body, Some(Path::new("C:/s/browser-use")));
+        assert!(envelope.starts_with("<skill>\n<name>browser-use</name>\n<base-dir>C:/s/browser-use</base-dir>\n"));
         assert!(envelope.contains("# Browser Use"));
     }
 }
