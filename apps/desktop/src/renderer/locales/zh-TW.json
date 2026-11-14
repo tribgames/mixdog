@@ -3005,6 +3005,7 @@
   "Mixdog is already being installed on {{name}} by another connection. Wait a moment, then try again.": "另一個連線正在 {{name}} 上安裝 Mixdog。請稍候後重試。",
   "Mixdog is free and open source — a GitHub star genuinely helps it grow.": "Mixdog 是免費且開源的——點亮 GitHub Star 能切實幫助它成長。",
   "Mixdog is reconnecting automatically.": "Mixdog 正在自動重新連線。",
+  "Mixdog lost its connection before this Git action was confirmed, so it may have run. Check the repository status before trying it again.": "在確認此 Git 操作之前，Mixdog 的連線已中斷，該操作可能已經執行。請先檢查儲存庫狀態，再重試。",
   "Mixdog needs a one-time approval from the desktop it belongs to.": "Mixdog 需要來自其所屬桌面的一次性核准。",
   "Mixdog needs to recover": "Mixdog 需要恢復",
   "Mixdog on {{name}} did not stop. Check the details below, then try again.": "{{name}} 上的 Mixdog 沒有停止。請查看下方詳細資料後重試。",
