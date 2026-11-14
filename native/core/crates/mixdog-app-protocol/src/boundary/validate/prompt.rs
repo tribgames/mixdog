@@ -400,6 +400,8 @@ mod validate_prompt {
     #[derive(Deserialize)]
     struct Accepted {
         method: String,
+        // A notification row (`initialized`) has no params.
+        #[serde(default)]
         params: Value,
         source: String,
         case: String,

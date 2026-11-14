@@ -453,6 +453,8 @@ mod tests {
     struct Accepted {
         client: String,
         method: String,
+        // A notification row (`initialized`) has no params.
+        #[serde(default)]
         params: Value,
     }
 

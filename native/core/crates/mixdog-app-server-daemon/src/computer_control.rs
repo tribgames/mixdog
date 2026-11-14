@@ -5,6 +5,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use mixdog_app_protocol::v2::computer_host::ComputerTakeoverReason;
 use mixdog_app_protocol::v2::host::ComputerUserControlAction;
 use mixdog_app_protocol::v2::host::ComputerUserControlParams;
 use mixdog_app_protocol::v2::host::ComputerUserControlResult;
@@ -40,6 +41,7 @@ impl DomainService for ComputerUserControlService {
     async fn call(&self, request: CoreRequest) -> Result<Reply, CoreError> {
         let params: ComputerUserControlParams =
             serde_json::from_value(request.params).map_err(|error| CoreError::InvalidParams { path: "params".into(), expected: error.to_string().into() })?;
+        params.validate().map_err(|error| CoreError::InvalidParams { path: "params".into(), expected: error.into() })?;
         let changed = match &self.control {
             None => false,
             Some(control) => match params.action {
@@ -47,6 +49,16 @@ impl DomainService for ComputerUserControlService {
                 ComputerUserControlAction::Resume => control.resume_verified(params.session_thread_id.as_ref().map(|session| session.as_str())).await,
                 ComputerUserControlAction::Stop => control.stop_verified().await,
                 ComputerUserControlAction::Pause => control.pause(),
+                // PROTO-WIRE-G2: the actions s3-02 added; s3-19 (wave 3) owns this service and may refine them.
+                ComputerUserControlAction::Takeover => match params.reason {
+                    Some(ComputerTakeoverReason::DesktopUnavailable) => control.take_over_environment("desktop_unavailable"),
+                    Some(ComputerTakeoverReason::DisplayChanged) => control.take_over_environment("display_changed"),
+                    None => false,
+                },
+                ComputerUserControlAction::ConfigureIdleResume => {
+                    control.set_idle_resume(params.seconds.unwrap_or(0));
+                    true
+                }
             },
         };
         Ok(Reply::Value(json!(ComputerUserControlResult { ok: changed })))
