@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { app, BrowserWindow, nativeImage, webContents, type WebContents } from 'electron';
+import { app, nativeImage, webContents, type WebContents } from 'electron';
 import { BROWSER_ACTIONS } from '../../shared/core-src/runtime/browser-bridge/browser-action-contract.mjs';
-import { createBrowserHost, type BrowserHost } from './host';
-import { readyBrowserFrame } from './harness-frame';
+import { createPolling } from '../host-harness-poll';
+import { type CoreHarness, type CoreHarnessSuite, HARNESS_SESSION, progress } from './test-support/core-harness';
 import type { BrowserCommandTiming } from './timing';
 import { runBrowserLatencyScenarios } from './latency-scenarios';
 import { runBrowserActionabilityScenarios } from './actionability.integration';
@@ -22,30 +22,11 @@ import {
 } from './host-integration-fixtures';
 import { probeMouseFocus } from './mouse-focus-probe';
 import { probeMouseDispatch } from './mouse-dispatch-probe';
-import { createPolling } from '../host-harness-poll';
 import {
   DESKTOP_IPC,
   type DesktopBrowserGuestViewportChange,
   type DesktopBrowserOpenRequest,
-  type DesktopRemoteBrowserStreamFrame,
 } from '../../shared/contract';
-
-interface CommandResponse {
-  ok: boolean;
-  value?: {
-    text?: string;
-    image?: { mimeType?: string; data?: string };
-    file?: { mimeType?: string; data?: string; name?: string };
-    timing?: BrowserCommandTiming;
-  };
-  error?: string;
-  timing?: BrowserCommandTiming;
-}
-
-const progressPath = process.env.MIXDOG_BROWSER_INTEGRATION_LOG || '';
-function progress(message: string): void {
-  if (progressPath) appendFileSync(progressPath, `${message}\n`);
-}
 
 function percentile(values: number[], ratio: number): number {
   if (!values.length) return 0;
@@ -53,17 +34,8 @@ function percentile(values: number[], ratio: number): number {
   return sorted[Math.min(sorted.length - 1, Math.floor((sorted.length - 1) * ratio))];
 }
 
-const profile = mkdtempSync(join(tmpdir(), 'mixdog-browser-host-profile-'));
-const dataDirectory = join(profile, 'data');
-const downloadsDirectory = join(profile, 'downloads');
-const uploadFixturePath = join(profile, 'browser-upload-fixture.txt');
-mkdirSync(downloadsDirectory, { recursive: true });
-writeFileSync(uploadFixturePath, 'Browser upload fixture');
-process.env.MIXDOG_DATA_DIR = dataDirectory;
-app.setPath('userData', join(profile, 'user-data'));
-app.setPath('downloads', downloadsDirectory);
-app.disableHardwareAcceleration();
-progress('module loaded; profile configured');
+const SESSION = HARNESS_SESSION;
+const { eventually } = createPolling({ timeoutMs: 5_000, intervalMs: 50 });
 
 function refNamed(snapshot: string, name: string): string {
   const line = snapshot
@@ -115,9 +87,58 @@ function imagePixel(data: string, xRatio: number, yRatio: number): [number, numb
   return [bitmap[offset + 2], bitmap[offset + 1], bitmap[offset]];
 }
 
-const { eventually, readDiscovery } = createPolling({ timeoutMs: 5_000, intervalMs: 50 });
+/** One command of the script in the harness's mode: the host role's own runner (`browser/command`) or the core's engine hook. */
+async function commandIn(
+  harness: CoreHarness,
+  turnId: number,
+  input: Record<string, unknown>
+): Promise<{
+  text: string;
+  image?: { mimeType?: string; data?: string };
+  file?: { mimeType?: string; data?: string; name?: string };
+  timing?: BrowserCommandTiming;
+}> {
+  const { action, ...rest } = input;
+  if (harness.engine === 'core') {
+    const result = (await harness.runTool(SESSION, 'browser', { action, input: { turn_id: turnId, ...rest } })) as {
+      text?: string;
+      image?: { mimeType?: string; data?: string };
+      isError?: boolean;
+    };
+    if (result.isError) throw new Error(String(result.text || 'browser command failed'));
+    return { text: String(result.text || ''), ...(result.image ? { image: result.image } : {}) };
+  }
+  try {
+    const value = (await harness.uiCommand(String(action), { turn_id: turnId, ...rest })) as {
+      text?: string;
+      image?: { mimeType?: string; data?: string };
+      file?: { mimeType?: string; data?: string; name?: string };
+      timing?: BrowserCommandTiming;
+    };
+    return {
+      text: String(value?.text || ''),
+      ...(value?.image ? { image: value.image } : {}),
+      ...(value?.file ? { file: value.file } : {}),
+      ...(value?.timing ? { timing: value.timing } : {}),
+    };
+  } catch (error) {
+    const failure = error as { message?: string; detail?: { message?: string; data?: { timing?: BrowserCommandTiming } } };
+    throw Object.assign(new Error(failure.detail?.message || failure.message || 'browser command failed'), {
+      timing: failure.detail?.data?.timing,
+    });
+  }
+}
 
-async function run(): Promise<void> {
+const suite: CoreHarnessSuite = async (harness) => {
+  const profile = mkdtempSync(join(tmpdir(), 'mixdog-browser-host-profile-'));
+  const downloadsDirectory = join(profile, 'downloads');
+  const uploadFixturePath = join(profile, 'browser-upload-fixture.txt');
+  mkdirSync(downloadsDirectory, { recursive: true });
+  writeFileSync(uploadFixturePath, 'Browser upload fixture');
+  app.setPath('downloads', downloadsDirectory);
+  const host = harness.browserHost;
+  // The model-visible timing is the host runner's reply field: the engine hook returns none, so those checks are the host mode's.
+  const timingChecked = harness.engine === 'host';
   const socketFixture = createBrowserSocketFixture();
   let frameOrigin = '';
   const frameFixture = createBrowserFrameFixture();
@@ -125,8 +146,6 @@ async function run(): Promise<void> {
   // only has a port once it is listening, below.
   const { server: fixture, stalledResponses } = createBrowserPageFixture(() => frameOrigin);
 
-  let parent: BrowserWindow | null = null;
-  let host: BrowserHost | null = null;
   try {
     progress('starting fixture server');
     await new Promise<void>((resolve, reject) => {
@@ -151,30 +170,13 @@ async function run(): Promise<void> {
     assert.ok(address && typeof address === 'object');
     const origin = `http://127.0.0.1:${address.port}`;
 
-    progress('creating browser host');
-    parent = new BrowserWindow({
-      show: false,
-      webPreferences: {
-        contextIsolation: true,
-        nodeIntegration: false,
-        sandbox: true,
-        webviewTag: true,
-      },
-    });
-    const remoteFrames: DesktopRemoteBrowserStreamFrame[] = [];
-    host = createBrowserHost(parent, { hostId: 'test-host',
-      // Exercises the blocked (remote session) policy: 10.255.255.1 is refused.
-      remoteSession: true,
-      requestApproval: async () => true,
-      publishRemoteFrame: async (frame) => {
-        remoteFrames.push(frame);
-      },
-    });
+    // The pane's requests of the page: the harness's shell window is the one the host sends them to.
     const browserSurfaceRequests: DesktopBrowserOpenRequest[] = [];
     const viewportChanges: DesktopBrowserGuestViewportChange[] = [];
-    const parentWebContents = parent.webContents;
-    const sendToRenderer = parentWebContents.send.bind(parentWebContents);
-    parentWebContents.send = ((channel: string, ...args: unknown[]) => {
+    const shell = webContents.getAllWebContents().find((entry) => entry.getURL().startsWith('data:') && entry.getTitle() === 'Harness shell');
+    assert.ok(shell, 'the harness has no shell window');
+    const sendToRenderer = shell.send.bind(shell);
+    shell.send = ((channel: string, ...args: unknown[]) => {
       if (channel === DESKTOP_IPC.browserOpenRequested) {
         browserSurfaceRequests.push(args[0] as DesktopBrowserOpenRequest);
       }
@@ -182,31 +184,17 @@ async function run(): Promise<void> {
         viewportChanges.push(args[0] as DesktopBrowserGuestViewportChange);
       }
       sendToRenderer(channel, ...args);
-    }) as typeof parentWebContents.send;
-    await parent.loadURL(
-      `data:text/html;charset=utf-8,${encodeURIComponent(`
-      <!doctype html>
-      <textarea id="composer">Independent shell input</textarea>
-    `)}`
-    );
-    // The first compositor paint can still have the pre-resize geometry.
-    // Re-sample this read-only readiness condition, just as the pane does.
-    const primaryFrame = await readyBrowserFrame(host!, 'browser-integration-session');
-    assert.ok(primaryFrame);
-    const visibleGuest = webContents.fromId(primaryFrame.webContentsId)!;
+    }) as typeof shell.send;
+    const visibleGuest = harness.guest;
     await visibleGuest.loadURL(`${origin}/root`);
-    host.setGuestActive('browser-integration-session', visibleGuest.id, true);
-    host.setBridgeEnabled(true);
-    const discovery = await readDiscovery(join(dataDirectory, 'browser-bridge.json'));
-    progress('browser bridge discovered');
+    progress(`browser host ready; mode ${harness.engine}`);
     let turnId = 1;
     const commandDurations = new Map<string, number[]>();
     const commandDurationDetails = new Map<string, Array<{ label: string; duration: number }>>();
     const completedActions = new Set<string>();
 
     const command = async (
-      input: Record<string, unknown>,
-      signal?: AbortSignal
+      input: Record<string, unknown>
     ): Promise<{
       text: string;
       image?: { mimeType?: string; data?: string };
@@ -216,29 +204,9 @@ async function run(): Promise<void> {
       const action = String(input.action || 'unknown');
       const startedAt = performance.now();
       try {
-        const response = await fetch(`http://127.0.0.1:${discovery.port}/command`, {
-          method: 'POST',
-          headers: {
-            authorization: `Bearer ${discovery.token}`,
-            'content-type': 'application/json',
-          },
-          body: JSON.stringify({
-            session_id: 'browser-integration-session',
-            turn_id: turnId,
-            ...input,
-          }),
-          signal,
-        });
-        const payload = (await response.json()) as CommandResponse;
-        if (!payload.ok)
-          throw Object.assign(new Error(payload.error || 'browser command failed'), { timing: payload.timing });
+        const reply = await commandIn(harness, turnId, input);
         completedActions.add(action);
-        return {
-          text: String(payload.value?.text || ''),
-          ...(payload.value?.image ? { image: payload.value.image } : {}),
-          ...(payload.value?.file ? { file: payload.value.file } : {}),
-          ...(payload.value?.timing ? { timing: payload.value.timing } : {}),
-        };
+        return reply;
       } finally {
         const duration = performance.now() - startedAt;
         const samples = commandDurations.get(action) || [];
@@ -267,7 +235,6 @@ async function run(): Promise<void> {
         assert.match(observed.text, /Root fixture/);
       }
       progress('browser continues beyond 100 actions in the same turn');
-      progress('integration passed');
       return;
     }
 
@@ -306,7 +273,7 @@ async function run(): Promise<void> {
     await command({ action: 'open' });
     await command({ action: 'open' });
     const openedPage = {
-      sessionId: 'browser-integration-session',
+      sessionId: SESSION,
       reveal: true,
       tabId: 'p1', // Page ids are per session; the shown page was its first.
       title: await visibleGuest.executeJavaScript('document.title'),
@@ -325,7 +292,7 @@ async function run(): Promise<void> {
     `);
     const foregroundUrlBeforeHide = visibleGuest.getURL();
     await command({ action: 'hide' });
-    assert.deepEqual(browserSurfaceRequests.splice(0), [{ sessionId: 'browser-integration-session', hide: true }]);
+    assert.deepEqual(browserSurfaceRequests.splice(0), [{ sessionId: SESSION, hide: true }]);
     assert.equal(visibleGuest.getURL(), foregroundUrlBeforeHide);
     assert.equal(
       await visibleGuest.executeJavaScript(`document.getElementById('completion-draft').value`),
@@ -474,10 +441,12 @@ async function run(): Promise<void> {
       tab: 'alpha',
     });
     progress(`type 200 characters: inputMs=${(longTyping.timing?.inputMs || 0).toFixed(1)}`);
-    assert.ok(
-      (longTyping.timing?.inputMs || 0) < 5_000,
-      `typing 200 characters should stay responsive, took ${longTyping.timing?.inputMs}ms`
-    );
+    if (timingChecked) {
+      assert.ok(
+        (longTyping.timing?.inputMs || 0) < 5_000,
+        `typing 200 characters should stay responsive, took ${longTyping.timing?.inputMs}ms`
+      );
+    }
     alpha = longTyping;
     alpha = await command({ action: 'press', key: 'Tab', tab: 'alpha' });
     alpha = await command({
@@ -612,13 +581,15 @@ async function run(): Promise<void> {
     assert.match(sequenced.text, /value="Hopper"/);
     assert.match(sequenced.text, /value="Designer"/);
     assert.match(sequenced.text, /Postcondition met/);
-    assert.ok(sequenced.timing);
-    assert.ok(sequenced.timing.commandMs >= sequenced.timing.waitMs);
-    assert.equal(sequenced.timing.snapshots, 1);
-    assert.deepEqual(
-      sequenced.timing.steps?.map((step) => step.index),
-      [1, 2, 3]
-    );
+    if (timingChecked) {
+      assert.ok(sequenced.timing);
+      assert.ok(sequenced.timing.commandMs >= sequenced.timing.waitMs);
+      assert.equal(sequenced.timing.snapshots, 1);
+      assert.deepEqual(
+        sequenced.timing.steps?.map((step) => step.index),
+        [1, 2, 3]
+      );
+    }
     progress(`sequence timing ${JSON.stringify(sequenced.timing)}`);
     await assert.rejects(
       command({
@@ -643,7 +614,7 @@ async function run(): Promise<void> {
     assert.match(polished.text, /value="Polished"/);
     assert.match(polished.text, /[1-9]\d* unchanged omitted/);
     assert.doesNotMatch(polished.text, /textbox "Last name"/);
-    assert.ok(polished.timing && polished.timing.targetMs > 0);
+    if (timingChecked) assert.ok(polished.timing && polished.timing.targetMs > 0);
     progress(`target brief timing ${JSON.stringify(polished.timing)}`);
     await assert.rejects(
       command({
@@ -1339,11 +1310,11 @@ async function run(): Promise<void> {
     await command({ action: 'emulate', reset: true });
     assert.deepEqual(viewportChanges.splice(0), [
       {
-        sessionId: 'browser-integration-session',
+        sessionId: SESSION,
         webContentsId: visibleGuest.id,
         viewport: { width: 1024, height: 768 },
       },
-      { sessionId: 'browser-integration-session', webContentsId: visibleGuest.id, viewport: null },
+      { sessionId: SESSION, webContentsId: visibleGuest.id, viewport: null },
     ]);
     browserSurfaceRequests.splice(0);
     const touchObserved = await command({ action: 'snapshot', mode: 'both', tab: 'beta' });
@@ -1623,16 +1594,19 @@ async function run(): Promise<void> {
     await runBrowserPageReportScenarios(command, origin, progress);
 
     turnId = 5;
-    const abort = new AbortController();
-    const stalled = command(
-      {
-        action: 'navigate',
-        url: `${origin}/stall`,
-        tab: 'alpha',
-      },
-      abort.signal
-    );
-    setTimeout(() => abort.abort(), 250);
+    // The stalled command is the bridge's own call (`browser/bridge/run`), ended by `browser/bridge/abort` as its caller's dropped
+    // connection ends it.
+    const signalId = 'host-integration-stalled';
+    const stalled = harness.client
+      .call('browser/bridge/run', {
+        command: { action: 'navigate', url: `${origin}/stall`, tab: 'alpha', session_id: SESSION, turn_id: turnId },
+        signalId,
+      })
+      .then((answer) => {
+        const reply = answer as { ok?: boolean; error?: string };
+        throw new Error(reply.ok ? 'the stalled navigation completed' : String(reply.error || 'browser command failed'));
+      });
+    setTimeout(() => void harness.client.call('browser/bridge/abort', { signalId }).catch(() => undefined), 250);
     await assert.rejects(stalled, /abort/i);
     const recovered = await Promise.race([
       command({ action: 'navigate', url: `${origin}/recovered`, tab: 'alpha' }),
@@ -1649,30 +1623,8 @@ async function run(): Promise<void> {
       );
     }
 
-    const surfaceRequestCountBeforeRemoteFrame = browserSurfaceRequests.length;
-    remoteFrames.length = 0;
-    await host.remoteBrowserStream('browser-integration-session', { maxWidth: 800, maxHeight: 600 });
-    const streamDeadline = Date.now() + 5_000;
-    while (!remoteFrames.some((frame) => frame.image?.data) && Date.now() < streamDeadline) {
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
-    const remoteFrame = remoteFrames.find((frame) => frame.image?.data);
-    assert.ok(remoteFrame, 'streaming produced an image frame');
-    assert.equal(browserSurfaceRequests.length, surfaceRequestCountBeforeRemoteFrame);
-    assert.match(remoteFrame.frameId, /^rbf_[a-z0-9]+$/);
-    await assert.rejects(
-      host.remoteBrowserControl('browser-integration-session', {
-        type: 'wheel',
-        documentId: 'p999:999',
-        x: 10,
-        y: 10,
-        deltaX: 0,
-        deltaY: 10,
-      }),
-      /page changed/
-    );
-    await host.remoteBrowserStream('browser-integration-session', null);
-    progress('remote Browser Use stream complete');
+    // Not run: the remote Browser Use stream publishes through the host's `publishRemoteFrame`, which the core harness's host is not given.
+    progress('remote Browser Use stream skipped: the harness host has no remote frame publisher');
 
     // The visible page is where Chromium can paint past the window, so this
     // is where a section taller than the viewport must arrive whole.
@@ -1719,7 +1671,7 @@ async function run(): Promise<void> {
 
     await command({ action: 'hide' });
 
-    host.releaseSession('browser-integration-session');
+    host.releaseSession(SESSION);
     const releasedTabs = await command({ action: 'list_tabs' });
     assert.doesNotMatch(releasedTabs.text, /\["(?:alpha|beta|popup-\d+)"\]/);
     progress('session resource release complete');
@@ -1743,43 +1695,23 @@ async function run(): Promise<void> {
     assert.deepEqual(
       BROWSER_ACTIONS.filter((action) => !completedActions.has(action)),
       [],
-      'every public Browser Use action must complete through the live bridge'
+      'every public Browser Use action must complete through the core'
     );
 
-    progress('integration passed');
     console.log(
       'Browser host integration passed: device emulation and touch, geolocation and extra headers, cookies/storage, visual locate, AX/OOPIF refs and script execution, request/response/WebSocket inspection, request interception, init scripts, performance tracing, download attachment and reporting, document error status, PDF documents, credential challenges and refused addresses, script failure positions, recovery, dialogs, leave guards and blocked-gesture refusal, intercepted file chooser upload, popup tracking, isolation, and queue recovery.'
     );
   } finally {
     for (const response of stalledResponses) response.destroy();
-    await host?.dispose();
-    if (parent && !parent.isDestroyed()) parent.destroy();
     await new Promise<void>((resolve) => fixture.close(() => resolve()));
     await new Promise<void>((resolve) => frameFixture.close(() => resolve()));
     await new Promise<void>((resolve) => socketFixture.close(() => resolve()));
+    // Chromium can hold profile files briefly after the page closes; retry so the profile does not stay behind, and never let
+    // cleanup change the verdict.
+    await rm(profile, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }).catch(() => {
+      /* a still-held file leaves the disposable profile for the OS temp cleanup */
+    });
   }
-}
+};
 
-// Chromium can hold profile files briefly after the host closes; retry so the
-// profile does not stay behind, and never let cleanup change the verdict.
-async function removeProfile() {
-  await rm(profile, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }).catch(() => {
-    /* a still-held file leaves the disposable profile for the OS temp cleanup */
-  });
-}
-
-progress('waiting for Electron ready');
-void app
-  .whenReady()
-  .then(async () => {
-    progress('Electron ready');
-    await run();
-    await removeProfile();
-    app.exit(0);
-  })
-  .catch(async (error) => {
-    console.error(error);
-    await removeProfile();
-    process.exitCode = 1;
-    app.exit(1);
-  });
+export default suite;
