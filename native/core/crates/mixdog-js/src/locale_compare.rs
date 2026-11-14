@@ -26,6 +26,13 @@ pub fn locale_compare(a: &str, b: &str) -> Ordering {
     collator().compare(a, b)
 }
 
+/// `a.localeCompare(b)` on raw JavaScript UTF-16. The vendored ICU extension
+/// assigns each unpaired surrogate its original implicit collation weight;
+/// existing valid-string locale_compare is intentionally unchanged.
+pub fn locale_compare_utf16(a: &[u16], b: &[u16]) -> Ordering {
+    collator().compare_raw_utf16(a, b)
+}
+
 /// `a.localeCompare(b, 'en')`: English collation at default (tertiary) strength.
 pub fn locale_compare_en(a: &str, b: &str) -> Ordering {
     static COLLATOR: OnceLock<CollatorBorrowed<'static>> = OnceLock::new();

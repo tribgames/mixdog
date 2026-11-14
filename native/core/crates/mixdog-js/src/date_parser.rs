@@ -587,7 +587,17 @@ fn parse_es5(s: &mut Scanner, day: &mut DayComposer, time: &mut TimeComposer, tz
 
 /// `None` when V8 rejects the text.
 pub(crate) fn parse(text: &str) -> Option<Parsed> {
-    let mut scanner = Scanner::new(Reader { units: text.encode_utf16().collect(), i: 0 });
+    parse_units(text.encode_utf16().collect())
+}
+
+/// Read raw code units directly. Stray surrogates can be ignored words/comments;
+/// replacing them before tokenization changes the original input.
+pub(crate) fn parse_utf16(units: &[u16]) -> Option<Parsed> {
+    parse_units(units.to_vec())
+}
+
+fn parse_units(units: Vec<u16>) -> Option<Parsed> {
+    let mut scanner = Scanner::new(Reader { units, i: 0 });
     let mut tz = TimeZoneComposer::new();
     let mut time = TimeComposer::new();
     let mut day = DayComposer::new();

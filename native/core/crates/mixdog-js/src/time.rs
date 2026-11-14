@@ -170,7 +170,17 @@ pub fn date_parse(text: &str) -> f64 {
 
 /// `date_parse` in an explicit zone.
 pub fn date_parse_in(zone: Tz, text: &str) -> f64 {
-    let Some(p) = date_parser::parse(text) else { return f64::NAN };
+    parsed_date_time(zone, date_parser::parse(text))
+}
+
+/// `Date.parse` on original UTF-16 units, including unpaired surrogates and NUL.
+/// Uses the same local-zone and TimeClip rules as the string entry point.
+pub fn date_parse_utf16(text: &[u16]) -> f64 {
+    parsed_date_time(local_zone(), date_parser::parse_utf16(text))
+}
+
+fn parsed_date_time(zone: Tz, parsed: Option<date_parser::Parsed>) -> f64 {
+    let Some(p) = parsed else { return f64::NAN };
     // V8's MakeDay refuses years beyond +-1,000,000.
     if !(-1_000_000..=1_000_000).contains(&p.year) {
         return f64::NAN;
