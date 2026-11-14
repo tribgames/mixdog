@@ -10,6 +10,10 @@
 //! The lifecycle ones (`session_release`, `session_abort`, `execution_end`) end the session's state as the host's own calls do, and
 //! `read_authorization`, `update_authorization` and `authorization_windows` are the narrowing the harness sets on the launch policy.
 //!
+//! A tool action is a turn of its own (the harness had no model turn around it): once it has answered, the session's execution ends and
+//! its idle release is armed, as a settled turn does (`releaseComputerUse`: `endComputerExecution`, then
+//! `deferComputerSessionRelease`). The turn has no number of its own to carry: nothing the tool action reaches here is scoped to one.
+//!
 //! The call is refused to a connection that is not on this machine (Ssh, Relay); a window-scoped connection never reaches it
 //! (the method is `[window] deny`, so the boundary's table refuses it). A command's own failure is the answer (`ok: false`
 //! with the helper's code and words), as the bridge answered `{ok:false,error}`; only a malformed call is an error.
@@ -88,6 +92,8 @@ pub(crate) trait DevComputerHost: Send + Sync {
     async fn end_execution(&self, session: &str) -> bool;
     /// `releaseComputerSession`.
     async fn release(&self, session: &str) -> bool;
+    /// `deferComputerSessionRelease`: the session is released after its idle interval; false for one that owns nothing.
+    fn defer_release(self: Arc<Self>, session: &str) -> bool;
     /// `abortComputerSession`.
     async fn abort(&self, session: &str) -> bool;
     /// Every window of the desktop as `{id, pid, title}`, read by the host.
@@ -113,6 +119,10 @@ impl DevComputerHost for ComputerSessionPool {
 
     async fn release(&self, session: &str) -> bool {
         ComputerSessionPool::release(self, session).await
+    }
+
+    fn defer_release(self: Arc<Self>, session: &str) -> bool {
+        ComputerSessionPool::defer_release(&self, session)
     }
 
     async fn abort(&self, session: &str) -> bool {
@@ -172,6 +182,7 @@ impl DevComputerRun {
         // The command runs under the call's own cancel: the connection closing, or the wait ending, stops it.
         let cancel = req.ctx.cancel.child_token();
         let helper_command = command.is_helper();
+        let tool_command = matches!(command, Command::Tool(_));
         let outcome = match mixdog_rt::time::timeout(Duration::from_millis(u64::from(timeout_ms)), self.dispatch(&params.session_thread_id, command, cancel.clone())).await {
             Ok(outcome) => outcome,
             Err(_) => {
@@ -183,6 +194,11 @@ impl DevComputerRun {
         let ended_early = matches!(&outcome, Err(ComputerError::Cancelled)) || matches!(&outcome, Err(ComputerError::Failed { code, .. }) if code == "timeout");
         if helper_command && ended_early {
             self.host.abort(&params.session_thread_id).await;
+        }
+        // The tool action was the whole turn: its execution ends and the idle release is armed, whatever it answered.
+        if tool_command {
+            self.host.end_execution(&params.session_thread_id).await;
+            self.host.clone().defer_release(&params.session_thread_id);
         }
         let mut answer = match outcome {
             Ok(Answered::Parts(parts)) => self.answer(req, parts).await?,
@@ -442,6 +458,10 @@ mod tests {
             self.ended.lock().unwrap().push(format!("release:{session}"));
             true
         }
+        fn defer_release(self: Arc<Self>, session: &str) -> bool {
+            self.ended.lock().unwrap().push(format!("defer:{session}"));
+            true
+        }
         async fn abort(&self, session: &str) -> bool {
             self.ended.lock().unwrap().push(format!("abort:{session}"));
             false
@@ -500,6 +520,22 @@ mod tests {
         let ran = log.lock().unwrap();
         assert_eq!(ran[0].0, "s1");
         assert_eq!(ran[0].1, ComputerRequest { action: ComputerAction::Capture, input: json!({ "app": "Notepad" }) });
+    }
+
+    /// A tool action is a turn of its own: its execution ends and the idle release is armed after it, whether it answered or failed;
+    /// a helper command is not a turn.
+    #[tokio::test]
+    async fn a_tool_action_settles_its_turn() {
+        let dir = tempfile::tempdir().unwrap();
+        for fail in [false, true] {
+            let host = Arc::new(Host::default());
+            let sessions = Arc::new(Sessions { fail, hang: false, log: Log::default() });
+            let service = DevComputerRun::if_enabled(&env(true), sessions, host.clone(), BlobStore::new(dir.path()), &mixdog_rt::testing::tokens()).unwrap();
+            value(service.call(call(Origin::Local, json!({ "sessionThreadId": "s1", "command": { "action": "capture", "app": "Notepad" } }))).await);
+            assert_eq!(*host.ended.lock().unwrap(), vec!["end:s1", "defer:s1"], "fail: {fail}");
+            value(service.call(call(Origin::Local, json!({ "sessionThreadId": "s1", "command": { "action": "click", "x": 1, "y": 2 } }))).await);
+            assert_eq!(host.ended.lock().unwrap().len(), 2, "a helper command ends nothing");
+        }
     }
 
     #[tokio::test]
@@ -561,6 +597,9 @@ mod tests {
             }
             async fn release(&self, session: &str) -> bool {
                 self.0.release(session).await
+            }
+            fn defer_release(self: Arc<Self>, _: &str) -> bool {
+                false
             }
             async fn abort(&self, session: &str) -> bool {
                 self.0.abort(session).await

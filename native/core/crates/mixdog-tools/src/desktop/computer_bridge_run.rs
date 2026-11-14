@@ -17,8 +17,10 @@
 //!
 //! The command is the bridge's wire shape (the helper's vocabulary plus `session_id`, `turn_id`, `runtime_id`). The ones the tool
 //! has an action for (`list_windows`, `capture`, `sequence`, `fill_saved_login`, ...) run through the session's backend, the same
-//! pipeline a model's `computer` call takes; the helper's own commands (`click`, `type`, `find`, `window_bounds`, ...) run through the
-//! session's helper as a handed-off secret's steps do.
+//! pipeline a model's `computer` call takes. A single input command (`click`, `type`, `key`, `scroll`, ... the commands that act and
+//! then look) runs there too, as a sequence of one step: the same preflight, settle and observation after it that the host's single
+//! path gave it. The helper's own reads and probes (`find`, `window_bounds`, `snapshot`, ...) and `toggle` run through the session's
+//! helper as a handed-off secret's steps do.
 //!
 //! Two internal actions carry the owner connection of the HTTP bridge's `/owner` endpoint, which the desktop keeps: `owner_attach`
 //! (`runtime_id`, `pid`) binds the owner to its process and `owner_detach` (`runtime_id`) ends one connection of it. The answer is
@@ -38,6 +40,9 @@ use std::sync::atomic::Ordering;
 
 use async_trait::async_trait;
 use base64::Engine;
+use futures::FutureExt;
+use futures::future::BoxFuture;
+use futures::future::Shared;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::CoreRequest;
 use mixdog_core_api::DomainService;
@@ -170,6 +175,9 @@ pub trait BridgeSavedLogins: Send + Sync {
     fn admit(&self, session: &str, turn: u64) -> Result<Box<dyn Send>, String>;
     /// The turn settled (or its owner is proven gone): the password redaction and pixel guards its fills set up retire.
     async fn settle(&self, session: &str, turn: u64);
+    /// Whether any saved-login pixel guard is live (`savedLoginPixelGuards().length`): only then can a command that leaves pixels be
+    /// withheld by an owner's guard, so only then is a detached owner's process asked about before it runs.
+    fn pixels_guarded(&self) -> bool;
 }
 
 /// The agent turn of the saved-login fill running in each session: the fill is scoped to the runtime's own turn number, which the
@@ -221,6 +229,10 @@ enum Fate {
     Ended,
     Unknown,
 }
+
+/// One read of a process's fate, shared by every caller that asks while it is pending: the answer, and the creation time when it
+/// could be read.
+type FateRead = Shared<BoxFuture<'static, (Fate, String)>>;
 
 #[derive(Clone)]
 struct Owner {
@@ -376,9 +388,12 @@ pub struct ComputerBridgeRun {
     host: Arc<dyn BridgeHost>,
     secrets: Arc<dyn BridgeSecrets>,
     saved: Arc<dyn BridgeSavedLogins>,
-    blobs: Option<Arc<dyn ComputerBlobs>>,
+    blobs: Arc<dyn ComputerBlobs>,
     fill_turns: Arc<FillTurns>,
     owners: Arc<Mutex<Owners>>,
+    /// The OS answers about a process still being read: every command that asks about the same one shares the one read
+    /// (`pendingFates`).
+    fates: Mutex<HashMap<(u64, String), FateRead>>,
     queues: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     runs: Mutex<Vec<Run>>,
     next_run: AtomicU64,
@@ -390,10 +405,10 @@ impl ComputerBridgeRun {
         host: Arc<dyn BridgeHost>,
         secrets: Arc<dyn BridgeSecrets>,
         saved: Arc<dyn BridgeSavedLogins>,
-        blobs: Option<Arc<dyn ComputerBlobs>>,
+        blobs: Arc<dyn ComputerBlobs>,
         fill_turns: Arc<FillTurns>,
     ) -> Self {
-        Self { host, secrets, saved, blobs, fill_turns, owners: Arc::default(), queues: Mutex::default(), runs: Mutex::default(), next_run: AtomicU64::new(1), active: AtomicUsize::new(0) }
+        Self { host, secrets, saved, blobs, fill_turns, owners: Arc::default(), fates: Mutex::default(), queues: Mutex::default(), runs: Mutex::default(), next_run: AtomicU64::new(1), active: AtomicUsize::new(0) }
     }
 
     /// `assertPublicComputerRequest`: why the command is not a public one.
@@ -523,7 +538,9 @@ impl ComputerBridgeRun {
             }
             _ => {
                 let _turn = self.queued(session, cancel).await?;
-                if reads_pixels(action) {
+                // A command that may leave pixels looks at the detached owners' fate first when a guard could withhold it: a runtime
+                // that died after its connection dropped never leaves a guard stuck.
+                if self.saved.pixels_guarded() {
                     self.reconcile_owners().await;
                 }
                 // The fill is scoped to the runtime's own turn number, for as long as it runs.
@@ -594,10 +611,7 @@ impl ComputerBridgeRun {
                 ToolPart::Image { mime, data, .. } if image.is_none() => {
                     let bytes = match data {
                         ImageData::Bytes(bytes) => bytes,
-                        ImageData::Blob(digest) => match &self.blobs {
-                            Some(blobs) => blobs.read(digest.as_str()).await.map_err(|error| failure_text(&error))?,
-                            None => return Err("computer bridge returned an invalid or oversized image".into()),
-                        },
+                        ImageData::Blob(digest) => self.blobs.read(digest.as_str()).await.map_err(|error| failure_text(&error))?,
                     };
                     image = Some((mime, base64::engine::general_purpose::STANDARD.encode(bytes)));
                 }
@@ -667,21 +681,23 @@ impl ComputerBridgeRun {
         Ok(Answer::text("attached"))
     }
 
-    /// The OS's answer about a process (the helper's `process_fate`): `created` is its creation time when it could be read.
+    /// The OS's answer about a process (the helper's `process_fate`): `created` is its creation time when it could be read. Callers
+    /// that ask about the same process while a read is pending share it instead of making their own.
     async fn fate(&self, pid: u64, created: &str) -> (Fate, String) {
-        let command = json!({ "action": "process_fate", "pid": pid, "created": created }).as_object().cloned().unwrap_or_default();
-        let Ok(reply) = self.host.helper(FATE_SESSION, command).await else { return (Fate::Unknown, String::new()) };
-        let state = match reply.get("state").and_then(Value::as_str) {
-            Some("running") => Fate::Running,
-            Some("ended") => Fate::Ended,
-            _ => Fate::Unknown,
-        };
-        let created = match reply.get("created") {
-            Some(Value::String(text)) => text.clone(),
-            Some(Value::Number(number)) => number.to_string(),
-            _ => String::new(),
-        };
-        (state, created)
+        let key = (pid, created.to_owned());
+        let read = locked(&self.fates)
+            .entry(key.clone())
+            .or_insert_with(|| {
+                let (host, created) = (self.host.clone(), created.to_owned());
+                async move { read_fate(host.as_ref(), pid, &created).await }.boxed().shared()
+            })
+            .clone();
+        let answer = read.await;
+        let mut reads = locked(&self.fates);
+        if reads.get(&key).is_some_and(|held| held.peek().is_some()) {
+            reads.remove(&key);
+        }
+        answer
     }
 
     /// `reconcileSavedLoginOwners`: the protection of every owner with no attached connection whose process the OS proves ended
@@ -759,10 +775,21 @@ impl ComputerBridgeRun {
     }
 }
 
-/// A command that reads pixels looks at the detached owners' fate first: a runtime that died after its connection dropped never
-/// leaves a guard stuck.
-fn reads_pixels(action: &str) -> bool {
-    ["capture", "zoom", "screenshot"].contains(&action)
+/// One `process_fate` read of the helper.
+async fn read_fate(host: &dyn BridgeHost, pid: u64, created: &str) -> (Fate, String) {
+    let command = json!({ "action": "process_fate", "pid": pid, "created": created }).as_object().cloned().unwrap_or_default();
+    let Ok(reply) = host.helper(FATE_SESSION, command).await else { return (Fate::Unknown, String::new()) };
+    let state = match reply.get("state").and_then(Value::as_str) {
+        Some("running") => Fate::Running,
+        Some("ended") => Fate::Ended,
+        _ => Fate::Unknown,
+    };
+    let created = match reply.get("created") {
+        Some(Value::String(text)) => text.clone(),
+        Some(Value::Number(number)) => number.to_string(),
+        _ => String::new(),
+    };
+    (state, created)
 }
 
 fn decode<T: serde::de::DeserializeOwned>(req: &CoreRequest) -> Result<T, CoreError> {
@@ -848,6 +875,10 @@ fn tool_request(command: &Map<String, Value>) -> Option<ComputerRequest> {
             ComputerAction::Clipboard
         }
         "launch" => ComputerAction::Launch,
+        // A single input command is a sequence of one step, which settles and observes as the host's single path did. `toggle` is no
+        // step of a sequence: it stays the helper's own.
+        "invoke" | "set_value" | "click" | "double_click" | "right_click" | "middle_click" | "triple_click" | "mouse_down" | "mouse_up" | "mouse_move" | "drag" | "type" | "key"
+        | "key_down" | "key_up" | "scroll" => return Some(one_step(action.as_str()?, input)),
         "fill_saved_login" => {
             input.remove("delivery");
             if let Some(account) = input.remove("saved_account") {
@@ -858,6 +889,23 @@ fn tool_request(command: &Map<String, Value>) -> Option<ComputerRequest> {
         _ => return None,
     };
     Some(ComputerRequest { action: tool, input: Value::Object(input) })
+}
+
+/// The `act` a single input command is: what only the call names (the window or app, the frame, the delivery, what to observe
+/// after) is the call's, the rest is the one step.
+fn one_step(action: &str, mut input: Map<String, Value>) -> ComputerRequest {
+    let mut call = Map::new();
+    for key in ["window_id", "window", "app", "screen", "frame_id", "delivery"] {
+        if let Some(value) = input.remove(key) {
+            call.insert(key.into(), value);
+        }
+    }
+    if let Some(mode) = input.remove("capture_after_mode") {
+        call.insert("observe".into(), mode);
+    }
+    input.insert("action".into(), json!(action));
+    call.insert("actions".into(), Value::Array(vec![tool_step(Value::Object(input))]));
+    ComputerRequest { action: ComputerAction::Act, input: Value::Object(call) }
 }
 
 /// One host sequence step as the tool's `act.actions` entry (the inverse of `host_step`).
@@ -922,12 +970,32 @@ mod tests {
 
     const OWNER: &str = "0a1b2c3d-0000-4000-8000-0123456789ab";
 
-    /// A backend that records the requests it ran and answers a text and a two-byte image; `hang` never answers until cancelled.
+    /// A backend that records the requests it ran and answers a text and a two-byte image (a blob reference when `blob`); `hang`
+    /// never answers until cancelled.
     struct Backend {
         log: Arc<Mutex<Vec<(String, ComputerRequest)>>>,
         session: String,
         hang: bool,
         fail: bool,
+        blob: bool,
+    }
+
+    /// The blob store of the core: `sha256:` + 64 `a` is two bytes.
+    struct Blobs;
+
+    fn blob_digest() -> mixdog_protocol::BlobDigest {
+        mixdog_protocol::BlobDigest::try_from(format!("sha256:{}", "a".repeat(64))).unwrap_or_else(|error| panic!("{error}"))
+    }
+
+    #[async_trait]
+    impl ComputerBlobs for Blobs {
+        async fn read(&self, digest: &str) -> Result<Vec<u8>, ComputerError> {
+            if digest == blob_digest().as_str() {
+                Ok(vec![3, 4])
+            } else {
+                Err(ComputerError::Failed { code: "blob_missing".into(), message: format!("{digest}: no such blob") })
+            }
+        }
     }
 
     #[async_trait]
@@ -941,7 +1009,8 @@ mod tests {
             if self.fail {
                 return Err(ComputerError::Failed { code: "stale_frame".into(), message: "stale_frame: unknown frame_id".into() });
             }
-            Ok(vec![ToolPart::Text("{\"ok\":true,\"secret\":\"hunter2\"}".into()), ToolPart::Image { mime: "image/png".into(), data: ImageData::Bytes(vec![1, 2]), width: None, height: None }])
+            let data = if self.blob { ImageData::Blob(blob_digest()) } else { ImageData::Bytes(vec![1, 2]) };
+            Ok(vec![ToolPart::Text("{\"ok\":true,\"secret\":\"hunter2\"}".into()), ToolPart::Image { mime: "image/png".into(), data, width: None, height: None }])
         }
         fn inject(&self, _: ScreenInput) -> Result<InputOutcome, ComputerError> {
             Ok(InputOutcome::Applied)
@@ -970,26 +1039,32 @@ mod tests {
         events: Mutex<Vec<String>>,
         hang: bool,
         fail: bool,
+        blob: bool,
         helper_up: bool,
         abort_confirms: bool,
         /// What the helper answers a `process_fate` read with.
         fate: Mutex<String>,
+        /// A `process_fate` read waits for a permit of the gate.
+        fate_gate: Option<Arc<tokio::sync::Semaphore>>,
     }
 
     #[async_trait]
     impl BridgeHost for Host {
         fn backend(&self, session: &str) -> Arc<dyn ComputerBackend> {
-            Arc::new(Backend { log: self.log.clone(), session: session.to_owned(), hang: self.hang, fail: self.fail })
+            Arc::new(Backend { log: self.log.clone(), session: session.to_owned(), hang: self.hang, fail: self.fail, blob: self.blob })
         }
         async fn helper(&self, session: &str, command: Map<String, Value>) -> Result<Map<String, Value>, String> {
             let action = text_field(&command, "action").to_owned();
             locked(&self.helper).push((session.to_owned(), command));
             match action.as_str() {
                 "process_fate" => {
+                    if let Some(gate) = &self.fate_gate {
+                        let _permit = gate.acquire().await.unwrap_or_else(|error| panic!("{error}"));
+                    }
                     let state = locked(&self.fate).clone();
                     Ok(json!({ "state": state, "created": "133000000000000000" }).as_object().cloned().unwrap_or_default())
                 }
-                "key_down" => Err("computer_policy_denied: not authorized".into()),
+                "window_bounds" => Err("computer_policy_denied: not authorized".into()),
                 _ => Ok(json!({ "text": "typed hunter2" }).as_object().cloned().unwrap_or_default()),
             }
         }
@@ -1042,6 +1117,7 @@ mod tests {
         settled: Mutex<Vec<(String, u64)>>,
         admitted: AtomicU32,
         refuse: bool,
+        guarded: bool,
     }
 
     #[async_trait]
@@ -1056,6 +1132,9 @@ mod tests {
         async fn settle(&self, session: &str, turn: u64) {
             locked(&self.settled).push((session.to_owned(), turn));
         }
+        fn pixels_guarded(&self) -> bool {
+            self.guarded
+        }
     }
 
     struct Fixture {
@@ -1067,7 +1146,7 @@ mod tests {
 
     fn fixture_with(host: Host, saved: Saved) -> Fixture {
         let (host, secrets, saved) = (Arc::new(host), Arc::new(Secrets::default()), Arc::new(saved));
-        let service = Arc::new(ComputerBridgeRun::new(host.clone(), secrets.clone(), saved.clone(), None, Arc::new(FillTurns::default())));
+        let service = Arc::new(ComputerBridgeRun::new(host.clone(), secrets.clone(), saved.clone(), Arc::new(Blobs), Arc::new(FillTurns::default())));
         Fixture { service, host, secrets, saved }
     }
 
@@ -1116,11 +1195,14 @@ mod tests {
     #[tokio::test]
     async fn a_helper_command_goes_to_the_helper_and_a_failure_keeps_its_words() {
         let f = fixture();
-        let answer = run(&f, "s1", json!({ "action": "type", "session_id": "s1", "text": "x", "turn_id": 3, "runtime_id": OWNER })).await;
+        let answer = run(&f, "s1", json!({ "action": "find", "session_id": "s1", "text": "x", "turn_id": 3, "runtime_id": OWNER })).await;
         assert_eq!(answer["value"]["text"], json!("typed [redacted]"));
-        assert_eq!(locked(&f.host.helper)[0].1, json!({ "action": "type", "text": "x" }).as_object().cloned().unwrap_or_default());
-        let refused = run(&f, "s1", json!({ "action": "key_down", "key": "a" })).await;
+        assert_eq!(locked(&f.host.helper)[0].1, json!({ "action": "find", "text": "x" }).as_object().cloned().unwrap_or_default());
+        let refused = run(&f, "s1", json!({ "action": "window_bounds", "window_id": "w" })).await;
         assert_eq!(error_of(&refused), "computer_policy_denied: not authorized");
+        let toggled = run(&f, "s1", json!({ "action": "toggle", "ref": "e1" })).await;
+        assert_eq!(toggled["value"]["text"], json!("typed [redacted]"));
+        assert!(locked(&f.host.log).is_empty(), "no tool action ran for them");
         let failing = fixture_with(Host { fail: true, ..Host::default() }, Saved::default());
         let answer = run(&failing, "s1", json!({ "action": "list_windows" })).await;
         assert_eq!(error_of(&answer), "stale_frame: unknown frame_id");
@@ -1396,7 +1478,7 @@ mod tests {
     /// unknown answer keeps it.
     #[tokio::test]
     async fn an_owner_retires_only_on_proof_its_process_ended() {
-        let f = fixture();
+        let f = fixture_with(Host { abort_confirms: true, ..Host::default() }, Saved { guarded: true, ..Saved::default() });
         *locked(&f.host.fate) = "running".into();
         run(&f, "s1", json!({ "action": "owner_attach", "runtime_id": OWNER, "pid": 4321 })).await;
         assert_eq!(run(&f, "s1", fill(3)).await["ok"], json!(true));
@@ -1437,6 +1519,90 @@ mod tests {
         assert_eq!(error_of(&f.service.seal("s1", &command, Ok(gif)).await), "computer bridge returned an invalid or oversized image");
         let secret = f.service.seal("s1", &command, Err("typed hunter2".into())).await;
         assert_eq!(error_of(&secret), "typed [redacted]");
+    }
+
+    /// A single input command is a sequence of one step: the call's window, frame and delivery stay the call's, the rest is the step,
+    /// and what to observe after it is the call's `observe`.
+    #[test]
+    fn a_single_input_command_is_a_sequence_of_one_step() {
+        let command = |value: Value| value.as_object().cloned().unwrap_or_default();
+        let request = tool_request(&command(json!({ "action": "right_click", "window_id": "w", "frame_id": "f", "x": 1, "y": 2, "delivery": "foreground", "capture_after_mode": "ax", "session_id": "s1" })))
+            .unwrap_or_else(|| panic!("a click is a step"));
+        assert_eq!(request.action, ComputerAction::Act);
+        assert_eq!(
+            request.input,
+            json!({ "window_id": "w", "frame_id": "f", "delivery": "foreground", "observe": "ax", "actions": [{ "type": "click", "button": "right", "x": 1, "y": 2 }] })
+        );
+        let input = request.input.as_object().cloned().unwrap_or_default();
+        let back = host_command(request.action, &input).unwrap_or_else(|error| panic!("{error:?}"));
+        assert_eq!(
+            Value::Object(back),
+            json!({ "action": "sequence", "window_id": "w", "delivery": "foreground", "capture_after_mode": "ax", "steps": [{ "action": "right_click", "x": 1, "y": 2, "frame_id": "f" }] })
+        );
+        for action in ["invoke", "set_value", "click", "double_click", "right_click", "middle_click", "triple_click", "mouse_down", "mouse_up", "mouse_move", "drag", "type", "key", "key_down", "key_up", "scroll"] {
+            let request = tool_request(&command(json!({ "action": action, "window_id": "w" }))).unwrap_or_else(|| panic!("{action} is a step"));
+            assert_eq!(request.action, ComputerAction::Act, "{action}");
+        }
+    }
+
+    /// A raw input command runs through the session's backend (settle and observation), never the helper directly.
+    #[tokio::test]
+    async fn a_raw_input_command_runs_through_the_backend_and_carries_its_observation() {
+        let f = fixture();
+        let answer = run(&f, "s1", json!({ "action": "key", "session_id": "s1", "window_id": "w", "keys": "Enter" })).await;
+        assert_eq!(answer["ok"], json!(true), "{answer}");
+        assert_eq!(answer["value"]["image"], json!({ "data": "AQI=", "mimeType": "image/png" }));
+        let ran = locked(&f.host.log);
+        assert_eq!(ran.len(), 1);
+        assert_eq!(ran[0].1.action, ComputerAction::Act);
+        assert_eq!(ran[0].1.input["actions"], json!([{ "type": "key", "keys": "Enter" }]));
+        assert!(locked(&f.host.helper).is_empty());
+    }
+
+    /// An image the backend keeps in the core's blob store is read from it, and one the store does not hold fails with the store's words.
+    #[tokio::test]
+    async fn a_blob_image_is_read_from_the_blob_store() {
+        let f = fixture_with(Host { blob: true, ..Host::default() }, Saved::default());
+        let answer = run(&f, "s1", json!({ "action": "capture", "app": "a" })).await;
+        assert_eq!(answer["value"]["image"], json!({ "data": "AwQ=", "mimeType": "image/png" }), "{answer}");
+        let missing = f.service.parts(vec![ToolPart::Image { mime: "image/png".into(), data: ImageData::Blob(mixdog_protocol::BlobDigest::try_from(format!("sha256:{}", "b".repeat(64))).unwrap_or_else(|error| panic!("{error}"))), width: None, height: None }]).await;
+        assert!(missing.is_err_and(|message| message.contains("no such blob")));
+    }
+
+    /// A detached owner's process is asked about only when a pixel guard is live, by any command that may leave pixels.
+    #[tokio::test]
+    async fn the_owner_fate_is_read_only_while_a_pixel_guard_is_live() {
+        let fates = |f: &Fixture| locked(&f.host.helper).iter().filter(|(_, command)| text_field(command, "action") == "process_fate").count();
+        for guarded in [false, true] {
+            let f = fixture_with(Host { abort_confirms: true, ..Host::default() }, Saved { guarded, ..Saved::default() });
+            *locked(&f.host.fate) = "running".into();
+            run(&f, "s1", json!({ "action": "owner_attach", "runtime_id": OWNER, "pid": 4321 })).await;
+            run(&f, "s1", json!({ "action": "owner_detach", "runtime_id": OWNER })).await;
+            let after_detach = fates(&f);
+            assert_eq!(after_detach, 2, "the attach and the detach each looked");
+            run(&f, "s1", json!({ "action": "click", "window_id": "w", "x": 1, "y": 2 })).await;
+            assert_eq!(fates(&f), if guarded { 3 } else { 2 }, "guarded: {guarded}");
+        }
+    }
+
+    /// Callers that ask about one process while the read is pending share it.
+    #[tokio::test]
+    async fn concurrent_fate_reads_share_one_helper_call() {
+        let gate = Arc::new(tokio::sync::Semaphore::new(0));
+        let f = fixture_with(Host { fate_gate: Some(gate.clone()), ..Host::default() }, Saved::default());
+        *locked(&f.host.fate) = "running".into();
+        let service = f.service.clone();
+        let release = async {
+            for _ in 0..50 {
+                tokio::task::yield_now().await;
+            }
+            gate.add_permits(1);
+        };
+        let (a, b, ()) = tokio::join!(service.fate(7, ""), service.fate(7, ""), release);
+        assert_eq!((a.0, b.0), (Fate::Running, Fate::Running));
+        let reads = locked(&f.host.helper).iter().filter(|(_, command)| text_field(command, "action") == "process_fate").count();
+        assert_eq!(reads, 1);
+        assert!(locked(&service.fates).is_empty(), "a finished read is forgotten");
     }
 
     /// The bridge command of every tool action becomes the tool's request, and the tool's own conversion gives the command back.
@@ -1481,7 +1647,7 @@ mod tests {
             }
             assert_eq!(Value::Object(back), Value::Object(expected), "{bridge}");
         }
-        for helper in ["click", "type", "key", "find", "window_bounds", "snapshot", "screenshot", "wait", "window_predicates"] {
+        for helper in ["toggle", "find", "window_bounds", "snapshot", "screenshot", "wait", "window_predicates"] {
             assert!(tool_request(&command(json!({ "action": helper }))).is_none(), "{helper} is the helper's own");
         }
     }
