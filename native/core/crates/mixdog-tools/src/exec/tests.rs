@@ -2863,7 +2863,12 @@ fn the_shell_argument_guard_answers_with_the_texts_of_the_argument_guard() {
     assert_eq!(refusal(serde_json::json!([1])), "Error: shell arguments must be an object (got array)");
     assert_eq!(refusal(JsonValue::Null), "Error: shell requires arguments object (got null)");
 
-    // Nulls mean "not sent", an empty list is dropped before the key is checked, and a long wait is clamped.
-    let ok = shell::guard_shell_args(serde_json::json!({"command": "ls", "cwd": null, "path": [], "wait_ms": 9_999_999, "timeout_ms": 5000})).unwrap();
+    // An empty list is left as sent (`normalizeStringListArgs` keeps it) and so is refused as an unknown key.
+    assert_eq!(
+        refusal(serde_json::json!({"command": "ls", "path": []})),
+        "Error: shell arg \"path\" is unsupported; use only command, cwd, timeout_ms, wait_ms, and background"
+    );
+    // Nulls mean "not sent", a list of blanks is dropped before the key is checked, and a long wait is clamped.
+    let ok = shell::guard_shell_args(serde_json::json!({"command": "ls", "cwd": null, "path": ["", null], "wait_ms": 9_999_999, "timeout_ms": 5000})).unwrap();
     assert_eq!(ok, serde_json::json!({"command": "ls", "wait_ms": 600000, "timeout_ms": 5000}));
 }
