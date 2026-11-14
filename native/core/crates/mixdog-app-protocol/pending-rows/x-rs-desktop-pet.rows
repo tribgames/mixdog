@@ -26,9 +26,10 @@
 none
 
 [notifications]
+# notifications.rs has no `use crate::v2;`: the type is named by its crate path.
 # Paste after the row `UiProviderModelsChanged => "ui/providerModels/changed" ...` in the server notification table.
     /// The pet's stored settings after a `desktopPet/state/write`.
-    DesktopPetStateChanged => "desktopPet/state/changed" (v2::desktop_pet::DesktopPetStateChangedParams) @app,
+    DesktopPetStateChanged => "desktopPet/state/changed" (crate::v2::desktop_pet::DesktopPetStateChangedParams) @app,
 
 [inventory]
 none: the inventory is the frozen 1.4.5 list; these are new methods.
