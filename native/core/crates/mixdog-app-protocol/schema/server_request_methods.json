@@ -233,6 +233,24 @@
       ],
       "type": "object"
     },
+    "BrowserFrameOffset": {
+      "description": "The offset of a cross-origin frame in the top viewport.",
+      "properties": {
+        "x": {
+          "format": "double",
+          "type": "number"
+        },
+        "y": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y"
+      ],
+      "type": "object"
+    },
     "BrowserHitGuard": {
       "properties": {
         "ref": {
@@ -365,6 +383,25 @@
       ],
       "type": "object"
     },
+    "BrowserMintedRef": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "ref",
+        "role"
+      ],
+      "type": "object"
+    },
     "BrowserNavigateKind": {
       "enum": [
         "url",
@@ -444,6 +481,15 @@
           ]
         },
         "maxChars": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "offset": {
+          "description": "Where a text read starts, in UTF-16 units: a text longer than one read returns is read in parts.",
           "format": "uint32",
           "minimum": 0.0,
           "type": [
@@ -554,18 +600,29 @@
       "type": "string"
     },
     "BrowserPointerKind": {
-      "enum": [
-        "move",
-        "click",
-        "dblclick",
-        "hover",
-        "down",
-        "up",
-        "wheel",
-        "tap",
-        "dragTo"
-      ],
-      "type": "string"
+      "oneOf": [
+        {
+          "enum": [
+            "move",
+            "click",
+            "dblclick",
+            "hover",
+            "down",
+            "up",
+            "wheel",
+            "tap",
+            "dragTo"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "A touch drag: a contact at (x, y) moved to (toX, toY) and lifted (`swipeAt` of the touch input driver). Takes `toX` and `toY` like `dragTo`.",
+          "enum": [
+            "swipe"
+          ],
+          "type": "string"
+        }
+      ]
     },
     "BrowserRefusedRequest": {
       "properties": {
@@ -1601,6 +1658,13 @@
             "null"
           ]
         },
+        "checkUnchanged": {
+          "description": "The caller holds refs it would keep if the script left the page alone: the host reads the page's observation revision (after a render checkpoint) before and after the script and answers `unchanged`.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "expect": {
           "anyOf": [
             {
@@ -1670,6 +1734,13 @@
         },
         "facts": {
           "$ref": "#/definitions/PageFacts"
+        },
+        "unchanged": {
+          "description": "With `checkUnchanged`: the script left the document, URL, DOM, scroll and input as they were, opened no popup and raised no dialog. Absent when it was not asked, or the page could not be read before or after (a frame that never confirmed its render checkpoint is unknown, not unchanged).",
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "value": true
       },
@@ -2181,9 +2252,90 @@
         "facts": {
           "$ref": "#/definitions/PageFacts"
         },
+        "frameOffset": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/BrowserFrameOffset"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where the cross-origin frame the ref lives in sits in the top viewport (absent in the top document, whose points need no offset)."
+        },
         "value": true
       },
       "required": [
+        "facts"
+      ],
+      "type": "object"
+    },
+    "HostBrowserRefMintParams": {
+      "description": "`host/browser/ref/mint` (core to host): the refs of the top-document nodes a CSS selector names, on a page whose refs come from the accessibility tree. A node the snapshot lists keeps its ref; any other gets one minted in the host's ref table, bound like a listed one, so `ref/call` and the pointer resolve it the same way.",
+      "properties": {
+        "expect": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Precondition"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "limit": {
+          "description": "More matches than this answer only their count.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "pageId": {
+          "type": "string"
+        },
+        "selector": {
+          "type": "string"
+        },
+        "snapshotId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "limit",
+        "pageId",
+        "selector",
+        "snapshotId"
+      ],
+      "type": "object"
+    },
+    "HostBrowserRefMintResult": {
+      "properties": {
+        "count": {
+          "description": "How many nodes the selector matched.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "facts": {
+          "$ref": "#/definitions/PageFacts"
+        },
+        "invalid": {
+          "description": "The page's own message when the selector is not valid CSS.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "matches": {
+          "default": [],
+          "description": "In document order; empty past the limit.",
+          "items": {
+            "$ref": "#/definitions/BrowserMintedRef"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "count",
         "facts"
       ],
       "type": "object"
@@ -2340,6 +2492,13 @@
         },
         "facts": {
           "$ref": "#/definitions/PageFacts"
+        },
+        "observation": {
+          "description": "The whole observation revision of the page (every frame's document, viewport, scroll position, DOM-change counter and scroller counters, `|`-separated); the core judges \"no observable change\" by it. Absent from an older host.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "payload": {
           "$ref": "#/definitions/BrowserSnapshotPayload"
@@ -6962,6 +7121,14 @@
       },
       "result": {
         "$ref": "#/definitions/HostBrowserRefCallResult"
+      }
+    },
+    "host/browser/ref/mint": {
+      "params": {
+        "$ref": "#/definitions/HostBrowserRefMintParams"
+      },
+      "result": {
+        "$ref": "#/definitions/HostBrowserRefMintResult"
       }
     },
     "host/browser/screenshot": {

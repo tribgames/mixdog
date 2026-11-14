@@ -138,6 +138,12 @@ crate::server_request_definitions! {
         result: HostBrowserRefCallResult,
         requires: Some("host.browserEngine"),
     },
+    /// Mint refs for the nodes a CSS selector names in the top document.
+    HostBrowserRefMint => "host/browser/ref/mint" {
+        params: HostBrowserRefMintParams,
+        result: HostBrowserRefMintResult,
+        requires: Some("host.browserEngine"),
+    },
     /// Dispatch a batch of keyboard and pointer steps.
     HostBrowserInputBatch => "host/browser/input/batch" {
         params: HostBrowserInputBatchParams,
