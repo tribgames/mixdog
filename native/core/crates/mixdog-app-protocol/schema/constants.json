@@ -304,6 +304,12 @@
       "keyed": false,
       "notification": "system/ports/updated",
       "section": "ports"
+    },
+    {
+      "feed": "connections",
+      "keyed": true,
+      "notification": "connections/updated",
+      "section": "connections"
     }
   ]
 }

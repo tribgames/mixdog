@@ -307,6 +307,127 @@
       ],
       "type": "string"
     },
+    "ConnectionNotice": {
+      "description": "What the core tells a server window once it is attached again.",
+      "oneOf": [
+        {
+          "description": "The window is attached again. Session titles whose turn finished or kept running on the server meanwhile, and model calls that broke off.",
+          "properties": {
+            "continued": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "finished": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "interruptedModelCalls": {
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "kind": {
+              "enum": [
+                "reattached"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "continued",
+            "finished",
+            "interruptedModelCalls",
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Tool calls whose result never arrived; they are not run again.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "outcome-unknown"
+              ],
+              "type": "string"
+            },
+            "sessionId": {
+              "type": "string"
+            },
+            "toolIds": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "sessionId",
+            "toolIds"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "This PC's model sign-in was refused during the server's turn.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "model-sign-in"
+              ],
+              "type": "string"
+            },
+            "provider": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "provider"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ConnectionsNoticeParams": {
+      "description": "`connections/notice`: to every subscriber of that connection.",
+      "properties": {
+        "connectionId": {
+          "type": "string"
+        },
+        "notice": {
+          "$ref": "#/definitions/ConnectionNotice"
+        }
+      },
+      "required": [
+        "connectionId",
+        "notice"
+      ],
+      "type": "object"
+    },
+    "ConnectionsSignInParams": {
+      "description": "`connections/signIn`, to this PC's window: a server window needs the user's connect attempt (sign in again, or confirm a changed host key).",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "target"
+      ],
+      "type": "object"
+    },
     "CoreDrainParams": {
       "description": "Notification `core/drain` (`lifecycle-remote.md` §5.1 step 2): the core is draining; sent to every connected client with what is still running, and the token that authorizes an abort.",
       "properties": {
@@ -584,6 +705,22 @@
       ],
       "type": "string"
     },
+    "HostBrowserLeaseReleaseParams": {
+      "description": "`host/browser/lease/release` (core to host notification): the lease on a page ended.",
+      "properties": {
+        "leaseId": {
+          "type": "string"
+        },
+        "pageId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "leaseId",
+        "pageId"
+      ],
+      "type": "object"
+    },
     "HostBrowserViewFramesParams": {
       "description": "A subscriber change → `on` with the largest options of the session's subscribers, last subscriber gone → `off` (SPEC §4.7.3; Node's `browserRemote('stream', [sessionId, options | null])`).",
       "properties": {
@@ -615,6 +752,20 @@
       "properties": {
         "body": {
           "type": "string"
+        },
+        "connectionId": {
+          "description": "The server connection the notification is for (a server's notifier), so a click focuses that server's window.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "label": {
+          "description": "The server's name, shown as the notification's source.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "sound": {
           "type": [
@@ -2816,7 +2967,7 @@
           "type": "string"
         },
         {
-          "description": "Desktop host state; key = `browserTabs` | `browserImport` | `visualize` | `displayPreferences` (desktop-published), or `remoteViewing` (core-published: the session ids paired devices show).",
+          "description": "Desktop host state; key = `browserTabs` | `browserImport` | `visualize` | `displayPreferences` | `windowFocus` (desktop-published), or `remoteViewing` (core-published: the session ids paired devices show).",
           "enum": [
             "hostState"
           ],
@@ -2896,6 +3047,13 @@
           "description": "Listening ports (scoped feed `ports`).",
           "enum": [
             "ports"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Server connections (scoped feed `connections`, from `connections/subscribe`). Keys: `hosts` (the saved SSH servers), `restore` ({enabled, progress}), `link/<connectionId>` (ConnectionLinkView), `ports/<connectionId>` (ServerPortsView).",
+          "enum": [
+            "connections"
           ],
           "type": "string"
         }
@@ -3006,6 +3164,220 @@
       },
       "required": [
         "at",
+        "id"
+      ],
+      "type": "object"
+    },
+    "SshAskpass": {
+      "description": "A question from ssh (passphrase, password, one-time code) for the user; `close` withdraws it.",
+      "properties": {
+        "attemptId": {
+          "description": "The connect attempt or cleanup the question belongs to.",
+          "type": "string"
+        },
+        "host": {
+          "description": "The server the question comes from, shown above text the server supplied.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "$ref": "#/definitions/SshAskpassKind"
+        },
+        "prompt": {
+          "description": "The prompt exactly as ssh printed it.",
+          "type": "string"
+        },
+        "requestId": {
+          "type": "string"
+        },
+        "retry": {
+          "description": "The previous answer was refused.",
+          "type": "boolean"
+        },
+        "timeoutMs": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "attemptId",
+        "kind",
+        "prompt",
+        "requestId",
+        "retry",
+        "timeoutMs"
+      ],
+      "type": "object"
+    },
+    "SshAskpassKind": {
+      "oneOf": [
+        {
+          "enum": [
+            "passphrase",
+            "password",
+            "otp",
+            "other"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Withdraws the question.",
+          "enum": [
+            "close"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "SshCleanupPhase": {
+      "enum": [
+        "connect",
+        "stop",
+        "remove",
+        "done"
+      ],
+      "type": "string"
+    },
+    "SshCleanupProgressParams": {
+      "description": "`connections/ssh/cleanupProgress`: the progress with the saved server it is for.",
+      "properties": {
+        "detail": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "operationId": {
+          "type": "string"
+        },
+        "phase": {
+          "$ref": "#/definitions/SshCleanupPhase"
+        }
+      },
+      "required": [
+        "id",
+        "operationId",
+        "phase"
+      ],
+      "type": "object"
+    },
+    "SshPhase": {
+      "description": "Where an ssh attempt is: reaching the server, checking it, installing, starting its daemon.",
+      "enum": [
+        "connect",
+        "check",
+        "install",
+        "start",
+        "ready"
+      ],
+      "type": "string"
+    },
+    "SshProgress": {
+      "properties": {
+        "attemptId": {
+          "type": "string"
+        },
+        "detail": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "phase": {
+          "$ref": "#/definitions/SshPhase"
+        }
+      },
+      "required": [
+        "attemptId",
+        "phase"
+      ],
+      "type": "object"
+    },
+    "SshServerLoginFlow": {
+      "description": "A subscription login running on the server; `forwarded`: the provider's localhost callback port is forwarded from this PC while it is pending.",
+      "properties": {
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "flowId": {
+          "type": "string"
+        },
+        "forwarded": {
+          "type": "boolean"
+        },
+        "manualCodeSupported": {
+          "description": "Whether a pasted address or code can complete the login (absent: unknown, offered).",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "openUrl": {
+          "description": "Set by `connections/ssh/serverLoginBegin`: the address the renderer opens with the existing `openExternal` call.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "provider": {
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/definitions/SshServerLoginFlowState"
+        },
+        "url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "userCode": {
+          "description": "The device code the provider's page asks for, when the URL does not carry it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "flowId",
+        "forwarded",
+        "provider",
+        "state"
+      ],
+      "type": "object"
+    },
+    "SshServerLoginFlowState": {
+      "enum": [
+        "pending",
+        "complete",
+        "failed",
+        "cancelled",
+        "expired"
+      ],
+      "type": "string"
+    },
+    "SshServerLoginUpdatedParams": {
+      "description": "`connections/ssh/serverLoginUpdated`.",
+      "properties": {
+        "flow": {
+          "$ref": "#/definitions/SshServerLoginFlow"
+        },
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "flow",
         "id"
       ],
       "type": "object"
@@ -6503,6 +6875,25 @@
       "type": "object"
     },
     {
+      "description": "The lease on a page ended (the host stops keeping it alive for the command that took it).",
+      "properties": {
+        "method": {
+          "enum": [
+            "host/browser/lease/release"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostBrowserLeaseReleaseParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
       "description": "The core's live-view signal to one phone (offer, candidate, promote, demote, close, geometry).",
       "properties": {
         "method": {
@@ -6566,6 +6957,120 @@
         },
         "params": {
           "$ref": "#/definitions/ModelProxyCancelParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A question from ssh for the user, to the connection that owns the attempt.",
+      "properties": {
+        "method": {
+          "enum": [
+            "connections/ssh/askpass"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SshAskpass"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Where a connect attempt is, to the connection that owns it.",
+      "properties": {
+        "method": {
+          "enum": [
+            "connections/ssh/progress"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SshProgress"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Where a server cleanup is.",
+      "properties": {
+        "method": {
+          "enum": [
+            "connections/ssh/cleanupProgress"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SshCleanupProgressParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A server login flow moved on (the server's `login:<flowId>` feed).",
+      "properties": {
+        "method": {
+          "enum": [
+            "connections/ssh/serverLoginUpdated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SshServerLoginUpdatedParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "To every subscriber of that connection: the window is attached again, a tool outcome is unknown, a model sign-in was refused.",
+      "properties": {
+        "method": {
+          "enum": [
+            "connections/notice"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ConnectionsNoticeParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "To the main window's subscribers: a server window needs the user's connect attempt.",
+      "properties": {
+        "method": {
+          "enum": [
+            "connections/signIn"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ConnectionsSignInParams"
         }
       },
       "required": [
@@ -7467,6 +7972,25 @@
         "method": {
           "enum": [
             "system/ports/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/SectionUpdate"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Section `connections`: keys `hosts` (SshHost[]), `restore` ({enabled, progress}), `link/<id>` (ConnectionLinkView), `ports/<id>` (ServerPortsView).",
+      "properties": {
+        "method": {
+          "enum": [
+            "connections/updated"
           ],
           "type": "string"
         },

@@ -1434,6 +1434,71 @@
       ],
       "type": "object"
     },
+    "BrowserEngineCapability": {
+      "description": "`capabilities.host.browserEngine`: this host serves the `host/browser/*` engine lane. `features` names optional parts of version 1 the host implements; a host that omits the capability gets the `host/browser/command` forward path.",
+      "properties": {
+        "features": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "version": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "version"
+      ],
+      "type": "object"
+    },
+    "BrowserEngineTestRunParams": {
+      "description": "`test/browserEngine/run`: one tool call run through the engine. Registered only when mixdogd starts with MIXDOGD_TEST_HOOKS=1.",
+      "properties": {
+        "args": true,
+        "threadId": {
+          "type": "string"
+        },
+        "tool": {
+          "$ref": "#/definitions/BrowserTestTool"
+        }
+      },
+      "required": [
+        "args",
+        "threadId",
+        "tool"
+      ],
+      "type": "object"
+    },
+    "BrowserEngineTestRunResult": {
+      "properties": {
+        "image": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/BrowserTestRunImage"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "isError": {
+          "type": "boolean"
+        },
+        "outcome": true,
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "isError",
+        "text"
+      ],
+      "type": "object"
+    },
     "BrowserStreamParams": {
       "description": "Params of `browser/stream` (a phone's request, Node's `browserRemoteStream([sessionId, options])`): `on` starts or renews this connection's subscription to the browser session with `request` (Node's `DesktopRemoteBrowserStreamOptions` `{maxWidth, maxHeight, fit?}`, checked as `normalizeRemoteBrowserStreamOptions` checks it); `on: false` ends it (Node's `null` options). A subscription lapses 4 s after its last renewal. On every change the core sends the host `host/browser/viewFrames{on:true, request}` with the largest options of the session's subscribers, and `{on:false}` when the last one ends; the phone's live-view signals name only a session it streams.",
       "properties": {
@@ -1450,6 +1515,28 @@
         "sessionId"
       ],
       "type": "object"
+    },
+    "BrowserTestRunImage": {
+      "properties": {
+        "data": {
+          "type": "string"
+        },
+        "mimeType": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "data",
+        "mimeType"
+      ],
+      "type": "object"
+    },
+    "BrowserTestTool": {
+      "enum": [
+        "browser",
+        "browser_devtools"
+      ],
+      "type": "string"
     },
     "BrowserWebrtcSignalParams": {
       "description": "A phone's live-view signal (`browser/webrtcSignal` request, Node's `browserRemoteWebrtcSignal` call) and the core's signal to that phone (the `browser/webrtcSignal` push, Node's `browserRemoteWebrtc` event). `signal` is the validated wire object of `mixdog-remote::webrtc::signal` (`ClientSignal` / `DesktopSignal`).",
@@ -1844,6 +1931,46 @@
         "no_change"
       ],
       "type": "string"
+    },
+    "ComputerUserControlAction": {
+      "description": "What the Computer Use pill asks of `computer/userControl`.",
+      "enum": [
+        "resume",
+        "stop",
+        "pause"
+      ],
+      "type": "string"
+    },
+    "ComputerUserControlParams": {
+      "description": "Params of `computer/userControl` (desktop → core): the pill's Resume or Stop of the user's hold on the desktop.",
+      "properties": {
+        "action": {
+          "$ref": "#/definitions/ComputerUserControlAction"
+        },
+        "sessionThreadId": {
+          "description": "The session the pill acts for; absent: every session.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "type": "object"
+    },
+    "ComputerUserControlResult": {
+      "description": "Result of `computer/userControl`: whether the user's hold changed.",
+      "properties": {
+        "ok": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "ok"
+      ],
+      "type": "object"
     },
     "ConfigBatchWriteParams": {
       "additionalProperties": false,
@@ -3040,6 +3167,38 @@
       ],
       "type": "object"
     },
+    "ConnectionEndpoint": {
+      "description": "`connections/endpoint`: where a server window's relay dials the tunnel.",
+      "properties": {
+        "serverInstanceId": {
+          "type": "string"
+        },
+        "token": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "serverInstanceId",
+        "token",
+        "url"
+      ],
+      "type": "object"
+    },
+    "ConnectionIdParams": {
+      "description": "A connection (`local` or a saved server's id): `link/get`, `link/retry`, `link/retryNow`, `link/requestSignIn`, `ports/list`, `endpoint`.",
+      "properties": {
+        "connectionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "connectionId"
+      ],
+      "type": "object"
+    },
     "ConnectionInfo": {
       "description": "What the core knows about this connection.",
       "properties": {
@@ -3067,6 +3226,202 @@
         "channelBridge"
       ],
       "type": "string"
+    },
+    "ConnectionLinkState": {
+      "description": "What the window shows while the tunnel is up, recovering, lost or paused for sleep.",
+      "oneOf": [
+        {
+          "properties": {
+            "status": {
+              "enum": [
+                "connected"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "status"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "attempt": {
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "nextRetryAt": {
+              "description": "Epoch ms; `null` while an attempt is running.",
+              "format": "int64",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "status": {
+              "enum": [
+                "reconnecting"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "attempt",
+            "status"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`terminal`: only a new connection can fix it (host key, login, server install). `settingsRequired`: it needs the user's confirmation, which only Settings -> Connection in this PC's window can give.",
+          "properties": {
+            "code": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            },
+            "settingsRequired": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "status": {
+              "enum": [
+                "lost"
+              ],
+              "type": "string"
+            },
+            "terminal": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "code",
+            "message",
+            "status",
+            "terminal"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "This PC is asleep: not a failure.",
+          "properties": {
+            "status": {
+              "enum": [
+                "paused"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "status"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ConnectionLinkView": {
+      "properties": {
+        "connectionId": {
+          "type": "string"
+        },
+        "modelLogin": {
+          "$ref": "#/definitions/SshModelLogin",
+          "description": "Whose provider logins the server's models run on: `server` shows the \"Server account\" badge beside the model name."
+        },
+        "rttMs": {
+          "description": "Last health round trip through the tunnel in ms; `null` before the first.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "state": {
+          "$ref": "#/definitions/ConnectionLinkState"
+        },
+        "terminalsAvailable": {
+          "description": "`false` when the server cannot run terminals; everything else still works.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "connectionId",
+        "modelLogin",
+        "state",
+        "terminalsAvailable"
+      ],
+      "type": "object"
+    },
+    "ConnectionsIdParams": {
+      "description": "A saved server or a saved remote PC by its id (`ssh/forget`, `ssh/open`, `ssh/serverLogins`, `remoteHosts/forget`).",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "ConnectionsNoParams": {
+      "description": "Params of a method that takes nothing.",
+      "type": "object"
+    },
+    "ConnectionsRenameParams": {
+      "description": "`connections/ssh/rename`, `remoteHosts/rename`.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "type": "object"
+    },
+    "ConnectionsRestoreState": {
+      "description": "`connections/restore/get` result and `connections/restore/set` params: \"Reopen server windows when the app starts\".",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "enabled"
+      ],
+      "type": "object"
+    },
+    "ConnectionsSubscribeParams": {
+      "description": "`connections/subscribe`: with `connectionId` only `link/<id>` and `ports/<id>` are delivered.",
+      "properties": {
+        "connectionId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "ConnectionsUnsubscribeParams": {
+      "properties": {
+        "subscriptionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "subscriptionId"
+      ],
+      "type": "object"
     },
     "ConnectorAddConnectorAccountParams": {
       "description": "Params of `connector/addConnectorAccount`.",
@@ -4895,6 +5250,17 @@
           "description": "In-app browser: `host/browser/command`, `item/browser/requestApproval` presentation.",
           "type": "boolean"
         },
+        "browserEngine": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/BrowserEngineCapability"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The browser engine lane (`host/browser/*`, version 1); absent = the `host/browser/command` forward path."
+        },
         "computer": {
           "default": false,
           "description": "Computer Use screen reads: `host/computer/capture`, `host/computer/displays`.",
@@ -4933,6 +5299,11 @@
         "visualize": {
           "default": false,
           "type": "boolean"
+        },
+        "windows": {
+          "default": false,
+          "description": "Window objects of the desktop: `host/window/open`, `host/window/close`, `host/window/focus`; sends `host/window/closed`.",
+          "type": "boolean"
         }
       },
       "type": "object"
@@ -4942,11 +5313,42 @@
       "properties": {
         "hostId": {
           "type": "string"
+        },
+        "resources": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/HostClaimResources"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where the desktop keeps the server cores and the askpass helper the core launches."
         }
       },
       "required": [
         "hostId"
       ],
+      "type": "object"
+    },
+    "HostClaimResources": {
+      "description": "Where the desktop keeps what the core launches: `host/claim` `resources`. The core reads them after the environment variables `MIXDOG_SERVER_CORES_DIR` and `MIXDOG_ASKPASS_HELPER`.",
+      "properties": {
+        "askpassHelper": {
+          "description": "The `mixdog-askpass` binary ssh runs as `SSH_ASKPASS`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "serverCoresDir": {
+          "description": "The server cores a connection installs on a server.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
       "type": "object"
     },
     "HostHumanOnlyBeginParams": {
@@ -5066,6 +5468,24 @@
               "type": "string"
             },
             "value": true
+          },
+          "required": [
+            "key",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "key": {
+              "enum": [
+                "windowFocus"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/WindowFocusValue"
+            }
           },
           "required": [
             "key",
@@ -8324,6 +8744,145 @@
       ],
       "type": "object"
     },
+    "PcAccessApproval": {
+      "description": "Result of `pcAccess/approve`. `detail` is an English diagnostic for logs, never shown as copy; `exitCode` is the installer's own exit code when a `failed` came from it exiting (the row shows it as a translated line).",
+      "properties": {
+        "detail": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "exitCode": {
+          "format": "int32",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "outcome": {
+          "$ref": "#/definitions/PcAccessOutcome"
+        }
+      },
+      "required": [
+        "outcome"
+      ],
+      "type": "object"
+    },
+    "PcAccessApproveParams": {
+      "description": "Params of `pcAccess/approve`: none. The person is at the PC: this is the one UAC prompt.",
+      "type": "object"
+    },
+    "PcAccessOutcome": {
+      "description": "How an Approve ended.",
+      "oneOf": [
+        {
+          "enum": [
+            "installed",
+            "updated",
+            "enrolled",
+            "declined",
+            "failed",
+            "in-progress"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Nothing to install, enroll or revoke.",
+          "enum": [
+            "nothing"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Another Windows account owns the service.",
+          "enum": [
+            "other-user"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "PC access cannot be asked on this machine.",
+          "enum": [
+            "unavailable"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "PcAccessOwed": {
+      "description": "The revocations still owed to the service: the access keys of removed pairings whose revoke is not confirmed, and a count that is above zero while revocations may be missing (a damaged or full record, an unreadable key).",
+      "properties": {
+        "keys": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "unknown": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "keys",
+        "unknown"
+      ],
+      "type": "object"
+    },
+    "PcAccessReadiness": {
+      "description": "Result of `pcAccess/readiness`.",
+      "properties": {
+        "enrolledKeys": {
+          "description": "Paired phones' keys the installed service holds.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "installed": {
+          "description": "The service is installed and matches the bundled one.",
+          "type": "boolean"
+        },
+        "missingKeys": {
+          "description": "Paired phones' keys it lacks (all of them while it is not installed): what Approve enrolls.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "otherUser": {
+          "description": "Another Windows account owns the service (informational: Approve changes nothing).",
+          "type": "boolean"
+        },
+        "outdated": {
+          "description": "The service is installed but differs from the bundled one: Approve updates it.",
+          "type": "boolean"
+        },
+        "owed": {
+          "$ref": "#/definitions/PcAccessOwed",
+          "description": "Revocations still owed; nothing is enrolled while any is owed, until Approve applies them."
+        },
+        "supported": {
+          "description": "PC access exists on this machine (false where the helper cannot be asked).",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "enrolledKeys",
+        "installed",
+        "missingKeys",
+        "otherUser",
+        "outdated",
+        "owed",
+        "supported"
+      ],
+      "type": "object"
+    },
+    "PcAccessReadinessParams": {
+      "description": "Params of `pcAccess/readiness`: none.",
+      "type": "object"
+    },
     "PluginsAddPluginParams": {
       "description": "Params of `plugins/addPlugin`.",
       "properties": {
@@ -8436,6 +8995,108 @@
       "required": [
         "opId",
         "plugin"
+      ],
+      "type": "object"
+    },
+    "PortForward": {
+      "description": "A server port forwarded to `127.0.0.1:<localPort>` on this PC.",
+      "properties": {
+        "localPort": {
+          "description": "0 until the first local port is chosen.",
+          "format": "uint16",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "message": {
+          "description": "Why it stopped, for `error`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "remotePort": {
+          "format": "uint16",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "status": {
+          "$ref": "#/definitions/PortForwardStatus"
+        }
+      },
+      "required": [
+        "localPort",
+        "remotePort",
+        "status"
+      ],
+      "type": "object"
+    },
+    "PortForwardStatus": {
+      "enum": [
+        "starting",
+        "active",
+        "error"
+      ],
+      "type": "string"
+    },
+    "PortsDismissParams": {
+      "description": "`connections/ports/dismiss`.",
+      "properties": {
+        "connectionId": {
+          "type": "string"
+        },
+        "port": {
+          "format": "uint16",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "connectionId",
+        "port"
+      ],
+      "type": "object"
+    },
+    "PortsForwardParams": {
+      "description": "`connections/ports/forward`; `localPort: null` picks the same number when free.",
+      "properties": {
+        "connectionId": {
+          "type": "string"
+        },
+        "localPort": {
+          "format": "uint16",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "remotePort": {
+          "format": "uint16",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "connectionId",
+        "remotePort"
+      ],
+      "type": "object"
+    },
+    "PortsStopParams": {
+      "description": "`connections/ports/stop`.",
+      "properties": {
+        "connectionId": {
+          "type": "string"
+        },
+        "remotePort": {
+          "format": "uint16",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "connectionId",
+        "remotePort"
       ],
       "type": "object"
     },
@@ -8655,6 +9316,13 @@
         },
         "path": {
           "type": "string"
+        },
+        "standalone": {
+          "description": "Answer `path` itself as the root of a standalone folder (a folder opened without registering a Project).",
+          "type": [
+            "boolean",
+            "null"
+          ]
         }
       },
       "required": [
@@ -8846,6 +9514,55 @@
       ],
       "type": "object"
     },
+    "ProjectFsGrantDescribeParams": {
+      "description": "Params of `projectFs/grant/describe` (Node's `describeLocalPaths`, selected-file-access.ts): stat each path (1 to 100) and say which project it is in, or, when `mint` is true and it is outside every project, hand back a one-file grant.",
+      "properties": {
+        "mint": {
+          "description": "Mint a grant for a file outside every project (the desktop sends `true` unless a link only needs its name).",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "paths": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "sessionId": {
+          "description": "The session the paths are described for; its project list decides which project owns a path.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "paths"
+      ],
+      "type": "object"
+    },
+    "ProjectFsGrantRedeemParams": {
+      "description": "Params of `projectFs/grant/redeem` (Node's `requireGrant`, selected-file-access.ts): the file a grant names, checked against the path the caller asks for; answers the file's folder and name.",
+      "properties": {
+        "accessToken": {
+          "type": "string"
+        },
+        "projectPath": {
+          "type": "string"
+        },
+        "relPath": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "accessToken",
+        "projectPath",
+        "relPath"
+      ],
+      "type": "object"
+    },
     "ProjectFsListDirParams": {
       "description": "Params of `projectFs/listDir`.",
       "properties": {
@@ -8862,11 +9579,34 @@
       ],
       "type": "object"
     },
+    "ProjectFsLocalPageOriginParams": {
+      "description": "Params of `projectFs/localPage/origin` (local-page-server.ts `localPageOrigin`): none; answers the page server's origin.",
+      "type": "object"
+    },
+    "ProjectFsLocalPageRevokeOwnerParams": {
+      "description": "Params of `projectFs/localPage/revokeOwner` (Node's `revokeLocalPagesForOwner`, local-page-server.ts): end every page lease an owner (a desktop window) holds. Internal: the desktop's main process calls it when a window closes.",
+      "properties": {
+        "ownerId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "ownerId"
+      ],
+      "type": "object"
+    },
     "ProjectFsLocalPageUrlParams": {
       "description": "Params of `projectFs/localPageUrl`.",
       "properties": {
         "accessToken": {
           "description": "A paired device's one-file grant, as on `projectFs/readText`; the page then serves that file alone.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ownerId": {
+          "description": "The desktop window that asked: its leases end when it closes (`projectFs/localPage/revokeOwner`).",
           "type": [
             "string",
             "null"
@@ -12450,6 +13190,90 @@
       ],
       "type": "object"
     },
+    "RemoteHost": {
+      "description": "A saved \"Connect to another PC\" host on this machine.",
+      "properties": {
+        "addedAt": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "id": {
+          "type": "string"
+        },
+        "lastConnectedAt": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "online": {
+          "description": "Whether the host's desktop is connected to its relay right now. Absent when the relay could not be asked.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "open": {
+          "description": "Whether its window is open right now (the core answers `false`; the desktop fills it).",
+          "type": "boolean"
+        },
+        "url": {
+          "description": "The host's pairing link: the relay origin plus its device route.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "addedAt",
+        "id",
+        "name",
+        "open",
+        "url"
+      ],
+      "type": "object"
+    },
+    "RemoteHostPresenceParams": {
+      "properties": {
+        "ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "ids"
+      ],
+      "type": "object"
+    },
+    "RemoteHostPresenceResult": {
+      "properties": {
+        "online": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "online"
+      ],
+      "type": "object"
+    },
+    "RemoteHostRedeemParams": {
+      "properties": {
+        "code": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code"
+      ],
+      "type": "object"
+    },
     "RequestId": {
       "anyOf": [
         {
@@ -13141,6 +13965,120 @@
       ],
       "type": "object"
     },
+    "ServerPort": {
+      "description": "One port something listens on, on the server.",
+      "properties": {
+        "addresses": {
+          "description": "Where it listens: `0.0.0.0`, `127.0.0.1`, `::`, `::1` (several, joined).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "pid": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "port": {
+          "format": "uint16",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "process": {
+          "description": "The owning process, when the server lets the daemon read it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "addresses",
+        "port"
+      ],
+      "type": "object"
+    },
+    "ServerPortsView": {
+      "properties": {
+        "detected": {
+          "description": "`null`: the last scan failed (see `scanError`) or none ran yet.",
+          "items": {
+            "$ref": "#/definitions/ServerPort"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "forwards": {
+          "items": {
+            "$ref": "#/definitions/PortForward"
+          },
+          "type": "array"
+        },
+        "scanError": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "suggested": {
+          "description": "Ports that started listening after the panel first looked: offered for forwarding, never forwarded on their own.",
+          "items": {
+            "format": "uint16",
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "forwards",
+        "suggested"
+      ],
+      "type": "object"
+    },
+    "ServerRestorePhase": {
+      "enum": [
+        "connect",
+        "check",
+        "install",
+        "start",
+        "ready",
+        "failed"
+      ],
+      "type": "string"
+    },
+    "ServerRestoreProgress": {
+      "description": "Startup reopening of the server windows open at the last quit, shown in this PC's window.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "message": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "phase": {
+          "$ref": "#/definitions/ServerRestorePhase"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "phase"
+      ],
+      "type": "object"
+    },
     "SessionToolMode": {
       "description": "Node's `TOOL_MODES`.",
       "enum": [
@@ -13331,6 +14269,1650 @@
         "desc"
       ],
       "type": "string"
+    },
+    "SshAgentState": {
+      "enum": [
+        "running",
+        "empty",
+        "stopped",
+        "disabled",
+        "missing",
+        "unknown"
+      ],
+      "type": "string"
+    },
+    "SshAgentStatus": {
+      "description": "State of the ssh-agent on this PC, for the login guidance.",
+      "properties": {
+        "command": {
+          "description": "Commands that bring the agent up and load a key, when there is something to run.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "state": {
+          "$ref": "#/definitions/SshAgentState"
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "type": "object"
+    },
+    "SshAskpassReplyParams": {
+      "description": "`connections/ssh/askpassReply`; `secret: null` cancels the question. At most 4096 characters.",
+      "properties": {
+        "attemptId": {
+          "type": "string"
+        },
+        "requestId": {
+          "type": "string"
+        },
+        "secret": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "attemptId",
+        "requestId"
+      ],
+      "type": "object"
+    },
+    "SshCancelParams": {
+      "description": "`connections/ssh/cancel`.",
+      "properties": {
+        "attemptId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "attemptId"
+      ],
+      "type": "object"
+    },
+    "SshCleanupDone": {
+      "description": "`{ ok: true, hosts, detail? }` of a cleanup.",
+      "properties": {
+        "detail": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "hosts": {
+          "items": {
+            "$ref": "#/definitions/SshHost"
+          },
+          "type": "array"
+        },
+        "ok": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "hosts",
+        "ok"
+      ],
+      "type": "object"
+    },
+    "SshCleanupParams": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "request": {
+          "$ref": "#/definitions/SshCleanupRequest"
+        }
+      },
+      "required": [
+        "id",
+        "request"
+      ],
+      "type": "object"
+    },
+    "SshCleanupRequest": {
+      "properties": {
+        "forget": {
+          "description": "Forget the saved entry afterwards.",
+          "type": "boolean"
+        },
+        "operationId": {
+          "description": "The window's own id for this run; its questions arrive with it as `attemptId`.",
+          "type": "string"
+        },
+        "removeUserData": {
+          "description": "Also delete the server's work history.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "forget",
+        "operationId",
+        "removeUserData"
+      ],
+      "type": "object"
+    },
+    "SshCleanupResult": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/SshCleanupDone"
+        },
+        {
+          "$ref": "#/definitions/SshFailed"
+        }
+      ]
+    },
+    "SshConfigHost": {
+      "description": "A `Host` alias of this PC's `~/.ssh/config`; `detail` is `user@host[:port]`.",
+      "properties": {
+        "alias": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "alias",
+        "detail"
+      ],
+      "type": "object"
+    },
+    "SshConfigSummary": {
+      "description": "What `ssh -G` resolves the address to.",
+      "properties": {
+        "forwards": {
+          "description": "Only when Mixdog could not set them aside: the Local/Remote/DynamicForward lines of the user's ssh config that apply while connected.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "hostName": {
+          "type": "string"
+        },
+        "port": {
+          "format": "uint16",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "proxyCommand": {
+          "description": "A ProxyCommand is configured (its text is not shown).",
+          "type": "boolean"
+        },
+        "proxyJump": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "user": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "hostName",
+        "port",
+        "proxyCommand"
+      ],
+      "type": "object"
+    },
+    "SshConnectOk": {
+      "description": "`{ ok: true, host }` of a connect.",
+      "properties": {
+        "host": {
+          "$ref": "#/definitions/SshHost"
+        },
+        "ok": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "host",
+        "ok"
+      ],
+      "type": "object"
+    },
+    "SshConnectParams": {
+      "properties": {
+        "attemptId": {
+          "type": "string"
+        },
+        "request": {
+          "$ref": "#/definitions/SshConnectRequest"
+        }
+      },
+      "required": [
+        "attemptId",
+        "request"
+      ],
+      "type": "object"
+    },
+    "SshConnectRequest": {
+      "properties": {
+        "acceptForwards": {
+          "description": "The user accepted the forwards listed in the inspection summary.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "attemptId": {
+          "description": "From `connections/ssh/inspect`; also pairs the progress notifications with this call.",
+          "type": "string"
+        },
+        "forceRestart": {
+          "description": "Stop whatever daemon runs on the server and start this app's (after the user confirmed).",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "replaceHostKey": {
+          "description": "Replace the changed key: the server name typed to confirm (must equal the name `check.host` showed).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "settings": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SshConnectSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Entered in the connect dialog's advanced options: used for this attempt and saved with the server."
+        },
+        "trustHostKey": {
+          "description": "The user confirmed the fingerprint the inspection reported: save that key first.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "attemptId"
+      ],
+      "type": "object"
+    },
+    "SshConnectResult": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/SshConnectOk"
+        },
+        {
+          "$ref": "#/definitions/SshFailed"
+        }
+      ]
+    },
+    "SshConnectSettings": {
+      "description": "The settings a connect dialog's advanced options carry (`Pick<SshHostSettings, 'identityFile' | 'remoteCwd'>`).",
+      "properties": {
+        "identityFile": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "remoteCwd": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "SshCredentialSource": {
+      "description": "Where an API key's effective value comes from on the server: its OS keychain, its private secrets file (no keychain provider), or an environment variable (which wins over both).",
+      "enum": [
+        "keychain",
+        "private-file",
+        "environment"
+      ],
+      "type": "string"
+    },
+    "SshDiagnosticsRefParams": {
+      "description": "`connections/ssh/diagnosticsLog`, `diagnosticsCopy`, `serverLog`: `ref` is a saved server's id or an address; a server window always gets its own server.",
+      "properties": {
+        "ref": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "ref"
+      ],
+      "type": "object"
+    },
+    "SshDiagnosticsText": {
+      "description": "The text to copy for a bug report (`connections/ssh/diagnosticsCopy`).",
+      "properties": {
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "type": "object"
+    },
+    "SshFailed": {
+      "description": "`{ ok: false, failure }` of a connect or a cleanup.",
+      "properties": {
+        "failure": {
+          "$ref": "#/definitions/SshFailure"
+        },
+        "ok": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "failure",
+        "ok"
+      ],
+      "type": "object"
+    },
+    "SshFailure": {
+      "description": "A failure with the code behind its view.",
+      "oneOf": [
+        {
+          "properties": {
+            "current": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "enum": [
+                "host-key-changed"
+              ],
+              "type": "string"
+            },
+            "previous": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "enum": [
+                "host-key-revoked"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The key shown was saved, and a server further along the jump chain now needs its own check.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "host-key-next"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "agent": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/SshAgentStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "keygen": {
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "auth"
+              ],
+              "type": "string"
+            },
+            "register": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "keygen",
+            "kind",
+            "register"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "command": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "enum": [
+                "ssh-missing"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "enum": [
+                "unsupported-platform"
+              ],
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "message"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "enum": [
+                "install-failed"
+              ],
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "message"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "enum": [
+                "install-locked"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The server's Mixdog speaks another protocol version: reconnecting reinstalls the matching one.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "protocol-mismatch"
+              ],
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "message"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "An unexpected error inside Mixdog (bootstrap/protocol), not something the user's server setup caused.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "internal"
+              ],
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "message"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The login shell or home directory of the server answered in a way the bootstrap cannot use.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "remote-shell"
+              ],
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "message"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "enum": [
+                "daemon-busy"
+              ],
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "message"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "enum": [
+                "port-unavailable"
+              ],
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "message"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "enum": [
+                "cancelled"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The server is connected already, so a new login key or folder cannot be tested: disconnecting first is the only way.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "already-connected"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "command": {
+              "type": "string"
+            },
+            "found": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "enum": [
+                "node"
+              ],
+              "type": "string"
+            },
+            "reason": {
+              "$ref": "#/definitions/SshNodeProblem"
+            },
+            "required": {
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "command",
+            "kind",
+            "reason",
+            "required"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "command": {
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "npm-missing"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "command",
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "enum": [
+                "deps-install"
+              ],
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "message"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "enum": [
+                "daemon-stop"
+              ],
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "message"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "enum": [
+                "daemon-replace"
+              ],
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "message"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "enum": [
+                "daemon-unproven"
+              ],
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "message"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The server's own (non-desktop) Mixdog is in the way: it is left running and there is nothing to restart.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "daemon-unmanaged"
+              ],
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "message"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Another daemon holds the data folder.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "daemon-data-in-use"
+              ],
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "message"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "enum": [
+                "daemon-running"
+              ],
+              "type": "string"
+            },
+            "pid": {
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "pid"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "enum": [
+                "failed"
+              ],
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "message"
+          ],
+          "type": "object"
+        }
+      ],
+      "properties": {
+        "code": {
+          "description": "The error code behind the view (a bootstrap code such as `install-failed`, or the view's own name); shown in the details line.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "SshHopKey": {
+      "description": "One server on the way to the target (a ProxyJump hop, then the target itself).",
+      "properties": {
+        "fingerprint": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "keyType": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "role": {
+          "$ref": "#/definitions/SshHopRole"
+        },
+        "status": {
+          "$ref": "#/definitions/SshHopStatus"
+        }
+      },
+      "required": [
+        "name",
+        "role",
+        "status"
+      ],
+      "type": "object"
+    },
+    "SshHopRole": {
+      "enum": [
+        "jump",
+        "target"
+      ],
+      "type": "string"
+    },
+    "SshHopStatus": {
+      "oneOf": [
+        {
+          "enum": [
+            "trusted",
+            "unknown",
+            "changed",
+            "revoked",
+            "unreadable"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Not read yet: it is only reachable through a hop that is not trusted yet.",
+          "enum": [
+            "pending"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "SshHost": {
+      "description": "A saved SSH server. `open` is true while its server window is open.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "lastConnectedAt": {
+          "description": "Epoch ms; always written, `null` before the first connection.",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "open": {
+          "type": "boolean"
+        },
+        "settings": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SshHostSettings"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "target": {
+          "description": "`alias`, `host`, `user@host` or `user@host:port`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "open",
+        "target"
+      ],
+      "type": "object"
+    },
+    "SshHostKeyCheck": {
+      "description": "What the server's key looks like against this PC's known_hosts. `hops` is set when the connection goes through a jump host: every key on the way.",
+      "oneOf": [
+        {
+          "properties": {
+            "authority": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "hops": {
+              "items": {
+                "$ref": "#/definitions/SshHopKey"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            },
+            "status": {
+              "enum": [
+                "trusted"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "status"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "fingerprint": {
+              "type": "string"
+            },
+            "hops": {
+              "items": {
+                "$ref": "#/definitions/SshHopKey"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            },
+            "keyType": {
+              "type": "string"
+            },
+            "status": {
+              "enum": [
+                "unknown"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "fingerprint",
+            "keyType",
+            "status"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "current": {
+              "type": "string"
+            },
+            "hops": {
+              "items": {
+                "$ref": "#/definitions/SshHopKey"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            },
+            "host": {
+              "description": "The name to type to confirm replacing the key.",
+              "type": "string"
+            },
+            "keyType": {
+              "type": "string"
+            },
+            "previous": {
+              "type": "string"
+            },
+            "removeCommand": {
+              "description": "The exact command that forgets the old key.",
+              "type": "string"
+            },
+            "replaceable": {
+              "description": "The old key is in Mixdog's own known_hosts, so Mixdog may replace it; `false`: only the command above does.",
+              "type": "boolean"
+            },
+            "status": {
+              "enum": [
+                "changed"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "current",
+            "host",
+            "keyType",
+            "previous",
+            "removeCommand",
+            "replaceable",
+            "status"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "fingerprint": {
+              "type": "string"
+            },
+            "host": {
+              "type": "string"
+            },
+            "status": {
+              "enum": [
+                "revoked"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "fingerprint",
+            "host",
+            "status"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "message": {
+              "type": "string"
+            },
+            "sshMissing": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/SshMissing"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "status": {
+              "enum": [
+                "unreachable"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "message",
+            "status"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "SshHostSettings": {
+      "description": "What a saved server remembers besides its name and address.",
+      "properties": {
+        "allowedProviders": {
+          "description": "Model providers this server may use through this PC; `null` or absent: every provider enabled on this PC.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "autoReconnect": {
+          "description": "Re-dial the tunnel when it drops; on unless `false`.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "graceMinutes": {
+          "description": "Minutes the server keeps its work after the connection drops (1-10080, default 30).",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "identityFile": {
+          "description": "Private key file on this PC (passed to ssh with `-i`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "modelLogin": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SshModelLogin"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "`server`: the server's daemon runs models with the logins stored on the server; absent or `pc`: with this PC's."
+        },
+        "remoteCwd": {
+          "description": "Server folder the session opens in: `~`, `~/x` or an absolute server path.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "SshInspectParams": {
+      "properties": {
+        "target": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "target"
+      ],
+      "type": "object"
+    },
+    "SshInspection": {
+      "description": "The host-key pre-check of one address. `attemptId` is minted by the core and bound to the asking connection: connecting, cancelling and stopping a daemon all name it, and the core connects only to the address and key it inspected.",
+      "properties": {
+        "attemptId": {
+          "type": "string"
+        },
+        "check": {
+          "$ref": "#/definitions/SshHostKeyCheck"
+        },
+        "summary": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SshConfigSummary"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "attemptId",
+        "check"
+      ],
+      "type": "object"
+    },
+    "SshKeychainIssue": {
+      "description": "Why the server's stored keys cannot be read (its keyring is locked, or its private secrets store is unsafe): the sanitized issue the server's setup reports. Never holds a secret.",
+      "properties": {
+        "kind": {
+          "description": "For an unsafe private store: `permissions`, `owner` or `type`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "message": {
+          "description": "The server's fixed, translatable hint.",
+          "type": "string"
+        },
+        "path": {
+          "description": "The server's secrets folder to repair.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "state": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "message",
+        "state"
+      ],
+      "type": "object"
+    },
+    "SshLogView": {
+      "description": "The connection log of one server (ring buffer, secrets removed). `copyText` is the same text with the server's user and host replaced by `<server>`.",
+      "properties": {
+        "copyText": {
+          "type": "string"
+        },
+        "lines": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "copyText",
+        "lines"
+      ],
+      "type": "object"
+    },
+    "SshMissing": {
+      "description": "Where ssh was not found, and the command that installs it when there is one.",
+      "properties": {
+        "command": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "SshModelLogin": {
+      "description": "Whose provider logins a server's models run on: this PC's (the default) or the server's own.",
+      "enum": [
+        "pc",
+        "server"
+      ],
+      "type": "string"
+    },
+    "SshNodeProblem": {
+      "description": "Why the server's Node is unusable.",
+      "enum": [
+        "missing",
+        "too-old"
+      ],
+      "type": "string"
+    },
+    "SshOpenEphemeralParams": {
+      "description": "`connections/ssh/openEphemeral`: a dev window for `MIXDOG_SSH_TARGET`, not remembered.",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "target"
+      ],
+      "type": "object"
+    },
+    "SshServerLog": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/SshServerLogText"
+        },
+        {
+          "$ref": "#/definitions/SshServerLogFailed"
+        }
+      ],
+      "description": "The tail of the server's `daemon.log`, fetched over ssh."
+    },
+    "SshServerLogFailed": {
+      "description": "`{ ok: false, message }` of a server log read.",
+      "properties": {
+        "message": {
+          "type": "string"
+        },
+        "ok": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "message",
+        "ok"
+      ],
+      "type": "object"
+    },
+    "SshServerLogText": {
+      "description": "`{ ok: true, text, copyText }` of a server log read.",
+      "properties": {
+        "copyText": {
+          "type": "string"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "copyText",
+        "ok",
+        "text"
+      ],
+      "type": "object"
+    },
+    "SshServerLogin": {
+      "description": "One provider login stored on a server (its daemon's own config).",
+      "properties": {
+        "credentialSource": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SshCredentialSource"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "An API key's effective source on the server, when it reports one."
+        },
+        "custom": {
+          "description": "A custom provider of the server's own (an `api` row): its key is saved and the provider removed through the custom-provider operations, not the built-in key ones.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "fromEnvironment": {
+          "description": "The key comes from the server's environment: it cannot be changed or removed here.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "identity": {
+          "description": "A signed-in subscription's account as the server knows it (its email).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "keyless": {
+          "description": "A custom provider that needs no key at all.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "kind": {
+          "$ref": "#/definitions/SshServerLoginKind"
+        },
+        "name": {
+          "type": "string"
+        },
+        "signedIn": {
+          "type": "boolean"
+        },
+        "storedInPrivateFile": {
+          "description": "The key is kept in the server's private secrets file (the server has no OS keychain).",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "name",
+        "signedIn"
+      ],
+      "type": "object"
+    },
+    "SshServerLoginCompleteParams": {
+      "properties": {
+        "flowId": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "redirectUrl": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "flowId",
+        "id",
+        "redirectUrl"
+      ],
+      "type": "object"
+    },
+    "SshServerLoginFlow": {
+      "description": "A subscription login running on the server; `forwarded`: the provider's localhost callback port is forwarded from this PC while it is pending.",
+      "properties": {
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "flowId": {
+          "type": "string"
+        },
+        "forwarded": {
+          "type": "boolean"
+        },
+        "manualCodeSupported": {
+          "description": "Whether a pasted address or code can complete the login (absent: unknown, offered).",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "openUrl": {
+          "description": "Set by `connections/ssh/serverLoginBegin`: the address the renderer opens with the existing `openExternal` call.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "provider": {
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/definitions/SshServerLoginFlowState"
+        },
+        "url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "userCode": {
+          "description": "The device code the provider's page asks for, when the URL does not carry it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "flowId",
+        "forwarded",
+        "provider",
+        "state"
+      ],
+      "type": "object"
+    },
+    "SshServerLoginFlowParams": {
+      "description": "`connections/ssh/serverLoginStatus`, `serverLoginCancel`.",
+      "properties": {
+        "flowId": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "flowId",
+        "id"
+      ],
+      "type": "object"
+    },
+    "SshServerLoginFlowState": {
+      "enum": [
+        "pending",
+        "complete",
+        "failed",
+        "cancelled",
+        "expired"
+      ],
+      "type": "string"
+    },
+    "SshServerLoginKind": {
+      "oneOf": [
+        {
+          "description": "A subscription login.",
+          "enum": [
+            "oauth"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "An API key.",
+          "enum": [
+            "api"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "SshServerLoginProviderParams": {
+      "description": "`connections/ssh/serverLoginBegin`, `serverLoginLogout`, `serverLoginRemoveCustom`.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "provider"
+      ],
+      "type": "object"
+    },
+    "SshServerLoginSaveKeyParams": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "key": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "key",
+        "provider"
+      ],
+      "type": "object"
+    },
+    "SshServerLogins": {
+      "description": "The server's logins as the settings dialog shows them. `connected`: the server's window is attached; `modelLogin`: the mode its daemon runs in now; `providers` only when it runs with the server's own logins.",
+      "properties": {
+        "busySessions": {
+          "description": "Running sessions on the server (`null` when unknown).",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "connected": {
+          "type": "boolean"
+        },
+        "keychain": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SshKeychainIssue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Set when the server's credential storage needs attention."
+        },
+        "modelLogin": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SshModelLogin"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "providers": {
+          "items": {
+            "$ref": "#/definitions/SshServerLogin"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "connected"
+      ],
+      "type": "object"
+    },
+    "SshUpdateSettingsParams": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "settings": {
+          "$ref": "#/definitions/SshHostSettings"
+        }
+      },
+      "required": [
+        "id",
+        "settings"
+      ],
+      "type": "object"
     },
     "StorageState": {
       "oneOf": [
@@ -18593,6 +21175,48 @@
         "opId"
       ],
       "type": "object"
+    },
+    "WindowFocusEntry": {
+      "description": "One window of `windowFocus`.",
+      "properties": {
+        "connectionId": {
+          "type": "string"
+        },
+        "focused": {
+          "type": "boolean"
+        },
+        "sessionId": {
+          "description": "The session the window shows, when it shows one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "visible": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "connectionId",
+        "focused",
+        "visible"
+      ],
+      "type": "object"
+    },
+    "WindowFocusValue": {
+      "description": "The value of `host/state/set` key `windowFocus`: every window, for the server notifier's \"is it on screen\" rule.",
+      "properties": {
+        "windows": {
+          "items": {
+            "$ref": "#/definitions/WindowFocusEntry"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "windows"
+      ],
+      "type": "object"
     }
   },
   "methods": {
@@ -19066,6 +21690,14 @@
       },
       "result": true
     },
+    "computer/userControl": {
+      "params": {
+        "$ref": "#/definitions/ComputerUserControlParams"
+      },
+      "result": {
+        "$ref": "#/definitions/ComputerUserControlResult"
+      }
+    },
     "config/batchWrite": {
       "params": {
         "$ref": "#/definitions/ConfigBatchWriteParams"
@@ -19424,6 +22056,318 @@
       },
       "result": {
         "$ref": "#/definitions/ConfigWriteResponse"
+      }
+    },
+    "connections/endpoint": {
+      "params": {
+        "$ref": "#/definitions/ConnectionIdParams"
+      },
+      "result": {
+        "$ref": "#/definitions/ConnectionEndpoint"
+      }
+    },
+    "connections/link/get": {
+      "params": {
+        "$ref": "#/definitions/ConnectionIdParams"
+      },
+      "result": {
+        "anyOf": [
+          {
+            "$ref": "#/definitions/ConnectionLinkView"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      }
+    },
+    "connections/link/requestSignIn": {
+      "params": {
+        "$ref": "#/definitions/ConnectionIdParams"
+      },
+      "result": {
+        "$ref": "#/definitions/EmptyResult"
+      }
+    },
+    "connections/link/retry": {
+      "params": {
+        "$ref": "#/definitions/ConnectionIdParams"
+      },
+      "result": {
+        "$ref": "#/definitions/EmptyResult"
+      }
+    },
+    "connections/link/retryNow": {
+      "params": {
+        "$ref": "#/definitions/ConnectionIdParams"
+      },
+      "result": {
+        "$ref": "#/definitions/EmptyResult"
+      }
+    },
+    "connections/ports/dismiss": {
+      "params": {
+        "$ref": "#/definitions/PortsDismissParams"
+      },
+      "result": {
+        "$ref": "#/definitions/EmptyResult"
+      }
+    },
+    "connections/ports/forward": {
+      "params": {
+        "$ref": "#/definitions/PortsForwardParams"
+      },
+      "result": {
+        "$ref": "#/definitions/PortForward"
+      }
+    },
+    "connections/ports/list": {
+      "params": {
+        "$ref": "#/definitions/ConnectionIdParams"
+      },
+      "result": {
+        "$ref": "#/definitions/ServerPortsView"
+      }
+    },
+    "connections/ports/stop": {
+      "params": {
+        "$ref": "#/definitions/PortsStopParams"
+      },
+      "result": {
+        "$ref": "#/definitions/EmptyResult"
+      }
+    },
+    "connections/restore/get": {
+      "params": {
+        "$ref": "#/definitions/ConnectionsNoParams"
+      },
+      "result": {
+        "$ref": "#/definitions/ConnectionsRestoreState"
+      }
+    },
+    "connections/restore/progress": {
+      "params": {
+        "$ref": "#/definitions/ConnectionsNoParams"
+      },
+      "result": {
+        "items": {
+          "$ref": "#/definitions/ServerRestoreProgress"
+        },
+        "type": "array"
+      }
+    },
+    "connections/restore/set": {
+      "params": {
+        "$ref": "#/definitions/ConnectionsRestoreState"
+      },
+      "result": {
+        "$ref": "#/definitions/EmptyResult"
+      }
+    },
+    "connections/ssh/askpassReply": {
+      "params": {
+        "$ref": "#/definitions/SshAskpassReplyParams"
+      },
+      "result": {
+        "$ref": "#/definitions/EmptyResult"
+      }
+    },
+    "connections/ssh/cancel": {
+      "params": {
+        "$ref": "#/definitions/SshCancelParams"
+      },
+      "result": {
+        "$ref": "#/definitions/EmptyResult"
+      }
+    },
+    "connections/ssh/cleanup": {
+      "params": {
+        "$ref": "#/definitions/SshCleanupParams"
+      },
+      "result": {
+        "$ref": "#/definitions/SshCleanupResult"
+      }
+    },
+    "connections/ssh/configHosts": {
+      "params": {
+        "$ref": "#/definitions/ConnectionsNoParams"
+      },
+      "result": {
+        "items": {
+          "$ref": "#/definitions/SshConfigHost"
+        },
+        "type": "array"
+      }
+    },
+    "connections/ssh/connect": {
+      "params": {
+        "$ref": "#/definitions/SshConnectParams"
+      },
+      "result": {
+        "$ref": "#/definitions/SshConnectResult"
+      }
+    },
+    "connections/ssh/diagnosticsCopy": {
+      "params": {
+        "$ref": "#/definitions/SshDiagnosticsRefParams"
+      },
+      "result": {
+        "$ref": "#/definitions/SshDiagnosticsText"
+      }
+    },
+    "connections/ssh/diagnosticsLog": {
+      "params": {
+        "$ref": "#/definitions/SshDiagnosticsRefParams"
+      },
+      "result": {
+        "$ref": "#/definitions/SshLogView"
+      }
+    },
+    "connections/ssh/forget": {
+      "params": {
+        "$ref": "#/definitions/ConnectionsIdParams"
+      },
+      "result": {
+        "$ref": "#/definitions/EmptyResult"
+      }
+    },
+    "connections/ssh/inspect": {
+      "params": {
+        "$ref": "#/definitions/SshInspectParams"
+      },
+      "result": {
+        "$ref": "#/definitions/SshInspection"
+      }
+    },
+    "connections/ssh/list": {
+      "params": {
+        "$ref": "#/definitions/ConnectionsNoParams"
+      },
+      "result": {
+        "items": {
+          "$ref": "#/definitions/SshHost"
+        },
+        "type": "array"
+      }
+    },
+    "connections/ssh/open": {
+      "params": {
+        "$ref": "#/definitions/ConnectionsIdParams"
+      },
+      "result": {
+        "$ref": "#/definitions/SshConnectResult"
+      }
+    },
+    "connections/ssh/openEphemeral": {
+      "params": {
+        "$ref": "#/definitions/SshOpenEphemeralParams"
+      },
+      "result": {
+        "$ref": "#/definitions/SshConnectResult"
+      }
+    },
+    "connections/ssh/rename": {
+      "params": {
+        "$ref": "#/definitions/ConnectionsRenameParams"
+      },
+      "result": {
+        "$ref": "#/definitions/EmptyResult"
+      }
+    },
+    "connections/ssh/serverLog": {
+      "params": {
+        "$ref": "#/definitions/SshDiagnosticsRefParams"
+      },
+      "result": {
+        "$ref": "#/definitions/SshServerLog"
+      }
+    },
+    "connections/ssh/serverLoginBegin": {
+      "params": {
+        "$ref": "#/definitions/SshServerLoginProviderParams"
+      },
+      "result": {
+        "$ref": "#/definitions/SshServerLoginFlow"
+      }
+    },
+    "connections/ssh/serverLoginCancel": {
+      "params": {
+        "$ref": "#/definitions/SshServerLoginFlowParams"
+      },
+      "result": {
+        "$ref": "#/definitions/EmptyResult"
+      }
+    },
+    "connections/ssh/serverLoginComplete": {
+      "params": {
+        "$ref": "#/definitions/SshServerLoginCompleteParams"
+      },
+      "result": {
+        "$ref": "#/definitions/SshServerLoginFlow"
+      }
+    },
+    "connections/ssh/serverLoginLogout": {
+      "params": {
+        "$ref": "#/definitions/SshServerLoginProviderParams"
+      },
+      "result": {
+        "$ref": "#/definitions/SshServerLogins"
+      }
+    },
+    "connections/ssh/serverLoginRemoveCustom": {
+      "params": {
+        "$ref": "#/definitions/SshServerLoginProviderParams"
+      },
+      "result": {
+        "$ref": "#/definitions/SshServerLogins"
+      }
+    },
+    "connections/ssh/serverLoginSaveKey": {
+      "params": {
+        "$ref": "#/definitions/SshServerLoginSaveKeyParams"
+      },
+      "result": {
+        "$ref": "#/definitions/SshServerLogins"
+      }
+    },
+    "connections/ssh/serverLoginStatus": {
+      "params": {
+        "$ref": "#/definitions/SshServerLoginFlowParams"
+      },
+      "result": {
+        "$ref": "#/definitions/SshServerLoginFlow"
+      }
+    },
+    "connections/ssh/serverLogins": {
+      "params": {
+        "$ref": "#/definitions/ConnectionsIdParams"
+      },
+      "result": {
+        "$ref": "#/definitions/SshServerLogins"
+      }
+    },
+    "connections/ssh/updateSettings": {
+      "params": {
+        "$ref": "#/definitions/SshUpdateSettingsParams"
+      },
+      "result": {
+        "$ref": "#/definitions/SshHost"
+      }
+    },
+    "connections/subscribe": {
+      "params": {
+        "$ref": "#/definitions/ConnectionsSubscribeParams"
+      },
+      "result": {
+        "$ref": "#/definitions/Subscription"
+      }
+    },
+    "connections/unsubscribe": {
+      "params": {
+        "$ref": "#/definitions/ConnectionsUnsubscribeParams"
+      },
+      "result": {
+        "$ref": "#/definitions/EmptyResult"
       }
     },
     "connector/addConnectorAccount": {
@@ -20336,6 +23280,22 @@
         "$ref": "#/definitions/OpStatusResponse"
       }
     },
+    "pcAccess/approve": {
+      "params": {
+        "$ref": "#/definitions/PcAccessApproveParams"
+      },
+      "result": {
+        "$ref": "#/definitions/PcAccessApproval"
+      }
+    },
+    "pcAccess/readiness": {
+      "params": {
+        "$ref": "#/definitions/PcAccessReadinessParams"
+      },
+      "result": {
+        "$ref": "#/definitions/PcAccessReadiness"
+      }
+    },
     "plugins/addPlugin": {
       "params": {
         "$ref": "#/definitions/PluginsAddPluginParams"
@@ -20596,9 +23556,33 @@
       },
       "result": true
     },
+    "projectFs/grant/describe": {
+      "params": {
+        "$ref": "#/definitions/ProjectFsGrantDescribeParams"
+      },
+      "result": true
+    },
+    "projectFs/grant/redeem": {
+      "params": {
+        "$ref": "#/definitions/ProjectFsGrantRedeemParams"
+      },
+      "result": true
+    },
     "projectFs/listDir": {
       "params": {
         "$ref": "#/definitions/ProjectFsListDirParams"
+      },
+      "result": true
+    },
+    "projectFs/localPage/origin": {
+      "params": {
+        "$ref": "#/definitions/ProjectFsLocalPageOriginParams"
+      },
+      "result": true
+    },
+    "projectFs/localPage/revokeOwner": {
+      "params": {
+        "$ref": "#/definitions/ProjectFsLocalPageRevokeOwnerParams"
       },
       "result": true
     },
@@ -20806,6 +23790,49 @@
       },
       "result": true
     },
+    "remoteHosts/forget": {
+      "params": {
+        "$ref": "#/definitions/ConnectionsIdParams"
+      },
+      "result": {
+        "$ref": "#/definitions/EmptyResult"
+      }
+    },
+    "remoteHosts/list": {
+      "params": {
+        "$ref": "#/definitions/ConnectionsNoParams"
+      },
+      "result": {
+        "items": {
+          "$ref": "#/definitions/RemoteHost"
+        },
+        "type": "array"
+      }
+    },
+    "remoteHosts/presence": {
+      "params": {
+        "$ref": "#/definitions/RemoteHostPresenceParams"
+      },
+      "result": {
+        "$ref": "#/definitions/RemoteHostPresenceResult"
+      }
+    },
+    "remoteHosts/redeemCode": {
+      "params": {
+        "$ref": "#/definitions/RemoteHostRedeemParams"
+      },
+      "result": {
+        "$ref": "#/definitions/RemoteHost"
+      }
+    },
+    "remoteHosts/rename": {
+      "params": {
+        "$ref": "#/definitions/ConnectionsRenameParams"
+      },
+      "result": {
+        "$ref": "#/definitions/RemoteHost"
+      }
+    },
     "review/diff/get": {
       "params": {
         "$ref": "#/definitions/ReviewDiffGetParams"
@@ -20996,6 +24023,14 @@
       },
       "result": {
         "$ref": "#/definitions/EmptyResult"
+      }
+    },
+    "test/browserEngine/run": {
+      "params": {
+        "$ref": "#/definitions/BrowserEngineTestRunParams"
+      },
+      "result": {
+        "$ref": "#/definitions/BrowserEngineTestRunResult"
       }
     },
     "thread/agentControl": {

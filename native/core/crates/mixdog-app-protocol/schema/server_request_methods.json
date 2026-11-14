@@ -77,6 +77,755 @@
       ],
       "type": "object"
     },
+    "BrowserBlobRef": {
+      "description": "A payload too large for the response, left in the host's blob store and read by digest.",
+      "properties": {
+        "digest": {
+          "type": "string"
+        },
+        "size": {
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "digest",
+        "size"
+      ],
+      "type": "object"
+    },
+    "BrowserChildSession": {
+      "properties": {
+        "frameId": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "frameId",
+        "sessionId",
+        "url"
+      ],
+      "type": "object"
+    },
+    "BrowserClipRect": {
+      "properties": {
+        "height": {
+          "format": "double",
+          "type": "number"
+        },
+        "width": {
+          "format": "double",
+          "type": "number"
+        },
+        "x": {
+          "format": "double",
+          "type": "number"
+        },
+        "y": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "height",
+        "width",
+        "x",
+        "y"
+      ],
+      "type": "object"
+    },
+    "BrowserClipRef": {
+      "properties": {
+        "ref": {
+          "type": "string"
+        },
+        "snapshotId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "ref",
+        "snapshotId"
+      ],
+      "type": "object"
+    },
+    "BrowserCookiesOp": {
+      "enum": [
+        "get",
+        "set",
+        "delete",
+        "clear"
+      ],
+      "type": "string"
+    },
+    "BrowserDismissedDialog": {
+      "description": "The last dialog the host dismissed by itself.",
+      "properties": {
+        "at": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "message": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "at",
+        "message",
+        "type"
+      ],
+      "type": "object"
+    },
+    "BrowserDownloadsOp": {
+      "enum": [
+        "list",
+        "take"
+      ],
+      "type": "string"
+    },
+    "BrowserEvalWorld": {
+      "enum": [
+        "main",
+        "utility"
+      ],
+      "type": "string"
+    },
+    "BrowserExceptionDetails": {
+      "properties": {
+        "column": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "line": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "type": "object"
+    },
+    "BrowserHitGuard": {
+      "properties": {
+        "ref": {
+          "type": "string"
+        },
+        "snapshotId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "ref",
+        "snapshotId"
+      ],
+      "type": "object"
+    },
+    "BrowserImageFormat": {
+      "enum": [
+        "png",
+        "jpeg"
+      ],
+      "type": "string"
+    },
+    "BrowserInitScript": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "source"
+      ],
+      "type": "object"
+    },
+    "BrowserInputOutcome": {
+      "enum": [
+        "completed",
+        "dialog",
+        "cancelled",
+        "userInput",
+        "hitGuard"
+      ],
+      "type": "string"
+    },
+    "BrowserInputTiming": {
+      "properties": {
+        "inputMs": {
+          "format": "double",
+          "type": "number"
+        },
+        "keyEvents": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "mouseEvents": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "inputMs",
+        "keyEvents",
+        "mouseEvents"
+      ],
+      "type": "object"
+    },
+    "BrowserInterceptOp": {
+      "enum": [
+        "add",
+        "remove",
+        "list",
+        "clear"
+      ],
+      "type": "string"
+    },
+    "BrowserLeaseSpec": {
+      "properties": {
+        "commandId": {
+          "type": "string"
+        },
+        "ttlMs": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "commandId",
+        "ttlMs"
+      ],
+      "type": "object"
+    },
+    "BrowserListOp": {
+      "enum": [
+        "add",
+        "remove",
+        "list"
+      ],
+      "type": "string"
+    },
+    "BrowserMailLink": {
+      "properties": {
+        "expiresAt": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "expiresAt",
+        "url"
+      ],
+      "type": "object"
+    },
+    "BrowserNavigateKind": {
+      "enum": [
+        "url",
+        "reload",
+        "back",
+        "forward"
+      ],
+      "type": "string"
+    },
+    "BrowserNavigateRefusal": {
+      "properties": {
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "type": "object"
+    },
+    "BrowserOpenSpec": {
+      "properties": {
+        "reveal": {
+          "type": "boolean"
+        },
+        "url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "reveal"
+      ],
+      "type": "object"
+    },
+    "BrowserPageActor": {
+      "enum": [
+        "agent",
+        "person"
+      ],
+      "type": "string"
+    },
+    "BrowserPageCloseReason": {
+      "enum": [
+        "agent",
+        "turnEnd",
+        "idle"
+      ],
+      "type": "string"
+    },
+    "BrowserPageReadKind": {
+      "enum": [
+        "text",
+        "documents",
+        "frames"
+      ],
+      "type": "string"
+    },
+    "BrowserPageReadOptions": {
+      "properties": {
+        "frame": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/FrameRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "includeHidden": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "maxChars": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "selector": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "BrowserPendingDialog": {
+      "description": "A JavaScript dialog the page is blocked on.",
+      "properties": {
+        "bridge": {
+          "description": "The dialog belongs to the bridge's own page, not the person's.",
+          "type": "boolean"
+        },
+        "defaultPrompt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "openedAt": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "sessionId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "bridge",
+        "message",
+        "openedAt",
+        "type"
+      ],
+      "type": "object"
+    },
+    "BrowserPendingFileChooser": {
+      "properties": {
+        "mode": {
+          "type": "string"
+        },
+        "openedAt": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "receiverKey": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "mode",
+        "openedAt",
+        "receiverKey"
+      ],
+      "type": "object"
+    },
+    "BrowserPerformanceOp": {
+      "enum": [
+        "start",
+        "stop",
+        "metrics"
+      ],
+      "type": "string"
+    },
+    "BrowserPointerButton": {
+      "enum": [
+        "left",
+        "right",
+        "middle"
+      ],
+      "type": "string"
+    },
+    "BrowserPointerKind": {
+      "enum": [
+        "move",
+        "click",
+        "dblclick",
+        "hover",
+        "down",
+        "up",
+        "wheel",
+        "tap",
+        "dragTo"
+      ],
+      "type": "string"
+    },
+    "BrowserRefusedRequest": {
+      "properties": {
+        "reason": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason",
+        "url"
+      ],
+      "type": "object"
+    },
+    "BrowserScreenshotClip": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/BrowserClipRef"
+        },
+        {
+          "$ref": "#/definitions/BrowserClipRect"
+        }
+      ],
+      "description": "The region a screenshot is cut to: an element a snapshot ref names, or a rectangle in CSS pixels."
+    },
+    "BrowserSnapshotElement": {
+      "properties": {
+        "depth": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "filled": {
+          "description": "A secret field that holds a value (never shown); an empty one has none.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "href": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "inViewport": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "matchField": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        },
+        "sensitive": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "states": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "tag": {
+          "type": "string"
+        },
+        "value": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "ref",
+        "role",
+        "tag"
+      ],
+      "type": "object"
+    },
+    "BrowserSnapshotMode": {
+      "enum": [
+        "full",
+        "interactive",
+        "query",
+        "viewport"
+      ],
+      "type": "string"
+    },
+    "BrowserSnapshotPayload": {
+      "description": "The shape of `browser/accessibility.ts` `BrowserSnapshotPayload`, moved here as a schema type.",
+      "properties": {
+        "crossOriginFrames": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "elements": {
+          "items": {
+            "$ref": "#/definitions/BrowserSnapshotElement"
+          },
+          "type": "array"
+        },
+        "headings": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "query": {
+          "type": "string"
+        },
+        "scanCapped": {
+          "type": "boolean"
+        },
+        "scanned": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "scrollHeight": {
+          "format": "double",
+          "type": "number"
+        },
+        "scrollY": {
+          "format": "double",
+          "type": "number"
+        },
+        "snapshotId": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "textClipped": {
+          "description": "The page holds more text than this excerpt carries.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "totalElements": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "unfilteredElements": {
+          "description": "Interactive elements on the page before the query filter.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "url": {
+          "type": "string"
+        },
+        "viewportHeight": {
+          "format": "double",
+          "type": "number"
+        },
+        "viewportWidth": {
+          "format": "double",
+          "type": "number"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "crossOriginFrames",
+        "elements",
+        "headings",
+        "query",
+        "scanCapped",
+        "scanned",
+        "scrollHeight",
+        "scrollY",
+        "snapshotId",
+        "text",
+        "title",
+        "totalElements",
+        "url",
+        "viewportHeight",
+        "viewportWidth"
+      ],
+      "type": "object"
+    },
+    "BrowserStorageArea": {
+      "enum": [
+        "local",
+        "session"
+      ],
+      "type": "string"
+    },
+    "BrowserStorageOp": {
+      "enum": [
+        "get",
+        "set",
+        "remove",
+        "clear"
+      ],
+      "type": "string"
+    },
+    "BrowserSurfaceOp": {
+      "enum": [
+        "reveal",
+        "hide",
+        "handoff"
+      ],
+      "type": "string"
+    },
+    "BrowserTabSelector": {
+      "properties": {
+        "index": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "pageId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "BrowserUploadReceiver": {
+      "properties": {
+        "accept": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "multiple": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "tag": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tag"
+      ],
+      "type": "object"
+    },
+    "BrowserUploadRoute": {
+      "enum": [
+        "fileInput",
+        "chooser",
+        "drop",
+        "pickerClick"
+      ],
+      "type": "string"
+    },
     "ComputerApprovalRequestParams": {
       "description": "Fields every approval request carries.",
       "properties": {
@@ -139,6 +888,560 @@
       ],
       "type": "object"
     },
+    "DownloadItem": {
+      "description": "One tracked download (`browser/downloads.ts` `TrackedBrowserDownload`).",
+      "properties": {
+        "completedAt": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "file": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "mimeType": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "received": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "startedAt": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "state": {
+          "type": "string"
+        },
+        "total": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "file",
+        "id",
+        "mimeType",
+        "path",
+        "received",
+        "startedAt",
+        "state",
+        "total",
+        "url"
+      ],
+      "type": "object"
+    },
+    "EmptyResult": {
+      "description": "Empty result `{}`.",
+      "type": "object"
+    },
+    "EmulationSpec": {
+      "description": "The overrides of the `emulate` command (`browser/emulation-validation.ts`); the host merges them with the pane viewport.",
+      "properties": {
+        "accuracy": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "colorScheme": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "cpuThrottlingRate": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "deviceScaleFactor": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "height": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "latitude": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "locale": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "longitude": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "mobile": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "networkProfile": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "orientation": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reducedMotion": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "timezone": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "touch": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "userAgent": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "width": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "FrameRef": {
+      "description": "A frame of a page: a child session and/or a frame id; absent means the main frame.",
+      "properties": {
+        "frameId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sessionId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "HostBrowserCdpSendParams": {
+      "description": "`host/browser/cdp/send`: refused with -32015 for the methods in `BROWSER_ENGINE_CDP_REFUSED`.",
+      "properties": {
+        "expect": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Precondition"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "method": {
+          "type": "string"
+        },
+        "pageId": {
+          "type": "string"
+        },
+        "params": true,
+        "sessionId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "timeoutMs": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "method",
+        "pageId"
+      ],
+      "type": "object"
+    },
+    "HostBrowserCdpSendResult": {
+      "properties": {
+        "facts": {
+          "$ref": "#/definitions/PageFacts"
+        },
+        "result": true
+      },
+      "required": [
+        "facts",
+        "result"
+      ],
+      "type": "object"
+    },
+    "HostBrowserCookiesParams": {
+      "description": "`host/browser/cookies`.",
+      "properties": {
+        "cookie": true,
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "op": {
+          "$ref": "#/definitions/BrowserCookiesOp"
+        },
+        "pageId": {
+          "type": "string"
+        },
+        "urls": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "op",
+        "pageId"
+      ],
+      "type": "object"
+    },
+    "HostBrowserCookiesResult": {
+      "properties": {
+        "cookies": {
+          "items": true,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "facts": {
+          "$ref": "#/definitions/PageFacts"
+        }
+      },
+      "required": [
+        "facts"
+      ],
+      "type": "object"
+    },
+    "HostBrowserDownloadsParams": {
+      "description": "`host/browser/downloads`.",
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "op": {
+          "$ref": "#/definitions/BrowserDownloadsOp"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "since": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "op",
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "HostBrowserDownloadsResult": {
+      "properties": {
+        "blob": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/BrowserBlobRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "items": {
+          "items": {
+            "$ref": "#/definitions/DownloadItem"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "type": "object"
+    },
+    "HostBrowserEmulationParams": {
+      "description": "`host/browser/emulation`: `overrides: null` clears them.",
+      "properties": {
+        "overrides": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/EmulationSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "pageId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "pageId"
+      ],
+      "type": "object"
+    },
+    "HostBrowserEmulationResult": {
+      "properties": {
+        "applied": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/EmulationSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "facts": {
+          "$ref": "#/definitions/PageFacts"
+        }
+      },
+      "required": [
+        "facts"
+      ],
+      "type": "object"
+    },
+    "HostBrowserInitScriptsParams": {
+      "description": "`host/browser/initScripts`.",
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "op": {
+          "$ref": "#/definitions/BrowserListOp"
+        },
+        "pageId": {
+          "type": "string"
+        },
+        "source": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "op",
+        "pageId"
+      ],
+      "type": "object"
+    },
+    "HostBrowserInitScriptsResult": {
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "scripts": {
+          "items": {
+            "$ref": "#/definitions/BrowserInitScript"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "HostBrowserInputBatchParams": {
+      "description": "`host/browser/input/batch`: the steps run in order; the batch stops at a dialog.",
+      "properties": {
+        "expect": {
+          "$ref": "#/definitions/Precondition"
+        },
+        "pageId": {
+          "type": "string"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/definitions/InputStep"
+          },
+          "type": "array"
+        },
+        "stopOnDialog": {
+          "type": "boolean"
+        },
+        "timeoutMs": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "expect",
+        "pageId",
+        "steps",
+        "stopOnDialog",
+        "timeoutMs"
+      ],
+      "type": "object"
+    },
+    "HostBrowserInputBatchResult": {
+      "properties": {
+        "completedSteps": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "facts": {
+          "$ref": "#/definitions/PageFacts"
+        },
+        "outcome": {
+          "$ref": "#/definitions/BrowserInputOutcome"
+        },
+        "timing": {
+          "$ref": "#/definitions/BrowserInputTiming"
+        }
+      },
+      "required": [
+        "completedSteps",
+        "facts",
+        "outcome",
+        "timing"
+      ],
+      "type": "object"
+    },
+    "HostBrowserInterceptParams": {
+      "description": "`host/browser/intercept`.",
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "op": {
+          "$ref": "#/definitions/BrowserInterceptOp"
+        },
+        "pageId": {
+          "type": "string"
+        },
+        "rule": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/InterceptRule"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "op",
+        "pageId"
+      ],
+      "type": "object"
+    },
+    "HostBrowserInterceptResult": {
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "rules": {
+          "items": {
+            "$ref": "#/definitions/InterceptRule"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "HostBrowserLiveControlParams": {
       "description": "Params of `host/browser/liveControl` (core → host): a live-view control that is not page input. The page input itself goes as `host/browser/command{action:\"input\"}`. The result is null; a failure is a JSON-RPC error.",
       "properties": {
@@ -154,6 +1457,949 @@
         "kind",
         "request",
         "sessionId"
+      ],
+      "type": "object"
+    },
+    "HostBrowserPageDialogAnswerParams": {
+      "description": "`host/browser/page/dialog/answer`.",
+      "properties": {
+        "accept": {
+          "type": "boolean"
+        },
+        "expect": {
+          "$ref": "#/definitions/Precondition"
+        },
+        "pageId": {
+          "type": "string"
+        },
+        "promptText": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "accept",
+        "expect",
+        "pageId"
+      ],
+      "type": "object"
+    },
+    "HostBrowserPageDialogAnswerResult": {
+      "properties": {
+        "answered": {
+          "type": "boolean"
+        },
+        "facts": {
+          "$ref": "#/definitions/PageFacts"
+        }
+      },
+      "required": [
+        "answered",
+        "facts"
+      ],
+      "type": "object"
+    },
+    "HostBrowserPageDomQuietParams": {
+      "description": "`host/browser/page/domQuiet`.",
+      "properties": {
+        "pageId": {
+          "type": "string"
+        },
+        "quietMs": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "timeoutMs": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "pageId",
+        "quietMs",
+        "timeoutMs"
+      ],
+      "type": "object"
+    },
+    "HostBrowserPageDomQuietResult": {
+      "properties": {
+        "facts": {
+          "$ref": "#/definitions/PageFacts"
+        },
+        "mutations": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "quiet": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "facts",
+        "mutations",
+        "quiet"
+      ],
+      "type": "object"
+    },
+    "HostBrowserPageEvalParams": {
+      "description": "`host/browser/page/eval`.",
+      "properties": {
+        "awaitPromise": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "expect": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Precondition"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "expression": {
+          "type": "string"
+        },
+        "frame": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/FrameRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pageId": {
+          "type": "string"
+        },
+        "returnByValue": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "timeoutMs": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "world": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/BrowserEvalWorld"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "expression",
+        "pageId",
+        "timeoutMs"
+      ],
+      "type": "object"
+    },
+    "HostBrowserPageEvalResult": {
+      "properties": {
+        "exception": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/BrowserExceptionDetails"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "facts": {
+          "$ref": "#/definitions/PageFacts"
+        },
+        "value": true
+      },
+      "required": [
+        "facts"
+      ],
+      "type": "object"
+    },
+    "HostBrowserPageFactsResult": {
+      "description": "The result of every call that answers with the page's facts alone.",
+      "properties": {
+        "facts": {
+          "$ref": "#/definitions/PageFacts"
+        }
+      },
+      "required": [
+        "facts"
+      ],
+      "type": "object"
+    },
+    "HostBrowserPageNavigateParams": {
+      "description": "`host/browser/page/navigate`.",
+      "properties": {
+        "expect": {
+          "$ref": "#/definitions/Precondition"
+        },
+        "kind": {
+          "$ref": "#/definitions/BrowserNavigateKind"
+        },
+        "mailLink": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/BrowserMailLink"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pageId": {
+          "type": "string"
+        },
+        "url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "expect",
+        "kind",
+        "pageId"
+      ],
+      "type": "object"
+    },
+    "HostBrowserPageNavigateResult": {
+      "properties": {
+        "facts": {
+          "$ref": "#/definitions/PageFacts"
+        },
+        "refused": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/BrowserNavigateRefusal"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "facts"
+      ],
+      "type": "object"
+    },
+    "HostBrowserPageReadParams": {
+      "description": "`host/browser/page/read`.",
+      "properties": {
+        "kind": {
+          "$ref": "#/definitions/BrowserPageReadKind"
+        },
+        "options": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/BrowserPageReadOptions"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pageId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "pageId"
+      ],
+      "type": "object"
+    },
+    "HostBrowserPageReadResult": {
+      "properties": {
+        "facts": {
+          "$ref": "#/definitions/PageFacts"
+        },
+        "payload": true,
+        "truncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "facts",
+        "payload",
+        "truncated"
+      ],
+      "type": "object"
+    },
+    "HostBrowserPageRenderCheckpointParams": {
+      "description": "`host/browser/page/renderCheckpoint`.",
+      "properties": {
+        "pageId": {
+          "type": "string"
+        },
+        "timeoutMs": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "pageId",
+        "timeoutMs"
+      ],
+      "type": "object"
+    },
+    "HostBrowserPageRenderCheckpointResult": {
+      "properties": {
+        "facts": {
+          "$ref": "#/definitions/PageFacts"
+        },
+        "reached": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "facts",
+        "reached"
+      ],
+      "type": "object"
+    },
+    "HostBrowserPageStopParams": {
+      "description": "`host/browser/page/stop`.",
+      "properties": {
+        "pageId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "pageId"
+      ],
+      "type": "object"
+    },
+    "HostBrowserPageSyncParams": {
+      "description": "`host/browser/page/sync`: resync after a seq gap.",
+      "properties": {
+        "pageId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "pageId"
+      ],
+      "type": "object"
+    },
+    "HostBrowserPageSyncResult": {
+      "properties": {
+        "consoleFloor": {
+          "description": "The console ledger's floor; the core resets its cursors to it.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "facts": {
+          "$ref": "#/definitions/PageFacts"
+        }
+      },
+      "required": [
+        "consoleFloor",
+        "facts"
+      ],
+      "type": "object"
+    },
+    "HostBrowserPagesCloseParams": {
+      "description": "`host/browser/pages/close`.",
+      "properties": {
+        "pageId": {
+          "type": "string"
+        },
+        "reason": {
+          "$ref": "#/definitions/BrowserPageCloseReason"
+        }
+      },
+      "required": [
+        "pageId",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "HostBrowserPagesCloseResult": {
+      "properties": {
+        "closed": {
+          "type": "boolean"
+        },
+        "nextActivePageId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "closed"
+      ],
+      "type": "object"
+    },
+    "HostBrowserPagesListParams": {
+      "description": "`host/browser/pages/list`.",
+      "properties": {
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "HostBrowserPagesListResult": {
+      "properties": {
+        "activePageId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "pages": {
+          "items": {
+            "$ref": "#/definitions/PageDescriptor"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "pages"
+      ],
+      "type": "object"
+    },
+    "HostBrowserPagesResolveParams": {
+      "description": "`host/browser/pages/resolve` (core to host): the page a session's command works on, opened or adopted when needed.",
+      "properties": {
+        "adopt": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "background": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "lease": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/BrowserLeaseSpec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "open": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/BrowserOpenSpec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "tab": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/BrowserTabSelector"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "HostBrowserPagesResolveResult": {
+      "properties": {
+        "leaseId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "page": {
+          "$ref": "#/definitions/PageDescriptor"
+        }
+      },
+      "required": [
+        "page"
+      ],
+      "type": "object"
+    },
+    "HostBrowserPagesSurfaceParams": {
+      "description": "`host/browser/pages/surface`: show, hide or hand off the pane (the host also sends `host/browser/surface`).",
+      "properties": {
+        "op": {
+          "$ref": "#/definitions/BrowserSurfaceOp"
+        },
+        "pageId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "HostBrowserPagesSurfaceResult": {
+      "properties": {
+        "facts": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/PageFacts"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "HostBrowserPerformanceParams": {
+      "description": "`host/browser/performance`.",
+      "properties": {
+        "categories": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "exportPath": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "op": {
+          "$ref": "#/definitions/BrowserPerformanceOp"
+        },
+        "pageId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "pageId"
+      ],
+      "type": "object"
+    },
+    "HostBrowserPerformanceResult": {
+      "properties": {
+        "exportedTo": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "metrics": true,
+        "summary": true
+      },
+      "type": "object"
+    },
+    "HostBrowserRefCallParams": {
+      "description": "`host/browser/ref/call`: a function called on the element a snapshot ref names.",
+      "properties": {
+        "args": {
+          "items": true,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "expect": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Precondition"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "functionDeclaration": {
+          "type": "string"
+        },
+        "pageId": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        },
+        "returnByValue": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "snapshotId": {
+          "type": "string"
+        },
+        "timeoutMs": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "functionDeclaration",
+        "pageId",
+        "ref",
+        "snapshotId"
+      ],
+      "type": "object"
+    },
+    "HostBrowserRefCallResult": {
+      "properties": {
+        "exception": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/BrowserExceptionDetails"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "facts": {
+          "$ref": "#/definitions/PageFacts"
+        },
+        "value": true
+      },
+      "required": [
+        "facts"
+      ],
+      "type": "object"
+    },
+    "HostBrowserScreenshotParams": {
+      "description": "`host/browser/screenshot`.",
+      "properties": {
+        "background": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "clip": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/BrowserScreenshotClip"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "format": {
+          "$ref": "#/definitions/BrowserImageFormat"
+        },
+        "fullPage": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "pageId": {
+          "type": "string"
+        },
+        "quality": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "format",
+        "pageId"
+      ],
+      "type": "object"
+    },
+    "HostBrowserScreenshotResult": {
+      "properties": {
+        "blob": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/BrowserBlobRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "data": {
+          "description": "Base64, only when the encoded picture is 128 KiB or less.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "facts": {
+          "$ref": "#/definitions/PageFacts"
+        },
+        "height": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "mimeType": {
+          "type": "string"
+        },
+        "width": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "facts",
+        "height",
+        "mimeType",
+        "width"
+      ],
+      "type": "object"
+    },
+    "HostBrowserSnapshotParams": {
+      "description": "`host/browser/snapshot`.",
+      "properties": {
+        "frame": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/FrameRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "maxElements": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "mode": {
+          "$ref": "#/definitions/BrowserSnapshotMode"
+        },
+        "pageId": {
+          "type": "string"
+        },
+        "query": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "textChars": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "mode",
+        "pageId"
+      ],
+      "type": "object"
+    },
+    "HostBrowserSnapshotResult": {
+      "properties": {
+        "documentId": {
+          "type": "string"
+        },
+        "facts": {
+          "$ref": "#/definitions/PageFacts"
+        },
+        "payload": {
+          "$ref": "#/definitions/BrowserSnapshotPayload"
+        },
+        "revision": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "snapshotId": {
+          "type": "string"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "documentId",
+        "facts",
+        "payload",
+        "revision",
+        "snapshotId",
+        "warnings"
+      ],
+      "type": "object"
+    },
+    "HostBrowserStorageParams": {
+      "description": "`host/browser/storage`.",
+      "properties": {
+        "area": {
+          "$ref": "#/definitions/BrowserStorageArea"
+        },
+        "key": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "op": {
+          "$ref": "#/definitions/BrowserStorageOp"
+        },
+        "pageId": {
+          "type": "string"
+        },
+        "value": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "area",
+        "op",
+        "pageId"
+      ],
+      "type": "object"
+    },
+    "HostBrowserStorageResult": {
+      "properties": {
+        "entries": true,
+        "facts": {
+          "$ref": "#/definitions/PageFacts"
+        }
+      },
+      "required": [
+        "facts"
+      ],
+      "type": "object"
+    },
+    "HostBrowserUploadParams": {
+      "description": "`host/browser/upload`.",
+      "properties": {
+        "expect": {
+          "$ref": "#/definitions/Precondition"
+        },
+        "files": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "pageId": {
+          "type": "string"
+        },
+        "receiverKey": {
+          "type": "string"
+        },
+        "ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "route": {
+          "$ref": "#/definitions/BrowserUploadRoute"
+        },
+        "snapshotId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "expect",
+        "files",
+        "pageId",
+        "receiverKey",
+        "route"
+      ],
+      "type": "object"
+    },
+    "HostBrowserUploadResult": {
+      "properties": {
+        "dispatched": {
+          "type": "boolean"
+        },
+        "facts": {
+          "$ref": "#/definitions/PageFacts"
+        },
+        "receiver": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/BrowserUploadReceiver"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "verified": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "dispatched",
+        "facts",
+        "verified"
       ],
       "type": "object"
     },
@@ -252,6 +2498,110 @@
       "description": "Params of `host/computer/displays` (core → host): none.",
       "type": "object"
     },
+    "HostComputerForegroundLeaseParams": {
+      "description": "Params of `host/computer/foregroundLease` (core → host): one foreground-lock request of a Computer Use helper. Windows lets only a process that may set the foreground take the lock, which while the user works in a Mixdog window is the desktop, so the core relays the request there (`foreground-lock-host.ts` `handle`). A number the op does not use is 0.",
+      "properties": {
+        "action": {
+          "description": "The helper's request in flight that asks, 1..2^31-1.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "answerBy": {
+          "description": "`acquire`: when the helper stops waiting for the answer, in ms on QueryPerformanceCounter.",
+          "format": "double",
+          "type": "number"
+        },
+        "holdMs": {
+          "description": "`acquire`: the longest the lock may be held, 1..1000 ms.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "instance": {
+          "description": "The helper that asks: the core's id for it, never reused (`LeaseWorker.instance`).",
+          "type": "string"
+        },
+        "lease": {
+          "description": "`release`: the lease it ends; 0 when the helper was told none.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "op": {
+          "$ref": "#/definitions/HostComputerLeaseOp"
+        },
+        "seq": {
+          "description": "The ask's number within that request, 1..2^31-1.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "action",
+        "answerBy",
+        "holdMs",
+        "instance",
+        "lease",
+        "op",
+        "seq"
+      ],
+      "type": "object"
+    },
+    "HostComputerForegroundLeaseResult": {
+      "description": "Result of `host/computer/foregroundLease`, the reply lines of `foreground-lock-host.ts`: `ack` answers an `acquire` (`ack <action> <seq> <lease> <answer> <deadline>` on the helper's stdin), `released` a `release` (`released <action> <seq> <lease> <outcome>`); `unavailable` says no lease owner serves the desktop. A member the kind does not carry is absent.",
+      "properties": {
+        "answer": {
+          "description": "`ack`, `unavailable`: `locked`, `refused`, `busy`, `quarantined`, `expired` or `unavailable`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "deadlineAt": {
+          "description": "`ack`: when the lease ends, in ms on QueryPerformanceCounter; 0 when none was taken.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "facts": {
+          "description": "The desktop's facts for the request (`takeFacts`), for the helper's `foreground_lock.host`."
+        },
+        "kind": {
+          "$ref": "#/definitions/HostComputerLeaseReplyKind"
+        },
+        "lease": {
+          "description": "`ack`, `released`: the lease; 0 when none was taken.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "outcome": {
+          "description": "`released`: `released`, `unknown`, `failed` or `none`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason": {
+          "description": "`unavailable`: why no lease owner answered.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
     "HostComputerImage": {
       "description": "The image of a computer host reply: its media type and base64 bytes.",
       "properties": {
@@ -265,6 +2615,63 @@
       "required": [
         "data",
         "mimeType"
+      ],
+      "type": "object"
+    },
+    "HostComputerInternalWindowsParams": {
+      "additionalProperties": false,
+      "description": "Params of `host/computer/internalWindows` (core → host): none.",
+      "type": "object"
+    },
+    "HostComputerInternalWindowsResult": {
+      "description": "Result of `host/computer/internalWindows`: the desktop's own Computer Use windows (overlay, pill, indicator), which no window list may show (`overlay/internal-windows.ts`).",
+      "properties": {
+        "windowIds": {
+          "description": "Their ids as the helper names windows (`hwnd:0x…`), matched without regard to case (`normalizedWindowId`).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "windowIds"
+      ],
+      "type": "object"
+    },
+    "HostComputerLeaseOp": {
+      "description": "What a `host/computer/foregroundLease` request does (`foreground-lock-host.ts` `LeaseThreadRequest`): `acquire` and `release` relay a helper's `@@MIXDOG_FGLOCK@@` line; `gone` says the helper exited, so a lease it holds ends now (`workerGone`).",
+      "enum": [
+        "acquire",
+        "release",
+        "gone"
+      ],
+      "type": "string"
+    },
+    "HostComputerLeaseReplyKind": {
+      "description": "How the desktop answered a `host/computer/foregroundLease`.",
+      "enum": [
+        "ack",
+        "released",
+        "unavailable"
+      ],
+      "type": "string"
+    },
+    "HostComputerPointerFeedbackParams": {
+      "description": "Params of `host/computer/pointerFeedback` (core → host): a helper's pointer progress, which the overlay draws as the agent's arrow. Each event is a `@@MIXDOG_POINTER@@` line the core checked against the request it belongs to (`worker-pool.ts` `reportPointerProgress`). The host answers `null`.",
+      "properties": {
+        "events": {
+          "description": "In the helper's order, each with what `publishPointerProgress` takes: `x`, `y`, `held`, `phase`, `mode` and `windowId`.",
+          "items": true,
+          "type": "array"
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "events",
+        "sessionId"
       ],
       "type": "object"
     },
@@ -441,6 +2848,73 @@
       ],
       "type": "object"
     },
+    "HostWindowCloseParams": {
+      "description": "`host/window/close`.",
+      "properties": {
+        "connectionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "connectionId"
+      ],
+      "type": "object"
+    },
+    "HostWindowFocusParams": {
+      "description": "`host/window/focus`; `connectionId` `local` is the main window.",
+      "properties": {
+        "connectionId": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "connectionId"
+      ],
+      "type": "object"
+    },
+    "HostWindowKind": {
+      "enum": [
+        "ssh"
+      ],
+      "type": "string"
+    },
+    "HostWindowOpenParams": {
+      "description": "`host/window/open`: opens (or focuses) the window of a server.",
+      "properties": {
+        "connectionId": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/definitions/HostWindowKind"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "connectionId",
+        "kind",
+        "name"
+      ],
+      "type": "object"
+    },
+    "HostWindowOpenResult": {
+      "properties": {
+        "opened": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "opened"
+      ],
+      "type": "object"
+    },
     "HumanGateResponse": {
       "enum": [
         "approve",
@@ -451,6 +2925,216 @@
         "done"
       ],
       "type": "string"
+    },
+    "InputStep": {
+      "description": "One step of `host/browser/input/batch`, by `op`.",
+      "oneOf": [
+        {
+          "properties": {
+            "delayMs": {
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "op": {
+              "enum": [
+                "type"
+              ],
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "text"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "op": {
+              "enum": [
+                "insertText"
+              ],
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "text"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "key": {
+              "type": "string"
+            },
+            "modifiers": {
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            },
+            "op": {
+              "enum": [
+                "press"
+              ],
+              "type": "string"
+            },
+            "repeat": {
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "key",
+            "op"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "button": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/BrowserPointerButton"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "deltaX": {
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "deltaY": {
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "hitGuard": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/BrowserHitGuard"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "kind": {
+              "$ref": "#/definitions/BrowserPointerKind"
+            },
+            "modifiers": {
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            },
+            "op": {
+              "enum": [
+                "pointer"
+              ],
+              "type": "string"
+            },
+            "toX": {
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "toY": {
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "x": {
+              "format": "double",
+              "type": "number"
+            },
+            "y": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "kind",
+            "op",
+            "x",
+            "y"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "InterceptRule": {
+      "description": "One intercept rule (`browser/intercept.ts` `BrowserInterceptRule`); `id` and `hits` are the host's, absent on an `add`.",
+      "properties": {
+        "abort": {
+          "default": false,
+          "type": "boolean"
+        },
+        "body": {
+          "default": "",
+          "type": "string"
+        },
+        "hits": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "pattern": {
+          "type": "string"
+        },
+        "resourceTypes": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "pattern"
+      ],
+      "type": "object"
     },
     "LiveControlKind": {
       "description": "What `host/browser/liveControl` carries to the viewed page.",
@@ -500,6 +3184,169 @@
       },
       "required": [
         "result"
+      ],
+      "type": "object"
+    },
+    "PageDescriptor": {
+      "properties": {
+        "background": {
+          "type": "boolean"
+        },
+        "facts": {
+          "$ref": "#/definitions/PageFacts"
+        },
+        "pageId": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "tabId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "background",
+        "facts",
+        "pageId",
+        "sessionId",
+        "tabId"
+      ],
+      "type": "object"
+    },
+    "PageFacts": {
+      "description": "Everything the core needs to know about a page's state; `seq` rises with every change the host reports, so a gap is a lost event.",
+      "properties": {
+        "actor": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/BrowserPageActor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "alive": {
+          "type": "boolean"
+        },
+        "background": {
+          "type": "boolean"
+        },
+        "childSessions": {
+          "items": {
+            "$ref": "#/definitions/BrowserChildSession"
+          },
+          "type": "array"
+        },
+        "crashed": {
+          "type": "boolean"
+        },
+        "dismissedDialog": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/BrowserDismissedDialog"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "documentId": {
+          "type": "string"
+        },
+        "fault": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "loading": {
+          "type": "boolean"
+        },
+        "mainFrameLoading": {
+          "type": "boolean"
+        },
+        "openedPopups": {
+          "description": "The page ids of popups this page opened.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "pageId": {
+          "type": "string"
+        },
+        "pendingDialog": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/BrowserPendingDialog"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pendingFileChooser": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/BrowserPendingFileChooser"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "refusedRequests": {
+          "items": {
+            "$ref": "#/definitions/BrowserRefusedRequest"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "seq": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "title": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "userInputAt": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "visible": {
+          "type": "boolean"
+        },
+        "zoom": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "alive",
+        "background",
+        "childSessions",
+        "crashed",
+        "documentId",
+        "loading",
+        "mainFrameLoading",
+        "openedPopups",
+        "pageId",
+        "seq",
+        "title",
+        "url",
+        "visible",
+        "zoom"
       ],
       "type": "object"
     },
@@ -568,6 +3415,51 @@
         "requestedAt",
         "scopes",
         "threadId"
+      ],
+      "type": "object"
+    },
+    "Precondition": {
+      "description": "The page state a mutating call was decided against; the host checks it synchronously right before the CDP send and refuses with -32010 when it no longer holds.",
+      "properties": {
+        "childSessions": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "documentId": {
+          "type": "string"
+        },
+        "origin": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "receiverKey": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "snapshotId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "documentId"
       ],
       "type": "object"
     },
@@ -3012,17 +5904,217 @@
     }
   },
   "methods": {
+    "host/browser/cdp/send": {
+      "params": {
+        "$ref": "#/definitions/HostBrowserCdpSendParams"
+      },
+      "result": {
+        "$ref": "#/definitions/HostBrowserCdpSendResult"
+      }
+    },
     "host/browser/command": {
       "params": {
         "$ref": "#/definitions/HostCommandParams"
       },
       "result": true
     },
+    "host/browser/cookies": {
+      "params": {
+        "$ref": "#/definitions/HostBrowserCookiesParams"
+      },
+      "result": {
+        "$ref": "#/definitions/HostBrowserCookiesResult"
+      }
+    },
+    "host/browser/downloads": {
+      "params": {
+        "$ref": "#/definitions/HostBrowserDownloadsParams"
+      },
+      "result": {
+        "$ref": "#/definitions/HostBrowserDownloadsResult"
+      }
+    },
+    "host/browser/emulation": {
+      "params": {
+        "$ref": "#/definitions/HostBrowserEmulationParams"
+      },
+      "result": {
+        "$ref": "#/definitions/HostBrowserEmulationResult"
+      }
+    },
+    "host/browser/initScripts": {
+      "params": {
+        "$ref": "#/definitions/HostBrowserInitScriptsParams"
+      },
+      "result": {
+        "$ref": "#/definitions/HostBrowserInitScriptsResult"
+      }
+    },
+    "host/browser/input/batch": {
+      "params": {
+        "$ref": "#/definitions/HostBrowserInputBatchParams"
+      },
+      "result": {
+        "$ref": "#/definitions/HostBrowserInputBatchResult"
+      }
+    },
+    "host/browser/intercept": {
+      "params": {
+        "$ref": "#/definitions/HostBrowserInterceptParams"
+      },
+      "result": {
+        "$ref": "#/definitions/HostBrowserInterceptResult"
+      }
+    },
     "host/browser/liveControl": {
       "params": {
         "$ref": "#/definitions/HostBrowserLiveControlParams"
       },
       "result": true
+    },
+    "host/browser/page/dialog/answer": {
+      "params": {
+        "$ref": "#/definitions/HostBrowserPageDialogAnswerParams"
+      },
+      "result": {
+        "$ref": "#/definitions/HostBrowserPageDialogAnswerResult"
+      }
+    },
+    "host/browser/page/domQuiet": {
+      "params": {
+        "$ref": "#/definitions/HostBrowserPageDomQuietParams"
+      },
+      "result": {
+        "$ref": "#/definitions/HostBrowserPageDomQuietResult"
+      }
+    },
+    "host/browser/page/eval": {
+      "params": {
+        "$ref": "#/definitions/HostBrowserPageEvalParams"
+      },
+      "result": {
+        "$ref": "#/definitions/HostBrowserPageEvalResult"
+      }
+    },
+    "host/browser/page/navigate": {
+      "params": {
+        "$ref": "#/definitions/HostBrowserPageNavigateParams"
+      },
+      "result": {
+        "$ref": "#/definitions/HostBrowserPageNavigateResult"
+      }
+    },
+    "host/browser/page/read": {
+      "params": {
+        "$ref": "#/definitions/HostBrowserPageReadParams"
+      },
+      "result": {
+        "$ref": "#/definitions/HostBrowserPageReadResult"
+      }
+    },
+    "host/browser/page/renderCheckpoint": {
+      "params": {
+        "$ref": "#/definitions/HostBrowserPageRenderCheckpointParams"
+      },
+      "result": {
+        "$ref": "#/definitions/HostBrowserPageRenderCheckpointResult"
+      }
+    },
+    "host/browser/page/stop": {
+      "params": {
+        "$ref": "#/definitions/HostBrowserPageStopParams"
+      },
+      "result": {
+        "$ref": "#/definitions/HostBrowserPageFactsResult"
+      }
+    },
+    "host/browser/page/sync": {
+      "params": {
+        "$ref": "#/definitions/HostBrowserPageSyncParams"
+      },
+      "result": {
+        "$ref": "#/definitions/HostBrowserPageSyncResult"
+      }
+    },
+    "host/browser/pages/close": {
+      "params": {
+        "$ref": "#/definitions/HostBrowserPagesCloseParams"
+      },
+      "result": {
+        "$ref": "#/definitions/HostBrowserPagesCloseResult"
+      }
+    },
+    "host/browser/pages/list": {
+      "params": {
+        "$ref": "#/definitions/HostBrowserPagesListParams"
+      },
+      "result": {
+        "$ref": "#/definitions/HostBrowserPagesListResult"
+      }
+    },
+    "host/browser/pages/resolve": {
+      "params": {
+        "$ref": "#/definitions/HostBrowserPagesResolveParams"
+      },
+      "result": {
+        "$ref": "#/definitions/HostBrowserPagesResolveResult"
+      }
+    },
+    "host/browser/pages/surface": {
+      "params": {
+        "$ref": "#/definitions/HostBrowserPagesSurfaceParams"
+      },
+      "result": {
+        "$ref": "#/definitions/HostBrowserPagesSurfaceResult"
+      }
+    },
+    "host/browser/performance": {
+      "params": {
+        "$ref": "#/definitions/HostBrowserPerformanceParams"
+      },
+      "result": {
+        "$ref": "#/definitions/HostBrowserPerformanceResult"
+      }
+    },
+    "host/browser/ref/call": {
+      "params": {
+        "$ref": "#/definitions/HostBrowserRefCallParams"
+      },
+      "result": {
+        "$ref": "#/definitions/HostBrowserRefCallResult"
+      }
+    },
+    "host/browser/screenshot": {
+      "params": {
+        "$ref": "#/definitions/HostBrowserScreenshotParams"
+      },
+      "result": {
+        "$ref": "#/definitions/HostBrowserScreenshotResult"
+      }
+    },
+    "host/browser/snapshot": {
+      "params": {
+        "$ref": "#/definitions/HostBrowserSnapshotParams"
+      },
+      "result": {
+        "$ref": "#/definitions/HostBrowserSnapshotResult"
+      }
+    },
+    "host/browser/storage": {
+      "params": {
+        "$ref": "#/definitions/HostBrowserStorageParams"
+      },
+      "result": {
+        "$ref": "#/definitions/HostBrowserStorageResult"
+      }
+    },
+    "host/browser/upload": {
+      "params": {
+        "$ref": "#/definitions/HostBrowserUploadParams"
+      },
+      "result": {
+        "$ref": "#/definitions/HostBrowserUploadResult"
+      }
     },
     "host/capture/fileSnapshot": {
       "params": {
@@ -3049,6 +6141,30 @@
           "$ref": "#/definitions/HostComputerDisplay"
         },
         "type": "array"
+      }
+    },
+    "host/computer/foregroundLease": {
+      "params": {
+        "$ref": "#/definitions/HostComputerForegroundLeaseParams"
+      },
+      "result": {
+        "$ref": "#/definitions/HostComputerForegroundLeaseResult"
+      }
+    },
+    "host/computer/internalWindows": {
+      "params": {
+        "$ref": "#/definitions/HostComputerInternalWindowsParams"
+      },
+      "result": {
+        "$ref": "#/definitions/HostComputerInternalWindowsResult"
+      }
+    },
+    "host/computer/pointerFeedback": {
+      "params": {
+        "$ref": "#/definitions/HostComputerPointerFeedbackParams"
+      },
+      "result": {
+        "type": "null"
       }
     },
     "host/files/trashItem": {
@@ -3098,6 +6214,30 @@
         "$ref": "#/definitions/HostVisualizeCommandParams"
       },
       "result": true
+    },
+    "host/window/close": {
+      "params": {
+        "$ref": "#/definitions/HostWindowCloseParams"
+      },
+      "result": {
+        "$ref": "#/definitions/EmptyResult"
+      }
+    },
+    "host/window/focus": {
+      "params": {
+        "$ref": "#/definitions/HostWindowFocusParams"
+      },
+      "result": {
+        "$ref": "#/definitions/EmptyResult"
+      }
+    },
+    "host/window/open": {
+      "params": {
+        "$ref": "#/definitions/HostWindowOpenParams"
+      },
+      "result": {
+        "$ref": "#/definitions/HostWindowOpenResult"
+      }
     },
     "item/browser/requestApproval": {
       "params": {

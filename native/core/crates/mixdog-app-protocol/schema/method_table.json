@@ -7868,6 +7868,78 @@
     },
     {
       "class": "C1",
+      "method": "projectFs/grant/describe",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "v2::desktop_files::ProjectFsGrantDescribeParams",
+      "result": "JsonValue",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C1",
+      "method": "projectFs/grant/redeem",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "v2::desktop_files::ProjectFsGrantRedeemParams",
+      "result": "JsonValue",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C1",
+      "method": "projectFs/localPage/revokeOwner",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "v2::desktop_files::ProjectFsLocalPageRevokeOwnerParams",
+      "result": "JsonValue",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C1",
+      "method": "projectFs/localPage/origin",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "v2::desktop_files::ProjectFsLocalPageOriginParams",
+      "result": "JsonValue",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C1",
       "method": "projectFs/previewFile",
       "mutation": {
         "kind": "none"
@@ -10024,6 +10096,762 @@
     },
     {
       "class": "C2",
+      "method": "connections/subscribe",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "ConnectionsSubscribeParams",
+      "result": "v2::feed::Subscription",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "connections/unsubscribe",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "ConnectionsUnsubscribeParams",
+      "result": "v2::feed::EmptyResult",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "connections/ssh/list",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "ConnectionsNoParams",
+      "result": "Vec<SshHost>",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "connections/ssh/rename",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "ConnectionsRenameParams",
+      "result": "v2::feed::EmptyResult",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "connections/ssh/forget",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "ConnectionsIdParams",
+      "result": "v2::feed::EmptyResult",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "connections/ssh/open",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "ConnectionsIdParams",
+      "result": "SshConnectResult",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "connections/ssh/configHosts",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "ConnectionsNoParams",
+      "result": "Vec<SshConfigHost>",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "connections/ssh/inspect",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "SshInspectParams",
+      "result": "SshInspection",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "connections/ssh/connect",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "SshConnectParams",
+      "result": "SshConnectResult",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "connections/ssh/cancel",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "SshCancelParams",
+      "result": "v2::feed::EmptyResult",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "connections/ssh/askpassReply",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "SshAskpassReplyParams",
+      "result": "v2::feed::EmptyResult",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "connections/ssh/cleanup",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "SshCleanupParams",
+      "result": "SshCleanupResult",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "connections/ssh/updateSettings",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "SshUpdateSettingsParams",
+      "result": "SshHost",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "connections/ssh/diagnosticsLog",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "SshDiagnosticsRefParams",
+      "result": "SshLogView",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "connections/ssh/diagnosticsCopy",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "SshDiagnosticsRefParams",
+      "result": "SshDiagnosticsText",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "connections/ssh/serverLog",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "SshDiagnosticsRefParams",
+      "result": "SshServerLog",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "connections/ssh/serverLogins",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "ConnectionsIdParams",
+      "result": "SshServerLogins",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "connections/ssh/serverLoginBegin",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "SshServerLoginProviderParams",
+      "result": "SshServerLoginFlow",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "connections/ssh/serverLoginStatus",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "SshServerLoginFlowParams",
+      "result": "SshServerLoginFlow",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "connections/ssh/serverLoginComplete",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "SshServerLoginCompleteParams",
+      "result": "SshServerLoginFlow",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "connections/ssh/serverLoginCancel",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "SshServerLoginFlowParams",
+      "result": "v2::feed::EmptyResult",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "connections/ssh/serverLoginSaveKey",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "SshServerLoginSaveKeyParams",
+      "result": "SshServerLogins",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "connections/ssh/serverLoginLogout",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "SshServerLoginProviderParams",
+      "result": "SshServerLogins",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "connections/ssh/serverLoginRemoveCustom",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "SshServerLoginProviderParams",
+      "result": "SshServerLogins",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "connections/ssh/openEphemeral",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "SshOpenEphemeralParams",
+      "result": "SshConnectResult",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "connections/link/get",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "ConnectionIdParams",
+      "result": "Option<ConnectionLinkView>",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "connections/link/retry",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "ConnectionIdParams",
+      "result": "v2::feed::EmptyResult",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "connections/link/retryNow",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "ConnectionIdParams",
+      "result": "v2::feed::EmptyResult",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "connections/link/requestSignIn",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "ConnectionIdParams",
+      "result": "v2::feed::EmptyResult",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "connections/ports/list",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "ConnectionIdParams",
+      "result": "ServerPortsView",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "connections/ports/forward",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "PortsForwardParams",
+      "result": "PortForward",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "connections/ports/stop",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "PortsStopParams",
+      "result": "v2::feed::EmptyResult",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "connections/ports/dismiss",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "PortsDismissParams",
+      "result": "v2::feed::EmptyResult",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "connections/restore/get",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "ConnectionsNoParams",
+      "result": "ConnectionsRestoreState",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "connections/restore/set",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "ConnectionsRestoreState",
+      "result": "v2::feed::EmptyResult",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "connections/restore/progress",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "ConnectionsNoParams",
+      "result": "Vec<ServerRestoreProgress>",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "connections/endpoint",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "ConnectionIdParams",
+      "result": "ConnectionEndpoint",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "remoteHosts/list",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "ConnectionsNoParams",
+      "result": "Vec<RemoteHost>",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "remoteHosts/redeemCode",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "RemoteHostRedeemParams",
+      "result": "RemoteHost",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "remoteHosts/rename",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "ConnectionsRenameParams",
+      "result": "RemoteHost",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "remoteHosts/forget",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "ConnectionsIdParams",
+      "result": "v2::feed::EmptyResult",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "remoteHosts/presence",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "RemoteHostPresenceParams",
+      "result": "RemoteHostPresenceResult",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
       "method": "remoteAccess/setEnabled",
       "mutation": {
         "domain": "remoteAccess",
@@ -10377,6 +11205,42 @@
     },
     {
       "class": "C2",
+      "method": "pcAccess/readiness",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "v2::pc_access::PcAccessReadinessParams",
+      "result": "v2::pc_access::PcAccessReadiness",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "pcAccess/approve",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "v2::pc_access::PcAccessApproveParams",
+      "result": "v2::pc_access::PcAccessApproval",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
       "method": "browser/command",
       "mutation": {
         "kind": "none"
@@ -10411,6 +11275,25 @@
       ],
       "params": "VisualizeCommandParams",
       "result": "JsonValue",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "computer/userControl",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local",
+        "ssh"
+      ],
+      "params": "v2::host::ComputerUserControlParams",
+      "result": "v2::host::ComputerUserControlResult",
       "scope": {
         "kind": "none"
       }
@@ -10596,6 +11479,24 @@
     },
     {
       "class": "C2",
+      "method": "test/browserEngine/run",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "BrowserEngineTestRunParams",
+      "result": "BrowserEngineTestRunResult",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
       "method": "browser/webrtcSignal",
       "mutation": {
         "kind": "none"
@@ -10726,6 +11627,21 @@
     },
     {
       "delivery": null,
+      "method": "host/browser/events",
+      "params": "HostBrowserEventsParams"
+    },
+    {
+      "delivery": null,
+      "method": "host/browser/page/facts",
+      "params": "HostBrowserPageFactsParams"
+    },
+    {
+      "delivery": null,
+      "method": "host/browser/userInput",
+      "params": "HostBrowserUserInputParams"
+    },
+    {
+      "delivery": null,
       "method": "browser/streamAck",
       "params": "BrowserStreamAckParams"
     },
@@ -10733,6 +11649,11 @@
       "delivery": null,
       "method": "host/notification/clicked",
       "params": "HostNotificationClickedParams"
+    },
+    {
+      "delivery": null,
+      "method": "host/window/closed",
+      "params": "HostWindowClosedParams"
     },
     {
       "delivery": null,
@@ -10978,6 +11899,11 @@
     },
     {
       "delivery": "connection",
+      "method": "host/browser/lease/release",
+      "params": "HostBrowserLeaseReleaseParams"
+    },
+    {
+      "delivery": "connection",
       "method": "browser/webrtcSignal",
       "params": "BrowserWebrtcSignalParams"
     },
@@ -10995,6 +11921,36 @@
       "delivery": "connection",
       "method": "model/proxy/cancel",
       "params": "ModelProxyCancelParams"
+    },
+    {
+      "delivery": "connection",
+      "method": "connections/ssh/askpass",
+      "params": "SshAskpass"
+    },
+    {
+      "delivery": "connection",
+      "method": "connections/ssh/progress",
+      "params": "SshProgress"
+    },
+    {
+      "delivery": "connection",
+      "method": "connections/ssh/cleanupProgress",
+      "params": "SshCleanupProgressParams"
+    },
+    {
+      "delivery": "connection",
+      "method": "connections/ssh/serverLoginUpdated",
+      "params": "SshServerLoginUpdatedParams"
+    },
+    {
+      "delivery": "connection",
+      "method": "connections/notice",
+      "params": "ConnectionsNoticeParams"
+    },
+    {
+      "delivery": "connection",
+      "method": "connections/signIn",
+      "params": "ConnectionsSignInParams"
     },
     {
       "delivery": "app",
@@ -11267,6 +12223,13 @@
       },
       "method": "system/ports/updated",
       "params": "SectionUpdate"
+    },
+    {
+      "delivery": {
+        "scoped": "connections"
+      },
+      "method": "connections/updated",
+      "params": "SectionUpdate"
     }
   ],
   "serverRequests": [
@@ -11313,6 +12276,156 @@
       "result": "JsonValue"
     },
     {
+      "method": "host/browser/pages/resolve",
+      "params": "HostBrowserPagesResolveParams",
+      "requires": "host.browserEngine",
+      "result": "HostBrowserPagesResolveResult"
+    },
+    {
+      "method": "host/browser/pages/list",
+      "params": "HostBrowserPagesListParams",
+      "requires": "host.browserEngine",
+      "result": "HostBrowserPagesListResult"
+    },
+    {
+      "method": "host/browser/pages/close",
+      "params": "HostBrowserPagesCloseParams",
+      "requires": "host.browserEngine",
+      "result": "HostBrowserPagesCloseResult"
+    },
+    {
+      "method": "host/browser/pages/surface",
+      "params": "HostBrowserPagesSurfaceParams",
+      "requires": "host.browserEngine",
+      "result": "HostBrowserPagesSurfaceResult"
+    },
+    {
+      "method": "host/browser/page/navigate",
+      "params": "HostBrowserPageNavigateParams",
+      "requires": "host.browserEngine",
+      "result": "HostBrowserPageNavigateResult"
+    },
+    {
+      "method": "host/browser/page/stop",
+      "params": "HostBrowserPageStopParams",
+      "requires": "host.browserEngine",
+      "result": "HostBrowserPageFactsResult"
+    },
+    {
+      "method": "host/browser/page/eval",
+      "params": "HostBrowserPageEvalParams",
+      "requires": "host.browserEngine",
+      "result": "HostBrowserPageEvalResult"
+    },
+    {
+      "method": "host/browser/page/read",
+      "params": "HostBrowserPageReadParams",
+      "requires": "host.browserEngine",
+      "result": "HostBrowserPageReadResult"
+    },
+    {
+      "method": "host/browser/page/renderCheckpoint",
+      "params": "HostBrowserPageRenderCheckpointParams",
+      "requires": "host.browserEngine",
+      "result": "HostBrowserPageRenderCheckpointResult"
+    },
+    {
+      "method": "host/browser/page/domQuiet",
+      "params": "HostBrowserPageDomQuietParams",
+      "requires": "host.browserEngine",
+      "result": "HostBrowserPageDomQuietResult"
+    },
+    {
+      "method": "host/browser/page/dialog/answer",
+      "params": "HostBrowserPageDialogAnswerParams",
+      "requires": "host.browserEngine",
+      "result": "HostBrowserPageDialogAnswerResult"
+    },
+    {
+      "method": "host/browser/page/sync",
+      "params": "HostBrowserPageSyncParams",
+      "requires": "host.browserEngine",
+      "result": "HostBrowserPageSyncResult"
+    },
+    {
+      "method": "host/browser/snapshot",
+      "params": "HostBrowserSnapshotParams",
+      "requires": "host.browserEngine",
+      "result": "HostBrowserSnapshotResult"
+    },
+    {
+      "method": "host/browser/ref/call",
+      "params": "HostBrowserRefCallParams",
+      "requires": "host.browserEngine",
+      "result": "HostBrowserRefCallResult"
+    },
+    {
+      "method": "host/browser/input/batch",
+      "params": "HostBrowserInputBatchParams",
+      "requires": "host.browserEngine",
+      "result": "HostBrowserInputBatchResult"
+    },
+    {
+      "method": "host/browser/screenshot",
+      "params": "HostBrowserScreenshotParams",
+      "requires": "host.browserEngine",
+      "result": "HostBrowserScreenshotResult"
+    },
+    {
+      "method": "host/browser/cdp/send",
+      "params": "HostBrowserCdpSendParams",
+      "requires": "host.browserEngine",
+      "result": "HostBrowserCdpSendResult"
+    },
+    {
+      "method": "host/browser/cookies",
+      "params": "HostBrowserCookiesParams",
+      "requires": "host.browserEngine",
+      "result": "HostBrowserCookiesResult"
+    },
+    {
+      "method": "host/browser/storage",
+      "params": "HostBrowserStorageParams",
+      "requires": "host.browserEngine",
+      "result": "HostBrowserStorageResult"
+    },
+    {
+      "method": "host/browser/initScripts",
+      "params": "HostBrowserInitScriptsParams",
+      "requires": "host.browserEngine",
+      "result": "HostBrowserInitScriptsResult"
+    },
+    {
+      "method": "host/browser/intercept",
+      "params": "HostBrowserInterceptParams",
+      "requires": "host.browserEngine",
+      "result": "HostBrowserInterceptResult"
+    },
+    {
+      "method": "host/browser/performance",
+      "params": "HostBrowserPerformanceParams",
+      "requires": "host.browserEngine",
+      "result": "HostBrowserPerformanceResult"
+    },
+    {
+      "method": "host/browser/emulation",
+      "params": "HostBrowserEmulationParams",
+      "requires": "host.browserEngine",
+      "result": "HostBrowserEmulationResult"
+    },
+    {
+      "method": "host/browser/downloads",
+      "params": "HostBrowserDownloadsParams",
+      "requires": "host.browserEngine",
+      "result": "HostBrowserDownloadsResult"
+    },
+    {
+      "method": "host/browser/upload",
+      "params": "HostBrowserUploadParams",
+      "requires": "host.browserEngine",
+      "result": "HostBrowserUploadResult"
+    },
+    {
       "method": "host/screen/displays",
       "params": "ScreenDisplaysParams",
       "requires": "host.browser",
@@ -11329,6 +12442,24 @@
       "params": "HostComputerDisplaysParams",
       "requires": "host.computer",
       "result": "Vec<HostComputerDisplay>"
+    },
+    {
+      "method": "host/computer/foregroundLease",
+      "params": "HostComputerForegroundLeaseParams",
+      "requires": "host.computer",
+      "result": "HostComputerForegroundLeaseResult"
+    },
+    {
+      "method": "host/computer/internalWindows",
+      "params": "HostComputerInternalWindowsParams",
+      "requires": "host.computer",
+      "result": "HostComputerInternalWindowsResult"
+    },
+    {
+      "method": "host/computer/pointerFeedback",
+      "params": "HostComputerPointerFeedbackParams",
+      "requires": "host.computer",
+      "result": "()"
     },
     {
       "method": "host/visualize/command",
@@ -11371,6 +12502,24 @@
       "params": "HostFilesTrashItemParams",
       "requires": "host.files",
       "result": "JsonValue"
+    },
+    {
+      "method": "host/window/open",
+      "params": "HostWindowOpenParams",
+      "requires": "host.windows",
+      "result": "HostWindowOpenResult"
+    },
+    {
+      "method": "host/window/close",
+      "params": "HostWindowCloseParams",
+      "requires": "host.windows",
+      "result": "crate::v2::feed::EmptyResult"
+    },
+    {
+      "method": "host/window/focus",
+      "params": "HostWindowFocusParams",
+      "requires": "host.windows",
+      "result": "crate::v2::feed::EmptyResult"
     },
     {
       "method": "model/proxy/execute",
