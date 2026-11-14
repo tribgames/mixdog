@@ -1,0 +1,11 @@
+mixdog-pdf-codec
+
+The stream filters (FlateDecode, LZWDecode, ASCII85Decode, ASCIIHexDecode, RunLengthDecode and the TIFF and PNG
+predictors) and the standard security handler (RC4, AES-128 and AES-256 decryption, the revision 2 to 6 key
+derivation, the ISO 32000-2 password hash and the password checks) in this crate are ported from pdf.js 6.4.299
+(src/core/flate_stream.js, lzw_stream.js, predictor_stream.js, ascii_85_stream.js, ascii_hex_stream.js,
+run_length_stream.js, decrypt_stream.js, crypto.js, sasl_prep.js), including its tolerance of damaged data.
+
+pdf.js is Copyright 2012 Mozilla Foundation and is licensed under the Apache License, Version 2.0
+(https://www.apache.org/licenses/LICENSE-2.0). This crate is a translation of those algorithms into Rust; it does not
+use the pdf.js sources at run time.
