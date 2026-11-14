@@ -1,0 +1,38 @@
+# s3-fglease-rust: the foreground-lease owner thread lives in mixdog_window.node (native/mixdog-window/src/foreground_lease.rs).
+# Lines for files s3-fglease-rust does not own; the lead applies them after the wave.
+
+[native/mixdog-window/Cargo.toml]
+# The s1-mica dependency lines (napi, napi-derive, napi-build) are required, and the napi feature must include
+# napi4 (napi6 as in deferred-g1.md does): ThreadsafeFunction (the lease thread reports a lease's end to JavaScript).
+# No other crate: foreground_lease.rs uses std and raw-dylib user32/kernel32 only.
+# cargo test in native/mixdog-window runs the lease unit tests (a stand-in for user32, no real lock is taken).
+
+[apps/desktop/src/main/index.ts]
+# At startup, where micaLibraryPath(...) is first computed for nativeMica, also call
+#   setForegroundLeaseLibrary(micaLibraryPath({ isPackaged: app.isPackaged, resourcesPath: process.resourcesPath, appPath: app.getAppPath() }));
+# (import from './computer/backend/foreground-lock-host'), before the first lease ask can arrive
+# (host/computer-lease.ts processForegroundLock and computer/host/powershell-host.ts). Windows only. Without the call the
+# lease owner reports "the path of mixdog_window.node was not set" once at error level and answers every ask unavailable.
+
+[apps/desktop/src/main/host/computer-lease.test.mjs]
+# Not owned by s3-fglease-rust and broken by it: it imports leaseThreadStarter (removed with the koffi worker thread) and the
+# fixture fixtures/fake-lease-native.cjs. Pass a runtime built with nativeForegroundLease(() => fakeModule) (the fake
+# module of foreground-lock-host.test.mjs: leaseStart/leaseRequest/leaseEnd/leaseGone/leaseDispose/leaseUnlock) and drop the
+# SharedArrayBuffer counters; lease deadlines and unlock retries are tested in Rust now.
+
+[apps/desktop/src/main/computer/backend/fixtures/fake-lease-native.cjs]
+# Delete (only the two tests above used it).
+
+[apps/desktop/src/main/computer/backend/source-bundle.test.mjs]
+# The case at line ~55 bundles foreground-lock-host.ts and compares LEASE_THREAD_SOURCE with
+# loadComputerSource('foreground-lease-thread.cjs'): both are gone. Drop that case, or keep the bundle check without
+# the LEASE_THREAD_SOURCE assertion.
+
+[apps/desktop/scripts/computer-source-assets.mjs]
+# backendModule regex: remove foreground-lock-host from the list (it no longer calls loadComputerSource).
+
+[apps/desktop/src/main/computer/backend/sources/MixForegroundLock.cs]
+# Comment only: "(foreground-lease-thread.cjs)" -> "(native/mixdog-window foreground_lease.rs)", lines 2 and 39.
+
+[native/core/crates/mixdog-app-server-daemon/src/compose_flip.rs]
+# Nothing: no protocol method is added.
