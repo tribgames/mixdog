@@ -11,6 +11,8 @@ workspace = true
 # Replay-only: the service answering `replay/storesSettled` (replay_stores_settled.rs) over the session directory's
 # `durability_settled`. For development builds only (build.rs fails a release-profile build with it).
 replay-controls = ["mixdog-app-server/replay-controls", "mixdog-core-session/test-support"]
+# Test hooks: `dev/computer/run` (dev_computer.rs) and, with s4, `test/browserEngine/run`. Registered only when mixdogd starts with MIXDOGD_TEST_HOOKS=1; build.rs fails a release-profile build with it.
+test-hooks = []
 
 [dependencies]
 mixdog-app-protocol = { workspace = true }
@@ -139,7 +141,7 @@ mixdog-core-rooms = { workspace = true, features = ["test-support"] }
 mixdog-ledger = { workspace = true }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
-mixdog-app-server-daemon = { path = ".", features = ["replay-controls"] }
+mixdog-app-server-daemon = { path = ".", features = ["replay-controls", "test-hooks"] }
 mixdog-app-server = { workspace = true, features = ["replay-controls"] }
 mixdog-services = { workspace = true, features = ["assigned-pg-port", "test-support"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set

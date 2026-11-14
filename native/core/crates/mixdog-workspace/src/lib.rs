@@ -28,6 +28,7 @@ pub mod openedpath;
 pub mod killpoint;
 pub mod lanes;
 pub mod pathguard;
+pub mod pageserver;
 pub mod preview;
 pub mod lsp;
 pub mod lspcaps;

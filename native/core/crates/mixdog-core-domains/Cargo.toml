@@ -21,6 +21,8 @@ mixdog-app-protocol = { workspace = true }
 mixdog-core-api = { workspace = true }
 mixdog-exthost = { workspace = true }
 mixdog-js = { workspace = true }
+mixdog-migrate = { workspace = true }
+mixdog-app-server = { workspace = true }
 mixdog-ledger = { workspace = true }
 mixdog-protocol = { workspace = true }
 mixdog-remote = { workspace = true }
@@ -70,6 +72,7 @@ mixdog-js = { workspace = true, features = ["fixture-tools", "prefilter-probe"] 
 mixdog-mcp = { workspace = true, features = ["test-support"] }
 mixdog-spawn = { workspace = true, features = ["core", "core-test", "lease-clock", "scripted-shell"] }
 mixdog-store = { workspace = true, features = ["crash-hook", "test-support"] }
+mixdog-migrate = { workspace = true, features = ["crash-hook"] }
 mixdog-workspace = { workspace = true, features = ["count-jobs", "kill-points", "replay-controls"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).

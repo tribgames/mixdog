@@ -23,3 +23,5 @@ pub mod restore;
 pub mod view;
 pub mod policy;
 pub mod service;
+#[cfg(test)]
+mod stores_tests;

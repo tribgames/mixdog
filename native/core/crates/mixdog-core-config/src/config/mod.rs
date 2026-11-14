@@ -91,7 +91,9 @@ pub use agent_routes::RouteHome;
 pub use desktop::ActivityRailPins;
 pub use desktop::DesktopSettings;
 pub use desktop::SessionRetention;
+pub use desktop::ComputerBackendChoice;
 pub use desktop::browser_cookie_auto_import;
+pub use desktop::computer_backend;
 pub use desktop::desktop_settings;
 pub use desktop::session_retention;
 

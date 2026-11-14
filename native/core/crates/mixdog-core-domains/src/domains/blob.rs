@@ -41,7 +41,9 @@ use sha2::Digest as _;
 use sha2::Sha256;
 
 mod attachment;
+mod param_refs;
 pub use attachment::AttachmentSource;
+pub use param_refs::BlobParamRefs;
 pub(crate) use attachment::lane_failure;
 pub(crate) use attachment::sanitized_file_name;
 

@@ -26,6 +26,8 @@ pub mod compose_core;
 mod lead_request_tests;
 pub mod compose_mcp;
 pub mod computer_control;
+pub mod computer_gate;
+pub mod computer_pointer_service;
 pub mod connection_close;
 pub mod effort_judge_host;
 pub mod fencing_ownership;
@@ -34,6 +36,8 @@ pub mod worktree_cache_cleanups;
 pub mod compose_flip;
 #[cfg(feature = "replay-controls")]
 mod replay_stores_settled;
+#[cfg(feature = "test-hooks")]
+mod dev_computer;
 pub mod feature_probes;
 pub mod held_home_draft;
 pub mod host_runtime_draft;

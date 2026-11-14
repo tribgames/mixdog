@@ -49,6 +49,8 @@ use serde_json::json;
 
 pub use computer::ComputerSecretHosts;
 pub use computer::HostComputerCommands;
+pub use computer::SavedLoginComputerBackend;
+pub use computer::SavedLoginTurns;
 pub use fill::ComputerCommands;
 pub use fill::FillGates;
 pub use fill::SecretFill;
