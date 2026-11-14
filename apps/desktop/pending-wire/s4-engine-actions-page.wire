@@ -1,0 +1,28 @@
+# s4-engine-actions-page desktop wiring (the host side of `host/browser/*`)
+
+The engine in the core (mixdog-browser-engine actions/page.rs) words the replies of `evaluate` and the performance trace, and decides what the agent's refs
+do after them. Two host answers it needs that the host does not give yet:
+
+## 1. host/browser/page/eval answers `unchanged` (apps/desktop/src/main/host/browser-engine/page.ts, function `evaluate`)
+Params gain `checkUnchanged?: boolean` and the result `unchanged?: boolean` (pending-rows/s4-engine-actions-page.rows).
+Replace
+
+    const keepsRefs = (params.expect === undefined || params.expect === null) && Boolean(page.state.refSet);
+
+by
+
+    const keepsRefs = params.checkUnchanged === true;
+
+(the refs are the core engine's now: the host's own `page.state.refSet` is not the caller's, and the precondition `expect` no longer says whether refs are held). Keep
+`before`, `url` and the `unchanged` comparison as they are, drop the `host.store.invalidateInteraction(guest)` calls of that function (the engine invalidates the refs
+it holds, from `unchanged` and from a failure), and return `{ value, ...(keepsRefs ? { unchanged } : {}) }` from the success path. `unchanged` stays false/absent when
+`before` could not be read (a frame that never confirmed its render checkpoint is unknown, not unchanged).
+
+## 2. host/browser/performance `metrics` (session.ts, `registerSession`, op `metrics`)
+No change: the answer `{ metrics: { metrics: [...], processMemoryMb: number | null } }` is what the engine reads (`null` means unknown). The trace summary text
+(`BrowserPerformanceTrace.summary`) and the trace file stay on the host; the engine words only the `stop` reply around them.
+
+## 3. What stays in TypeScript
+emulation.ts (`configureEmulation`, `fitMetrics`, `unfitMetrics`), emulation-overrides.ts, `createBrowserEmulationOwner.applyAgent` and `BrowserPerformanceTrace` are the
+host's (they run CDP calls and hold the page state); emulation-validation.ts is no longer needed by the agent path once the engine validates first, but `configureEmulation`
+still calls it for the pane's own viewport, so it stays until the host's emulation owner takes a typed spec.
