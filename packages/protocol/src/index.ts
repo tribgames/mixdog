@@ -3338,7 +3338,11 @@ export type QuotaResume = {
 /**
  * Always `waiting`.
  */
-state: string, turnKey: string, provider: string, model: string, resetAt: number, attempts: number, };
+state: string, turnKey: string, provider: string, model: string,
+/**
+ * Epoch milliseconds as the provider's error gave them, fractional or whole (a JS number).
+ */
+resetAt: number, attempts: number, };
 
 /**
  * Params of `remoteAccess/activate`.
