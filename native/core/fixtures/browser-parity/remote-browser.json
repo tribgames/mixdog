@@ -45,6 +45,16 @@
   {
    "action": "input",
    "input": {
+    "type": [
+     "pointer"
+    ],
+    "documentId": "p1:1"
+   },
+   "error": "Unknown browser input."
+  },
+  {
+   "action": "input",
+   "input": {
     "type": {}
    },
    "error": "unknown remote browser control \"[object Object]\"."

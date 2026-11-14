@@ -161,6 +161,10 @@ fn page_control(input: &Map<String, Value>) -> Checked<()> {
             if carries_text && !input.get("text").and_then(Value::as_str).is_some_and(|s| len16(s) <= MAX_REMOTE_BROWSER_TEXT) {
                 return invalid("remote browser text is invalid.");
             }
+            // `normalizeBrowserPageControl` switches on the raw `type`: a non-string that coerces to a kind is unknown there.
+            if !input.get("type").is_some_and(Value::is_string) {
+                return invalid("Unknown browser input.");
+            }
             match kind.as_str() {
                 "answer-dialog" => dialog_answer(input),
                 "text" => text(input, "text", 32_000),
@@ -216,14 +220,16 @@ fn import_request(request: &Map<String, Value>) -> Checked<()> {
 
 /// The check the host applies to a UI action's `input`; an action outside the table is a tool
 /// action and passes (its contract is checked where it runs). `input` is the command's `input`
-/// (null when it carried none). A credential action's `session_id` is checked as the host's
-/// `requiredSessionId` does; a gesture's session is the caller's (`domain_browser`).
+/// (null when it carried none); an input that is not an object passes, for the host refuses it
+/// with its own text (`objectParams`: `input expects an object.`). A credential action's
+/// `session_id` is checked as the host's `requiredSessionId` does; a gesture's session is the
+/// caller's (`domain_browser`).
 pub fn validate_ui_action(action: &str, input: &mut Value) -> Result<(), CoreError> {
     let empty = Map::new();
     let fields = match &*input {
         Value::Object(fields) => fields,
-        Value::Null | Value::Array(_) => &empty,
-        _ => return Err(refused("input must be an object.".into())),
+        Value::Null => &empty,
+        _ => return Ok(()),
     };
     let session = |fields: &Map<String, Value>| crate::domain_visualize::required_session_id(fields.get("session_id"));
     let checked = match action {
@@ -281,6 +287,8 @@ mod tests {
     fn a_tool_action_and_an_empty_input_are_not_refused_here() {
         assert!(validate_ui_action("navigate", &mut Value::Null).is_ok());
         assert!(validate_ui_action("importSources", &mut json!({})).is_ok());
+        assert!(validate_ui_action("history", &mut json!("x")).is_ok(), "the host answers a non-object input");
+        assert!(validate_ui_action("importStart", &mut json!([1])).is_ok(), "the host answers an array input");
         let Err(CoreError::DomainError { message, .. }) = validate_ui_action("input", &mut Value::Null) else { panic!("refused") };
         assert_eq!(message.as_deref(), Some("unknown remote browser control \"(none)\"."));
     }
