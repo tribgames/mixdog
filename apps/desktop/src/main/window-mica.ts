@@ -18,6 +18,9 @@ type MicaWindow = Pick<
 >;
 
 export interface MicaNative {
+  /** False when the Node-API module could not be loaded: the window gets no
+   *  active-appearance effect at all. */
+  available?: boolean;
   /** Paints the frame and backdrop active; not SetFocus/SetForegroundWindow. */
   activate(handle: bigint): void;
   /** Installs the native window procedure that answers every deactivation
@@ -60,9 +63,9 @@ function loadModule(library: string): MicaModule {
 
 /** The native bindings: the Node-API module's three functions, nothing else.
  *  The library's functions are plain calls: nothing in it calls back into
- *  JavaScript. A module that fails to load (a stale dev build) leaves
- *  keepActive false and activate a no-op, and is reported as
- *  mica-native-unavailable. */
+ *  JavaScript. A module that fails to load (a missing or stale build) makes
+ *  the bindings unavailable: windows start without the effect, and the
+ *  failure is logged once as an error and reported as mica-native-unavailable. */
 export function nativeMica(
   library: string,
   report: MicaReport,
@@ -72,9 +75,15 @@ export function nativeMica(
   try {
     native = load(library);
   } catch (error) {
-    report('mica-native-unavailable', { library, message: errorMessage(error) });
+    const message = errorMessage(error);
+    console.error(
+      `[mixdog-window] The Mica window module could not be loaded from ${library}: ${message}. ` +
+        'Windows start without the active Mica appearance.'
+    );
+    report('mica-native-unavailable', { library, message });
   }
   return {
+    available: native !== undefined,
     activate(handle) {
       native?.activate(handle);
     },
@@ -99,6 +108,8 @@ export function nativeMica(
  *  window procedure keeps deactivations from painting at all; without it each
  *  one is repainted active right after it, a brief inactive blink. */
 export function installMicaActiveAppearance(window: MicaWindow, native: MicaNative): void {
+  // Without the module nothing can paint the frame active: the window keeps the plain backdrop.
+  if (native.available === false) return;
   // Both supported Windows architectures (x64 and arm64) have 64-bit HWNDs.
   const handle = window.getNativeWindowHandle().readBigUInt64LE();
   let pending: NodeJS.Immediate | undefined;

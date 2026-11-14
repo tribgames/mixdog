@@ -56,10 +56,14 @@ test('with the native window procedure, deactivation is not hooked and closing r
   ]);
 });
 
-test('a missing native module is reported, its bindings do nothing, and the window keeps the deferred-repaint hooks', async () => {
+test('a missing native module is logged once as an error and reported, and the window gets no hooks', async (t) => {
   const reports = [];
+  const errors = t.mock.method(console, 'error', () => {});
   const library = join(import.meta.dirname, 'missing', MICA_LIBRARY_FILE);
   const native = nativeMica(library, (event, details) => reports.push({ event, ...details }));
+  assert.equal(errors.mock.callCount(), 1);
+  assert.match(String(errors.mock.calls[0].arguments[0]), /could not be loaded/);
+  assert.equal(native.available, false);
   assert.equal(reports.length, 1);
   assert.equal(reports[0].event, 'mica-native-unavailable');
   assert.equal(reports[0].library, library);
@@ -69,7 +73,8 @@ test('a missing native module is reported, its bindings do nothing, and the wind
   native.release(0x123456789n);
   const { window, hooks } = fakeWindow(0x123456789n, { visible: false });
   installMicaActiveAppearance(window, native);
-  assert.ok(hooks.has(0x0086));
+  assert.equal(hooks.size, 0);
+  window.emit('show');
   window.emit('closed');
 });
 

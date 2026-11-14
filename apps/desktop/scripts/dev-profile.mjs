@@ -110,9 +110,9 @@ async function buildComputerBackend() {
   }
 }
 
-// The Windows dev app loads the Mica window library from
+// The Windows dev app loads the Mica window Node-API module from
 // native/mixdog-window/target/release (src/main/window-mica.ts); without it the
-// window falls back to a repaint after each deactivation.
+// frame is painted inactive while another window has the focus.
 export async function buildWindowLibrary() {
   if (process.platform !== 'win32') return;
   const code = await new Promise((resolve) => {
@@ -125,7 +125,9 @@ export async function buildWindowLibrary() {
     child.once('exit', resolve);
   });
   if (code !== 0) {
-    console.warn('Mica window library was not built (cargo failed or Rust is not installed); the fallback is used.');
+    console.warn(
+      'Mica window library was not built (cargo failed or Rust is not installed); the frame is painted inactive while another window has the focus.'
+    );
   }
 }
 

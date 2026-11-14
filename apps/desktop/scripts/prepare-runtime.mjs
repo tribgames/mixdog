@@ -112,7 +112,7 @@ let secureDesktopNativeSourceDir = '';
 let secureDesktopInputIdentity = null;
 // The Windows window library that keeps the Mica frame painted active
 // (apps/desktop/src/main/window-mica.ts). Shipped with every Windows build.
-const windowLibraryFileNames = ['mixdog_window.dll'];
+const windowLibraryFileNames = ['mixdog_window.node'];
 let windowLibrarySourceDir = '';
 let windowLibraryInputIdentity = null;
 const NATIVE_BINARY_NAME = /\.(?:node|dll|dylib|so(?:\.\d+)*)$/i;
@@ -338,7 +338,7 @@ async function prepareWindowLibrarySource() {
     crate: 'mixdog-window',
     cacheName: 'window-library',
     label: 'window library',
-    schemaVersion: 1,
+    schemaVersion: 2,
     fileNames: windowLibraryFileNames,
   });
 }
