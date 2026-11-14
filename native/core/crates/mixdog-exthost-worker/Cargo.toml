@@ -17,13 +17,22 @@ path = "src/bin/ext_worker_dev.rs"
 required-features = ["test-support"]
 
 [[test]]
+name = "methods_twin"
+path = "tests/methods_twin.rs"
+required-features = ["test-support"]
+
+[[test]]
 name = "pool_e2e"
 path = "tests/pool_e2e.rs"
 required-features = ["test-support"]
 
 [dependencies]
+base64 = { workspace = true }
 bytes = { workspace = true }
 dunce = { workspace = true }
+mixdog-fsio = { workspace = true }
+mixdog-imaging = { workspace = true }
+mixdog-ooxml-text = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "sync", "time", "io-util", "io-std", "fs", "macros"] }
@@ -45,5 +54,7 @@ mixdog-core-api = { workspace = true }
 mixdog-exthost = { workspace = true }
 mixdog-protocol = { workspace = true }
 mixdog-rt = { workspace = true, features = ["test-support"] }
+mixdog-testkit = { workspace = true }
+sha2 = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros", "io-util", "sync", "time"] }
