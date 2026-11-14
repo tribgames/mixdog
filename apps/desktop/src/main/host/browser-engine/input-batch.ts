@@ -28,14 +28,15 @@ import type {
 import { createBrowserHitTarget } from '../../browser/hit-target';
 import { createBrowserInputDriver, normalizeModifierMask, normalizeMouseButton } from '../../browser/input';
 import { createBrowserInputDispatch } from '../../browser/input-dispatch';
-import { browserRefElementSource } from '../../browser/ref-access';
 import { cssPoint, type SendBrowserInput } from '../../browser/input-primitives';
+import { browserRefElementSource } from '../../browser/ref-access';
 import { pause } from '../../browser/settle';
 import { createFrameOffsetResolver } from '../../browser/snapshot-frame-offset';
 import { HOST_INVALID_PARAMS, type HostConnection, HostRpcError } from '../connection';
 import type { EngineContext, EnginePage, GuestState } from './context';
 import { ENGINE_ERROR, preconditionFailed } from './errors';
 import { documentIdOf, checkPrecondition } from './precondition';
+import { currentSnapshotId } from './ref-call';
 import { registerEngineMethod } from './registry';
 
 const METHOD = 'host/browser/input/batch';
@@ -168,9 +169,11 @@ export function registerInputBatch(connection: HostConnection, ctx: EngineContex
       if (!guard || !PRESSING_KINDS.has(step.kind)) return undefined;
       const refs = state.accessibilityRefs;
       let target: { backendNodeId?: number; objectId?: string; sessionId?: string } | undefined;
-      if (refs?.snapshotId === guard.snapshotId) {
+      if (currentSnapshotId(state) !== guard.snapshotId) {
+        target = undefined;
+      } else if (refs) {
         target = refs.refs.get(guard.ref);
-      } else if (state.refSet?.snapshotId === guard.snapshotId) {
+      } else {
         // A page whose accessibility tree was unavailable has DOM refs: the element is found in the page's own ref table.
         const objectId = await domRefObject(guard.ref);
         target = objectId ? { objectId } : undefined;
