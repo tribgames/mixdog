@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
@@ -9,8 +10,18 @@ import { createBrowserCredentialFill } from '../../browser/credential-autofill.t
 import { runSecretFill } from '../../browser/host-agent.ts';
 import { createSavedLoginHost } from '../../browser/saved-login-host.ts';
 import { HostRpcError } from '../connection.ts';
-import { registerEngineMethod } from './registry.ts';
+import { createEngineEvents } from './events.ts';
+import { registerInputBatch } from './input-batch.ts';
+import { createLeases } from './lease.ts';
+import { registerCdpSend } from './cdp-send.ts';
 import { documentIdOf } from './precondition.ts';
+import { registerPage } from './page.ts';
+import { registerPages } from './pages.ts';
+import { registerRefCall } from './ref-call.ts';
+import { registerScreenshot } from './screenshot.ts';
+import { createInterceptTable, registerSession } from './session.ts';
+import { registerSnapshot } from './snapshot.ts';
+import { registerUpload } from './upload.ts';
 import { createTranscriptTap } from './transcript.ts';
 
 const SECRET = 'S3CR3T-precondition-value-77';
@@ -176,11 +187,67 @@ test('saved_login_type is refused without expect in engine mode and checked besi
   assert.equal(dispatched.length, 1);
 });
 
-test('after a typed secret no engine frame or transcript line carries it', async () => {
+/**
+ * A stand-in for everything a handler reaches the desktop through: any property is another stand-in, a call answers an
+ * object whose strings carry the secret, so whatever a handler forwards or throws would leak it if the exits did not mask it.
+ */
+function leaky() {
+  const answer = () => ({ text: SECRET, value: SECRET, url: `${ORIGIN}/?k=${SECRET}`, title: SECRET, message: SECRET, name: SECRET });
+  return new Proxy(function () {}, {
+    get: (_target, key) => (key === 'then' || key === 'toJSON' || typeof key === 'symbol' ? undefined : leaky()),
+    apply: answer,
+    construct: answer,
+  });
+}
+
+/** The methods the protocol lists as the host's engine lane (every `host/browser/*` request but the two the host serves itself). */
+function engineMethods() {
+  const file = fileURLToPath(new URL('../../../../../../packages/protocol/src/index.ts', import.meta.url));
+  const line = readFileSync(file, 'utf8').split('\n').find((text) => text.startsWith('export type ServerRequest ='));
+  const names = [...line.matchAll(/"method": "(host\/browser\/[A-Za-z/]+)"/g)].map((match) => match[1]);
+  return names.filter((name) => name !== 'host/browser/command' && name !== 'host/browser/liveControl');
+}
+
+const DOC = 'p1:1';
+const PARAMS = {
+  'host/browser/pages/resolve': { sessionId: 's1', tab: { pageId: 'p1' }, lease: { commandId: 'c1', ttlMs: 1000 } },
+  'host/browser/pages/list': { sessionId: 's1' },
+  'host/browser/pages/close': { pageId: 'p1', reason: 'agent' },
+  'host/browser/pages/surface': { sessionId: 's1', op: 'reveal', pageId: 'p1' },
+  'host/browser/page/navigate': { pageId: 'p1', kind: 'url', url: `${ORIGIN}/next`, expect: { documentId: DOC } },
+  'host/browser/page/eval': { pageId: 'p1', expression: '1', expect: { documentId: DOC } },
+  'host/browser/page/read': { pageId: 'p1', kind: 'text', options: {} },
+  'host/browser/page/dialog/answer': { pageId: 'p1', accept: true },
+  'host/browser/snapshot': { pageId: 'p1', mode: 'full', expect: { documentId: DOC } },
+  'host/browser/ref/call': { pageId: 'p1', snapshotId: 's', ref: 'e1', functionDeclaration: 'function(){}', expect: { documentId: DOC } },
+  'host/browser/input/batch': {
+    pageId: 'p1',
+    steps: [{ op: 'type', text: 'a' }, { op: 'press', key: 'Enter' }],
+    stopOnDialog: true,
+    timeoutMs: 0,
+    expect: { documentId: DOC },
+  },
+  'host/browser/screenshot': { pageId: 'p1', format: 'jpeg', expect: { documentId: DOC } },
+  'host/browser/cdp/send': { pageId: 'p1', method: 'Page.getNavigationHistory', params: {} },
+  'host/browser/cookies': { pageId: 'p1', op: 'get' },
+  'host/browser/storage': { pageId: 'p1', op: 'get', area: 'local' },
+  'host/browser/initScripts': { pageId: 'p1', op: 'list' },
+  'host/browser/intercept': { pageId: 'p1', op: 'list' },
+  'host/browser/performance': { pageId: 'p1', op: 'metrics' },
+  'host/browser/emulation': { pageId: 'p1', overrides: null },
+  'host/browser/downloads': { sessionId: 's1', op: 'list' },
+  'host/browser/upload': { pageId: 'p1', paths: ['x'], expect: { documentId: DOC } },
+};
+
+const SESSION_DEPS = ['partitionSession', 'evaluate', 'invalidateInteractionState', 'applyFetchPatterns', 'tracesByGuest', 'processMemoryMb', 'pause', 'emulation', 'downloads', 'urlPolicy'];
+
+test('after a typed secret and a submit, no engine reply, error, event or transcript line carries it', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'engine-secret-'));
   try {
     const w = world();
     assert.deepEqual(await fillWith(w, { documentId: documentIdOf(w.state) }), { text: 'entered' });
+    assert.ok(w.secrets.has(SECRET), 'the host remembers the typed value for masking');
+
     const wire = [];
     const handlers = new Map();
     const connection = {
@@ -188,36 +255,80 @@ test('after a typed secret no engine frame or transcript line carries it', async
         wire.push({ method, params });
         return {};
       },
+      notify: (method, params) => wire.push({ method, params }),
       handleRequest: (method, handler) => handlers.set(method, handler),
+      handleNotification: (method, handler) => handlers.set(method, handler),
+      onClose: () => undefined,
     };
+    const leakyGuest = {
+      ...w.guest,
+      getURL: () => `${ORIGIN}/?k=${SECRET}`,
+      getTitle: () => SECRET,
+      isDestroyed: () => false,
+      isLoading: () => false,
+      isOffscreen: () => false,
+      getZoomFactor: () => 1,
+    };
+    const redactKnown = (_pageId, text) => (w.secrets.has(SECRET) ? text.replaceAll(SECRET, '[redacted]') : text);
+    const factsOf = (pageId) => ({ pageId, seq: 2, url: `${ORIGIN}/?k=${SECRET}`, title: `t ${SECRET}` });
+    const events = createEngineEvents(connection, { nextSeq: () => 2, redact: redactKnown, facts: factsOf });
     const ctx = {
-      page: (pageId) =>
-        pageId === 'p1' ? { guest: { ...w.guest, getURL: () => `${ORIGIN}/?k=${SECRET}`, isDestroyed: () => false }, state: w.state } : undefined,
+      page: (pageId) => (pageId === 'p1' ? { guest: leakyGuest, state: w.state } : undefined),
       session: () => undefined,
-      cdp: {},
-      events: {
-        flush: (pageId) => wire.push({ method: 'host/browser/events', params: { pageId, events: [] } }),
-        facts: (pageId) => ({ pageId, seq: 2, url: `${ORIGIN}/?k=${SECRET}`, title: `t ${SECRET}` }),
-      },
-      redactKnown: (_pageId, text) => (w.secrets.has(SECRET) ? text.replaceAll(SECRET, '[redacted]') : text),
+      cdp: leaky(),
+      events,
+      redactKnown,
       isEngineMode: () => true,
       transcript: createTranscriptTap({ dir, devBuild: true }),
     };
-    registerEngineMethod(connection, ctx, 'host/browser/read', async () => ({
-      text: `page ${SECRET}`,
-      url: `${ORIGIN}/?k=${SECRET}`,
-    }));
-    registerEngineMethod(connection, ctx, 'host/browser/fail', async () => {
-      throw new Error(`failed on ${SECRET}`);
+    ctx.leases = createLeases(connection, ctx);
+    registerPages(connection, ctx, leaky());
+    registerPage(connection, ctx, leaky());
+    registerCdpSend(connection, ctx);
+    registerSnapshot(connection, ctx, leaky());
+    registerRefCall(connection, ctx, leaky());
+    registerInputBatch(connection, ctx);
+    registerScreenshot(connection, ctx, leaky());
+    registerSession(connection, ctx, {
+      ...Object.fromEntries(SESSION_DEPS.map((key) => [key, leaky()])),
+      intercept: createInterceptTable(),
     });
+    registerUpload(connection, ctx, { host: leaky(), invalidateInteractionState: leaky() });
+
+    // Every method the protocol lists is served, so none is left out of the scan.
+    const names = engineMethods();
+    assert.ok(names.length >= 20, 'the protocol lists the engine methods');
+    for (const name of names) assert.ok(handlers.has(name), `${name} is registered`);
+
     const signal = new AbortController().signal;
-    wire.push({ method: 'reply', params: await handlers.get('host/browser/read')({ pageId: 'p1' }, signal) });
-    await handlers.get('host/browser/fail')({ pageId: 'p1' }, signal).catch((error) => {
-      wire.push({ method: 'error', params: { code: error.code, message: error.message, data: error.data } });
+    const replies = [];
+    for (const name of names) {
+      const params = PARAMS[name] ?? { pageId: 'p1', sessionId: 's1' };
+      // Once as asked, once bound to a document that is gone (the refusal carries the facts).
+      for (const variant of [params, { ...params, expect: { documentId: 'p1:0' } }]) {
+        try {
+          replies.push({ name, reply: await handlers.get(name)(variant, signal) });
+        } catch (error) {
+          replies.push({ name, error: { code: error.code, message: error.message, data: error.data } });
+        }
+      }
+    }
+    events.push('p1', {
+      method: 'Runtime.consoleAPICalled',
+      params: { args: [{ type: 'string', value: SECRET }], url: `${ORIGIN}/?k=${SECRET}` },
     });
+    events.push('p1', {
+      method: 'Network.requestWillBeSent',
+      params: { request: { url: `${ORIGIN}/?k=${SECRET}`, postData: SECRET, headers: { a: SECRET } } },
+    });
+    events.flush('p1');
+
     const lines = readdirSync(dir).map((file) => readFileSync(join(dir, file), 'utf8'));
     assert.ok(lines.join('').length > 0, 'the tap recorded');
-    assert.ok(!JSON.stringify(wire).includes(SECRET), 'no frame carries the secret');
+    assert.ok(replies.some((entry) => entry.reply !== undefined), 'some method answered');
+    assert.ok(wire.some((frame) => frame.method === 'host/browser/events'), 'the events left');
+    assert.deepEqual(replies.filter((entry) => JSON.stringify(entry).includes(SECRET)).map((entry) => entry.name), [], 'no reply or error carries the secret');
+    assert.ok(!JSON.stringify(wire).includes(SECRET), 'no frame or notification carries the secret');
     assert.ok(!lines.join('').includes(SECRET), 'the transcript does not carry it');
   } finally {
     rmSync(dir, { recursive: true, force: true });

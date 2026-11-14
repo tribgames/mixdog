@@ -9,6 +9,7 @@ import type { WebContents } from 'electron';
 import type { PageFacts } from '../../../../../../packages/protocol/src/index.ts';
 import type { BrowserCdpPort } from '../../browser/cdp';
 import type { BrowserGuestStateStore } from '../../browser/guest-state';
+import type { Leases } from './lease';
 import type { TranscriptTap } from './transcript';
 
 /** The record the host keeps for one guest page (browser/guest-state.ts). */
@@ -43,6 +44,8 @@ export interface EngineContext {
   redactKnown(pageId: string, text: string): string;
   /** The core drives the browser through the engine lane (it claimed `browserEngine`). */
   isEngineMode(): boolean;
+  /** The page leases (createLeases): every page method runs as a call on its page, which the person's input ends. */
+  leases?: Pick<Leases, 'beginCall'>;
   /** Present only in a development or test build with MIXDOG_BROWSER_TRANSCRIPT set. */
   transcript?: TranscriptTap;
 }
