@@ -11,8 +11,8 @@
 //!   session's commands still running, then closes the temporary pages of the turn (the engine's, or the host's when it runs them);
 //! - at most 32 commands run at once, one past that is answered 429; a command ended by [`BRIDGE_ABORT`] (the runtime's connection
 //!   dropped) or by the caller's own cancel is stopped;
-//! - a card a step raises goes through the session's approval gate ([`BridgeApprovalGates`]) and the one approval path
-//!   ([`BrowserApprovals`](super::browser_approval::BrowserApprovals)); [`BridgeApprovals`] adds what only a bridge command
+//! - a card a step raises goes through the one approval path ([`BrowserApprovals`](super::browser_approval::BrowserApprovals),
+//!   which raises a command no tool call made through the session's own gate); [`BridgeApprovals`] adds what only a bridge command
 //!   carries: a schedule or webhook run asks nothing (the saved routine was the grant) and the session's own allowance by its life
 //!   mark;
 //! - every reply is redacted of the secrets typed in its session, and a failure's message of urls' secrets too.
@@ -44,7 +44,6 @@ use mixdog_core_api::HostCapability;
 use mixdog_core_api::HostChannel;
 use mixdog_core_api::Reply;
 use mixdog_core_api::domain::approval::ActionKind;
-use mixdog_core_api::domain::approval::ApprovalGate;
 use mixdog_core_api::domain::tool::ToolError;
 use mixdog_core_api::domain::tool::ToolErrorCode;
 use mixdog_core_api::ids::ConnectionId;
@@ -53,7 +52,6 @@ use mixdog_core_api::service::Admit;
 use mixdog_js::js_trim;
 use mixdog_js::utf16_len;
 use mixdog_protocol::ThreadId;
-use mixdog_protocol::ToolCallId;
 use mixdog_rt::CancellationToken;
 use serde::Deserialize;
 use serde_json::Map;
@@ -68,8 +66,6 @@ use super::browser_approval::BLOCKED_BY_PERMISSION;
 use super::host::BROWSER_UNAVAILABLE;
 use super::host::HostCommandError;
 use super::host::HostCommands;
-use crate::orch::service::CallApprovals;
-use crate::orch::service::with_call_approvals;
 use crate::orch::util::spec_from_def;
 use crate::policy::action::GrantKey;
 use crate::policy::action::kind_name;
@@ -110,13 +106,6 @@ const BAD_CLEANUP_CONTEXT: &str = "Invalid browser task cleanup context.";
 const COMMAND_CANCELLED: &str = "browser command cancelled";
 const PAYMENT_IN_RUN: &str = "Browser Use step refused: payments aren't allowed in schedule/webhook runs; nothing was dispatched";
 const NO_RUN_OWNER: &str = "Browser Use step refused: the run's owning bot could not be established; nothing was dispatched";
-
-/// Where a card a bridge command raises goes: the approval gate of the session the command runs in (a command no tool call made has
-/// none of its own). `None` where the session has no approval surface, and the step is answered as the core answers any step with
-/// no one to ask.
-pub trait BridgeApprovalGates: Send + Sync {
-    fn gate(&self, session: &str) -> Option<Arc<dyn ApprovalGate>>;
-}
 
 /// [`ApprovalPort`] for the steps a bridge command raises, in front of the core's one approval path: what only a bridge command
 /// carries is decided here (the unattended run's rule and the session's allowance by the life mark the runtime sent), everything
@@ -182,11 +171,8 @@ impl BridgeApprovals {
     }
 
     /// A schedule or webhook run (and the work it started) never asks: saving the routine was the user's grant. The bot that owns
-    /// the run still blocks, an operator `confirm` always asks, and a payment is never done in a run.
+    /// the run still blocks (an operator `confirm` always asks and a payment is refused, both in `ask`).
     async fn unattended(&self, prompt: &BrowserApprovalPrompt) -> Result<ApprovalAnswer, ToolError> {
-        if prompt.payment {
-            return Err(Self::refused("payment_in_run", PAYMENT_IN_RUN));
-        }
         let owner = js_trim(&prompt.unattended_agent);
         if owner.is_empty() {
             return Err(Self::refused("run_owner_unknown", NO_RUN_OWNER));
@@ -207,6 +193,10 @@ impl BridgeApprovals {
 impl ApprovalPort for BridgeApprovals {
     async fn ask(&self, prompt: BrowserApprovalPrompt) -> Result<ApprovalAnswer, ToolError> {
         if prompt.unattended {
+            // A payment is never done in a run, an operator `confirm` step's included (`approval-dialog.ts` checks it first).
+            if prompt.payment {
+                return Err(Self::refused("payment_in_run", PAYMENT_IN_RUN));
+            }
             if !prompt.kinds.contains(&BrowserApprovalRememberKind::Confirm) {
                 return self.unattended(&prompt).await;
             }
@@ -290,7 +280,6 @@ pub struct BrowserBridgeRun {
     engine: Arc<BrowserEngine>,
     channel: Arc<dyn HostChannel>,
     secrets: Arc<dyn SecretGuard>,
-    gates: Arc<dyn BridgeApprovalGates>,
     browser_fields: Map<String, Value>,
     devtools_fields: Map<String, Value>,
     runs: Mutex<Vec<Run>>,
@@ -337,19 +326,12 @@ fn turn_number(value: Option<&Value>) -> Option<u64> {
 }
 
 impl BrowserBridgeRun {
-    pub fn new(
-        host: Arc<dyn HostCommands>,
-        engine: Arc<BrowserEngine>,
-        channel: Arc<dyn HostChannel>,
-        secrets: Arc<dyn SecretGuard>,
-        gates: Arc<dyn BridgeApprovalGates>,
-    ) -> Self {
+    pub fn new(host: Arc<dyn HostCommands>, engine: Arc<BrowserEngine>, channel: Arc<dyn HostChannel>, secrets: Arc<dyn SecretGuard>) -> Self {
         Self {
             host,
             engine,
             channel,
             secrets,
-            gates,
             browser_fields: input_fields(include_str!("defs/browser.json")),
             devtools_fields: input_fields(include_str!("defs/browser_devtools.json")),
             runs: Mutex::default(),
@@ -390,7 +372,7 @@ impl BrowserBridgeRun {
             let session = browser_session_id(command.get("session_id")).unwrap_or_default();
             runs.push(Run { id, session, signal: params.signal_id.clone(), cancel: cancel.clone() });
         }
-        let outcome = self.execute(command, id, &params.signal_id, &cancel).await;
+        let outcome = self.execute(command, id, &cancel).await;
         locked(&self.runs).retain(|run| run.id != id);
         self.idle.notify_waiters();
         // A cancelled command answers nothing the caller could read; the words stay for the trace.
@@ -407,10 +389,10 @@ impl BrowserBridgeRun {
     }
 
     /// The command to its reply: the session's secrets and urls' secrets are redacted out of the text and the error.
-    async fn execute(&self, command: &Map<String, Value>, run: u64, signal: &str, cancel: &CancellationToken) -> Outcome {
+    async fn execute(&self, command: &Map<String, Value>, run: u64, cancel: &CancellationToken) -> Outcome {
         let session = browser_session_id(command.get("session_id")).map_err(Fail::plain)?;
         let guarded = |text: &str| self.secrets.redact(&session, text);
-        match self.dispatch(command, &session, run, signal, cancel).await {
+        match self.dispatch(command, &session, run, cancel).await {
             Ok(mut value) => {
                 if let Some(text) = value.get("text").and_then(Value::as_str) {
                     value["text"] = Value::String(guarded(text));
@@ -421,7 +403,7 @@ impl BrowserBridgeRun {
         }
     }
 
-    async fn dispatch(&self, command: &Map<String, Value>, session: &str, run: u64, signal: &str, cancel: &CancellationToken) -> Outcome {
+    async fn dispatch(&self, command: &Map<String, Value>, session: &str, run: u64, cancel: &CancellationToken) -> Outcome {
         let mut input = command.clone();
         for key in RUNTIME_FIELDS {
             input.remove(key);
@@ -443,7 +425,7 @@ impl BrowserBridgeRun {
         }
         let thread = ThreadId::from(session);
         if RUNTIME_ONLY_ACTIONS.contains(&action) {
-            return self.send(&thread, action, Value::Object(input), signal, cancel).await;
+            return self.send(&thread, action, Value::Object(input), cancel).await;
         }
         let schema = if DEVTOOLS_ACTIONS.contains(&js_trim(action)) { &self.devtools_fields } else { &self.browser_fields };
         let validated = validate("", &Value::Object(input), schema).map_err(Fail::plain)?;
@@ -465,17 +447,12 @@ impl BrowserBridgeRun {
         if let Some(link) = command.get("mail_link") {
             fields.insert("mail_link".to_owned(), link.clone());
         }
-        self.send(&thread, &validated.action, Value::Object(fields), signal, cancel).await
+        self.send(&thread, &validated.action, Value::Object(fields), cancel).await
     }
 
-    /// One command to the core's browser command path, a card of it raised through the session's gate.
-    async fn send(&self, thread: &ThreadId, action: &str, input: Value, signal: &str, cancel: &CancellationToken) -> Outcome {
-        let work = self.host.browser(thread, action, input, cancel);
-        let answer = match self.gates.gate(thread.as_str()) {
-            Some(gate) => with_call_approvals(CallApprovals { gate, call_id: ToolCallId::from(signal) }, work).await,
-            None => work.await,
-        };
-        answer.map_err(|error| match error {
+    /// One command to the core's browser command path (a card of it is raised by the one approval path through the session's gate).
+    async fn send(&self, thread: &ThreadId, action: &str, input: Value, cancel: &CancellationToken) -> Outcome {
+        self.host.browser(thread, action, input, cancel).await.map_err(|error| match error {
             HostCommandError::Cancelled => Fail::plain(COMMAND_CANCELLED),
             HostCommandError::NoHost => Fail::plain(BROWSER_UNAVAILABLE),
             HostCommandError::Rpc { message, timing, .. } => {
@@ -491,7 +468,7 @@ impl BrowserBridgeRun {
         let thread = ThreadId::from(session);
         if phase == Phase::Begin {
             // The engine owns a page by the turn of the command that opened it, so a turn's start has nothing to record there.
-            return if self.engine_serves() { Ok(json!({ "text": "Browser turn started." })) } else { self.send(&thread, "begin_turn", json!({ "turn_id": turn }), "", cancel).await };
+            return if self.engine_serves() { Ok(json!({ "text": "Browser turn started." })) } else { self.send(&thread, "begin_turn", json!({ "turn_id": turn }), cancel).await };
         }
         self.wait_idle(session, except, cancel).await;
         if self.engine_serves() {
@@ -502,7 +479,7 @@ impl BrowserBridgeRun {
         if aborted {
             input["aborted"] = Value::Bool(true);
         }
-        self.send(&thread, "finish_turn", input, "", cancel).await
+        self.send(&thread, "finish_turn", input, cancel).await
     }
 
     /// Returns when every command of `session` that is running now (but `except`) has ended, or the caller's cancel fires.
@@ -597,7 +574,6 @@ mod tests {
     use mixdog_browser_policy::url_policy::UrlPolicy;
     use mixdog_core_api::HostError;
     use mixdog_core_api::call::CallContext;
-    use mixdog_protocol::ApprovalResolution;
     use mixdog_protocol::Origin;
 
     use super::super::browser_engine::EngineHostCommands;
@@ -736,8 +712,6 @@ mod tests {
     struct Commands {
         seen: Mutex<Vec<(String, String, Value)>>,
         answers: Mutex<VecDeque<Result<Value, HostCommandError>>>,
-        /// Whether a card gate was in scope while the command ran.
-        gated: Mutex<Vec<bool>>,
         /// A command that has this action waits until released (or cancelled).
         hold_action: Option<&'static str>,
         release: Permits,
@@ -758,7 +732,6 @@ mod tests {
     impl HostCommands for Commands {
         async fn browser(&self, thread: &ThreadId, action: &str, input: Value, cancel: &CancellationToken) -> Result<Value, HostCommandError> {
             locked(&self.seen).push((thread.as_str().to_owned(), action.to_owned(), input));
-            locked(&self.gated).push(crate::orch::service::call_approvals().is_some());
             if self.hold_action == Some(action) {
                 self.started.add(1);
                 tokio::select! {
@@ -774,24 +747,6 @@ mod tests {
         }
     }
 
-    /// A gate nobody answers: the tests only look at whether one is in scope.
-    struct Silent;
-
-    #[async_trait]
-    impl ApprovalGate for Silent {
-        async fn request(&self, _: mixdog_core_api::domain::approval::ApprovalAsk) -> ApprovalResolution {
-            ApprovalResolution::Cancelled { at: 1 }
-        }
-    }
-
-    struct Gates(bool);
-
-    impl BridgeApprovalGates for Gates {
-        fn gate(&self, _: &str) -> Option<Arc<dyn ApprovalGate>> {
-            self.0.then(|| Arc::new(Silent) as Arc<dyn ApprovalGate>)
-        }
-    }
-
     struct Rig {
         service: Arc<BrowserBridgeRun>,
         commands: Arc<Commands>,
@@ -801,7 +756,7 @@ mod tests {
 
     fn rig_with(commands: Commands, serves_engine: bool, fake: FakeHost) -> Rig {
         let (commands, channel, fake) = (Arc::new(commands), Channel::new(serves_engine), Arc::new(fake));
-        let service = Arc::new(BrowserBridgeRun::new(commands.clone(), engine(&fake), channel.clone(), Arc::new(Masks), Arc::new(Gates(true))));
+        let service = Arc::new(BrowserBridgeRun::new(commands.clone(), engine(&fake), channel.clone(), Arc::new(Masks)));
         Rig { service, commands, channel, fake }
     }
 
@@ -848,8 +803,7 @@ mod tests {
         }
     }
 
-    /// A tool action runs through the core's command path with the runtime-set fields beside the tool's own, the session it names,
-    /// and a card gate in scope.
+    /// A tool action runs through the core's command path with the runtime-set fields beside the tool's own and the session it names.
     #[tokio::test]
     async fn a_tool_action_carries_the_runtime_set_fields() {
         let rig = rig();
@@ -862,7 +816,6 @@ mod tests {
         let (session, action, input) = rig.commands.seen().remove(0);
         assert_eq!((session.as_str(), action.as_str()), ("s1", "click"));
         assert_eq!(input, json!({"ref": "e1", "turn_id": 3, "unattended_run": true, "unattended_agent": "bot", "session_life": "5:0", "mail_link": {"url": "https://a.example"}}));
-        assert_eq!(*locked(&rig.commands.gated), [true]);
     }
 
     #[tokio::test]
@@ -940,7 +893,7 @@ mod tests {
         let engine_host = FakeHost::scripted(vec![listed("p1")]);
         let commands = rig_with(Commands::default(), true, engine_host);
         let engine = EngineHostCommands::new(ChannelHostCommands::new(commands.channel.clone()), commands.service.engine.clone(), commands.channel.clone());
-        let service = BrowserBridgeRun::new(engine, commands.service.engine.clone(), commands.channel.clone(), Arc::new(Masks), Arc::new(Gates(false)));
+        let service = BrowserBridgeRun::new(engine, commands.service.engine.clone(), commands.channel.clone(), Arc::new(Masks));
         let reply = run(&service, json!({"action": "list_tabs", "session_id": "s1", "turn_id": 3})).await;
         assert!(reply["value"]["text"].as_str().is_some_and(|text| text.contains("p1")), "{reply}");
         assert!(commands.channel.sent().is_empty(), "nothing went out as host/browser/command");
@@ -1097,6 +1050,9 @@ mod tests {
         let mut payment = unattended(MARKETER, &[Post], "marketer");
         payment.payment = true;
         assert_eq!(policy.approvals.ask(payment).await.unwrap_err().message_for_model, PAYMENT_IN_RUN);
+        let mut confirmed_payment = unattended(MARKETER, &[Confirm], "marketer");
+        confirmed_payment.payment = true;
+        assert_eq!(policy.approvals.ask(confirmed_payment).await.unwrap_err().message_for_model, PAYMENT_IN_RUN, "a run's payment is refused before its confirm asks");
         let ownerless = policy.approvals.ask(unattended(MARKETER, &[Submit], "  ")).await.unwrap_err();
         assert_eq!(ownerless.message_for_model, NO_RUN_OWNER);
 

@@ -30,16 +30,14 @@ edit:     pool_host.clone(),
 edit:     engine.clone(),
 edit:     b.host.clone(),
 edit:     Arc::new(crate::compose_browser_engine::FillSecretGuard { fill: fill.clone(), redactor: redactor.clone() }),
-edit:     <the BridgeApprovalGates below>,
 edit: )))?;
 #   `pool_host` is moved into `engine_tool_host` under cfg(test-hooks) by a clone, so it is still usable here. `b.host` is the Arc<dyn HostChannel>
 #   the engine host commands were built over (`serves(BrowserEngine)` decides engine or `host/browser/command`).
-#   BridgeApprovalGates (a trait of the module: `fn gate(&self, session: &str) -> Option<Arc<dyn ApprovalGate>>`): the approval gate of the
-#   session a bridge command runs in. For a session the core hosts it is that thread's session port put through `RunApprovals::gate_for`
-#   (as the turn's own tool calls are); a session the core does not host has none, and the step is answered "approval required but no
-#   approval UI is available" as for any step with no one to ask. The lead decides the source of the gate when applying this line; a
-#   `struct NoGates; impl BridgeApprovalGates for NoGates { fn gate(&self, _: &str) -> Option<Arc<dyn ApprovalGate>> { None } }` in
-#   compose_browser_engine.rs is the floor.
+#   Where a bridge command's card goes: a bridge command is no tool call, so the one approval path (BrowserApprovals::raise) raises its
+#   card through `ApprovalContext::session_gate` of the session. `BrowserApprovalContext::session_gate` in compose_browser_engine.rs
+#   answers None today ("approval required but no approval UI is available"): the lead (or s4-bridge-forward) binds it to the session's
+#   approval gate (for a session the core hosts, its session port put through `RunApprovals::gate_for`, as the turn's own tool calls are)
+#   before the desktop's bridge is pointed at browser/bridge/run, or a bot's own session that asked before is refused instead.
 
 # 5. SERVICE_PENDING (compose_flip.rs): the three names are registered by line 4, so nothing is added to it. If the lead registers the
 #    service only under a condition, the names go into SERVICE_PENDING with the reason, as computer/bridge/run does.
