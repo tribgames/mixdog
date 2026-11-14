@@ -150,6 +150,11 @@ impl EmbeddingProvider {
         info_of(model, self.config.dtype.as_deref(), dims, self.is_ready())
     }
 
+    /// An install is running or waiting for its turn.
+    pub fn is_installing(&self) -> bool {
+        self.installing.is_busy()
+    }
+
     /// `getEmbeddingInfo()` on a host with no ONNX runtime to build a provider over: Node answers the same metadata there
     /// (nothing loaded, `supported` true wherever onnxruntime ships a binding), where the provider does not exist.
     pub fn info_unbuilt(model_id: &str, dtype: Option<&str>) -> Value {
@@ -257,7 +262,8 @@ impl EmbeddingProvider {
     /// arrive. A model that is already loaded keeps its files. Needs no timer:
     /// bytes arriving drive it, and `cancel` ends it.
     pub async fn install(&self, progress: Option<&ProgressSink>, cancel: &CancellationToken) -> Result<(), InstallError> {
-        self.installing
+        let outcome = self
+            .installing
             .run(cancel, async {
                 if self.is_ready() {
                     return Ok(());
@@ -268,7 +274,10 @@ impl EmbeddingProvider {
                 outcome
             })
             .await
-            .map_err(|_| InstallError::Cancelled)?
+            .map_err(|_| InstallError::Cancelled);
+        // The gate is free now: a watcher woken by this tick reads `is_installing` as false (the tick inside the run is bumped while it is held).
+        self.tick.bump();
+        outcome?
     }
 
     /// The change tick this provider bumps.
@@ -305,12 +314,23 @@ impl EmbeddingProvider {
     }
 }
 
+/// The device a loaded model runs on. The profile's `default_device` is what the Node build handed to transformers.js; its `auto` there
+/// resolved to the CPU provider of onnxruntime-node (`defaultDevices = ['cpu']`; `dml`/`cuda` ran only when asked for by name), and this
+/// build links a CPU onnxruntime too, so every profile runs on the CPU: the old build never used an accelerator by default and none is
+/// lost. (Inferred from transformers.js' device table, not measured: no timing could be run for this task.)
+fn resolved_device(model: &str) -> &'static str {
+    match config::default_device(model) {
+        "auto" => "cpu",
+        device => device,
+    }
+}
+
 fn info_of(model: &str, dtype: Option<&str>, dimensions: Option<usize>, ready: bool) -> Value {
     json!({
         "model": model,
         "dtype": config::normalize_dtype(model, dtype),
         "dimensions": dimensions,
-        "device": if ready { "cpu" } else { "" },
+        "device": if ready { resolved_device(model) } else { "" },
         "engine": "Transformers.js · ONNX Runtime",
         "supported": onnx_runtime_supported(),
     })
@@ -373,5 +393,33 @@ mod idle_tests {
         assert!(never.warmup().await.is_err());
         mixdog_rt::time::sleep(Duration::from_millis(100)).await;
         assert!(never.current().get().is_some());
+    }
+}
+
+#[cfg(test)]
+mod device_tests {
+    use super::*;
+
+    #[test]
+    fn a_loaded_model_reports_the_cpu_for_every_profile_including_the_auto_one() {
+        for model in [config::DEFAULT_MODEL_ID, "ibm-granite/granite-embedding-97m-multilingual-r2", "Xenova/bge-m3", "unknown/model"] {
+            assert_eq!(info_of(model, None, None, true)["device"], "cpu", "{model}");
+            assert_eq!(info_of(model, None, None, false)["device"], "", "{model}");
+        }
+    }
+
+    #[tokio::test]
+    async fn an_install_ends_with_a_tick_after_the_gate_is_free() {
+        let dir = tempfile::tempdir().unwrap();
+        let provider = EmbeddingProvider::installed_with_load(dir.path(), || Box::pin(async { Err("no model".to_owned()) }));
+        let mut ticks = provider.tick().subscribe();
+        assert!(!provider.is_installing());
+        provider.install(None, &CancellationToken::new()).await.unwrap();
+        assert!(!provider.is_installing());
+        assert!(ticks.has_changed().unwrap());
+        ticks.mark_unchanged();
+        // Nothing is installing: the final tick fires even when the install found nothing to do.
+        provider.install(None, &CancellationToken::new()).await.unwrap();
+        assert!(ticks.has_changed().unwrap());
     }
 }
