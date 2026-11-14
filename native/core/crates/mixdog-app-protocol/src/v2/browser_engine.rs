@@ -43,6 +43,10 @@ pub const BROWSER_ENGINE_EVENT_METHODS: &[&str] = &[
     "Network.requestServedFromCache",
     "Network.dataReceived",
     "Network.webSocketCreated",
+    "Network.webSocketWillSendHandshakeRequest",
+    "Network.webSocketHandshakeResponseReceived",
+    "Network.webSocketFrameSent",
+    "Network.webSocketFrameReceived",
     "Network.webSocketClosed",
     "Network.webSocketFrameError",
     "Network.requestWillBeSentExtraInfo",
@@ -192,6 +196,11 @@ pub struct PageFacts {
     #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub seq: u64,
     pub document_id: String,
+    /// Changes when a document is loaded and stays when only the URL changed inside it (a pushState or hash navigation
+    /// gives a new `document_id` and keeps this one); the console log and the failure list belong to it. Absent: the
+    /// `document_id` stands for it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub load_id: Option<String>,
     pub url: String,
     pub title: String,
     pub loading: bool,

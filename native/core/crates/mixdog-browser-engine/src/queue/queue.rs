@@ -297,6 +297,16 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn releasing_the_page_ends_its_hold_at_once() {
+        let queue = CommandQueue::default();
+        let key = lane("foreground", Some("p1"));
+        queue.hold().on_user_input(input("p1", true));
+        assert_eq!(queue.run(&key, Kind::Read, &deadline(), &CancelSource::new(), |_| async {}).await, Err(QueueError::LocalInput));
+        queue.hold().release(&key);
+        assert_eq!(queue.run(&key, Kind::Read, &deadline(), &CancelSource::new(), |_| async { 5 }).await, Ok(5));
+    }
+
+    #[tokio::test]
     async fn a_command_cancelled_before_dispatch_is_released_at_once_and_never_runs() {
         let queue = CommandQueue::default();
         let key = lane("foreground", None);

@@ -1,0 +1,795 @@
+{
+  "note": "Classification parity corpus of the Browser Use approval: which steps ask, and as which kinds, for the same commands as action-approval.ts. Expectations were recorded from createBrowserActionApproval. A command with upload:true stands for an upload of one real file; paymentEvidence is what the page probe answers (read only for a step that submits or posts). The TypeScript test (action-approval.test.mjs) and the Rust test (mixdog-browser-engine approval::classify) read this file.",
+  "cases": [
+    {
+      "name": "a plain read asks nothing",
+      "policy": {},
+      "command": {
+        "action": "read"
+      },
+      "paymentEvidence": false,
+      "expect": {
+        "outcome": "none"
+      }
+    },
+    {
+      "name": "a click on an unnamed target asks nothing",
+      "policy": {},
+      "command": {
+        "action": "click",
+        "target": {
+          "name": "Open menu"
+        }
+      },
+      "paymentEvidence": false,
+      "expect": {
+        "outcome": "none"
+      }
+    },
+    {
+      "name": "a click on a send control asks as post",
+      "policy": {},
+      "command": {
+        "action": "click",
+        "target": {
+          "name": "Send"
+        }
+      },
+      "paymentEvidence": false,
+      "expect": {
+        "outcome": "ask",
+        "kinds": [
+          "post"
+        ],
+        "payment": false
+      }
+    },
+    {
+      "name": "the control word is matched in any case",
+      "policy": {},
+      "command": {
+        "action": "click",
+        "target": {
+          "name": "PUBLISH now"
+        }
+      },
+      "paymentEvidence": false,
+      "expect": {
+        "outcome": "ask",
+        "kinds": [
+          "post"
+        ],
+        "payment": false
+      }
+    },
+    {
+      "name": "the control word must be a whole word",
+      "policy": {},
+      "command": {
+        "action": "click",
+        "target": {
+          "name": "Resend later"
+        }
+      },
+      "paymentEvidence": false,
+      "expect": {
+        "outcome": "none"
+      }
+    },
+    {
+      "name": "tweet asks as post",
+      "policy": {},
+      "command": {
+        "action": "click",
+        "target": {
+          "name": "Tweet"
+        }
+      },
+      "paymentEvidence": false,
+      "expect": {
+        "outcome": "ask",
+        "kinds": [
+          "post"
+        ],
+        "payment": false
+      }
+    },
+    {
+      "name": "reply asks as post",
+      "policy": {},
+      "command": {
+        "action": "click",
+        "target": {
+          "name": "Reply"
+        }
+      },
+      "paymentEvidence": false,
+      "expect": {
+        "outcome": "ask",
+        "kinds": [
+          "post"
+        ],
+        "payment": false
+      }
+    },
+    {
+      "name": "comment asks as post",
+      "policy": {},
+      "command": {
+        "action": "click",
+        "target": {
+          "name": "Comment"
+        }
+      },
+      "paymentEvidence": false,
+      "expect": {
+        "outcome": "ask",
+        "kinds": [
+          "post"
+        ],
+        "payment": false
+      }
+    },
+    {
+      "name": "post asks as post",
+      "policy": {},
+      "command": {
+        "action": "click",
+        "target": {
+          "name": "Post"
+        }
+      },
+      "paymentEvidence": false,
+      "expect": {
+        "outcome": "ask",
+        "kinds": [
+          "post"
+        ],
+        "payment": false
+      }
+    },
+    {
+      "name": "a type with no target name asks nothing",
+      "policy": {},
+      "command": {
+        "action": "type",
+        "text": "hello"
+      },
+      "paymentEvidence": false,
+      "expect": {
+        "outcome": "none"
+      }
+    },
+    {
+      "name": "a send-named target on another action does not ask",
+      "policy": {},
+      "command": {
+        "action": "hover",
+        "target": {
+          "name": "Send"
+        }
+      },
+      "paymentEvidence": false,
+      "expect": {
+        "outcome": "none"
+      }
+    },
+    {
+      "name": "a submit flag asks as submit",
+      "policy": {},
+      "command": {
+        "action": "type",
+        "submit": true
+      },
+      "paymentEvidence": false,
+      "expect": {
+        "outcome": "ask",
+        "kinds": [
+          "submit"
+        ],
+        "payment": false
+      }
+    },
+    {
+      "name": "a fill with submit asks as submit",
+      "policy": {},
+      "command": {
+        "action": "fill",
+        "submit": true
+      },
+      "paymentEvidence": false,
+      "expect": {
+        "outcome": "ask",
+        "kinds": [
+          "submit"
+        ],
+        "payment": false
+      }
+    },
+    {
+      "name": "pressing Enter asks as submit",
+      "policy": {},
+      "command": {
+        "action": "press",
+        "key": "Enter"
+      },
+      "paymentEvidence": false,
+      "expect": {
+        "outcome": "ask",
+        "kinds": [
+          "submit"
+        ],
+        "payment": false
+      }
+    },
+    {
+      "name": "the key is matched in any case",
+      "policy": {},
+      "command": {
+        "action": "press",
+        "key": "ENTER"
+      },
+      "paymentEvidence": false,
+      "expect": {
+        "outcome": "ask",
+        "kinds": [
+          "submit"
+        ],
+        "payment": false
+      }
+    },
+    {
+      "name": "another key asks nothing",
+      "policy": {},
+      "command": {
+        "action": "press",
+        "key": "Tab"
+      },
+      "paymentEvidence": false,
+      "expect": {
+        "outcome": "none"
+      }
+    },
+    {
+      "name": "a sequence with a submitting step asks as submit",
+      "policy": {},
+      "command": {
+        "action": "sequence",
+        "steps": [
+          {
+            "action": "click",
+            "target": {
+              "name": "Next"
+            }
+          },
+          {
+            "action": "press",
+            "key": "Enter"
+          }
+        ]
+      },
+      "paymentEvidence": false,
+      "expect": {
+        "outcome": "ask",
+        "kinds": [
+          "submit"
+        ],
+        "payment": false
+      }
+    },
+    {
+      "name": "a sequence with a send step asks as post",
+      "policy": {},
+      "command": {
+        "action": "sequence",
+        "steps": [
+          {
+            "action": "click",
+            "target": {
+              "name": "Send"
+            }
+          }
+        ]
+      },
+      "paymentEvidence": false,
+      "expect": {
+        "outcome": "ask",
+        "kinds": [
+          "post"
+        ],
+        "payment": false
+      }
+    },
+    {
+      "name": "a sequence names submit and post once each, first seen first",
+      "policy": {},
+      "command": {
+        "action": "sequence",
+        "steps": [
+          {
+            "action": "click",
+            "target": {
+              "name": "Send"
+            }
+          },
+          {
+            "action": "type",
+            "submit": true
+          },
+          {
+            "action": "click",
+            "target": {
+              "name": "Post"
+            }
+          }
+        ]
+      },
+      "paymentEvidence": false,
+      "expect": {
+        "outcome": "ask",
+        "kinds": [
+          "post",
+          "submit"
+        ],
+        "payment": false
+      }
+    },
+    {
+      "name": "a sequence of plain steps asks nothing",
+      "policy": {},
+      "command": {
+        "action": "sequence",
+        "steps": [
+          {
+            "action": "click",
+            "target": {
+              "name": "Next"
+            }
+          },
+          {
+            "action": "type",
+            "text": "a"
+          }
+        ]
+      },
+      "paymentEvidence": false,
+      "expect": {
+        "outcome": "none"
+      }
+    },
+    {
+      "name": "an upload asks as upload",
+      "policy": {},
+      "command": {
+        "action": "upload",
+        "upload": true
+      },
+      "paymentEvidence": false,
+      "expect": {
+        "outcome": "ask",
+        "kinds": [
+          "upload"
+        ],
+        "payment": false
+      }
+    },
+    {
+      "name": "the opt-out turns the submit default off",
+      "policy": {
+        "confirmSubmit": false
+      },
+      "command": {
+        "action": "press",
+        "key": "Enter"
+      },
+      "paymentEvidence": false,
+      "expect": {
+        "outcome": "none"
+      }
+    },
+    {
+      "name": "the opt-out turns the post default off",
+      "policy": {
+        "confirmSubmit": false
+      },
+      "command": {
+        "action": "click",
+        "target": {
+          "name": "Send"
+        }
+      },
+      "paymentEvidence": false,
+      "expect": {
+        "outcome": "none"
+      }
+    },
+    {
+      "name": "the opt-out turns the upload default off",
+      "policy": {
+        "confirmSubmit": false
+      },
+      "command": {
+        "action": "upload",
+        "upload": true
+      },
+      "paymentEvidence": false,
+      "expect": {
+        "outcome": "none"
+      }
+    },
+    {
+      "name": "a named action always asks as confirm",
+      "policy": {
+        "confirmActions": "navigate"
+      },
+      "command": {
+        "action": "navigate"
+      },
+      "paymentEvidence": false,
+      "expect": {
+        "outcome": "ask",
+        "kinds": [
+          "confirm"
+        ],
+        "payment": false
+      }
+    },
+    {
+      "name": "a named action that is not in the command asks nothing",
+      "policy": {
+        "confirmActions": "navigate"
+      },
+      "command": {
+        "action": "read"
+      },
+      "paymentEvidence": false,
+      "expect": {
+        "outcome": "none"
+      }
+    },
+    {
+      "name": "a named action inside a sequence asks as confirm",
+      "policy": {
+        "confirmActions": "navigate"
+      },
+      "command": {
+        "action": "sequence",
+        "steps": [
+          {
+            "action": "navigate"
+          }
+        ]
+      },
+      "paymentEvidence": false,
+      "expect": {
+        "outcome": "ask",
+        "kinds": [
+          "confirm"
+        ],
+        "payment": false
+      }
+    },
+    {
+      "name": "the star confirms every action",
+      "policy": {
+        "confirmActions": "*"
+      },
+      "command": {
+        "action": "read"
+      },
+      "paymentEvidence": false,
+      "expect": {
+        "outcome": "ask",
+        "kinds": [
+          "confirm"
+        ],
+        "payment": false
+      }
+    },
+    {
+      "name": "the opt-out leaves the operator confirm",
+      "policy": {
+        "confirmSubmit": false,
+        "confirmActions": "click"
+      },
+      "command": {
+        "action": "click",
+        "target": {
+          "name": "Send"
+        }
+      },
+      "paymentEvidence": false,
+      "expect": {
+        "outcome": "ask",
+        "kinds": [
+          "confirm"
+        ],
+        "payment": false
+      }
+    },
+    {
+      "name": "a confirmed submit lists both kinds",
+      "policy": {
+        "confirmActions": "press"
+      },
+      "command": {
+        "action": "press",
+        "key": "Enter"
+      },
+      "paymentEvidence": false,
+      "expect": {
+        "outcome": "ask",
+        "kinds": [
+          "submit",
+          "confirm"
+        ],
+        "payment": false
+      }
+    },
+    {
+      "name": "a confirmed upload lists both kinds",
+      "policy": {
+        "confirmActions": "upload"
+      },
+      "command": {
+        "action": "upload",
+        "upload": true
+      },
+      "paymentEvidence": false,
+      "expect": {
+        "outcome": "ask",
+        "kinds": [
+          "upload",
+          "confirm"
+        ],
+        "payment": false
+      }
+    },
+    {
+      "name": "names in the policy are trimmed and empty ones ignored",
+      "policy": {
+        "confirmActions": " navigate , ,"
+      },
+      "command": {
+        "action": "navigate"
+      },
+      "paymentEvidence": false,
+      "expect": {
+        "outcome": "ask",
+        "kinds": [
+          "confirm"
+        ],
+        "payment": false
+      }
+    },
+    {
+      "name": "a denied action refuses before asking",
+      "policy": {
+        "denyActions": "click"
+      },
+      "command": {
+        "action": "click",
+        "target": {
+          "name": "Send"
+        }
+      },
+      "paymentEvidence": false,
+      "expect": {
+        "outcome": "refused",
+        "error": "denied"
+      }
+    },
+    {
+      "name": "a denied action inside a sequence refuses",
+      "policy": {
+        "denyActions": "click"
+      },
+      "command": {
+        "action": "sequence",
+        "steps": [
+          {
+            "action": "click"
+          }
+        ]
+      },
+      "paymentEvidence": false,
+      "expect": {
+        "outcome": "refused",
+        "error": "denied"
+      }
+    },
+    {
+      "name": "the star denies every action",
+      "policy": {
+        "denyActions": "*"
+      },
+      "command": {
+        "action": "read"
+      },
+      "paymentEvidence": false,
+      "expect": {
+        "outcome": "refused",
+        "error": "denied"
+      }
+    },
+    {
+      "name": "a deny that names another action refuses nothing",
+      "policy": {
+        "denyActions": "evaluate"
+      },
+      "command": {
+        "action": "click",
+        "target": {
+          "name": "Send"
+        }
+      },
+      "paymentEvidence": false,
+      "expect": {
+        "outcome": "ask",
+        "kinds": [
+          "post"
+        ],
+        "payment": false
+      }
+    },
+    {
+      "name": "a deny wins over a confirm",
+      "policy": {
+        "denyActions": "click",
+        "confirmActions": "click"
+      },
+      "command": {
+        "action": "click"
+      },
+      "paymentEvidence": false,
+      "expect": {
+        "outcome": "refused",
+        "error": "denied"
+      }
+    },
+    {
+      "name": "an unknown name in the confirm list refuses dispatch",
+      "policy": {
+        "confirmActions": "typo"
+      },
+      "command": {
+        "action": "read"
+      },
+      "paymentEvidence": false,
+      "expect": {
+        "outcome": "refused",
+        "error": "invalid"
+      }
+    },
+    {
+      "name": "an unknown name in the deny list refuses dispatch",
+      "policy": {
+        "denyActions": "typo"
+      },
+      "command": {
+        "action": "read"
+      },
+      "paymentEvidence": false,
+      "expect": {
+        "outcome": "refused",
+        "error": "invalid"
+      }
+    },
+    {
+      "name": "payment evidence on a submit makes it a payment ask",
+      "policy": {},
+      "command": {
+        "action": "press",
+        "key": "Enter"
+      },
+      "paymentEvidence": true,
+      "expect": {
+        "outcome": "ask",
+        "kinds": [
+          "submit"
+        ],
+        "payment": true
+      }
+    },
+    {
+      "name": "payment evidence on a post makes it a payment ask",
+      "policy": {},
+      "command": {
+        "action": "click",
+        "target": {
+          "name": "Send"
+        }
+      },
+      "paymentEvidence": true,
+      "expect": {
+        "outcome": "ask",
+        "kinds": [
+          "post"
+        ],
+        "payment": true
+      }
+    },
+    {
+      "name": "payment evidence does not matter to a step that does not submit",
+      "policy": {},
+      "command": {
+        "action": "click",
+        "target": {
+          "name": "Open menu"
+        }
+      },
+      "paymentEvidence": true,
+      "expect": {
+        "outcome": "none"
+      }
+    },
+    {
+      "name": "payment evidence does not matter to an upload",
+      "policy": {},
+      "command": {
+        "action": "upload",
+        "upload": true
+      },
+      "paymentEvidence": true,
+      "expect": {
+        "outcome": "ask",
+        "kinds": [
+          "upload"
+        ],
+        "payment": false
+      }
+    },
+    {
+      "name": "payment evidence does not matter to a confirm",
+      "policy": {
+        "confirmActions": "navigate"
+      },
+      "command": {
+        "action": "navigate"
+      },
+      "paymentEvidence": true,
+      "expect": {
+        "outcome": "ask",
+        "kinds": [
+          "confirm"
+        ],
+        "payment": false
+      }
+    },
+    {
+      "name": "payment evidence keeps the kinds of a confirmed submit",
+      "policy": {
+        "confirmActions": "press"
+      },
+      "command": {
+        "action": "press",
+        "key": "Enter"
+      },
+      "paymentEvidence": true,
+      "expect": {
+        "outcome": "ask",
+        "kinds": [
+          "submit",
+          "confirm"
+        ],
+        "payment": true
+      }
+    },
+    {
+      "name": "no payment evidence leaves the submit as it is",
+      "policy": {},
+      "command": {
+        "action": "press",
+        "key": "Enter"
+      },
+      "paymentEvidence": false,
+      "expect": {
+        "outcome": "ask",
+        "kinds": [
+          "submit"
+        ],
+        "payment": false
+      }
+    }
+  ]
+}
