@@ -128,10 +128,10 @@ fn the_askpass_helper_is_the_named_file_else_the_one_beside_the_core() {
     let beside = dir.join(if cfg!(windows) { "mixdog-askpass.exe" } else { "mixdog-askpass" });
     let named = PathBuf::from("/elsewhere/askpass");
     let env = |name: &str| (name == ASKPASS_ENV).then(|| named.to_string_lossy().into_owned());
-    assert_eq!(askpass_helper(&env, Some(&dir), &Files(vec![named.clone(), beside.clone()])), Some(named.clone()));
-    assert_eq!(askpass_helper(&env, Some(&dir), &Files(vec![beside.clone()])), Some(beside.clone()));
-    assert_eq!(askpass_helper(&no_env, Some(&dir), &Files(vec![named, beside.clone()])), Some(beside));
-    assert_eq!(askpass_helper(&no_env, Some(&dir), &Files(Vec::new())), None);
+    assert_eq!(askpass_helper(&env, Some(dir.as_path()), &Files(vec![named.clone(), beside.clone()])), Some(named.clone()));
+    assert_eq!(askpass_helper(&env, Some(dir.as_path()), &Files(vec![beside.clone()])), Some(beside.clone()));
+    assert_eq!(askpass_helper(&no_env, Some(dir.as_path()), &Files(vec![named, beside.clone()])), Some(beside));
+    assert_eq!(askpass_helper(&no_env, Some(dir.as_path()), &Files(Vec::new())), None);
     assert_eq!(askpass_helper(&no_env, None, &Files(Vec::new())), None);
 }
 
@@ -141,10 +141,10 @@ fn the_server_runtimes_are_the_named_folder_else_the_staged_one_beside_the_core(
     let staged = PathBuf::from("/app/server-cores");
     let manifest = staged.join(SERVER_MANIFEST_FILE);
     let named = |name: &str| (name == SERVER_CORES_ENV).then(|| "/custom/cores".to_owned());
-    assert_eq!(server_cores_dir(&named, Some(&dir), &Files(Vec::new())), Some(PathBuf::from("/custom/cores")));
-    assert_eq!(server_cores_dir(&no_env, Some(&dir), &Files(vec![manifest])), Some(staged));
+    assert_eq!(server_cores_dir(&named, Some(dir.as_path()), &Files(Vec::new())), Some(PathBuf::from("/custom/cores")));
+    assert_eq!(server_cores_dir(&no_env, Some(dir.as_path()), &Files(vec![manifest])), Some(staged));
     // A folder without the release manifest is nothing staged.
-    assert_eq!(server_cores_dir(&no_env, Some(&dir), &Files(Vec::new())), None);
+    assert_eq!(server_cores_dir(&no_env, Some(dir.as_path()), &Files(Vec::new())), None);
     assert_eq!(server_cores_dir(&no_env, None, &Files(Vec::new())), None);
 }
 
