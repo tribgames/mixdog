@@ -1,15 +1,14 @@
 //! The server logins over scripted fakes: the server's core (a client whose replies the test scripts), the attached link, the
 //! callback forward and the clock (paused). No ssh runs and no port is bound. They carry the cases of the desktop's
-//! `ssh-ipc-server-logins.test.mjs`, except the ones that need the server's pushed `login:<flowId>` feed, which this PC's
-//! client does not surface.
+//! `ssh-ipc-server-logins.test.mjs`, the server's pushed `login:<flowId>` feed included (a scripted client delivers its frames).
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use mixdog_app_server_client::api::{
-    BlobRef, ClientError, FeedStamp, FoldStore, InitializeResponse, Json, JsonRpcErrorBody, RequestId, ResumeWindow, SectionEntry,
+    BlobRef, ClientError, ConnectionStatus, FeedStamp, FoldStore, InitializeResponse, Json, JsonRpcErrorBody, RequestId, ResumeWindow, SectionEntry,
     ServerRequest, ServerRequestAnswer, StoreChange, ThreadFold, ThreadId, ThreadResumeResponse,
 };
 use mixdog_rt::DurabilityIo;
@@ -47,9 +46,28 @@ enum Reply {
     Never,
 }
 
-#[derive(Default)]
+type SectionKey = (&'static str, Option<String>);
+
 struct StubStore {
-    sections: Mutex<HashMap<(&'static str, Option<String>), Json>>,
+    sections: Mutex<HashMap<SectionKey, Json>>,
+    revision: AtomicU64,
+    changes: broadcast::Sender<StoreChange>,
+    /// What the server publishes when it is asked to refresh its provider setup.
+    on_refresh: Mutex<Vec<(SectionKey, Json)>>,
+}
+
+impl StubStore {
+    fn new() -> Self {
+        Self { sections: Mutex::default(), revision: AtomicU64::new(1), changes: broadcast::channel(16).0, on_refresh: Mutex::default() }
+    }
+
+    /// The server publishes the sections its refresh recomputed.
+    fn publish(&self) {
+        let fresh: Vec<(SectionKey, Json)> = self.on_refresh.lock().unwrap().drain(..).collect();
+        self.sections.lock().unwrap().extend(fresh);
+        self.revision.fetch_add(1, Ordering::SeqCst);
+        let _ = self.changes.send(StoreChange::Section { section: SectionName::ProviderSetup, key: None });
+    }
 }
 
 impl FoldStore for StubStore {
@@ -58,7 +76,7 @@ impl FoldStore for StubStore {
     }
     fn section(&self, section: SectionName, key: Option<&str>) -> Option<SectionEntry> {
         let value = self.sections.lock().unwrap().get(&(section.wire(), key.map(str::to_owned))).cloned()?;
-        Some(SectionEntry { section, key: key.map(str::to_owned), revision: 1, value })
+        Some(SectionEntry { section, key: key.map(str::to_owned), revision: self.revision.load(Ordering::SeqCst), value })
     }
     fn sections(&self, _section: SectionName) -> Vec<SectionEntry> {
         Vec::new()
@@ -67,7 +85,7 @@ impl FoldStore for StubStore {
         None
     }
     fn subscribe(&self) -> broadcast::Receiver<StoreChange> {
-        broadcast::channel(1).1
+        self.changes.subscribe()
     }
 }
 
@@ -75,11 +93,21 @@ struct StubClient {
     store: Arc<StubStore>,
     handler: Mutex<Box<dyn Fn(&str, &Json) -> Reply + Send>>,
     calls: Mutex<Vec<(String, Json)>>,
+    events: broadcast::Sender<ClientEvent>,
+    /// How long the server takes to publish what a refresh recomputed; none: before it answers.
+    publish_after: Mutex<Option<Duration>>,
 }
 
 impl StubClient {
     fn on(&self, handler: impl Fn(&str, &Json) -> Reply + Send + 'static) {
         *self.handler.lock().unwrap() = Box::new(handler);
+    }
+
+    /// The server pushes a notification to this client.
+    fn push(&self, method: &str, params: Json) {
+        let note = serde_json::from_value(json!({ "method": method, "params": params })).unwrap();
+        // Nobody follows a feed that ended.
+        let _ = self.events.send(ClientEvent::Notification(note));
     }
 
     fn calls_of(&self, method: &str) -> Vec<Json> {
@@ -101,6 +129,16 @@ impl ProtocolClient for StubClient {
     async fn call_raw(&self, method: &str, params: Json, _options: CallOptions) -> Result<Json, ClientError> {
         let reply = (self.handler.lock().unwrap())(method, &params);
         self.calls.lock().unwrap().push((method.to_owned(), params));
+        if method == "account/refreshProviderSetup" {
+            let store = self.store.clone();
+            match *self.publish_after.lock().unwrap() {
+                None => store.publish(),
+                Some(delay) => drop(tokio::spawn(async move {
+                    sleep(delay).await;
+                    store.publish();
+                })),
+            }
+        }
         match reply {
             Reply::Ok(value) => Ok(value),
             Reply::Rpc(message) => Err(ClientError::Rpc(JsonRpcErrorBody { code: -32000, data: None, message: message.to_owned() })),
@@ -132,8 +170,8 @@ impl ProtocolClient for StubClient {
     async fn put_blob(&self, _bytes: &[u8], _media_type: &str) -> Result<BlobRef, ClientError> {
         Err(ClientError::ClientClosed)
     }
-    fn events(&self) -> broadcast::Receiver<mixdog_app_server_client::api::ClientEvent> {
-        broadcast::channel(1).1
+    fn events(&self) -> broadcast::Receiver<ClientEvent> {
+        self.events.subscribe()
     }
     async fn close(&self) {}
 }
@@ -184,11 +222,19 @@ impl LoginServer for FakeServer {
     fn client(&self) -> Arc<dyn ProtocolClient> {
         self.client.clone()
     }
-    fn busy_sessions(&self) -> Option<u32> {
+    async fn busy_sessions(&self) -> Option<u32> {
         Some(2)
     }
-    async fn ended(&self) {
-        self.end.cancelled().await;
+    fn on_end(&self, listener: EndListener) -> ModelLoginWatch {
+        let (end, taken_back) = (self.end.clone(), CancellationToken::new());
+        let release = taken_back.clone();
+        drop(tokio::spawn(async move {
+            tokio::select! {
+                () = taken_back.cancelled() => {}
+                () = end.cancelled() => listener().await,
+            }
+        }));
+        ModelLoginWatch::new(move || release.cancel())
     }
 }
 
@@ -254,9 +300,11 @@ impl Rig {
         let record = SshHostRecord { id: "h1".into(), name: "box".into(), target: "me@box".into(), last_connected_at: None, settings: None };
         hosts.save(record).await.unwrap();
         let client = Arc::new(StubClient {
-            store: Arc::new(StubStore::default()),
+            store: Arc::new(StubStore::new()),
             handler: Mutex::new(Box::new(serving(CALLBACK))),
             calls: Mutex::new(Vec::new()),
+            events: broadcast::channel(16).0,
+            publish_after: Mutex::new(None),
         });
         let server = Arc::new(FakeServer { login: Mutex::new(login), client: client.clone(), end: CancellationToken::new() });
         let servers = Arc::new(FakeServers {
@@ -700,4 +748,95 @@ async fn a_failed_key_save_shows_the_servers_words_without_the_key_in_either_spe
     // The server's own refusal reaches the dialog as it is.
     rig.client.on(|_, _| Reply::Rpc("a keyless provider takes no key"));
     assert_eq!(message(rig.logins.save_key("h1", "openai", "sk-1").await), "a keyless provider takes no key");
+}
+
+// ----- the server's push of a pending login ----------------------------------------------------
+
+#[tokio::test(start_paused = true)]
+async fn a_pending_login_follows_the_servers_feed_and_settles_when_the_redirect_completes_it() {
+    let rig = Rig::new(ModelLogin::Server).await;
+    let mut updates = rig.logins.updates();
+    rig.logins.begin("h1", "openai-oauth").await.unwrap();
+    settle().await;
+    assert_eq!(rig.client.calls_of("feed/subscribe"), [json!({ "feedId": "login:f1" })]);
+
+    // The first frame is the flow's current state: still pending, still forwarded.
+    rig.client.push("feed/snapshot", json!({ "feedId": "login:f1", "state": { "state": "pending", "url": CALLBACK } }));
+    settle().await;
+    let (host, flow) = updates.try_recv().unwrap();
+    assert_eq!((host.as_str(), flow.flow_id.as_str(), flow.provider.as_str(), flow.state, flow.forwarded), ("h1", "f1", "openai-oauth", SshServerLoginFlowState::Pending, true));
+    assert_eq!(rig.closes(), [0]);
+
+    // The browser's redirect reached the server through the forward and completed the login: the dialog is told, the forward is
+    // closed, and the feed is left.
+    rig.client.push("login/updated", json!({ "flowId": "f1", "state": { "state": "complete" } }));
+    settle().await;
+    let (_, flow) = updates.try_recv().unwrap();
+    assert_eq!((flow.state, flow.forwarded), (SshServerLoginFlowState::Complete, false));
+    assert_eq!(rig.closes(), [1]);
+    assert_eq!(rig.client.calls_of("feed/unsubscribe"), [json!({ "feedId": "login:f1" })]);
+    // The login is over: a later push of the same id settles nothing, and a cancel finds nothing pending to send.
+    rig.client.push("login/updated", json!({ "flowId": "f1", "state": { "state": "failed" } }));
+    settle().await;
+    assert!(updates.try_recv().is_err());
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_push_for_another_flow_or_a_failed_state_is_told_as_it_is() {
+    let rig = Rig::new(ModelLogin::Server).await;
+    let mut updates = rig.logins.updates();
+    rig.logins.begin("h1", "openai-oauth").await.unwrap();
+    settle().await;
+    rig.client.push("login/updated", json!({ "flowId": "other", "state": { "state": "complete" } }));
+    settle().await;
+    assert!(updates.try_recv().is_err(), "another flow's push is not this login's");
+    rig.client.push("login/updated", json!({ "flowId": "f1", "state": { "state": "failed", "error": "denied" } }));
+    settle().await;
+    let (_, flow) = updates.try_recv().unwrap();
+    assert_eq!((flow.state, flow.error.as_deref()), (SshServerLoginFlowState::Failed, Some("denied")));
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_server_that_refuses_the_feed_leaves_the_status_reads() {
+    let rig = Rig::new(ModelLogin::Server).await;
+    rig.client.on(|method, _| match method {
+        "feed/subscribe" => Reply::Rpc("no such feed"),
+        _ => Reply::Ok(pending_flow(CALLBACK)),
+    });
+    let mut updates = rig.logins.updates();
+    rig.logins.begin("h1", "openai-oauth").await.unwrap();
+    settle().await;
+    assert!(updates.try_recv().is_err());
+    assert_eq!(rig.logins.status("h1", "f1").await.unwrap().state, SshServerLoginFlowState::Pending);
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_logins_are_read_only_after_the_server_published_what_the_refresh_recomputed() {
+    let rig = Rig::new(ModelLogin::Server).await;
+    {
+        let mut sections = rig.client.store.sections.lock().unwrap();
+        sections.insert(("providerSetup", None), json!({ "oauth": [{ "id": "openai-oauth", "name": "ChatGPT", "authenticated": false }] }));
+    }
+    *rig.client.store.on_refresh.lock().unwrap() = vec![
+        (("providerSetup", None), json!({ "oauth": [{ "id": "openai-oauth", "name": "ChatGPT", "authenticated": true }] })),
+        (("providerAccounts", Some("openai-oauth".into())), json!({ "selectedId": "a", "accounts": [{ "id": "a", "email": "me@x" }] })),
+    ];
+    // The server answers the refresh first and publishes a moment later.
+    *rig.client.publish_after.lock().unwrap() = Some(Duration::from_millis(100));
+    let rows = rig.logins.list("h1").await.unwrap().providers.unwrap();
+    assert_eq!((rows[0].signed_in, rows[0].identity.as_deref()), (true, Some("me@x")));
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_server_that_never_publishes_is_read_as_it_is_after_the_wait() {
+    let rig = Rig::new(ModelLogin::Server).await;
+    rig.client.store.sections.lock().unwrap().insert(("providerSetup", None), json!({ "oauth": [{ "id": "openai-oauth", "authenticated": false }] }));
+    // Nothing is published: the stored section is what there is.
+    *rig.client.publish_after.lock().unwrap() = Some(Duration::from_secs(3_600));
+    let listed = within_wait(rig.logins.list("h1")).await.unwrap();
+    assert_eq!(listed.providers.unwrap().len(), 1);
+}
+
+async fn within_wait<T>(work: impl std::future::Future<Output = T>) -> T {
+    timeout(SECTION_WAIT + Duration::from_secs(1), work).await.expect("the read waited longer than its bound")
 }

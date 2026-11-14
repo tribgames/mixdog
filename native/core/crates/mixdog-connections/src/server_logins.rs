@@ -16,7 +16,8 @@ use mixdog_app_protocol::v2::connections::{
     SshCredentialSource, SshKeychainIssue, SshModelLogin, SshServerLogin, SshServerLoginFlow, SshServerLoginFlowState,
     SshServerLoginKind, SshServerLogins,
 };
-use mixdog_app_server_client::api::{CallOptions, ClientError, ConnectionStatus, ProtocolClient, SectionName};
+use mixdog_app_server_client::api::{CallOptions, ClientError, ClientEvent, ProtocolClient, RpcNotification, SectionName};
+use mixdog_protocol::redact::redact_secrets;
 use mixdog_rt::time::{sleep, timeout, Instant};
 use mixdog_rt::{CancellationToken, TaskClass};
 use mixdog_ssh::callback_forward::{open_callback_forward, CallbackForward};
@@ -29,7 +30,7 @@ use tokio::task::JoinHandle;
 use url::Url;
 
 use crate::host_store::{SshHostRecord, SshHostStore};
-use crate::link::LinkPool;
+use crate::link::{EndListener, LinkPool, ModelLoginWatch};
 use crate::link_machine::{LinkState, ModelLogin};
 
 /// Longest a pending login keeps its callback forward.
@@ -43,6 +44,8 @@ const SERVER_FLOW_LIFETIME: Duration = Duration::from_secs(10 * 60);
 const MAX_KEY_LENGTH: usize = 8_192;
 const MAX_URL_LENGTH: usize = 16_384;
 const UPDATE_CAPACITY: usize = 16;
+/// Longest a settings read waits for the server to publish the sections its refresh recomputes.
+const SECTION_WAIT: Duration = Duration::from_secs(3);
 
 /// A refused or failed request, safe to show: it never carries a key.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -74,20 +77,6 @@ fn call_failed(error: &ClientError) -> LoginError {
     LoginError(server_message(error))
 }
 
-/// `message` with each of `secrets` (plain and JSON-escaped) replaced by `[redacted]`.
-fn redact_secrets(message: &str, secrets: &[&str]) -> String {
-    let mut safe = message.to_owned();
-    for secret in secrets.iter().filter(|secret| !secret.is_empty()) {
-        let quoted = Value::String((*secret).to_owned()).to_string();
-        let escaped = &quoted[1..quoted.len() - 1];
-        safe = safe.replace(secret, "[redacted]");
-        if escaped != *secret {
-            safe = safe.replace(escaped, "[redacted]");
-        }
-    }
-    safe
-}
-
 fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
@@ -101,11 +90,12 @@ fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 pub(crate) trait LoginServer: Send + Sync {
     fn model_login(&self) -> ModelLogin;
     fn client(&self) -> Arc<dyn ProtocolClient>;
-    /// Sessions running a turn on the server; `None` when unknown.
-    fn busy_sessions(&self) -> Option<u32>;
-    /// Resolves once this attachment stops running models with the server's logins: it is closed or replaced, or its model
-    /// login changed; at once when it already has.
-    async fn ended(&self);
+    /// Sessions running a turn on the server, read from its `/health`; `None` when unknown.
+    async fn busy_sessions(&self) -> Option<u32>;
+    /// Runs `listener` once this attachment stops running models with the server's logins (it is closed, or its model login
+    /// changes), before the server restarts or the connection goes; at once when it already has. Dropping the watch takes the
+    /// listener back.
+    fn on_end(&self, listener: EndListener) -> ModelLoginWatch;
 }
 
 pub(crate) trait LoginServers: Send + Sync {
@@ -129,7 +119,6 @@ pub(crate) trait CallbackForwarder: Send + Sync {
 }
 
 struct PoolServer {
-    pool: LinkPool,
     link: Arc<crate::link::ServerLink>,
 }
 
@@ -143,33 +132,12 @@ impl LoginServer for PoolServer {
         self.link.client()
     }
 
-    fn busy_sessions(&self) -> Option<u32> {
-        let running = self.link.feed().sessions().borrow().iter().filter(|session| session.running).count();
-        u32::try_from(running).ok()
+    async fn busy_sessions(&self) -> Option<u32> {
+        u32::try_from(self.link.busy_sessions().await?).ok()
     }
 
-    async fn ended(&self) {
-        let client = self.link.client();
-        let mut events = client.events();
-        let mut view = self.link.view();
-        loop {
-            let replaced = self.pool.get(self.link.id()).is_none_or(|current| !Arc::ptr_eq(&current, &self.link));
-            if replaced || self.link.model_login() != ModelLogin::Server || matches!(client.status(), ConnectionStatus::Closed { .. }) {
-                return;
-            }
-            tokio::select! {
-                event = events.recv() => {
-                    if matches!(event, Err(broadcast::error::RecvError::Closed)) {
-                        return;
-                    }
-                }
-                changed = view.changed() => {
-                    if changed.is_err() {
-                        return;
-                    }
-                }
-            }
-        }
+    fn on_end(&self, listener: EndListener) -> ModelLoginWatch {
+        self.link.on_model_login_end(ModelLogin::Server, listener)
     }
 }
 
@@ -179,7 +147,7 @@ impl LoginServers for PoolServers {
     fn attached(&self, id: &str) -> Option<Arc<dyn LoginServer>> {
         let link = self.0.get(id)?;
         let connected = matches!(link.view().borrow().state, LinkState::Connected);
-        connected.then(|| Arc::new(PoolServer { pool: self.0.clone(), link }) as Arc<dyn LoginServer>)
+        connected.then(|| Arc::new(PoolServer { link }) as Arc<dyn LoginServer>)
     }
 
     fn on_attach(&self) -> broadcast::Receiver<String> {
@@ -383,8 +351,10 @@ struct Pending {
     /// The saved server's removal count when the login started: once the server is removed, no cancel for this login is kept.
     generation: u64,
     server: Arc<dyn LoginServer>,
-    /// Stops the watch on the attachment.
+    /// Stops the watch on the attachment and the follow of the server's push.
     stop: CancellationToken,
+    /// The listener on the attachment's end; dropped with the login.
+    watch: Mutex<Option<ModelLoginWatch>>,
 }
 
 /// A cancel the server has not taken yet; `started_at` tells which login it is for.
@@ -459,7 +429,8 @@ impl ServerLogins {
         Self { inner, attach_task }
     }
 
-    /// Each flow that ended on this PC's side without the user finishing it (its attachment went), with the saved server's id.
+    /// Each state of a pending login the server pushes (the browser's redirect completing it settles it here), and each flow that
+    /// ended on this PC's side without the user finishing it (its attachment went), with the saved server's id.
     pub fn updates(&self) -> broadcast::Receiver<(String, SshServerLoginFlow)> {
         self.inner.updates.subscribe()
     }
@@ -470,7 +441,7 @@ impl ServerLogins {
         let Some(server) = self.inner.servers.attached(&host.id) else {
             return Ok(SshServerLogins { connected: false, model_login: None, busy_sessions: None, providers: None, keychain: None });
         };
-        let busy_sessions = server.busy_sessions();
+        let busy_sessions = server.busy_sessions().await;
         if server.model_login() != ModelLogin::Server {
             return Ok(SshServerLogins {
                 connected: true,
@@ -481,8 +452,7 @@ impl ServerLogins {
             });
         }
         let client = server.client();
-        client.call_raw("account/refreshProviderSetup", json!({ "force": true }), CallOptions::default()).await.map_err(|e| call_failed(&e))?;
-        let setup = client.store().section(SectionName::ProviderSetup, None).map_or(Value::Null, |entry| entry.value);
+        let setup = refreshed_setup(&client).await?;
         let mut providers = login_rows(&setup);
         for row in providers.iter_mut().filter(|row| row.kind == SshServerLoginKind::Oauth && row.signed_in) {
             let roster = client.store().section(SectionName::ProviderAccounts, Some(&row.id));
@@ -524,6 +494,7 @@ impl ServerLogins {
                     generation: state.removals.get(&host.id).copied().unwrap_or(0),
                     server: server.clone(),
                     stop: CancellationToken::new(),
+                    watch: Mutex::new(None),
                 });
                 // A cancel queued for an older login that had this id is stale now.
                 state.queued.retain(|(queued, _)| *queued != key);
@@ -682,6 +653,40 @@ impl ServerLogins {
     }
 }
 
+/// The server's provider setup after a forced refresh: the refresh answers before the server publishes what it recomputed, so the
+/// section (and the accounts published after it) is read once a newer one has arrived, or after [`SECTION_WAIT`].
+async fn refreshed_setup(client: &Arc<dyn ProtocolClient>) -> LoginResult<Value> {
+    let store = client.store();
+    let before = store.section(SectionName::ProviderSetup, None).map(|entry| entry.revision);
+    // Subscribed before the refresh, so a section published right after it is not missed.
+    let mut changes = store.subscribe();
+    client.call_raw("account/refreshProviderSetup", json!({ "force": true }), CallOptions::default()).await.map_err(|e| call_failed(&e))?;
+    let published = async {
+        loop {
+            if store.section(SectionName::ProviderSetup, None).is_some_and(|entry| Some(entry.revision) != before) {
+                return;
+            }
+            if matches!(changes.recv().await, Err(broadcast::error::RecvError::Closed)) {
+                return;
+            }
+        }
+    };
+    let _ = timeout(SECTION_WAIT, published).await;
+    Ok(store.section(SectionName::ProviderSetup, None).map_or(Value::Null, |entry| entry.value))
+}
+
+/// The state a push of the server carries for the login `flow_id`: a `login/updated`, or the first frame of its feed.
+fn pushed_state(note: &RpcNotification, flow_id: &str) -> Option<Value> {
+    let params = note.params.as_ref()?;
+    match note.method.as_str() {
+        "login/updated" if params.get("flowId").and_then(Value::as_str) == Some(flow_id) => params.get("state").cloned(),
+        "feed/snapshot" if params.get("feedId").and_then(Value::as_str).and_then(|feed| feed.strip_prefix("login:")) == Some(flow_id) => {
+            params.get("state").cloned()
+        }
+        _ => None,
+    }
+}
+
 async fn call(server: &dyn LoginServer, method: &str, params: Value) -> LoginResult<Value> {
     server.client().call_raw(method, params, CallOptions::default()).await.map_err(|error| call_failed(&error))
 }
@@ -719,6 +724,53 @@ impl Inner {
         Ok(flow)
     }
 
+    /// A state the server pushed for a pending login: it settles the login like a status answer, and the dialog is told.
+    async fn pushed(&self, key: &Key, login: &Pending, state: Value) -> LoginResult<SshServerLoginFlow> {
+        let mut flow = match state {
+            Value::Object(fields) => fields,
+            _ => Map::new(),
+        };
+        flow.insert("flowId".to_owned(), Value::String(login.flow_id.clone()));
+        flow.insert("provider".to_owned(), Value::String(login.provider.clone()));
+        self.settle(key, &Value::Object(flow)).await
+    }
+
+    /// Follows the server's push of a pending login (the scoped feed `login:<flowId>`) until the login ends: its progress reaches the
+    /// dialog without anyone reading the status, and a state that ends it closes its forward. A server that refuses the
+    /// subscription leaves the status reads, as before.
+    fn follow_feed(self: &Arc<Self>, key: Key, login: Arc<Pending>) {
+        let inner = self.clone();
+        drop(mixdog_rt::spawn("server-login-feed", TaskClass::Control, async move {
+            let feed = format!("login:{}", login.flow_id);
+            // The events are taken before the feed is subscribed, so no frame after its first one is missed.
+            let mut events = login.server.client().events();
+            if call(&*login.server, "feed/subscribe", json!({ "feedId": feed })).await.is_err() {
+                return;
+            }
+            loop {
+                let event = tokio::select! {
+                    () = login.stop.cancelled() => break,
+                    event = events.recv() => event,
+                };
+                match event {
+                    Ok(ClientEvent::Notification(note)) => {
+                        let Some(state) = pushed_state(&note, &login.flow_id) else { continue };
+                        let Ok(flow) = inner.pushed(&key, &login, state).await else { continue };
+                        let ended = flow.state != SshServerLoginFlowState::Pending;
+                        let _ = inner.updates.send((login.host_id.clone(), flow));
+                        if ended {
+                            break;
+                        }
+                    }
+                    Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(broadcast::error::RecvError::Closed) => break,
+                }
+            }
+            // Best effort: a link that is down has no subscription left to end.
+            let _ = timeout(CANCEL_TIMEOUT, call(&*login.server, "feed/unsubscribe", json!({ "feedId": feed }))).await;
+        }));
+    }
+
     fn keep_forward(self: &Arc<Self>, key: Key, forward: Arc<dyn Forward>) {
         let stop = CancellationToken::new();
         locked(&self.state).forwards.insert(key.clone(), OpenForward { forward, stop: stop.clone() });
@@ -743,34 +795,41 @@ impl Inner {
     fn forget_login(&self, key: &Key) -> Option<Arc<Pending>> {
         let login = locked(&self.state).pending.remove(key)?;
         login.stop.cancel();
+        drop(locked(&login.watch).take());
         Some(login)
     }
 
-    /// Ends the login on this PC's side when its attachment ends.
+    /// Ends the login on this PC's side when its attachment ends (the cancel runs before the server restarts, or the connection
+    /// goes), and follows the server's push of its progress.
     fn watch(self: &Arc<Self>, key: Key, login: Arc<Pending>) {
         let inner = self.clone();
-        drop(mixdog_rt::spawn("server-login-watch", TaskClass::Control, async move {
-            tokio::select! {
-                () = login.stop.cancelled() => {}
-                () = login.server.ended() => {
-                    let ended = inner.end_login(&key, Some(&login)).await;
-                    if ended {
-                        let flow = SshServerLoginFlow {
-                            flow_id: login.flow_id.clone(),
-                            provider: login.provider.clone(),
-                            state: SshServerLoginFlowState::Cancelled,
-                            url: None,
-                            error: None,
-                            forwarded: false,
-                            user_code: None,
-                            manual_code_supported: None,
-                            open_url: None,
-                        };
-                        let _ = inner.updates.send((login.host_id.clone(), flow));
-                    }
+        let (ending, ended_key) = (login.clone(), key.clone());
+        let listener: EndListener = Box::new(move || {
+            Box::pin(async move {
+                if inner.end_login(&ended_key, Some(&ending)).await {
+                    let flow = SshServerLoginFlow {
+                        flow_id: ending.flow_id.clone(),
+                        provider: ending.provider.clone(),
+                        state: SshServerLoginFlowState::Cancelled,
+                        url: None,
+                        error: None,
+                        forwarded: false,
+                        user_code: None,
+                        manual_code_supported: None,
+                        open_url: None,
+                    };
+                    let _ = inner.updates.send((ending.host_id.clone(), flow));
                 }
-            }
-        }));
+            })
+        });
+        let watch = login.server.on_end(listener);
+        *locked(&login.watch) = Some(watch);
+        // The login ended while the watch was being taken: nothing is left to watch.
+        if login.stop.is_cancelled() {
+            drop(locked(&login.watch).take());
+            return;
+        }
+        self.follow_feed(key, login);
     }
 
     fn prune_queued(state: &mut State) {

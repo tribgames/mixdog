@@ -5,7 +5,7 @@
 use std::future::Future;
 use std::io;
 use std::path::Path;
-use std::sync::atomic::{AtomicU16, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU16, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
@@ -13,9 +13,11 @@ use async_trait::async_trait;
 use mixdog_app_protocol::v2::model_proxy::{ProxyAnswer, ProxyCall, ProxyDelivery, ProxyErrorKind, ProxyFailure, ProxyOutcome};
 use mixdog_app_server_client::api::TransportHalves;
 use mixdog_app_server_client::mock::{MockConn, MockNetwork};
+use mixdog_core_api::error::CoreError;
 use mixdog_rt::DurabilityIo;
 use mixdog_ssh::bootstrap::{BootstrapPhase, RemoteDiscovery, RemoteReport};
 use mixdog_ssh::command::parse_ssh_target;
+use mixdog_ssh::context::AskpassEnv;
 use mixdog_ssh::session::{TunnelHandle, Transport};
 use mixdog_ssh::tunnel::{TunnelSpec, TunnelState};
 use serde_json::{json, Value};
@@ -34,7 +36,7 @@ const OPTIONS: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../.
 const PID: u32 = 4242;
 const INSTANCE: &str = "run-a";
 
-async fn within<T>(work: impl Future<Output = T>) -> T {
+pub(crate) async fn within<T>(work: impl Future<Output = T>) -> T {
     mixdog_rt::time::timeout(Duration::from_secs(5), work).await.expect("timed out")
 }
 
@@ -100,6 +102,8 @@ struct FakeTransport {
     logins: Mutex<Vec<Option<SshModelLogin>>>,
     forces: Mutex<Vec<bool>>,
     tunnels: Mutex<Vec<Arc<FakeTunnel>>>,
+    /// The server cannot be dialed.
+    refusing: AtomicBool,
 }
 
 fn report() -> RemoteReport {
@@ -140,6 +144,9 @@ impl Transport for FakeTransport {
         self.logins.lock().unwrap_or_else(PoisonError::into_inner).push(model_login);
         self.forces.lock().unwrap_or_else(PoisonError::into_inner).push(force_restart);
         tokio::task::yield_now().await;
+        if self.refusing.load(Ordering::SeqCst) {
+            return Err(SshError::new("The server does not answer.", FailureClass::Transient).into());
+        }
         Ok(report())
     }
 
@@ -222,6 +229,7 @@ struct FakeDialer {
     forwards: Arc<ForwardTunnels>,
     /// The context of every session the link opened.
     contexts: Arc<Mutex<Vec<AttemptContext>>>,
+    diagnostics: Arc<Diagnostics>,
 }
 
 impl LinkDialer for FakeDialer {
@@ -236,6 +244,37 @@ impl LinkDialer for FakeDialer {
 
     fn forwards(&self, host_id: &str, _context: ContextSource, store: Arc<PortForwardStore>) -> ServerPortForwards {
         ServerPortForwards::with_parts(host_id.to_owned(), store, self.forwards.clone(), Arc::new(FreePorts(AtomicU16::new(50_200))), Duration::from_millis(200))
+    }
+
+    fn diagnostics(&self) -> Arc<Diagnostics> {
+        self.diagnostics.clone()
+    }
+}
+
+// ----- this PC's desktop host ------------------------------------------------------------------
+
+/// This PC's core as the host channel: records what the link relays to the desktop and answers every request with `{ "ran": method }`.
+#[derive(Default)]
+struct FakeHost {
+    requests: Mutex<Vec<(HostCapability, String, Value)>>,
+    notifications: Mutex<Vec<(HostCapability, String, Value)>>,
+    /// Refuses every request as no desktop having claimed the host role.
+    unclaimed: AtomicBool,
+}
+
+#[async_trait]
+impl HostChannel for FakeHost {
+    async fn request(&self, capability: HostCapability, method: Method, params: Value) -> Result<Value, HostError> {
+        self.requests.lock().unwrap_or_else(PoisonError::into_inner).push((capability, method.as_str().to_owned(), params));
+        if self.unclaimed.load(Ordering::SeqCst) {
+            return Err(CoreError::CapabilityUnavailable { capability: "desktopHost".into(), detail: "noClaimant".into() }.into());
+        }
+        Ok(json!({ "ran": method.as_str() }))
+    }
+
+    fn notify(&self, capability: HostCapability, method: Method, params: Value) -> Result<(), CoreError> {
+        self.notifications.lock().unwrap_or_else(PoisonError::into_inner).push((capability, method.as_str().to_owned(), params));
+        Ok(())
     }
 }
 
@@ -259,9 +298,11 @@ impl LocalModelProxy for FakeLocal {
     }
 }
 
-struct Rig {
-    pool: LinkPool,
+pub(crate) struct Rig {
+    pub(crate) pool: LinkPool,
     hosts: Arc<SshHostStore>,
+    host: Arc<FakeHost>,
+    diagnostics: Arc<Diagnostics>,
     contexts: Arc<Mutex<Vec<AttemptContext>>>,
     transport: Arc<FakeTransport>,
     net: Arc<MockNetwork>,
@@ -271,7 +312,7 @@ struct Rig {
     _dir: tempfile::TempDir,
 }
 
-async fn rig() -> Rig {
+pub(crate) async fn rig() -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let paths = ConnectionsPaths::new(Path::new(dir.path()));
     let hosts = Arc::new(SshHostStore::load(&paths, io_lane()).await);
@@ -282,15 +323,25 @@ async fn rig() -> Rig {
         logins: Mutex::new(Vec::new()),
         forces: Mutex::new(Vec::new()),
         tunnels: Mutex::new(Vec::new()),
+        refusing: AtomicBool::new(false),
     });
     let net = Arc::new(MockNetwork::default());
     let seen = Arc::new(Mutex::new(Vec::new()));
     let forwards = Arc::new(ForwardTunnels::default());
     let contexts = Arc::new(Mutex::new(Vec::new()));
-    let dialer = Arc::new(FakeDialer { transport: transport.clone(), net: net.clone(), seen: seen.clone(), forwards: forwards.clone(), contexts: contexts.clone() });
+    let diagnostics = Arc::new(Diagnostics::new());
+    let dialer = Arc::new(FakeDialer {
+        transport: transport.clone(),
+        net: net.clone(),
+        seen: seen.clone(),
+        forwards: forwards.clone(),
+        contexts: contexts.clone(),
+        diagnostics: diagnostics.clone(),
+    });
     let (started, local_calls) = mpsc::unbounded_channel();
-    let pool = LinkPool::with_dialer(dialer, Platform::Linux, None, hosts.clone(), store, Arc::new(FakeLocal(started)));
-    Rig { pool, hosts, contexts, transport, net, seen, forwards, local_calls, _dir: dir }
+    let host = Arc::new(FakeHost::default());
+    let pool = LinkPool::with_dialer(dialer, Platform::Linux, None, hosts.clone(), store, Arc::new(FakeLocal(started)), host.clone());
+    Rig { pool, hosts, host, diagnostics, contexts, transport, net, seen, forwards, local_calls, _dir: dir }
 }
 
 fn spec() -> LinkSpec {
@@ -309,7 +360,7 @@ async fn handshake(net: &MockNetwork, instance: &str) -> (MockConn, Value) {
     (conn, init["params"].clone())
 }
 
-async fn open_link(rig: &Rig) -> (Arc<ServerLink>, MockConn, Value) {
+pub(crate) async fn open_link(rig: &Rig) -> (Arc<ServerLink>, MockConn, Value) {
     let (link, (conn, params)) = within(async { tokio::join!(rig.pool.open(spec(), AttemptContext::default(), None), handshake(&rig.net, "s1")) }).await;
     (link.unwrap(), conn, params)
 }
@@ -357,6 +408,9 @@ async fn a_link_opens_names_the_desktop_core_and_reports_its_view() {
     assert_eq!(init["clientInfo"]["version"], env!("CARGO_PKG_VERSION"));
     assert_eq!(init["capabilities"]["approvalsInbox"], true);
     assert_eq!(init["capabilities"]["modelProxy"], true);
+    // This PC's desktop answers the server's `host/*` requests through this PC's core.
+    assert_eq!(init["capabilities"]["host"]["notifications"], true);
+    assert_eq!(init["capabilities"]["host"]["windows"], true);
     assert_eq!((link.id(), link.name(), link.target().display.as_str()), ("box", "Box", "me@server"));
     assert_eq!(link.view().borrow().state, LinkState::Connected);
     assert_eq!(link.view().borrow().model_login, ModelLogin::Pc);
@@ -537,11 +591,27 @@ async fn a_failed_ssh_dial_is_reported_as_it_is_and_nothing_stays_open() {
         logins: Mutex::new(Vec::new()),
         forces: Mutex::new(Vec::new()),
         tunnels: Mutex::new(Vec::new()),
+        refusing: AtomicBool::new(false),
     });
-    let dialer = Arc::new(FakeDialer { transport: lonely.clone(), net: rig.net.clone(), seen: rig.seen.clone(), forwards: rig.forwards.clone(), contexts: rig.contexts.clone() });
+    let dialer = Arc::new(FakeDialer {
+        transport: lonely.clone(),
+        net: rig.net.clone(),
+        seen: rig.seen.clone(),
+        forwards: rig.forwards.clone(),
+        contexts: rig.contexts.clone(),
+        diagnostics: rig.diagnostics.clone(),
+    });
     let paths = ConnectionsPaths::new(rig._dir.path());
     let hosts = Arc::new(SshHostStore::load(&paths, io_lane()).await);
-    let pool = LinkPool::with_dialer(dialer, Platform::Linux, None, hosts, Arc::new(PortForwardStore::new(&paths, io_lane())), Arc::new(FakeLocal(mpsc::unbounded_channel().0)));
+    let pool = LinkPool::with_dialer(
+        dialer,
+        Platform::Linux,
+        None,
+        hosts,
+        Arc::new(PortForwardStore::new(&paths, io_lane())),
+        Arc::new(FakeLocal(mpsc::unbounded_channel().0)),
+        Arc::new(FakeHost::default()),
+    );
     let Err(ConnectError::Ssh(error)) = within(pool.open(spec(), AttemptContext::default(), None)).await else { panic!("expected an ssh failure") };
     assert!(error.message.contains("does not answer through the ssh tunnel"), "{}", error.message);
     assert!(pool.list().is_empty());
@@ -617,4 +687,284 @@ fn a_model_call_failure_is_a_sign_in_one_only_when_this_pcs_login_was_refused() 
     assert!(!is_sign_in_failure(&failure(&|failure| failure.status = Some(500))));
     let answered = ProxyCallSettled { provider: "openai".to_owned(), outcome: CallOutcome::Answered, failure: None };
     assert!(!is_sign_in_failure(&answered));
+}
+
+// ----- the server's pushes ---------------------------------------------------------------------
+
+#[tokio::test]
+async fn the_servers_listening_ports_reach_the_link_from_the_ports_feed() {
+    let rig = rig().await;
+    let (link, conn, _) = open_link(&rig).await;
+    let viewing = {
+        let link = link.clone();
+        tokio::spawn(async move { link.view_ports(true).await })
+    };
+    let request = frame_of(&conn, "system/ports/subscribe").await;
+    // The ports call answers with the subscription itself.
+    conn.server_send(&json!({ "id": request["id"], "result": { "id": "sub-1", "mode": "snapshot", "epoch": "e1", "startSeq": 1 } }));
+    within(viewing).await.unwrap().unwrap();
+    let mut ports = PortsSource::ports(&*link);
+    // The first frame is the whole list; every later one is a new list.
+    let snapshot = json!({ "method": "feed/snapshot", "params": { "feedId": "ports", "state": { "sections": [
+        { "section": "ports", "revision": 1, "value": [{ "port": 3000, "addresses": ["127.0.0.1"], "process": "node", "pid": 7 }] }
+    ] } }, "feed": { "id": "ports", "epoch": "e1", "seq": 0 } });
+    conn.server_send(&snapshot);
+    within(ports.changed()).await.unwrap();
+    assert_eq!(ports.borrow().iter().map(|port| port.port).collect::<Vec<_>>(), [3000]);
+    conn.server_send(&json!({ "method": "system/ports/updated", "params": { "section": "ports", "revision": 2, "value": [] }, "feed": { "id": "ports", "epoch": "e1", "seq": 1 } }));
+    within(ports.changed()).await.unwrap();
+    assert!(ports.borrow().is_empty());
+    // A snapshot of a server that has sampled nothing is an empty list.
+    conn.server_send(&json!({ "method": "system/ports/updated", "params": { "section": "ports", "revision": 3, "value": [{ "port": 1, "addresses": [], "process": null, "pid": null }] }, "feed": { "id": "ports", "epoch": "e1", "seq": 2 } }));
+    within(ports.changed()).await.unwrap();
+    conn.server_send(&json!({ "method": "feed/snapshot", "params": { "feedId": "ports", "state": { "sections": [] } }, "feed": { "id": "ports", "epoch": "e1", "seq": 0 } }));
+    within(ports.changed()).await.unwrap();
+    assert!(ports.borrow().is_empty());
+}
+
+#[test]
+fn the_first_frame_of_the_ports_feed_is_the_ports_section_or_nothing() {
+    let section = json!({ "section": "ports", "revision": 1, "value": [{ "port": 3000, "addresses": [], "process": null, "pid": null }] });
+    let other = json!({ "section": "hosts", "revision": 1, "value": [] });
+    let listed = ports_snapshot(Some(&json!({ "feedId": "ports", "state": { "sections": [other, section] } })));
+    assert_eq!(listed.iter().map(|port| port.port).collect::<Vec<_>>(), [3000]);
+    assert!(ports_snapshot(Some(&json!({ "feedId": "ports", "state": { "sections": [] } }))).is_empty());
+    assert!(ports_snapshot(None).is_empty());
+}
+
+// ----- the server's host requests --------------------------------------------------------------
+
+/// The frame the client sent that answers request `id`.
+async fn answer_of(conn: &MockConn, id: &str) -> Value {
+    within(async {
+        loop {
+            let frame: Value = serde_json::from_str(&conn.next_sent().await).unwrap();
+            if frame["id"] == id && frame.get("method").is_none() {
+                return frame;
+            }
+        }
+    })
+    .await
+}
+
+#[tokio::test]
+async fn the_link_claims_the_host_role_on_every_attach() {
+    let rig = rig().await;
+    let (_link, conn, _) = open_link(&rig).await;
+    let claim = frame_of(&conn, "host/claim").await;
+    assert_eq!(claim["params"], json!({ "hostId": "link:box" }));
+    conn.server_close(1006, "gone");
+    let (again, _) = handshake(&rig.net, "s2").await;
+    assert_eq!(frame_of(&again, "host/claim").await["params"]["hostId"], "link:box");
+}
+
+#[tokio::test]
+async fn a_host_request_of_the_server_is_answered_by_this_pcs_desktop() {
+    let rig = rig().await;
+    let (_link, conn, _) = open_link(&rig).await;
+    conn.server_send(&json!({ "id": "h1", "method": "host/window/focus", "params": { "connectionId": "local" } }));
+    let answer = answer_of(&conn, "h1").await;
+    assert_eq!(answer["result"], json!({ "ran": "host/window/focus" }));
+    let requests = rig.host.requests.lock().unwrap().clone();
+    assert_eq!(requests, vec![(HostCapability::Windows, "host/window/focus".to_owned(), json!({ "connectionId": "local" }))]);
+}
+
+#[tokio::test]
+async fn a_host_request_no_desktop_can_run_is_answered_with_an_error() {
+    let rig = rig().await;
+    rig.host.unclaimed.store(true, Ordering::SeqCst);
+    let (_link, conn, _) = open_link(&rig).await;
+    conn.server_send(&json!({ "id": "h2", "method": "host/window/focus", "params": { "connectionId": "local" } }));
+    let answer = answer_of(&conn, "h2").await;
+    assert_eq!(answer["error"]["code"], -32000);
+    assert_eq!(answer["error"]["message"], "This PC's desktop could not run the request.");
+}
+
+#[tokio::test]
+async fn a_host_notification_of_the_server_is_delivered_to_this_pcs_desktop() {
+    let rig = rig().await;
+    let (_link, conn, _) = open_link(&rig).await;
+    let toast = json!({ "title": "Done", "body": "A turn ended" });
+    conn.server_send(&json!({ "method": "host/notification/show", "params": toast }));
+    within(async {
+        while rig.host.notifications.lock().unwrap().is_empty() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
+    assert_eq!(rig.host.notifications.lock().unwrap().clone(), vec![(HostCapability::Notifications, "host/notification/show".to_owned(), toast)]);
+}
+
+#[test]
+fn a_host_request_names_the_capability_of_its_holder() {
+    assert_eq!(host_capability("host.windows"), Some(HostCapability::Windows));
+    assert_eq!(host_capability("host.browserEngine"), Some(HostCapability::BrowserEngine));
+    assert_eq!(host_capability("host.systemProxy"), Some(HostCapability::SystemProxy));
+    assert_eq!(host_capability("modelProxy"), None);
+    assert_eq!(host_capability("host.unknown"), None);
+}
+
+// ----- the diagnostics ring --------------------------------------------------------------------
+
+#[tokio::test]
+async fn the_links_losses_and_restores_are_written_to_the_servers_diagnostics_ring() {
+    let rig = rig().await;
+    let (link, conn, _) = open_link(&rig).await;
+    let key = diagnostics_key_for(link.target());
+    conn.server_close(1006, "gone");
+    view_until(&link, |state| matches!(state, LinkState::Reconnecting { .. })).await;
+    let _again = handshake(&rig.net, "s2").await;
+    view_until(&link, |state| *state == LinkState::Connected).await;
+    let lines = rig.diagnostics.lines(&key, 100).join("\n");
+    assert!(lines.contains("core-link-lost"), "{lines}");
+    assert!(lines.matches("core-link-restored").count() >= 2, "the first attach and the one after the drop: {lines}");
+}
+
+// ----- the logins of the server's own ----------------------------------------------------------
+
+/// A watch whose work records the order it ran in, and what the transport had been asked by then.
+fn recording_watch(link: &ServerLink, rig: &Rig, login: ModelLogin, label: &'static str, log: &Arc<Mutex<Vec<(&'static str, usize)>>>) -> ModelLoginWatch {
+    let (log, transport) = (log.clone(), rig.transport.clone());
+    link.on_model_login_end(
+        login,
+        Box::new(move || {
+            Box::pin(async move {
+                tokio::task::yield_now().await;
+                log.lock().unwrap().push((label, count(&transport.bootstraps)));
+            })
+        }),
+    )
+}
+
+#[tokio::test]
+async fn a_watch_of_the_servers_own_logins_ends_before_the_session_is_replaced_once() {
+    let rig = rig().await;
+    let (link, _conn, _) = open_link(&rig).await;
+    let ended = Arc::new(Mutex::new(Vec::new()));
+    let _own = recording_watch(&link, &rig, ModelLogin::Pc, "mode", &ended);
+    let kept = recording_watch(&link, &rig, ModelLogin::Pc, "unsubscribed", &ended);
+    drop(kept);
+
+    link.apply_model_login(ModelLogin::Server).await.unwrap();
+
+    // The live watch of the old login had finished its work before the server restarted (one bootstrap so far); the one taken
+    // back never runs.
+    assert_eq!(ended.lock().unwrap().clone(), vec![("mode", 1)]);
+    // A watch taken under a login that is no longer current ends at once.
+    let _stale = recording_watch(&link, &rig, ModelLogin::Pc, "stale", &ended);
+    within(async {
+        while ended.lock().unwrap().len() < 2 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
+    // Nothing ended runs again.
+    link.apply_model_login(ModelLogin::Server).await.unwrap();
+    assert_eq!(ended.lock().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn a_close_ends_every_watch_while_the_client_is_attached() {
+    let rig = rig().await;
+    let (link, conn, _) = open_link(&rig).await;
+    let ended = Arc::new(Mutex::new(Vec::new()));
+    let _watch = recording_watch(&link, &rig, ModelLogin::Pc, "disconnect", &ended);
+    let closed_before = conn.client_close();
+    rig.pool.close("box").await;
+    assert_eq!((closed_before, ended.lock().unwrap().clone()), (None, vec![("disconnect", 1)]));
+    assert_eq!(conn.client_close(), Some(1000));
+    // A watch taken after the close ends at once.
+    let _late = recording_watch(&link, &rig, ModelLogin::Pc, "after", &ended);
+    within(async {
+        while ended.lock().unwrap().len() < 2 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
+}
+
+// ----- the user's reconnect --------------------------------------------------------------------
+
+struct Helper;
+
+impl AskpassEnv for Helper {
+    fn env(&self) -> Vec<(String, String)> {
+        Vec::new()
+    }
+    fn closed(&self) -> bool {
+        false
+    }
+    fn control_dir(&self) -> Option<std::path::PathBuf> {
+        None
+    }
+}
+
+fn identity_settings(file: &str) -> HostSettings {
+    HostSettings { identity_file: Some(file.to_owned()), ..HostSettings::default() }
+}
+
+pub(crate) fn stop_session(link: &ServerLink) {
+    let error = SessionError::Connect(SshError::new("Host key verification failed.", FailureClass::Terminal).into());
+    link.under.session().fail(error);
+}
+
+fn kept_settings(link: &ServerLink) -> Option<HostSettings> {
+    locked(&link.under.bound).context.settings.clone()
+}
+
+#[tokio::test]
+async fn a_new_attempts_askpass_is_applied_to_a_link_that_is_only_down() {
+    let rig = rig().await;
+    let (link, conn, _) = open_link(&rig).await;
+    conn.server_close(1006, "gone");
+    view_until(&link, |state| matches!(state, LinkState::Reconnecting { .. })).await;
+    assert!(!link.stopped());
+    let context = AttemptContext { askpass: Some(Arc::new(Helper)), ..AttemptContext::default() };
+    let reconnecting = async { link.reconnect(context).await };
+    let (result, _again) = within(async { tokio::join!(reconnecting, handshake(&rig.net, "s2")) }).await;
+    result.unwrap();
+    let contexts = rig.contexts.lock().unwrap_or_else(PoisonError::into_inner).clone();
+    assert_eq!(contexts.len(), 2, "the attempt's own session replaced the old one");
+    assert!(contexts[1].askpass.is_some());
+    // The helper belongs to the attempt: later dials of the link run without it.
+    assert!(locked(&link.under.bound).context.askpass.is_none());
+}
+
+#[tokio::test]
+async fn a_retry_without_askpass_keeps_the_session_of_a_link_that_is_only_down() {
+    let rig = rig().await;
+    let (link, conn, _) = open_link(&rig).await;
+    conn.server_close(1006, "gone");
+    view_until(&link, |state| matches!(state, LinkState::Reconnecting { .. })).await;
+    let (result, _again) = within(async { tokio::join!(link.reconnect(AttemptContext::default()), handshake(&rig.net, "s2")) }).await;
+    result.unwrap();
+    assert_eq!(rig.contexts.lock().unwrap_or_else(PoisonError::into_inner).len(), 1);
+}
+
+#[tokio::test]
+async fn a_stopped_links_attempt_settings_are_kept_only_after_the_dial_worked() {
+    let rig = rig().await;
+    let (link, _conn, _) = open_link(&rig).await;
+    stop_session(&link);
+    assert!(link.stopped());
+    // The server cannot be dialed: the settings of the failed attempt are not kept.
+    rig.transport.refusing.store(true, Ordering::SeqCst);
+    let context = AttemptContext { settings: Some(identity_settings("/keys/tried")), ..AttemptContext::default() };
+    assert!(link.reconnect(context).await.is_err());
+    assert_eq!(kept_settings(&link), None);
+    // The dial that works keeps them (the helper is not kept).
+    rig.transport.refusing.store(false, Ordering::SeqCst);
+    stop_session(&link);
+    let context = AttemptContext { settings: Some(identity_settings("/keys/worked")), askpass: Some(Arc::new(Helper)), ..AttemptContext::default() };
+    link.reconnect(context).await.unwrap();
+    assert_eq!(kept_settings(&link).and_then(|settings| settings.identity_file).as_deref(), Some("/keys/worked"));
+    assert!(locked(&link.under.bound).context.askpass.is_none());
+    assert!(!link.stopped());
+}
+
+#[tokio::test]
+async fn the_busy_count_is_the_cores_own_health_read() {
+    let rig = rig().await;
+    let (link, _conn, _) = open_link(&rig).await;
+    assert_eq!(within(link.busy_sessions()).await, Some(0));
 }

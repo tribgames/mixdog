@@ -96,6 +96,13 @@ async fn advance(ms: u64) {
     settle().await;
 }
 
+/// The timers the machine has armed and not yet spent: the countdown of a waiting attempt and the health interval (the pending timer
+/// count of `link.test.mjs`' fake clock).
+fn pending_timers(machine: &LinkMachine) -> usize {
+    let core = machine.inner.lock();
+    [&core.attempt_timer, &core.health_timer].into_iter().flatten().filter(|timer| !timer.is_finished()).count()
+}
+
 fn view_of(machine: &LinkMachine) -> LinkViewState {
     machine.view().borrow().clone()
 }
@@ -138,8 +145,7 @@ async fn the_link_state_machine_connected_reconnecting_with_attempt_and_countdow
     // The service re-attaches on its own: connected, nothing pending.
     link.service_restored();
     assert_eq!(state_of(&link), LinkState::Connected);
-    assert!(link.inner.lock().attempt_timer.is_none());
-    assert!(link.inner.lock().health_timer.is_some(), "only the health interval stays");
+    assert_eq!(pending_timers(&link), 1, "only the health interval stays");
     // A terminal failure is lost for good; nothing is attempted.
     link.terminal(LinkFailure { code: "auth".into(), message: "Permission denied".into(), settings_required: true });
     assert_eq!(state_of(&link), lost(true, "auth", "Permission denied", true));
@@ -170,10 +176,7 @@ async fn reconnect_now_runs_the_waiting_attempt_at_once_and_keeps_the_backoff_la
     let (attempt, next) = reconnecting(&link);
     assert_eq!(attempt, 3);
     assert_eq!(next, Some(link.now_ms() + 4_000));
-    {
-        let core = link.inner.lock();
-        assert!(core.health_timer.is_some() && core.attempt_timer.is_some(), "the health interval and the one new countdown");
-    }
+    assert_eq!(pending_timers(&link), 2, "the health interval and the one new countdown");
     // The skipped countdown never fires on its own.
     advance(skipped_at.unwrap() - link.now_ms()).await;
     assert_eq!(rig.probes().len(), probes_before + 1);

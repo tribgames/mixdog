@@ -7,27 +7,36 @@
 //! one when the user connects again. A stopped ssh session (changed host key, refused login) is replaced in place.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use mixdog_app_protocol::v1::HostCapabilities;
 use mixdog_app_protocol::v2::connections::{ConnectionNotice, ServerPort};
+use mixdog_app_protocol::v2::host::HostClaimParams;
+use mixdog_app_protocol::{Delivery, SERVER_NOTIFICATIONS};
 use mixdog_app_server_client::api::{
     CallOptions, ClientError, ClientEvent, ClientInfo, ConnectOptions, ConnectionStatus, Connector, InitializeCapabilities,
-    ProtocolClient, Target,
+    ProtocolClient, RpcNotification, ServerRequest, ServerRequestAnswer, Target,
 };
 use mixdog_app_server_client::discovery::Endpoint as WsEndpoint;
+use mixdog_app_server_client::engine::Attacher;
 use mixdog_app_server_client::ws::{EndpointResolver, WsConnector};
-use mixdog_protocol::ConnectionKind;
-use mixdog_rt::TaskClass;
+use mixdog_core_api::host::{HostCapability, HostChannel, HostError};
+use mixdog_core_api::ids::Method;
+use mixdog_protocol::{ConnectionKind, HostId};
+use mixdog_rt::{CancellationToken, TaskClass};
 use mixdog_ssh::bootstrap::ServerPayloads;
 use mixdog_ssh::command::{FailureClass, SshError, SshTarget};
 use mixdog_ssh::connect_failure::{failure_of, ConnectError};
-use mixdog_ssh::context::{AttemptContext, ModelLogin as SshModelLogin, Platform, SshEnv};
+use mixdog_ssh::context::{AttemptContext, HostSettings, ModelLogin as SshModelLogin, Platform, SshEnv};
+use mixdog_ssh::diagnostics::{diagnostics_key_for, Diagnostics};
 use mixdog_ssh::install_wire::{BootstrapCode, RemoteBootstrapError};
-use mixdog_ssh::session::{Endpoint, Progress, RemoteSession, RemoteSessionConfig, SessionError};
-use serde_json::json;
+use mixdog_ssh::session::{Endpoint, Progress, RemoteSession, RemoteSessionConfig, SessionError, SessionPhase};
+use serde_json::{json, Value};
 use tokio::sync::{broadcast, watch};
 use tokio::task::{AbortHandle, JoinHandle};
 
@@ -48,6 +57,9 @@ const GRACE_ENV: &str = "MIXDOG_REMOTE_CLIENT_GRACE_MS";
 const PORTS_UPDATED: &str = "system/ports/updated";
 const PORTS_SUBSCRIBE: &str = "system/ports/subscribe";
 const PORTS_UNSUBSCRIBE: &str = "system/ports/unsubscribe";
+/// The id of the feed `system/ports/subscribe` opens, and the method of the first frame of a scoped feed.
+const PORTS_FEED: &str = "ports";
+const FEED_SNAPSHOT: &str = "feed/snapshot";
 const NOTICE_CAPACITY: usize = 16;
 const ATTACH_CAPACITY: usize = 16;
 
@@ -70,6 +82,9 @@ pub struct LinkStores {
     pub port_forwards: Arc<PortForwardStore>,
     /// The server runtimes this desktop uploads when a server has none that matches it.
     pub payloads: Arc<dyn ServerPayloads + Send>,
+    /// This PC's core as the desktop host's channel: the `host/*` requests and notifications a server's core sends to its client
+    /// are relayed through it to the desktop that claimed the host role here.
+    pub host: Arc<dyn HostChannel>,
 }
 
 /// What a link reaches the outside through: the ssh session, the socket to the server's core and the port forwards.
@@ -77,6 +92,8 @@ pub(crate) trait LinkDialer: Send + Sync {
     fn session(&self, config: RemoteSessionConfig, context: AttemptContext) -> Arc<RemoteSession>;
     fn connector(&self, resolver: Arc<dyn EndpointResolver>) -> Arc<dyn Connector>;
     fn forwards(&self, host_id: &str, context: ContextSource, store: Arc<PortForwardStore>) -> ServerPortForwards;
+    /// The rings a server's ssh runs and its link write their account of themselves to.
+    fn diagnostics(&self) -> Arc<Diagnostics>;
 }
 
 /// This PC's OpenSSH and a WebSocket to the tunnel's local end.
@@ -96,6 +113,10 @@ impl LinkDialer for SshDialer {
 
     fn forwards(&self, host_id: &str, context: ContextSource, store: Arc<PortForwardStore>) -> ServerPortForwards {
         ServerPortForwards::new(self.env.clone(), context, host_id, store)
+    }
+
+    fn diagnostics(&self) -> Arc<Diagnostics> {
+        self.env.diagnostics.clone()
     }
 }
 
@@ -178,6 +199,19 @@ struct Under {
     platform: Platform,
     dialer: Arc<dyn LinkDialer>,
     bound: Mutex<Bound>,
+    /// Makes the client dial now; set once the client exists (the session is made before it).
+    attacher: OnceLock<Attacher>,
+}
+
+/// One line of a dial's progress, as the diagnostics ring keeps it.
+fn phase_line(phase: &SessionPhase) -> String {
+    match phase {
+        SessionPhase::Connect => "connect".to_owned(),
+        SessionPhase::Check { detail } => format!("check: {detail}"),
+        SessionPhase::Install => "install".to_owned(),
+        SessionPhase::Start => "start".to_owned(),
+        SessionPhase::Ready => "ready".to_owned(),
+    }
 }
 
 impl Under {
@@ -189,20 +223,40 @@ impl Under {
         if locked(&self.bound).config.model_login == Some(SshModelLogin::Server) { ModelLogin::Server } else { ModelLogin::Pc }
     }
 
-    /// Opens the session again from scratch behind the same link; the stopped one is returned to be closed.
+    /// A line of the link's account of itself, into the server's diagnostics ring.
+    fn note(&self, line: &str) {
+        self.dialer.diagnostics().log(Some(diagnostics_key_for(&self.target).as_str()), line);
+    }
+
+    /// The progress of a dial the link makes on its own (a reconnect, a restart in another model login) is written to the ring
+    /// as the daemon's log; the dial of a user's attempt reports to that attempt.
+    fn dial_log(&self) -> Progress {
+        let ring = self.dialer.diagnostics();
+        let key = diagnostics_key_for(&self.target);
+        Arc::new(move |phase| ring.log(Some(key.as_str()), &format!("remote-daemon-log: {}", phase_line(&phase))))
+    }
+
+    /// Opens the session again from scratch behind the same link; the stopped one is returned to be closed. The settings the
+    /// session runs under are kept only by [`Self::keep_settings`].
     fn replace_session(&self, context: Option<AttemptContext>, model_login: Option<ModelLogin>, force_restart: bool) -> Arc<RemoteSession> {
         let mut bound = locked(&self.bound);
         if let Some(login) = model_login {
             bound.config.model_login = ssh_login(login);
         }
-        if let Some(context) = &context {
-            if context.settings.is_some() {
-                bound.context.settings.clone_from(&context.settings);
-            }
-        }
-        let config = RemoteSessionConfig { progress: None, force_restart, ..bound.config.clone() };
+        let config = RemoteSessionConfig { progress: Some(self.dial_log()), force_restart, ..bound.config.clone() };
         let session = self.dialer.session(config, context.unwrap_or_else(|| bound.context.clone()));
         std::mem::replace(&mut bound.session, session)
+    }
+
+    /// Later dials of the link (a reconnect, a port forward) run under these settings. Nothing changes without any.
+    fn keep_settings(&self, settings: &Option<HostSettings>) {
+        if settings.is_some() {
+            locked(&self.bound).context.settings.clone_from(settings);
+        }
+    }
+
+    fn set_model_login(&self, login: ModelLogin) {
+        locked(&self.bound).config.model_login = ssh_login(login);
     }
 
     /// The user's own dial: bootstrap and tunnel now, so a failure reaches them; the client's next dial then finds the server
@@ -226,13 +280,15 @@ impl LinkActions for Under {
         self.session().revive_tunnel();
     }
 
-    /// The client redials by itself on its own ladder; what is done here is the slow part, the ssh dial, so its next attempt
-    /// finds the tunnel up.
+    /// The ssh dial runs now, and the client does not wait out its ladder: it dials at once and finds the tunnel being made.
     fn retry_service(&self) {
         let session = self.session();
         drop(mixdog_rt::spawn("link-retry-service", TaskClass::Control, async move {
             let _ = session.connect().await;
         }));
+        if let Some(attacher) = self.attacher.get() {
+            attacher.attach_now();
+        }
     }
 
     fn stopped_by(&self) -> Option<LinkFailure> {
@@ -280,6 +336,35 @@ fn listening_ports(params: Option<&serde_json::Value>) -> Option<Vec<ServerPort>
     serde_json::from_value(value.clone()).ok()
 }
 
+/// The list the first frame of the ports feed (`feed/snapshot`) carries: the `ports` section of its state, none when the
+/// server has sampled nothing yet.
+fn ports_snapshot(params: Option<&Value>) -> Vec<ServerPort> {
+    let section = params
+        .and_then(|params| params.get("state")?.get("sections")?.as_array())
+        .and_then(|sections| sections.iter().find(|section| section.get("section").and_then(Value::as_str) == Some("ports")));
+    listening_ports(section).unwrap_or_default()
+}
+
+/// The capability whose holder a server's request is for, when it is a `host/*` one.
+fn host_capability(requires: &str) -> Option<HostCapability> {
+    Some(match requires.strip_prefix("host.")? {
+        "browser" => HostCapability::Browser,
+        "visualize" => HostCapability::Visualize,
+        "notifications" => HostCapability::Notifications,
+        "systemProxy" => HostCapability::SystemProxy,
+        "power" => HostCapability::Power,
+        "updater" => HostCapability::Updater,
+        "files" => HostCapability::Files,
+        "computer" => HostCapability::Computer,
+        "windows" => HostCapability::Windows,
+        "browserEngine" => HostCapability::BrowserEngine,
+        _ => return None,
+    })
+}
+
+/// The code of the error a `host/*` request answers with when this PC's desktop could not run it.
+const HOST_UNAVAILABLE: i64 = -32000;
+
 /// What the link does when its client's status changes or a ports list arrives.
 struct Follower {
     id: String,
@@ -291,11 +376,21 @@ struct Follower {
     ports: watch::Sender<Vec<ServerPort>>,
     ports_viewed: Arc<AtomicBool>,
     attached: broadcast::Sender<String>,
+    host: Arc<dyn HostChannel>,
+    /// Ends the `host/*` requests relayed for the connection that is now gone: the server gives them up with it.
+    relays: Mutex<CancellationToken>,
+}
+
+impl Drop for Follower {
+    fn drop(&mut self) {
+        locked(&self.relays).cancel();
+    }
 }
 
 impl Follower {
     /// The service is up (the first time, or again): the saved forwards run again and whoever follows the pool re-reads it.
     fn attached(&self) {
+        self.under.note("core-link-restored");
         self.machine.set_terminals_available(true);
         self.machine.service_restored();
         let forwards = self.forwards.clone();
@@ -303,8 +398,71 @@ impl Follower {
         if self.ports_viewed.load(Ordering::SeqCst) {
             self.send_ports_view(PORTS_SUBSCRIBE);
         }
+        self.claim_host();
         // Nobody listening is no failure.
         let _ = self.attached.send(self.id.clone());
+    }
+
+    /// The server's core sends its `host/*` requests to the connection that claimed the host role: this link claims it for the
+    /// desktop of this PC and relays what it is sent (a claim ends with the connection, so every attach makes it again).
+    fn claim_host(&self) {
+        let client = self.client.clone();
+        let claim = HostClaimParams { host_id: HostId::from(format!("link:{}", self.id)), resources: None, serves: None };
+        drop(mixdog_rt::spawn("link-host-claim", TaskClass::Control, async move {
+            if let Ok(params) = serde_json::to_value(&claim) {
+                if let Err(error) = client.call_raw("host/claim", params, CallOptions::default()).await {
+                    tracing::debug!("[link] the host claim was not taken: {error}");
+                }
+            }
+        }));
+    }
+
+    /// A `host/*` request of the server's core, answered by this PC's desktop through this PC's core.
+    fn relay_request(&self, request: ServerRequest) {
+        let Some(capability) = request.requires().and_then(host_capability) else { return };
+        let (host, client, token) = (self.host.clone(), self.client.clone(), locked(&self.relays).clone());
+        drop(mixdog_rt::spawn("link-host-relay", TaskClass::Control, async move {
+            let params = serde_json::to_value(&request).ok().and_then(|mut frame| frame.get_mut("params").map(Value::take)).unwrap_or(Value::Null);
+            let answer = match host.request_scoped(capability, Method(request.method()), params, &token).await {
+                Ok(result) => ServerRequestAnswer::Result(result),
+                Err(HostError::Rpc { code, message, data }) => ServerRequestAnswer::Error { code, message, data },
+                Err(HostError::Core(error)) => {
+                    tracing::debug!("[link] {} was not run by this PC's desktop: {error}", request.method());
+                    ServerRequestAnswer::Error {
+                        code: HOST_UNAVAILABLE,
+                        message: "This PC's desktop could not run the request.".to_owned(),
+                        data: None,
+                    }
+                }
+            };
+            // The connection that sent it is gone: the server has given the request up.
+            if !token.is_cancelled() {
+                let _ = client.respond(request.id().clone(), answer).await;
+            }
+        }));
+    }
+
+    /// A `host/*` notification of the server's core, for the desktop of this PC.
+    fn relay_notification(&self, note: &RpcNotification) {
+        let Some(spec) = SERVER_NOTIFICATIONS.iter().find(|spec| spec.method == note.method && spec.delivery == Some(Delivery::Connection)) else {
+            return;
+        };
+        let capability = if spec.method.starts_with("host/notification/") {
+            HostCapability::Notifications
+        } else if spec.method.starts_with("host/browser/") {
+            HostCapability::Browser
+        } else {
+            return;
+        };
+        if let Err(error) = self.host.notify(capability, Method(spec.method), note.params.clone().unwrap_or(Value::Null)) {
+            tracing::debug!("[link] {} was not delivered to this PC's desktop: {error}", spec.method);
+        }
+    }
+
+    /// The requests being relayed belong to a connection that is gone.
+    fn end_relays(&self) {
+        let ended = std::mem::replace(&mut *locked(&self.relays), CancellationToken::new());
+        ended.cancel();
     }
 
     fn send_ports_view(&self, method: &'static str) {
@@ -316,18 +474,17 @@ impl Follower {
 
     fn status(&self, status: ConnectionStatus) {
         match status {
-            ConnectionStatus::Ready { .. } => {
-                tracing::debug!("[link] {} core link restored", self.id);
-                self.attached();
-            }
+            ConnectionStatus::Ready { .. } => self.attached(),
             ConnectionStatus::Reconnecting { .. } => {
                 // The next dial re-reads the server (the core may be another one by then, or gone) instead of reusing the cached
                 // token and port.
                 self.under.session().invalidate();
-                tracing::debug!("[link] {} core link lost", self.id);
+                self.end_relays();
+                self.under.note("core-link-lost");
                 self.machine.service_lost();
             }
             ConnectionStatus::Closed { reason } => {
+                self.end_relays();
                 let Some(refusal) = version_refusal(&reason, &self.display) else { return };
                 let error = SessionError::Connect(refusal);
                 self.under.session().fail(error.clone());
@@ -342,11 +499,25 @@ impl Follower {
         }
     }
 
+    /// What the server pushes outside a status change: the ports feed (its first frame is the whole list, each later one a new
+    /// list), the host requests and notifications this PC's desktop answers.
+    fn notification(&self, note: &RpcNotification) {
+        let ports_feed = note.feed.as_ref().is_some_and(|feed| feed.id.as_str() == PORTS_FEED);
+        if note.method == PORTS_UPDATED {
+            self.ports_updated(note.params.as_ref());
+        } else if note.method == FEED_SNAPSHOT && ports_feed {
+            self.ports.send_replace(ports_snapshot(note.params.as_ref()));
+        } else if note.method.starts_with("host/") {
+            self.relay_notification(note);
+        }
+    }
+
     async fn run(self, mut events: broadcast::Receiver<ClientEvent>) {
         loop {
             match events.recv().await {
                 Ok(ClientEvent::Status(status)) => self.status(status),
-                Ok(ClientEvent::Notification(note)) if note.method == PORTS_UPDATED => self.ports_updated(note.params.as_ref()),
+                Ok(ClientEvent::Notification(note)) => self.notification(&note),
+                Ok(ClientEvent::ServerRequest(request)) => self.relay_request(request),
                 Ok(_) => {}
                 // Events missed in a burst: the status is what the link needs.
                 Err(broadcast::error::RecvError::Lagged(_)) => self.status(self.client.status()),
@@ -375,14 +546,55 @@ pub struct ServerLink {
     notices: broadcast::Sender<ConnectionNotice>,
     ports: watch::Sender<Vec<ServerPort>>,
     ports_viewed: Arc<AtomicBool>,
+    watchers: Arc<Watchers>,
     tasks: Mutex<Vec<JoinHandle<()>>>,
     closed: AtomicBool,
+}
+
+/// What runs when a model login ends on a link: the work of whoever watched it (a cancel sent to the server).
+pub type EndFuture = Pin<Box<dyn Future<Output = ()> + Send>>;
+pub type EndListener = Box<dyn FnOnce() -> EndFuture + Send>;
+
+struct Watcher {
+    id: u64,
+    login: ModelLogin,
+    listener: EndListener,
+}
+
+#[derive(Default)]
+struct Watchers {
+    next: AtomicU64,
+    list: Mutex<Vec<Watcher>>,
+}
+
+/// A watch of one model login; dropping it takes the watch back.
+pub struct ModelLoginWatch {
+    release: Option<Box<dyn FnOnce() + Send>>,
+}
+
+impl ModelLoginWatch {
+    pub(crate) fn new(release: impl FnOnce() + Send + 'static) -> Self {
+        Self { release: Some(Box::new(release)) }
+    }
+
+    fn ended() -> Self {
+        Self { release: None }
+    }
+}
+
+impl Drop for ModelLoginWatch {
+    fn drop(&mut self) {
+        if let Some(release) = self.release.take() {
+            release();
+        }
+    }
 }
 
 /// What a pool hands a link it opens.
 struct OpenParts {
     dialer: Arc<dyn LinkDialer>,
     local: Arc<dyn LocalModelProxy>,
+    host: Arc<dyn HostChannel>,
     hosts: Arc<SshHostStore>,
     port_store: Arc<PortForwardStore>,
     platform: Platform,
@@ -400,10 +612,24 @@ fn client_info() -> ClientInfo {
     }
 }
 
-/// An approval of the server's reaches this PC's windows even before one views its session, and the server may run its models
-/// through this PC (it only does while its model login is this PC's; the relay takes nothing up otherwise).
+/// An approval of the server's reaches this PC's windows even before one views its session, the server may run its models
+/// through this PC (it only does while its model login is this PC's; the relay takes nothing up otherwise), and its `host/*`
+/// requests (a toast, a window, the browser) are answered by this PC's desktop through this PC's core.
 fn capabilities() -> InitializeCapabilities {
-    InitializeCapabilities { approvals_inbox: Some(true), model_proxy: Some(true), ..InitializeCapabilities::default() }
+    let host = HostCapabilities {
+        browser: true,
+        visualize: true,
+        notifications: true,
+        system_proxy: true,
+        power: true,
+        media: true,
+        updater: true,
+        files: true,
+        computer: true,
+        windows: true,
+        browser_engine: None,
+    };
+    InitializeCapabilities { approvals_inbox: Some(true), model_proxy: Some(true), host: Some(host), ..InitializeCapabilities::default() }
 }
 
 impl ServerLink {
@@ -428,6 +654,7 @@ impl ServerLink {
             platform: parts.platform,
             dialer: parts.dialer.clone(),
             bound: Mutex::new(Bound { session: session.clone(), config, context: retained }),
+            attacher: OnceLock::new(),
         });
         // The dial the user waits for: its failure is the ssh failure itself, not what a client would make of it.
         if let Err(error) = under.dial_now().await {
@@ -444,7 +671,10 @@ impl ServerLink {
             )
         };
         let client: Arc<dyn ProtocolClient> = match mixdog_app_server_client::connect(options).await {
-            Ok(client) => Arc::new(client),
+            Ok(client) => {
+                let _ = under.attacher.set(client.attacher());
+                Arc::new(client)
+            }
             Err(error) => {
                 session.close().await;
                 return Err(version_refusal(&error, &display).unwrap_or_else(|| {
@@ -497,6 +727,8 @@ impl ServerLink {
             ports: ports.clone(),
             ports_viewed: ports_viewed.clone(),
             attached: parts.attached.clone(),
+            host: parts.host.clone(),
+            relays: Mutex::new(CancellationToken::new()),
         };
         // Subscribed before the status is read, so no change after it is missed.
         let events = client.events();
@@ -537,6 +769,7 @@ impl ServerLink {
             notices,
             ports,
             ports_viewed,
+            watchers: Arc::new(Watchers::default()),
             tasks: Mutex::new(tasks),
             closed: AtomicBool::new(false),
         });
@@ -601,6 +834,52 @@ impl ServerLink {
         self.under.session().stopped_by().is_some()
     }
 
+    /// The words of the failure that stopped the ssh side, as the session states them.
+    pub fn stop_reason(&self) -> Option<String> {
+        self.under.session().stopped_by().map(|error| error.to_string())
+    }
+
+    /// The running work of the attached core, read from its `/health` through the tunnel; `None` without an attachment, or when
+    /// another process answers.
+    pub async fn busy_sessions(&self) -> Option<u64> {
+        self.under.session().busy_sessions().await
+    }
+
+    /// Calls `listener` once when `login` stops being the model login of this link (it is switched, or the link is closed), and
+    /// waits for its work before the server restarts or the connection goes: a login of the server's own that this PC watches is
+    /// cancelled on the attachment that started it. At once when the link is not in `login` now. Dropping the watch takes it back.
+    pub fn on_model_login_end(&self, login: ModelLogin, listener: EndListener) -> ModelLoginWatch {
+        if self.closed.load(Ordering::SeqCst) || self.model_login() != login {
+            drop(mixdog_rt::spawn("link-model-login-end", TaskClass::Control, async move { listener().await }));
+            return ModelLoginWatch::ended();
+        }
+        let id = self.watchers.next.fetch_add(1, Ordering::SeqCst);
+        locked(&self.watchers.list).push(Watcher { id, login, listener });
+        // Weak: a listener that holds what holds this watch must not keep the list alive.
+        let watchers = Arc::downgrade(&self.watchers);
+        ModelLoginWatch::new(move || {
+            if let Some(watchers) = watchers.upgrade() {
+                locked(&watchers.list).retain(|watcher| watcher.id != id);
+            }
+        })
+    }
+
+    /// Runs the ended watchers (`kept` is the login that stays: its watchers stay too; none: every watcher) and settles once their
+    /// work has, while the client is still attached.
+    async fn end_model_logins(&self, kept: Option<ModelLogin>) {
+        let ended: Vec<Watcher> = {
+            let mut list = locked(&self.watchers.list);
+            let (ended, stay): (Vec<Watcher>, Vec<Watcher>) = std::mem::take(&mut *list).into_iter().partition(|watcher| Some(watcher.login) != kept);
+            *list = stay;
+            ended
+        };
+        let mut running = tokio::task::JoinSet::new();
+        for watcher in ended {
+            running.spawn((watcher.listener)());
+        }
+        while running.join_next().await.is_some() {}
+    }
+
     /// The client ended for good (a refused version): only a new link can attach.
     fn client_ended(&self) -> bool {
         matches!(self.client.status(), ConnectionStatus::Closed { .. })
@@ -637,6 +916,9 @@ impl ServerLink {
         }
         self.relay.revoke();
         self.relay.serving(login == ModelLogin::Pc);
+        self.under.set_model_login(login);
+        // The logins of the old mode are ended (and cancelled on the server) while the old attachment is still up.
+        self.end_model_logins(Some(login)).await;
         self.machine.set_model_login(login);
         let context = self.hosts.get(&self.id).map(|record| {
             let mut context = attempt_context(&record);
@@ -644,6 +926,9 @@ impl ServerLink {
             context.settings.get_or_insert_with(Default::default);
             context
         });
+        if let Some(context) = &context {
+            self.under.keep_settings(&context.settings);
+        }
         let stopped = self.under.replace_session(context, Some(login), true);
         stopped.close().await;
         self.machine.reopening();
@@ -663,13 +948,23 @@ impl ServerLink {
                 return Ok(());
             }
             self.machine.retry();
+            if context.askpass.is_some() {
+                // A session asks for a password or code through the helper it was made with: the attempt's own helper replaces it.
+                let force_restart = context.force_restart;
+                let replaced = self.under.replace_session(Some(context), None, force_restart);
+                replaced.close().await;
+            }
             return self.redial().await;
         }
         let force_restart = context.force_restart;
+        let attempted = context.settings.clone();
         let stopped = self.under.replace_session(Some(context), None, force_restart);
         stopped.close().await;
         self.machine.reopening();
-        self.redial().await
+        self.redial().await?;
+        // A user's attempt authenticated with these settings: later reconnects keep them, but only a dial that worked says so.
+        self.under.keep_settings(&attempted);
+        Ok(())
     }
 
     /// The user skips the countdown of a waiting reconnect: its attempt runs now. Nothing happens when none is waiting.
@@ -692,6 +987,8 @@ impl ServerLink {
         if self.closed.swap(true, Ordering::SeqCst) {
             return;
         }
+        // Every login of the server's own that this PC watches is cancelled while the client is attached.
+        self.end_model_logins(None).await;
         for task in locked(&self.tasks).drain(..) {
             task.abort();
         }
@@ -782,7 +1079,7 @@ pub struct LinkPool {
 impl LinkPool {
     pub fn new(env: SshEnv, stores: LinkStores, local_proxy: Arc<dyn LocalModelProxy>) -> Self {
         let dialer = Arc::new(SshDialer { env: env.clone(), payloads: stores.payloads });
-        Self::with_dialer(dialer, env.platform, env.env.get(GRACE_ENV).cloned(), stores.hosts, stores.port_forwards, local_proxy)
+        Self::with_dialer(dialer, env.platform, env.env.get(GRACE_ENV).cloned(), stores.hosts, stores.port_forwards, local_proxy, stores.host)
     }
 
     pub(crate) fn with_dialer(
@@ -792,9 +1089,10 @@ impl LinkPool {
         hosts: Arc<SshHostStore>,
         port_store: Arc<PortForwardStore>,
         local: Arc<dyn LocalModelProxy>,
+        host: Arc<dyn HostChannel>,
     ) -> Self {
         let (attached, _) = broadcast::channel(ATTACH_CAPACITY);
-        let parts = OpenParts { dialer, local, hosts, port_store, platform, grace_env, attached };
+        let parts = OpenParts { dialer, local, host, hosts, port_store, platform, grace_env, attached };
         Self { inner: Arc::new(PoolInner { parts, state: Mutex::new(PoolState::default()) }) }
     }
 
@@ -930,4 +1228,4 @@ impl LinkPool {
 
 #[cfg(test)]
 #[path = "link_tests.rs"]
-mod tests;
+pub(crate) mod tests;
