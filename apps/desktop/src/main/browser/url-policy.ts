@@ -22,7 +22,13 @@ export function isLoopbackHostname(hostname: string): boolean {
 /** `mailLink` lifts only the secret-token refusal, and only for the exact link
  *  it names; every other rule still applies. Throws the refusal's reason. */
 export function normalizeAgentUrl(raw: string, policy: BrowserUrlPolicy = {}, mailLink?: BrowserMailLink): string {
-  return browserPolicy.normalizeAgentUrl(String(raw || ''), policy, mailLink ?? undefined);
+  // The link arrives from the runtime as JSON: a malformed one only fails to admit (as before), it does not fail the
+  // Node-API argument conversion and so refuse every URL.
+  const link =
+    mailLink && typeof mailLink === 'object'
+      ? { url: String(mailLink.url), from_domain: String(mailLink.from_domain), read_at: Number(mailLink.read_at) }
+      : undefined;
+  return browserPolicy.normalizeAgentUrl(String(raw || ''), policy, link);
 }
 
 /** Page-generated requests may contain OAuth or tracking tokens that are
