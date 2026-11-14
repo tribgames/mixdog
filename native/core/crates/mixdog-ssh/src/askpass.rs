@@ -199,6 +199,13 @@ impl AskpassServer {
             cancel: CancellationToken::new(),
         });
         let listener = bind(&endpoint)?;
+        #[cfg(unix)]
+        {
+            // The socket itself is owner-only too (best effort: its folder already is).
+            use std::os::unix::fs::PermissionsExt;
+            let socket = PathBuf::from(&endpoint);
+            drop(on_lane(self.io, move |lane| mixdog_fsio::set_permissions(lane, socket, std::fs::Permissions::from_mode(0o600))).await);
+        }
         let task = tokio::spawn(accept_loop(listener, endpoint.clone(), inner.clone()));
         Ok(AskpassSession {
             env: vec![
