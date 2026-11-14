@@ -317,7 +317,7 @@ impl Tool for TaskTool {
 }
 
 /// `describeType` (`arg-guard.mjs`): how a refusal names the type it got.
-fn describe_type(value: &JsonValue) -> &'static str {
+pub(crate) fn describe_type(value: &JsonValue) -> &'static str {
     match value {
         JsonValue::Null => "null",
         JsonValue::Array(_) => "array",
@@ -334,24 +334,9 @@ const STRING_LIST_ARG_KEYS: [&str; 15] = [
     "include", "type", "symbols",
 ];
 
-/// `validateBuiltinArgs('task', args)` (`arg-guard.mjs`): the null drops and normalisations that come first, then
-/// `guardTask`. The arguments the tool then runs with, or the refusal text.
-fn guard_task_args(args: JsonValue) -> Result<JsonValue, String> {
-    let JsonValue::Object(mut a) = args else {
-        return Err(if args.is_null() {
-            "Error: task requires arguments object (got null)".to_owned()
-        } else {
-            format!("Error: task arguments must be an object (got {})", describe_type(&args))
-        });
-    };
-    a.retain(|_, v| !v.is_null());
-    let action = a.get("action").and_then(JsonValue::as_str).map(|s| mixdog_js::js_trim(s).to_lowercase()).unwrap_or_default();
-    if matches!(action.as_str(), "list" | "read" | "cancel") {
-        a.shift_remove("timeout_ms");
-    }
-    if action == "list" && a.get("task_id").and_then(JsonValue::as_str).is_some_and(|s| mixdog_js::js_trim(s).is_empty()) {
-        a.shift_remove("task_id");
-    }
+/// `normalizeStringListArgs` (`arg-guard.mjs`): a string-or-list argument that arrives nested, padded with blanks
+/// or empty is flattened one level, stripped of its blanks and removed when nothing is left.
+pub(crate) fn normalize_string_list_args(a: &mut serde_json::Map<String, JsonValue>) {
     for key in STRING_LIST_ARG_KEYS {
         let Some(JsonValue::Array(source)) = a.get(key) else { continue };
         let mut flat: Vec<JsonValue> = Vec::new();
@@ -371,6 +356,27 @@ fn guard_task_args(args: JsonValue) -> Result<JsonValue, String> {
             a.insert(key.to_owned(), JsonValue::Array(flat));
         }
     }
+}
+
+/// `validateBuiltinArgs('task', args)` (`arg-guard.mjs`): the null drops and normalisations that come first, then
+/// `guardTask`. The arguments the tool then runs with, or the refusal text.
+fn guard_task_args(args: JsonValue) -> Result<JsonValue, String> {
+    let JsonValue::Object(mut a) = args else {
+        return Err(if args.is_null() {
+            "Error: task requires arguments object (got null)".to_owned()
+        } else {
+            format!("Error: task arguments must be an object (got {})", describe_type(&args))
+        });
+    };
+    a.retain(|_, v| !v.is_null());
+    let action = a.get("action").and_then(JsonValue::as_str).map(|s| mixdog_js::js_trim(s).to_lowercase()).unwrap_or_default();
+    if matches!(action.as_str(), "list" | "read" | "cancel") {
+        a.shift_remove("timeout_ms");
+    }
+    if action == "list" && a.get("task_id").and_then(JsonValue::as_str).is_some_and(|s| mixdog_js::js_trim(s).is_empty()) {
+        a.shift_remove("task_id");
+    }
+    normalize_string_list_args(&mut a);
     let Some(raw_action) = a.get("action") else {
         return Err("Error: task requires explicit \"action\"".to_owned());
     };
