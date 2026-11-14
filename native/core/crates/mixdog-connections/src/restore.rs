@@ -15,6 +15,7 @@ use mixdog_rt::TaskClass;
 use mixdog_ssh::command::parse_ssh_target;
 use mixdog_ssh::connect_failure::ConnectError;
 use mixdog_ssh::context::{AttemptContext, HostSettings, ModelLogin};
+use mixdog_ssh::diagnostics::diagnostics_key_for;
 use mixdog_ssh::session::{Progress, SessionPhase};
 use tokio::sync::watch;
 
@@ -44,11 +45,12 @@ pub trait RestoreWindows: Send + Sync {
     async fn open(&self, connection_id: &str, name: &str) -> Result<(), String>;
 }
 
-/// The attempt context of a saved server's automatic connect: its saved settings, no askpass (so ssh runs in batch mode).
+/// The attempt context of a saved server's automatic connect: its saved settings, no askpass (so ssh runs in batch mode), and
+/// the diagnostics ring of its target (the one `connections/ssh/diagnosticsLog` reads).
 pub fn attempt_context(record: &SshHostRecord) -> AttemptContext {
     AttemptContext {
         settings: record.settings.as_ref().map(host_settings),
-        diagnostics_key: Some(record.id.clone()),
+        diagnostics_key: parse_ssh_target(&record.target).ok().map(|target| diagnostics_key_for(&target)),
         ..AttemptContext::default()
     }
 }
