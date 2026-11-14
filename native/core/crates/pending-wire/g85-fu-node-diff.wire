@@ -1,0 +1,12 @@
+# g85-fu-node-diff (core): what the lead applies after the wave.
+#
+# A-5 (provider): Node's TLS client trusts the bundled Mozilla roots; the core's reqwest trusts the OS store only
+# (`rustls-tls-native-roots`), so a machine whose store lacks a root Node accepts fails the handshake in the core.
+#
+# 1. native/core/Cargo.toml line of `reqwest = {...}` (workspace dependencies): add "rustls-tls-webpki-roots" to `features`, keeping
+#    "rustls-tls-native-roots" (both roots are then trusted, nothing in use is narrowed):
+#
+#        reqwest = { version = "0.12", default-features = false, features = ["charset", "cookies", "http2", "macos-system-configuration", "rustls-tls-native-roots", "rustls-tls-webpki-roots"] }
+#
+# 2. native/core/Cargo.lock: the lock gains a `webpki-roots` 1.x entry (the cargo registry cache holds 1.0.5, 1.0.10 and 1.0.11 sources, so
+#    an offline `cargo update -p reqwest --offline` or `cargo metadata --offline` writes it); the `--locked` build cannot gain it itself.
