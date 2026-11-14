@@ -15,7 +15,7 @@ import { join } from 'node:path';
 import { app, nativeImage } from 'electron';
 import { createFileSnapshotService, renderFileSnapshot } from '../file-snapshot';
 import { registerFilesHost } from '../host/files';
-import { projectEntryPathIn } from '../project-files';
+import { projectEntryPathIn } from '../project-entry-path';
 
 const log = process.env.MIXDOG_BROWSER_INTEGRATION_LOG || '';
 const progress = (message: string) => log && appendFileSync(log, `${message}\n`);

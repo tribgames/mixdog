@@ -47,7 +47,7 @@ export interface DesktopService {
     relPath: string,
     content: string,
     expectedContent: string,
-    encoding?: import('./project-files').ProjectTextEncoding
+    encoding?: import('../shared/project-text-encoding').ProjectTextEncoding
   ): unknown;
   statProjectFile(projectPath: string, relPath: string): unknown;
   createProjectEntry(projectPath: string, relDir: string, name: string, directory: boolean): unknown;
