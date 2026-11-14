@@ -1,0 +1,199 @@
+# s3-02: Computer Use host methods, userControl actions, section fields, dev entry.
+# New types live in src/v2/computer_host.rs (written, with its unit tests and the two `validate` impls).
+# Wiring: add `pub mod computer_host;` to src/v2/mod.rs (after `pub mod browser_engine;`). The rows below name the types by path.
+# The computer_host.rs tests need the [type_edits] below (reason, seconds, Takeover, ConfigureIdleResume, the section fields) to compile.
+
+[methods]
+# client -> core. Anchor: paste after `ComputerUserControl => "computer/userControl"`.
+# doc line: /// One Computer Use command through the harness (dev only: -32601 unless the core was started with MIXDOG_DEV_COMPUTER_RUN=1; the handler calls DevComputerRunParams::validate).
+DevComputerRun => "dev/computer/run" {
+    params: v2::computer_host::DevComputerRunParams,
+    result: v2::computer_host::DevComputerRunResult,
+    scope: none,
+    class: C2,
+    mutation: none,
+    origins: [Local],
+},
+# computer/userControl keeps its row; its handler calls ComputerUserControlParams::validate and answers invalid params on Err.
+
+[server_requests]
+# core -> host, all `requires: Some("host.computer")`. Anchor: paste after `HostComputerPointerFeedback => "host/computer/pointerFeedback"`.
+# server_requests.rs has no `use crate::v2;`: add `use crate::v2::computer_host::*;` after `use crate::v2::host::*;` and name the types bare,
+# as every row there does (the method table prints `stringify!($params)`).
+# doc lines (one /// each): pixels "A Computer Use capture, encoded by the desktop and uploaded with blob/put"; appWindows "The desktop's own windows a session may read and drive"; appInput "Input into one of the desktop's own windows through its renderer"; cursorPrepare "Ready the agent's arrow (answered within 750 ms)"; permissions "The OS grants the desktop reads"; command "A whole bridge command for the legacy Windows PowerShell host (dual path only)".
+HostComputerPixels => "host/computer/pixels" {
+    params: HostComputerPixelsParams,
+    result: HostComputerPixelsResult,
+    requires: Some("host.computer"),
+},
+HostComputerAppWindows => "host/computer/appWindows" {
+    params: HostComputerAppWindowsParams,
+    result: HostComputerAppWindowsResult,
+    requires: Some("host.computer"),
+},
+HostComputerAppInput => "host/computer/appInput" {
+    params: HostComputerAppInputParams,
+    result: HostComputerAppInputResult,
+    requires: Some("host.computer"),
+},
+HostComputerCursorPrepare => "host/computer/cursorPrepare" {
+    params: HostComputerCursorPrepareParams,
+    result: HostComputerCursorPrepareResult,
+    requires: Some("host.computer"),
+},
+HostComputerPermissions => "host/computer/permissions" {
+    params: HostComputerPermissionsParams,
+    result: HostComputerPermissionsResult,
+    requires: Some("host.computer"),
+},
+HostComputerCommand => "host/computer/command" {
+    params: HostComputerCommandParams,
+    result: HostComputerCommandResult,
+    requires: Some("host.computer"),
+},
+# A desktop that answers -32601 means the feature is unavailable; the core degrades as the design states.
+
+[notifications]
+# client -> core notification. Anchor: add after `HostWindowClosed(...)` in enum ClientNotification:
+    /// The user moved the real pointer over an agent arrow: the core ends that session's pointer hold.
+    #[serde(rename = "computer/pointerReleased")]
+    #[cfg_attr(feature = "codegen", ts(rename = "computer/pointerReleased"))]
+    ComputerPointerReleased(crate::v2::computer_host::ComputerPointerReleasedParams),
+# and in CLIENT_NOTIFICATIONS, after the spec of "host/window/closed":
+    crate::common::NotificationSpec {
+        method: "computer/pointerReleased",
+        params: "ComputerPointerReleasedParams",
+        delivery: None,
+    },
+# No server notification: the section fields below ride the existing `computer/updated`.
+
+[inventory]
+# none: the inventory is the frozen 1.4.5 list; these methods did not exist in 1.4.5.
+
+[free_text]
+# FREE_TEXT rows for src/free_text.rs (all `free`; paste after the `host/computer/capture` row):
+    // What the model types into the desktop's own window and the chord it presses: written to the renderer as UTF-8.
+    (Kind::Request, "host/computer/appInput", &["/text", "/keys"]),
+    // A window's title as the desktop reports it, a bridge reply's text and error: the model reads them as the tool's result.
+    (Kind::Answer, "host/computer/appWindows", &["/windows/*/title"]),
+    (Kind::Answer, "host/computer/command", &["/text", "/error"]),
+# dev/computer/run is a client request: its result is the core's, not a client's answer, so no FREE_TEXT row and no `answer dev/computer/run`
+# entry (tests/it walks only server_request_methods.json for answers); its client-sent strings are `/sessionThreadId` and the `/command` payload.
+# free_text_fields.json `classes`: add to the free class whose reason starts "What the desktop publishes as text:":
+#   "request host/computer/appInput /text", "request host/computer/appInput /keys",
+#   "answer host/computer/appWindows /windows/*/title", "answer host/computer/command /text", "answer host/computer/command /error"
+# (extend that reason with: "the text and keys the model sends into the desktop's own window, an app window's title, a bridge reply").
+# refused class "a kind, mode, scope, phase, sort, state or other word from a fixed vocabulary the reader matches, written by the client app, never typed text":
+#   "request host/computer/pixels /target/kind", "request host/computer/pixels /backend", "request host/computer/pixels /format",
+#   "answer host/computer/pixels /backend", "answer host/computer/pixels /attempts/*/backend", "answer host/computer/pixels /attempts/*/reason",
+#   "answer host/computer/appWindows /windows/*/kind", "request host/computer/appInput /op", "request host/computer/appInput /button",
+#   "answer host/computer/appInput /effect", "answer host/computer/appInput /evidence/focusedRole", "answer host/computer/cursorPrepare /state",
+#   "answer host/computer/permissions /screenCapture", "answer host/computer/permissions /accessibility", "answer host/computer/permissions /input",
+#   "request computer/userControl /reason"
+# refused class "an id, cursor, revision or digest the core, a client or a service generated: matched against its record, never typed text":
+#   "request host/computer/pixels /sessionThreadId", "request host/computer/pixels /target/displayId", "request host/computer/pixels /target/windowId",
+#   "answer host/computer/pixels /blob/digest", "answer host/computer/pixels /source/displayId", "answer host/computer/pixels /source/windowId",
+#   "answer host/computer/appWindows /windows/*/windowId", "answer host/computer/appWindows /windows/*/displayId",
+#   "request host/computer/appInput /sessionThreadId", "request host/computer/appInput /windowId",
+#   "request host/computer/cursorPrepare /sessionThreadId", "request host/computer/cursorPrepare /windowId",
+#   "request host/computer/command /sessionThreadId", "answer host/computer/command /imageBlob/digest",
+#   "request dev/computer/run /sessionThreadId",
+#   "notification computer/pointerReleased /sessionThreadId"
+# refused class "encoded bytes or a media type (base64, data URL, SDP), decoded, not text":
+#   "answer host/computer/pixels /blob/mimeType", "answer host/computer/command /imageBlob/mimeType"
+# payloads (untyped values; the open part `/**` is one class):
+#   request host/computer/command "/command": the bridge command as computer-bridge/client.mjs posts it, its text and keys are what the model typed: free, reason as the appInput line above.
+#   request dev/computer/run "/command": same, free.
+#   answer host/computer/permissions "/linux": refused, reason "the desktop's readiness probe (capability states and detail words), never typed text".
+# Check the classes against the schema once the types are wired: every string field the schema has must be in exactly one class, so a field missed above fails tests/it.
+
+[type_edits]
+# 1. native/core/crates/mixdog-app-protocol/src/v2/host.rs, enum ComputerUserControlAction: add after `Pause,`
+# plain `//` comments, as on `Pause`, so the schema stays a bare enum:
+    // The user's hold taken for `reason` (Node's `takeOver(reason)`): a hold only Resume ends.
+    Takeover,
+    // Sets how long the user must be idle before a hold ends by itself (`params.seconds`, 0 = only Resume ends it).
+    ConfigureIdleResume,
+# 2. same file, struct ComputerUserControlParams: add after `session_thread_id`
+    /// `takeover` only: why the hold is taken. Checked by `ComputerUserControlParams::validate` (computer_host.rs).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<crate::v2::computer_host::ComputerTakeoverReason>,
+    /// `configureIdleResume` only, 0..=60.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seconds: Option<u32>,
+#    No literal of ComputerUserControlParams exists outside host.rs today (grep `ComputerUserControlParams {`).
+#    mixdog-app-server-daemon/src/computer_control.rs matches ComputerUserControlAction exhaustively (Resume, Stop, Pause): the task
+#    that owns it adds arms for Takeover and ConfigureIdleResume in the same wave, or the daemon does not compile.
+# 3. native/core/crates/mixdog-protocol/src/section.rs, after ComputerResumeMode add:
+/// How a session's active command reaches the screen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub enum ComputerSessionMode {
+    Foreground,
+    Background,
+}
+
+/// Which stack runs Computer Use: the Rust helper, or (Windows, until the owner signs off) the desktop's legacy host.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub enum ComputerBackendSection {
+    #[default]
+    Helper,
+    DesktopHost,
+}
+
+/// Whether the end-of-run cleanup (held keys and buttons released) is done.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub enum ComputerCleanupState {
+    #[default]
+    Ready,
+    Pending,
+    Failed,
+}
+
+/// Node's coordinator default for the idle-resume interval.
+fn default_idle_resume_seconds() -> u32 {
+    5
+}
+# 4. same file, struct ComputerSessionSection: add after `observe_only`
+    /// Windows with an active command of this session (the overlay and the user-input report read them).
+    #[serde(default)]
+    pub window_ids: Vec<String>,
+    /// How the active command reaches the screen; `null` while none runs.
+    #[serde(default)]
+    pub mode: Option<ComputerSessionMode>,
+    /// The active command's phase word; `null` while none runs.
+    #[serde(default)]
+    pub phase: Option<String>,
+# 5. same file, struct ComputerSection: add after `lane`
+    #[serde(default)]
+    pub backend: ComputerBackendSection,
+    #[serde(default)]
+    pub cleanup_state: ComputerCleanupState,
+    /// Seconds of user idleness after which a hold ends by itself; 0 = only Resume ends it.
+    #[serde(default = "default_idle_resume_seconds")]
+    pub idle_resume_seconds: u32,
+#    ComputerUserControlSection.reason stays a String; its doc comment becomes:
+    /// Why the user holds the desktop (Node's `pauseForUser` reasons: `user_takeover`, `user_stop`, `user_input_active`,
+    /// `input_cleanup_unconfirmed`, `authorization_changed`; `user_pause`, `desktop_unavailable` and `display_changed` from
+    /// `computer/userControl` pause and takeover).
+#    Every literal of ComputerSection and ComputerSessionSection gets the new fields (grep: mixdog-core/src/run_host/native_tools.rs, publish() and the test helper `section`):
+#    `window_ids: Vec::new(), mode: None, phase: None` and `backend: ComputerBackendSection::Helper, cleanup_state: ComputerCleanupState::Ready, idle_resume_seconds: 5`.
+# 6. native/core/crates/mixdog-app-protocol/src/export.rs, after `collector.visit::<mixdog_protocol::ComputerSessionSection>();` add:
+    collector.visit::<mixdog_protocol::ComputerSessionMode>();
+    collector.visit::<mixdog_protocol::ComputerBackendSection>();
+    collector.visit::<mixdog_protocol::ComputerCleanupState>();
+#    (the rows' param and result types are reached through the method rows; ComputerTakeoverReason through ComputerUserControlParams.)
+#    The new section types are not listed in free_text_fields.json: that file covers client-sent strings and host answers, not section values.
+
+[remove]
+# none
+
+[window]
+dev/computer/run deny dev harness entry: the desktop main process and CLI harnesses call it, never a renderer; the core also refuses it without MIXDOG_DEV_COMPUTER_RUN=1
+computer/pointerReleased deny desktop main only: it reports the real pointer over an overlay window, which no renderer owns (a client notification, listed for the window policy)
+computer/userControl deny main pill only: unchanged; its new actions pause, takeover and configureIdleResume come from the pill and the main process, never a renderer
