@@ -223,7 +223,6 @@ pub(super) async fn zoom(backend: &ProcessComputerBackend, command: Map<String, 
 /// (`host/computer/pixels` with the region in physical pixels) and cut out there; the crop is the store's new frame, of the same display.
 /// A display whose layout changed since the frame was issued is a stale frame (`assertDisplayUnchanged`). `include_ocr` recognizes the
 /// crop with `ocr` (`recognizeZoomText`); with no recognizer attached the reply says the display's pixels carry no recognition.
-#[cfg_attr(not(test), expect(dead_code, reason = "the capture of a zoom (the wiring of computer_pixels) routes a display frame here"))]
 pub(super) async fn zoom_display(
     desktop: &dyn HostChannel,
     blobs: &dyn ComputerBlobs,

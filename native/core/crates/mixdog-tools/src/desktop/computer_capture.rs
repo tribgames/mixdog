@@ -1,4 +1,5 @@
-//! `capture`: a window's accessibility snapshot and pixels from the helper, or a screen's from the desktop's computer host.
+//! `capture`: a window's accessibility snapshot and pixels from the helper, or a display's pixels from the desktop
+//! (`computer_pixels`).
 
 use std::sync::Mutex;
 use std::sync::MutexGuard;
@@ -15,17 +16,19 @@ use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
 use super::computer_backend::ProcessComputerBackend;
-use super::computer_backend::REPORTED_CODE;
 use super::computer_backend::Reply;
 use super::computer_backend::parts_of;
 use super::computer_command::text;
+use super::computer_delta::DeltaOptions;
+use super::computer_delta::capture_baseline_key;
 use super::computer_frames::Frame;
 use super::computer_frames::InputIdle;
 use super::computer_frames::USER_INPUT_DURING_CAPTURE;
+use super::computer_marks_draw::Mark;
+use super::computer_marks_draw::MarkSource;
+use super::computer_marks_draw::paint_marks_or_input;
 use super::computer_ocr;
-
-/// The session a call without one belongs to.
-const DEFAULT_SESSION: &str = "default";
+use super::computer_pixels::capture_display;
 
 /// A capture's snapshot round trip, and each read of the input observer around it; reaching it retires the helper
 /// (`CAPTURE_ACCESSIBILITY_TIMEOUT_MS`, `shared/common.ts`).
@@ -147,14 +150,54 @@ impl ProcessComputerBackend {
             return Ok(None);
         }
         let mut parts = read.parts(&resolved)?;
+        let ocr_content = pixels.as_ref().is_some_and(|pixels| recognized_words(&pixels.result));
+        self.observe(&mut parts, command, mode, &window_id, &related, &read, &resolved, budget, ocr_content);
         if let Some(pixels) = pixels {
             let idle = settle_input(before.as_ref(), after.as_ref());
             let id = format!("frame-{}", uuid::Uuid::new_v4().simple());
             let frame = frame_of(&pixels.result, &id, &window_id, related, idle);
             let capture = computer_ocr::Capture { command, mode, ask: ocr.as_ref(), accessibility: read.result.as_ref().filter(|_| read.error.is_empty()), budget };
+            let marked = frame.clone().filter(|_| mode == "som");
+            let from = parts.len();
             parts.extend(self.pixel_parts(&pixels.result, frame, quality, &capture)?);
+            if let (Some(frame), Some(snapshot)) = (marked, capture.accessibility)
+                && let Some(note) = mark_frame(&mut parts[from..], snapshot, &frame, quality)
+            {
+                parts.push(ToolPart::Text(note));
+            }
+            self.keep_image(command, &mut parts);
         }
         Ok(Some(parts))
+    }
+
+    /// `finishCapture`'s bookkeeping over the rows the read returned: the change summary against the session's last capture of this
+    /// window, and the observation delta that stands in for the full list when the command asked for one (`observation_delta`: the
+    /// capture that follows an action). Marks, OCR rows and pages always go in full. A cached or failed read, and a `vision` one,
+    /// has no rows to record.
+    #[allow(clippy::too_many_arguments)]
+    fn observe(&self, parts: &mut [ToolPart], command: &Map<String, Value>, mode: &str, window_id: &str, related: &[String], read: &Accessibility, resolved: &Resolved, budget: i64, ocr_content: bool) {
+        let Some(snapshot) = read.result.as_ref().filter(|_| mode != "vision" && read.error.is_empty() && !resolved.hit) else { return };
+        let rows = snapshot.get("elements").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
+        let session = &self.config.session_id;
+        let key = capture_baseline_key(command, mode, budget.max(0) as u64);
+        let changes = self.shared.delta.record_baseline(session, window_id, &key, rows);
+        let paged = truthy(command, "continuation") || snapshot.get("continuation").is_some_and(|token| !token.is_null());
+        let options = DeltaOptions {
+            observation_delta: command.get("observation_delta") == Some(&Value::Bool(true)) && mode != "som" && !ocr_content && !paged,
+            recordable: !ocr_content,
+            baseline_key: key,
+            related_window_ids: related.to_vec(),
+        };
+        let outcome = self.shared.delta.observe(session, window_id, snapshot, None, &options);
+        let Some(ToolPart::Text(shown)) = parts.first_mut() else { return };
+        if let Some(delta) = &outcome.delta
+            && let Some(replaced) = with_delta(shown, rows, delta)
+        {
+            *shown = replaced;
+        }
+        if let Some(changes) = changes {
+            shown.push_str(&format!("\nChanges since the last capture: {changes}"));
+        }
     }
 
     /// The window a capture reads and the windows around it: the helper's `window_bounds` unless an `ax` capture names its window
@@ -276,86 +319,81 @@ impl ProcessComputerBackend {
         Ok(parts)
     }
 
-    /// The capture of a screen: the command Node's client posts to the bridge goes to the desktop's computer host
-    /// (`host/computer/capture`), which takes the pixels, fits them to the capture budget and encodes them; the reply is the one the
-    /// tool returns.
+    /// The capture of a display: its pixels asked of the desktop (`host/computer/pixels`) and read from the core's blob store, the frame
+    /// they make remembered so a click or a zoom can name it, and the text its words are (`computer_pixels::capture_display`).
     ///
     /// `asked_mode` is the call's own `mode`: the reply text carries it (`args.input?.mode || 'state'`), not the one a Linux fallback rewrote.
     async fn capture_screen(&self, command: &Map<String, Value>, asked_mode: &str, cancel: &CancellationToken) -> Result<Vec<ToolPart>, ComputerError> {
-        let mode = if asked_mode.is_empty() { "state" } else { asked_mode };
-        let mut posted = command.clone();
-        // A call without a session sends none (the pool names it `default`).
-        if self.config.session_id != DEFAULT_SESSION {
-            posted.insert("session_id".into(), json!(self.config.session_id));
+        let desktop = self.desktop()?;
+        let blobs = self.display_blobs()?;
+        let mut asked = command.clone();
+        asked.shift_remove("mode");
+        if !asked_mode.is_empty() {
+            asked.insert("mode".into(), json!(asked_mode));
         }
-        let reply = self.ask_desktop("host/computer/capture", json!({ "command": posted }), cancel).await?;
-        screen_parts(&reply, mode)
+        let (mut parts, _) = capture_display(desktop.as_ref(), blobs.as_ref(), &self.frames, Some(self), &asked, cancel).await?;
+        self.keep_image(command, &mut parts);
+        Ok(parts)
     }
 }
 
-/// A screen capture's reply as the tool returns it (`computerToolResult`): the reply text in its canonical form, the image with the
-/// size that text reports, and an error result when the text says the capture failed.
-fn screen_parts(reply: &Value, mode: &str) -> Result<Vec<ToolPart>, ComputerError> {
-    let Value::Object(reply) = reply else {
-        return Err(ComputerError::Failed { code: "computer_invalid_reply".into(), message: "computer bridge returned invalid or oversized text".into() });
-    };
-    let mut parts = parts_of(reply)?;
-    let raw = match &parts[0] {
-        ToolPart::Text(text) if !text.is_empty() => text.clone(),
-        _ => "OK".to_owned(),
-    };
-    let text = canonical_capture_text(&raw, mode);
-    let size = reported_size(&text);
-    if let Some(ToolPart::Image { width, height, .. }) = parts.get_mut(1) {
-        (*width, *height) = size.map_or((None, None), |(w, h)| (Some(w), Some(h)));
-    }
-    // The host's own flag counts on its own, as in `computerToolResult`.
-    if reply.get("isError") == Some(&json!(true)) || capture_failed(&text) {
-        return Err(ComputerError::Failed { code: REPORTED_CODE.into(), message: text });
-    }
-    parts[0] = ToolPart::Text(text);
-    Ok(parts)
+/// Whether the helper's recognition of the frame found words or lines (`ocrContent`): rows that are not accessibility's.
+fn recognized_words(result: &Map<String, Value>) -> bool {
+    let rows = |key: &str| result.get("ocr").and_then(|ocr| ocr.get(key)).and_then(Value::as_array).is_some_and(|rows| !rows.is_empty());
+    rows("lines") || rows("words")
 }
 
-/// `canonicalComputerResultText` for a capture (`result-canonical.mjs`): the action and mode are the call's, and the host's own
-/// diagnostics stay out of what the model reads. A screen capture has no elements or OCR lines to render.
-fn canonical_capture_text(text: &str, mode: &str) -> String {
-    let Ok(Value::Object(mut value)) = serde_json::from_str::<Value>(text) else { return text.to_owned() };
-    if !value.get("action").is_some_and(Value::is_string) {
-        return text.to_owned();
+/// The text of a capture with the delta in place of its element lines: each line the helper wrote for an element (`[<ref>] ...`)
+/// is dropped and one `Elements delta` line, the rows that changed in full and the ones that did not by their refs, stands where the
+/// first was. `None` when the text holds no element line to replace, so the full list stays.
+fn with_delta(shown: &str, rows: &[Value], delta: &Value) -> Option<String> {
+    let refs: Vec<String> = rows.iter().filter_map(|row| row.get("ref").and_then(Value::as_str)).map(|reference| format!("[{reference}] ")).collect();
+    let is_element = |line: &str| refs.iter().any(|prefix| line.starts_with(prefix.as_str()));
+    let lines: Vec<&str> = shown.split('\n').collect();
+    let first = lines.iter().position(|line| is_element(*line))?;
+    let mut out: Vec<String> = Vec::with_capacity(lines.len());
+    for (index, line) in lines.iter().enumerate() {
+        if index == first {
+            out.push(format!("Elements delta: {delta}"));
+        }
+        if !is_element(*line) {
+            out.push((*line).to_owned());
+        }
     }
-    value.insert("action".into(), json!("capture"));
-    value.insert("mode".into(), json!(mode));
-    let mut value = Value::Object(value);
-    drop_host_diagnostics(&mut value);
-    value.to_string()
+    Some(out.join("\n"))
 }
 
-fn drop_host_diagnostics(value: &mut Value) {
-    match value {
-        Value::Array(items) => items.iter_mut().for_each(drop_host_diagnostics),
-        Value::Object(fields) => {
-            for field in ["timings_ms", "capture_attempts"] {
-                fields.shift_remove(field);
+/// `renderSomOverlay` over the frame's image part: the elements of the snapshot, each outlined and numbered in the pixels the model
+/// will point at. A frame that cannot be drawn on keeps its pixels and the reply says why.
+fn mark_frame(parts: &mut [ToolPart], snapshot: &Map<String, Value>, frame: &Frame, quality: i64) -> Option<String> {
+    let marks = som_marks(snapshot, frame);
+    let ToolPart::Image { mime, data: ImageData::Bytes(bytes), .. } = parts.iter_mut().find(|part| matches!(part, ToolPart::Image { .. }))? else { return None };
+    let overlay = paint_marks_or_input(bytes, mime, u32::try_from(frame.capture_width).unwrap_or(0), u32::try_from(frame.capture_height).unwrap_or(0), &marks, quality.clamp(0, 100) as u8);
+    *bytes = overlay.image.bytes;
+    *mime = overlay.image.mime;
+    overlay.error.map(|error| format!("Marks overlay not drawn: {error}"))
+}
+
+/// The snapshot's elements as marks in the frame's pixels (`frameElements`, `clipElementToFrame`): one entirely outside is not drawn.
+fn som_marks(snapshot: &Map<String, Value>, frame: &Frame) -> Vec<Mark> {
+    let Some(rows) = snapshot.get("elements").and_then(Value::as_array) else { return Vec::new() };
+    let scale = |value: f64, origin: i64, capture: i64, physical: i64| ((value - origin as f64) * capture as f64 / physical.max(1) as f64 + 0.5).floor();
+    rows.iter()
+        .filter_map(Value::as_object)
+        .filter_map(|row| {
+            let number = |key: &str| row.get(key).and_then(Value::as_f64).filter(|number| number.is_finite()).unwrap_or(0.0);
+            let x = scale(number("x"), frame.origin_x, frame.capture_width, frame.physical_width);
+            let y = scale(number("y"), frame.origin_y, frame.capture_height, frame.physical_height);
+            let width = scale(number("width"), 0, frame.capture_width, frame.physical_width).max(1.0);
+            let height = scale(number("height"), 0, frame.capture_height, frame.physical_height).max(1.0);
+            if x + width <= 0.0 || y + height <= 0.0 || x >= frame.capture_width as f64 || y >= frame.capture_height as f64 {
+                return None;
             }
-            fields.values_mut().for_each(drop_host_diagnostics);
-        }
-        _ => {}
-    }
-}
-
-/// `computerImageDimensions`: the frame's real size, from the text's `width` and `height` (or its `observation`'s).
-fn reported_size(text: &str) -> Option<(u32, u32)> {
-    let value: Value = serde_json::from_str(text).ok()?;
-    [Some(&value), value.get("observation")].into_iter().flatten().find_map(|frame| {
-        let edge = |key: &str| frame.get(key).and_then(Value::as_f64).filter(|edge| *edge > 0.0 && edge.is_finite());
-        Some((edge("width")? as u32, edge("height")? as u32))
-    })
-}
-
-/// `canonicalComputerResultIsError` for a capture.
-fn capture_failed(text: &str) -> bool {
-    serde_json::from_str::<Value>(text).is_ok_and(|value| value.get("action") == Some(&json!("capture")) && value.get("ok") == Some(&json!(false)))
+            let (left, top) = (x.max(0.0), y.max(0.0));
+            let bounds = [left, top, (frame.capture_width as f64 - left).min(width - (left - x)).max(1.0), (frame.capture_height as f64 - top).min(height - (top - y)).max(1.0)];
+            Some(Mark { mark: u32::try_from(row.get("mark").and_then(Value::as_i64)?).ok()?, bounds, source: MarkSource::parse(row.get("source").and_then(Value::as_str)) })
+        })
+        .collect()
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -1018,5 +1056,158 @@ mod tests {
         assert_eq!(CAPTURE_TIMEOUT, Duration::from_millis(4_500));
         assert!(CAPTURE_TIMEOUT >= Duration::from_millis(2 * 2_000));
         assert_eq!(ACCESSIBILITY_TIMEOUT, Duration::from_millis(2_500));
+    }
+
+    /// A helper whose every snapshot is the next generation of eight rows; from the second on the fourth row has changed.
+    fn ticking() -> Arc<Scripted> {
+        let generation = std::sync::atomic::AtomicUsize::new(0);
+        Scripted::new(move |request| match request["action"].as_str() {
+            Some("input_idle_state") => Ok(json!({"observer_ready": true, "monitor": "m1", "sequence": 4, "target_sequence": 4})),
+            Some("snapshot") => {
+                let generation = generation.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+                let rows: Vec<Value> = (0..8)
+                    .map(|n| {
+                        let name = if generation > 1 && n == 3 { "Done".to_owned() } else { format!("Item {n}") };
+                        json!({"mark": n + 1, "ref": format!("s{generation}:e{n}"), "role": "Button", "name": name, "value": "", "state": "", "enabled": true,
+                               "x": 10, "y": 10 + n * 30, "width": 80, "height": 20, "actions": ["click"]})
+                    })
+                    .collect();
+                let lines: Vec<String> = rows.iter().map(|row| format!("[{}] Button \"{}\" @50,50", row["ref"].as_str().unwrap(), row["name"].as_str().unwrap())).collect();
+                Ok(json!({"text": format!("Window: T [hwnd:0x2]\nElements: total=8 generation={generation}\n{}", lines.join("\n")),
+                          "window_id": "hwnd:0x2", "generation": generation, "total_elements": 8, "elements": rows}))
+            }
+            _ => Ok(json!({"text": "ok"})),
+        })
+    }
+
+    /// The capture that follows an action (`observation_delta`) names the rows still on screen by their refs and lists only what
+    /// changed; a capture that did not ask is the full list, and a capture compared with the last one says what changed.
+    #[tokio::test]
+    async fn the_observation_delta_replaces_the_rows_that_did_not_change() {
+        let backend = state("delta", &ticking());
+        let ask = |delta: bool| command(json!({"mode": "ax", "observation_delta": delta}));
+        let first = texts(&backend.capture(ask(true), "", &CancellationToken::new()).await.unwrap()).remove(0);
+        assert!(first.contains("[s1:e0] Button \"Item 0\"") && !first.contains("Elements delta"), "nothing is held yet: {first}");
+
+        let second = texts(&backend.capture(ask(true), "", &CancellationToken::new()).await.unwrap()).remove(0);
+        assert!(second.contains("Elements delta: ") && second.contains("Done"), "{second}");
+        assert!(!second.contains("[s2:e0] Button \"Item 0\""), "an unchanged row is not listed again: {second}");
+        assert!(second.starts_with("Window: T [hwnd:0x2]\nElements: total=8 generation=2\nElements delta: "), "{second}");
+        assert!(second.contains("Changes since the last capture: "), "{second}");
+
+        let third = texts(&backend.capture(ask(false), "", &CancellationToken::new()).await.unwrap()).remove(0);
+        assert!(third.contains("[s3:e0] Button \"Item 0\"") && !third.contains("Elements delta"), "a capture that did not ask is the full list: {third}");
+    }
+
+    /// A set-of-marks read always goes in full, whatever the command asked.
+    #[tokio::test]
+    async fn a_marks_read_is_never_a_delta() {
+        let backend = state("delta-som", &ticking());
+        let pixels_free = |mode: &str| command(json!({"mode": mode, "observation_delta": true}));
+        backend.capture(pixels_free("ax"), "", &CancellationToken::new()).await.unwrap();
+        let again = texts(&backend.capture(pixels_free("ax"), "", &CancellationToken::new()).await.unwrap()).remove(0);
+        assert!(again.contains("Elements delta"), "{again}");
+        let mut marks = pixels_free("som");
+        marks.insert("max_elements".into(), json!(80));
+        let full = texts(&backend.capture(marks, "", &CancellationToken::new()).await.unwrap()).remove(0);
+        assert!(!full.contains("Elements delta") && full.contains("Item 0"), "{full}");
+    }
+
+    /// The marks of a frame are the snapshot's elements in its pixels, clipped to it; one entirely outside is not drawn.
+    #[test]
+    fn the_marks_are_the_elements_in_the_frames_pixels() {
+        let frame = frame_of(&object(json!({"x": 100, "y": -20, "width": 400, "height": 200, "image_width": 200, "image_height": 100})), "f", "hwnd:0x2", Vec::new(), None).unwrap();
+        let snapshot = object(json!({"elements": [
+            {"mark": 1, "x": 120, "y": 100, "width": 50, "height": 20, "source": "uia"},
+            {"mark": 2, "x": 1000, "y": 100, "width": 50, "height": 20},
+            {"mark": 3, "x": 90, "y": 100, "width": 60, "height": 20, "source": "msaa"},
+        ]}));
+        let marks = som_marks(&snapshot, &frame);
+        assert_eq!(marks.iter().map(|mark| (mark.mark, mark.bounds, mark.source)).collect::<Vec<_>>(), vec![
+            (1, [10.0, 60.0, 25.0, 10.0], MarkSource::Uia),
+            (3, [0.0, 60.0, 25.0, 10.0], MarkSource::Msaa),
+        ]);
+    }
+
+    /// A frame the overlay cannot draw on keeps its pixels, and the reply says why.
+    #[test]
+    fn a_frame_that_cannot_be_marked_keeps_its_pixels() {
+        let frame = frame_of(&object(json!({"x": 0, "y": 0, "width": 200, "height": 100})), "f", "hwnd:0x2", Vec::new(), None).unwrap();
+        let snapshot = object(json!({"elements": [{"mark": 1, "x": 10, "y": 10, "width": 50, "height": 20}]}));
+        let mut parts = vec![ToolPart::Text("frame".into()), ToolPart::Image { mime: "image/jpeg".into(), data: ImageData::Bytes(b"not a jpeg".to_vec()), width: Some(200), height: Some(100) }];
+        let note = mark_frame(&mut parts, &snapshot, &frame, 55).expect("the reason");
+        assert!(note.starts_with("Marks overlay not drawn: "), "{note}");
+        assert!(matches!(&parts[1], ToolPart::Image { data: ImageData::Bytes(bytes), .. } if bytes == b"not a jpeg"));
+        assert_eq!(mark_frame(&mut parts, &object(json!({"elements": []})), &frame, 55), None, "no element, no overlay, nothing to say");
+    }
+
+    fn two_displays() -> Value {
+        json!([
+            {"index": 0, "id": "11", "primary": true, "scale_factor": 1.0, "width": 1280, "height": 720, "x": 0, "y": 0},
+            {"index": 1, "id": "12", "primary": false, "scale_factor": 1.0, "width": 1920, "height": 1080, "x": -1920, "y": -200},
+        ])
+    }
+
+    fn display_pixels() -> Value {
+        json!({
+            "blob": {"digest": "sha256:aaaa", "byteLength": 4, "mimeType": "image/jpeg"},
+            "captureWidth": 960, "captureHeight": 540,
+            "source": {"x": -1920, "y": -200, "width": 1920, "height": 1080, "scaleFactor": 1.0, "displayId": "12", "windowId": null},
+            "backend": "screen", "capturedAt": 1.0, "attempts": [],
+        })
+    }
+
+    fn with_screen_desktop(config: ComputerConfig) -> (ProcessComputerBackend, Arc<super::super::computer_pixels::fakes::Desktop>) {
+        use super::super::computer_backend::ComputerShared;
+        use super::super::computer_pixels::ComputerBlobs;
+        use super::super::computer_pixels::fakes::Blobs;
+        use super::super::computer_pixels::fakes::Desktop;
+        let desktop = Arc::new(Desktop::new(two_displays(), display_pixels()));
+        let blobs: Arc<dyn ComputerBlobs> = Arc::new(Blobs([("sha256:aaaa".to_owned(), b"jpeg".to_vec())].into()));
+        let backend = ProcessComputerBackend::new(config, Scripted::new(|_| Ok(json!({"text": "ok"})))).with_shared(ComputerShared { blobs: Some(blobs), ..ComputerShared::default() }).with_desktop(desktop.clone());
+        (backend, desktop)
+    }
+
+    /// A capture of a display is read through the desktop's pixels and the core's blob store, and the frame it makes is the one a click
+    /// or a zoom names; the desktop is never asked for `host/computer/capture`.
+    #[tokio::test]
+    async fn a_display_capture_issues_a_frame_from_the_desktops_pixels() {
+        let (backend, desktop) = with_screen_desktop(ComputerConfig::new("helper", "screen-1"));
+        let parts = backend.capture(command(json!({"screen": 1, "mode": "vision"})), "vision", &CancellationToken::new()).await.unwrap();
+        let reply: Value = serde_json::from_str(&texts(&parts)[0]).unwrap();
+        assert_eq!((reply["action"].clone(), reply["mode"].clone(), reply["screen"].clone()), (json!("capture"), json!("vision"), json!(1)));
+        let frame = reply["frame_id"].as_str().unwrap();
+        assert!(backend.frames.display_of(frame).is_some(), "the frame is a display's");
+        assert!(matches!(parts[1], ToolPart::Image { width: Some(960), height: Some(540), .. }), "{parts:?}");
+        let asked: Vec<String> = desktop.asked.lock().unwrap().iter().map(|(method, _)| method.clone()).collect();
+        assert_eq!(asked, ["host/computer/displays", "host/computer/pixels"]);
+    }
+
+    /// With no blob store attached the pixels of a display cannot be read, and the capture says so.
+    #[tokio::test]
+    async fn a_display_capture_without_a_blob_store_is_unavailable() {
+        let (backend, _) = with_screen_desktop(ComputerConfig::new("helper", "screen-2"));
+        let bare = ProcessComputerBackend::new(ComputerConfig::new("helper", "screen-3"), Scripted::new(|_| Ok(json!({"text": "ok"})))).with_desktop(backend.desktop().unwrap().clone());
+        let error = bare.capture(command(json!({"screen": 0, "mode": "vision"})), "vision", &CancellationToken::new()).await.unwrap_err();
+        assert!(matches!(error, ComputerError::Unavailable { reason } if reason.contains("blob store")), "no blob store");
+    }
+
+    /// `image_output: "file"` moves the pixels to a file the host names; the reply carries its path and size. Where nothing can be
+    /// written the frame stays inline.
+    #[tokio::test]
+    async fn image_output_moves_the_pixels_to_a_file() {
+        let data = tempfile::tempdir().unwrap();
+        let config = ComputerConfig { data_dir: Some(data.path().to_path_buf()), ..ComputerConfig::new("helper", "screen-4") };
+        let (backend, _) = with_screen_desktop(config);
+        let parts = backend.capture(command(json!({"screen": 1, "mode": "vision", "image_output": "file"})), "vision", &CancellationToken::new()).await.unwrap();
+        assert!(parts.iter().all(|part| !matches!(part, ToolPart::Image { .. })), "the pixels left the reply: {parts:?}");
+        let reply: Value = serde_json::from_str(&texts(&parts)[0]).unwrap();
+        let file = reply["image_file"]["path"].as_str().expect("the file's path");
+        assert!(file.starts_with(&*data.path().to_string_lossy()), "{file}");
+        assert_eq!((std::fs::read(file).unwrap(), reply["image_file"]["bytes"].clone(), reply["image_file"]["mime_type"].clone()), (b"jpeg".to_vec(), json!(4), json!("image/jpeg")));
+
+        let (inline, _) = with_screen_desktop(ComputerConfig::new("helper", "screen-5"));
+        let parts = inline.capture(command(json!({"screen": 1, "mode": "vision", "image_output": "file"})), "vision", &CancellationToken::new()).await.unwrap();
+        assert!(parts.iter().any(|part| matches!(part, ToolPart::Image { .. })), "no data directory, no file: the frame stays");
     }
 }

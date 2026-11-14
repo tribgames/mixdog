@@ -77,7 +77,6 @@ pub(super) fn helper_env(inputs: &EnvInputs) -> Vec<(String, String)> {
 /// coordinates, `left,top,width,height`, which the Wayland input device spans when the compositor cannot report its outputs
 /// (`platform/linux/wayland.rs`). Each display's rectangle is its origin and its size in physical pixels (the size the host reports
 /// times the scale, as `nativeDisplayGeometry`). `None` without a display: the helper then has no bounds to be told.
-#[cfg_attr(not(test), expect(dead_code, reason = "the spawn of a helper on Linux (the wiring of computer_pixels) adds it to helper_env"))]
 pub(super) fn desktop_bounds_env(displays: &[HostComputerDisplay]) -> Option<(String, String)> {
     let area = |display: &HostComputerDisplay| {
         let physical = |edge: u32| (f64::from(edge) * display.scale_factor).round() as i64;

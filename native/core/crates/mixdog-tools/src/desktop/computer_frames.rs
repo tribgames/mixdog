@@ -56,7 +56,6 @@ pub(super) struct Frame {
 /// and its scale, as `host/computer/pixels` reported them. A zoom of a display frame keeps its parent's, which is what the frame is
 /// checked against when the layout may have changed.
 #[derive(Clone, Debug, PartialEq)]
-#[cfg_attr(not(test), expect(dead_code, reason = "display frames are issued by computer_pixels, whose caller is the wiring of the screen capture"))]
 pub(super) struct DisplaySource {
     pub(super) display_id: String,
     pub(super) x: i64,
@@ -131,7 +130,6 @@ impl Frame {
     }
 }
 
-#[cfg_attr(not(test), expect(dead_code, reason = "judged by assert_display_unchanged, whose caller is the wiring of the screen capture"))]
 impl DisplaySource {
     /// Whether `display` is the one this source was cut from, as it is now: its id, its origin and its size (in physical pixels, or in
     /// the host's own units where it reports points). A new scale over the same rectangle moves no pixel, so it is no change
@@ -234,7 +232,6 @@ impl FrameStore {
     }
 
     /// Registers the frame of a display capture or of a zoom of one, with the display it was cut from.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the capture path of a screen (the wiring of computer_pixels) issues display frames"))]
     pub(super) fn remember_display(&self, frame: Frame, source: DisplaySource) {
         let id = frame.id.clone();
         self.remember(frame);
@@ -242,7 +239,6 @@ impl FrameStore {
     }
 
     /// The display `frame_id` was cut from, when the latest frame is a display frame of that id.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the capture path of a screen (the wiring of computer_pixels) routes a zoom by it"))]
     pub(super) fn display_of(&self, frame_id: &str) -> Option<DisplaySource> {
         locked(&self.display).as_ref().filter(|(id, _)| id == frame_id).map(|(_, source)| source.clone())
     }
@@ -250,7 +246,6 @@ impl FrameStore {
     /// `assertDisplayUnchanged` (`session/frame-validity.ts`): a display frame whose display is gone from `displays`, or has another
     /// rectangle, is a stale frame, since every pixel coordinate in it would point somewhere else. The frame is forgotten, so a
     /// step that names it is refused too. A window frame, or no frame, is not judged here.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the act path of a screen (the wiring of computer_pixels) checks the layout before a step"))]
     pub(super) fn assert_display_unchanged(&self, displays: &[HostComputerDisplay]) -> Result<(), ComputerError> {
         let Some((id, source)) = locked(&self.display).clone() else { return Ok(()) };
         if displays.iter().any(|display| source.matches(display)) {

@@ -12,6 +12,51 @@ use super::computer_backend::ProcessComputerBackend;
 use super::computer_command::text;
 use super::computer_gnome;
 
+/// `ACCESSIBILITY_GUIDANCE` and `SCREEN_RECORDING_GUIDANCE` (`shared/permissions.ts`).
+const ACCESSIBILITY_GUIDANCE: &str = "macOS Accessibility is not granted to Mixdog; allow Mixdog in System Settings > Privacy & Security > Accessibility";
+const SCREEN_RECORDING_GUIDANCE: &str = "macOS Screen Recording is not granted to Mixdog; allow Mixdog in System Settings > Privacy & Security > Screen & System Audio Recording, then quit and reopen Mixdog (a grant made while Mixdog runs applies only after it restarts)";
+
+/// `accessibilityBlocked` and `screenCaptureBlocked` (`MACOS_GRANT_REQUIRED`): a grant the system says is still to be given.
+fn grant_required(permissions: &Value, key: &str) -> bool {
+    matches!(permissions.get(key).and_then(Value::as_str), Some("not-determined" | "denied" | "restricted"))
+}
+
+/// The report with the guidance a missing macOS grant earns (`diagnoseIssues`): Accessibility names the grant in place of the
+/// accessibility probe's own restatement of it, Screen Recording follows the other issues.
+fn name_missing_grants(report: &mut Value, permissions: &Value) {
+    let Some(mut issues) = report.get("issues").and_then(Value::as_array).cloned() else { return };
+    if grant_required(permissions, "accessibility") {
+        let restated = report
+            .pointer("/capabilities/semantic_accessibility")
+            .filter(|probe| probe.get("available") == Some(&json!(false)))
+            .map(|probe| probe.get("reason").and_then(Value::as_str).filter(|reason| !reason.is_empty()).unwrap_or("accessibility unavailable").to_owned());
+        match restated.and_then(|reason| issues.iter().position(|issue| issue.as_str() == Some(reason.as_str()))) {
+            Some(at) => issues[at] = json!(ACCESSIBILITY_GUIDANCE),
+            None => {
+                let at = issues.iter().position(|issue| issue.as_str().is_some_and(|text| text.starts_with("OCR language is unavailable"))).unwrap_or(issues.len());
+                issues.insert(at, json!(ACCESSIBILITY_GUIDANCE));
+            }
+        }
+    }
+    if grant_required(permissions, "screen_capture") {
+        issues.push(json!(SCREEN_RECORDING_GUIDANCE));
+    }
+    report["issues"] = Value::Array(issues);
+}
+
+/// `host/computer/permissions`: the grants as the desktop reads them, in the report's own field names (`ComputerPermissions`).
+fn grants(answer: &Value) -> Option<Value> {
+    let word = |key: &str| answer.get(key).and_then(Value::as_str).map(|word| json!(word));
+    let mut grants = serde_json::Map::new();
+    grants.insert("screen_capture".into(), word("screenCapture")?);
+    grants.insert("accessibility".into(), word("accessibility")?);
+    grants.insert("input".into(), word("input")?);
+    if let Some(linux) = answer.get("linux").filter(|linux| !linux.is_null()) {
+        grants.insert("linux".into(), linux.clone());
+    }
+    Some(Value::Object(grants))
+}
+
 /// Node's `process.platform` of the machine this process runs on.
 fn platform() -> &'static str {
     match std::env::consts::OS {
@@ -65,11 +110,15 @@ impl ProcessComputerBackend {
                 let displays = self.ask_desktop("host/computer/displays", json!({}), cancel).await?;
                 ("linux", Some(computer_gnome::linux_permissions(&readiness)), Some(displays))
             }
-            // Where a desktop serves Computer its displays are reported; a run without one leaves them out.
-            None => match self.ask_desktop("host/computer/displays", json!({}), cancel).await {
-                Err(ComputerError::Cancelled) => return Err(ComputerError::Cancelled),
-                displays => (platform(), None, displays.ok()),
-            },
+            // Where a desktop serves Computer its displays and the grants it reads are reported; a run without one leaves them out.
+            None => {
+                let displays = self.ask_desktop("host/computer/displays", json!({}), cancel).await;
+                let permissions = self.ask_desktop("host/computer/permissions", json!({}), cancel).await;
+                if matches!(displays, Err(ComputerError::Cancelled)) || matches!(permissions, Err(ComputerError::Cancelled)) {
+                    return Err(ComputerError::Cancelled);
+                }
+                (platform(), permissions.ok().as_ref().and_then(grants), displays.ok())
+            }
         };
         let report = computer_gnome::Diagnosis {
             platform,
@@ -83,7 +132,14 @@ impl ProcessComputerBackend {
             permissions,
             observe_only: self.observe_only(),
         };
-        Ok(vec![ToolPart::Text(computer_gnome::diagnose_text(&report))])
+        let mut shown = computer_gnome::diagnose_text(&report);
+        if let Some(permissions) = report.permissions.as_ref().filter(|_| self.linux.is_none())
+            && let Ok(mut parsed) = serde_json::from_str::<Value>(&shown)
+        {
+            name_missing_grants(&mut parsed, permissions);
+            shown = parsed.to_string();
+        }
+        Ok(vec![ToolPart::Text(shown)])
     }
 }
 
@@ -160,5 +216,58 @@ mod tests {
         assert_eq!(report["ready"], false);
         assert_eq!(report["capabilities"]["input_mode"], "observation_only");
         assert_eq!(report["issues"], json!(["requested window is unavailable: hwnd:0x9", "OCR language is unavailable: xx"]));
+    }
+
+    /// A desktop that answers the display list and the grants it reads.
+    struct Grants(Value);
+
+    #[async_trait::async_trait]
+    impl mixdog_core_api::HostChannel for Grants {
+        async fn request(&self, _: mixdog_core_api::HostCapability, method: mixdog_core_api::ids::Method, _: Value) -> Result<Value, mixdog_core_api::HostError> {
+            match method.0 {
+                "host/computer/displays" => Ok(json!([])),
+                "host/computer/permissions" => Ok(self.0.clone()),
+                // The window lists a desktop shows no window of its own in.
+                "host/computer/internalWindows" => Ok(json!({"windowIds": []})),
+                "host/computer/appWindows" => Ok(json!({"windows": []})),
+                other => panic!("the diagnose asked the desktop for {other}"),
+            }
+        }
+
+        fn notify(&self, _: mixdog_core_api::HostCapability, _: mixdog_core_api::ids::Method, _: Value) -> Result<(), mixdog_core_api::CoreError> {
+            Ok(())
+        }
+    }
+
+    async fn diagnose_granting(grants: Value) -> Value {
+        let manager = Scripted::new(helper);
+        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager).with_desktop(Arc::new(Grants(grants)));
+        let parts = backend.run(ComputerRequest { action: ComputerAction::Diagnose, input: json!({}) }, CancellationToken::new()).await.unwrap();
+        let ToolPart::Text(report) = &parts[0] else { panic!("a text part") };
+        serde_json::from_str(report).unwrap()
+    }
+
+    /// Where the desktop reads the grants they are the report's `permissions`, and a macOS grant still to be given is named as an issue
+    /// (`diagnoseIssues`): the Screen Recording one after the others.
+    #[tokio::test]
+    async fn the_grants_the_desktop_reads_are_reported_and_a_missing_one_is_named() {
+        let report = diagnose_granting(json!({"screenCapture": "denied", "accessibility": "not-determined", "input": "granted"})).await;
+        assert_eq!(report["permissions"], json!({"screen_capture": "denied", "accessibility": "not-determined", "input": "granted"}));
+        assert_eq!(report["issues"], json!([ACCESSIBILITY_GUIDANCE, SCREEN_RECORDING_GUIDANCE]));
+
+        let granted = diagnose_granting(json!({"screenCapture": "not_required_on_windows", "accessibility": "target_integrity_dependent", "input": "accessibility_dependent"})).await;
+        assert_eq!(granted["issues"], json!([]));
+        assert_eq!(granted["permissions"]["accessibility"], "target_integrity_dependent");
+    }
+
+    /// A grant that blocks accessibility is named in place of the accessibility probe's own restatement of it.
+    #[test]
+    fn a_blocked_accessibility_grant_replaces_the_probes_restatement() {
+        let mut report = json!({
+            "capabilities": {"semantic_accessibility": {"available": false, "reason": "UI Automation is unavailable"}},
+            "issues": ["UI Automation is unavailable", "OCR language is unavailable: xx"],
+        });
+        name_missing_grants(&mut report, &json!({"screen_capture": "granted", "accessibility": "denied", "input": "granted"}));
+        assert_eq!(report["issues"], json!([ACCESSIBILITY_GUIDANCE, "OCR language is unavailable: xx"]));
     }
 }
