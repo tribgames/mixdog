@@ -1,0 +1,33 @@
+# s3-13: dev/computer/run (test hook). Module: mixdog-app-server-daemon/src/dev_computer.rs (already created).
+# Applied by the CORE-WIRE task of the wave; the registration itself is s3-19 (compose_flip.rs).
+
+file: native/core/crates/mixdog-app-server-daemon/Cargo.toml
+place: [features], after the `replay-controls` entry
+add: # Test hooks: `dev/computer/run` (dev_computer.rs) and, with s4, `test/browserEngine/run`. Registered only when mixdogd starts with MIXDOGD_TEST_HOOKS=1; build.rs fails a release-profile build with it.
+add: test-hooks = []
+
+file: native/core/crates/mixdog-app-server-daemon/Cargo.toml
+place: [dev-dependencies], the self entry `mixdog-app-server-daemon = { path = ".", features = ["replay-controls"] }`
+edit: features = ["replay-controls", "test-hooks"]   # so `cargo test -p mixdog-app-server-daemon dev_computer` builds the module
+
+file: native/core/crates/mixdog-app-server-daemon/build.rs
+place: fn main
+edit: dev_only::refuse_in_release(&["replay-controls", "test-hooks"]);
+
+file: native/core/crates/mixdog-app-server-daemon/src/lib.rs
+place: after `mod replay_stores_settled;` (the line `#[cfg(feature = "replay-controls")]` above it belongs to that module)
+add: #[cfg(feature = "test-hooks")]
+add: mod dev_computer;
+
+file: native/core/crates/mixdog-app-server-daemon/src/compose_flip.rs   (s3-19, registration)
+place: fn real_core, after `late_computer_hosts.bind(..)` and where the other domain services are registered with `builder.register(..)`; `blobs` is the one BlobStore of `let blobs = mixdog_store::blobs::BlobStore::new(&b.data_dir);`
+add: #[cfg(feature = "test-hooks")]
+add: if let Some(pool) = &computer_pool {
+add:     if let Some(service) = crate::dev_computer::DevComputerRun::if_enabled(&*b.env, pool.clone(), blobs.clone(), &b.tokens, Arc::new(|_| None)) {
+add:         builder.register(service)?;
+add:     }
+add: }
+# `b.env` is the Fn(&str)->Option<String> the pool's NativeToolPaths already takes (`b.env.clone()`); adapt the deref to its real type.
+# The last argument is the helper-pid lookup. The pool does not expose its helper's process id today (ProcessComputerBackend keeps the
+# ProcessHandle, not the pid); s3-19 passes `|_| None` unless a pool accessor `helper_pid(&self, session)` is added in mixdog-core native_tools.rs.
+# SERVICE_PENDING: nothing to remove (dev/computer/run is a new method, absent from a build without the feature).
