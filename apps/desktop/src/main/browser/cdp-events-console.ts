@@ -3,7 +3,7 @@
 import type { WebContents } from 'electron';
 
 import { type BrowserConsoleArgument, formatConsoleArguments, formatConsoleSource } from './console-format';
-import { type BrowserGuestStateStore, pushBounded } from './guest-state';
+import { type BrowserGuestStateStore, pushBounded } from './host-state';
 import { explainNetworkFailure } from './network';
 import { redactBrowserUrl } from './redaction';
 import { isBrowserComponentAddress } from './request-scheme';

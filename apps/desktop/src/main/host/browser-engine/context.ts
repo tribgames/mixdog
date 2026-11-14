@@ -8,7 +8,7 @@ import type { WebContents } from 'electron';
 
 import type { PageFacts } from '../../../../../../packages/protocol/src/index.ts';
 import type { BrowserCdpPort } from '../../browser/cdp';
-import type { BrowserGuestStateStore } from '../../browser/guest-state';
+import type { BrowserGuestStateStore } from '../../browser/host-state';
 import type { Leases } from './lease';
 import type { TranscriptTap } from './transcript';
 

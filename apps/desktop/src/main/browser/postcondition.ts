@@ -1,4 +1,4 @@
-import { boundedInteger } from './command';
+import { boundedInteger } from './host-types';
 
 export interface BrowserPostconditionInput {
   text?: string;

@@ -11,7 +11,7 @@
  */
 import type { WebContents } from 'electron';
 
-import type { BrowserCommand, BrowserCommandResult } from './command';
+import type { BrowserCommand, BrowserCommandResult } from './host-types';
 
 const MAX_RULES_PER_PAGE = 10;
 const MAX_BODY_CHARS = 64 * 1024;

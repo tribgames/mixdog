@@ -7,11 +7,11 @@ import type { BrowserWindow, WebContents } from 'electron';
 import { app, screen } from 'electron';
 
 import type { BrowserGuestCdp } from './cdp';
-import { BROWSER_PARTITION, NAVIGATE_SETTLE_TIMEOUT_MS, OFFSCREEN_VIEWPORT } from './command';
+import { BROWSER_PARTITION, NAVIGATE_SETTLE_TIMEOUT_MS, OFFSCREEN_VIEWPORT } from './host-types';
 import { createBrowserBackgroundPages } from './guest-background-pages';
 import { createBrowserGuestInitializer } from './guest-initialize';
 import { createBrowserSessionRestore } from './guest-session-restore';
-import type { BrowserGuestStateStore } from './guest-state';
+import type { BrowserGuestStateStore } from './host-state';
 import { createBrowserSurfaceRequests } from './guest-surface-requests';
 import { type BrowserSessionRegistry, DEFAULT_BROWSER_SESSION_ID } from './session-registry';
 import { createBrowserPageOwner } from './page-owner';

@@ -18,7 +18,7 @@ import {
 import { onRequestPaused, type RequestPauseHost } from './cdp-events-fetch';
 import { onAttachedToTarget, type TargetAttachHost } from './cdp-events-target';
 import { parseDialogBridgeNotice } from './dialog-bridge';
-import type { BrowserGuestStateStore } from './guest-state';
+import type { BrowserGuestStateStore } from './host-state';
 import { reportPageFault } from './page-fault-diagnostics';
 import { recordWindowOpen } from './popup-focus';
 import { redactBrowserText } from './redaction';

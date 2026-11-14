@@ -4,7 +4,7 @@
  * runs in parallel, and observations overlap freely — a write still waits for
  * the reads already in flight, so it never lands mid-observation.
  */
-import { type BrowserCommand, type BrowserCommandResult, normalizeBrowserAction } from './command';
+import { type BrowserCommand, type BrowserCommandResult, normalizeBrowserAction } from './host-types';
 import { queueBarrier, trackQueueTail, waitForBarrier, type QueueLedger } from './command-queue-barrier';
 import { commandQueueKey, type QueueKeyHost } from './command-queue-key';
 import { createLocalInputQueue } from './command-queue-local-input';

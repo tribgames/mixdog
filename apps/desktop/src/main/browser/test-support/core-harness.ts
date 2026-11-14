@@ -18,7 +18,8 @@ import { readLocalDiscovery } from '../../protocol/discovery';
 import { createHostConnection } from '../../protocol/host-connection';
 import { openCore } from '../../protocol/open-core';
 import { readyBrowserFrame } from '../harness-frame';
-import { type BrowserHost, createBrowserHost } from '../host';
+import { type BrowserHost } from '../host-types';
+import { createBrowserHost } from '../host';
 
 /** `host` is the path the host role serves today (the Electron browser host runs the tool); `core` runs it in the core's engine. */
 export type CoreHarnessEngine = 'core' | 'host';

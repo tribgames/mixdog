@@ -1,7 +1,7 @@
 import type { WebContents } from 'electron';
 
 import type { BrowserCdpPort } from './cdp';
-import type { GuestSlot } from './guest-state';
+import type { GuestSlot } from './host-types';
 import { BrowserTraceExport } from './trace-file';
 
 interface TraceAggregate {

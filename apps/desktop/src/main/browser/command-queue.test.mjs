@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { createBrowserCommandQueue } from './command-queue.ts';
-import { READ_ONLY_ACTIONS } from './command.ts';
+import { READ_ONLY_ACTIONS } from './host-types.ts';
 
 function takeoverFixture(run, options = {}) {
   return createBrowserCommandQueue({

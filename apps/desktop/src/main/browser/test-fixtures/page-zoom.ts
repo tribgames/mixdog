@@ -10,7 +10,7 @@ import { join } from 'node:path';
 
 import { app, BrowserWindow, screen, session, type WebContents } from 'electron';
 
-import { BROWSER_PARTITION } from '../command';
+import { BROWSER_PARTITION } from '../host-types';
 import { offscreenWindowOptions } from '../guest-lifecycle';
 import { createBrowserNativeViews } from '../native-view';
 import { zoomGuest } from '../page-surface-control';

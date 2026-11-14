@@ -6,8 +6,8 @@
  */
 import type { WebContents } from 'electron';
 
-import type { BrowserCommand } from './command';
-import type { GuestSlot } from './guest-state';
+import type { BrowserCommand } from './host-types';
+import type { GuestSlot } from './host-types';
 import type { BrowserRefPointHost } from './ref-points';
 import type { BrowserRefSet } from './ref-recovery';
 

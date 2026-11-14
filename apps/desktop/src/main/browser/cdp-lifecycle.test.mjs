@@ -5,8 +5,8 @@ import { runInNewContext } from 'node:vm';
 import { createBrowserGuestCdp } from './cdp.ts';
 import { CHROME_LIKENESS_SCRIPT } from './chrome-likeness.ts';
 import { DIALOG_BRIDGE_SCRIPT } from './dialog-bridge.ts';
-import { BrowserGuestStateStore } from './guest-state.ts';
-import { MAX_CHILD_CDP_SESSIONS } from './command.ts';
+import { BrowserGuestStateStore } from './host-state.ts';
+import { MAX_CHILD_CDP_SESSIONS } from './host-types.ts';
 import { formatPageReport } from './snapshot-format.ts';
 import { waitUntil } from '../../shared/core-src/runtime/shared/wait-until.test-support.mjs';
 

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { test } from 'node:test';
 
-import { BrowserGuestStateStore } from '../../browser/guest-state.ts';
+import { BrowserGuestStateStore } from '../../browser/host-state.ts';
 import { bindGuestState, createPageFacts } from './facts.ts';
 
 const SECRET = 'hunter2hunter2hunter2';

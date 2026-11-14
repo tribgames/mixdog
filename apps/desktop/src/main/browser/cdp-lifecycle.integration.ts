@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
 import { app, BrowserWindow } from 'electron';
 import { makeTempDirSync, removeTempDir } from '../../../../../scripts/lib/scoped-temp.mjs';
 import { createBrowserGuestCdp } from './cdp';
-import { BrowserGuestStateStore } from './guest-state';
+import { BrowserGuestStateStore } from './host-state';
 
 // This process owns only disposable windows/profile; never attach to the live app.
 const profile = makeTempDirSync('cdp-lifecycle');

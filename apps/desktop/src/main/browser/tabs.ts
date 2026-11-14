@@ -3,7 +3,7 @@
  * ones. Named support pages stay hidden unless explicitly revealed. Merely
  * targeting an agent page never turns it into a user-owned, persistent tab.
  */
-import type { BrowserCommandResult } from './command';
+import type { BrowserCommandResult } from './host-types';
 import { redactBrowserText, redactBrowserUrl } from './redaction';
 import type { BrowserTabsHost } from './tabs-contract';
 import { createDisplayTabs } from './tabs-display';

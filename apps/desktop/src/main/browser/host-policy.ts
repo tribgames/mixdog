@@ -8,7 +8,7 @@ import type { WebContents } from 'electron';
 import type { EmulationSpec } from '../../../../../packages/protocol/src/index.ts';
 import { BROWSER_INPUT_WAIT_MS, browserTypingInput } from '../../shared/browser-input-policy';
 import type { DesktopBrowserPageControl, DesktopBrowserViewportConfig } from '../../shared/contract';
-import type { BrowserCommand } from './command';
+import type { BrowserCommand } from './host-types';
 import type { BrowserUrlPolicy } from './url-policy';
 
 /** Private/LAN/Tailscale addresses are the user's own network when the browser

@@ -7,7 +7,7 @@
 import type { WebContents } from 'electron';
 
 import { persistFrameImage } from '../frame-files';
-import type { BrowserCommand, BrowserCommandResult, BrowserSnapshotResultOptions } from './command';
+import type { BrowserCommand, BrowserCommandResult, BrowserSnapshotResultOptions } from './host-types';
 import type { BrowserReplyHost } from './reply';
 
 type ReplyScreenshotHost = Pick<BrowserReplyHost, 'state' | 'captureScreenshot' | 'bindVisualGrounding'>;

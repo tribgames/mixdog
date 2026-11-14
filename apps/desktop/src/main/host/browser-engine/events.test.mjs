@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { createBrowserCdpEventRouter } from '../../browser/cdp-event-router.ts';
-import { BrowserGuestStateStore } from '../../browser/guest-state.ts';
+import { BrowserGuestStateStore } from '../../browser/host-state.ts';
 import { createEngineEvents, createEngineEventSink, MAX_BATCH_BYTES } from './events.ts';
 
 const SECRET = 'hunter2hunter2hunter2';

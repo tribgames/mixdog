@@ -11,8 +11,8 @@ import type { WebContents } from 'electron';
 import { BrowserActionabilityError, waitForBrowserActionable } from './actionability';
 import type { BrowserSnapshotElement, BrowserSnapshotPayload } from './accessibility';
 import type { BrowserCdpPort } from './cdp';
-import type { BrowserCommand } from './command';
-import type { BrowserGuestStateStore } from './guest-state';
+import type { BrowserCommand } from './host-types';
+import type { BrowserGuestStateStore } from './host-state';
 import { redactBrowserText } from './redaction';
 import { timedBrowserOperation } from './timing';
 

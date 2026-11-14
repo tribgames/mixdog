@@ -1,6 +1,6 @@
 import type { WebContents } from 'electron';
 import type { DesktopBrowserPageControl, DesktopBrowserPageFrame } from '../../shared/contract';
-import type { BrowserGuestStateStore } from './guest-state';
+import type { BrowserGuestStateStore } from './host-state';
 import type { createBrowserDialogReport } from './dialog-report';
 import type { createBrowserRefActions } from './ref-actions';
 import type { BrowserLeaveConfirmation } from './leave-confirmation';

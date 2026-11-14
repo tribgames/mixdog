@@ -13,7 +13,7 @@
  * `host/browser/surface` (registerBrowserSurfaceReport listens to it).
  */
 import type { PageDescriptor, PageFacts } from '../../../../../../packages/protocol/src/index.ts';
-import { type BrowserGuestStateStore } from '../../browser/guest-state';
+import { type BrowserGuestStateStore } from '../../browser/host-state';
 import { browserSessionId, type BrowserSessionRegistry } from '../../browser/session-registry';
 import type { createBrowserGuestLifecycle } from '../../browser/guest-lifecycle';
 import type { createBrowserTabs } from '../../browser/tabs';

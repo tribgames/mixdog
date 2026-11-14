@@ -1,6 +1,6 @@
 /** Compound `emulate` input is validated before any CDP call, so a rejected
  *  command never leaves the page half reset. */
-import type { BrowserCommand } from './command';
+import type { BrowserCommand } from './host-types';
 
 export type NetworkProfile = {
   offline: boolean;

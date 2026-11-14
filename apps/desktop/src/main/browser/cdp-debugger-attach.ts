@@ -3,8 +3,8 @@
 import type { WebContents } from 'electron';
 
 import { bounded } from './cdp-bounded';
-import { OPEN_SURFACE_TIMEOUT_MS } from './command';
-import type { BrowserGuestStateStore } from './guest-state';
+import { OPEN_SURFACE_TIMEOUT_MS } from './host-types';
+import type { BrowserGuestStateStore } from './host-state';
 
 type CdpParams = Record<string, unknown>;
 

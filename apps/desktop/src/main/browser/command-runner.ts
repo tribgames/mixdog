@@ -8,17 +8,10 @@ import { pageHasPaymentEvidence } from './payment-evidence';
 import { type createBrowserAutoSignIn, SAVED_SIGN_IN_DONE, SAVED_SIGN_IN_NEEDS_USER } from './auto-sign-in';
 import { browserActionHandler, type BrowserActionServices } from './actions';
 import { adoptResolvedTargets } from './actions/target';
-import {
-  type BrowserCommand,
-  type BrowserCommandResult,
-  DIALOG_TOLERANT_ACTIONS,
-  normalizeBrowserAction,
-  POSTCONDITION_ACTIONS,
-  TABLESS_ACTIONS,
-} from './command';
+import { type BrowserCommand, type BrowserCommandResult, DIALOG_TOLERANT_ACTIONS, normalizeBrowserAction, POSTCONDITION_ACTIONS, TABLESS_ACTIONS } from './host-types';
 import type { createBrowserDownloads } from './downloads';
 import type { createBrowserGuestLifecycle } from './guest-lifecycle';
-import { browserDocumentId, type BrowserGuestStateStore } from './guest-state';
+import { browserDocumentId, type BrowserGuestStateStore } from './host-state';
 import type { createBrowserLinkedSignIns } from './linked-sign-in';
 import { normalizeBrowserPostcondition, normalizeBrowserSettleMs } from './postcondition';
 import { redactBrowserText } from './redaction';

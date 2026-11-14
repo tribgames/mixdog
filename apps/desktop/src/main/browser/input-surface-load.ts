@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { BrowserWindow, nativeImage, type WebContents } from 'electron';
-import type { BrowserHost } from './host';
+import type { BrowserHost } from './host-types';
 import { createPolling } from '../host-harness-poll';
 import { measureBrowserWheelToPixels, percentileMs } from './input-surface-latency';
 

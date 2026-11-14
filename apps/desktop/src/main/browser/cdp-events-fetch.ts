@@ -3,11 +3,11 @@
  *  it forever, so every branch answers. */
 import type { WebContents } from 'electron';
 
-import { CDP_REQUEST_TIMEOUT_MS } from './command';
+import { CDP_REQUEST_TIMEOUT_MS } from './host-types';
 import type { BrowserCdpSend } from './cdp-session-init';
 import { parsePermissionStateRequest, permissionStateFulfillParams } from './chrome-likeness';
 import { dialogBridgeFulfillParams, parseDialogBridgeRequest } from './dialog-bridge';
-import type { BrowserGuestStateStore } from './guest-state';
+import type { BrowserGuestStateStore } from './host-state';
 import { type BrowserInterceptRule, interceptFulfillParams } from './intercept';
 import { redactBrowserText, redactBrowserUrl } from './redaction';
 

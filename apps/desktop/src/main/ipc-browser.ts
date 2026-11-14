@@ -5,7 +5,7 @@ import {
   type DesktopCookieAutoImportRequest,
 } from '../shared/contract';
 import { requiredSessionId } from './desktop-state';
-import type { BrowserHost } from './browser/host';
+import type { BrowserHost } from './browser/host-types';
 import type { BrowserLoginPopup } from './browser/login-popup';
 import { decideBrowserApproval } from './browser/approval-dialog';
 import { normalizeSignedInSite } from './browser/signed-in-sites';

@@ -5,7 +5,7 @@
  */
 import assert from 'node:assert/strict';
 import { nativeImage, type WebContents } from 'electron';
-import type { BrowserHost } from './host';
+import type { BrowserHost } from './host-types';
 import { readyBrowserFrame } from './harness-frame';
 import type { DesktopBrowserPageFrame } from '../../shared/contract';
 
