@@ -229,23 +229,26 @@ async function sourceTreeHash(sourceRoot) {
   return sourceHash.digest('hex');
 }
 
-const computerNativeFileName = 'mixdog-computer';
+// The name cargo writes for the target, which is also the name the core and the
+// desktop look for in native-tools (native_tools.rs `file_name`, index.ts).
+const computerNativeFileName = `mixdog-computer${embeddingTarget.platform === 'win32' ? '.exe' : ''}`;
 const computerRustTargets = Object.freeze({
   'darwin-arm64': 'aarch64-apple-darwin',
   'darwin-x64': 'x86_64-apple-darwin',
   'linux-arm64': 'aarch64-unknown-linux-gnu',
   'linux-x64': 'x86_64-unknown-linux-gnu',
+  'win32-arm64': 'aarch64-pc-windows-msvc',
+  'win32-x64': 'x86_64-pc-windows-msvc',
 });
 let computerNativeBinary = '';
 let computerInputIdentity = null;
 
 /**
- * The macOS/Linux Computer Use backend, built from source for the target and
- * cached by its source digest. Windows drives the desktop through PowerShell
- * and needs no backend binary.
+ * The Computer Use helper (native/mixdog-computer), built from source for the
+ * target and cached by its source digest. The Rust core drives the desktop
+ * through it on every platform, Windows included.
  */
 async function prepareComputerNative() {
-  if (embeddingTarget.platform === 'win32') return { binary: '', identity: null };
   const sourceRoot = join(rootDir, 'native', 'mixdog-computer');
   const identity = { schemaVersion: 1, target: embeddingTarget.key, sourceHash: await sourceTreeHash(sourceRoot) };
   const configured = String(process.env.MIXDOG_COMPUTER_NATIVE_BIN ?? '').trim();
@@ -624,7 +627,7 @@ async function prepareDesktopNativeTools() {
     const destination = join(desktopNativeToolsDir, computerNativeFileName);
     await cp(computerNativeBinary, destination);
     await assertTargetArchitecture(destination, 'Computer Use backend');
-    await chmod(destination, 0o755);
+    if (embeddingTarget.platform !== 'win32') await chmod(destination, 0o755);
   }
   if (browserImportInputIdentity) {
     const sourceDirectory = resolve(browserImportNativeSourceDir);

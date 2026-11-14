@@ -67,7 +67,9 @@ extraResources:
     to: server-cores
   # Product-native executables stay canonical GitHub release assets. Desktop
   # preparation downloads, verifies, and embeds only this platform's set,
-  # plus the macOS/Linux Computer Use backend it builds from source.
+  # plus the in-repo helpers built from source: the Computer Use helper
+  # (mixdog-computer, .exe on Windows) on every platform, and on Windows the
+  # browser importer, the secure-desktop helper and the window library.
   - from: .runtime/native-tools
     to: native-tools
   # License obligations travel with the installed app: MIT requires its
@@ -84,8 +86,9 @@ extraResources:
 win:
   icon: build/mixdog.ico
   verifyUpdateCodeSignature: false
-  # Only .exe files are signed by default; the main process also loads this
-  # in-repo library (native-tools). Matched by file-name suffix.
+  # Only .exe files are signed by default, which covers every native-tools
+  # executable (mixdog-computer.exe included); the main process also loads
+  # this in-repo library (native-tools). Matched by file-name suffix.
   signExts:
     - mixdog_window.dll
   target:
