@@ -12,8 +12,8 @@ import type {
 } from '../../shared/contract';
 import type { DesktopHostExtras, DirectKey } from '../../shared/desktop-api-split.ts';
 
-import { createCapabilityLane } from '../../shared/core-lanes/capability-route.ts';
 import { withSectionCapabilities } from '../../main/protocol/section-capability-lane.ts';
+import { sessionLanesOf } from './api-sessions.ts';
 import { windowOfReply } from './client.ts';
 import type { DirectContext } from './context.ts';
 import { withDirectErrors } from './errors.ts';
@@ -59,7 +59,8 @@ export function createCapabilitiesApi(
   };
   let lastSnapshot: SessionSnapshot | undefined;
   const lane = withSectionCapabilities({
-    lane: createCapabilityLane({ protocol: connection }),
+    // The window's one capability lane (api-sessions): one control thread per window, as main had one control session.
+    lane: sessionLanesOf(ctx).capability,
     protocol: {
       call: (method, params) => connection.call(method, params),
       snapshot: () => connection.snapshot(),

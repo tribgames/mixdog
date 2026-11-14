@@ -269,6 +269,27 @@ fn prompt_content(value: Option<&Value>, path: &str) -> Checked {
     Ok(())
 }
 
+/// The office types a file part may name, in their canonical case (`OFFICE_MIME_TYPES`, `shared/prompt-limits.ts`).
+const OFFICE_MIME_TYPES: [&str; 7] = [
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-excel.sheet.macroEnabled.12",
+    "application/msword",
+    "application/vnd.ms-powerpoint",
+    "application/vnd.ms-excel",
+];
+
+/// `canonicalPromptFileMimeType` (`shared/prompt-limits.ts`): the canonical-case type of a PDF or office document, its
+/// parameters ignored; `None` for any other type. The one implementation every crate that shapes a file part uses.
+pub fn canonical_prompt_file_mime(mime: &str) -> Option<&'static str> {
+    let base = js_to_lowercase(js_trim(mime.split(';').next().unwrap_or_default()));
+    if base == "application/pdf" {
+        return Some("application/pdf");
+    }
+    OFFICE_MIME_TYPES.into_iter().find(|candidate| js_to_lowercase(candidate) == base)
+}
+
 /// `Number.isSafeInteger(n) && n > 0`.
 fn is_positive_safe_integer(number: &serde_json::Number) -> bool {
     if let Some(n) = number.as_u64() {
@@ -564,5 +585,25 @@ mod validate_prompt {
             check("thread/start", Some(&draft(serde_json::json!({"contextTokens": 0})))),
             want("/draft/route/contextTokens", "selection.contextTokens must be a positive integer.")
         );
+    }
+}
+
+#[cfg(test)]
+mod canonical_file_mime {
+    use super::canonical_prompt_file_mime;
+
+    #[test]
+    fn pdf_and_office_types_take_their_canonical_case_and_lose_parameters() {
+        assert_eq!(canonical_prompt_file_mime(" Application/PDF ; charset=x"), Some("application/pdf"));
+        assert_eq!(canonical_prompt_file_mime("APPLICATION/MSWORD"), Some("application/msword"));
+        assert_eq!(
+            canonical_prompt_file_mime("application/vnd.ms-excel.sheet.macroenabled.12"),
+            Some("application/vnd.ms-excel.sheet.macroEnabled.12")
+        );
+    }
+
+    #[test]
+    fn any_other_type_is_none() {
+        assert_eq!(canonical_prompt_file_mime("text/plain"), None);
     }
 }

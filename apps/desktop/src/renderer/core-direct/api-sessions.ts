@@ -35,6 +35,13 @@ export interface SessionLanes {
 
 const lanes = new WeakMap<DirectContext, SessionLanes>();
 
+/** The remote session this window shows (the `remoteSession` entry of the host state), if any. */
+function remoteSessionIdOfWindow(ctx: DirectContext): string | undefined {
+  const held = ctx.connection.snapshot().entries.find((e) => e.section === 'hostState' && e.key === 'remoteSession');
+  const id = (held?.value as { sessionId?: unknown } | null | undefined)?.sessionId;
+  return typeof id === 'string' ? id : undefined;
+}
+
 export function sessionLanesOf(ctx: DirectContext): SessionLanes {
   const held = lanes.get(ctx);
   if (held) return held;
@@ -53,7 +60,11 @@ export function sessionLanesOf(ctx: DirectContext): SessionLanes {
   };
   const made: SessionLanes = {
     capability: createCapabilityLane({ protocol: ctx.connection }),
-    service: createServiceLane({ protocol: ctx.connection, snapshot: () => shell.get() }),
+    // Before a start call published a shell snapshot, the blank snapshot is composed for the remote session this window shows.
+    service: createServiceLane({
+      protocol: ctx.connection,
+      snapshot: () => shell.get() ?? ({ remoteSessionId: remoteSessionIdOfWindow(ctx) } as unknown as SessionSnapshot),
+    }),
     session: createSessionLane({ protocol: ctx.connection }),
     shell,
   };

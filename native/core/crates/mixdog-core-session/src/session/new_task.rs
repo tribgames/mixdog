@@ -713,7 +713,7 @@ impl SessionDirectory {
         request.commit(Phase::Accepted).await?;
         // Recency is advisory, also after the prompt is accepted: a failed write changes nothing of the task, its receipt or its
         // subscription (`touchProject` of `submitNewTask` swallows it).
-        let project = params.project_path.as_ref().or_else(|| params.draft.as_ref().and_then(|draft| draft.project_path.as_ref())).filter(|path| !path.trim().is_empty());
+        let project = params.project_path.as_deref().or_else(|| params.draft.as_ref().and_then(|draft| draft.project_path.as_deref()).map(mixdog_js::js_trim)).filter(|path| !path.trim().is_empty());
         if let Some(path) = project
             && let Err(error) = self.deps().new_place.touch_project(path).await
         {
