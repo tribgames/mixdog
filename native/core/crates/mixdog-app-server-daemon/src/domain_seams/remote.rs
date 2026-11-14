@@ -106,10 +106,11 @@ impl Dialer for LateDialer {
 /// and an owed revocation are already in the section the runtime publishes right after the event
 /// (`controllerKeys`, `owedKeys`), which the desktop reads; PC access, once bound, also acts on them
 /// (the delegated enroll of a delivered key, the revoke of an owed one); only the relay failure has no
-/// section field, so it is logged.
+/// section field, so it is announced on the app feed (the windows' toast) and logged.
 pub struct SectionEvents {
     cleanup: OnceLock<Arc<dyn DeviceCleanup>>,
     pc_access: OnceLock<Arc<dyn PcAccessEvents>>,
+    app_feed: OnceLock<mixdog_core_config::config::Announcer>,
 }
 
 /// What the services holding a device's state drop when it is unpaired. Bound once they exist (they are built after the runtime).
@@ -124,7 +125,7 @@ pub trait DeviceCleanup: Send + Sync {
 
 impl SectionEvents {
     pub fn new() -> Self {
-        Self { cleanup: OnceLock::new(), pc_access: OnceLock::new() }
+        Self { cleanup: OnceLock::new(), pc_access: OnceLock::new(), app_feed: OnceLock::new() }
     }
 
     pub fn bind(&self, cleanup: Arc<dyn DeviceCleanup>) -> Result<(), &'static str> {
@@ -134,6 +135,11 @@ impl SectionEvents {
     /// PC access, built after the runtime: a delivered key is enrolled, an owed revocation is revoked.
     pub fn bind_pc_access(&self, pc_access: Arc<dyn PcAccessEvents>) -> Result<(), &'static str> {
         self.pc_access.set(pc_access).map_err(|_| "PC access is already bound")
+    }
+
+    /// The app feed, built after the runtime: a frame the relay refused is announced on it (`ui/relayPayloadRefused`).
+    pub fn bind_app_feed(&self, app_feed: mixdog_core_config::config::Announcer) -> Result<(), &'static str> {
+        self.app_feed.set(app_feed).map_err(|_| "the app feed is already bound")
     }
 }
 
@@ -172,6 +178,13 @@ impl RemoteEvents for SectionEvents {
         match self.cleanup.get() {
             Some(cleanup) => cleanup.forgotten(credential_id),
             None => Box::pin(async {}),
+        }
+    }
+
+    fn relay_payload_refused(&self, bytes: Option<u64>, limit: Option<u64>) {
+        tracing::warn!(?bytes, ?limit, "the relay refused an oversize frame");
+        if let Some(app_feed) = self.app_feed.get() {
+            app_feed("ui/relayPayloadRefused", serde_json::json!({ "bytes": bytes, "limit": limit }));
         }
     }
 
@@ -394,6 +407,19 @@ mod tests {
         late.publish(SectionName::HostState, Some("c".into()), SectionChange::Removed);
         let keys: Vec<_> = seen.0.lock().unwrap().iter().map(|(_, key)| key.clone().unwrap()).collect();
         assert_eq!(keys, ["a", "b", "c"]);
+    }
+
+    #[test]
+    fn a_refused_relay_frame_is_announced_on_the_app_feed_with_its_sizes() {
+        let events = SectionEvents::new();
+        // Before the bind there is nowhere to announce: nothing happens.
+        events.relay_payload_refused(Some(1), Some(2));
+        let seen: Arc<Mutex<Vec<(&'static str, Value)>>> = Arc::default();
+        let sink = seen.clone();
+        events.bind_app_feed(Arc::new(move |method, params| sink.lock().unwrap().push((method, params)))).unwrap();
+        assert!(events.bind_app_feed(Arc::new(|_, _| {})).is_err());
+        events.relay_payload_refused(Some(70_000_000), None);
+        assert_eq!(*seen.lock().unwrap(), [("ui/relayPayloadRefused", serde_json::json!({ "bytes": 70_000_000, "limit": null }))]);
     }
 
     #[tokio::test]
