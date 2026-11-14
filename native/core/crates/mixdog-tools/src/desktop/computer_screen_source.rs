@@ -1672,7 +1672,9 @@ mod tests {
         sources.displays().await;
         let mut source = sources.capture("11").expect("a source");
         assert_eq!(source.kind(), FrameSourceKind::Screen { display: 11 });
-        assert_eq!(source.next_frame().await.expect("a frame").expect("one").seq, 99);
+        let frame = source.next_frame().await.expect("a frame").expect("one");
+        // The source numbers its own pictures from 0 (the pixels' own number is not carried), and the pixels' picture is the one served.
+        assert_eq!((frame.seq, frame.format, &frame.data[..]), (0, PixelFormat::Jpeg, &b"jpeg"[..]));
         assert!(matches!(sources.capture("0"), Err(ComputerError::InvalidInput { .. })), "the virtual screen is not one of the monitors");
     }
 

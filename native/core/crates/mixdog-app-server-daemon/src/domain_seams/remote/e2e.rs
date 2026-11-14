@@ -78,6 +78,14 @@ use crate::connection_close::ConnectionOwner;
 use crate::connection_close::ConnectionOwners;
 use crate::live_view::LiveViewService;
 use crate::live_view::PairedScreenAccess;
+use crate::live_view::PhoneScreens;
+use crate::live_view::ScreenEnd;
+#[cfg(windows)]
+use mixdog_core_api::domain::media::MediaFrameSource;
+#[cfg(windows)]
+use mixdog_tools::desktop::screen_source::ScreenSink;
+#[cfg(windows)]
+use mixdog_tools::desktop::screen_source::ScreenViewer;
 use common::Event;
 use common::LegEnd;
 use common::Phone;
@@ -141,6 +149,38 @@ impl HostChannel for Desktop {
         self.notified.lock().unwrap().push((method.as_str().to_owned(), params));
         Ok(())
     }
+}
+
+/// The phone's screen control as `compose_screen` binds it where the screen is served, with the part these scenarios are about: the
+/// display list is the desktop's (asked of it at each read, `host/computer/displays`), and a connection's access is the live view's own
+/// rule, which asks this port for its grant only once it allowed the connection. The screen sessions themselves (input, capture, the
+/// pill) are not exercised here: no session is ever resolved.
+struct DesktopScreens(Arc<Desktop>);
+
+#[async_trait::async_trait]
+impl PhoneScreens for DesktopScreens {
+    async fn displays(&self) -> Result<Value, String> {
+        self.0.request(HostCapability::Computer, Method("host/computer/displays"), json!({})).await.map_err(|error| format!("{error:?}"))
+    }
+
+    async fn grant(&self, _: ConnectionId) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn withdraw(&self, _: ConnectionId, _: ScreenEnd) {}
+
+    #[cfg(windows)]
+    fn resolve(&self, _: &str, _: ConnectionId, _: bool) -> Option<Arc<ScreenViewer>> {
+        None
+    }
+
+    #[cfg(windows)]
+    fn capture(&self, _: &str) -> Result<Box<dyn MediaFrameSource>, String> {
+        Err("no screen session is run by this replay".to_owned())
+    }
+
+    #[cfg(windows)]
+    fn attach(&self, _: Arc<dyn ScreenSink>) {}
 }
 
 /// The live view's pushes to the phones, kept by the desktop stand-in for a test to read.
@@ -401,6 +441,7 @@ impl Harness {
             Arc::new(PairedScreenAccess::new(phone_credential(remote.registry.clone()), super::screen_revoked(remote.registry.clone()), super::peer_attached(remote.registry.clone()))),
         ));
         let _ = live_view_slot.set(Arc::downgrade(&live));
+        assert!(live.bind_screens(Arc::new(DesktopScreens(desktop.clone()))).is_ok(), "the screens are bound once");
         let core = Arc::new(Core { live, workspace, access, mock, screen, registry: remote.registry.clone(), owners, closed: closed_tx });
         let hub = ConnectionHub::new(Limits::default()).unwrap();
         let origins = hub.clone();
