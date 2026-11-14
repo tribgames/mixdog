@@ -4,6 +4,7 @@
 
 #![allow(
     clippy::disallowed_methods,
+    clippy::disallowed_types,
     reason = "a test driver: it makes the folders and the link the path guard is checked against"
 )]
 
