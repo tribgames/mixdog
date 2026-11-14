@@ -15,7 +15,7 @@ function fakeService(answers) {
   };
 }
 
-const notification = (method, feedId, params) => ({ type: 'notification', notification: { method, params, feed: { id: feedId } } });
+const notification = (method, feedId, params, feed = { id: feedId }) => ({ type: 'notification', notification: { method, params, feed } });
 const output = (id, bytes, feedId = `process:${id}`) =>
   notification('process/outputDelta', feedId, { processHandle: id, bytesB64: Buffer.from(bytes).toString('base64') });
 const attaches = (core) => core.calls.filter(([name]) => name === 'termAttach').map(([, id]) => id);
@@ -169,4 +169,126 @@ test('activity and size-owner events follow the terminal sections as Node pushed
     { id: 't2', cols: 50, rows: 10, own: false },
     { id: 't1', cols: 0, rows: 0, own: false },
   ]);
+});
+
+const stamped = (id, bytes, epoch, seq) =>
+  notification('process/outputDelta', `process:${id}`, { processHandle: id, bytesB64: Buffer.from(bytes).toString('base64') }, { id: `process:${id}`, epoch, seq });
+const relink = async (protocol) => {
+  protocol.replace();
+  await new Promise(setImmediate);
+};
+
+test('a new link attaches each tab again from the last stamp read on its feed; a tab nothing was read on attaches without one', async () => {
+  const protocol = fakeProtocol();
+  const core = fakeService({ termEnsure: (id) => ({ id, replay: '' }), termAttach: (id) => ({ id, replay: '' }) });
+  const host = createServiceTerminalHost(core, protocol);
+  await host.ensure('t1', null, null);
+  await host.ensure('t2', null, null);
+  protocol.emit(stamped('t1', 'a', 'e1', 7));
+  protocol.emit(stamped('t1', 'b', 'e1', 8));
+  const before = core.calls.length;
+  await relink(protocol);
+  assert.deepEqual(core.calls.slice(before).filter(([name]) => name === 'termAttach'), [
+    ['termAttach', 't1', { epoch: 'e1', seq: 8 }],
+    ['termAttach', 't2'],
+  ]);
+});
+
+test('a replay of the resumed epoch emits no reset; a snapshot or a new epoch emits one with the screen, and resumes from its position', async () => {
+  const protocol = fakeProtocol();
+  let subscription = { mode: 'replay', epoch: 'e1', startSeq: 9 };
+  const core = fakeService({
+    termEnsure: (id) => ({ id, replay: '' }),
+    termAttach: (id, from) => ({ id, replay: from ? 'SCREEN' : '', subscription }),
+  });
+  const host = createServiceTerminalHost(core, protocol);
+  const resets = [];
+  host.subscribeReset((event) => resets.push(event));
+  await host.ensure('t1', null, null);
+  protocol.emit(stamped('t1', 'a', 'e1', 8));
+  await relink(protocol);
+  assert.deepEqual(resets, []);
+  subscription = { mode: 'snapshot', epoch: 'e1', startSeq: 20 };
+  await relink(protocol);
+  assert.deepEqual(resets, [{ id: 't1', replay: 'SCREEN' }]);
+  // The next link resumes from the snapshot, so frames already drawn are not replayed.
+  subscription = { mode: 'replay', epoch: 'e1', startSeq: 20 };
+  const before = core.calls.length;
+  await relink(protocol);
+  assert.deepEqual(core.calls[before], ['termAttach', 't1', { epoch: 'e1', seq: 19 }]);
+  subscription = { mode: 'replay', epoch: 'e2', startSeq: 1 };
+  await relink(protocol);
+  assert.equal(resets.length, 2);
+});
+
+test('a tab that printed nothing resumes from the position its attach answered; a tab with no position to resume from is drawn anew', async () => {
+  const protocol = fakeProtocol();
+  let subscription = { mode: 'snapshot', epoch: 'e1', startSeq: 5 };
+  const core = fakeService({
+    termEnsure: (id) => ({ id, replay: '' }),
+    termAttach: (id) => ({ id, replay: 'SCREEN', ...(id === 't1' ? { subscription } : {}) }),
+  });
+  const host = createServiceTerminalHost(core, protocol);
+  const resets = [];
+  host.subscribeReset((event) => resets.push(event));
+  await host.ensure('t1', null, null);
+  assert.deepEqual(resets, [], 'a first attach draws its replay itself');
+  subscription = { mode: 'replay', epoch: 'e1', startSeq: 5 };
+  const before = core.calls.length;
+  await relink(protocol);
+  assert.deepEqual(core.calls[before], ['termAttach', 't1', { epoch: 'e1', seq: 4 }]);
+  assert.deepEqual(resets, []);
+  // An attach answered without a subscription leaves nothing to resume from: the screen is drawn anew.
+  await host.ensure('t2', null, null);
+  await relink(protocol);
+  assert.deepEqual(resets, [{ id: 't2', replay: 'SCREEN' }]);
+});
+
+test('a tab that is not running on the new link forgets its position and draws nothing', async () => {
+  const protocol = fakeProtocol();
+  let running = true;
+  const core = fakeService({ termEnsure: (id) => ({ id, replay: '' }), termAttach: (id) => (running ? { id, replay: '' } : null) });
+  const host = createServiceTerminalHost(core, protocol);
+  const resets = [];
+  host.subscribeReset((event) => resets.push(event));
+  await host.ensure('t1', null, null);
+  protocol.emit(stamped('t1', 'a', 'e1', 1));
+  running = false;
+  await relink(protocol);
+  assert.deepEqual(resets, []);
+  running = true;
+  await host.ensure('t1', null, null);
+  assert.deepEqual(core.calls.filter(([name]) => name === 'termAttach').at(-1), ['termAttach', 't1']);
+});
+
+test("one window's resume leaves the pause another window holds; the last holder's resume or release resumes the tab", () => {
+  const core = fakeService({});
+  const host = createServiceTerminalHost(core, fakeProtocol());
+  const flow = () => core.calls.filter(([name]) => name === 'termPause' || name === 'termResume');
+  host.pauseOutput('t1', 'wc:1');
+  host.pauseOutput('t1', 'wc:2');
+  host.pauseOutput('t1', 'wc:2');
+  assert.deepEqual(flow(), [['termPause', 't1']]);
+  host.resumeOutput('t1', 'wc:1');
+  assert.deepEqual(flow(), [['termPause', 't1']]);
+  host.resumeOutput('t1', 'wc:1');
+  assert.equal(flow().length, 1);
+  host.resumeOutput('t1', 'wc:2');
+  assert.deepEqual(flow(), [['termPause', 't1'], ['termResume', 't1']]);
+  host.pauseOutput('t1', 'wc:1');
+  host.pauseOutput('t2', 'wc:1');
+  host.pauseOutput('t2', 'wc:2');
+  host.releaseHolder('wc:1');
+  assert.deepEqual(flow().slice(2), [['termPause', 't1'], ['termPause', 't2'], ['termResume', 't1']]);
+});
+
+test('a new link pauses again the tabs a window still holds', async () => {
+  const protocol = fakeProtocol();
+  const core = fakeService({ termEnsure: (id) => ({ id, replay: '' }), termAttach: (id) => ({ id, replay: '' }) });
+  const host = createServiceTerminalHost(core, protocol);
+  await host.ensure('t1', null, null);
+  host.pauseOutput('t1', 'wc:1');
+  const before = core.calls.length;
+  await relink(protocol);
+  assert.ok(core.calls.slice(before).some(([name, id]) => name === 'termPause' && id === 't1'));
 });
