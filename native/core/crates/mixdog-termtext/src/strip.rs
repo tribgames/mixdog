@@ -49,10 +49,11 @@ fn match_at(bytes: &[u8], at: usize) -> Option<usize> {
     } else {
         return None;
     };
-    if introducer == 1 && bytes.get(at + 1) == Some(&b']') {
-        if let Some(end) = osc_end(bytes, at + 2) {
-            return Some(end);
-        }
+    if introducer == 1
+        && bytes.get(at + 1) == Some(&b']')
+        && let Some(end) = osc_end(bytes, at + 2)
+    {
+        return Some(end);
     }
     csi_end(bytes, at + introducer)
 }
