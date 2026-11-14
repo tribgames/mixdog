@@ -1,0 +1,16 @@
+[
+  "A tool is waiting for your approval.",
+  "Codes are not available on this connection server yet. Use the QR code.",
+  "Connection to {{name}} lost",
+  "Enter the 6-digit code shown on your PC.",
+  "File",
+  "Image",
+  "Mixdog is reconnecting automatically.",
+  "Open the server window to reconnect.",
+  "Reconnected to {{name}}",
+  "The code is wrong or has expired.",
+  "The server window is working again.",
+  "The turn stopped with an error.",
+  "Too many attempts. Try again in {{seconds}} seconds.",
+  "Video"
+]

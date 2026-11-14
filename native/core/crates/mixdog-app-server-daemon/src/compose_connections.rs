@@ -8,14 +8,16 @@
 //! at quit. The desktop host's presence ([`PresenceWatch`]) drives the 30 s grace after which the links close and the reopening of the
 //! windows that were remembered.
 
+use std::any::Any;
 use std::collections::BTreeMap;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
-use mixdog_app_protocol::v2::connections::{WindowFocusEntry, WindowFocusValue};
+use mixdog_app_protocol::v2::connections::{HostClaimResources, WindowFocusEntry, WindowFocusValue};
 use mixdog_app_protocol::v2::host::{HostNotificationShowParams, HostNotificationStatus, PowerEvent};
 use mixdog_app_server::Outgoing;
 use mixdog_connections::host_list_ops::HostList;
@@ -26,7 +28,7 @@ use mixdog_connections::diagnostics_ops::{DiagnosticsOps, EnvDiagnostics};
 use mixdog_connections::host_store::{SshHostRecord, SshHostStore};
 use mixdog_connections::link::{LinkPool, LinkStores};
 use mixdog_connections::login::EnvLoginHelpers;
-use mixdog_connections::notifier::{AttachmentKind, NotifyPrefs, NotifySink, NotifyTexts, WindowFocusSource};
+use mixdog_connections::notifier::{NotifyPrefs, NotifySink, WindowFocusSource};
 use mixdog_connections::paths::ConnectionsPaths;
 use mixdog_connections::port_forward_store::PortForwardStore;
 use mixdog_connections::remote_hosts::RemoteHostStore;
@@ -51,13 +53,13 @@ use mixdog_core_domains::domains::ai_admin::model_proxy_service::ModelProxyServi
 use mixdog_core_domains::domains::host::PowerSink;
 use mixdog_core_domains::notify::audience::pc_view;
 use mixdog_core_domains::notify::decision::PreferencesView;
-use mixdog_core_domains::notify::engine::{ToastStyle, ToastStyleReader};
+use mixdog_core_domains::notify::engine::ToastStyleReader;
 use mixdog_protocol::SectionName;
 use mixdog_rt::{DurabilityIo, SpawnIo, TaskClass};
 use mixdog_spawn::LocalProcessManager;
 use mixdog_ssh::bootstrap::{ServerBinary, ServerIdentity, ServerPayloads, StagedPayloads};
 use mixdog_ssh::context::{
-    ConfigFiles, LaneFiles, Platform, PreparedSpawn, SshConfigFiles, SshEnv, SshSpawner, ToolOutput, ToolRunner,
+    ClaimedResources, ConfigFiles, LaneFiles, Platform, PreparedSpawn, SshConfigFiles, SshEnv, SshSpawner, ToolOutput, ToolRunner,
 };
 use mixdog_ssh::diagnostics::Diagnostics;
 use mixdog_ssh::install_wire::{RemoteBootstrapError, ServerPlatform, SERVER_MANIFEST_FILE};
@@ -70,9 +72,12 @@ use serde_json::json;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::task::AbortHandle;
 
-use crate::compose::ComposeError;
 use crate::compose_flip::StopStep;
 use crate::connection_close::ConnectionOwner;
+
+#[path = "compose_connections_language.rs"]
+mod language;
+pub use language::{CatalogTexts, UiLanguage};
 
 /// How often the desktop host's presence is looked at: far inside the 30 s grace the service waits before it closes the links.
 const PRESENCE_POLL: Duration = Duration::from_secs(1);
@@ -163,25 +168,27 @@ impl SshConfigFiles for NoConfigFiles {
     }
 }
 
-/// The server runtimes the desktop ships, read from `SshEnv::server_cores_dir` when an install first needs them (a desktop that ships
-/// none reports `local-payload` on every attempt, as the earlier desktop did, and reads the folder again on the next one).
+/// The server runtimes the desktop ships, read from the folder the claim names (else `SshEnv::server_cores_dir`) when an install first
+/// needs them (a desktop that ships none reports `local-payload` on every attempt, as the earlier desktop did, and reads the folder
+/// again on the next one, so a claim that arrives later is seen).
 pub struct LocalPayloads {
     env: SshEnv,
+    resources: Arc<ClaimedResources>,
     staged: std::sync::OnceLock<StagedPayloads<'static, mixdog_fsio::Unlaned>>,
     /// What [`ServerPayloads::identity`] answers while nothing is staged: it matches no server's build.
     absent: ServerIdentity,
 }
 
 impl LocalPayloads {
-    pub fn new(env: SshEnv) -> Self {
-        Self { env, staged: std::sync::OnceLock::new(), absent: ServerIdentity { version: String::new(), build: String::new() } }
+    pub fn new(env: SshEnv, resources: Arc<ClaimedResources>) -> Self {
+        Self { env, resources, staged: std::sync::OnceLock::new(), absent: ServerIdentity { version: String::new(), build: String::new() } }
     }
 
     fn staged(&self) -> Result<&StagedPayloads<'static, mixdog_fsio::Unlaned>, RemoteBootstrapError> {
         if let Some(staged) = self.staged.get() {
             return Ok(staged);
         }
-        let opened = StagedPayloads::open(&mixdog_fsio::Unlaned, &self.env)?;
+        let opened = StagedPayloads::open(&mixdog_fsio::Unlaned, &self.resources.applied(&self.env))?;
         Ok(self.staged.get_or_init(|| opened))
     }
 }
@@ -219,18 +226,51 @@ pub struct SshMachineParts {
     pub configs: Arc<ResolvedConfigs>,
 }
 
-/// This PC as the ssh code sees it: the process's environment, `home`, the OpenSSH tools through `processes`, Mixdog's own ssh
-/// config in `data_dir` (the core's data folder), the askpass helper and the server runtimes the desktop ships.
-pub async fn ssh_machine(home: PathBuf, data_dir: PathBuf, env: &(dyn Fn(&str) -> Option<String> + Send + Sync), processes: LocalProcessManager, spawn_io: SpawnIo) -> Result<SshMachineParts, ComposeError> {
+/// The variables the ssh code reads by name (`SshEnv::var`, Mixdog's ssh folder, the link's grace): each is taken from the composed
+/// reader where it has one, so an environment the composition (or a test) injects is what the ssh code sees.
+const READ_NAMES: [&str; 22] = [
+    "PATH", "Path", "SystemRoot", "windir", "ProgramData", "ALLUSERSPROFILE", "PUBLIC", "SystemDrive", "USERNAME", "USER", "LOGNAME",
+    "TMPDIR", "TMP", "TEMP", "SSH_AUTH_SOCK", "DISPLAY", "MIXDOG_HOME", "MIXDOG_DESKTOP_USER_DATA", "MIXDOG_REMOTE_CLIENT_GRACE_MS",
+    "MIXDOG_SSH_REMOTE_CWD", ASKPASS_ENV, SERVER_CORES_ENV,
+];
+
+/// What a child ssh inherits: the process's environment, with the names ssh reads taken from `env` where it answers, and Mixdog's
+/// own ssh files in `data_dir` (the data folder this core was composed over) whatever the process environment says.
+fn ssh_vars(env: &dyn Fn(&str) -> Option<String>, data_dir: &Path) -> BTreeMap<String, String> {
+    let mut vars: BTreeMap<String, String> = std::env::vars_os().filter_map(|(name, value)| Some((name.into_string().ok()?, value.into_string().ok()?))).collect();
+    for name in READ_NAMES {
+        if let Some(value) = env(name) {
+            vars.insert(name.to_owned(), value);
+        }
+    }
+    vars.insert("MIXDOG_DATA_DIR".to_owned(), data_dir.to_string_lossy().into_owned());
+    vars
+}
+
+/// Mixdog's ssh folder, config and known_hosts over `before`. A folder that cannot be prepared is reported once, at error level, and
+/// leaves the rest of the core running: ssh then reads the user's own files, as it did before Mixdog kept any of its own.
+async fn mixdog_ssh_files(before: SshEnv) -> SshMachineParts {
+    match MixdogSshConfig::configure(&before).await {
+        Ok(config) => {
+            let configs = ResolvedConfigs::new(config);
+            SshMachineParts { env: SshEnv { config_files: configs.clone(), ..before }, configs }
+        }
+        Err(error) => {
+            tracing::error!(%error, "[connections] the ssh configuration folder could not be prepared; ssh uses the user's own files");
+            SshMachineParts { env: before, configs: ResolvedConfigs::without_config() }
+        }
+    }
+}
+
+/// This PC as the ssh code sees it: the process's environment (read through `env`), `home`, the OpenSSH tools through `processes`,
+/// Mixdog's own ssh config in `data_dir` (the core's data folder), the askpass helper and the server runtimes the desktop ships.
+pub async fn ssh_machine(home: PathBuf, data_dir: PathBuf, env: &(dyn Fn(&str) -> Option<String> + Send + Sync), processes: LocalProcessManager, spawn_io: SpawnIo) -> SshMachineParts {
     let spawner: Arc<dyn SshSpawner> = Arc::new(ProcessSpawner::new(Arc::new(processes), spawn_io));
     let files: Arc<dyn ConfigFiles + Send + Sync> = Arc::new(LaneFiles(&mixdog_fsio::Unlaned));
     let exe_dir = std::env::current_exe().ok().and_then(|exe| exe.parent().map(Path::to_path_buf));
-    let mut vars: BTreeMap<String, String> = std::env::vars_os().filter_map(|(name, value)| Some((name.into_string().ok()?, value.into_string().ok()?))).collect();
-    // Mixdog's own ssh files live in the data folder this core was composed over, whatever the process environment says.
-    vars.insert("MIXDOG_DATA_DIR".to_owned(), data_dir.to_string_lossy().into_owned());
     let before = SshEnv {
         platform: Platform::current(),
-        env: vars,
+        env: ssh_vars(env, &data_dir),
         home,
         askpass_helper: askpass_helper(env, exe_dir.as_deref(), files.as_ref()),
         server_cores_dir: server_cores_dir(env, exe_dir.as_deref(), files.as_ref()),
@@ -240,11 +280,7 @@ pub async fn ssh_machine(home: PathBuf, data_dir: PathBuf, env: &(dyn Fn(&str) -
         spawner,
         diagnostics: Arc::new(Diagnostics::new()),
     };
-    let config = MixdogSshConfig::configure(&before)
-        .await
-        .map_err(|error| ComposeError::Remote(format!("the ssh configuration folder could not be prepared: {error}")))?;
-    let configs = ResolvedConfigs::new(config);
-    Ok(SshMachineParts { env: SshEnv { config_files: configs.clone(), ..before }, configs })
+    mixdog_ssh_files(before).await
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -347,49 +383,6 @@ impl WindowFocusSource for HostWindowFocus {
     }
 }
 
-/// The fixed texts of a server's notifications. The core has no UI language of its own: these are the English words, which the
-/// desktop's host puts in this PC's language where it shows the toast (`host/notification/show`).
-pub struct EnglishTexts;
-
-impl NotifyTexts for EnglishTexts {
-    fn approval_waiting(&self) -> String {
-        "A tool is waiting for your approval.".to_owned()
-    }
-
-    fn turn_failed(&self) -> String {
-        "The turn stopped with an error.".to_owned()
-    }
-
-    fn lost_title(&self) -> String {
-        "Connection to {{name}} lost".to_owned()
-    }
-
-    fn lost_reconnecting(&self) -> String {
-        "Mixdog is reconnecting automatically.".to_owned()
-    }
-
-    fn lost_stopped(&self) -> String {
-        "Open the server window to reconnect.".to_owned()
-    }
-
-    fn restored_title(&self) -> String {
-        "Reconnected to {{name}}".to_owned()
-    }
-
-    fn restored_body(&self) -> String {
-        "The server window is working again.".to_owned()
-    }
-
-    fn attachment_label(&self, kind: AttachmentKind) -> String {
-        match kind {
-            AttachmentKind::Image => "Image",
-            AttachmentKind::Video => "Video",
-            AttachmentKind::File => "File",
-        }
-        .to_owned()
-    }
-}
-
 // ---------------------------------------------------------------------------------------------
 // The desktop host's presence, files of a server
 // ---------------------------------------------------------------------------------------------
@@ -447,6 +440,45 @@ impl RemoteFileReaders for PoolFiles {
     }
 }
 
+/// What `host/claim` `resources` the connections service reads (where the server runtimes and the askpass helper are): the claim that
+/// is recorded sets them and the claim that ends clears them.
+#[derive(Default)]
+pub struct ResourceClaims {
+    resources: Arc<ClaimedResources>,
+    /// The number of the claim that set `resources` last.
+    generation: AtomicU64,
+}
+
+/// Held by a claim for as long as it lasts.
+struct ClaimedResourcesGuard {
+    claims: Arc<ResourceClaims>,
+    generation: u64,
+}
+
+impl ResourceClaims {
+    /// What the ssh code reads the folders from.
+    pub fn resources(&self) -> Arc<ClaimedResources> {
+        self.resources.clone()
+    }
+
+    /// A claim was recorded with `resources` (`params.resources` of `host/claim`; `None`: the claimant named none): they are the
+    /// current ones until the returned guard is dropped (the claim was replaced or its connection closed). A newer claim attaches
+    /// before an older one is dropped, so a guard clears only what its own claim set.
+    pub fn attach(self: &Arc<Self>, resources: Option<HostClaimResources>) -> Box<dyn Any + Send> {
+        let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
+        self.resources.set(resources);
+        Box::new(ClaimedResourcesGuard { claims: self.clone(), generation })
+    }
+}
+
+impl Drop for ClaimedResourcesGuard {
+    fn drop(&mut self) {
+        if self.claims.generation.load(Ordering::SeqCst) == self.generation {
+            self.claims.resources.set(None);
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------------------------
 // The composition
 // ---------------------------------------------------------------------------------------------
@@ -461,6 +493,10 @@ pub struct ConnectionsInputs {
     pub user_data_dir: PathBuf,
     pub env: EnvReader,
     pub config: Config,
+    /// The toast sound and volume of this PC: the reader the `notify` domain's engine reads, so a server's toast sounds like any other.
+    pub style: ToastStyleReader,
+    /// Where the desktop says its server runtimes and askpass helper are (see [`ResourceClaims::attach`]).
+    pub claims: Arc<ResourceClaims>,
     pub processes: LocalProcessManager,
     pub spawn_io: SpawnIo,
     pub durability_io: DurabilityIo,
@@ -506,11 +542,11 @@ impl ConnectionOwner for ConnectionsService {
 }
 
 /// Builds the link pool and every module over it, starts the service, and gives the workspace the readers of the servers' files.
-pub async fn compose_connections(inputs: ConnectionsInputs) -> Result<Connections, ComposeError> {
-    let ConnectionsInputs { home, data_dir, user_data_dir, env, config, processes, spawn_io, durability_io, host, outgoing, notifier, scoped_feeds, sections, model_proxy, workspace } = inputs;
-    let machine = ssh_machine(home, data_dir, &*env, processes, spawn_io).await?;
+pub async fn compose_connections(inputs: ConnectionsInputs) -> Connections {
+    let ConnectionsInputs { home, data_dir, user_data_dir, env, config, style, claims, processes, spawn_io, durability_io, host, outgoing, notifier, scoped_feeds, sections, model_proxy, workspace } = inputs;
+    let machine = ssh_machine(home, data_dir, &*env, processes, spawn_io).await;
     let (ssh_env, configs) = (machine.env, machine.configs);
-    let payloads: Arc<LocalPayloads> = Arc::new(LocalPayloads::new(ssh_env.clone()));
+    let payloads: Arc<LocalPayloads> = Arc::new(LocalPayloads::new(ssh_env.clone(), claims.resources()));
 
     let paths = ConnectionsPaths::new(user_data_dir.clone());
     let hosts = Arc::new(SshHostStore::load(&paths, durability_io).await);
@@ -526,21 +562,18 @@ pub async fn compose_connections(inputs: ConnectionsInputs) -> Result<Connection
         LinkStores { hosts: hosts.clone(), port_forwards, payloads: payloads.clone(), host: host.clone() },
         Arc::new(ServiceProxy(model_proxy)),
     );
-    let style: ToastStyleReader = {
-        let config = config.clone();
-        Arc::new(move || ToastStyle::for_volume(config.desktop_settings().notification_volume))
-    };
+    let language = UiLanguage::over_sections(sections.clone());
     let watchers = LinkWatchers {
         sink: Arc::new(HostToasts::new(host.clone(), style)),
         prefs: Arc::new(PcPreferences(config)),
         focus: Arc::new(HostWindowFocus::over_sections(sections)),
-        texts: Arc::new(EnglishTexts),
+        texts: Arc::new(CatalogTexts(language.clone())),
     };
     let pool = Arc::new(PoolHandle::new(link_pool, windows.clone(), watchers));
     workspace.set_remote_files(Arc::new(PoolFiles(pool.pool().clone())));
 
     let ssh_env = Arc::new(ssh_env);
-    let login = Arc::new(EnvLoginHelpers::new(ssh_env.clone(), durability_io, user_data_dir, Arc::new(mixdog_ssh::context::ClaimedResources::default())));
+    let login = Arc::new(EnvLoginHelpers::new(ssh_env.clone(), durability_io, user_data_dir, claims.resources()));
     let opener = Arc::new(ServerWindowOpener::new(windows.clone(), window_restore.clone()));
     let attempts = Attempts::new(pool.clone(), Arc::new(NotifierPush(notifier.clone())));
     let view_pool = pool.pool().clone();
@@ -585,11 +618,11 @@ pub async fn compose_connections(inputs: ConnectionsInputs) -> Result<Connection
         relay_url: Arc::new(move || crate::domain_seams::remote::resolve_relay_url(relay_env(RELAY_ENV).as_deref()).ok().flatten()),
         config_hosts: Arc::new(move || ssh_config_hosts(&hosts_env)),
         client_version: Arc::new(move |connection| version_of.client_version(connection)),
-        // The pair-code errors in the desktop's UI language: the catalogs are not read by the core yet (deferred-g95.md), so the English text.
-        translate: Arc::new(|text| text.to_owned()),
+        // The pair-code errors in the desktop's UI language.
+        translate: Arc::new(move |text| language.translate(text)),
     }));
     let presence = watch_presence(service.clone(), host);
-    Ok(Connections { service, presence })
+    Connections { service, presence }
 }
 
 /// Tells the service when a desktop that serves windows attaches or goes: it closes the links after the grace, and reopens the

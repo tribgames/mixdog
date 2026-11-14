@@ -3,6 +3,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use mixdog_core_api::mock::MockHostChannel;
+use mixdog_app_protocol::v2::connections::HostClaimResources;
 use mixdog_core_domains::notify::engine::ToastStyle;
 use mixdog_ssh::context::{ChildExit, SshChild};
 use mixdog_ssh::install_wire::{ServerArch, ServerOs};
@@ -116,7 +117,7 @@ async fn a_tool_that_cannot_be_started_is_the_error_of_the_run() {
 #[tokio::test]
 async fn nothing_staged_is_a_local_payload_failure_and_an_identity_that_matches_no_server() {
     let spawner: Arc<dyn SshSpawner> = Arc::new(FakeSpawner { started: Mutex::new(Vec::new()), child: Mutex::new(None) });
-    let payloads = LocalPayloads::new(test_env(spawner, None));
+    let payloads = LocalPayloads::new(test_env(spawner, None), Arc::default());
     assert_eq!(payloads.identity(), &ServerIdentity { version: String::new(), build: String::new() });
     let error = payloads.binary(ServerPlatform { os: ServerOs::Linux, arch: ServerArch::X64 }).err().expect("no runtime is staged");
     assert_eq!(error.code, "local-payload");
@@ -236,17 +237,6 @@ fn a_toast_without_a_host_is_the_error_of_the_show() {
     assert!(toasts(host, 50).show(shown("t")).is_err());
 }
 
-#[test]
-fn the_fixed_texts_keep_the_servers_name_where_the_notifier_puts_it() {
-    let texts = EnglishTexts;
-    assert!(texts.lost_title().contains("{{name}}"));
-    assert!(texts.restored_title().contains("{{name}}"));
-    assert_eq!(texts.attachment_label(AttachmentKind::Image), "Image");
-    assert_eq!(texts.attachment_label(AttachmentKind::Video), "Video");
-    assert_eq!(texts.attachment_label(AttachmentKind::File), "File");
-    assert_eq!(texts.turn_failed(), "The turn stopped with an error.");
-}
-
 /// Remembers the power events it was told of.
 struct PowerSpy(Mutex<Vec<PowerEvent>>);
 
@@ -270,4 +260,95 @@ fn a_power_event_reaches_every_sink_in_order() {
 #[test]
 fn a_power_event_before_the_service_exists_is_nobodys() {
     LateConnectionsPower::default().power(PowerEvent::Suspend);
+}
+
+#[test]
+fn the_ssh_environment_takes_the_names_ssh_reads_from_the_composed_reader() {
+    let injected = |name: &str| match name {
+        "PATH" => Some("/injected/bin".to_owned()),
+        "MIXDOG_DESKTOP_USER_DATA" => Some("/injected/profile".to_owned()),
+        _ => None,
+    };
+    let vars = ssh_vars(&injected, Path::new("/data"));
+    assert_eq!(vars["PATH"], "/injected/bin");
+    assert_eq!(vars["MIXDOG_DESKTOP_USER_DATA"], "/injected/profile");
+    // Mixdog's ssh files follow the core's data folder, whatever the reader says.
+    assert_eq!(vars["MIXDOG_DATA_DIR"], Path::new("/data").to_string_lossy());
+    let hidden = ssh_vars(&|name: &str| (name == "MIXDOG_DATA_DIR").then(|| "/elsewhere".to_owned()), Path::new("/data"));
+    assert_eq!(hidden["MIXDOG_DATA_DIR"], Path::new("/data").to_string_lossy());
+}
+
+fn data_env(spawner: Arc<dyn SshSpawner>, data_dir: &Path) -> SshEnv {
+    let mut env = test_env(spawner, None);
+    env.files = Arc::new(LaneFiles(&mixdog_fsio::Unlaned));
+    env.env.insert("MIXDOG_DATA_DIR".to_owned(), data_dir.to_string_lossy().into_owned());
+    env
+}
+
+#[tokio::test]
+async fn mixdogs_ssh_files_are_the_generic_config_of_the_machine_once_prepared() {
+    let spawner: Arc<dyn SshSpawner> = Arc::new(FakeSpawner { started: Mutex::new(Vec::new()), child: Mutex::new(None) });
+    let folder = tempfile::tempdir().expect("a folder");
+    let parts = mixdog_ssh_files(data_env(spawner, folder.path())).await;
+    let generic = parts.env.config_files.generic().expect("Mixdog's own config is named");
+    assert_eq!(generic, folder.path().join("ssh").join("config"));
+    assert_eq!(parts.configs.generic(), Some(generic));
+}
+
+#[tokio::test]
+async fn an_ssh_folder_that_cannot_be_prepared_leaves_the_machine_without_a_config_of_its_own_and_the_core_running() {
+    let spawner: Arc<dyn SshSpawner> = Arc::new(FakeSpawner { started: Mutex::new(Vec::new()), child: Mutex::new(None) });
+    let folder = tempfile::tempdir().expect("a folder");
+    // The data folder is a file: no folder can be made under it.
+    let blocked = folder.path().join("data");
+    mixdog_fsio::write(&mixdog_fsio::Unlaned, &blocked, "a file").expect("a file");
+    let parts = mixdog_ssh_files(data_env(spawner, &blocked)).await;
+    assert_eq!(parts.env.config_files.generic(), None, "ssh reads the user's own files");
+    assert_eq!(parts.configs.generic(), None);
+}
+
+fn claim(cores: &str) -> Option<HostClaimResources> {
+    Some(HostClaimResources { server_cores_dir: Some(cores.to_owned()), askpass_helper: None })
+}
+
+#[test]
+fn a_claim_sets_the_resources_and_the_end_of_that_claim_clears_them() {
+    let claims = Arc::new(ResourceClaims::default());
+    let spawner: Arc<dyn SshSpawner> = Arc::new(FakeSpawner { started: Mutex::new(Vec::new()), child: Mutex::new(None) });
+    let env = test_env(spawner, None);
+    assert_eq!(claims.resources().applied(&env).server_cores_dir, None);
+    let first = claims.attach(claim("/desktop/cores"));
+    assert_eq!(claims.resources().applied(&env).server_cores_dir, Some(PathBuf::from("/desktop/cores")));
+    drop(first);
+    assert_eq!(claims.resources().applied(&env).server_cores_dir, None, "the claimant went");
+}
+
+#[test]
+fn a_replacing_claim_attaches_before_the_old_one_is_dropped_and_keeps_its_own_resources() {
+    let claims = Arc::new(ResourceClaims::default());
+    let spawner: Arc<dyn SshSpawner> = Arc::new(FakeSpawner { started: Mutex::new(Vec::new()), child: Mutex::new(None) });
+    let env = test_env(spawner, None);
+    let old = claims.attach(claim("/old"));
+    let new = claims.attach(claim("/new"));
+    drop(old);
+    assert_eq!(claims.resources().applied(&env).server_cores_dir, Some(PathBuf::from("/new")));
+    // A claim that names nothing leaves nothing of the one before.
+    let bare = claims.attach(None);
+    assert_eq!(claims.resources().applied(&env).server_cores_dir, None);
+    drop((new, bare));
+}
+
+#[test]
+fn the_server_runtimes_are_read_from_the_folder_a_claim_that_arrives_later_names() {
+    let spawner: Arc<dyn SshSpawner> = Arc::new(FakeSpawner { started: Mutex::new(Vec::new()), child: Mutex::new(None) });
+    let claims = Arc::new(ResourceClaims::default());
+    let payloads = LocalPayloads::new(test_env(spawner, None), claims.resources());
+    let platform = ServerPlatform { os: ServerOs::Linux, arch: ServerArch::X64 };
+    let before = payloads.binary(platform).err().expect("nothing is staged");
+    assert!(before.message.contains("no staged"), "no folder is named yet: {}", before.message);
+    let folder = tempfile::tempdir().expect("a folder");
+    let _claim = claims.attach(claim(&folder.path().to_string_lossy()));
+    let after = payloads.binary(platform).err().expect("the named folder holds no release");
+    assert_eq!(after.code, "local-payload");
+    assert!(!after.message.contains("no staged"), "the claimed folder was read: {}", after.message);
 }
