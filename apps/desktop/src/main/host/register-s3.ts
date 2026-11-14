@@ -31,16 +31,16 @@ export interface ComputerHostWiring {
     onError?: (error: unknown) => void;
   };
   /** The desktop's own computer host's screen reads (`host/computer/capture`, `displays`) while it runs, else null. */
-  legacyScreen: ComputerControlSource;
+  desktopHostScreen: ComputerControlSource;
   /** The same host's bridge answer (`host/computer/command`) while it runs, else null. */
-  legacyCommand: ComputerCommandHostSource;
+  desktopHostCommand: ComputerCommandHostSource;
 }
 
 /** Registers the handlers and starts the environment reports once the app is ready; the returned function stops the reports (a
  *  connection's handlers end with it). */
 export function registerComputerHost(connection: HostConnection, wiring: ComputerHostWiring): () => void {
   const { mirror, environment } = wiring;
-  registerComputerHandlers(connection, wiring.legacyScreen, {
+  registerComputerHandlers(connection, wiring.desktopHostScreen, {
     appInput: {
       // The arrow follows the native physical point. A click is the phase the mirror paints as one; the other actions are its own words.
       showCursor: (sessionId, x, y, action) =>
@@ -49,7 +49,7 @@ export function registerComputerHost(connection: HostConnection, wiring: Compute
     pixels: wiring.pixels,
   });
   registerComputerPermissions(connection, wiring.permissions);
-  registerComputerCommand(connection, wiring.legacyCommand);
+  registerComputerCommand(connection, wiring.desktopHostCommand);
   let stopped = false;
   let unbind: () => void = () => undefined;
   void environment.ready.then(() => {

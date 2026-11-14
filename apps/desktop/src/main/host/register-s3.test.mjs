@@ -51,8 +51,8 @@ function rig() {
     mirror,
     permissions: { read: () => ({ screen_capture: true, accessibility: true, input: true }), request: () => {} },
     environment: { ready: new Promise((resolve) => (ready = resolve)), sources: () => ({ power, screen }) },
-    legacyScreen: () => null,
-    legacyCommand: () => null,
+    desktopHostScreen: () => null,
+    desktopHostCommand: () => null,
   });
   return { connection, mirror, power, stop, ready };
 }
