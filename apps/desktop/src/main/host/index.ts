@@ -7,6 +7,8 @@ import type { HostClaimParams } from '../../../../../packages/protocol/src/index
 import type { DesktopRemoteBrowserStreamFrame } from '../../shared/contract';
 import type { RemoteScreenDisplaySummary } from '../../shared/remote-webrtc';
 import { createBrowserCommandHost, type BrowserCommandRunner, type BrowserInputControl } from './browser-command';
+import { type BrowserEnginePorts, serveBrowserEngine } from './browser-engine';
+import type { TranscriptTap } from './browser-engine/transcript';
 import { type BrowserLiveControl, registerBrowserLiveControlHost } from './browser-live-control';
 import { createBrowserPageReporter, type StreamedPage } from './browser-page-report';
 import { type BrowserSurfaceSource, registerBrowserSurfaceReport } from './browser-surface-report';
@@ -39,7 +41,11 @@ export interface DesktopHostOptions {
     remote: BrowserInputControl['remote'];
     /** The streamed page's resize and video limit (`host/browser/liveControl`). */
     liveControl: BrowserLiveControl;
+    /** What the engine lane (`host/browser/*` engine methods, browser-engine/index.ts) is built from. */
+    engine: BrowserEnginePorts;
   };
+  /** The engine lane's development transcript (browser-engine/transcript.ts); absent in a packaged build. */
+  browserEngineTranscript?: TranscriptTap;
   /** The visualize service, resolved when first used. */
   visualize: () => VisualizeControl;
   /** Project-file snapshot and local-page leases, resolved when first used. */
@@ -69,10 +75,20 @@ export function createDesktopHost(options: DesktopHostOptions) {
     inactive: () => options.browser().runner.inactive(),
     end: () => options.browser().runner.end(),
   };
-  const commands = createBrowserCommandHost(connection, runner, {
-    remoteBrowserControl: (sessionId, control) => options.browser().view.remoteBrowserControl(sessionId, control),
-    remote: (method, args) => options.browser().remote(method, args),
+  // The engine methods are registered at construction (the connection's method table is fixed and `serves` is read at
+  // claim); the browser is resolved when the core first calls one, and from then on the lane is on for this connection.
+  const engine = serveBrowserEngine(connection, () => options.browser().engine, {
+    transcript: options.browserEngineTranscript,
   });
+  const commands = createBrowserCommandHost(
+    connection,
+    runner,
+    {
+      remoteBrowserControl: (sessionId, control) => options.browser().view.remoteBrowserControl(sessionId, control),
+      remote: (method, args) => options.browser().remote(method, args),
+    },
+    engine.engineMode
+  );
   const view = createBrowserView(
     connection,
     {
