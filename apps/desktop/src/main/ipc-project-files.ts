@@ -6,6 +6,7 @@ import type { DesktopService } from './desktop-service-contract';
 import { registerFilePreview } from './file-preview';
 import { fileSnapshots } from './file-snapshot';
 import { coreLocalPages } from './core-local-pages';
+import { windowIdFor } from './core-port/window-ids';
 import { projectEntryPathIn } from './project-entry-path';
 import {
   requiredLspDocumentInput,
@@ -179,14 +180,16 @@ function registerLocalPageIpc({ handle, projectRoot }: ProjectFileContext): void
     const project = requiredString(projectPath, 'projectPath');
     const rel = requiredString(relPath, 'relPath', 4_096);
     const owner = event.sender;
+    // The window's core id, never its webContents id (Electron reuses those).
+    const ownerId = windowIdFor(owner);
     // A supplied grant stays file-only: the core redeems it (an invalid or
     // expired token never falls back to the project). Without one, the page
     // is served from the folder it was opened in, Project or not.
     if (accessToken !== undefined && accessToken !== '') {
       const token = requiredString(accessToken, 'file access token', 128);
-      return coreLocalPages().url(project, rel, { accessToken: token, owner });
+      return coreLocalPages().url(project, rel, { accessToken: token, owner, ownerId });
     }
-    return coreLocalPages().url(await projectRoot(project), rel, { owner });
+    return coreLocalPages().url(await projectRoot(project), rel, { owner, ownerId });
   });
 }
 

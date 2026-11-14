@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import test from 'node:test';
 import { registerProjectFileIpc } from './ipc-project-files.ts';
 import { createCoreLocalPages, setCoreLocalPages } from './core-local-pages.ts';
+import { windowIdFor } from './core-port/window-ids.ts';
 import { LocalAccessDeniedError } from './local-access-denied.ts';
 import { DESKTOP_IPC } from '../shared/contract';
 
@@ -68,13 +69,16 @@ test('a Project page is asked of the core with the Project root and the window a
   const sender = owner();
   const url = await h.run(DESKTOP_IPC.localPageUrl, sender, ROOT, 'page.html');
   assert.equal(url, 'http://127.0.0.1:1/p/page.html');
-  assert.deepEqual(h.pageCalls(), [['localPageUrlIn', [ROOT, 'page.html', undefined, 'wc:7']]]);
+  // The owner is the window's core UUID, never its reusable webContents id.
+  assert.match(windowIdFor(sender), /^[0-9a-f-]{36}$/);
+  assert.deepEqual(h.pageCalls(), [['localPageUrlIn', [ROOT, 'page.html', undefined, windowIdFor(sender)]]]);
 });
 
 test('a file token goes to the core with the path the renderer named, never a broader root', async (t) => {
   const h = harness(t);
-  await h.run(DESKTOP_IPC.localPageUrl, owner(), ROOT, 'page.html', 'selected-secret-token');
-  assert.deepEqual(h.pageCalls(), [['localPageUrlIn', [ROOT, 'page.html', 'selected-secret-token', 'wc:7']]]);
+  const sender = owner();
+  await h.run(DESKTOP_IPC.localPageUrl, sender, ROOT, 'page.html', 'selected-secret-token');
+  assert.deepEqual(h.pageCalls(), [['localPageUrlIn', [ROOT, 'page.html', 'selected-secret-token', windowIdFor(sender)]]]);
   assert.equal(h.hostCalls.length, 0, 'a token must not ask for project authority');
 });
 
@@ -119,7 +123,7 @@ test('a closed owner gets no URL, and closing one owner revokes only its pages',
   first.close();
   await new Promise((resolve) => setImmediate(resolve));
   const revokes = h.calls.filter(([name]) => name === 'localPageRevokeOwner');
-  assert.deepEqual(revokes, [['localPageRevokeOwner', ['wc:7']]]);
+  assert.deepEqual(revokes, [['localPageRevokeOwner', [windowIdFor(first)]]]);
   await assert.rejects(h.run(DESKTOP_IPC.localPageUrl, first, ROOT, 'c.html'), LocalAccessDeniedError);
 });
 
