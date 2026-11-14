@@ -2,7 +2,7 @@
 //! taken by the server, which owns the connection registry; the rest lands here.
 //!
 //! * `host/state/set{key, value}` — desktop-owned state published into section `hostState`
-//!   (key `browserTabs`, `browserImport`, `visualize` or `displayPreferences`), replacing the
+//!   (key `browserTabs`, `browserImport`, `visualize`, `displayPreferences` or `windowFocus`), replacing the
 //!   desktop's `browserRemoteTabs`, `browserRemoteImportProgress`, `visualizeRemote*` and
 //!   display-preference publications.
 //! * `host/remoteTarget/set{endpoint?, token?}` — the tunnel to an SSH server core that phone
@@ -234,7 +234,7 @@ impl DomainService for HostService {
                 }
             }
             "host/notification/clicked" => {
-                if let Ok(HostNotificationClickedParams { thread_id }) =
+                if let Ok(HostNotificationClickedParams { thread_id, .. }) =
                     serde_json::from_value(params)
                 {
                     self.clicks.clicked(&thread_id);

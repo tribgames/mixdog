@@ -17,6 +17,7 @@ use serde::Serialize;
 
 use crate::rpc::JsonRpcErrorBody;
 use crate::v2::approval::ServerRequestResolvedParams;
+use crate::v2::browser_engine::HostBrowserLeaseReleaseParams;
 use crate::v2::feed::AppSnapshotParams;
 use crate::v2::feed::FeedSnapshotParams;
 use crate::v2::host::BrowserFrameParams;
@@ -31,6 +32,7 @@ use crate::v2::host::UiOpenRequestedParams;
 use crate::v2::config::UiProviderModelsChangedParams;
 use crate::v2::config::UiSettingsChangedParams;
 use crate::v2::thread::*;
+use crate::v2::connections::*;
 
 /// `error`: a connection-scoped failure, or a thread error with `willRetry`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -177,12 +179,26 @@ crate::notification_definitions! {
     ServerRequestResolved => "serverRequest/resolved" (ServerRequestResolvedParams) @connection,
     HostNotificationShow => "host/notification/show" (HostNotificationShowParams) @connection,
     HostBrowserViewFrames => "host/browser/viewFrames" (HostBrowserViewFramesParams) @connection,
+    /// The lease on a page ended (the host stops keeping it alive for the command that took it).
+    HostBrowserLeaseRelease => "host/browser/lease/release" (HostBrowserLeaseReleaseParams) @connection,
     /// The core's live-view signal to one phone (offer, candidate, promote, demote, close, geometry).
     BrowserWebrtcSignal => "browser/webrtcSignal" (BrowserWebrtcSignalParams) @connection,
     /// A JPEG-view frame of a browser session the phone streams (Node's `browserRemoteFrame` push): one in flight until `browser/streamAck`.
     BrowserFrame => "browser/frame" (BrowserFrameParams) @connection,
     ModelProxyRunEvent => "modelProxy/run/event" (ModelProxyRunEventParams) @connection,
     ModelProxyCancel => "model/proxy/cancel" (ModelProxyCancelParams) @connection,
+    /// A question from ssh for the user, to the connection that owns the attempt.
+    ConnectionsSshAskpass => "connections/ssh/askpass" (SshAskpass) @connection,
+    /// Where a connect attempt is, to the connection that owns it.
+    ConnectionsSshProgress => "connections/ssh/progress" (SshProgress) @connection,
+    /// Where a server cleanup is.
+    ConnectionsSshCleanupProgress => "connections/ssh/cleanupProgress" (SshCleanupProgressParams) @connection,
+    /// A server login flow moved on (the server's `login:<flowId>` feed).
+    ConnectionsSshServerLoginUpdated => "connections/ssh/serverLoginUpdated" (SshServerLoginUpdatedParams) @connection,
+    /// To every subscriber of that connection: the window is attached again, a tool outcome is unknown, a model sign-in was refused.
+    ConnectionsNotice => "connections/notice" (ConnectionsNoticeParams) @connection,
+    /// To the main window's subscribers: a server window needs the user's connect attempt.
+    ConnectionsSignIn => "connections/signIn" (ConnectionsSignInParams) @connection,
     // ---- app feed (P §6.2, DS §2.4)
     AppSnapshot => "app/snapshot" (AppSnapshotParams) @app,
     ThreadStarted => "thread/started" (ThreadStartedParams) @app,
@@ -242,6 +258,8 @@ crate::notification_definitions! {
     LspDiagnosticsUpdated => "lsp/diagnostics/updated" (SectionUpdate) @scoped(Lsp),
     MediaJobUpdated => "media/job/updated" (SectionUpdate) @scoped(Media),
     SystemPortsUpdated => "system/ports/updated" (SectionUpdate) @scoped(Ports),
+    /// Section `connections`: keys `hosts` (SshHost[]), `restore` ({enabled, progress}), `link/<id>` (ConnectionLinkView), `ports/<id>` (ServerPortsView).
+    ConnectionsUpdated => "connections/updated" (SectionUpdate) @scoped(Connections),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -319,6 +337,18 @@ pub enum ClientNotification {
     #[serde(rename = "host/browser/frame")]
     #[cfg_attr(feature = "codegen", ts(rename = "host/browser/frame"))]
     HostBrowserFrame(crate::v2::host::HostBrowserFrameParams),
+    /// Ordered CDP events of a page (allowlisted); the host flushes a page's queued events before any response about that page.
+    #[serde(rename = "host/browser/events")]
+    #[cfg_attr(feature = "codegen", ts(rename = "host/browser/events"))]
+    HostBrowserEvents(crate::v2::browser_engine::HostBrowserEventsParams),
+    /// A page's facts changed.
+    #[serde(rename = "host/browser/page/facts")]
+    #[cfg_attr(feature = "codegen", ts(rename = "host/browser/page/facts"))]
+    HostBrowserPageFacts(crate::v2::browser_engine::HostBrowserPageFactsParams),
+    /// The person took hold of a page, or let go.
+    #[serde(rename = "host/browser/userInput")]
+    #[cfg_attr(feature = "codegen", ts(rename = "host/browser/userInput"))]
+    HostBrowserUserInput(crate::v2::browser_engine::HostBrowserUserInputParams),
     /// The phone painted a JPEG-view frame (`browser/frame`): its next one may go out.
     #[serde(rename = "browser/streamAck")]
     #[cfg_attr(feature = "codegen", ts(rename = "browser/streamAck"))]
@@ -326,6 +356,10 @@ pub enum ClientNotification {
     #[serde(rename = "host/notification/clicked")]
     #[cfg_attr(feature = "codegen", ts(rename = "host/notification/clicked"))]
     HostNotificationClicked(crate::v2::host::HostNotificationClickedParams),
+    /// A window the core asked for with `host/window/open` is gone; `byUser` unless the app is quitting.
+    #[serde(rename = "host/window/closed")]
+    #[cfg_attr(feature = "codegen", ts(rename = "host/window/closed"))]
+    HostWindowClosed(crate::v2::connections::HostWindowClosedParams),
     /// One streamed event of a `model/proxy/execute` request.
     #[serde(rename = "model/proxy/event")]
     #[cfg_attr(feature = "codegen", ts(rename = "model/proxy/event"))]
@@ -413,6 +447,21 @@ pub static CLIENT_NOTIFICATIONS: &[crate::common::NotificationSpec] = &[
         delivery: None,
     },
     crate::common::NotificationSpec {
+        method: "host/browser/events",
+        params: "HostBrowserEventsParams",
+        delivery: None,
+    },
+    crate::common::NotificationSpec {
+        method: "host/browser/page/facts",
+        params: "HostBrowserPageFactsParams",
+        delivery: None,
+    },
+    crate::common::NotificationSpec {
+        method: "host/browser/userInput",
+        params: "HostBrowserUserInputParams",
+        delivery: None,
+    },
+    crate::common::NotificationSpec {
         method: "browser/streamAck",
         params: "BrowserStreamAckParams",
         delivery: None,
@@ -420,6 +469,11 @@ pub static CLIENT_NOTIFICATIONS: &[crate::common::NotificationSpec] = &[
     crate::common::NotificationSpec {
         method: "host/notification/clicked",
         params: "HostNotificationClickedParams",
+        delivery: None,
+    },
+    crate::common::NotificationSpec {
+        method: "host/window/closed",
+        params: "HostWindowClosedParams",
         delivery: None,
     },
     crate::common::NotificationSpec {

@@ -629,12 +629,12 @@ pub struct SshKeychainIssue {
 #[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct SshServerLogins {
     pub connected: bool,
-    #[cfg_attr(feature = "codegen", ts(optional = false, type = "SshModelLogin | null"))]
+    #[cfg_attr(feature = "codegen", ts(optional = false))]
     pub model_login: Option<SshModelLogin>,
     /// Running sessions on the server (`null` when unknown).
     #[cfg_attr(feature = "codegen", ts(optional = false, type = "number | null"))]
     pub busy_sessions: Option<u32>,
-    #[cfg_attr(feature = "codegen", ts(optional = false, type = "Array<SshServerLogin> | null"))]
+    #[cfg_attr(feature = "codegen", ts(optional = false))]
     pub providers: Option<Vec<SshServerLogin>>,
     /// Set when the server's credential storage needs attention.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -812,7 +812,7 @@ pub struct PortForward {
 #[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ServerPortsView {
     /// `null`: the last scan failed (see `scanError`) or none ran yet.
-    #[cfg_attr(feature = "codegen", ts(optional = false, type = "Array<ServerPort> | null"))]
+    #[cfg_attr(feature = "codegen", ts(optional = false))]
     pub detected: Option<Vec<ServerPort>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scan_error: Option<String>,

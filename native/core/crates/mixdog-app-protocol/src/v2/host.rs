@@ -13,8 +13,12 @@ use crate::rpc::RequestId;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct HostClaimParams {
     pub host_id: HostId,
+    /// Where the desktop keeps the server cores and the askpass helper the core launches.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resources: Option<crate::v2::connections::HostClaimResources>,
 }
 
 /// Publishes desktop-owned state into section `hostState`: `{key, value}`, the value's shape
@@ -27,6 +31,7 @@ pub enum HostStateSetParams {
     BrowserImport(JsonValue),
     Visualize(VisualizeHostValue),
     DisplayPreferences(JsonValue),
+    WindowFocus(crate::v2::connections::WindowFocusValue),
 }
 
 impl HostStateSetParams {
@@ -37,6 +42,7 @@ impl HostStateSetParams {
             Self::BrowserImport(value) => ("browserImport", value),
             Self::Visualize(value) => ("visualize", serde_json::to_value(value).unwrap_or_default()),
             Self::DisplayPreferences(value) => ("displayPreferences", value),
+            Self::WindowFocus(value) => ("windowFocus", serde_json::to_value(value).unwrap_or_default()),
         }
     }
 }
@@ -447,6 +453,140 @@ pub struct HostComputerDisplay {
     pub height: u32,
 }
 
+/// What a `host/computer/foregroundLease` request does (`foreground-lock-host.ts` `LeaseThreadRequest`): `acquire` and
+/// `release` relay a helper's `@@MIXDOG_FGLOCK@@` line; `gone` says the helper exited, so a lease it holds ends now
+/// (`workerGone`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub enum HostComputerLeaseOp {
+    Acquire,
+    Release,
+    Gone,
+}
+
+/// Params of `host/computer/foregroundLease` (core → host): one foreground-lock request of a Computer Use helper. Windows
+/// lets only a process that may set the foreground take the lock, which while the user works in a Mixdog window is the
+/// desktop, so the core relays the request there (`foreground-lock-host.ts` `handle`). A number the op does not use is 0.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct HostComputerForegroundLeaseParams {
+    pub op: HostComputerLeaseOp,
+    /// The helper that asks: the core's id for it, never reused (`LeaseWorker.instance`).
+    pub instance: String,
+    /// The helper's request in flight that asks, 1..2^31-1.
+    pub action: u32,
+    /// The ask's number within that request, 1..2^31-1.
+    pub seq: u32,
+    /// `acquire`: the longest the lock may be held, 1..1000 ms.
+    pub hold_ms: u32,
+    /// `acquire`: when the helper stops waiting for the answer, in ms on QueryPerformanceCounter.
+    pub answer_by: f64,
+    /// `release`: the lease it ends; 0 when the helper was told none.
+    pub lease: u32,
+}
+
+/// How the desktop answered a `host/computer/foregroundLease`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub enum HostComputerLeaseReplyKind {
+    Ack,
+    Released,
+    Unavailable,
+}
+
+/// Result of `host/computer/foregroundLease`, the reply lines of `foreground-lock-host.ts`: `ack` answers an `acquire`
+/// (`ack <action> <seq> <lease> <answer> <deadline>` on the helper's stdin), `released` a `release`
+/// (`released <action> <seq> <lease> <outcome>`); `unavailable` says no lease owner serves the desktop. A member the kind
+/// does not carry is absent.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct HostComputerForegroundLeaseResult {
+    pub kind: HostComputerLeaseReplyKind,
+    /// `ack`, `unavailable`: `locked`, `refused`, `busy`, `quarantined`, `expired` or `unavailable`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub answer: Option<String>,
+    /// `ack`, `released`: the lease; 0 when none was taken.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lease: Option<u32>,
+    /// `ack`: when the lease ends, in ms on QueryPerformanceCounter; 0 when none was taken.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deadline_at: Option<f64>,
+    /// `released`: `released`, `unknown`, `failed` or `none`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outcome: Option<String>,
+    /// `unavailable`: why no lease owner answered.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    /// The desktop's facts for the request (`takeFacts`), for the helper's `foreground_lock.host`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub facts: Option<JsonValue>,
+}
+
+/// Params of `host/computer/internalWindows` (core → host): none.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(deny_unknown_fields)]
+pub struct HostComputerInternalWindowsParams {}
+
+/// Result of `host/computer/internalWindows`: the desktop's own Computer Use windows (overlay, pill, indicator), which no
+/// window list may show (`overlay/internal-windows.ts`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct HostComputerInternalWindowsResult {
+    /// Their ids as the helper names windows (`hwnd:0x…`), matched without regard to case (`normalizedWindowId`).
+    pub window_ids: Vec<String>,
+}
+
+/// Params of `host/computer/pointerFeedback` (core → host): a helper's pointer progress, which the overlay draws as the
+/// agent's arrow. Each event is a `@@MIXDOG_POINTER@@` line the core checked against the request it belongs to
+/// (`worker-pool.ts` `reportPointerProgress`). The host answers `null`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct HostComputerPointerFeedbackParams {
+    pub session_id: ThreadId,
+    /// In the helper's order, each with what `publishPointerProgress` takes: `x`, `y`, `held`, `phase`, `mode` and
+    /// `windowId`.
+    pub events: Vec<JsonValue>,
+}
+
+/// What the Computer Use pill asks of `computer/userControl`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub enum ComputerUserControlAction {
+    Resume,
+    Stop,
+    // The pause the pill takes when its control renderer dies (`takeOver('user_pause')`): a hold that only Resume ends and that
+    // never tells a waiting model it was cancelled. A plain comment, so the schema stays a bare enum.
+    Pause,
+}
+
+/// Params of `computer/userControl` (desktop → core): the pill's Resume or Stop of the user's hold on the desktop.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct ComputerUserControlParams {
+    pub action: ComputerUserControlAction,
+    /// The session the pill acts for; absent: every session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_thread_id: Option<ThreadId>,
+}
+
+/// Result of `computer/userControl`: whether the user's hold changed.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+pub struct ComputerUserControlResult {
+    pub ok: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 pub struct HostSystemProxyResolveParams {
@@ -595,6 +735,12 @@ pub struct HostNotificationShowParams {
     pub sound: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub volume: Option<f64>,
+    /// The server connection the notification is for (a server's notifier), so a click focuses that server's window.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection_id: Option<String>,
+    /// The server's name, shown as the notification's source.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
 }
 
 /// A subscriber change → `on` with the largest options of the session's subscribers, last subscriber gone → `off`
@@ -789,6 +935,10 @@ pub struct HostUpdateReportParams {
 #[serde(rename_all = "camelCase")]
 pub struct HostNotificationClickedParams {
     pub thread_id: ThreadId,
+    /// The server connection the clicked notification was for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(optional))]
+    pub connection_id: Option<String>,
 }
 
 /// `client/activity`: sent on user input, at most once per 60 s (client-side rate).

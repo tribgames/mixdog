@@ -22,6 +22,8 @@ pub enum SectionFeed {
     Media,
     /// Scoped feed `ports` (exists only while subscribed, SPEC §4.10).
     Ports,
+    /// Scoped feed `connections` (exists only while subscribed).
+    Connections,
 }
 
 impl SectionFeed {
@@ -32,7 +34,7 @@ impl SectionFeed {
     ///   the session and agent rosters it carries are never droppable
     ///   (`remote-relay-catalog.ts:79-90`).
     /// - `Lsp`: `lspDiagnostics` / `lspStatus` (`remote-relay-push-lanes.ts:171-174`).
-    /// - `Git`, `Media`, `Ports`: replace polls (re-reads after `folder-changed`, P9, P11), which
+    /// - `Git`, `Media`, `Ports`, `Connections`: replace polls (re-reads after `folder-changed`, P9, P11), which
     ///   Node's phone path never pushed; merged latest-wins state.
     pub const fn ordered(self) -> bool {
         matches!(self, SectionFeed::App | SectionFeed::Lsp)
@@ -116,7 +118,7 @@ sections! {
     Notice => "notice", "notice/updated", App, keyed: true;
     /// Update status (core updater and the desktop's `host/update/report`).
     Update => "update", "update/status/updated", App, keyed: false;
-    /// Desktop host state; key = `browserTabs` | `browserImport` | `visualize` | `displayPreferences` (desktop-published), or `remoteViewing` (core-published: the session ids paired devices show).
+    /// Desktop host state; key = `browserTabs` | `browserImport` | `visualize` | `displayPreferences` | `windowFocus` (desktop-published), or `remoteViewing` (core-published: the session ids paired devices show).
     HostState => "hostState", "host/state/updated", App, keyed: true;
     /// Computer use: `{active, observeOnly, controller, sessionThreadId}` (R40).
     Computer => "computer", "computer/updated", App, keyed: false;
@@ -144,6 +146,9 @@ sections! {
     MediaJobs => "mediaJobs", "media/job/updated", Media, keyed: true;
     /// Listening ports (scoped feed `ports`).
     Ports => "ports", "system/ports/updated", Ports, keyed: false;
+    /// Server connections (scoped feed `connections`, from `connections/subscribe`). Keys: `hosts` (the saved SSH servers),
+    /// `restore` ({enabled, progress}), `link/<connectionId>` (ConnectionLinkView), `ports/<connectionId>` (ServerPortsView).
+    Connections => "connections", "connections/updated", Connections, keyed: true;
 }
 
 /// Value above `INLINE_MAX` is replaced by a stub; the client pages the detail
@@ -221,6 +226,47 @@ pub struct ComputerSection {
     /// `overlay/model.ts`); `active`, `observeOnly` and `sessionThreadId` describe the latest of them.
     pub sessions: Vec<ComputerSessionSection>,
     pub session_thread_id: Option<crate::ThreadId>,
+    /// The user's hold on the desktop, which the pill offers to resume or stop; `null` while the user holds none.
+    #[serde(default)]
+    pub user_control: Option<ComputerUserControlSection>,
+    /// The foreground lane every session's foreground input takes in turn; `null` while it is free.
+    #[serde(default)]
+    pub lane: Option<ComputerLaneSection>,
+}
+
+/// How a hold of the user's on the desktop ends (`host/user-input-refusal.ts` `resume_mode`): `idle` once the user has
+/// been idle for the idle-resume interval, `manual` when they press Resume.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub enum ComputerResumeMode {
+    Idle,
+    Manual,
+}
+
+/// The user's hold on the desktop in `computer` (Node's coordinator `userControlActive` and `takeoverReason`,
+/// `session/coordinator.ts`): while it is active, automation waits.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct ComputerUserControlSection {
+    pub active: bool,
+    /// Why the user holds the desktop (Node's `pauseForUser` reasons: `user_takeover`, `user_stop`, `user_input_active`,
+    /// `input_cleanup_unconfirmed`, `authorization_changed`).
+    pub reason: String,
+    pub resume_mode: ComputerResumeMode,
+}
+
+/// The foreground lane in `computer` (Node's `host/command-queue-foreground.ts`): one keyboard and pointer, which the
+/// sessions' foreground requests take one at a time.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct ComputerLaneSection {
+    /// Requests waiting behind the one in the lane.
+    pub queued: u32,
+    /// The phase of the request in the lane (Node's `ComputerUseActivityPhase`, such as `active_foreground`).
+    pub phase: String,
 }
 
 impl Section for ComputerSection {

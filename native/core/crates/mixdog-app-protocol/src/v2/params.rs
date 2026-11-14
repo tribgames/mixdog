@@ -4341,6 +4341,10 @@ pub struct ProjectDirectoryParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "codegen", ts(optional))]
     pub owner: Option<bool>,
+    /// Answer `path` itself as the root of a standalone folder (a folder opened without registering a Project).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(optional))]
+    pub standalone: Option<bool>,
 }
 
 /// Params of `project/recoveryDirectory`.
@@ -4737,6 +4741,9 @@ pub struct ProjectFsLocalPageUrlParams {
     /// A paired device's one-file grant, as on `projectFs/readText`; the page then serves that file alone.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub access_token: Option<String>,
+    /// The desktop window that asked: its leases end when it closes (`projectFs/localPage/revokeOwner`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_id: Option<String>,
 }
 
 /// Params of `projectFs/previewFile`: what a paired device's file preview needs to know before it reads (Node's `previewProjectFile`).
