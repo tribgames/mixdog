@@ -1,0 +1,143 @@
+# followup-date-display: integration fragment
+
+## native/core/crates/mixdog-js/Cargo.toml
+
+In [dependencies], add the already-cached workspace dependency:
+
+    flate2 = { workspace = true }
+
+No package install/download is needed. libc is already a cfg(unix) dependency.
+The Windows locale reader links kernel32 directly; no system ICU is linked.
+
+## native/core/crates/mixdog-js/src/lib.rs
+
+Add module declarations:
+
+    mod date_string;
+    mod default_locale;
+
+Add re-exports:
+
+    pub use date_string::date_to_string;
+    pub use default_locale::{default_locale_id, default_locale_tag};
+
+Remove the existing `pub use locale_compare::default_locale_tag;` re-export.
+Keep other workers' exports and all UTF-16 changes.
+
+## native/core/crates/mixdog-js/src/locale_compare.rs (lead/UTF16-owner integration)
+
+There must be ONE OS default-locale reader. In collator(), replace the existing
+sys_locale::get_locale conversion with:
+
+    let locale = crate::default_locale::default_locale_tag()
+        .parse::<Locale>()
+        .unwrap_or(Locale::UNKNOWN);
+
+Remove this module's old `pub fn default_locale_tag() -> String` implementation.
+If local callers/tests need that name in scope, import the shared helper:
+
+    use crate::default_locale::default_locale_tag;
+
+Do not retain UI-preference-based reading alongside the new regional-locale path.
+Exact new helper signatures:
+
+    pub fn default_locale_id() -> &'static str;
+    pub fn default_locale_tag() -> String;
+
+The ID is the once-cached ICU-style OS default. The tag uses V8's POSIX fallback
+mapping (en_US_POSIX -> en-US), ICU's ISO3/region/deprecated-tag maps, variants, legacy tags and Unicode
+keyword/type mappings (including numbering and collation extensions).
+Windows uses GetLocaleInfoEx(USER_DEFAULT, LOCALE_SNAME), not preferred UI languages.
+Unix/macOS query setlocale(LC_MESSAGES, null) read-only, then ICU's LC_ALL,
+LC_MESSAGES, LANG fallback order. LANGUAGE is not consulted; setlocale is never
+called with an empty string or another mutating locale argument.
+
+## native/core/crates/mixdog-xlsx-formula/src/coerce.rs (lead/UTF16-owner integration)
+
+Replace the private date_to_string body (currently missing the parenthesized
+localized zone name) with the shared call, or remove it and call this directly:
+
+    mixdog_js::date_to_string(time)
+
+Preserve the concurrent UTF-16 Value bridge. This function returns a well-formed
+Rust String, which can enter the agreed JS string representation at that boundary.
+No coerce/time/lib hot file was edited by this worker.
+
+## Implementation and source contract
+
+Pinned official Node v22.20.0 archive:
+https://raw.githubusercontent.com/nodejs/node/v22.20.0/deps/icu-small/source/data/in/icudt77l.dat.bz2
+SHA256 488a0a666ba33dace736d0788a8973729c8d83f3f4966d0fed1be7ad162d4729.
+The archive itself reports ICU77.1/CLDR47/tz2025b. The independent Python binary
+resource reader handles pooled keys/strings and ICU resource types directly;
+it does not use the installed ICU72 data or algorithms to extract the dataset.
+Official resource-parser contracts are ICU77 uresdata.h/cpp and uresbund.cpp.
+Original source contracts and Unicode/V8 licenses are preserved in the fixture's
+reference directory and SHA256-indexed by date_string/data/PROVENANCE.json.
+
+Runtime data: 526 locale resources (including root; tzdbNames is not a locale),
+936 numbering locale resources, 639 timezone IDs/links, canonical CLDR aliases,
+long standard/daylight names, all locale parent/alias chains, current-time
+metazone periods, localized GMT formats/digits, ICU raw/DST transition pairs and
+final recurring rules. No fixture-locale hardcoding or English-only fallback.
+
+Production payload:
+- date_string/data/icu77-date-names.json.gz: 371,010 bytes; expands to 2,299,937 bytes.
+  SHA256 c4c8697b5b518aad8a52a74a487b92396cc02a00ba66d7720c583e4371422106.
+- default_locale/data/icu77-locale.json: 57,361 bytes.
+  SHA256 0873cdb1db2a6e0ecd5b999c3328eea923248098d912e59549109a21a9a627d6.
+Only this compact data is included in the runtime; the 11.1MB source archive and
+source/license provenance are development artifacts, not a runtime Node dependency.
+
+V8 chooses the DST name after EquivalentTime for dates outside the signed-32-bit
+nonnegative epoch; ICU display-name lookup uses the current clock for metazones
+and fallback raw/DST savings, not the Date's year. Negative-DST zones use ICU's
+raw/DST decomposition, not chrono-tz's different Ireland/Morocco decomposition.
+Names are cached by zone, locale and daylight flag. The prefix keeps V8's English
+weekday/month tokens, offset formatting and negative-year minimum width (-0001).
+
+The pinned ICU transitions also provide consistent numeric offsets when the
+shared chrono helpers stop at their year/final-transition horizon. Within matching
+chrono fields/offsets, the existing time helpers are reused. No shared Date
+arithmetic/parser behaviour was changed: their chrono extreme-year limitations
+and the existing process_zone/Tz restriction on custom/unknown TZ IDs remain
+separate shared-time follow-ups. This change must not be described as fixing all
+Date arithmetic or arbitrary POSIX/custom TZ environment syntax.
+
+## Oracle and verification
+
+Generator: benchmarks/rust-core/recorders/extract-js-date-display.py
+Recorder: benchmarks/rust-core/recorders/record-js-date-string.mjs
+Fixture: native/core/fixtures/js-date-string/golden.json
+Index its MANIFEST.json with the root fixture-index schema.
+
+The actual installed Node22.20/V8 12.4/ICU77.1/tz2025b default locale was ko-KR.
+Corpus: 3,981 direct Date.toString calls over all 639 IDs, epoch/pre-epoch,
+historical/DST/boundary/equivalent years, invalid dates and the full JS time range;
+4,761 direct Node Intl long-name probes over supported locales, stable current
+metazones and fixed-offset GMT fallbacks (including numbering extensions).
+Root is not a valid Intl locale tag and is explicitly listed as such; root resource
+fallback remains in the complete dataset. No returned-value mismatch is skipped.
+The locale-name probes intentionally use stable current metazones so Intl's
+input-date naming is not substituted for DateCache's current-time naming contract.
+
+Source/data-level diagnostics reproduced every recorded date and name using the
+extracted data (0 differences). This is NOT a Rust compile or Rust test pass.
+After applying the fragment, root must run offline mixdog-js tests for date_string
+and default_locale, existing locale_compare tests, and the affected formula twins;
+then clippy/all-targets. This worker ran rustfmt parsing, extraction, bounded Node
+recording and source checks only. No Cargo/build/apps/profiles/commit was run.
+
+## Why system ICU was not used
+
+The installed Windows ICU is72.1/tz2022g; its America/Coyhaique display name is GMT,
+while the pinned Node2025b answers GMT-03:00. Windows/Linux/macOS system data versions
+cannot promise pinned parity. Cached chrono/jiff supply no localized CLDR names;
+icu_datetime is not cached. No new crate/package was downloaded or installed.
+
+Golden SHA256: 58669326e3f9c332033784b6c3041737e19f30acea85165f88bdf4afa2ae561c.
+Total embedded payload is 428,371 bytes before linker/compressor overhead.
+The redistribution package must retain the Unicode/ICU and V8 third-party notices.
+POSIX/macOS locale selection is source-ported but was not executed on this Windows
+worker; root must retain the platform verification gate rather than asserting a
+measured pass for those native locale entry points.
