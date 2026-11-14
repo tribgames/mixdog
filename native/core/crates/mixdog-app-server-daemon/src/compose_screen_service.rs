@@ -6,8 +6,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::Ordering;
+use std::sync::OnceLock;
 use std::time::Instant;
 
 use async_trait::async_trait;
@@ -23,6 +22,7 @@ use mixdog_core_api::domain::computer::ComputerSessions;
 use mixdog_core_api::domain::computer::DisplayId;
 use mixdog_core_api::domain::computer::ScreenInput as InputOp;
 use mixdog_core_api::domain::media::MediaError;
+use mixdog_core_api::domain::media::MediaFrameSource;
 use mixdog_core_api::domain::media::PixelFormat;
 use mixdog_core_api::domain::media::VideoFrame;
 use mixdog_core_api::ids::ConnectionId;
@@ -56,6 +56,7 @@ use mixdog_tools::desktop::screen_source::ScreenPcAccessPort;
 use mixdog_tools::desktop::screen_source::ScreenSink;
 use mixdog_tools::desktop::screen_source::ScreenSources;
 use mixdog_tools::desktop::screen_source::ScreenSourcesDeps;
+use mixdog_tools::desktop::screen_source::ScreenViewer;
 use serde::Deserialize;
 use serde_json::Value;
 use serde_json::json;
@@ -92,12 +93,15 @@ pub(super) struct ScreenService {
     /// The connections granted now: a grant is made once however many screen signals the connection sends.
     granted: Mutex<HashSet<u64>>,
     stops: Arc<IndicatorStops>,
+    /// Where the sessions report to the live view, once it binds them.
+    sink: Arc<SinkCell>,
 }
 
 impl ScreenService {
     pub(super) fn new(parts: Parts) -> Arc<Self> {
         let Parts { host, registry, pool, binary, cwd, manager, pc_access, helper, blobs } = parts;
         let stops = Arc::new(IndicatorStops::default());
+        let sink = Arc::new(SinkCell::default());
         let sources = Arc::new(ScreenSources::new(ScreenSourcesDeps {
             backend: pool.backend(""),
             displays: Some(Arc::new(HostDisplays::new(host.clone()))),
@@ -111,13 +115,13 @@ impl ScreenService {
             },
             pc_access: Some(Arc::new(CorePcAccess { service: pc_access, admin: Arc::new(AccountAdmin::default()) })),
             pixels: Some(Arc::new(HostPixels { desktop: host, blobs, origin: Instant::now() })),
-            sink: Arc::new(UnservedSink::default()),
+            sink: sink.clone(),
             log: Arc::new(|event: Value| match event["type"].as_str() {
                 Some("start-failed") => tracing::warn!(%event, "a phone screen session did not start"),
                 _ => tracing::debug!(%event, "phone screen"),
             }),
         }));
-        Arc::new(Self { sources, registry, granted: Mutex::default(), stops })
+        Arc::new(Self { sources, registry, granted: Mutex::default(), stops, sink })
     }
 
     pub(super) async fn stop_for_quit(&self) {
@@ -131,15 +135,20 @@ impl PhoneScreens for ScreenService {
         Ok(Value::Array(self.sources.displays().await))
     }
 
-    fn grant(&self, connection: ConnectionId) -> Result<(), String> {
-        let mut granted = lock(&self.granted);
-        if granted.contains(&connection.0) {
-            return Ok(());
+    async fn grant(&self, connection: ConnectionId) -> Result<(), String> {
+        {
+            let mut granted = lock(&self.granted);
+            if granted.contains(&connection.0) {
+                return Ok(());
+            }
+            let label = self.registry.describe(connection.0).map(|described| described.device).unwrap_or_default();
+            let id = connection.0.to_string();
+            self.sources.grant(&id, &id, &label)?;
+            granted.insert(connection.0);
         }
-        let label = self.registry.describe(connection.0).map(|described| described.device).unwrap_or_default();
-        let id = connection.0.to_string();
-        self.sources.grant(&id, &id, &label)?;
-        granted.insert(connection.0);
+        // The monitors are listed before the phone's `ready` is forwarded: the sources take them from the desktop (a list is not
+        // read by the grant), and a session needs its display listed to start.
+        self.sources.displays().await;
         Ok(())
     }
 
@@ -152,6 +161,20 @@ impl PhoneScreens for ScreenService {
                     ScreenEnd::Revoked => ScreenAccessEnd::Revoked,
                 },
             );
+        }
+    }
+
+    fn resolve(&self, screen_id: &str, connection: ConnectionId, ready: bool) -> Option<Arc<ScreenViewer>> {
+        self.sources.resolve(screen_id, &connection.0.to_string(), ready)
+    }
+
+    fn capture(&self, screen_id: &str) -> Result<Box<dyn MediaFrameSource>, String> {
+        self.sources.capture(screen_id).map_err(|error| format!("{error:?}"))
+    }
+
+    fn attach(&self, sink: Arc<dyn ScreenSink>) {
+        if self.sink.target.set(sink).is_err() {
+            tracing::error!("the screen sessions were bound to the live view twice");
         }
     }
 }
@@ -450,40 +473,42 @@ impl DisplayPixels for HostPixels {
 // ---------------------------------------------------------------------------------------------------------------
 // The viewer's side
 
-/// The live view's side of a screen viewer. The live-view host serves browser sources only, so no session is ever opened and
-/// nothing reaches this sink; it says so once if that changes before the host can carry a screen.
+/// The live view's side of every session, handed to the sources before the live view binds them: what a session reports goes on to
+/// it. No session exists before the live view resolved one, so nothing is reported before it is bound.
 #[derive(Default)]
-struct UnservedSink {
-    said: AtomicBool,
+struct SinkCell {
+    target: OnceLock<Arc<dyn ScreenSink>>,
 }
 
-impl UnservedSink {
-    fn unserved(&self) {
-        if !self.said.swap(true, Ordering::SeqCst) {
-            tracing::error!("the live view cannot carry a screen viewer: phone screen sessions are off");
+impl ScreenSink for SinkCell {
+    fn geometry_changed(&self, key: &str, geometry: Option<Value>) {
+        if let Some(target) = self.target.get() {
+            target.geometry_changed(key, geometry);
         }
     }
-}
 
-impl ScreenSink for UnservedSink {
-    fn geometry_changed(&self, _key: &str, _geometry: Option<Value>) {
-        self.unserved();
+    fn capture_changed(&self, key: &str) {
+        if let Some(target) = self.target.get() {
+            target.capture_changed(key);
+        }
     }
 
-    fn capture_changed(&self, _key: &str) {
-        self.unserved();
+    fn channel_push(&self, key: &str, message: Value) {
+        if let Some(target) = self.target.get() {
+            target.channel_push(key, message);
+        }
     }
 
-    fn channel_push(&self, _key: &str, _message: Value) {
-        self.unserved();
+    fn drawn_track(&self, key: &str, drawn: bool) {
+        if let Some(target) = self.target.get() {
+            target.drawn_track(key, drawn);
+        }
     }
 
-    fn drawn_track(&self, _key: &str, _drawn: bool) {
-        self.unserved();
-    }
-
-    fn frame(&self, _key: &str, _frame: ScreenFrame) {
-        self.unserved();
+    fn frame(&self, key: &str, frame: ScreenFrame) {
+        if let Some(target) = self.target.get() {
+            target.frame(key, frame);
+        }
     }
 }
 

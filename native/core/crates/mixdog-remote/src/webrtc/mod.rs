@@ -16,6 +16,7 @@ pub mod liveview;
 mod outbound;
 mod peer;
 pub mod relay;
+pub mod screen;
 pub mod signal;
 pub mod sources;
 pub mod track;
@@ -23,5 +24,7 @@ pub mod viewer;
 
 #[cfg(test)]
 mod interop;
+#[cfg(test)]
+mod screen_host_tests;
 #[cfg(test)]
 mod tests;

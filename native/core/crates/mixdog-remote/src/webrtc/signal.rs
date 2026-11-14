@@ -1184,6 +1184,223 @@ impl ChannelMessage {
     }
 }
 
+// ---- a screen source's channel messages ----------------------------------------------------------
+
+/// Windows' documented credential-field maxima (`CREDUI_MAX_USERNAME_LENGTH`, `CREDUI_MAX_PASSWORD_LENGTH`), in UTF-16 units.
+const CREDUI_MAX_USERNAME_LENGTH: usize = 513;
+const CREDUI_MAX_PASSWORD_LENGTH: usize = 256;
+/// Controller keys one `screen-helper-install` may carry (`MAX_REMOTE_SCREEN_HELPER_KEYS`).
+const MAX_SCREEN_HELPER_KEYS: usize = 256;
+/// Text one `screen-text` input may carry (`MAX_REMOTE_SCREEN_TEXT`).
+const MAX_SCREEN_TEXT: usize = 256;
+/// Keys one `screen-keys` combo may carry (`MAX_REMOTE_SCREEN_COMBO_KEYS`).
+const MAX_SCREEN_COMBO_KEYS: usize = 8;
+/// 40 notches of 120 Windows wheel units.
+const MAX_SCREEN_WHEEL_UNITS: f64 = 120.0 * 40.0;
+
+/// The helper's 16-byte nonce and challenge, and the phone's 64-byte `r || s` signature: canonical padded base64 (`HELPER_NONCE`,
+/// `HELPER_SIGNATURE`).
+static HELPER_NONCE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[A-Za-z0-9+/]{21}[AQgw]==$").expect("helper nonce"));
+static HELPER_SIGNATURE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[A-Za-z0-9+/]{85}[AQgw]==$").expect("helper signature"));
+
+/// The Windows administrator credential a phone types for the remote install path. Never printed.
+#[derive(Clone, PartialEq, Eq)]
+pub struct HelperCredential {
+    /// Absent: the account running the core.
+    pub user: Option<String>,
+    pub password: String,
+}
+
+impl std::fmt::Debug for HelperCredential {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HelperCredential").field("user", &self.user).field("password", &"<hidden>").finish()
+    }
+}
+
+/// A data-channel message from the phone to a screen source's viewer (`parseRemoteWebrtcChannelFromClient` for the screen kinds and
+/// `readRemoteWebrtcScreenHelperEnroll`).
+#[derive(Clone, Debug, PartialEq)]
+pub enum ScreenMessage {
+    /// The phone's receiver statistics (already validated), as the JSON it sent.
+    Stats(Value),
+    /// The phone rendered a frame of video run `epoch`.
+    FrameSeen { epoch: u64 },
+    /// The phone signed the helper's challenge for run `epoch`.
+    HelperGrant { epoch: u64, challenge: String, signature: String },
+    /// Install the secure-desktop helper, enrolling `public_key` (the install's extra `keys` are validated, not used: PC access enrolls
+    /// the phones paired now).
+    HelperInstall { public_key: String, credential: Option<HelperCredential> },
+    /// Enroll `public_key` into an installed helper.
+    HelperEnroll { public_key: String, credential: Option<HelperCredential> },
+    /// Screen input of the viewer's current epoch and geometry.
+    Input { epoch: u64, seq: u64, geometry_generation: u64, sent_at: f64, control: Value },
+}
+
+impl ScreenMessage {
+    pub fn parse(text: &str) -> Result<Self, Refusal> {
+        let Ok(value) = serde_json::from_str::<Value>(text) else { return fail("channel message") };
+        let input = record(&value, "channel message")?;
+        if safe_integer(field(input, "v")) != Some(VERSION as f64) {
+            return fail("version");
+        }
+        match field(input, "kind").as_str() {
+            Some("stats") => Ok(Self::Stats(stats(field(input, "stats"))?)),
+            Some("screen-frame-seen") => Ok(Self::FrameSeen { epoch: positive_integer(field(input, "epoch"), "video epoch")? }),
+            Some("screen-helper-grant") => Ok(Self::HelperGrant {
+                epoch: positive_integer(field(input, "epoch"), "video epoch")?,
+                challenge: helper_base64(field(input, "challenge"), &HELPER_NONCE, "helper challenge")?,
+                signature: helper_base64(field(input, "signature"), &HELPER_SIGNATURE, "helper signature")?,
+            }),
+            Some("screen-helper-install") => {
+                let public_key = controller_key(field(input, "publicKey"))?;
+                helper_keys(input.get("keys"))?;
+                Ok(Self::HelperInstall { public_key, credential: helper_credential(input.get("credential"))? })
+            }
+            Some("screen-helper-enroll") => {
+                let public_key = controller_key(field(input, "publicKey"))?;
+                Ok(Self::HelperEnroll { public_key, credential: helper_credential(input.get("credential"))? })
+            }
+            Some("screen-input") => {
+                let epoch = positive_integer(field(input, "epoch"), "input epoch")?;
+                let seq = positive_integer(field(input, "seq"), "input seq")?;
+                let geometry_generation = positive_integer(field(input, "geometryGeneration"), "geometry generation")?;
+                let sent_at = count(field(input, "sentAt"), "input time")?;
+                Ok(Self::Input { epoch, seq, geometry_generation, sent_at, control: screen_input(field(input, "control"))? })
+            }
+            // A page input is a browser source's; the rest are not a viewer's to read.
+            _ => fail("channel message kind"),
+        }
+    }
+}
+
+fn helper_base64(value: &Value, pattern: &Regex, what: &str) -> Result<String, Refusal> {
+    match value {
+        Value::String(text) if pattern.is_match(text) => Ok(text.clone()),
+        _ => fail(what),
+    }
+}
+
+fn controller_key(value: &Value) -> Result<String, Refusal> {
+    match value {
+        Value::String(text) if crate::identity::roster::is_controller_key(text) => Ok(text.clone()),
+        _ => fail("controller key"),
+    }
+}
+
+/// The optional extra controller keys of an install, each validated, at most the pairing cap.
+fn helper_keys(value: Option<&Value>) -> Result<(), Refusal> {
+    match value {
+        None | Some(Value::Null) => Ok(()),
+        Some(Value::Array(keys)) if keys.len() <= MAX_SCREEN_HELPER_KEYS => keys.iter().try_for_each(|key| controller_key(key).map(|_| ())),
+        Some(_) => fail("helper keys"),
+    }
+}
+
+/// A credential's fields on the wire, length-bounded by the Windows maxima; absent or null: none (the UAC path).
+fn helper_credential(value: Option<&Value>) -> Result<Option<HelperCredential>, Refusal> {
+    let Some(value) = value.filter(|value| !value.is_null()) else { return Ok(None) };
+    let input = record(value, "credential")?;
+    let password = match field(input, "password") {
+        Value::String(password) if !password.is_empty() && utf16_len(password) <= CREDUI_MAX_PASSWORD_LENGTH => password.clone(),
+        _ => return fail("credential password"),
+    };
+    let user = match input.get("user") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(user)) if utf16_len(user) <= CREDUI_MAX_USERNAME_LENGTH => Some(user.clone()).filter(|user| !user.is_empty()),
+        Some(_) => return fail("credential user"),
+    };
+    Ok(Some(HelperCredential { user, password }))
+}
+
+/// `input[name] ?? 0`.
+fn or_zero<'a>(input: &'a Fields, name: &str) -> &'a Value {
+    static ZERO: LazyLock<Value> = LazyLock::new(|| json!(0));
+    input.get(name).filter(|value| !value.is_null()).unwrap_or(&ZERO)
+}
+
+fn signed_integer(value: &Value, min: f64, max: f64, what: &str) -> Result<i64, Refusal> {
+    match safe_integer(value) {
+        Some(n) if n >= min && n <= max => Ok(n as i64),
+        _ => fail(what),
+    }
+}
+
+/// One key by Windows virtual-key code and set-1 scan code.
+fn screen_key(input: &Fields) -> Result<(i64, i64, bool), Refusal> {
+    let vk = signed_integer(or_zero(input, "vk"), 0.0, 254.0, "virtual key")?;
+    let scan = signed_integer(or_zero(input, "scan"), 0.0, 255.0, "scan code")?;
+    if vk == 0 && scan == 0 {
+        return fail("key");
+    }
+    let extended = match input.get("extended") {
+        None => false,
+        Some(Value::Bool(extended)) => *extended,
+        Some(_) => return fail("key extended"),
+    };
+    Ok((vk, scan, extended))
+}
+
+fn key_json((vk, scan, extended): (i64, i64, bool)) -> Value {
+    json!({ "vk": vk, "scan": scan, "extended": extended })
+}
+
+/// One screen input (`control` of a `screen-input` message, `parseRemoteScreenInput`).
+fn screen_input(value: &Value) -> Result<Value, Refusal> {
+    let input = record(value, "screen input")?;
+    let coordinate = |name: &str, what: &str| bounded_number(field(input, name), 0.0, MAX_PIXEL_DIMENSION, what).map(num);
+    match field(input, "type").as_str() {
+        Some("screen-pointer") => {
+            let (x, y) = (coordinate("x", "pointer x")?, coordinate("y", "pointer y")?);
+            match field(input, "action").as_str() {
+                Some("move") => Ok(json!({ "type": "screen-pointer", "action": "move", "x": x, "y": y })),
+                Some(action @ ("down" | "up")) => {
+                    let button = match field(input, "button").as_str() {
+                        Some(button @ ("left" | "right" | "middle")) => button,
+                        _ => return fail("pointer button"),
+                    };
+                    Ok(json!({ "type": "screen-pointer", "action": action, "button": button, "x": x, "y": y }))
+                }
+                _ => fail("pointer action"),
+            }
+        }
+        Some("screen-wheel") => Ok(json!({
+            "type": "screen-wheel",
+            "x": coordinate("x", "wheel position")?,
+            "y": coordinate("y", "wheel position")?,
+            "deltaX": signed_integer(or_zero(input, "deltaX"), -MAX_SCREEN_WHEEL_UNITS, MAX_SCREEN_WHEEL_UNITS, "wheel x")?,
+            "deltaY": signed_integer(or_zero(input, "deltaY"), -MAX_SCREEN_WHEEL_UNITS, MAX_SCREEN_WHEEL_UNITS, "wheel y")?,
+        })),
+        Some("screen-key") => {
+            let action = match field(input, "action").as_str() {
+                Some(action @ ("down" | "up")) => action,
+                _ => return fail("key action"),
+            };
+            let (vk, scan, extended) = screen_key(input)?;
+            Ok(json!({ "type": "screen-key", "action": action, "vk": vk, "scan": scan, "extended": extended }))
+        }
+        Some("screen-keys") => {
+            let Value::Array(entries) = field(input, "keys") else { return fail("key combo") };
+            if entries.is_empty() || entries.len() > MAX_SCREEN_COMBO_KEYS {
+                return fail("key combo");
+            }
+            let keys = entries.iter().map(|entry| record(entry, "combo key").and_then(screen_key)).collect::<Result<Vec<_>, _>>()?;
+            let mut distinct = keys.clone();
+            distinct.sort_unstable();
+            distinct.dedup();
+            if distinct.len() != keys.len() {
+                return fail("key combo repeats a key");
+            }
+            Ok(json!({ "type": "screen-keys", "keys": keys.into_iter().map(key_json).collect::<Vec<_>>() }))
+        }
+        Some("screen-text") => match field(input, "text") {
+            Value::String(text) if !text.is_empty() && utf16_len(text) <= MAX_SCREEN_TEXT => Ok(json!({ "type": "screen-text", "text": text })),
+            _ => fail("text"),
+        },
+        Some("screen-release") => Ok(json!({ "type": "screen-release" })),
+        _ => fail("screen input type"),
+    }
+}
+
 fn count(value: &Value, what: &str) -> Result<f64, Refusal> {
     bounded_number(value, 0.0, MAX_SAFE_INTEGER, what)
 }

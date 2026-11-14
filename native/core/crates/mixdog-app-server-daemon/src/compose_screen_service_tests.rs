@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::atomic::AtomicU32;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use mixdog_core_api::CoreError;
