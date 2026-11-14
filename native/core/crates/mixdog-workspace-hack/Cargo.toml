@@ -33,6 +33,7 @@ futures-util = { version = "0.3", default-features = false, features = ["async-a
 generic-array = { version = "0.14", default-features = false, features = ["more_lengths", "zeroize"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
 hashbrown = { version = "0.17" }
+hmac = { version = "0.12", default-features = false, features = ["reset"] }
 hyper = { version = "1", features = ["full"] }
 hyper-util = { version = "0.1", features = ["http1", "http2", "server", "tokio"] }
 icu_locale_core = { version = "2", default-features = false, features = ["alloc", "zerovec"] }
@@ -111,7 +112,6 @@ concurrent-queue = { version = "2" }
 futures-io = { version = "0.3" }
 futures-util = { version = "0.3" }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
-hmac = { version = "0.12", default-features = false, features = ["reset"] }
 hyper-util = { version = "0.1", default-features = false, features = ["client-legacy", "client-proxy", "client-proxy-system"] }
 idna = { version = "1" }
 inout = { version = "0.1", default-features = false, features = ["block-padding"] }
@@ -167,7 +167,6 @@ libc = { version = "0.2", default-features = false, features = ["extra_traits"] 
 [target.x86_64-pc-windows-msvc.dependencies]
 byteorder = { version = "1" }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
-hmac = { version = "0.12", default-features = false, features = ["reset"] }
 hyper-util = { version = "0.1", default-features = false, features = ["client-legacy", "client-proxy", "client-proxy-system"] }
 idna = { version = "1" }
 scopeguard = { version = "1" }

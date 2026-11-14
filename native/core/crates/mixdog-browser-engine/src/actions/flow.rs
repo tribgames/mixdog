@@ -63,7 +63,7 @@ async fn observe_text(page: &Page<'_>, cancel: &CancelView) -> Result<Observatio
     let params = HostBrowserPageReadParams {
         page_id: page.id.to_owned(),
         kind: BrowserPageReadKind::Text,
-        options: Some(BrowserPageReadOptions { max_chars: Some(OBSERVATION_READ_CHARS), frame: None, selector: None, include_hidden: None }),
+        options: Some(BrowserPageReadOptions { max_chars: Some(OBSERVATION_READ_CHARS), frame: None, selector: None, include_hidden: None, offset: None }),
     };
     let read = page.host.page_read(params, cancel.token()).await;
     throw_if_cancelled(cancel)?;

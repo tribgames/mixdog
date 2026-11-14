@@ -131,6 +131,7 @@ mod tests {
     use mixdog_app_protocol::v2::browser_engine::PageFacts;
     use serde_json::json;
 
+    use super::super::target::ActionPage;
     use super::super::target::testing::Rig;
     use super::super::target::testing::TestPage;
     use super::*;

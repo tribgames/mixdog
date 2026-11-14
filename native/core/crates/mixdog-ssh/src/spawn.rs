@@ -11,7 +11,7 @@ use std::task::{Context, Poll};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
-use mixdog_core_api::domain::common::{AbsPath, EventSource};
+use mixdog_core_api::domain::common::AbsPath;
 use mixdog_core_api::domain::process::{
     CommandSpec, EnvSpec, ExitStatus, OutputMode, OutputStream, ProcessError, ProcessEvent, ProcessManager, ProcessOwner,
     SpawnRequest,

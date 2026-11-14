@@ -2713,7 +2713,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let composed = compose_domains_post(
         &domain_inputs,
         PostSeams {
-            session_attachments: Arc::new(mixdog_core_session::session::attachments::SessionAttachmentLinks::new(directory.clone())),
+            session_attachments: Arc::new(mixdog_core_session::session::attachments::DesktopAttachmentHost::new(directory.clone(), blobs.clone(), &b.tokens)),
             // The import service moves into this stage (follow-up after wp-svc-misc-26/28/29): plain build order, no late cell.
             import_sessions: Arc::new(mixdog_core_session::session::import_sessions::DirectoryImportSessions::new(
                 directory.clone(),

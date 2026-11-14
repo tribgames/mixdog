@@ -358,6 +358,11 @@ impl Outgoing {
         }
     }
 
+    /// Whether `id` is the connection `capability` is served by now (the latest claim that declared it), as `claimant` picks it.
+    pub fn serves_capability(&self, id: ConnectionId, capability: HostCapability) -> bool {
+        self.claimant(capability, None).is_ok_and(|conn| conn.id == id)
+    }
+
     /// One request to `claimant`, answered or failed as its connection ends. The wait ends at
     /// the capability's deadline, if it has one (`timedOut`), or when `cancel` fires
     /// (`cancelled`); the request is forgotten then, so a late answer is dropped. A wait that ends
