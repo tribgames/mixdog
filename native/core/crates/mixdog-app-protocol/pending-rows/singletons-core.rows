@@ -1,14 +1,15 @@
-# SINGLETONS-CORE: takeover/ready (renderer -> core): the renderer reports a login takeover ready (replaces the IPC takeoverReady).
+# SINGLETONS-CORE: takeover/ready (client -> core): a client asks whether the person may act on a takeover it shows, answered once
+# the session's commands drained or with false when it ends first (replaces the IPC takeoverReady, which answered a boolean).
 # Types live in src/v2/takeover.rs (new, owned by this task). PROTO-WIRE adds `pub mod takeover;` to src/v2/mod.rs (alphabetical) and nothing
 # to the methods.rs imports: the row names the types as `v2::takeover::...` (methods.rs already has `use crate::v2;`).
 # approval/provideSecret already exists (methods.rs) and replaces the IPC provideSecretInput: no new row.
 
 [methods]
 # Paste after the HostHumanOnlyEnd row in src/methods.rs (symbol: HostHumanOnlyEnd => "host/humanOnly/end").
-    /// The renderer reports that login takeover `takeoverId` of session `sessionId` is ready for the person, or never will be (the core's takeover owner, Node's `takeoverReady`).
+    /// Whether the person may act on takeover `takeoverId` of session `sessionId`: answered once its commands drained, `false` when it ends first or is never seen (the core's takeover owner, Node's `takeoverReady`).
     TakeoverReady => "takeover/ready" {
         params: v2::takeover::TakeoverReadyParams,
-        result: v2::feed::EmptyResult,
+        result: v2::takeover::TakeoverReadyResult,
         scope: none,
         class: C2,
         mutation: none,
@@ -34,4 +35,4 @@
 # none
 
 [window]
-takeover/ready allow the renderer reports its own login takeover card ready: the desktop's takeoverReady IPC moved onto the protocol, no new prompt or refusal
+takeover/ready allow the renderer's takeover card and sign-in window wait on it: the desktop's takeoverReady IPC moved onto the protocol, no new prompt or refusal
