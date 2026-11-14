@@ -111,11 +111,8 @@ function main() {
   const outputPath = resolve(arg('output', 'artifacts/computer-use/computer-task-cost-final.json'));
   const report = buildReport(load(paths.model), load(paths.host), load(paths.sequence), paths);
   mkdirSync(dirname(outputPath), { recursive: true });
-  writeFileSync(outputPath, `${JSON.stringify(report, null, 2)}
-`, 'utf8');
-  process.stdout.write(`${JSON.stringify(report, null, 2)}
-${outputPath}
-`);
+  writeFileSync(outputPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+  process.stdout.write(`${JSON.stringify(report, null, 2)}\n${outputPath}\n`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main();
