@@ -240,9 +240,9 @@ fn thrown(text: String) -> EvaluateError {
 }
 
 /// A call that failed: the script may have run, unless the host refused it because the page was no longer what the call was decided
-/// against, or the caller's cancel ended it before it was sent.
+/// against. A cancelled call may already have reached the page, so it drops the refs too.
 fn failed(error: HostCallError) -> EvaluateError {
-    let ran = !matches!(error, HostCallError::PreconditionFailed { .. } | HostCallError::Cancelled);
+    let ran = !matches!(error, HostCallError::PreconditionFailed { .. });
     EvaluateError { error: PageActionError::Host(error), refs_stale: ran }
 }
 
@@ -714,7 +714,9 @@ async fn end_started_trace(call: &PageCall<'_>, error: PageActionError) -> PageA
     let params = HostBrowserPerformanceParams { page_id: call.page_id.to_owned(), op: BrowserPerformanceOp::Stop, categories: None, export_path: None, save_trace: None };
     match call.host.performance(params, &CancellationToken::new()).await {
         Ok(_) => error,
-        Err(cleanup) => PageActionError::invalid(format!("{error}; trace cleanup also failed ({cleanup}). Run performance with operation:\"stop\" to retry cleanup.")),
+        Err(cleanup) => PageActionError::Host(HostCallError::Failed {
+            message: format!("{error}; trace cleanup also failed ({cleanup}). Run performance with operation:\"stop\" to retry cleanup."),
+        }),
     }
 }
 
@@ -827,7 +829,15 @@ mod tests {
         let gone = FakeHost::scripted(vec![Expect::err("host/browser/page/eval", HostCallError::Failed { message: "frame detached".into() })]);
         assert!(evaluate(&call(&gone, &cancel), &ctx, &request).await.expect_err("failed").refs_stale);
         let cancelled = FakeHost::scripted(vec![Expect::err("host/browser/page/eval", HostCallError::Cancelled)]);
-        assert!(!evaluate(&call(&cancelled, &cancel), &ctx, &request).await.expect_err("cancelled").refs_stale);
+        assert!(evaluate(&call(&cancelled, &cancel), &ctx, &request).await.expect_err("cancelled").refs_stale);
+        let refused = FakeHost::scripted(vec![Expect::err(
+            "host/browser/page/eval",
+            HostCallError::PreconditionFailed {
+                reason: mixdog_app_protocol::v2::browser_engine::BrowserPreconditionReason::Url,
+                facts: Box::new(serde_json::from_value(page_facts("p1", 3)).expect("facts")),
+            },
+        )]);
+        assert!(!evaluate(&call(&refused, &cancel), &ctx, &request).await.expect_err("refused").refs_stale);
     }
 
     #[tokio::test]
