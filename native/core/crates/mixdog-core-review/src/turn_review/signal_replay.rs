@@ -12,8 +12,8 @@
 //! The replay runs the same actions through the core's tools (`edit`, `apply_patch`, `git`), its turn review over real Git and its
 //! scm service, which publishes through the core's own `StateRuntime`: one app-wide `reviewDiff` frame per tell. The core's answer
 //! to each recorded request must be the recorded answer whole, and the core's app-feed frames, taken through the production
-//! delivery path (`review-reread-replay.mjs`: the client library, main's protocol connection and section relay, each window's IPC
-//! and preload, the renderer's section store and its `TurnReviewBar` panes), must make the windows ask and show exactly what the
+//! delivery path (`review-reread-replay.mjs`: each window's own client library and connection to the core, the renderer's sections
+//! API, section store and its `TurnReviewBar` panes), must make the windows ask and show exactly what the
 //! recording holds, window by window and pane by pane, in Node's order.
 
 use std::collections::HashMap;
@@ -233,7 +233,7 @@ pub async fn replay(scenario: &Value, host: &mut dyn ReplayHost) {
         // A connection that dials in at the end of this operation (a reconnect of the desktop, an operation run while its link was
         // down, a phone that attaches or whose leg is back) is answered with the core's snapshot of the app feed as it is now
         // (the feed's own encoding), which the replay hands to that client.
-        let dials = kind == "coreReconnect" || op["coreLinkDown"] == true || (kind == "client" && op["kind"] == "phone") || (kind == "phoneLink" && op["state"] == "up");
+        let dials = kind == "coreReconnect" || op["coreLinkDown"] == true || kind == "client" || (kind == "phoneLink" && op["state"] == "up");
         if dials {
             let feed = host.app_feed();
             let tap = FeedTap::attach_as(&feed, 2 + index as u64);
@@ -306,21 +306,17 @@ pub async fn replay(scenario: &Value, host: &mut dyn ReplayHost) {
     // A composed core also publishes sections that are not the subject (usage, tool modules) on the same feed: their frames take positions and
     // reach the clients (a client folds the feed in order), but what is counted and compared are the review tells.
     let frames_of = |index: usize| rust[index]["deliveries"].as_array().unwrap().iter().flat_map(|delivery| delivery.as_array().unwrap()).filter(|frame| frame["method"] == "review/diff/updated").count();
-    // The relay's pushes that carry a tell: one per frame, except in an operation run while the desktop's connection was down, where
-    // the tells made meanwhile reach the windows as the one tell of the connection's snapshot (a whole-store replace), not as a push.
-    let pushes_of = |index: usize| if scenario["ops"][index]["coreLinkDown"] == true { 0 } else { frames_of(index) };
     let ops = scenario["ops"].as_array().unwrap().len();
     // The operations in which Node made several deliveries. The rule for them is stated at the check below.
     let bursts: Vec<usize> = (0..ops).filter(|index| scenario["results"][*index]["deliveries"].as_u64().unwrap() > 1).collect();
     let input = |bursts: &[usize]| serde_json::json!({ "ops": scenario["ops"], "recorded": scenario["results"], "snapshot": snapshot, "rust": rust, "bursts": bursts });
     let whole = |index: usize, trace: &Value| {
         let want = &scenario["results"][index];
-        assert_eq!(trace["pushes"], pushes_of(index), "{name}: op {index}: pushes of the relay");
-        let expected = serde_json::json!({ "op": index, "deliveries": want["deliveries"], "requests": want["requests"], "shows": want["shows"], "pushes": pushes_of(index) });
+        let expected = serde_json::json!({ "op": index, "deliveries": want["deliveries"], "requests": want["requests"], "shows": want["shows"] });
         assert_eq!(*trace, expected, "{name}: op {index} {}: what the windows asked and showed", scenario["ops"][index]);
     };
 
-    // Tells that arrive apart: exactly Node's trace, and one push of the relay per tell.
+    // Tells that arrive apart: exactly Node's trace.
     let apart = windows_trace(&base, &input(&[])).await;
     let apart = apart["traces"].as_array().expect("the replay answers a trace per operation");
     assert_eq!(apart.len(), ops, "{name}: a trace per operation");
@@ -332,8 +328,8 @@ pub async fn replay(scenario: &Value, host: &mut dyn ReplayHost) {
         whole(index, trace);
     }
 
-    // Tells that arrive together (the operations in which Node made several): the relay hands tells that reach it together to the
-    // windows as one push, so a pane may read fewer times than in Node, and nothing else may differ. The rule, stated once. For every
+    // Tells that arrive together (the operations in which Node made several): a window's sections API hands the tells that reach it
+    // together to its panes as one push, so a pane may read fewer times than in Node, and nothing else may differ. The rule, stated once. For every
     // pane that Node read in the operation, the pane's reads are an ordered subsequence of Node's (each of Node's matched at most once,
     // each whole: the request, the answer, and what the pane rendered while waiting for it and after it); its last read is made after
     // the burst's last tell reached it; every state of Node's that a skipped read had (rendered while waiting, rendered after the
@@ -342,7 +338,6 @@ pub async fn replay(scenario: &Value, host: &mut dyn ReplayHost) {
     let together = windows_trace(&base, &input(&bursts)).await;
     let (traces, told) = (together["traces"].as_array().expect("a trace per operation"), together["told"].as_array().expect("the told counts per operation"));
     assert_eq!(traces.len(), ops, "{name}: a trace per operation");
-    let mut coalesced = false;
     for (index, trace) in traces.iter().enumerate() {
         if !bursts.contains(&index) {
             // Not a burst, but the state it starts from is the one the bursts before it left: the panes must agree with Node's.
@@ -376,9 +371,7 @@ pub async fn replay(scenario: &Value, host: &mut dyn ReplayHost) {
                 }
             }
         }
-        coalesced |= trace["pushes"].as_u64().unwrap() < frames_of(index) as u64;
     }
-    assert!(bursts.is_empty() || coalesced, "{name}: no burst reached the windows as fewer pushes than frames, so the relay's coalescing was not exercised");
 }
 
 /// A read without the count of tells made before it: a read that comes later (the relay handed it the tells together) is stamped

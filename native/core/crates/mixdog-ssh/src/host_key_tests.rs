@@ -497,10 +497,12 @@ async fn the_proxy_read_switches_the_login_off_for_the_server_being_read_only_an
     assert!(command_text.starts_with("Host *\n  PreferredAuthentications none\n  PubkeyAuthentication no\n  PasswordAuthentication no\n  KbdInteractiveAuthentication no"));
     assert!(!command_args.iter().any(|arg| arg.starts_with("ProxyJump=")), "the configured route is used");
     drop(seen);
-    let left: Vec<String> = mixdog_fsio::read_dir(&mixdog_fsio::Unlaned, folder.path().join("mixdog-ssh-scan-user"))
-        .expect("the scan root")
+    // A plain temp folder gets mkdtemp-style `mxk-` subfolders directly (no per-user root); nothing of them is left.
+    let left: Vec<String> = mixdog_fsio::read_dir(&mixdog_fsio::Unlaned, folder.path())
+        .expect("the temp folder")
         .filter_map(Result::ok)
         .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.starts_with("mxk-"))
         .collect();
     assert!(left.is_empty(), "the throwaway folders are removed: {left:?}");
 }

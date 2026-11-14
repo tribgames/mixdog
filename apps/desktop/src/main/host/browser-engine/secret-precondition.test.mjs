@@ -303,7 +303,9 @@ test('after a typed secret and a submit, no engine reply, error, event or transc
       intercept: createInterceptTable(),
     });
     registerUpload(connection, ctx, { host: leaky(), invalidateInteractionState: leaky() });
-    registerSignIn(connection, ctx, leaky(), leaky());
+    // finishTurn answers a count (SignInDeps), never text: the one dependency whose answer is typed as a number keeps its type.
+    const signInDeps = new Proxy(leaky(), { get: (target, key) => (key === 'finishTurn' ? () => 0 : target[key]) });
+    registerSignIn(connection, ctx, signInDeps, leaky());
 
     // Every method the protocol lists is served, so none is left out of the scan.
     const names = engineMethods();

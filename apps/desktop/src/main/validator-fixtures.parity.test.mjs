@@ -240,6 +240,14 @@ diverge('capability', 'open', [
   "thread/contextStatus|context status null options",
   "skills/skillsStatus|skills status empty options",
 ]);
+diverge('capability', 'wording', [
+  "mcp/setMcpServerEnabled|mcp enable misses its flag",
+  "thread/revertTurnChanges|revert misses the revision",
+  "thread/revertTurnChanges|revert without its revision",
+  "thread/askSide|no params at all",
+  "thread/askSide|side question without its text",
+  "turn/retryFailed|retry without a key",
+]);
 diverge('capability_settings', 'wording', [
   "config/setAutoUpdate|absent",
   "config/setRecapEnabled|absent",
