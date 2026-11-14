@@ -39,6 +39,26 @@ async fn set_system_shell_applies_the_input_param() {
     assert_eq!(settings_call(&settings, "config/getSystemShell", &json!({}), false).await.unwrap()["command"], "powershell.exe");
 }
 
+/// `setWorktreeSettings(patch)` stores what Node's `saveConfigAndAdopt` stores (settings-worktree-api.mjs, "defaults are not
+/// stored"): only the values that differ from the defaults, and no section once every value is back at its default.
+#[tokio::test]
+async fn set_worktree_settings_stores_only_what_differs_from_the_defaults() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("mixdog-config.json");
+    let tokens = mixdog_rt::testing::tokens();
+    let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
+    let (config, _) = Config::open(file.clone(), Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
+    let stored = || serde_json::from_slice::<Value>(&std::fs::read(&file).unwrap()).unwrap()["agent"].get("worktree").cloned();
+
+    let set = set_worktree_settings(&config, &json!({ "maxWorktrees": 5, "branchPrefix": "ft/" })).await.unwrap();
+    assert_eq!((set["maxWorktrees"].as_u64(), set["branchPrefix"].as_str(), set["unusedDays"].as_u64()), (Some(5), Some("ft/"), Some(30)));
+    assert_eq!(stored(), Some(json!({ "branchPrefix": "ft/", "maxWorktrees": 5 })));
+
+    set_worktree_settings(&config, &json!({ "maxWorktrees": 15, "branchPrefix": "" })).await.unwrap();
+    assert_eq!(stored(), None);
+    assert_eq!(worktree_view(&config)["maxWorktrees"], 15);
+}
+
 /// Node's phone table over `setDeveloperOption` (`fixtures/phone-guards/golden.json`, `capability`): turning "Allow all
 /// actions" on from a paired phone is refused with Node's code and text and writes nothing; what Node forwarded reaches the
 /// setter. The same calls from the desktop are not refused.
@@ -84,14 +104,20 @@ async fn a_relay_call_may_not_turn_on_allow_all_actions() {
     assert_eq!(seen, 3);
 }
 
-/// A setter's `TypeError` reaches the window as its message (Node `settings-builtin-tools-api.mjs`
-/// `installBuiltinFeature`), which an `invalidParams` answer would not carry.
+/// A setter's `TypeError` (Node `settings-builtin-tools-api.mjs` `installBuiltinFeature`) and its plain `Error`
+/// (`heartbeat-interval.mjs` `requireHeartbeatIntervalMinutes`) reach the window as their message and no code, which
+/// an `invalidParams` answer would not carry.
 #[test]
-fn a_setter_type_error_answers_its_message() {
-    let text = "Built-in feature must be git, memory, office, tidy, localProvider, or autoEffort.";
-    match tool(Err(ToolModulesError::InvalidArgument(text.into()))) {
-        Err(CoreError::DomainError { code: None, message: Some(message), .. }) => assert_eq!(&*message, text),
-        other => panic!("{other:?}"),
+fn a_setter_error_answers_its_message() {
+    let type_error = "Built-in feature must be git, memory, office, tidy, localProvider, or autoEffort.";
+    let error = "heartbeat interval must be one of 30, 60, 120, 240 minutes";
+    for (thrown, text) in
+        [(ToolModulesError::InvalidArgument(type_error.into()), type_error), (ToolModulesError::Failed(error.into()), error)]
+    {
+        match tool(Err(thrown)) {
+            Err(CoreError::DomainError { code: None, message: Some(message), .. }) => assert_eq!(&*message, text),
+            other => panic!("{other:?}"),
+        }
     }
 }
 

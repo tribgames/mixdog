@@ -53,7 +53,8 @@ pub trait McpToolNames: Send + Sync {
 impl McpToolNames for McpHub {
     fn names(&self, scope: Option<&str>, qualified: &str) -> Option<(String, String)> {
         let target = self.tool_target_in(&normalize_scope(scope), qualified)?;
-        let entry = target.entry?;
+        // A resources or prompts request is no tool of the server: its definition names none (`mcpFeatureTools`).
+        let entry = target.entry.filter(|entry| entry.feature.is_none())?;
         Some((target.server.name().to_owned(), entry.tool.clone()))
     }
 }

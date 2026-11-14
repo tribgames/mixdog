@@ -341,6 +341,8 @@ impl Run {
             clock: Arc::clone(&self.env.clock),
             mcp: self.env.mcp.clone(),
             prepared: false,
+            native_pdf: self.provider.native_pdf(),
+            sees_images: self.config.vision.as_ref().is_none_or(|vision| vision.sees_images(self.provider.id().as_str(), &self.model)),
         })
     }
 
@@ -988,6 +990,10 @@ impl Run {
                 && crate::result_kind::classify_result_kind(text, &calls[*i].name) == crate::result_kind::ResultKind::Error
             {
                 m.tool_kind = Some(ToolKind::Error);
+                // The kind is the failure a provider is told (`m.toolKind === 'error'`, anthropic-request-utils.mjs:411), and
+                // what the stored row reads back as (`typed_of`): the message says it now, so the request this turn sends and
+                // the one the next turn rebuilds from the transcript are the same message.
+                m.message.is_error = true;
             }
         }
         // A loading tool's native tool-search payload becomes the message's, and its summary the

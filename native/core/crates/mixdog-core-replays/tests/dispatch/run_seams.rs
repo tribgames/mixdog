@@ -160,6 +160,18 @@ async fn the_other_seams_answer_from_the_config_and_the_agent_store() {
     assert!(plain.effort.is_none() && plain.limits.is_none() && plain.text_only.is_none());
 }
 
+/// With automatic compaction off the loop has no policy, yet the session's window is stated: a manual or scheduled pass
+/// resolves it with `auto` forced on (`resolveSessionCompactionPolicy`, `compaction-runner.mjs`).
+#[tokio::test]
+async fn automatic_compaction_off_still_states_the_window_a_manual_pass_resolves() {
+    let (_dir, seams) = seams(Some(json!({ "agent": { "compaction": { "auto": false } } })), HashMap::new()).await;
+    let settings = seams.run_settings(&ThreadId::from("t"), &header(json!({ "contextWindow": 30000 }))).compact.unwrap();
+    assert!(!settings.auto);
+    assert!(CompactPolicy::resolve(&settings).is_none(), "the loop does not compact");
+    let forced = CompactPolicy::resolve(&mixdog_agent::boundary::CompactSettings { auto: true, ..settings }).expect("a manual pass has a boundary");
+    assert_eq!((forced.boundary_tokens, forced.context_window), (30000, Some(30000)));
+}
+
 /// Node's full config always has a `compaction` section (`config.mjs:367`, `{}`), so a stored config without one still seeds the
 /// installed session from the empty section: `onModelChange` and `summaryMode` appear, the resolved buffer keys go
 /// (`stored-header` of every `real-turn-harness` scenario).

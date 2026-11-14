@@ -38,9 +38,7 @@ use mixdog_core_session::session::worktree::PromptRewrite;
 use mixdog_core_session::session::worktree::PromptView;
 use mixdog_core_session::session::worktree::pending_workspace_reroot;
 use mixdog_core_session::session::worktree::route_prompt_refresh;
-
-/// The `agent` id of the representative agent (`MIXY_AGENT_ID`).
-pub const MIXY_AGENT_ID: &str = "lead";
+use mixdog_core_base::rooms::ids::MIXY_AGENT_ID;
 
 /// The shipped rules and the data directory the composition reads (`mixdogRoot()`,
 /// `resolvePluginData()`).

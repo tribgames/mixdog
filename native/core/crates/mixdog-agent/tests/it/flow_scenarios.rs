@@ -15,6 +15,7 @@ use mixdog_agent::agent_tool::board::JobBoard;
 use mixdog_agent::agent_tool::board::JobMeta;
 use mixdog_agent::agent_tool::dispatch::{CloseParts, cancel_agent_tree, close_resolved};
 use mixdog_agent::agent_tool::error_text::PlainErrorText;
+use mixdog_agent::agent_tool::error_text::PresentedErrorText;
 use mixdog_agent::agent_tool::{AgentParts, AgentRuntime, assemble};
 use mixdog_agent::agent_tool::flow::job_starter::JobStarter;
 use mixdog_agent::agent_tool::flow::job_starter::StartContext;
@@ -614,15 +615,6 @@ impl SendWorld for SendHost {
     }
 }
 
-/// presentErrorText(error, { surface: 'agent' }), which the board applies to a job's failure.
-struct Presented;
-impl mixdog_agent::agent_tool::error_text::ErrorText for Presented {
-    fn present(&self, message: &str) -> String {
-        use mixdog_ai::service::error_text::{ErrorView, PresentOptions, present_error_text};
-        present_error_text(&ErrorView::message(message), &PresentOptions { surface: "agent".into(), ..PresentOptions::default() })
-    }
-}
-
 pub(crate) struct Rig {
     pub(crate) shared: Arc<Shared>,
     pub(crate) spawn: Arc<SpawnFlowImpl>,
@@ -691,7 +683,7 @@ pub(crate) fn rig(scenario: &Value, host: Option<&Value>) -> Rig {
     shared.board = JobBoard::new(clock.clone(), Some(delivered), None);
     let shared = Arc::new(shared);
     let board = shared.board.clone();
-    board.set_error_text(Arc::new(Presented));
+    board.set_error_text(Arc::new(PresentedErrorText));
 
     let sessions: Arc<dyn TurnSessions> = Arc::new(Sess(shared.clone()));
     let turns: Arc<dyn TurnOwner> = Arc::new(TurnsOwner(shared.clone()));

@@ -129,13 +129,20 @@ pub fn boot_executors() -> Result<(Arc<Executors>, LaneTokens), ServeError> {
     Ok(mixdog_rt::exec::boot(RtConfig::detect())?)
 }
 
-/// `mixdogd serve`: boots the executors and serves until the process is told to stop.
+/// `mixdogd serve`: boots the executors and serves until the process is told to stop. A start that finds the data dir owned by another core yields
+/// to it: it ends cleanly, as Node's contender does (`claimDaemonOwnership`), and its launcher attaches to the holder.
 ///
 /// The process has no runtime of its own: the calling thread blocks inside RT-W's context, so the composition's tasks and every ambient `Handle::current()` land on the
 /// executors, and the connection tasks the transport spawns with `TaskClass::Control` run on RT-C. Blocking work goes to the lanes, never to either runtime.
 pub fn run() -> Result<(), ServeError> {
     let (executors, tokens) = boot_executors()?;
-    executors.handle(TaskClass::Work).block_on(serve(&executors, tokens))
+    match executors.handle(TaskClass::Work).block_on(serve(&executors, tokens)) {
+        Err(ServeError::Startup(startup::StartupError::Ownership(ownership::AcquireError::AlreadyOwned))) => {
+            crash_record::yield_ownership(discovery::running_core_pid());
+            Ok(())
+        }
+        served => served,
+    }
 }
 
 /// Composes the core and serves until the process is told to stop.

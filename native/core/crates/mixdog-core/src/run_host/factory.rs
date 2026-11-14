@@ -359,6 +359,8 @@ fn failed(message: impl Into<String>, data: Value) -> RunOutcome {
 enum Job {
     Commit(u64, ItemCommit),
     Compact(u64, mixdog_core_session::session::run::Compaction),
+    /// A rewrite that is not a compaction: the model context restarts at these rows, with no divider.
+    Rewound(u64, Vec<(ItemId, Value)>),
     Draft(u64, Value),
 }
 
@@ -532,6 +534,12 @@ impl PortSink {
                     Job::Compact(n, compaction) => {
                         if let Err(error) = worker.compacted(compaction).await {
                             tracing::warn!("[session] compaction save failed: {error:?}");
+                        }
+                        n
+                    }
+                    Job::Rewound(n, replacement) => {
+                        if let Err(error) = worker.context_rewound(replacement).await {
+                            tracing::warn!("[session] context save failed: {error:?}");
                         }
                         n
                     }
@@ -746,7 +754,17 @@ impl TranscriptSink for PortSink {
     }
 
     fn replace(&self, messages: &[AgentMessage], rewrite: &mixdog_agent::env::Rewrite) {
-        let replacement = messages.iter().map(|m| (self.iid_of(m), row_of(m))).collect();
+        // The run's leading system messages are the header's prompt (`system_messages`, put before the stored rows by `drive`),
+        // not context rows: the next turn's request carries one system set, as `adoptCompactedTranscript` leaves one.
+        let replacement: Vec<(ItemId, Value)> =
+            messages.iter().skip_while(|m| m.role() == Role::System).map(|m| (self.iid_of(m), row_of(m))).collect();
+        // Only a compaction pass writes a compaction record (and its divider, which an agent-mode session never shows).
+        // Node splices any other rewrite into `state.messages` in place (`route-fallback.mjs:161` for a route's replay
+        // strip): the context restarts silently.
+        if !rewrite.compaction {
+            self.jobs.queue(&mut lock(&self.jobs.observed), |n| Job::Rewound(n, replacement));
+            return;
+        }
         let compaction = mixdog_core_session::session::run::Compaction { replacement, at: self.clock.now_ms(), dropped_count: rewrite.dropped_count, dropped: rewrite.dropped.as_ref().map(dropped_of) };
         self.jobs.queue(&mut lock(&self.jobs.observed), |n| Job::Compact(n, compaction));
     }
@@ -1180,6 +1198,11 @@ impl mixdog_agent::env::ToolFailureLog for SensitiveFailures {
     fn stall_abort(&self, ctx: serde_json::Map<String, Value>) {
         self.inner.stall_abort(ctx);
     }
+
+    /// The `loop` row holds no call's arguments or text: passed on as it is.
+    fn provider_send(&self, send: mixdog_agent::env::ProviderSend) {
+        self.inner.provider_send(send);
+    }
 }
 
 // ---- the turn ----------------------------------------------------------------------------------------
@@ -1332,7 +1355,7 @@ async fn drive(
 ) -> RunOutcome {
     let RunStart { thread, turn, input_body, header, port, context, surface, progress, turn_messages, cancel, signal, review, agent_turn, unattended, verb, skill_selection: routine_selection, input: submitted, input_item, goal_reminder, notice: carried_notice, transcripts, lifecycle } = run;
     // whileTurnDispatched and the runtime entry (`runtime-state.mjs`): the run is live from here to the end of the drive.
-    let _live = super::turn_liveness::TurnLiveness::begin(&liveness, &thread, Value::Object(header.clone()), progress.subscribe(), cancel.clone());
+    let _live = super::turn_liveness::TurnLiveness::begin(&liveness, &thread, &header, progress.subscribe(), cancel.clone());
     // The turn's own context (`options.context`: an agent spawn's or send's `context` argument).
     let own_context = agent_turn.as_ref().and_then(|turn| turn.context.as_ref()).and_then(Value::as_str).map(str::to_owned);
     let (slot, skill_selection, on_tool_result, notify) = match agent_turn {
@@ -1356,16 +1379,16 @@ async fn drive(
     // A failed-turn retry starts without the stale copy of its prompt (`prepareAskTurn`). The
     // context is restarted durably (the chained provider state re-baselines with it), at the rows
     // that remain and this run's input, so the next turn reads the prompt once.
-    match failed_turn_rewind::rewound(&mut stored, submitted.options.as_ref(), &request) {
-        Ok(true) => {
-            let mut restart = stored.clone();
-            restart.push((input_item.clone(), input_body.clone()));
-            if port.context_rewound(restart).await.is_err() {
-                return failed("the failed prompt could not be removed from the model context", Value::Null);
-            }
-        }
-        Ok(false) => {}
+    let stale = match failed_turn_rewind::rewound(&mut stored, submitted.options.as_ref(), &request) {
+        Ok(stale) => stale,
         Err(text) => return failed(text, Value::Null),
+    };
+    if !stale.is_empty() {
+        let mut restart = stored.clone();
+        restart.push((input_item.clone(), input_body.clone()));
+        if port.context_rewound(restart).await.is_err() {
+            return failed("the failed prompt could not be removed from the model context", Value::Null);
+        }
     }
     let prior: Vec<Value> = stored.iter().map(|(_, body)| body.clone()).collect();
     let injected = input_body.pointer("/meta/source").is_some_and(Value::is_string);
@@ -1406,6 +1429,12 @@ async fn drive(
         () = cancel.cancelled() => Default::default(),
     };
     if verdict.blocked {
+        // The refusal throws before `askSession` (`turn-run.mjs` `runTurn`): `session.messages` never takes the prompt and
+        // keeps a retry's stale copy, so the model context restarts at the rows it held before this turn.
+        stored.extend(stale);
+        if let Err(error) = port.context_rewound(stored).await {
+            tracing::warn!("[session] the refused prompt could not be removed from the model context: {error:?}");
+        }
         return failed(format!("prompt blocked by hook: {}", verdict.reason.as_deref().unwrap_or_default()), Value::Null);
     }
     let turn_context = super::lifecycle_hooks::turn_context(own_context.as_deref(), &verdict.context);
@@ -1790,10 +1819,10 @@ mod tests {
     mod turn_durability_replay;
 
     use std::collections::VecDeque;
-    use std::sync::atomic::AtomicI64;
+    use std::sync::atomic::{AtomicBool, AtomicI64};
     use std::time::Duration;
 
-    use mixdog_agent::env::{AllowAll, NoGuards};
+    use mixdog_agent::env::{AllowAll, CompactError, CompactOutput, CompactRequest, NoGuards};
     use mixdog_core_api::call::CallContext;
     use mixdog_core_api::domain::keepalive::KeepaliveSchedule;
     use mixdog_core_api::domain::mock::{MockApprovalGate, MockCodec, MockFileService, MockProcessManager, MockRetryDecider};
@@ -1888,6 +1917,7 @@ mod tests {
                 Job::Draft(_, body) => format!("draft {}", body["text"].as_str().unwrap_or_default()),
                 Job::Commit(_, item) => format!("row {}", item.iid.as_str()),
                 Job::Compact(..) => "compact".to_owned(),
+                Job::Rewound(..) => "rewound".to_owned(),
             });
         }
         assert_eq!(order, ["draft reading", "row row"]);
@@ -2336,8 +2366,8 @@ mod tests {
 
     /// A turn's hooks (`turn-run.mjs` `runTurn`): `UserPromptSubmit` with the prompt as submitted, before the model is asked;
     /// the context it adds leads the prompt the model reads (`# Additional context` / `# Task`); `Stop` once the turn
-    /// completed. A handler's block refuses the turn with Node's message before any request, and that turn fires
-    /// `StopFailure` instead of `Stop`.
+    /// completed. A handler's block refuses the turn with Node's message before any request, that turn fires
+    /// `StopFailure` instead of `Stop`, and the next turn's request does not carry the refused prompt.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_turn_fires_its_prompt_and_stop_hooks_and_a_blocked_prompt_asks_no_model() {
         use mixdog_core_session::session::lifecycle_hooks::PromptVerdict;
@@ -2347,7 +2377,7 @@ mod tests {
             policy: RetryPolicy::codex_default(),
             keepalive: KeepaliveSchedule::SPEC,
             codec: MockCodec,
-            script: Mutex::new(VecDeque::from([done("ok")])),
+            script: Mutex::new(VecDeque::from([done("ok"), done("later")])),
             requests: Mutex::new(Vec::new()),
             fail_first: std::sync::atomic::AtomicBool::new(false),
         });
@@ -2388,6 +2418,104 @@ mod tests {
         assert_eq!(lock(&provider.requests).len(), 1, "a blocked prompt asks no model");
         let stored = format!("{:?}", rig.store.records(&id));
         assert!(stored.contains("prompt blocked by hook: not now"), "the turn failed with Node's message");
+
+        *lock(&hooks.verdict) = PromptVerdict::default();
+        handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-3", "input": { "prompt": "third" } }), "op-3")).await.expect("turn/start");
+        eventually_on_awaiting(|| "the third turn's end record".to_owned(), &[handle.stepped()], || (ended() >= 3).then_some(())).await;
+        let requests = lock(&provider.requests).clone();
+        let roles: Vec<_> = requests[1].messages.iter().map(|m| m.role).collect();
+        assert_eq!(roles, [Role::User, Role::Assistant, Role::User], "the refused prompt is not in the model history");
+    }
+
+    /// Compacts the first time it is asked, keeping what the session's compactor keeps first (`split_protected_context`: the
+    /// system messages), then a summary and the latest message.
+    #[derive(Default)]
+    struct CompactsOnce {
+        asked: AtomicBool,
+    }
+
+    #[async_trait]
+    impl Compactor for CompactsOnce {
+        fn estimate_tokens(&self, _: &[AgentMessage]) -> u64 {
+            1_000_000
+        }
+
+        async fn reduces(&self, _: &CompactRequest<'_>) -> bool {
+            !self.asked.swap(true, Ordering::SeqCst)
+        }
+
+        async fn compact(&self, request: CompactRequest<'_>) -> Result<CompactOutput, CompactError> {
+            let mut messages: Vec<AgentMessage> = request.messages.iter().take_while(|m| m.role() == Role::System).cloned().collect();
+            messages.push(AgentMessage::user("[summary]"));
+            messages.extend(request.messages.last().cloned());
+            Ok(CompactOutput { messages, usage: None, dropped_count: 0, dropped: None, skipped: false, pipeline_ms: 0.0, summary_ms: None })
+        }
+    }
+
+    /// [`Parts`] whose turns compact automatically with `compactor`.
+    struct Compacting {
+        inner: Parts,
+        compactor: Arc<dyn Compactor>,
+    }
+
+    #[async_trait]
+    impl RunParts for Compacting {
+        async fn reconcile_turn(&self, thread: &ThreadId, header: mixdog_store::schema::record::Header, conversation: bool) -> Result<mixdog_store::schema::record::Header, TurnError> {
+            self.inner.reconcile_turn(thread, header, conversation).await
+        }
+
+        async fn assemble(&self, input: AssembleInput<'_>) -> Result<Assembled, TurnError> {
+            let mut assembled = self.inner.assemble(input).await?;
+            assembled.compactor = Some(self.compactor.clone());
+            assembled.config.compact = Some(mixdog_agent::boundary::CompactSettings { auto: true, context_window: Some(1_000), token_calibration: 1.0, ..Default::default() });
+            Ok(assembled)
+        }
+    }
+
+    /// An automatic compaction's result leads with the run's system messages, which are the header's prompt: the context it
+    /// stores is the conversation alone, so the next turn's request carries the system set once, as Node's
+    /// `adoptCompactedTranscript` leaves one set in `session.messages`.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_turn_after_an_automatic_compaction_sends_the_system_prompt_once() {
+        let done = |text: &str| vec![StreamEvent::TextDelta(text.into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }];
+        let provider = Arc::new(Scripted {
+            id: ProviderId::from("scripted"),
+            policy: RetryPolicy::codex_default(),
+            keepalive: KeepaliveSchedule::SPEC,
+            codec: MockCodec,
+            script: Mutex::new(VecDeque::from([done("ok"), done("later")])),
+            requests: Mutex::new(Vec::new()),
+            fail_first: std::sync::atomic::AtomicBool::new(false),
+        });
+        let workspace = tempfile::tempdir().unwrap();
+        let rig = Rig::new();
+        let mut deps = rig.deps_parts(rig.store.clone());
+        let parts = Compacting { inner: Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None, effort: None }, compactor: Arc::new(CompactsOnce::default()) };
+        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(parts)));
+        let directory = SessionDirectory::new(Arc::new(deps));
+        let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
+        let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
+        let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
+        let handle = directory.handle(&id).expect("loaded");
+        let patch = json!({ "threadId": id, "set": { "promptBase": "rules" }, "unset": [] });
+        handle.request(CoreRequest { method: Method("thread/header/patch"), params: patch, op: None, ctx: CallContext::internal("test") }).await.expect("the system prompt");
+        let ended = || {
+            rig.store
+                .records(&id)
+                .into_iter()
+                .filter(|(_, record)| matches!(record, Record::Run(run) if matches!(run.phase, mixdog_store::schema::record::RunPhase::Completed | mixdog_store::schema::record::RunPhase::Failed)))
+                .count()
+        };
+        for (turns, (op, prompt)) in [("op-1", "go"), ("op-2", "again")].into_iter().enumerate() {
+            handle.request(request("turn/start", json!({ "threadId": id, "opId": op, "input": { "prompt": prompt } }), op)).await.expect("turn/start");
+            eventually_on_awaiting(|| format!("the end record of turn {op}"), &[handle.stepped()], || (ended() > turns).then_some(())).await;
+        }
+        let requests = lock(&provider.requests).clone();
+        assert_eq!(requests.len(), 2, "each turn asked the model once");
+        let system = |at: usize| requests[at].messages.iter().filter(|m| m.role == Role::System).count();
+        assert!(format!("{:?}", requests[0].messages).contains("[summary]"), "the first turn's request is the compacted transcript");
+        assert!(system(0) > 0, "the header's prompt leads the request");
+        assert_eq!(system(1), system(0), "the next turn's request carries the system prompt once");
     }
 
     /// The provider that, when its request arrives, makes the store refuse the next write (the assistant row the reply commits).
@@ -3291,6 +3419,7 @@ mod tests {
                 compact: None,
                 escalated_max_output_tokens: None,
                 read_body_required: false,
+                vision: None,
                 effort: None,
                 step_auto_effort: None,
                 text_only: None,
@@ -3691,7 +3820,7 @@ mod tests {
             work: rig.work.clone(),
             cycles: Arc::default(),
             config: Arc::new(Config),
-            settings: super::super::settings::SettingsSources { wiring: Arc::new(NoWiring), attachments: Arc::new(NoAttachmentText), media: None, heartbeats: Arc::new(NoMarks), ceilings: Arc::new(NoCeilings), auto_effort: Arc::new(AutoOff) },
+            settings: super::super::settings::SettingsSources { wiring: Arc::new(NoWiring), attachments: Arc::new(NoAttachmentText), media: None, heartbeats: Arc::new(NoMarks), ceilings: Arc::new(NoCeilings), auto_effort: Arc::new(AutoOff), vision: None },
             ladder: Arc::new(NoLadder),
             shells: None,
             liveness,

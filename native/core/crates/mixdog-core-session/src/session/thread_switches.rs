@@ -19,6 +19,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use mixdog_ai::service::admin_route::truthy;
+use mixdog_app_protocol::v2::thread::ThreadWorkflow;
 use mixdog_core_api::ThreadHandle as _;
 use mixdog_core_api::call::CallContext;
 use mixdog_core_api::call::CoreRequest;
@@ -28,6 +29,7 @@ use mixdog_core_config::workflow::thread_settings::ContextSwitch;
 use mixdog_core_config::workflow::thread_settings::SessionSwitches;
 use mixdog_core_ports::ports::memory_source::ThreadMessages;
 use mixdog_core_ports::ports::route::model_switch_anchor_index;
+use mixdog_core_ports::ports::threads::Section;
 use mixdog_core_ports::ports::threads::ThreadState;
 use mixdog_core_run::run_host::route_chain::resolve_session_mode;
 use mixdog_store::schema::blob::Slot;
@@ -944,6 +946,15 @@ impl SessionSwitchAdapter {
             for boundary in &switched.boundaries {
                 if let Err(error) = record_meta_boundary(&self.directory, &thread, boundary).await {
                     tracing::warn!("[mixdog-session] Could not record the {} boundary of {thread}: {error:?}", boundary.field);
+                }
+            }
+            // A workflow staged while a turn runs shows at once (`currentWorkflow` of `boot/facade.mjs` resolves the staged
+            // id): the header holds the id only, so the meta the switch answers is published for the thread's state. The
+            // thread sends no workflow state for the record that staged an id it holds no meta of: this publish sends it.
+            if matches!(op, SwitchOp::Workflow(_)) && truthy(session.get("pendingWorkflowId")) {
+                let staged = ThreadWorkflow { workflow: switched.result.get("workflow").cloned(), ..ThreadWorkflow::default() };
+                if let Err(error) = self.threads.publish(&thread, Section::Workflow(staged)).await {
+                    tracing::warn!("[mixdog-session] Could not publish the staged workflow of {thread}: {error:?}");
                 }
             }
             return Ok(Some(switched.result));

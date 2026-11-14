@@ -3,13 +3,15 @@
 //! reads it (`compactBeforeSend`) and gives it to the kept latest request (`goalReminderText`), and
 //! the session's pending reminder is cleared once the compaction carried it: when its result was
 //! adopted or the pass failed or was cancelled (`acknowledgeGoalReminder`), never when it was
-//! skipped or changed nothing.
+//! skipped or changed nothing. The session's reading of a request the run has not measured comes through it too: its
+//! provider pressure (`resolveContextTokensWithSource` over `session.contextPressureBaseline*`) and its unanchored mark.
 
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use mixdog_agent::env::{CompactError, CompactOutput, CompactRequest, Compactor};
+use mixdog_agent::env::{CompactError, CompactOutput, CompactRequest, Compactor, SessionPressure};
 use mixdog_agent::message::AgentMessage;
+use mixdog_core_api::domain::provider::ToolDefinition;
 use mixdog_core_session::session::run::RunPort;
 
 pub struct GoalReminderCompactor {
@@ -74,6 +76,11 @@ impl Compactor for GoalReminderCompactor {
 
     async fn prepare(&self, messages: &[AgentMessage]) {
         self.inner.prepare(messages).await;
+    }
+
+    async fn session_pressure(&self, messages: &[AgentMessage], tools: &[ToolDefinition]) -> SessionPressure {
+        // A reading that cannot be had prices as none: the run's own estimate stands.
+        self.port.session_pressure(messages.to_vec(), tools.to_vec()).await.unwrap_or_default()
     }
 
     async fn reduces(&self, request: &CompactRequest<'_>) -> bool {

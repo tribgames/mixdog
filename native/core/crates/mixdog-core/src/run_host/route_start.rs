@@ -105,6 +105,13 @@ impl NewThreadRoute for LateNewRoute {
             None => Err("the new thread route is not bound yet".to_owned()),
         }
     }
+
+    /// Unbound, nothing is booted: the thread's route is the config's, as before any route is bound.
+    fn boot(&self, thread: &ThreadId, header: &Header) {
+        if let Some(route) = self.0.get() {
+            route.boot(thread, header);
+        }
+    }
 }
 
 impl Bound for LateNewRoute {
@@ -159,12 +166,21 @@ impl TurnSettings for TurnStart {
     async fn migrate_exposure(&self, thread: &ThreadId, rows: &[serde_json::Value]) -> Result<Option<Header>, String> {
         self.settings.migrate_exposure(thread, rows).await
     }
+
+    async fn current_agents(&self, thread: &ThreadId, header: &Header) -> Result<Option<Vec<super::turn_reminders::AgentEntry>>, String> {
+        self.settings.current_agents(thread, header).await
+    }
+
+    async fn orchestration_instructions(&self, mode: &str) -> Result<String, String> {
+        self.settings.orchestration_instructions(mode).await
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use std::sync::Mutex;
 
+    use super::super::turn_reminders::AgentEntry;
     use super::*;
 
     struct Steps(Arc<Mutex<Vec<&'static str>>>, Result<(), String>);
@@ -206,6 +222,34 @@ mod tests {
         let refused = TurnStart { route: Arc::new(Steps(order.clone(), Err("held pick refused".into()))), switches: Arc::new(Steps(order.clone(), Ok(()))), settings: Arc::new(Steps(order.clone(), Ok(()))) };
         assert_eq!(refused.reconcile(&thread, false).await.expect_err("refused"), "held pick refused");
         assert_eq!(*order.lock().unwrap(), ["route"]);
+    }
+
+    /// The turn's reminders read through the turn start: the agents a Lead may delegate to now (`currentAgents()`) and the
+    /// text a carried orchestration mode notice ends with (`orchestrationInstructions(mode)`) are its settings host's.
+    #[tokio::test]
+    async fn a_turn_start_reads_the_agents_and_the_mode_text_of_its_settings() {
+        struct Told;
+
+        #[async_trait]
+        impl TurnSettings for Told {
+            async fn reconcile(&self, _: &ThreadId, _: bool) -> Result<Header, String> {
+                Ok(Header::new())
+            }
+
+            async fn current_agents(&self, _: &ThreadId, _: &Header) -> Result<Option<Vec<AgentEntry>>, String> {
+                Ok(Some(vec![AgentEntry { id: "worker".into(), name: "Worker".into(), line: "- Worker (worker)".into() }]))
+            }
+
+            async fn orchestration_instructions(&self, mode: &str) -> Result<String, String> {
+                Ok(format!("the {mode} text"))
+            }
+        }
+        let order = Arc::new(Mutex::new(Vec::new()));
+        let thread = ThreadId::from("t1");
+        let start = TurnStart { route: Arc::new(Steps(order.clone(), Ok(()))), switches: Arc::new(Steps(order, Ok(()))), settings: Arc::new(Told) };
+        assert_eq!(start.orchestration_instructions("balanced").await.expect("the mode text"), "the balanced text");
+        let agents = start.current_agents(&thread, &Header::new()).await.expect("the agents").expect("a Lead's agents");
+        assert_eq!(agents.iter().map(|agent| agent.id.as_str()).collect::<Vec<_>>(), ["worker"]);
     }
 
     /// A cell left unbound refuses with a text and is named by the startup check; it binds once.

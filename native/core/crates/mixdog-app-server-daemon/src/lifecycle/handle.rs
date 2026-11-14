@@ -17,6 +17,7 @@ use std::time::Duration;
 
 use arc_swap::ArcSwap;
 use mixdog_core_api::CoreState;
+use mixdog_core_session::session::StartHold;
 use tokio::sync::watch;
 
 use super::machine::Machine;
@@ -67,7 +68,7 @@ pub struct Lifecycle {
     emit: Mutex<Emit>,
     status: ArcSwap<CoreStatus>,
     state_tx: watch::Sender<CoreState>,
-    hold_tx: watch::Sender<bool>,
+    hold_tx: watch::Sender<StartHold>,
     ports: Ports,
     cfg: LifecycleConfig,
     budgets: ReleaseBudgets,
@@ -97,7 +98,7 @@ impl Lifecycle {
         let machine = Machine::new(cfg.instance_id.clone(), cfg.version.clone()).with_client_grace(grace);
         let status = ArcSwap::from_pointee(machine.status());
         let (state_tx, _) = watch::channel(machine.core_state());
-        let (hold_tx, _) = watch::channel(false);
+        let (hold_tx, _) = watch::channel(StartHold::Open);
         Arc::new(Self {
             machine: Mutex::new(machine),
             emit: Mutex::new(Emit::default()),
@@ -132,8 +133,10 @@ impl Lifecycle {
         self.state_tx.subscribe()
     }
 
-    /// Turn starts wait while this is `true` (LR §5.1 step 1: deferred, not refused).
-    pub fn hold_gate(&self) -> watch::Receiver<bool> {
+    /// The hold on turn starts as the sessions read it: starts wait while it is held (LR §5.1 step 1: deferred, not refused), and once
+    /// the drain commit dropped it what it held is refused (step 2) until the drain is cancelled; a confirmed abort closes the starts
+    /// too. Decided with each move, under the machine lock, so a reader that wakes once after several moves reads the last of them.
+    pub fn hold_gate(&self) -> watch::Receiver<StartHold> {
         self.hold_tx.subscribe()
     }
 
@@ -312,7 +315,7 @@ impl Lifecycle {
             }
             changed
         });
-        let hold = machine.hold_on();
+        let hold = if machine.hold_on() { StartHold::Held } else { machine.starts_closed().map_or(StartHold::Open, StartHold::Closed) };
         self.hold_tx.send_if_modified(|current| {
             let changed = *current != hold;
             *current = hold;

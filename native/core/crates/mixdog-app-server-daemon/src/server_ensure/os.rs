@@ -243,14 +243,7 @@ impl CoreAccess for OsAccess {
             return Ok(None);
         };
         // The file of a core that died without withdrawing it names nobody.
-        let running = OsProcessTable
-            .query(u64::from(pid))
-            .map_err(|e| EnsureError::Core(format!("reading the process table: {e}")))?;
-        let alive = running.is_some_and(|info| {
-            let recorded: Option<u64> = start.parse().ok();
-            info.identity.start_ms == 0 || recorded == Some(info.identity.start_ms)
-        });
-        if !alive {
+        if !discovery::names_running_core(pid, &start).map_err(|e| EnsureError::Core(format!("reading the process table: {e}")))? {
             return Ok(None);
         }
         let build = text(core.and_then(|c| c.get("build"))).unwrap_or_default();

@@ -136,7 +136,7 @@ async fn native_rows(ctx: &ToolContext, abs: &AbsPath, depth: usize, hidden: boo
             && (hidden || parts.iter().all(|p| !p.starts_with('.')))
             && !parts[..parts.len() - 1].iter().any(|p| NOISE_DIRS.iter().any(|noise| *noise == &**p))
     };
-    let descent = Descent { max_depth: Some(depth), bare: NOISE_DIRS.iter().map(|n| (*n).to_owned()).collect(), bare_dotted: !hidden };
+    let descent = Descent { max_depth: Some(depth), bare: noise_bare(), bare_dotted: !hidden };
     match super::search::broad_listing(ctx, abs, descent, keep, ABSOLUTE_CAP).await {
         Ok(walked) if walked.complete && !walked.capped => {
             Ok(Some(walked.entries.into_iter().map(|entry| row_under(abs.as_path(), entry)).collect()))

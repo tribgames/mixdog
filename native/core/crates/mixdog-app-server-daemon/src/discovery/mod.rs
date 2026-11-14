@@ -23,6 +23,9 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 
+use crate::verdict::OsProcessTable;
+use crate::verdict::ProcessTable;
+
 pub const DISCOVERY_FILE: &str = "daemon.json";
 
 /// Node's `os.tmpdir()`, which 1.4.5 roots the runtime directory in.
@@ -272,6 +275,22 @@ fn publish_with(
         let _ = std::fs::remove_file(&staging);
     }
     written
+}
+
+/// Whether the core a discovery file names still runs: `pid` names a running process whose start time is the file's `processStartTime`, or one
+/// whose start time the OS does not tell (0). The file of a core that died without withdrawing it (killed, or ended by `terminate`) names nobody,
+/// as Node's `readSessionDiscovery` (`session-client.mjs`) drops a file whose pid is not alive.
+pub fn names_running_core(pid: u32, process_start_time: &str) -> io::Result<bool> {
+    let running = OsProcessTable.query(u64::from(pid))?;
+    let recorded: Option<u64> = process_start_time.parse().ok();
+    Ok(running.is_some_and(|info| info.identity.start_ms == 0 || recorded == Some(info.identity.start_ms)))
+}
+
+/// The pid of the running core the local discovery file names (Node reads its owner record, `readSingletonOwner(OWNER_PATH).owner?.pid`); `None` while
+/// no file names one: the lock's holder has not published yet, or the file is a dead core's.
+pub fn running_core_pid() -> Option<u32> {
+    let core = mixdog_app_server_client::discovery::Discovery::read(&path(&runtime_root().ok()?)).ok()?;
+    names_running_core(core.pid, &core.core.process_start_time).unwrap_or(true).then_some(core.pid)
 }
 
 /// Removes the discovery file when it names `instance_id` (LR §5.3 step 5).

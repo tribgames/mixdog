@@ -228,11 +228,12 @@ fn recorded_toasts(case: &Value, incarnation: usize) -> Vec<(String, String)> {
         .collect()
 }
 
-/// The last subscriber of an idle thread leaves: it unloads and its close work (the memory ingest) starts.
-fn unload(handle: &super::SessionHandle) {
+/// The last subscriber of an idle thread leaves and its idle delay passes: it unloads and its close work (the memory ingest)
+/// starts.
+async fn unload(handle: &super::SessionHandle) {
     assert!(handle.cell.subscribing());
     handle.cell.subscribed(true);
-    handle.cell.unsubscribed();
+    super::tests::left_idle(handle).await;
 }
 
 /// The recording's envelope: `{result: {value, sessionId}}` or `{error}`; the core answers the value.
@@ -316,7 +317,7 @@ async fn a_session_unloaded_during_the_action_is_disposed_after_its_notice() {
         let handle = start_thread(&world.directory).await;
         let call = world.parked(&handle.id).await;
 
-        unload(&handle);
+        unload(&handle).await;
         eventually_on!(&[world.directory.left()], || world.directory.handle(&handle.id).is_none().then_some(())).await;
         world.rig.closes.ended.notified().await;
         world.park.go.notify_one();
@@ -386,7 +387,7 @@ async fn a_reopen_waits_for_the_previous_runtimes_teardown() {
         let handle = start_thread(&world.directory).await;
         let first = world.parked(&handle.id).await;
 
-        unload(&handle);
+        unload(&handle).await;
         eventually_on!(&[world.directory.left()], || world.directory.handle(&handle.id).is_none().then_some(())).await;
         let ctx = CallContext::connection(ConnectionId(1), mixdog_protocol::Origin::Local, CancellationToken::new());
         let mut reopen = Box::pin(world.directory.open_handle(&handle.id, &ctx));

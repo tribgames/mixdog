@@ -67,7 +67,7 @@ pub struct AnthropicConfig {
     /// features, no server-side fallback, no mid-conversation effort updates.
     pub disable_beta_headers: bool,
     /// A user-defined (`custom-*`) endpoint: no first-party base betas, only those its request body needs
-    /// (`requestBetasFor` `base: ''`).
+    /// (`requestBetasFor` `base: ''`), and no server-side fallback or fast speed (`isCustom`).
     pub custom_endpoint: bool,
     /// The provider's configured `extraHeaders`, sent on the API-key route's
     /// messages and listing requests. They replace a default header of the
@@ -90,7 +90,14 @@ pub struct AnthropicConfig {
     /// A gateway's own reasoning control (`config.messagesEffort`): the effort to send, `none` for no thinking at
     /// all, or `None` to keep the engine's own handling.
     pub gateway_effort: Option<Arc<dyn Fn(&ModelRequest) -> Option<String> + Send + Sync>>,
+    /// A custom endpoint's own reasoning fields: their `thinking` and `output_config` replace the engine's effort
+    /// handling.
+    pub custom_reasoning: Option<CustomReasoningFields>,
 }
+
+/// A custom endpoint's reasoning fields for a request, from its own model row (`resolveCustomReasoning` on the
+/// `anthropic` protocol).
+pub type CustomReasoningFields = Arc<dyn Fn(&ModelRequest) -> serde_json::Map<String, Value> + Send + Sync>;
 
 /// Layers `extra` over `headers`: a same-named header (any case) is replaced,
 /// and a request's own `anthropic-beta` is kept over an extra one.
@@ -122,6 +129,7 @@ impl AnthropicConfig {
             threads: Arc::clone(threads::process()),
             capability_model: None,
             gateway_effort: None,
+            custom_reasoning: None,
         }
     }
 
@@ -218,6 +226,8 @@ pub(crate) fn vertex_body(caps: &super::caps::CapsLookup, request: &ModelRequest
         beta_headers: false,
         fast_mode: fast_mode::process(),
         gateway_effort: None,
+        custom_reasoning: None,
+        custom_endpoint: false,
     };
     let built = build_body(&cfg, &sent)?;
     let body = serde_json::from_slice(&built.bytes).expect("a built body is a JSON object");
@@ -296,8 +306,11 @@ impl AnthropicCodec {
         let capability = self.config.capability_model.as_ref().and_then(|map| map(&request.model));
         let caps = (self.config.caps)(capability.as_deref().unwrap_or(&request.model));
         let gateway_effort = self.config.gateway_effort.as_ref().and_then(|control| control(request));
+        let custom_reasoning = self.config.custom_reasoning.as_ref().map(|resolve| resolve(request));
         let cfg = BodyConfig {
             gateway_effort: gateway_effort.as_deref(),
+            custom_reasoning: custom_reasoning.as_ref(),
+            custom_endpoint: self.config.custom_endpoint,
             flavor: self.flavor,
             provider_name: self.flavor.provider_name(),
             owner: &self.owner,

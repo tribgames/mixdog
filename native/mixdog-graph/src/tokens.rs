@@ -67,7 +67,7 @@
 // The same table also marks the declaration nodes that carry `packageName`,
 // `namespaceName` and `goPackageName`, so those three fields come from the
 // parse tree instead of a line regex. `topLevelTypes` deliberately does NOT:
-// see the note on `TypePatterns` in `main.rs`.
+// see the note in `resolve/top_level_types.rs`.
 
 use std::sync::{Arc, LazyLock, RwLock};
 

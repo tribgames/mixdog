@@ -9,8 +9,8 @@
 //! A tool without an override is `auto`, except a catalog connector's high-risk tools, which ask.
 //! A legacy agent list (an array: only its enabled entries were mounted) is enforced as written.
 //! A policy that exists but cannot be read mounts nothing. The policies are read into a snapshot
-//! (`reload`, called at start and when a policy file changes) so the permission checks on the
-//! call path are memory reads.
+//! at start (`reload`) and stat-checked again at each turn start and before each connector call
+//! (`refresh`, Node `cachedRead`), so the permission checks themselves are memory reads.
 
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
@@ -34,6 +34,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::config::McpServerConfig;
 use crate::connectors;
+use crate::hook_bus::config::stamp;
 use crate::scopes::within_projects;
 
 pub const PROJECT_CONNECTORS_FILE: &str = "project-connectors.json";
@@ -227,9 +228,42 @@ pub enum Projects {
     DenyAll,
 }
 
+/// A policy as read from its file: the file's stamp before the read (`Err` when it could not be
+/// taken) and what the file held.
+#[derive(Clone)]
+struct Stamped<T> {
+    path: PathBuf,
+    stamp: Result<Option<String>, ()>,
+    value: T,
+}
+
+impl<T> Stamped<T> {
+    /// The file at `path` read now, stamped before the read: a save meanwhile moves the stamp.
+    fn of(lane: &InLane<MaintenanceIo>, path: PathBuf, read: impl FnOnce(&InLane<MaintenanceIo>, &Path) -> T) -> Self {
+        let stamp = stamp(&path);
+        let value = read(lane, &path);
+        Self { path, stamp, value }
+    }
+}
+
+/// Node `cachedRead(path, read)`: `None` while `path` is the file `previous` was read from and
+/// still has the stamp it had then, else the file read again. A stamp that could not be taken is
+/// never reused.
+fn reread<T>(
+    lane: &InLane<MaintenanceIo>,
+    path: PathBuf,
+    previous: Option<&Stamped<T>>,
+    read: impl FnOnce(&InLane<MaintenanceIo>, &Path) -> T,
+) -> Option<Stamped<T>> {
+    let current = previous.is_some_and(|previous| previous.path == path && previous.stamp.is_ok() && previous.stamp == stamp(&path));
+    (!current).then(|| Stamped::of(lane, path, read))
+}
+
+#[derive(Clone, Default)]
 struct Snapshot {
-    agents: HashMap<String, Loaded>,
-    projects: Projects,
+    agents: HashMap<String, Stamped<Loaded>>,
+    /// `None` until the project policy is first read: no policy.
+    projects: Option<Stamped<Projects>>,
 }
 
 fn lone_policy(manifest: &Value) -> Result<Loaded, String> {
@@ -339,6 +373,11 @@ fn agent_dir(data_dir: &Path, id: &str, store: &BotStore) -> PathBuf {
     if is_store_bot { data_dir.join("bots").join(id) } else { data_dir.join("agents").join(id) }
 }
 
+/// The `agent.json` that holds agent `id`'s connector policy.
+fn agent_policy_path(data_dir: &Path, id: &str, store: &BotStore) -> PathBuf {
+    agent_dir(data_dir, id, store).join("agent.json")
+}
+
 struct BotStore {
     active: bool,
     bots: BTreeSet<String>,
@@ -377,11 +416,11 @@ fn load_snapshot(lane: &InLane<MaintenanceIo>, data_dir: &Path) -> Snapshot {
     let agents = ids
         .into_iter()
         .map(|id| {
-            let loaded = read_agent_policy(lane, &agent_dir(data_dir, &id, &store).join("agent.json"));
-            (id, loaded)
+            let read = Stamped::of(lane, agent_policy_path(data_dir, &id, &store), read_agent_policy);
+            (id, read)
         })
         .collect();
-    Snapshot { agents, projects: read_projects(lane, &data_dir.join(PROJECT_CONNECTORS_FILE)) }
+    Snapshot { agents, projects: Some(Stamped::of(lane, data_dir.join(PROJECT_CONNECTORS_FILE), read_projects::<MaintenanceIo>)) }
 }
 
 /// Where connector policies are read from and saved to.
@@ -411,12 +450,25 @@ pub type Resolver = Arc<dyn Fn(&str) -> Option<(String, String)> + Send + Sync>;
 /// The project folders (the session's working directory and its workspace roots) of a thread.
 pub type ThreadPaths = Arc<dyn Fn(&ThreadId) -> Vec<PathBuf> + Send + Sync>;
 
+/// `sessionProjectPaths(session)`: where a session runs, its registered Project (a worktree
+/// Lead's too) and its cwd (a delegated worker inside the project).
+pub fn session_project_paths(session: &Map<String, Value>) -> Vec<PathBuf> {
+    let project_path = |key: &str| session.get(key).and_then(|place| place.get("projectPath"));
+    [project_path("desktopSession"), project_path("workspace"), session.get("cwd")]
+        .into_iter()
+        .flatten()
+        .map(clean)
+        .filter(|path| !path.is_empty())
+        .map(PathBuf::from)
+        .collect()
+}
+
 impl ConnectorPolicy {
     pub fn new(data_dir: PathBuf, io: PolicyIo) -> Arc<Self> {
         Arc::new(Self {
             data_dir,
             io,
-            snapshot: ArcSwap::from_pointee(Snapshot { agents: HashMap::new(), projects: Projects::Absent }),
+            snapshot: ArcSwap::from_pointee(Snapshot::default()),
             connectors: ArcSwap::from_pointee(HashMap::new()),
             resolver: ArcSwap::from_pointee(None),
             thread_paths: ArcSwap::from_pointee(None),
@@ -435,7 +487,7 @@ impl ConnectorPolicy {
         }
     }
 
-    /// Re-reads every policy file. Called at start and when a policy file changes.
+    /// Re-reads every policy file: at start, and once a permission is saved here.
     pub async fn reload(&self) {
         let data_dir = self.data_dir.clone();
         let Ok(job) = self.io.maintenance.submit(&CancellationToken::new(), move |lane| load_snapshot(lane, &data_dir)) else {
@@ -446,10 +498,42 @@ impl ConnectorPolicy {
         }
     }
 
-    /// The files whose changes should trigger [`reload`](Self::reload): the data directory
-    /// holds the project policy; agent policies are `agent.json` under `agents/` and `bots/`.
-    pub fn watched(&self) -> Vec<PathBuf> {
-        vec![self.data_dir.join("agents"), self.data_dir.join("bots"), self.data_dir.join(PROJECT_CONNECTORS_FILE)]
+    /// Node `cachedRead` before the policies are judged: agent `agent`'s policy and the project
+    /// policy are read again when their file changed since they were read, so a save from any
+    /// process applies to the next call. With `tool`, the tool about to be called, they are read
+    /// only for a connector tool, as Node reads them for an MCP name alone
+    /// (`agentMcpToolPermission`, `projectMcpToolDisabled`).
+    pub async fn refresh(&self, agent: &str, tool: Option<&str>) {
+        if tool.is_some_and(|name| self.split(name).is_none_or(|(server, _)| server == SELF_MCP_SERVER)) {
+            return;
+        }
+        let (data_dir, agent, current) = (self.data_dir.clone(), agent.to_owned(), self.snapshot.load_full());
+        let Ok(job) = self.io.maintenance.submit(&CancellationToken::new(), move |lane| {
+            let own = if valid_agent_id(&agent) {
+                let path = agent_policy_path(&data_dir, &agent, &bot_store(&data_dir));
+                reread(lane, path, current.agents.get(&agent), read_agent_policy).map(|read| (agent, read))
+            } else {
+                None
+            };
+            let projects = reread(lane, data_dir.join(PROJECT_CONNECTORS_FILE), current.projects.as_ref(), read_projects::<MaintenanceIo>);
+            (own, projects)
+        }) else {
+            return;
+        };
+        let Ok((own, projects)) = job.await else { return };
+        if own.is_none() && projects.is_none() {
+            return;
+        }
+        self.snapshot.rcu(|snapshot| {
+            let mut next = Snapshot::clone(snapshot);
+            if let Some((agent, read)) = &own {
+                next.agents.insert(agent.clone(), read.clone());
+            }
+            if let Some(read) = &projects {
+                next.projects = Some(read.clone());
+            }
+            next
+        });
     }
 
     /// Records which catalog connector each configured server connects.
@@ -483,7 +567,7 @@ impl ConnectorPolicy {
     pub fn permission(&self, agent: &str, name: &str) -> Permission {
         let Some((server, tool)) = self.split(name) else { return Permission::Auto };
         let snapshot = self.snapshot.load();
-        let loaded = if valid_agent_id(agent) { snapshot.agents.get(agent).cloned().unwrap_or_default() } else { Loaded::Absent };
+        let loaded = if valid_agent_id(agent) { snapshot.agents.get(agent).map(|read| read.value.clone()).unwrap_or_default() } else { Loaded::Absent };
         let connectors = self.connectors.load();
         permission(&loaded, &server, &tool, connectors.get(&server).map(String::as_str))
     }
@@ -501,10 +585,11 @@ impl ConnectorPolicy {
         if server == SELF_MCP_SERVER || paths.is_empty() {
             return false;
         }
-        match &self.snapshot.load().projects {
-            Projects::Absent => false,
-            Projects::DenyAll => true,
-            Projects::Roots(list) => list
+        let snapshot = self.snapshot.load();
+        match snapshot.projects.as_ref().map(|read| &read.value) {
+            None | Some(Projects::Absent) => false,
+            Some(Projects::DenyAll) => true,
+            Some(Projects::Roots(list)) => list
                 .iter()
                 .any(|p| p.off.contains(&server) && paths.iter().any(|path| within_projects(path, std::slice::from_ref(&p.root)))),
         }
@@ -547,7 +632,7 @@ fn write_agent_permission(
     permission: Permission,
 ) -> bool {
     let store = bot_store(data_dir);
-    let path = agent_dir(data_dir, agent, &store).join("agent.json");
+    let path = agent_policy_path(data_dir, agent, &store);
     let mut manifest: Map<String, Value> = match std::fs::read_to_string(&path) {
         Ok(text) => match mixdog_statefile::parse_json_text(text.as_bytes()) {
             Ok(Value::Object(map)) => map,
@@ -599,6 +684,22 @@ mod tests {
         assert_eq!(permission(&policy, "a", "t", None), Permission::NeedsApproval);
         assert_eq!(permission(&policy, "b", "t", None), Permission::Disabled);
         assert_eq!(permission(&policy, "c", "t", None), Permission::Disabled);
+    }
+
+    /// `sessionProjectPaths`: the desktop session's project, the workspace's project and the cwd, in that order,
+    /// trimmed; a value that is no string or is blank is left out, and duplicates are kept as Node keeps them.
+    #[test]
+    fn a_sessions_project_paths_are_its_desktop_project_its_workspace_project_and_its_cwd() {
+        let paths = |session: Value| session_project_paths(session.as_object().unwrap());
+        assert_eq!(
+            paths(json!({"desktopSession": {"projectPath": " /p "}, "workspace": {"projectPath": "/w"}, "cwd": "/w/sub"})),
+            vec![PathBuf::from("/p"), PathBuf::from("/w"), PathBuf::from("/w/sub")],
+        );
+        assert_eq!(paths(json!({"workspace": {"projectPath": "/w"}, "cwd": "/w"})), vec![PathBuf::from("/w"), PathBuf::from("/w")]);
+        assert_eq!(paths(json!({"cwd": "/c"})), vec![PathBuf::from("/c")]);
+        assert!(paths(json!({"desktopSession": "/p", "workspace": {"projectPath": 5}, "cwd": "  "})).is_empty());
+        assert!(paths(json!({"desktopSession": {"projectPath": null}, "workspace": []})).is_empty());
+        assert!(paths(json!({})).is_empty());
     }
 
     #[test]

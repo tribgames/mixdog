@@ -558,7 +558,7 @@ async fn the_post_tool_dispatch_asks_the_bus_with_the_sessions_common_fields() {
             HookCommon::default()
         }),
     );
-    let event = PostToolEvent { name: "edit".to_owned(), args: json!({"file_path": "a"}), cwd: dir.path().to_string_lossy().into_owned(), session_id: "s1".to_owned(), result: "ok".to_owned() };
+    let event = PostToolEvent { call_id: "c1".to_owned(), name: "edit".to_owned(), args: json!({"file_path": "a"}), cwd: dir.path().to_string_lossy().into_owned(), session_id: "s1".to_owned(), result: "ok".to_owned() };
     // No hooks are configured: nothing replaces the result and nothing blocks.
     assert_eq!(dispatch.post_tool(&event).await, None);
     dispatch.post_failure(&event).await;

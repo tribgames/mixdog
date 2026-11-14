@@ -25,14 +25,13 @@ use mixdog_core_ports::ports::setup_actions::SetupCall;
 use mixdog_core_ports::ports::setup_actions::SetupCallers;
 use crate::agents::AgentDefinitions;
 use crate::agents::AgentsError;
+use mixdog_core_base::rooms::ids::MIXY_AGENT_ID;
 use mixdog_core_config::workflow::ids::clean;
 use mixdog_core_config::workflow::ids::has_own;
 use mixdog_core_config::workflow::ids::js_string;
 use mixdog_core_config::workflow::ids::truthy;
 
 const ACTIONS: &[&str] = &["create_definition", "save_definition", "delete_definition", "read_definition", "restore_definition"];
-/// `MIXY_AGENT_ID`.
-const MIXY_AGENT_ID: &str = "lead";
 /// The keys of `SETUP_EXTENDED_PROPERTIES.definition`, in order: what an edit keeps of the stored
 /// definition.
 const DEFINITION_KEYS: [&str; 8] = ["id", "originalName", "name", "description", "body", "kind", "whenToUse", "toolDependencies"];

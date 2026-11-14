@@ -791,8 +791,8 @@ async fn write_rest(ctx: &ToolContext, renames: &[RenameOp], entries: &[&Entry])
     }
     for w in &writes {
         if let Some(parent) = w.path.as_path().parent().and_then(|p| AbsPath::new(p.to_path_buf())) {
-            if let Err(e) = guarded(ctx, "apply_patch", ctx.files.create_dir(ctx.io.durability, parent, true)).await? {
-                return Err(Stop::Tool(fs_failure(&e, &shown(ctx, &w.path))));
+            if let Err(e) = guarded(ctx, "apply_patch", ctx.files.create_dir(ctx.io.durability, parent.clone(), true)).await? {
+                return text_err(format!("Error: {}", fs_message(&e, "mkdir", parent.as_path())));
             }
         }
     }

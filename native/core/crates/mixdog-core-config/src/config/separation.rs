@@ -487,7 +487,7 @@ impl Shared {
         let data_dir = self.path.parent().unwrap_or_else(|| Path::new(""));
         // Node's pass is `updateConfig`: it starts from what `readAllForRmW` settles on.
         let written = self.guard.locked(lane, |baseline| {
-            let base = baseline.doc.unwrap_or_else(|| (*current).clone());
+            let base = baseline.doc;
             let separating = needs_separation(&base);
             let mut next = if separating { separate_defaults_in_config(&base, data_dir) } else { base.clone() };
             if separating {

@@ -163,6 +163,12 @@ pub(crate) struct BodyConfig<'a> {
     /// A gateway's own reasoning control (`messagesEffort`): replaces the turn's effort, and `none` sends no
     /// thinking at all.
     pub gateway_effort: Option<&'a str>,
+    /// A custom endpoint's own reasoning fields (`AnthropicConfig::custom_reasoning`): they replace the engine's
+    /// handling.
+    pub custom_reasoning: Option<&'a Map<String, Value>>,
+    /// A user-defined (`custom-*`) endpoint (`AnthropicConfig::custom_endpoint`): server-side fallback and fast speed
+    /// are decided from Claude ids, first-party knowledge never applied to it (`buildAnthropicApiRequest` `isCustom`).
+    pub custom_endpoint: bool,
 }
 
 /// Model families (after `model_key`, with the major version) that take the
@@ -184,6 +190,7 @@ fn server_fallback(cfg: &BodyConfig<'_>, model: &str, parameters: Option<&Value>
             .is_some_and(|rest| rest.is_empty() || rest.starts_with(['-', '@']))
     });
     family
+        && !cfg.custom_endpoint
         && parameters.and_then(|p| p.get("serverFallback")) != Some(&Value::Bool(false))
         && (cfg.flavor == Flavor::OAuth || cfg.beta_headers)
 }
@@ -636,6 +643,27 @@ struct Reasoning {
     display_updates: bool,
 }
 
+impl Reasoning {
+    /// `anthropicThinkingActive`: a custom endpoint's thinking can be sent `disabled`.
+    fn thinking_active(&self) -> bool {
+        let kind = self.thinking.as_ref().and_then(|t| t.get("type")).and_then(Value::as_str);
+        matches!(kind, Some("enabled" | "adaptive"))
+    }
+}
+
+/// `applyRequestReasoning`'s custom branch: the endpoint's own fields; the effort beta follows their
+/// `output_config.effort` (`requestBetasFor`).
+fn custom_reasoning(fields: &Map<String, Value>) -> Reasoning {
+    let output_config = fields.get("output_config").cloned();
+    let effort = output_config.as_ref().and_then(|c| c.get("effort")).and_then(Value::as_str);
+    Reasoning {
+        effort_beta: effort.is_some_and(|e| !e.is_empty()),
+        thinking: fields.get("thinking").cloned(),
+        output_config,
+        display_updates: false,
+    }
+}
+
 fn manual_budget(request: &ModelRequest) -> Option<u64> {
     request
         .options
@@ -775,9 +803,10 @@ pub(crate) fn build_body(cfg: &BodyConfig<'_>, request: &ModelRequest) -> Result
         Some(projection) => Some(projection.initial_effort.as_str()),
         None => request.options.effort.as_deref(),
     };
-    let reasoning = match cfg.gateway_effort {
-        Some("none") => Reasoning::default(),
-        gateway => reasoning(cfg, request, gateway.or(turn_effort), max_tokens)?,
+    let reasoning = match (cfg.custom_reasoning, cfg.gateway_effort) {
+        (Some(fields), _) => custom_reasoning(fields),
+        (None, Some("none")) => Reasoning::default(),
+        (None, gateway) => reasoning(cfg, request, gateway.or(turn_effort), max_tokens)?,
     };
     let disable_parallel = parameters
         .and_then(|p| p.get("disableParallelToolUse"))
@@ -793,11 +822,12 @@ pub(crate) fn build_body(cfg: &BodyConfig<'_>, request: &ModelRequest) -> Result
     } else {
         tool_choice(
             request.options.tool_choice.as_deref(),
-            reasoning.thinking.is_some(),
+            reasoning.thinking_active(),
             disable_parallel,
         )
     };
     let fast = request.options.fast
+        && !cfg.custom_endpoint
         && cfg.caps.is_some_and(|c| c.fast_mode)
         && cfg.fast_mode.available(super::fast_mode::now_ms());
 
@@ -835,11 +865,13 @@ pub(crate) fn build_body(cfg: &BodyConfig<'_>, request: &ModelRequest) -> Result
     if let Some(choice) = choice {
         body.insert("tool_choice".into(), choice);
     }
-    if let Some(output_config) = reasoning.output_config {
-        body.insert("output_config".into(), output_config);
-    }
-    if let Some(thinking) = reasoning.thinking {
-        body.insert("thinking".into(), thinking);
+    // The engine's own effort places `output_config` first (`applyAnthropicEffortToBody`), a custom endpoint's
+    // `thinking` first (`applyRequestReasoning`).
+    let output_config = reasoning.output_config.map(|value| ("output_config", value));
+    let thinking = reasoning.thinking.map(|value| ("thinking", value));
+    let placed = if cfg.custom_reasoning.is_some() { [thinking, output_config] } else { [output_config, thinking] };
+    for (key, value) in placed.into_iter().flatten() {
+        body.insert(key.into(), value);
     }
     if fast {
         body.insert("speed".into(), json!("fast"));

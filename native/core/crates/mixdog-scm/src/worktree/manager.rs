@@ -354,7 +354,7 @@ impl Worktrees {
 
     /// Node's `canonicalPath` for each path (git reports `C:/…`, short names and links; callers
     /// compare and key by these).
-    async fn canonical_paths(&self, paths: Vec<PathBuf>, cancel: &CancellationToken) -> Result<Vec<PathBuf>, ScmFailure> {
+    pub async fn canonical_paths(&self, paths: Vec<PathBuf>, cancel: &CancellationToken) -> Result<Vec<PathBuf>, ScmFailure> {
         on_lane(self.scm.lane, cancel, move || paths.iter().map(|p| canonical_path(p)).collect()).await
     }
 
@@ -870,16 +870,18 @@ impl Worktrees {
         Ok(())
     }
 
-    /// The folder must be a registered git worktree inside the managed store.
+    /// The folder must be a registered git worktree inside the managed store, both compared
+    /// canonical (`isWithin`: a data dir spelled through a link or junction is the same store).
     pub(crate) async fn assert_managed_path(&self, record: &WorktreeRecord, cancel: &CancellationToken) -> Result<(), ScmFailure> {
         let path = Path::new(&record.path);
         let root = names::managed_root(&self.data_dir, Path::new(&record.repo_common_dir));
-        let inside = path_key(path).starts_with(&format!("{}/", path_key(&root)));
-        let registered = self
-            .list_git_worktrees(Path::new(&record.project_path), cancel)
-            .await
-            .map(|rows| rows.iter().any(|row| path_key(Path::new(&row.path)) == path_key(path)))
-            .unwrap_or(false);
+        let [real_path, real_root]: [PathBuf; 2] = self
+            .canonical_paths(vec![path.to_path_buf(), root], cancel)
+            .await?
+            .try_into()
+            .expect("two paths in, two out");
+        let inside = path_key(&real_path).starts_with(&format!("{}/", path_key(&real_root)));
+        let registered = self.registration_for(record, cancel).await.is_ok_and(|row| row.is_some());
         // `assertManagedCheckoutPath`: a folder without its `.git` link (a checkout git never made,
         // or one half removed) passes after a recorded attempt (a removal tried, a rollback begun)
         // or while empty.

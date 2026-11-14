@@ -39,7 +39,7 @@ import type {
 } from './api.ts';
 import type { OpStatusEntry } from '@mixdog/protocol';
 import { DEFAULT_LADDER, WIRE } from './api.ts';
-import { isScopedMethod, isSectionMethod, methodInfo } from './method-table.ts';
+import { isOfferedRequest, isScopedMethod, isSectionMethod, methodInfo } from './method-table.ts';
 
 // ───────────────────────────── pure helpers ─────────────────────────────
 
@@ -527,8 +527,12 @@ class Engine implements ProtocolClient<Json> {
   }
 
   private onServerRequest(r: ServerRequest): void {
-    this.serverRequests.set(jsonKey(r.id), r);
-    this.touchSurface(r);
+    // Only what the core offers every eligible connection, and resolves itself, is held; a capability holder's request is its
+    // handler's to end, and a method the table does not list is not held (`isOfferedRequest`).
+    if (isOfferedRequest(r.method)) {
+      this.serverRequests.set(jsonKey(r.id), r);
+      this.touchSurface(r);
+    }
     this.emit({ type: 'serverRequest', request: r });
   }
   pendingServerRequests(): readonly ServerRequest[] {

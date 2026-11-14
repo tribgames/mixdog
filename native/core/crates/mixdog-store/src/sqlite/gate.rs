@@ -186,10 +186,16 @@ impl Gate {
 
     /// A writer request, sent once the reconcile has ended; resolves with the writer's answer.
     pub(super) async fn ask(&self, make: impl FnOnce(Ack) -> Command) -> Result<(), DbError> {
+        answered(self.queue(make).await?).await
+    }
+
+    /// [`ask`](Self::ask) in two steps: resolves once the request is in the writer's channel, with the channel of the writer's
+    /// answer (see [`answered`]). The writer takes requests in the order they were queued.
+    pub(super) async fn queue(&self, make: impl FnOnce(Ack) -> Command) -> Result<oneshot::Receiver<Result<(), DbError>>, DbError> {
         self.settlement.waited().await?;
         let (ack, answer) = oneshot::channel();
         self.sender.send(make(ack)).map_err(|_| DbError::Stopped)?;
-        answer.await.map_err(|_| DbError::Stopped)?
+        Ok(answer)
     }
 
     /// The writer is told to stop at once and `join_writer` waits for it, then the pool closes. Not gated: a close ends the store
@@ -199,4 +205,9 @@ impl Gate {
         join_writer();
         self.pool.close();
     }
+}
+
+/// The writer's answer to a request [`Gate::queue`] sent: [`DbError::Stopped`] when the writer stopped without answering it.
+pub(super) async fn answered(answer: oneshot::Receiver<Result<(), DbError>>) -> Result<(), DbError> {
+    answer.await.map_err(|_| DbError::Stopped)?
 }

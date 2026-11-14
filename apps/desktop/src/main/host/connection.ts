@@ -17,6 +17,8 @@ export const HOST_METHOD = {
   power: 'host/power',
   updateReport: 'host/update/report',
   remoteTargetSet: 'host/remoteTarget/set',
+  humanOnlyBegin: 'host/humanOnly/begin',
+  humanOnlyEnd: 'host/humanOnly/end',
 } as const;
 
 /** What the connection offers a host module. `request` rejects with `HostRpcError`. */

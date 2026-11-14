@@ -27,6 +27,8 @@ const CAPTURE_DIR_NAME: &str = "daemon-crash";
 const REASON_MAX_CHARS: usize = 512;
 /// The exit status of a process a panic ended: Node's after an uncaught exception (`onFatalError` → `process.exit(1)`).
 pub const PANIC_EXIT_CODE: i32 = 1;
+/// How long a lost claim waits for a launcher's sidecar that does not name its pid yet.
+const SIDECAR_WAIT: std::time::Duration = std::time::Duration::from_millis(1500);
 
 /// `daemonCrashCaptureDir({ dataDir })`.
 pub fn capture_dir(data_dir: &Path) -> PathBuf {
@@ -147,6 +149,26 @@ impl ExitRecorder {
         Self { dir, pid, started_ms, located: Mutex::new(None), filled: Mutex::new(None) }
     }
 
+    /// Waits up to `limit` for the launcher to publish the sidecar that names this process (polling every 20 ms).
+    pub fn wait_for_sidecar(&self, limit: std::time::Duration) {
+        let end = std::time::Instant::now() + limit;
+        loop {
+            {
+                let mut located = self.located.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                if located.is_none() {
+                    *located = find_capture_record_for(&self.dir, self.pid);
+                }
+                if located.is_some() {
+                    return;
+                }
+            }
+            if std::time::Instant::now() >= end {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+    }
+
     /// The exit block in this process's sidecar; the launcher's own fields are filled when it never saw the exit
     /// (its later write keeps this block). False when no sidecar names this process.
     pub fn write(&self, reason: &str, code: Option<i32>, error: Option<&str>, at_ms: i64) -> bool {
@@ -230,6 +252,10 @@ static RECORDER: OnceLock<ExitRecorder> = OnceLock::new();
 struct Pending {
     reason: String,
     error: Option<String>,
+    /// The exit is the lost claim of a core that may end before its launcher has published the sidecar naming its pid
+    /// (a Rust core reaches the claim in a few ms; a record written by no one is settled by the next core as an
+    /// `unrecorded-termination`): the write waits a bounded while for the sidecar.
+    wait_for_sidecar: bool,
 }
 
 static PENDING: Mutex<Option<Pending>> = Mutex::new(None);
@@ -287,7 +313,7 @@ pub fn pid_alive(table: &dyn crate::verdict::ProcessTable, pid: u32) -> bool {
 fn note_panic(text: &str) {
     *lock(&FATAL) = Some(text.to_owned());
     let reason = "fatal uncaughtException";
-    *lock(&PENDING) = Some(Pending { reason: reason.to_owned(), error: Some(text.to_owned()) });
+    *lock(&PENDING) = Some(Pending { reason: reason.to_owned(), error: Some(text.to_owned()), wait_for_sidecar: false });
     write(reason, PANIC_EXIT_CODE, Some(text));
 }
 
@@ -295,11 +321,20 @@ fn note_panic(text: &str) {
 /// panic it carries the panic (`shutdown: <reason> (fatal uncaught exception)`, with its text). Answers `code`.
 pub fn settle_exit(reason: &str, code: i32) -> i32 {
     let pending = match lock(&FATAL).clone() {
-        Some(detail) => Pending { reason: format!("shutdown: {reason} (fatal uncaught exception)"), error: Some(detail) },
-        None => Pending { reason: format!("shutdown: {reason}"), error: None },
+        Some(detail) => Pending { reason: format!("shutdown: {reason} (fatal uncaught exception)"), error: Some(detail), wait_for_sidecar: false },
+        None => Pending { reason: format!("shutdown: {reason}"), error: None, wait_for_sidecar: false },
     };
     *lock(&PENDING) = Some(pending);
     code
+}
+
+/// `yieldOwnership(pid, detail)` (`daemon.mjs`): another core holds the data-dir lock, so this one ends cleanly (exit 0, which its launcher waits
+/// on, `ensure-core.mjs` `endedBeforeServing`) and the exit is recorded as the lost claim. `peer` is the holder, when its discovery names it.
+pub fn yield_ownership(peer: Option<u32>) {
+    let peer = peer.map_or_else(|| "-".to_owned(), |pid| pid.to_string());
+    // Not `eprintln!` (`serve_recorded`).
+    let _ = writeln!(std::io::stderr(), "[daemon] another daemon holds the owner lock (pid={peer}) — exiting for attach");
+    *lock(&PENDING) = Some(Pending { reason: format!("lost singleton claim to live peer pid={peer}"), error: None, wait_for_sidecar: true });
 }
 
 /// `mixdogd serve` over `run`. A panic that unwinds out of it is `onFatalError('uncaught exception')` (written, then the
@@ -326,10 +361,16 @@ pub fn serve_recorded<E: std::fmt::Display>(run: impl FnOnce() -> Result<(), E> 
 /// The process ends with `code` (`process.on('exit')`): the pending reason with the exit described, or the exit alone.
 pub fn record_exit(code: i32) {
     let pending = lock(&PENDING).take();
+    let wait = pending.as_ref().is_some_and(|pending| pending.wait_for_sidecar);
     let (reason, error) = match pending {
         Some(pending) => (format!("{} ({})", pending.reason, describe_exit(Some(code))), pending.error),
         None => (describe_exit(Some(code)), None),
     };
+    if wait {
+        if let Some(recorder) = RECORDER.get() {
+            recorder.wait_for_sidecar(SIDECAR_WAIT);
+        }
+    }
     write(&reason, code, error.as_deref());
 }
 

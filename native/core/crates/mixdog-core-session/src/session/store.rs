@@ -132,6 +132,15 @@ enum Projecting {
     Hold { reached: tokio::sync::oneshot::Sender<()>, release: tokio::sync::oneshot::Receiver<()> },
 }
 
+/// What the forwarding task answers, in the order it was sent.
+enum Settled {
+    /// The index's answer to the projection of that number and session (its frames are in, and the session's catalog row
+    /// with them).
+    Projected(u64, String, Result<(), String>),
+    /// A flush, reached once every projection sent before it is committed.
+    Flushed(tokio::sync::oneshot::Sender<()>),
+}
+
 /// Marks the projector stopped when its task ends, and says so once when a panic ended it.
 struct StopMark(Arc<std::sync::atomic::AtomicBool>);
 
@@ -151,15 +160,22 @@ impl Projector {
         // reconcile needs no wait here: every way into the index waits for it and answers its failure (`SqliteStore`'s gate).
         Self::spawn_with(move |projection| {
             let index = index.clone();
-            async move { index.project(projection).await.map_err(|error| error.to_string()) }
+            async move {
+                let committed = index.queue_projection(projection).await.map_err(|error| error.to_string())?;
+                Ok(async move { committed.await.map_err(|error| error.to_string()) })
+            }
         })
     }
 
-    /// The forwarding task over `project`, one projection at a time in barrier order.
-    fn spawn_with<F, P>(mut project: P) -> Self
+    /// The forwarding task over `project`, which queues a projection at the index writer and resolves with the wait for its
+    /// commit. A projection is queued, in barrier order, as soon as it is sent, without waiting for the commits of those before it,
+    /// so the writer commits every projection queued meanwhile in one transaction (one sync of the index for them, not one each);
+    /// their answers are taken in barrier order.
+    fn spawn_with<P, Q, C>(mut project: P) -> Self
     where
-        P: FnMut(Projection) -> F + Send + 'static,
-        F: std::future::Future<Output = Result<(), String>> + Send,
+        P: FnMut(Projection) -> Q + Send + 'static,
+        Q: std::future::Future<Output = Result<C, String>> + Send,
+        C: std::future::Future<Output = Result<(), String>> + Send + 'static,
     {
         let (queue, mut rx) = mpsc::unbounded_channel::<Projecting>();
         let pending = Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -172,30 +188,50 @@ impl Projector {
             super::replay_settled::watch(move || (pending.load(std::sync::atomic::Ordering::SeqCst) != 0).then_some("the index projector has a projection in flight"));
         }
         tokio::spawn(async move {
+            use futures::StreamExt;
             let _mark = mark;
-            while let Some(msg) = rx.recv().await {
-                match msg {
-                    Projecting::Frames(number, projection) => {
-                        let session = projection.session.clone();
-                        match project(*projection).await {
-                            Err(error) => {
-                                tracing::error!(%session, %error, "the index did not take a projection: the session is re-projected at the next start");
-                                failed.lock().unwrap_or_else(|e| e.into_inner()).entry(session).or_insert(number);
-                            }
-                            // A later projection carries the session's whole head (its header), so the index holds the header
-                            // writes again: the header waits stop failing.
-                            Ok(()) => drop(failed.lock().unwrap_or_else(|e| e.into_inner()).remove(&session)),
+            let answer = |settled: Settled| match settled {
+                Settled::Projected(number, session, result) => {
+                    match result {
+                        Err(error) => {
+                            tracing::error!(%session, %error, "the index did not take a projection: the session is re-projected at the next start");
+                            failed.lock().unwrap_or_else(|e| e.into_inner()).entry(session).or_insert(number);
                         }
-                        done_count.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
-                        #[cfg(feature = "replay-settled")]
-                        super::replay_settled::changed();
+                        // A later projection carries the session's whole head (its header), so the index holds the header
+                        // writes again: the header waits stop failing.
+                        Ok(()) => drop(failed.lock().unwrap_or_else(|e| e.into_inner()).remove(&session)),
                     }
-                    Projecting::Flush(done) => drop(done.send(())),
-                    Projecting::Hold { reached, release } => {
-                        drop(reached.send(()));
-                        drop(release.await);
-                        done_count.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
-                    }
+                    done_count.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                    #[cfg(feature = "replay-settled")]
+                    super::replay_settled::changed();
+                }
+                Settled::Flushed(done) => drop(done.send(())),
+            };
+            // The projections queued at the writer and the flushes sent after them, answered in the order they were sent.
+            let mut committing: futures::stream::FuturesOrdered<futures::future::BoxFuture<'static, Settled>> = futures::stream::FuturesOrdered::new();
+            loop {
+                tokio::select! {
+                    biased;
+                    Some(settled) = committing.next(), if !committing.is_empty() => answer(settled),
+                    msg = rx.recv() => match msg {
+                        None => break,
+                        Some(Projecting::Frames(number, projection)) => {
+                            let session = projection.session.clone();
+                            committing.push_back(match project(*projection).await {
+                                Ok(commit) => Box::pin(async move { Settled::Projected(number, session, commit.await) }),
+                                Err(error) => Box::pin(std::future::ready(Settled::Projected(number, session, Err(error)))),
+                            });
+                        }
+                        Some(Projecting::Flush(done)) => committing.push_back(Box::pin(std::future::ready(Settled::Flushed(done)))),
+                        Some(Projecting::Hold { reached, release }) => {
+                            while let Some(settled) = committing.next().await {
+                                answer(settled);
+                            }
+                            let _ = reached.send(());
+                            drop(release.await);
+                            done_count.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+                        }
+                    },
                 }
             }
         });
@@ -863,7 +899,7 @@ impl StoreThreads {
         id: &ThreadId,
         lineage: &[LineageLevel],
         cut: Option<u64>,
-        mut cursor: Option<mixdog_store::sqlite::PageCursor>,
+        cursor: Option<mixdog_store::sqlite::PageCursor>,
         want: usize,
     ) -> Result<Option<(Vec<ItemRecord>, bool)>, CoreError> {
         Ok(self.read_rows_marked(lane, id, lineage, cut, cursor, want)?.map(|(rows, _, complete)| (rows, complete)))
@@ -1405,7 +1441,9 @@ impl super::seams::SensitiveMarks for SensitiveMarksOf {
 }
 
 /// [`super::seams::CloseIngest`] over the memory module's `ingest_session` action; `None` when
-/// memory was not started this run (today's `getMemoryModPromise()` returning null). The messages
+/// memory was not started this run. A session whose runtime never loaded the module (today's
+/// `getMemoryModPromise()` returning null: no recall or memory call since it was opened) is not
+/// ingested, its turns reach memory through the transcript watcher alone. The messages
 /// go out with the session's sensitive values redacted, as its log is written
 /// (`node-fix-memory-sensitive.patch`: 1.4.5 fed them in plain text).
 pub struct MemoryCloseIngest {
@@ -1428,7 +1466,9 @@ impl super::seams::CloseIngest for MemoryCloseIngest {
         let Some(memory) = self.memory.clone() else {
             return Box::pin(async {});
         };
-        if std::env::var("MIXDOG_DISABLE_MEMORY_INGEST").as_deref() == Ok("1") || messages.is_empty() {
+        // Taken at every close, as the runtime that held the module ends with it.
+        let loaded = memory.take_session_use(id.as_str());
+        if !loaded || std::env::var("MIXDOG_DISABLE_MEMORY_INGEST").as_deref() == Ok("1") || messages.is_empty() {
             return Box::pin(async {});
         }
         // `session.cwd || getCurrentCwd()`.
@@ -2161,11 +2201,44 @@ mod projector_tests {
         assert!(projector.settle().is_none(), "the index holds it");
     }
 
+    /// The projector queues every projection sent at the index writer, in barrier order, without waiting for the commits of those
+    /// before it (so the writer commits them in one transaction), and a list's wait still ends only once each one is committed.
+    #[tokio::test]
+    async fn the_projections_sent_are_all_queued_at_the_index_before_the_first_is_committed() {
+        let queued = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let (commit, committed) = tokio::sync::watch::channel(false);
+        let projector = Projector::spawn_with({
+            let queued = queued.clone();
+            move |projection: Projection| {
+                queued.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(projection.session);
+                let mut committed = committed.clone();
+                async move { Ok(async move { committed.wait_for(|done| *done).await.map(drop).map_err(|error| error.to_string()) }) }
+            }
+        });
+        let sessions = ["sess_a", "sess_b", "sess_c"];
+        for session in sessions {
+            projector.send(empty_projection(session));
+        }
+        let mut wait = projector.settle().expect("the projections are pending");
+        crate::session::testing::awaiting(|| "every projection sent to be queued at the index".to_owned(), async {
+            while queued.lock().unwrap_or_else(std::sync::PoisonError::into_inner).len() < sessions.len() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await;
+        assert_eq!(*queued.lock().unwrap_or_else(std::sync::PoisonError::into_inner), sessions, "queued in barrier order");
+        assert!(futures::poll!(wait.as_mut()).is_pending(), "the list's wait ended before the commits");
+        assert!(projector.settle().is_some(), "none is committed yet");
+        commit.send_replace(true);
+        wait.await;
+        assert!(projector.settle().is_none(), "the index holds them all");
+    }
+
     /// A projector whose task died (a panic while projecting) leaves its count of queued projections behind; a list must not wait
     /// on it from then on: the wait that was pending ends, and no later list gets one.
     #[tokio::test]
     async fn a_projector_that_died_is_not_waited_on() {
-        let projector = Projector::spawn_with(|_| async { panic!("the projection panicked") });
+        let projector = Projector::spawn_with(|_| async { Ok(async { panic!("the projection panicked") }) });
         projector.send(empty_projection("sess_lost"));
         projector.settle().expect("a queued projection is pending").await;
         assert!(projector.settle().is_none(), "a dead projector is waited on");
@@ -2178,7 +2251,7 @@ mod projector_tests {
     async fn a_write_the_index_failed_to_take_is_not_answered_as_indexed() {
         let projector = Projector::spawn_with(|projection: Projection| {
             let session = projection.session.clone();
-            async move { if session == "sess_bad" { Err("disk I/O error".to_owned()) } else { Ok(()) } }
+            async move { Ok(async move { if session == "sess_bad" { Err("disk I/O error".to_owned()) } else { Ok(()) } }) }
         });
         projector.send(empty_projection("sess_bad"));
         projector.send(empty_projection("sess_ok"));
@@ -2201,7 +2274,7 @@ mod projector_tests {
             let refused = refused.clone();
             move |_: Projection| {
                 let refuse = refused.swap(false, std::sync::atomic::Ordering::SeqCst);
-                async move { if refuse { Err("disk I/O error".to_owned()) } else { Ok(()) } }
+                async move { Ok(async move { if refuse { Err("disk I/O error".to_owned()) } else { Ok(()) } }) }
             }
         });
         projector.send(empty_projection("sess_bad"));
@@ -2217,7 +2290,7 @@ mod projector_tests {
     async fn an_exact_read_behind_a_stuck_projection_fails_at_the_bound() {
         let bound = super::super::thread_list::FENCE_BOUND;
         let _clock = crate::session::testing::HeldClock::hold();
-        let projector = Projector::spawn_with(|_| std::future::pending::<Result<(), String>>());
+        let projector = Projector::spawn_with(|_| std::future::ready(Ok(std::future::pending::<Result<(), String>>())));
         projector.send(empty_projection("sess_stuck"));
         let read = projector.caught_up();
         tokio::pin!(read);
@@ -2245,7 +2318,7 @@ mod projector_tests {
         let store = StoreThreads::over_data_dir(data.path(), index, Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()), tokens.maintenance_io)
             .await
             .expect("store");
-        let mut stuck = Projector::spawn_with(|_| std::future::pending::<Result<(), String>>());
+        let mut stuck = Projector::spawn_with(|_| std::future::ready(Ok(std::future::pending::<Result<(), String>>())));
         stuck.bound = std::time::Duration::ZERO;
         stuck.send(empty_projection("sess_a"));
         let store = Arc::new(StoreThreads { projector: stuck, ..store });

@@ -1,0 +1,20 @@
+{
+  "name": "addressed server requests (a capability's, requires host.*/modelProxy) are delivered but never held: the answer ends one, serverRequest/resolved one the core gave up; a method the table does not list (a newer core's) is not held either; an approval beside them stays held",
+  "steps": [
+    { "do": "connect" },
+    { "do": "handshake", "instance": "s1" },
+    { "do": "connected", "instance": "s1" },
+    { "do": "serverSend", "frame": { "id": "host-1", "method": "host/browser/command", "params": { "threadId": "t1", "action": "snapshot", "input": {} } } },
+    { "do": "serverSend", "frame": { "id": "ap_1", "method": "item/tool/requestApproval", "params": { "threadId": "t1", "requestedAt": 1, "order": 1, "kind": "shell", "tool": "bash", "request": {} } } },
+    { "do": "serverSend", "frame": { "id": "future-1", "method": "item/future/requestApproval", "params": { "threadId": "t1", "requestedAt": 1, "order": 0, "request": {} } } },
+    { "do": "settle" },
+    { "do": "expectServerRequests", "ids": ["ap_1"] },
+    { "do": "respond", "id": "host-1", "answer": { "result": { "text": "ok" } } },
+    { "do": "expectSend", "frame": { "id": "host-1", "result": { "text": "ok" } } },
+    { "do": "serverSend", "frame": { "id": "host-2", "method": "host/browser/command", "params": { "threadId": "t1", "action": "wait" } } },
+    { "do": "serverSend", "frame": { "method": "serverRequest/resolved", "params": { "threadId": "", "requestId": "host-2", "resolution": { "kind": "cancelled", "at": 1 } } } },
+    { "do": "settle" },
+    { "do": "expectNoSend" },
+    { "do": "expectServerRequests", "ids": ["ap_1"] }
+  ]
+}

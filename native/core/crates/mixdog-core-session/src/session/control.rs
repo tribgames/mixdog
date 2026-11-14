@@ -53,12 +53,13 @@ pub(crate) enum Ctl {
     /// A tool-policy input outside the thread changed (a setting, a connector policy).
     RefreshSurface,
     /// A client resumed the thread: what its queue holds from before a restart drains, as the desktop's resume drains the
-    /// rows it restored (`restoreLeadSteeringFromDisk`, then the release hook, `session-api/lifecycle/resume.mjs:72`).
+    /// rows it restored (`restoreLeadSteeringFromDisk`, then the release hook, `session-api/lifecycle/resume.mjs:72`), and
+    /// the idle clock starts over (`addSubscriber`'s `idleClock.refresh`).
     Resumed,
     /// A workspace change applied the session's cwd (`applyResolvedCwd`), `changed` when the
     /// folder moved: the code-graph warm follows.
     CwdApplied { changed: bool },
-    /// The last subscriber left: an idle thread unloads.
+    /// The last subscriber left: the thread goes back on the idle clock.
     Unsubscribed,
     /// The thread's tombstone landed (`closeSession`): no Goal continues it, and once its turn
     /// has ended it unloads (`_clearSessionRuntime`) even if it was never subscribed. Answered once the actor took it,
@@ -234,6 +235,9 @@ pub(crate) struct ControlCell {
     pub subscribers: std::sync::atomic::AtomicUsize,
     /// Set (under the directory's shard lock) when the thread unloads; attaches then fail.
     pub closed: std::sync::atomic::AtomicBool,
+    /// The runtime's `SessionEnd` fired at the core's exit, before its session was closed (`teardown.mjs` `close`:
+    /// `dispatchSessionEnd` precedes `closeOwnSession`): the close work that follows fires none.
+    pub session_ended: std::sync::atomic::AtomicBool,
     /// A turn runs, starts or settles (the actor's state after its last step): Node's ask lock
     /// is held (`tryAcquireSessionLock` refuses).
     pub turn_held: std::sync::atomic::AtomicBool,
@@ -253,6 +257,9 @@ pub(crate) struct ControlCell {
     /// The scheduled compaction holds the thread's turns back (`afterCompaction`), as the actor last stepped: a prompt
     /// submitted meanwhile is Node's ask waiting on the gate, which a stop still hands back to the composer.
     pub gated: std::sync::atomic::AtomicBool,
+    /// In-core starts of this thread waiting out the core's hold on turn starts (`SessionHandle::deferring`): the idle clock does not
+    /// unload the thread under them, whose callers left their start on this cell (`agent_start`, `routine_starts`).
+    pub deferring: std::sync::atomic::AtomicUsize,
     /// Woken after every step of the thread's actor, so a test waits on the thread's state by its
     /// change (`eventually_on!`, and `SessionHandle::stepped` for the tests of other crates).
     #[cfg(any(test, feature = "test-support"))]
@@ -317,11 +324,6 @@ impl ControlCell {
     /// The attaches counted now.
     pub fn attached(&self) -> usize {
         self.subscribers.load(std::sync::atomic::Ordering::SeqCst) & COUNT
-    }
-
-    /// Whether an attach was ever admitted: only then does the thread unload when none is left.
-    pub fn ever_attached(&self) -> bool {
-        self.subscribers.load(std::sync::atomic::Ordering::SeqCst) & ATTACHED != 0
     }
 
     /// The admission word as it stands (`0`: open, never attached).
@@ -392,12 +394,23 @@ impl ControlCell {
         }
     }
 
-    /// A subscriber detached; the last one asks the actor to unload when idle.
+    /// A subscriber detached; the last one puts the thread back on the actor's idle clock.
     pub fn unsubscribed(&self) {
         use std::sync::atomic::Ordering::SeqCst;
         let before = self.subscribers.try_update(SeqCst, SeqCst, |n| (n & COUNT > 0).then(|| n - 1));
         if before.is_ok_and(|word| word & COUNT == 1) {
-            let _ = self.ctl_tx.try_send(Ctl::Unsubscribed);
+            self.deliver(Ctl::Unsubscribed);
+        }
+    }
+
+    /// Hands the actor `ctl` although its control lane is full: a caller that cannot wait for room (a detach, a resume's reply)
+    /// leaves the wait to a task, so a message that restarts the idle clock is never dropped.
+    pub fn deliver(&self, ctl: Ctl) {
+        if let Err(mpsc::error::TrySendError::Full(ctl)) = self.ctl_tx.try_send(ctl) {
+            let lane = self.ctl_tx.clone();
+            tokio::spawn(async move {
+                let _ = lane.send(ctl).await;
+            });
         }
     }
 }

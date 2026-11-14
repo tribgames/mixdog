@@ -69,7 +69,7 @@ pub(crate) fn scm_error(failure: ScmFailure) -> CoreError {
 }
 
 fn review_error(error: ReviewError) -> CoreError {
-    CoreError::DomainError { domain: TURN_REVIEW_DOMAIN.into(), code: None, message: Some(error.message.into()), detail: None }
+    failed(TURN_REVIEW_DOMAIN, error.message)
 }
 
 fn thread_of(id: Option<ThreadId>) -> Result<ThreadId, CoreError> {

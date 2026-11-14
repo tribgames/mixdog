@@ -2,10 +2,11 @@
 //! config of a custom provider, from a stored entry or a setup input. Pure, and Node-exact down
 //! to the text of each refusal (`[custom-provider] <message>`), because the setup UI shows it.
 //!
-//! The reasoning, header and request-body rules live in `mixdog-ai` as the builder's lenient
-//! reading of an already-saved entry; this is the validating side a save runs.
+//! The reasoning, header and request-body rules of the parent module are the builder's lenient
+//! reading of an already-saved entry; this is the validating side a save runs, and the reading the
+//! builder takes an entry's model overrides from (`createCustomProvider`).
 
-use mixdog_ai::providers::custom::reasoning::canonical_level;
+use super::reasoning::canonical_level;
 use mixdog_js::js_trim;
 use mixdog_js::slice_utf16;
 use mixdog_js::to_number;

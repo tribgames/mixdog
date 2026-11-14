@@ -4,9 +4,11 @@
 //! own messages, the session's stored rows (after the live transcript is
 //! ingested), and last the general memory recall.
 
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::LazyLock;
+use std::sync::Mutex;
 use std::sync::atomic::AtomicU64;
 
 use async_trait::async_trait;
@@ -59,6 +61,14 @@ pub trait MemoryModule: Send + Sync {
     async fn memory(&self, args: Value) -> String;
     /// The `recall` tool for a request `cancel` ends.
     async fn recall(&self, args: Value, cancel: &tokio_util::sync::CancellationToken) -> String;
+    /// `getMemoryModule()` in the runtime of session `thread` (`runtime-modules.mjs:16-18`): Node runs one runtime per
+    /// session and loads the module into it at its first recall or memory call.
+    fn note_session_use(&self, _thread: &str) {}
+    /// `getMemoryModPromise()` when session `thread` closes (`memory-ingest.mjs:25`): whether its runtime loaded the
+    /// module. The answer ends the mark, as the close ends that runtime.
+    fn take_session_use(&self, _thread: &str) -> bool {
+        false
+    }
 }
 
 /// The memory runtime over the local Postgres. `memory` serves the curated
@@ -73,11 +83,13 @@ pub struct LocalMemory {
     ingest: SessionIngest,
     /// The lane project markers and the snapshot file are read and written on.
     lane: mixdog_rt::DurabilityIo,
+    /// The sessions [`MemoryModule::note_session_use`] marked that no close has taken since.
+    session_uses: Mutex<HashSet<String>>,
 }
 
 impl LocalMemory {
     pub fn new(db: Db, data_dir: PathBuf, recall: Recall, ingest: SessionIngest, lane: mixdog_rt::DurabilityIo) -> Self {
-        Self { db, data_dir, revision: Arc::new(AtomicU64::new(0)), recall, ingest, lane }
+        Self { db, data_dir, revision: Arc::new(AtomicU64::new(0)), recall, ingest, lane, session_uses: Mutex::default() }
     }
 
     pub fn db(&self) -> &Db {
@@ -135,6 +147,14 @@ impl MemoryModule for LocalMemory {
 
     async fn recall(&self, args: Value, cancel: &tokio_util::sync::CancellationToken) -> String {
         self.recall_outcome_cancellable(&args, cancel).await.text
+    }
+
+    fn note_session_use(&self, thread: &str) {
+        self.session_uses.lock().expect("session uses").insert(thread.to_owned());
+    }
+
+    fn take_session_use(&self, thread: &str) -> bool {
+        self.session_uses.lock().expect("session uses").remove(thread)
     }
 }
 
@@ -268,12 +288,16 @@ impl MemoryService {
     /// Node's `memoryModule()` (`resource-recall-api.mjs:39-43`) through its runtime proxy: a call waits for the memory runtime (until
     /// [`RUNTIME_READY_WAIT`] after its opening's launch), and one whose runtime does not come up by then is refused with the proxy's text (`memory-runtime-proxy/discovery.mjs:95`), whatever the opening's own
     /// error was: Node's child answers `starting` to every health probe until its init succeeded (`http-router/lifecycle-routes.mjs:43-45`).
-    async fn runtime(&self) -> Result<(), CoreError> {
+    /// The runtime of the session `thread` names has loaded the module from here, ready or not.
+    async fn runtime(&self, thread: Option<&str>) -> Result<(), CoreError> {
+        if let Some(thread) = thread.filter(|thread| !thread.is_empty()) {
+            self.memory.note_session_use(thread);
+        }
         self.memory.ready().await.map_err(|_| CoreError::DomainError { domain: "memory".into(), code: None, message: Some(RUNTIME_NOT_READY.into()), detail: None })
     }
 
     async fn memory_control(&self, params: &Value) -> Result<Value, CoreError> {
-        self.runtime().await?;
+        self.runtime(params.get("threadId").and_then(Value::as_str)).await?;
         let args = params.get("args").filter(|args| truthy(args)).cloned().unwrap_or_else(|| json!({}));
         Ok(Value::String(self.memory.memory(args).await))
     }
@@ -307,7 +331,7 @@ impl MemoryService {
                 return Ok(Value::String(own));
             }
         }
-        self.runtime().await?;
+        self.runtime(thread).await?;
         let mut base_args: Map<String, Value> = args.as_object().cloned().unwrap_or_default();
         base_args.insert("query".into(), base_query);
         let cwd = args.get("cwd").filter(|cwd| truthy(cwd)).cloned().or_else(|| current_cwd.clone().map(Value::String));

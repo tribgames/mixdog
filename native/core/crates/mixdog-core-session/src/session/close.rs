@@ -344,15 +344,15 @@ fn is_worker(header: &Map<String, Value>) -> bool {
 #[async_trait::async_trait]
 impl super::directory::ExitClose for SessionClose {
     async fn close_on_exit(&self, thread: &ThreadId, reason: &str) {
-        match self.threads.header(thread).await {
+        let header = match self.threads.header(thread).await {
             Ok(header) if is_worker(&header) => return,
-            Ok(_) => {}
+            Ok(header) => header,
             Err(PortError::NotFound { .. }) => return,
             Err(error) => {
                 tracing::warn!("[session-close] {thread}: its header could not be read at exit: {error:?}");
                 return;
             }
-        }
+        };
         let committed = match mixdog_core_ports::ports::memory_source::ThreadMessages::messages(&self.threads, thread).await {
             Ok(messages) => messages,
             Err(PortError::NotFound { .. }) => return,
@@ -361,6 +361,19 @@ impl super::directory::ExitClose for SessionClose {
                 return;
             }
         };
+        // `close(reason)` dispatches `SessionEnd` before `closeOwnSession` (`teardown.mjs:185-187`, `dispatchSessionEnd`: waited
+        // for no longer than 300 ms, a slower hook goes on by itself). The close below marks the actor closed, and the close
+        // work of a closed session fires none, so the exit's `SessionEnd` fires here, once (`session_ended`). A session
+        // already tombstoned has none to end (`if (!session?.id) return`). The payload's reason is `sessionEndReason(reason)` of
+        // the stop's own reason: `exit` for a signal or a shutdown, `other` for e.g. `no live session clients`.
+        if header.get("closed") != Some(&Value::Bool(true))
+            && let Some(handle) = self.directory.handle(thread)
+            && !handle.cell.session_ended.swap(true, std::sync::atomic::Ordering::SeqCst)
+        {
+            let (hooks, ended_thread, end_reason) = (self.directory.deps().lifecycle.clone(), thread.clone(), mixdog_mcp::hooks::session_end_reason(reason));
+            let ended = tokio::spawn(async move { hooks.session_end(&ended_thread, &header, end_reason).await });
+            let _ = mixdog_rt::time::timeout(super::lifecycle_hooks::SESSION_END_WAIT, ended).await;
+        }
         let live: Vec<Value> = self.directory.handle(thread).map(|handle| (**handle.cell.turn_messages.borrow()).clone()).unwrap_or_default();
         let closed = if super::thread_switches::is_scratch(thread.as_str(), &committed, &live) {
             self.close(thread.as_str(), reason).await

@@ -14,6 +14,7 @@ use mixdog_spawn::tasks::TaskRegistry;
 use mixdog_spawn::tasks::TaskRow;
 use mixdog_spawn::tasks::TaskStatus;
 use serde_json::json;
+use tokio_util::sync::CancellationToken;
 
 use super::jobs::ExecRuntime;
 use super::task::CancelOutcome;
@@ -82,15 +83,22 @@ impl ShellControl {
 
     /// `stopBackgroundShellJob`: `{stopped: true}` only when the job was actually cancelled. A job
     /// that had already ended answers `finished: true` with its terminal status in `error`; one
-    /// that is not the owner's reads as unknown. The registry keeps no job record across a
-    /// restart (decisions.md, "Shell job records"), so a job it does not hold is unknown.
+    /// that is not the owner's reads as unknown. A job the registry does not hold (the runtime
+    /// restarted) is known only by its kept record (`stopJobKnownByRecord`): nothing controls its
+    /// process after a restart.
     pub async fn stop_job(&self, owner: &ThreadId, task_id: &str) -> JsonValue {
         let id = mixdog_js::js_trim(task_id);
         if id.is_empty() {
             return json!({ "stopped": false, "error": "task_id is required" });
         }
         let unknown = || json!({ "stopped": false, "error": format!("task not found: {id}") });
-        let Some(job) = self.runtime.get(owner, id) else { return unknown() };
+        let Some(job) = self.runtime.get(owner, id) else {
+            return match self.runtime.kept(owner, id, &CancellationToken::new()).await.map(|kept| kept.end()) {
+                None => unknown(),
+                Some(Some(end)) => json!({ "stopped": false, "finished": true, "error": format!("task already {}: {id}", end.status.as_str()) }),
+                Some(None) => json!({ "stopped": false, "error": format!("task process control is unavailable after restart: {id}") }),
+            };
+        };
         let Some(row) = self.tasks().get(id).filter(|row| row.surface == "shell" && !row.foreground) else {
             return unknown();
         };

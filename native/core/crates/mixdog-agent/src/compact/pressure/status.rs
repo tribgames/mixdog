@@ -619,12 +619,24 @@ fn resolve_tokens(session: &Header, message_tokens: f64, policy: &Policy, messag
     if let Some(tokens) = baseline_pressure_tokens(session, messages, policy, input) {
         return (tokens, "provider");
     }
-    if get(session, "contextPressureUnanchoredAfterRestart") == Some(&Value::Bool(true))
-        && let Some(last) = first_positive(&[get(session, "contextPressureBaselineTokens"), get(session, "lastContextTokens")])
-    {
+    if let Some(last) = resume_tokens(session) {
         return (last, "provider_resume");
     }
     (current_estimate_tokens(message_tokens, policy), "estimated")
+}
+
+/// `sessionRef.contextPressureUnanchoredAfterRestart === true`: a restored transcript whose provider prefix could not be
+/// proven identical (`markUnanchoredContext`), until a provider send or a compaction re-anchors it.
+pub fn unanchored_after_restart(session: &Header) -> bool {
+    get(session, "contextPressureUnanchoredAfterRestart") == Some(&Value::Bool(true))
+}
+
+/// `resolveContextTokensWithSource`'s `provider_resume`: an unanchored session keeps its last actual reading.
+fn resume_tokens(session: &Header) -> Option<f64> {
+    if !unanchored_after_restart(session) {
+        return None;
+    }
+    first_positive(&[get(session, "contextPressureBaselineTokens"), get(session, "lastContextTokens")])
 }
 
 // --- Transcript summary (context-utils.mjs summarizeContextMessages) -------------
@@ -1227,6 +1239,7 @@ pub use send_check::StageMeta;
 pub use send_check::compact_telemetry;
 pub use send_check::post_compact_snapshot;
 pub use send_check::pre_send_check;
+pub use send_check::provider_pressure;
 pub use commit::Archived;
 pub use commit::CONFIG_KEYS as COMPACTION_CONFIG_KEYS;
 pub use commit::CommitInput;

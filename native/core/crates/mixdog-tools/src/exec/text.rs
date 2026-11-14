@@ -164,8 +164,9 @@ pub fn format_duration(ms: u64) -> String {
     format!("{minutes}m {seconds}s")
 }
 
-pub fn count_newlines(text: &str) -> usize {
-    text.bytes().filter(|b| *b == b'\n').count()
+/// `countNewlines`, of text or of raw bytes (`countNewlinesInRange`).
+pub fn count_newlines(text: impl AsRef<[u8]>) -> usize {
+    text.as_ref().iter().filter(|b| **b == b'\n').count()
 }
 
 #[cfg(test)]

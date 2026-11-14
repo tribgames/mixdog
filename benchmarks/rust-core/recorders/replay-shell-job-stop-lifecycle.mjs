@@ -86,8 +86,8 @@ try {
   await within(client.resumeThread(threadId, { lastItems: 10 }), LIMIT, 'showing the session');
   const shown = await paneWhen('the pane of the shown session', () => true);
   await within(client.unsubscribeThread(threadId), LIMIT, 'hiding the session');
-  // Node recorded the session reclaimed while hidden (`steps[1]`: live 0, disposedSessions). The core drops a thread when its last watcher
-  // leaves and nothing of it works (mixdog-core-session tests.rs an_idle_thread_unloads_when_its_last_subscriber_leaves_and_ingests_its_context;
+  // Node recorded the session reclaimed while hidden (`steps[1]`: live 0, disposedSessions). The core drops a thread one idle delay after its
+  // last watcher left when nothing of it works (mixdog-core-session tests.rs an_idle_thread_unloads_one_idle_delay_after_its_last_subscriber_left_and_ingests_its_context;
   // kept while it works: agent_activity_tests.rs a_thread_nobody_watched_stays_while_its_background_work_runs); no wire call shows a thread
   // loaded, so here the desktop's own state of it must be gone, and the pane that follows can only come from the core's load.
   assert.equal(lib.sessionStateOf(client, threadId), undefined, 'the desktop keeps no state of the session it let go');

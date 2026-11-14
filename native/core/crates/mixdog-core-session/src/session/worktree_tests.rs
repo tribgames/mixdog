@@ -195,21 +195,41 @@ pub struct Rig {
     pub worktrees: Arc<Worktrees>,
 }
 
-pub fn rig() -> Rig {
-    let dir = tempfile::tempdir().unwrap();
-    let repo = dir.path().join("repo");
+/// A directory link: a junction on Windows (it needs no privilege), a symlink elsewhere.
+pub fn link_dir(target: &Path, link: &Path) {
+    #[cfg(windows)]
+    assert!(std::process::Command::new("cmd").args(["/C", "mklink", "/J"]).arg(link).arg(target).output().unwrap().status.success());
+    #[cfg(not(windows))]
+    std::os::unix::fs::symlink(target, link).unwrap();
+}
+
+/// `dir/repo`: a repository on `main` whose one commit holds `f.txt`.
+pub fn repo_with_one_commit(dir: &Path) -> PathBuf {
+    let repo = dir.join("repo");
     std::fs::create_dir_all(&repo).unwrap();
     git(&repo, &["init", "-q", "-b", "main"]);
     git(&repo, &["config", "core.autocrlf", "false"]);
     std::fs::write(repo.join("f.txt"), "a\nb\nc\n").unwrap();
     git(&repo, &["add", "."]);
     git(&repo, &["commit", "-q", "-m", "init"]);
-    let tokens = mixdog_rt::testing::tokens();
-    let processes = Arc::new(LocalProcessManager::new(tokens.spawn_io, ProcessConfig::default()));
+    repo
+}
+
+/// The processes the daemon spawns.
+fn local_processes() -> Arc<LocalProcessManager> {
+    Arc::new(LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, ProcessConfig::default()))
+}
+
+/// The managed store kept in `data`, whose git runs through `processes`.
+fn store(processes: Arc<dyn mixdog_core_api::domain::process::ProcessManager>, data: &Path) -> Worktrees {
+    Worktrees::new(Scm::new(processes, mixdog_rt::testing::tokens().maintenance_io, data.join("scratch")), data.to_path_buf())
+}
+
+pub fn rig() -> Rig {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = repo_with_one_commit(dir.path());
     let data = dir.path().join("data");
-    let data_dir = data.clone();
-    let scm = Scm::new(processes, tokens.maintenance_io, data.join("scratch"));
-    let worktrees = Arc::new(Worktrees::new(scm, data));
+    let worktrees = Arc::new(store(local_processes(), &data));
     let state = Arc::new(Mutex::new(HostState { cwd: repo.to_string_lossy().into_owned(), ..HostState::default() }));
     let auto_cleanup = Arc::new(AtomicBool::new(true));
     let ws = SessionWorkspaces::new(
@@ -220,7 +240,7 @@ pub fn rig() -> Rig {
         Arc::new(FakeHost { state: state.clone() }),
         AdmissionGate::new(),
     );
-    Rig { _dir: dir, repo, data: data_dir, state, auto_cleanup, ws, worktrees }
+    Rig { _dir: dir, repo, data, state, auto_cleanup, ws, worktrees }
 }
 
 pub fn enter(name: &str, call: &str) -> SessionOp {
@@ -341,6 +361,9 @@ async fn only_select_branch_and_a_provisioning_request_create_the_session() {
 #[tokio::test]
 async fn uncommitted_changes_must_be_decided_before_a_worktree_is_made() {
     let rig = rig();
+    // The untracked identity marker a registered project carries is not a change (counted below).
+    std::fs::create_dir_all(rig.repo.join(".mixdog")).unwrap();
+    std::fs::write(rig.repo.join(".mixdog").join("project.id"), "repo\n").unwrap();
     std::fs::write(rig.repo.join("f.txt"), "changed\n").unwrap();
     let asked = run(&rig, enter("feat", "c1")).await;
     assert_eq!(code(&asked), Some("WORKTREE_DIRTY_CHOICE"));
@@ -525,19 +548,11 @@ impl mixdog_core_api::domain::process::ProcessManager for DirtiesBeforeRestore {
 async fn claim_fails_after_a_carry(dirty: bool) -> (tempfile::TempDir, Result<(), ScmFailure>, Vec<Value>, String, String) {
     use super::worktree_ops::{Ops, TxScope};
     let dir = tempfile::tempdir().unwrap();
-    let repo = dir.path().join("repo");
-    std::fs::create_dir_all(&repo).unwrap();
-    git(&repo, &["init", "-q", "-b", "main"]);
-    git(&repo, &["config", "core.autocrlf", "false"]);
-    std::fs::write(repo.join("f.txt"), "a\nb\nc\n").unwrap();
-    git(&repo, &["add", "."]);
-    git(&repo, &["commit", "-q", "-m", "init"]);
+    let repo = repo_with_one_commit(dir.path());
     std::fs::write(repo.join("f.txt"), "changed\n").unwrap();
-    let tokens = mixdog_rt::testing::tokens();
-    let local = Arc::new(LocalProcessManager::new(tokens.spawn_io, ProcessConfig::default()));
-    let processes = Arc::new(DirtiesBeforeRestore { inner: local, armed: AtomicBool::new(dirty) });
+    let processes = Arc::new(DirtiesBeforeRestore { inner: local_processes(), armed: AtomicBool::new(dirty) });
     let data = dir.path().join("data");
-    let worktrees = Arc::new(Worktrees::new(Scm::new(processes, tokens.maintenance_io, data.join("scratch")), data.clone()));
+    let worktrees = Arc::new(store(processes, &data));
     let ops = Ops { wt: worktrees.clone(), settings: Arc::new(Defaults(Arc::new(AtomicBool::new(true)))), runtime_token: "rt".into() };
     let cancel = CancellationToken::new();
     let project = ops.inspect(&repo.to_string_lossy(), &cancel).await.unwrap();
@@ -575,6 +590,63 @@ async fn a_refused_restore_keeps_the_worktree_and_the_recovery_ref() {
     assert_eq!(rows.len(), 1, "the worktree that holds the carried changes stays");
     assert!(std::path::Path::new(rows[0]["path"].as_str().unwrap()).exists());
     assert!(carry_refs.contains("refs/mixdog/carry"), "{carry_refs}");
+}
+
+/// A repository with one commit, and the session layer's worktree operations over a fresh managed store whose settings (the
+/// store's own and the session layer's) are `settings`: returns the folder that holds both, the repository and the operations.
+fn ops_over_a_fresh_store(settings: Arc<dyn SettingsSource>) -> (tempfile::TempDir, PathBuf, super::worktree_ops::Ops) {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = repo_with_one_commit(dir.path());
+    let worktrees = store(local_processes(), &dir.path().join("data")).with_settings(settings.clone());
+    let ops = super::worktree_ops::Ops { wt: Arc::new(worktrees), settings, runtime_token: "rt".into() };
+    (dir, repo, ops)
+}
+
+/// A managed worktree is found by its checkout spelled through a link (a junction on Windows), at it or inside it: Node's
+/// `getWorktreeByPath` and `findWorktreeContaining` compare canonical paths (`pathKey`), and the records hold real ones.
+#[tokio::test]
+async fn a_worktree_is_found_by_its_checkout_spelled_through_a_link() {
+    use super::worktree_ops::TxScope;
+    let (dir, repo, ops) = ops_over_a_fresh_store(Arc::new(Defaults(Arc::new(AtomicBool::new(true)))));
+    let cancel = CancellationToken::new();
+    let project = ops.inspect(&repo.to_string_lossy(), &cancel).await.unwrap();
+    let made = ops.create_for_session(&project, TxScope { session: "s1", tx_id: "tx1" }, "feat", None, false, &cancel).await.unwrap().record;
+    let linked = dir.path().join("linked");
+    link_dir(Path::new(&made.path), &linked);
+    let at = linked.to_string_lossy().into_owned();
+    let inside = linked.join("sub").to_string_lossy().into_owned();
+    assert_eq!(ops.worktree_by_path(&at, &cancel).await.unwrap().map(|r| r.id), Some(made.id.clone()), "the checkout through the link");
+    assert_eq!(ops.worktree_containing(&inside, &cancel).await.unwrap().map(|r| r.id), Some(made.id.clone()), "a folder in it through the link");
+    assert!(ops.worktree_containing(&repo.to_string_lossy(), &cancel).await.unwrap().is_none(), "the project folder is no managed worktree");
+    assert!(ops.worktree_by_path(" ", &cancel).await.unwrap().is_none(), "a blank path names no worktree (`getWorktreeByPath('')`)");
+}
+
+/// Settings whose size threshold every checkout is over.
+struct OverThreshold;
+
+#[async_trait]
+impl SettingsSource for OverThreshold {
+    async fn worktree_settings(&self) -> WorktreeSettings {
+        WorktreeSettings { size_warn_bytes: 1, ..WorktreeSettings::default() }
+    }
+}
+
+/// A checkout over the size threshold is refused until the user confirmed it, and made once they did, whether the session asks
+/// for a new worktree or for a branch's (`createManagedWorktree`'s `confirmLarge`): the store's own check hears the confirmation
+/// too.
+#[tokio::test]
+async fn a_confirmed_large_checkout_is_made() {
+    use super::worktree_ops::TxScope;
+    let (_dir, repo, ops) = ops_over_a_fresh_store(Arc::new(OverThreshold));
+    let cancel = CancellationToken::new();
+    let project = ops.inspect(&repo.to_string_lossy(), &cancel).await.unwrap();
+    let scope = TxScope { session: "s1", tx_id: "tx1" };
+    let refused = ops.create_for_session(&project, scope, "feat", None, false, &cancel).await.err().expect("refused unconfirmed");
+    assert_eq!(refused.code(), Some(mixdog_scm::worktree::errors::WORKTREE_LARGE_REPO_CONFIRM));
+    assert!(ops.create_for_session(&project, scope, "feat", None, true, &cancel).await.is_ok(), "made once confirmed");
+    let branch = TxScope { session: "s1", tx_id: "tx2" };
+    let resolved = ops.resolve_branch(&repo.to_string_lossy(), "side", true, branch, true, &cancel).await;
+    assert!(resolved.is_ok_and(|resolved| resolved.entry.is_some()), "a new branch's worktree made once confirmed");
 }
 
 /// The agent tool's spawn admission is this runtime's gate: a spawn for a Lead whose workspace is

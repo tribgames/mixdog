@@ -2,8 +2,9 @@
 //! missing or damaged (`readConfigFile`, `readAll`, `persistRestoredConfig`), what a write starts from
 //! (`readAllForRmW`, `restoreAllForRmWOrThrow`), and the snapshots a write is wrapped in (`writeConfigFile`).
 //!
-//! The document the actor holds stands for the file while the file is intact, so a read or a write only consults the
-//! guard when the file is not: missing, not JSON, or not an object.
+//! A read consults the guard only when the file is not intact: missing, not JSON, or not an object. A write always starts
+//! from what the file holds (`readAllForRmW`), so an edit another process made that the file watch has not delivered yet
+//! is kept, never written over with the document the actor holds.
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -50,16 +51,10 @@ fn classify(bytes: Option<Vec<u8>>) -> Seen {
 
 /// What a read-modify-write starts from.
 pub(super) struct Baseline {
-    /// The guard's document; `None` is the actor's own (the file is intact).
-    pub doc: Option<Doc>,
-    /// The file was lost or damaged: write even when the edit changes nothing.
+    /// The file's document, canonical as a read installs it, while the file is intact; else the guard's (a restore, or `{}`).
+    pub doc: Doc,
+    /// The file was lost or damaged: `doc` is the guard's, and the write happens even when the edit changes nothing.
     pub forced: bool,
-}
-
-impl Baseline {
-    fn memory() -> Self {
-        Self { doc: None, forced: false }
-    }
 }
 
 pub(super) struct Guard {
@@ -105,18 +100,7 @@ impl Guard {
     /// of the change notification pass (the file watch): a config that does not parse is then a write in progress, and
     /// the current document stays.
     pub(super) async fn read(self: &Arc<Self>, lanes: ConfigLanes, in_pass: bool) -> Result<Doc, ConfigError> {
-        let path = self.path.clone();
-        let read = on_lane(lanes.read, move |_| {
-            #[cfg(feature = "count-work")]
-            crate::work::file_read();
-            mixdog_statefile::read_content(&path)
-        })
-        .await?;
-        let bytes = read.map_err(|error| {
-            self.line(&format!("[config] readJsonFile: unexpected read error for {}: {error}", self.path.display()));
-            ConfigError::from(error)
-        })?;
-        match classify(bytes) {
+        match classify(self.read_bytes(lanes).await?) {
             Seen::Object(doc) => {
                 self.ensure(lanes).await;
                 Ok(canonical::canonicalize(doc))
@@ -131,6 +115,32 @@ impl Guard {
                 on_lane(lanes.write, move |lane| guard.recover(lane, lost)).await?
             }
         }
+    }
+
+    /// The file's bytes, read on the read lane; `None` when there is no file.
+    async fn read_bytes(&self, lanes: ConfigLanes) -> Result<Option<Vec<u8>>, ConfigError> {
+        let path = self.path.clone();
+        let read = on_lane(lanes.read, move |_| {
+            #[cfg(feature = "count-work")]
+            crate::work::file_read();
+            mixdog_statefile::read_content(&path)
+        })
+        .await?;
+        read.map_err(|error| {
+            self.line(&format!("[config] readJsonFile: unexpected read error for {}: {error}", self.path.display()));
+            ConfigError::from(error)
+        })
+    }
+
+    /// [`Guard::read`]'s recovery of a config that does not parse, alone (`readConfigFile`'s quarantine, then `readAll`'s restore
+    /// from the newest backup); an intact, missing or non-object file is left as it is.
+    pub(super) async fn recover_malformed(self: &Arc<Self>, lanes: ConfigLanes) -> Result<(), ConfigError> {
+        let seen = classify(self.read_bytes(lanes).await?);
+        if !matches!(seen, Seen::Malformed(_)) {
+            return Ok(());
+        }
+        let guard = self.clone();
+        on_lane(lanes.write, move |lane| guard.recover(lane, seen)).await?.map(drop)
     }
 
     /// `ensureUserDataInitialized` (best effort: a failure is never a failed read).
@@ -242,8 +252,9 @@ impl Guard {
         }
     }
 
-    /// `readAllForRmW()`: a never-initialized dir without a config starts from `{}`; a config that is missing after the dir
-    /// was initialized, or damaged, is restored from backup or refused, never silently collapsed to a one-section overwrite.
+    /// `readAllForRmW()`: an intact config starts from what the file holds; a never-initialized dir without a config starts
+    /// from `{}`; a config that is missing after the dir was initialized, or damaged, is restored from backup or refused,
+    /// never silently collapsed to a one-section overwrite.
     /// The exception is a damaged config whose bytes were kept aside as `.corrupt-<ms>`: with no backup to restore, the
     /// save starts from an empty config. A config that cannot be READ (I/O error) still fails.
     fn baseline(&self, lane: &InLane<DurabilityIo>) -> Result<Baseline, ConfigError> {
@@ -252,11 +263,11 @@ impl Guard {
             ConfigError::from(error)
         })?;
         let reason = match classify(bytes) {
-            Seen::Object(_) => return Ok(Baseline::memory()),
+            Seen::Object(doc) => return Ok(Baseline { doc: canonical::canonicalize(doc), forced: false }),
             Seen::Missing => {
                 let dir = self.data_dir();
                 if !self.user_data.is_recovery_expected(lane, dir, true).map_err(user_data_error)? {
-                    return Ok(Baseline { doc: Some(Doc::new()), forced: false });
+                    return Ok(Baseline { doc: Doc::new(), forced: false });
                 }
                 return self.restore(lane, "config file missing after user-data was initialized", self.has_quarantined_copy(lane));
             }
@@ -278,13 +289,13 @@ impl Guard {
         let dir = self.data_dir();
         if let Some(Value::Object(restored)) = self.user_data.load_latest_config(lane, dir, true).map_err(user_data_error)? {
             self.line(&format!("[config] RMW read: restored mixdog-config.json from latest user-data backup ({reason})"));
-            return Ok(Baseline { doc: Some(restored), forced: true });
+            return Ok(Baseline { doc: restored, forced: true });
         }
         if kept_aside {
             self.line(&format!(
                 "[config] RMW read: mixdog-config.json is unusable ({reason}); its bytes are kept aside and no backup exists; starting empty"
             ));
-            return Ok(Baseline { doc: Some(Doc::new()), forced: true });
+            return Ok(Baseline { doc: Doc::new(), forced: true });
         }
         if let Some(legacy) = self.user_data.legacy_evidence(lane, dir, true).map_err(user_data_error)? {
             let roots: Vec<String> = legacy.roots.iter().map(|root| root.display().to_string()).collect();

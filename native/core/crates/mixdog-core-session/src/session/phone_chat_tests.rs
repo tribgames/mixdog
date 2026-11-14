@@ -503,30 +503,20 @@ fn stored_queue(shard: &Value, entry: &Value, durable: &Value, at: i64, clock: u
     // (`queue_row`); a prompt's mode is `prompt`, which Rust leaves out of the stored entry.
     assert_eq!(entry["mode"], json!("prompt"));
     assert_eq!(shard["mode"], entry["mode"], "the mirror holds the entry's mode");
-    let mut options = json!({ "clientSubmissionId": entry["id"] });
-    if !entry["pastedImages"].is_null() {
-        options["pastedImages"] = entry["pastedImages"].clone();
-    }
     // The case was recorded at Node's runtime, below the intake; the phone's `turn/start` is `submitAdmitted`, whose
-    // `materializePromptSubmission` (`attachments/store.mjs:466-499`) stores each inline text and queues its reference instead.
-    if let Some(texts) = entry["pastedTexts"].as_object() {
-        let materialized = texts.iter().map(|(key, raw)| {
-            let mut out = raw.clone();
-            if let Some(text) = out.as_object_mut().and_then(|meta| meta.shift_remove("text")).and_then(|text| text.as_str().map(str::to_owned)) {
-                use sha2::Digest;
-                out["attachmentRef"] = json!(format!("{:x}", sha2::Sha256::digest(text.as_bytes())));
-                out["sizeBytes"] = json!(text.len());
-                out["chars"] = super::restore_hydrate::chars_of(raw.get("chars"), &text);
-            }
-            (key.clone(), out)
-        });
-        options["pastedTexts"] = Value::Object(materialized.collect());
+    // `materializePromptSubmission` stores each inline text and image and queues references instead ([`taken_in`]).
+    let taken = taken_in(entry);
+    let mut options = json!({ "clientSubmissionId": entry["id"] });
+    for key in ["pastedImages", "pastedTexts"] {
+        if !taken[key].is_null() {
+            options[key] = taken[key].clone();
+        }
     }
     json!({
         "k": "queue", "qid": "<qid>", "action": "enqueue",
         "op": { "id": "op-0", "method": "turn/start", "digest": "<digest>", "result": { "kind": "queued", "queuedId": "<qid>" } },
         "entry": { "inline": {
-            "message": entry["content"],
+            "message": taken["message"],
             "enqueuedAt": clock,
             "priority": entry["priority"],
             "options": options,
@@ -534,6 +524,56 @@ fn stored_queue(shard: &Value, entry: &Value, durable: &Value, at: i64, clock: u
             "restorable": entry["isMeta"] != json!(true),
         } },
     })
+}
+
+/// What the core's `turn/start` intake (`materializePromptSubmission`, [`super::prompt_submission`]) queues of a Node entry recorded
+/// below the intake: `{ message, pastedImages, pastedTexts }`, each inline text and image stored and named by reference and the
+/// content's text tokens turned into the stored texts they stand for. The store holds nothing beforehand; a save is named by its
+/// bytes' SHA-256, as the attachment store names it.
+fn taken_in(entry: &Value) -> Value {
+    use super::prompt_submission::LongText;
+    use super::prompt_submission::PromptStore;
+    use super::prompt_submission::materialize_prompt_submission;
+    use super::prompt_submission::saved;
+    struct Fresh;
+    impl PromptStore for Fresh {
+        fn save(&self, bytes: &[u8]) -> Result<serde_json::Map<String, Value>, String> {
+            use sha2::Digest;
+            Ok(saved(&format!("{:x}", sha2::Sha256::digest(bytes)), bytes.len()))
+        }
+        fn stored_len(&self, _: &str) -> Result<Option<u64>, String> {
+            Ok(None)
+        }
+    }
+    let mut options = json!({});
+    for key in ["pastedImages", "pastedTexts"] {
+        if !entry[key].is_null() {
+            options[key] = entry[key].clone();
+        }
+    }
+    let taken = materialize_prompt_submission(&Fresh, &entry["content"], &options, LongText::Inline).expect("Node's entry is taken in");
+    let table = |key: &str| taken.options.get(key).cloned().unwrap_or(Value::Null);
+    json!({ "message": taken.prompt, "pastedImages": table("pastedImages"), "pastedTexts": table("pastedTexts") })
+}
+
+/// The queue row the core publishes for a Node entry recorded below the intake: Node's projection (`queue_row`), unless the
+/// intake changed the entry ([`taken_in`]). Then the text and image chips are the core's drawing of the entry the intake queues
+/// (`RecordTranscript::queued`): an image chip names its stored image and counts its stored bytes, and a stored paste shows as
+/// its chip without the line count, as the core's queue row reads no store (Node's `promptDisplayText` over the same prompt
+/// reads the paste back).
+fn taken_row(mut row: Value, entry: &Value) -> Value {
+    use super::seams::Transcript;
+    let taken = taken_in(entry);
+    if taken["message"] == entry["content"] && taken["pastedImages"] == entry["pastedImages"] && taken["pastedTexts"] == entry["pastedTexts"] {
+        return row;
+    }
+    let drawn = super::transcript::RecordTranscript::new().queued("<qid>", &json!({ "message": taken["message"], "options": { "pastedImages": taken["pastedImages"] } }));
+    row["text"] = drawn["text"].clone();
+    match drawn.get("images") {
+        Some(images) => row["images"] = images.clone(),
+        None => drop(row.as_object_mut().map(|row| row.shift_remove("images"))),
+    }
+    row
 }
 
 /// One row of what Node's daemon sends a client of its queue (`projectSessionState`, `session-state-projection.mjs:33-49`), as the row the
@@ -583,7 +623,8 @@ fn node_frames(publications: &[Value], at: i64, clock: u64) -> Vec<(String, Valu
         if *queue != queued {
             let projected = publication["projectedQueued"].as_array().unwrap();
             assert_eq!(projected.len(), queue.len(), "Node's projection keeps every entry");
-            out.push(("thread/queue/changed".to_owned(), json!({ "queued": projected.iter().map(|row| queue_row(row, at, clock)).collect::<Vec<_>>() })));
+            let rows = projected.iter().zip(queue).map(|(row, entry)| taken_row(queue_row(row, at, clock), entry));
+            out.push(("thread/queue/changed".to_owned(), json!({ "queued": rows.collect::<Vec<_>>() })));
             queued = queue.clone();
         }
         if state["busy"] == true && !busy {

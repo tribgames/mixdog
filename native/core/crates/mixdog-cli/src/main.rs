@@ -24,6 +24,7 @@ use mixdog_rt::TaskClass;
 
 use clap::ArgGroup;
 use clap::Args;
+use clap::CommandFactory;
 use clap::Parser;
 use clap::Subcommand;
 
@@ -223,11 +224,23 @@ impl exec::Sink for StdSink {
     }
 }
 
+/// The exec's usage on stdout: Node's `help` kind (`printHelp`, exit 0).
+fn exec_help() -> ExitCode {
+    let mut cli = Cli::command();
+    cli.build();
+    let _ = cli.find_subcommand_mut("exec").expect("exec is a subcommand").print_help();
+    ExitCode::SUCCESS
+}
+
 /// Refuses what Node refuses before anything starts, then runs the exec on its own core (`runHeadlessExec`).
 fn exec_command(args: exec::ExecArgs) -> ExitCode {
-    let options = args.into_options(std::env::var("MIXDOG_USAGE_LOG").ok()).and_then(|options| {
-        exec::route::validate_explicit_route(options.provider.as_deref(), options.model.as_deref(), options.effort.as_deref()).map(|()| options)
-    });
+    let options = match args.into_invocation(std::env::var("MIXDOG_USAGE_LOG").ok()) {
+        Ok(exec::Invocation::Help) => return exec_help(),
+        Ok(exec::Invocation::Run(options)) => {
+            exec::route::validate_explicit_route(options.provider.as_deref(), options.model.as_deref(), options.effort.as_deref()).map(|()| options)
+        }
+        Err(refusal) => Err(refusal),
+    };
     let options = match options {
         Ok(options) => options,
         Err(refusal) => {
@@ -348,7 +361,11 @@ async fn ctl_request(
     use mixdog_app_server_client::ctl::CtlClient;
     use mixdog_app_server_client::ctl::StopMode;
 
-    let client = CtlClient::local().await?;
+    // A process table that cannot answer proves nothing: the call goes to the listener.
+    let client = CtlClient::local(|core| {
+        mixdog_app_server_daemon::discovery::names_running_core(core.pid, &core.core.process_start_time).unwrap_or(true)
+    })
+    .await?;
     match action {
         CtlAction::Status => client.status().await,
         CtlAction::Hold { off } => client.hold(!off).await,
@@ -428,8 +445,6 @@ fn serve() -> ExitCode {
 
 #[cfg(test)]
 mod tests {
-    use clap::CommandFactory;
-
     use super::*;
 
     #[test]

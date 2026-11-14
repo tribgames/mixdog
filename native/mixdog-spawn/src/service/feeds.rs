@@ -209,6 +209,29 @@ struct Entry {
     /// Told the bytes of output the pump has taken, after each output event went through the relay buffer (`u64::MAX` when it ends):
     /// a terminal tab's activity changes wait for it (`TerminalTabs::relay_order`).
     taken: OnceLock<PumpTell>,
+    /// The output offset the pump has published up to (`u64::MAX` once it ended): a terminal attach waits for it to reach the tab's
+    /// replay position, so the replay and the frames that follow the subscription meet without a gap or an overlap.
+    published: tokio::sync::watch::Sender<u64>,
+}
+
+/// A terminal tab's feed, for an attach that cuts the replay and the subscription at one output offset (see
+/// [`ProcessFeeds::terminal_cut`]).
+pub(crate) struct TerminalCut(Arc<Entry>);
+
+/// How long an attach waits for the pump to publish what its replay holds (the pump is held back by another call's hold, or is stuck).
+const CUT_DEADLINE: std::time::Duration = std::time::Duration::from_secs(2);
+
+impl TerminalCut {
+    /// Holds the pump from publishing output past `offset` (taken by the caller under the lock that appends the output).
+    pub(crate) fn hold_at(&self, offset: u64) -> FeedHold {
+        self.0.hold_from(offset)
+    }
+
+    /// Returns once the pump has published the output up to `offset` (or ended, or [`CUT_DEADLINE`] passed).
+    pub(crate) async fn published(&self, offset: u64) {
+        let mut seen = self.0.published.subscribe();
+        let _ = tokio::time::timeout(CUT_DEADLINE, seen.wait_for(|at| *at >= offset)).await;
+    }
 }
 
 /// A call's hold on its tab's feed: until it is dropped, the pump publishes no output past the hold's offset, no relay flush and no exit.
@@ -333,6 +356,7 @@ impl ProcessFeeds {
             #[cfg(test)]
             after_mark: Mutex::new(None),
             taken: OnceLock::new(),
+            published: tokio::sync::watch::Sender::new(0),
         });
         entries.insert(handle.to_owned(), Arc::clone(&entry));
         Arc::new(Gate {
@@ -360,6 +384,24 @@ impl ProcessFeeds {
             Arc::clone(self).start_pump(Arc::clone(&entry));
         }
         Some(held)
+    }
+
+    /// The feed of a terminal tab, live and pumping (as [`Self::open_terminal`], without a hold), for an attach that cuts its replay and
+    /// its subscription at one output offset.
+    pub(crate) fn terminal_cut(
+        self: &Arc<Self>,
+        handle: &str,
+        order: impl FnOnce() -> Option<PumpTell>,
+    ) -> Option<TerminalCut> {
+        let _ = self.feed(handle, true);
+        let entry = self.entries.lock().unwrap_or_else(|e| e.into_inner()).get(handle).cloned()?;
+        if !entry.started.swap(true, Ordering::AcqRel) {
+            if let Some(order) = order() {
+                let _ = entry.taken.set(order);
+            }
+            Arc::clone(self).start_pump(Arc::clone(&entry));
+        }
+        Some(TerminalCut(entry))
     }
 
     /// Holds the current feed of `handle` (see [`FeedHold`]); `None` when it has none.
@@ -441,6 +483,7 @@ impl ProcessFeeds {
         let Ok((mut events, mut taken)) = self.manager.subscribe_oldest(handle) else {
             return self.finish(entry);
         };
+        entry.published.send_replace(taken);
         // The window a late subscriber is given: Node's replay buffer, the last 200,000 UTF-16 units (a cut may fall inside a non-BMP
         // character, which then reads as U+FFFD at the window's start).
         let mut screen = ReplayBuffer::new(REPLAY_BUFFER_LIMIT, 0);
@@ -511,6 +554,7 @@ impl ProcessFeeds {
                         relay_out(relay.push(&bytes, tokio::time::Instant::now()));
                     }
                     taken += bytes.len() as u64;
+                    entry.published.send_replace(taken);
                     // The changes this chunk's markers caused go now, and reach the clients before the relay buffer sends the chunk's
                     // text (Node broadcast them before its 16 ms flush); bounded as the wait above.
                     if let Some(published) = entry.taken.get().and_then(|tell| tell(PumpPoint::Taken(taken))) {
@@ -545,6 +589,7 @@ impl ProcessFeeds {
     /// its own terminal entry, terminal-manager.ts `spawnTerminal`).
     fn finish(&self, entry: &Arc<Entry>) {
         entry.finished.store(true, Ordering::Release);
+        entry.published.send_replace(u64::MAX);
         // Nothing more is taken: whatever still waits for it goes.
         if let Some(tell) = entry.taken.get() {
             let _ = tell(PumpPoint::Taken(u64::MAX));

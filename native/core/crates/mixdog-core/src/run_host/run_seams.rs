@@ -5,9 +5,9 @@
 //! (`compose-seams.md` "RunSettings: origins"): `hidden_agent`, `agent_mode`, `compact` (minus the
 //! request's tool-schema reserve, which the host measures from the sent tools) and
 //! `read_body_required`. The route/catalog/provider rows (`effort`, `step_auto_effort`,
-//! `text_only`, `escalated_max_output_tokens`, `model_max_output_tokens`), the heartbeat `limits`
-//! mark and `attachments` have no config or header origin, so they are left empty for the host to
-//! fill from the route.
+//! `text_only`, `escalated_max_output_tokens`, `model_max_output_tokens`, `vision`), the heartbeat
+//! `limits` mark and `attachments` have no config or header origin, so they are left empty for the
+//! host to fill from the route.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -112,6 +112,9 @@ impl ConfigRunSeams {
     /// The same inputs over a `compaction` section the caller states: a route that has no session
     /// yet (an inheritance heir, `inheritanceRouteTarget`) carries `{ auto: true }` and is never
     /// synced with the saved configuration.
+    /// The window and sizing are stated whatever `auto` is: with it off the loop's policy is off
+    /// (`CompactPolicy::resolve`), while a manual or scheduled pass resolves them with `auto` forced
+    /// on (`resolveSessionCompactionPolicy`, `compaction-runner.mjs`).
     pub(crate) fn compact_settings_with(&self, header: &Header, agent_mode: bool, cfg: Doc) -> CompactSettings {
         let agent_owner = header
             .get("owner")
@@ -124,9 +127,6 @@ impl ConfigRunSeams {
             token_calibration: token_calibration(header.get("provider"), &|name| (self.env)(name)),
             ..CompactSettings::default()
         };
-        if !auto {
-            return settings;
-        }
         let stated = |session_key: &str, cfg_key: &str| positive_int(first_stated(&[header.get(session_key), cfg.get(cfg_key)]));
         settings.context_window = stated("contextWindow", "contextWindow");
         settings.explicit_boundary = stated("compactBoundaryTokens", "boundaryTokens");
@@ -137,6 +137,8 @@ impl ConfigRunSeams {
             .filter(|_| header.get("lastContextTokensStaleAfterCompact") != Some(&Value::Bool(true)));
         settings.configured_reserve_tokens =
             positive_int(cfg.get("reservedTokens")).or_else(|| self.env_positive("MIXDOG_AGENT_COMPACT_RESERVED_TOKENS")).unwrap_or(0);
+        // `handoffTimeoutMs` of the worker policy.
+        settings.handoff_timeout_ms = positive_int(cfg.get("timeoutMs")).or_else(|| self.env_positive("MIXDOG_AGENT_COMPACT_TIMEOUT_MS"));
         let boundary = match (settings.explicit_boundary, settings.context_window) {
             (Some(explicit), Some(window)) => Some(explicit.min(window)),
             (explicit, window) => explicit.or(window).or(settings.auto_limit),
@@ -338,6 +340,7 @@ impl ConfigSeams for ConfigRunSeams {
             compact: Some(self.compact_settings(header, agent_mode)),
             escalated_max_output_tokens: None,
             read_body_required: matches!(provider, Some("cursor-oauth" | "cursor-api")),
+            vision: None,
             effort: None,
             step_auto_effort: None,
             text_only: None,

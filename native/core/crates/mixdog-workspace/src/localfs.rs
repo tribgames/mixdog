@@ -40,7 +40,6 @@ use std::time::Duration;
 use async_trait::async_trait;
 use grep::matcher::Matcher;
 use grep::printer::StandardBuilder;
-use grep::regex::RegexMatcherBuilder;
 use grep::searcher::BinaryDetection;
 use grep::searcher::Searcher;
 use grep::searcher::SearcherBuilder;
@@ -410,12 +409,11 @@ fn atomic_write(target: &Path, content: &[u8], expect: &Expect) -> Result<(), Fs
     })();
     written.map_err(|(step, e)| io_error(&e, target).at(step))?;
     #[cfg(windows)]
-    if existing.as_ref().is_some_and(|m| m.permissions().readonly()) {
-        // A mode without the write bit is the read-only attribute; the rename below then fails
-        // exactly as it does for Node.
-        let mut permissions = fs::metadata(&tmp).map_err(|e| io_error(&e, target))?.permissions();
-        permissions.set_readonly(true);
-        let _ = fs::set_permissions(&tmp, permissions);
+    if let Some(meta) = &existing {
+        // The target's attributes (hidden, system, read-only) go to the temp file, as the patch
+        // engine's `atomic_write_replace` keeps them; a read-only target then fails the rename
+        // below exactly as it does for Node.
+        let _ = fs::set_permissions(&tmp, meta.permissions());
     }
     if matches!(expect, Expect::Absent) {
         // assertExclusiveCreate: the placeholder claims the name.
@@ -753,7 +751,7 @@ fn walking(request: &WalkRequest, dirs: Box<dyn tree::Dirs>) -> Result<Walking, 
     let root = request.root.as_path();
     let mut builder = WalkBuilder::new(root);
     builder.overrides(overrides_for(root, Vec::new()).map_err(|error| invalid_pattern(&error, root))?);
-    ignore_rules(&mut builder, request.respect_ignore);
+    ignore_rules(&mut builder, request.respect_ignore, request.require_git);
     let prune = request.prune.iter().map(|p| p.as_path().to_path_buf()).collect();
     let rules = tree::Rules::new(root, &mut builder, !request.include_hidden, prune);
     let max_depth = request.descent.max_depth.or((!request.recursive).then_some(1));
@@ -770,7 +768,8 @@ fn text_listing(request: &SearchRequest, dirs: Box<dyn tree::Dirs>) -> Result<Wa
     let globs = request.include_globs.iter().cloned().chain(request.exclude_globs.iter().map(|g| format!("!{g}"))).collect();
     let mut builder = WalkBuilder::new(root);
     builder.overrides(overrides_for(root, globs).map_err(|error| invalid_pattern(&error, root))?);
-    ignore_rules(&mut builder, request.respect_ignore);
+    // Node's grep leaves `--no-require-git` off: a `.gitignore` outside a repository is not read.
+    ignore_rules(&mut builder, request.respect_ignore, true);
     let rules = tree::Rules::new(root, &mut builder, !request.include_hidden, Vec::new());
     let walk_root = root.to_path_buf();
     let volumes = Volumes::shared(root);
@@ -997,18 +996,11 @@ fn search_with(
     Walked { listing, volumes }: Walked,
     open: Opener,
 ) -> Box<dyn EventSource<Result<SearchMatch, FsError>>> {
-    // The matcher Node's resident search server builds: Rust regex, line mode, \n terminator.
     // A pattern that does not parse is reported with the parser's own text, as Node shows it.
-    let matcher = match RegexMatcherBuilder::new()
-        .case_insensitive(!request.case_sensitive)
-        .fixed_strings(!request.regex)
-        .multi_line(true)
-        .line_terminator(Some(b'\n'))
-        .build(&request.pattern)
-    {
+    let matcher = match compile(request) {
         Ok(m) => m,
-        Err(error) => {
-            return failed(FsError::new(FsErrorKind::InvalidPattern { message: error.to_string() }, Some(request.root.clone())));
+        Err(message) => {
+            return failed(FsError::new(FsErrorKind::InvalidPattern { message }, Some(request.root.clone())));
         }
     };
     let searching = Searching {
@@ -1017,8 +1009,9 @@ fn search_with(
         // within `search_heap_bytes()` fails the file's search.
         searcher: SearcherBuilder::new()
             .line_number(true)
+            .multi_line(request.multiline)
             .heap_limit(Some(search_heap_bytes()))
-            .binary_detection(BinaryDetection::quit(b'\x00'))
+            .binary_detection(if request.binary_as_text { BinaryDetection::none() } else { BinaryDetection::quit(b'\x00') })
             .build(),
         listing,
         open,
@@ -1057,6 +1050,37 @@ fn search_with(
     streamed(producers, Box::new(searching), deadline, origin(), false)
 }
 
+/// The matcher Node's resident search server compiles (serve_search/matching.rs `CompiledMatcher`).
+enum Compiled {
+    Rust(grep::regex::RegexMatcher),
+    Pcre2(grep::pcre2::RegexMatcher),
+}
+
+/// Node's server's `build_matcher` (serve_search/matching.rs:11-40): PCRE2 when the request asks for it, else the Rust
+/// engine on `\n`-terminated lines; a multi-line search drops the terminator and lets `.` match a line break
+/// (`--multiline-dotall`). The error is the parser's own text.
+fn compile(request: &SearchRequest) -> Result<Compiled, String> {
+    if request.pcre2 {
+        return grep::pcre2::RegexMatcherBuilder::new()
+            .caseless(!request.case_sensitive)
+            .fixed_strings(!request.regex)
+            .multi_line(true)
+            .dotall(request.multiline)
+            .utf(true)
+            .ucp(true)
+            .jit_if_available(true)
+            .build(&request.pattern)
+            .map(Compiled::Pcre2)
+            .map_err(|error| error.to_string());
+    }
+    let mut builder = grep::regex::RegexMatcherBuilder::new();
+    builder.case_insensitive(!request.case_sensitive).fixed_strings(!request.regex).multi_line(true).dot_matches_new_line(request.multiline);
+    if !request.multiline {
+        builder.line_terminator(Some(b'\n'));
+    }
+    builder.build(&request.pattern).map(Compiled::Rust).map_err(|error| error.to_string())
+}
+
 /// The request's globs, then the resident search server's implicit `.git` exclusions
 /// (`serve_search/keys.rs`, `prune_globs`): kept unless the root is itself inside a `.git` directory.
 fn overrides_for(root: &Path, mut globs: Vec<String>) -> Result<ignore::overrides::Override, ignore::Error> {
@@ -1075,10 +1099,13 @@ fn invalid_pattern(error: &ignore::Error, root: &Path) -> FsError {
     plain(FsErrorKind::InvalidPattern { message: error.to_string() }, root)
 }
 
-/// Node: `apply_ignore_rules` (`--no-ignore` turns off all four sources).
-fn ignore_rules(builder: &mut WalkBuilder, respect_ignore: bool) {
+/// Node: `apply_ignore_rules` (`--no-ignore` turns off all four sources; `--no-require-git` honours them outside a
+/// repository).
+fn ignore_rules(builder: &mut WalkBuilder, respect_ignore: bool, require_git: bool) {
     if !respect_ignore {
         builder.ignore(false).git_ignore(false).git_global(false).git_exclude(false);
+    } else if !require_git {
+        builder.require_git(false);
     }
 }
 
@@ -1108,24 +1135,45 @@ impl Write for Printed {
     }
 }
 
-/// The text of the one match the printer wrote (`N:` and the line), read as Node's server reads its printer's output
-/// (`output_lines`, matching.rs:180-186: decoded lossily, split with `str::lines`) and its client reads the line (the
-/// text after the line number's `:`).
-fn printed_text(bytes: &[u8]) -> String {
-    let output = String::from_utf8_lossy(bytes);
-    let line = output.lines().next().unwrap_or("");
-    line.split_once(':').map_or(line, |(_, text)| text).to_owned()
+/// The text of each line the printer wrote for a match (`N:` and the line), read as Node's server reads its printer's
+/// output (`output_lines`, matching.rs:180-186: decoded lossily, split with `str::lines`) and its client reads a line
+/// (the text after the line number's `:`).
+fn printed_lines(bytes: &[u8]) -> Vec<String> {
+    String::from_utf8_lossy(bytes).lines().map(|line| line.split_once(':').map_or(line, |(_, text)| text).to_owned()).collect()
 }
 
-/// One line per match, printed by the printer Node's search server prints with: grep-printer's standard printer built
-/// as serve_search builds it (matching.rs:271-278: no heading, no path, `max_columns(500)` with preview, no colour), fed
-/// by the same searcher, so a long line's trigger and preview are the crate's own. The column is the first match's byte
-/// start. Stops the file when the request's match budget is spent or the stream is closed.
-struct Collect<'a, P> {
+/// What a match adds to its file's count, as grep-printer's summary printer counts it for Node's server's `--count`
+/// (`Summary::matched`): 1 for a line searched line by line; in a multi-line search each match its lines hold, the regex
+/// seeing at most 128 bytes past them (`find_iter_at_in_context`, `MAX_LOOK_AHEAD`).
+fn match_count<M: Matcher>(searcher: &Searcher, matcher: &M, found: &SinkMatch<'_>) -> io::Result<u64> {
+    if !searcher.multi_line_with_matcher(matcher) {
+        return Ok(1);
+    }
+    let range = found.bytes_range_in_buffer();
+    let buffer = found.buffer();
+    let mut count = 0;
+    matcher
+        .find_iter_at(&buffer[..buffer.len().min(range.end + 128)], range.start, |m| {
+            if m.start() >= range.end {
+                return false;
+            }
+            count += 1;
+            true
+        })
+        .map_err(|error| io::Error::other(error.to_string()))?;
+    Ok(count)
+}
+
+/// One item per printed line, printed by the printer Node's search server prints with: grep-printer's standard printer
+/// built as serve_search builds it (matching.rs:271-278: no heading, no path, `max_columns(500)` with preview, no
+/// colour), fed by the same searcher, so a long line's trigger and preview are the crate's own; a multi-line match is a
+/// line each. The column is the first match's byte start (1 on a match's later lines). Stops the file when the request's
+/// match budget is spent or the stream is closed.
+struct Collect<'a, P, M> {
     /// The printer's sink, and what it writes.
     printer: P,
     printed: Printed,
-    matcher: &'a grep::regex::RegexMatcher,
+    matcher: &'a M,
     path: &'a AbsPath,
     out: &'a Out<SearchMatch>,
     left: &'a mut Option<usize>,
@@ -1139,7 +1187,7 @@ struct Collect<'a, P> {
     root: &'a Path,
 }
 
-impl<P: Sink<Error = io::Error>> Sink for Collect<'_, P> {
+impl<P: Sink<Error = io::Error>, M: Matcher> Sink for Collect<'_, P, M> {
     type Error = io::Error;
 
     fn begin(&mut self, searcher: &Searcher) -> Result<bool, io::Error> {
@@ -1159,18 +1207,24 @@ impl<P: Sink<Error = io::Error>> Sink for Collect<'_, P> {
             return Ok(false);
         }
         self.printer.matched(searcher, found)?;
-        let text = printed_text(&self.printed.0.take());
-        let column = self.matcher.find(found.bytes()).ok().flatten().map_or(0, |m| m.start()) as u64 + 1;
-        let line = found.line_number().unwrap_or(0);
-        if !self.out.send(Ok(SearchMatch { path: self.path.clone(), line, column, text })) {
-            self.closed = true;
-            return Ok(false);
-        }
-        self.sent += 1;
-        #[cfg(feature = "count-jobs")]
-        probe::found(self.root);
-        if let Some(left) = self.left.as_mut() {
-            *left -= 1;
+        let printed = printed_lines(&self.printed.0.take());
+        let mut column = self.matcher.find(found.bytes()).ok().flatten().map_or(0, |m| m.start()) as u64 + 1;
+        let mut count = match_count(searcher, self.matcher, found)?;
+        for (line, text) in (found.line_number().unwrap_or(0)..).zip(printed) {
+            if !self.out.send(Ok(SearchMatch { path: self.path.clone(), line, column, text, count })) {
+                self.closed = true;
+                return Ok(false);
+            }
+            (column, count) = (1, 0);
+            self.sent += 1;
+            #[cfg(feature = "count-jobs")]
+            probe::found(self.root);
+            if let Some(left) = self.left.as_mut() {
+                *left -= 1;
+            }
+            if *self.left == Some(0) {
+                break;
+            }
         }
         Ok(*self.left != Some(0) && !self.first_per_file)
     }
@@ -2420,11 +2474,11 @@ impl Read for Linked<'_> {
 /// The text search, each file searched as the walk reaches it, in `PathBuf` order (the walk sorts siblings): Node's
 /// server answers in that order (`serve_search/search.rs`, `scan_operand`). Nothing of the tree is held beyond the
 /// walker's own state and one file's search; Node's server, which scans while its walk publishes, also holds the whole
-/// inventory, so this holds less. It stops once the request's `limit` matches are found, and checks the stop and the
-/// deadline before each entry of the walk and before every read of a file. Its scan runs on a thread of its own, its
-/// blocking calls on the stream's thread ([`IoLink`]).
+/// inventory, so this holds less. It stops once the request's `limit` items are sent (one per printed line, a
+/// multi-line match a line each), and checks the stop and the deadline before each entry of the walk and before every
+/// read of a file. Its scan runs on a thread of its own, its blocking calls on the stream's thread ([`IoLink`]).
 struct Searching {
-    matcher: grep::regex::RegexMatcher,
+    matcher: Compiled,
     searcher: Searcher,
     listing: Listing,
     open: Opener,
@@ -2459,7 +2513,6 @@ impl Produce<SearchMatch> for Searching {
         let _ = out.ctl.link.set(link.clone());
         let failure = out.clone();
         let scan = Scan {
-            matcher,
             searcher,
             left,
             first_per_file,
@@ -2473,7 +2526,11 @@ impl Produce<SearchMatch> for Searching {
         let spawned = std::thread::Builder::new().name("mixdog-fs-scan".into()).spawn(move || {
             let _hold = scan_hold;
             let mut scan = scan;
-            scan.run(&out);
+            // As Node's server's `scan_file` runs its scan with whichever matcher it compiled.
+            match &matcher {
+                Compiled::Rust(matcher) => scan.run(matcher, &out),
+                Compiled::Pcre2(matcher) => scan.run(matcher, &out),
+            }
         });
         match spawned {
             Ok(_) => {
@@ -2491,7 +2548,6 @@ impl Produce<SearchMatch> for Searching {
 /// A text search's scan ([`Searching`]), on a thread of its own. Its end, however it ends, ends the serving thread's
 /// wait ([`IoLink::finish`]).
 struct Scan {
-    matcher: grep::regex::RegexMatcher,
     searcher: Searcher,
     left: Option<usize>,
     first_per_file: bool,
@@ -2509,12 +2565,12 @@ impl Drop for Scan {
 }
 
 impl Scan {
-    fn run(&mut self, out: &Out<SearchMatch>) {
+    fn run<M: Matcher>(&mut self, matcher: &M, out: &Out<SearchMatch>) {
         let ctl = &*out.ctl;
         #[cfg(feature = "count-jobs")]
         let root = self.root.clone();
-        let Scan { matcher, searcher, left, first_per_file, link, .. } = self;
-        let (matcher, first_per_file, link) = (&*matcher, *first_per_file, &**link);
+        let Scan { searcher, left, first_per_file, link, .. } = self;
+        let (first_per_file, link) = (*first_per_file, &**link);
         while *left != Some(0) {
             if ctl.stopped() {
                 return;
@@ -3423,6 +3479,29 @@ mod tests {
         assert!(!from.as_path().exists(), "the temp file is removed");
     }
 
+    /// A replaced file keeps its Hidden and System attributes, as the patch engine's writes keep them.
+    #[cfg(windows)]
+    #[test]
+    fn a_replaced_file_keeps_its_hidden_and_system_attributes() {
+        use std::os::windows::ffi::OsStrExt;
+        use std::os::windows::fs::MetadataExt;
+        use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_HIDDEN;
+        use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_SYSTEM;
+        use windows_sys::Win32::Storage::FileSystem::SetFileAttributesW;
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("desktop.ini");
+        fs::write(&target, b"old").unwrap();
+        let marks = FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM;
+        let wide: Vec<u16> = target.as_os_str().encode_wide().chain(Some(0)).collect();
+        // SAFETY: `wide` is a NUL-terminated path that outlives the call.
+        assert_ne!(unsafe { SetFileAttributesW(wide.as_ptr(), marks) }, 0);
+        let locks = Arc::new(PathLocks::default());
+        let request = WriteRequest { path: AbsPath::new(&target).unwrap(), content: b"new".to_vec(), precondition: WritePrecondition::Unconditional };
+        write_resolved(&locks, &resolve_write(&target).unwrap(), &request).unwrap();
+        assert_eq!(fs::read(&target).unwrap(), b"new");
+        assert_eq!(fs::metadata(&target).unwrap().file_attributes() & marks, marks);
+    }
+
     #[test]
     fn a_successful_write_and_other_failures_carry_no_step() {
         let dir = tempfile::tempdir().unwrap();
@@ -3619,6 +3698,9 @@ mod tests {
             exclude_globs: Vec::new(),
             include_hidden: true,
             respect_ignore: true,
+            multiline: false,
+            pcre2: false,
+            binary_as_text: false,
             limit: None,
             first_per_file: false,
             deadline: None,
@@ -3649,6 +3731,9 @@ mod tests {
                 exclude_globs: Vec::new(),
                 include_hidden: true,
                 respect_ignore: false,
+                multiline: false,
+                pcre2: false,
+                binary_as_text: false,
                 limit: None,
                 first_per_file: false,
                 deadline: None,
@@ -3665,7 +3750,7 @@ mod tests {
         };
         assert_eq!(search(root.clone()).await, vec!["a.txt"]);
         assert_eq!(search(root.join(".git")).await, vec!["config"]);
-        let mut walk = fs.walk(l.maintenance, WalkRequest { root: root.clone(), recursive: true, include_dirs: true, include_hidden: true, respect_ignore: false, prune: Vec::new(), descent: Default::default(), server: None });
+        let mut walk = fs.walk(l.maintenance, WalkRequest { root: root.clone(), recursive: true, include_dirs: true, include_hidden: true, respect_ignore: false, require_git: true, prune: Vec::new(), descent: Default::default(), server: None });
         let mut names = Vec::new();
         while let Some(e) = walk.next().await {
             names.push(e.unwrap().path.as_path().file_name().unwrap().to_string_lossy().into_owned());
@@ -3687,6 +3772,9 @@ mod tests {
             exclude_globs: Vec::new(),
             include_hidden: true,
             respect_ignore: true,
+            multiline: false,
+            pcre2: false,
+            binary_as_text: false,
             limit: None,
             first_per_file: false,
             deadline: None,
@@ -3747,6 +3835,9 @@ mod tests {
             exclude_globs: Vec::new(),
             include_hidden: true,
             respect_ignore: true,
+            multiline: false,
+            pcre2: false,
+            binary_as_text: false,
             limit: None,
             first_per_file: false,
             deadline: None,
@@ -3759,6 +3850,37 @@ mod tests {
         assert!(all.iter().any(|m| m.0 == "c.rs") && all.iter().all(|m| m.0 != "bin.rs"));
     }
 
+    /// Node's server's `-U --multiline-dotall`, `-P` and `--text`: a match spanning lines is a line each, its first line
+    /// counting the match; a lookahead compiles with PCRE2; a file holding a NUL is searched only as text.
+    #[tokio::test]
+    async fn search_spans_lines_takes_pcre2_and_reads_binary_files_as_text() {
+        let (_dir, root) = root();
+        let fs = LocalFileService::new();
+        let l = lanes();
+        std::fs::write(root.join("a.txt").as_path(), "a1\nb1\nmid\na1\nb1\n").unwrap();
+        std::fs::write(root.join("bin.dat").as_path(), b"\x00\x01 needle in\n").unwrap();
+        let run = |request: SearchRequest| {
+            let mut s = fs.search_text(l.maintenance, request);
+            async move {
+                let mut out = Vec::new();
+                while let Some(m) = s.next().await {
+                    let m = m.unwrap();
+                    out.push((m.path.as_path().file_name().unwrap().to_string_lossy().into_owned(), m.line, m.text, m.count));
+                }
+                out
+            }
+        };
+        let base = SearchRequest { regex: true, ..needle_request(&root, None) };
+        let spanning = run(SearchRequest { pattern: r"a1\nb1".into(), multiline: true, ..base.clone() }).await;
+        assert_eq!(
+            spanning,
+            vec![("a.txt".into(), 1, "a1".into(), 1), ("a.txt".into(), 2, "b1".into(), 0), ("a.txt".into(), 4, "a1".into(), 1), ("a.txt".into(), 5, "b1".into(), 0)]
+        );
+        let lookahead = SearchRequest { pattern: "needle(?= in)".into(), pcre2: true, ..base };
+        assert_eq!(run(SearchRequest { binary_as_text: true, ..lookahead.clone() }).await, vec![("bin.dat".into(), 1, "\u{0}\u{1} needle in".into(), 1)]);
+        assert!(run(lookahead).await.is_empty());
+    }
+
     fn needle_request(root: &AbsPath, deadline: Option<Instant>) -> SearchRequest {
         SearchRequest {
             root: root.clone(),
@@ -3769,6 +3891,9 @@ mod tests {
             exclude_globs: Vec::new(),
             include_hidden: true,
             respect_ignore: false,
+            multiline: false,
+            pcre2: false,
+            binary_as_text: false,
             limit: None,
             first_per_file: false,
             deadline,
@@ -4559,7 +4684,7 @@ mod tests {
     }
 
     fn listing_request(root: &AbsPath, prune: Vec<AbsPath>) -> WalkRequest {
-        WalkRequest { root: root.clone(), recursive: true, include_hidden: false, respect_ignore: true, include_dirs: true, prune, descent: Default::default(), server: None }
+        WalkRequest { root: root.clone(), recursive: true, include_hidden: false, respect_ignore: true, require_git: true, include_dirs: true, prune, descent: Default::default(), server: None }
     }
 
     /// Counts the folders a walk reads.
@@ -4598,6 +4723,19 @@ mod tests {
         assert_eq!(rel, ["", ".hidden", "node_modules", "src", "src/ok", "src/too"]);
         // root, then `src` (`.hidden` and `node_modules` are bare, `src/ok` and `src/too` lie at the depth).
         assert_eq!(reads.load(Ordering::SeqCst), 2);
+    }
+
+    /// A walk that requires no repository honours a `.gitignore` outside one (Node's fuzzy inventory, `--no-require-git`).
+    #[test]
+    fn a_walk_that_requires_no_repository_honours_a_gitignore_outside_one() {
+        let (_dir, root) = root();
+        std::fs::write(root.join(".gitignore").as_path(), "*.log\n").unwrap();
+        std::fs::write(root.join("a.txt").as_path(), "").unwrap();
+        std::fs::write(root.join("b.log").as_path(), "").unwrap();
+        let request = WalkRequest { include_hidden: true, require_git: false, ..listing_request(&root, Vec::new()) };
+        let listed: Vec<PathBuf> = walking(&request, Box::new(tree::RealDirs)).unwrap().walk.map(|e| e.unwrap().path).collect();
+        let rel: Vec<String> = listed.iter().map(|p| p.strip_prefix(root.as_path()).unwrap().to_string_lossy().replace('\\', "/")).collect();
+        assert_eq!(rel, ["", ".gitignore", "a.txt"]);
     }
 
     /// A root whose excluded children, directly beneath it, are folders on a dead mount: every call of the walk on one of
@@ -4915,7 +5053,7 @@ mod tests {
             std::fs::File::create(dir.as_path().join(format!("{i:04}.txt"))).unwrap();
         }
         let fs = LocalFileService::new();
-        let request = WalkRequest { root: root.clone(), recursive: true, include_dirs: false, include_hidden: true, respect_ignore: false, prune: Vec::new(), descent: Default::default(), server: None };
+        let request = WalkRequest { root: root.clone(), recursive: true, include_dirs: false, include_hidden: true, respect_ignore: false, require_git: true, prune: Vec::new(), descent: Default::default(), server: None };
         let mut walk = fs.walk(lanes().maintenance, request);
         let mut names = Vec::new();
         while let Some(entry) = walk.next().await {

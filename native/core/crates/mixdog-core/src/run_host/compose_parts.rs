@@ -95,6 +95,7 @@ use super::side_requests::SideRequests;
 use super::thread_todos::ThreadTodos;
 use super::turn_inputs::BotRouteStore;
 use super::turn_inputs::CatalogCeilings;
+use super::turn_inputs::CatalogVision;
 use super::turn_path::TurnPathParts;
 
 /// TurnPathParts.hops: built once the directory and the registry exist.
@@ -273,6 +274,7 @@ pub fn ready_rows(process: &ProcessServices, input: ReadyIn) -> ReadyRows {
         heartbeats: input.heartbeats,
         ceilings: Arc::new(CatalogCeilings::new(process.catalog.clone())),
         auto_effort: Arc::new(super::auto_effort::ConfigAutoEffort::new(process.config.clone(), input.env)),
+        vision: Some(Arc::new(CatalogVision::new(process.catalog.clone(), process.config.clone()))),
     };
     ReadyRows {
         ladder: Arc::new(super::ladder_sources::ProcessLadder::new(process)),

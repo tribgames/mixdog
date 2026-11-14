@@ -125,12 +125,23 @@ pub fn project_entry_path(root: &Path, rel: &str) -> WsResult<PathBuf> {
     if !is_within(&root, &target) {
         return Err(WsError::denied(OUTSIDE_PROJECT));
     }
-    let canonical_root = canonical(&root)?;
+    let canonical_root = canonical(&root).map_err(|error| realpath_sync_error(&root, &error))?;
     let canonical_target = canonical_through_existing(&target)?;
     if !is_within(&canonical_root, &canonical_target) {
         return Err(WsError::denied(RESOLVES_OUTSIDE_PROJECT));
     }
     Ok(target)
+}
+
+/// Node's `realpathSync` failure on `path`: its walk `lstat`s each component (a link's target in place of the link) and throws
+/// for the first one that cannot be read.
+fn realpath_sync_error(path: &Path, error: &io::Error) -> WsError {
+    let resolved = canonical_through_existing(path).unwrap_or_else(|_| path.to_path_buf());
+    let first = resolved.ancestors().filter_map(|prefix| std::fs::symlink_metadata(prefix).err().map(|cause| (prefix, cause))).last();
+    match first {
+        Some((prefix, cause)) => crate::nodeerr::io_error(&cause, "lstat", prefix),
+        None => crate::nodeerr::io_error(error, "lstat", path),
+    }
 }
 
 pub const OUTSIDE_PROJECT: &str = "Path is outside the project.";
@@ -201,6 +212,16 @@ mod tests {
         }
         let err = project_entry_path(&root, "link/x.txt").unwrap_err();
         assert_eq!(err.message, "Path resolves outside the project.");
+    }
+
+    /// A root that is gone fails as Node's `realpathSync` did: `lstat` of its first missing component.
+    #[test]
+    fn missing_root_fails_with_node_realpath_sync_text() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = canonical(dir.path()).unwrap();
+        let err = project_entry_path(&root.join("gone").join("deeper"), "a.ts").unwrap_err();
+        assert_eq!(err.reason, crate::error::Reason::Coded("ENOENT"));
+        assert_eq!(err.message, format!("ENOENT: no such file or directory, lstat '{}'", root.join("gone").display()));
     }
 
     /// Node's `absoluteLocalPath` for every recorded input (apps/mobile/fixtures/absolute-local-path/golden.json, a Windows host), as the

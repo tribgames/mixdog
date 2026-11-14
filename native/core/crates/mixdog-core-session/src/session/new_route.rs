@@ -9,6 +9,7 @@
 //! live route, [`RouteService::seat_route`] writes it onto the created thread through the one
 //! route-change path every later route change takes.
 
+use mixdog_ai::service::admin_route::truthy;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_domains::domains::ai_admin::route_service::RouteService;
 use mixdog_protocol::ModelSelection;
@@ -93,6 +94,28 @@ pub fn create_keys(route: &Map<String, Value>) -> Result<Map<String, Value>, Str
     Ok(keys)
 }
 
+/// The route a session's record holds, as a resume asks for it (`resumedRouteFor`, `resume.mjs`), which is also the route
+/// a session created on its creator's route holds: the provider and model, its own effort (else the one the config saves),
+/// Fast and Auto effort as it holds them, its model parameters. `None` when the record names no model: the thread has no
+/// session yet, and its route is the one it is started on.
+fn record_route(header: &Map<String, Value>) -> Option<Map<String, Value>> {
+    if !mixdog_core_ports::ports::route::header_names_session(header) {
+        return None;
+    }
+    let mut request = Map::new();
+    for key in ["provider", "model"] {
+        request.insert(key.into(), header.get(key).cloned().unwrap_or(Value::Null));
+    }
+    if let Some(effort) = header.get("effort").filter(|effort| truthy(Some(effort))) {
+        request.insert("effort".into(), effort.clone());
+    }
+    request.insert("fast".into(), Value::Bool(header.get("fast") == Some(&Value::Bool(true))));
+    request.insert("autoEffort".into(), Value::Bool(header.get("autoEffort") != Some(&Value::Bool(false))));
+    let parameters = header.get("modelParameters").filter(|parameters| truthy(Some(parameters))).cloned();
+    request.insert("modelParameters".into(), parameters.unwrap_or_else(|| Value::Object(Map::new())));
+    Some(request)
+}
+
 #[async_trait::async_trait]
 impl NewThreadRoute for RouteService {
     async fn adopt(&self, thread: &ThreadId, draft: Option<&Map<String, Value>>) -> Result<Map<String, Value>, String> {
@@ -110,6 +133,12 @@ impl NewThreadRoute for RouteService {
 
     async fn seat(&self, thread: &ThreadId) -> Result<(), String> {
         self.seat_route(thread).await
+    }
+
+    fn boot(&self, thread: &ThreadId, header: &Map<String, Value>) {
+        if let Some(request) = record_route(header) {
+            self.writer.boot(thread, &request);
+        }
     }
 }
 
@@ -163,5 +192,23 @@ mod tests {
                 "modelParameters": { "context": "1m" }, "contextPercent": 30, "contextTokens": 200000,
             })
         );
+    }
+
+    /// `resumedRouteFor`: a record's route asks for its own Fast, Auto effort and model parameters as it holds them (absent
+    /// ones as off, on and none), and for its effort only when it has one; a record that names no model asks for none.
+    #[test]
+    fn a_records_route_asks_for_what_the_record_holds() {
+        let header = |value: Value| value.as_object().cloned().expect("header");
+        let bare = record_route(&header(json!({ "provider": "p", "model": "m", "effort": null }))).expect("a route");
+        assert_eq!(Value::Object(bare), json!({ "provider": "p", "model": "m", "fast": false, "autoEffort": true, "modelParameters": {} }));
+        let held = header(json!({
+            "provider": "p", "model": "m", "effort": "high", "fast": true, "autoEffort": false,
+            "modelParameters": { "context": "1m" }, "contextPercent": 30, "preset": "full",
+        }));
+        assert_eq!(
+            Value::Object(record_route(&held).expect("a route")),
+            json!({ "provider": "p", "model": "m", "effort": "high", "fast": true, "autoEffort": false, "modelParameters": { "context": "1m" } })
+        );
+        assert_eq!(record_route(&header(json!({ "provider": "p", "model": "" }))), None);
     }
 }

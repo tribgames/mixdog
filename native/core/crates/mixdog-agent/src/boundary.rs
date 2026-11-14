@@ -19,6 +19,7 @@ use crate::env::CompactTrigger;
 use crate::env::Compactor;
 use crate::env::RunEvent;
 use crate::env::Rewrite;
+use crate::env::SessionPressure;
 use crate::env::Stage;
 use crate::env::or_cancelled;
 use crate::message::AgentMessage;
@@ -59,6 +60,8 @@ pub struct CompactSettings {
     /// The session's last measured context footprint when the run starts (`session.lastContextTokens`);
     /// `None` when it has none or it was invalidated.
     pub last_context_tokens: Option<u64>,
+    /// `handoffTimeoutMs`'s stated part: how long a pass's summary may take. `None`: the 300 s ceiling.
+    pub handoff_timeout_ms: Option<u64>,
 }
 
 /// `session.lastContextTokens` and `lastContextTokensStaleAfterCompact`: the provider's last
@@ -244,15 +247,19 @@ impl Run {
             output_tokens: usage.output_tokens,
             count: self.messages.len(),
         });
+        // `recordProviderContextBaseline` drops the session's unanchored mark.
+        self.reanchored = true;
     }
 
-    fn pressure_tokens(&self, policy: &CompactPolicy, compactor: &dyn Compactor, reactive: bool) -> u64 {
+    /// `compactionTelemetryPressureTokens`: the run's own provider reading plus the growth after it, else the session's
+    /// (`session`), else the whole-transcript estimate.
+    fn pressure_tokens(&self, policy: &CompactPolicy, compactor: &dyn Compactor, reactive: bool, session: Option<u64>) -> u64 {
         let base = match self.baseline.and_then(|b| b.coverage(&self.messages)) {
             Some((tokens, count)) => {
                 let growth = compactor.estimate_tokens(&self.messages[count..]);
                 tokens + (growth as f64 * policy.token_calibration).round() as u64
             }
-            None => policy.estimate_with_reserve(compactor.estimate_tokens(&self.messages)),
+            None => session.unwrap_or_else(|| policy.estimate_with_reserve(compactor.estimate_tokens(&self.messages))),
         };
         if reactive {
             base.max(policy.trigger_tokens.max(1))
@@ -335,12 +342,27 @@ impl Run {
         };
         let reactive = self.reactive_overflow_retry_pending;
         compactor.prepare(&self.messages).await;
-        let pressure = self.pressure_tokens(&policy, compactor.as_ref(), reactive);
+        let tools = self.request_tools();
+        // A transcript the run has not measured (its first send, or one after a rebuild voided its reading) is priced from
+        // the session's reading (`resolveContextTokensWithSource` over `session.contextPressureBaseline*`), as the check of
+        // this send records it.
+        let session = match self.baseline {
+            Some(_) => SessionPressure::default(),
+            None => match compactor.session_pressure(&self.messages, &tools).await {
+                // A send of this run already re-anchored the session: a mark its header still carries belongs to a report
+                // on its way there, and so does the reading the header keeps.
+                answer if answer.unanchored && self.reanchored => SessionPressure::default(),
+                answer => answer,
+            },
+        };
+        let pressure = self.pressure_tokens(&policy, compactor.as_ref(), reactive, session.tokens);
         let trigger = policy.trigger_tokens.max(1);
         // Cache expiry and tool-result media arm a pass whatever the pressure.
         let cache_expired = compactor.cache_expired();
         let media_pressure = compactor.request_media(&self.messages);
-        let mut should = !skip_proactive && (reactive || cache_expired || media_pressure || pressure >= trigger);
+        // `shouldCompactForSession`: an unanchored transcript's pressure arms nothing until a provider send re-anchors it.
+        let over = !session.unanchored && pressure >= trigger;
+        let mut should = !skip_proactive && (reactive || cache_expired || media_pressure || over);
         let budget = if should {
             policy.target_budget()
         } else {
@@ -375,7 +397,7 @@ impl Run {
             context_window: policy.context_window,
             will_compact: should,
             messages: self.messages.clone(),
-            tools: self.request_tools(),
+            tools,
             reactive,
         });
         if !should {
@@ -456,9 +478,11 @@ impl Run {
             self.emit(pass(PassStage::Skipped));
             return Ok(false);
         }
-        let summarized = output.usage.is_some();
+        // `freshContextResult.handoffSource`: the session's for a written summary, the rules' for a summary-less pass. Read
+        // before the output's messages move.
+        let handoff_source = if output.summarized() { "session-local" } else { "rules" };
         let changed = output.messages != self.messages;
-        let rewrite = Rewrite { dropped_count: output.dropped_count, dropped: output.dropped };
+        let rewrite = Rewrite { dropped_count: output.dropped_count, dropped: output.dropped, compaction: true };
         if changed {
             self.adopt_compacted(output.messages, &rewrite);
         }
@@ -467,8 +491,6 @@ impl Run {
         compactor.prepare(&self.messages).await;
         let after_tokens = policy.estimate_with_reserve(compactor.estimate_tokens(&self.messages));
         let status = if changed { CompactStatus::Compacted } else { CompactStatus::NoChange };
-        // The summary-less pass is the rules' (`freshContextResult.handoffSource`).
-        let handoff_source = if summarized { "session-local" } else { "rules" };
         self.emit(pass(PassStage::Done { changed, handoff_source, after_tokens, duration_ms: duration(&*self.env.clock), after: self.messages.clone() }));
         self.emit(RunEvent::Compact(event(status, self.messages.len(), after_tokens, duration(&*self.env.clock), rewrite.dropped_count, rewrite.dropped)));
         Ok(changed)
@@ -481,6 +503,8 @@ impl Run {
         self.env.sink.replace(&self.messages, rewrite);
         // Provider readings and the request in flight described the old shape.
         self.baseline = None;
+        // `invalidateProviderContextBaseline` drops the session's unanchored mark with its reading.
+        self.reanchored = true;
         // Receipts point at tool results compaction just removed from context.
         self.cross_turn.clear();
         // Cached read results and the read snapshots would answer a read with a body or a receipt the model no longer holds.

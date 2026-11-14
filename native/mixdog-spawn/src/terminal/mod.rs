@@ -1085,6 +1085,48 @@ impl TerminalTabs {
     /// `None` when it is not running (never started, exited, disposed). A spawn already under
     /// way for the id is waited for. Warm-ups use this; only a real open ensures.
     pub async fn attach(&self, id: &str) -> Option<Attached> {
+        let tab = self.settled_running(id).await?;
+        Some(self.attached(&tab))
+    }
+
+    /// [`Self::attach`] with the replay read under the lock that appends the tab's output, together with the feed's output offset at that
+    /// moment: `hold` runs under that lock with the offset (a hold on the feed's pump takes effect before any later output is admitted).
+    /// What the replay holds is then exactly the output up to the offset, which a subscription made once the pump has published up to it
+    /// neither repeats nor misses.
+    pub async fn attach_cut<H>(&self, id: &str, hold: impl FnOnce(u64) -> H) -> Option<(Attached, u64, H)> {
+        let tab = self.settled_running(id).await?;
+        // Cut under the feed's lock (lock order: the feed's state, then `Tab::state`): no output is admitted between the replay read and
+        // the hold, and the cut seals the feed's last event, so output admitted later is never merged into an event the pump has not
+        // taken yet (such an event would end past the hold and keep the pump short of the offset). The feed's offset is the pump's.
+        let read = |offset: Option<u64>| {
+            let state = tab.lock();
+            let (lead, replay) = state.buffer.read_window();
+            let at = offset.unwrap_or(state.emitted);
+            (lead, replay, at)
+        };
+        let mut hold = Some(hold);
+        let cut = tab.manager.output_mark_then(&tab.handle, |offset| {
+            let (lead, replay, at) = read(Some(offset));
+            (lead, replay, at, (hold.take().expect("the hold is taken once"))(at))
+        });
+        let (replay_lead, replay, emitted, held) = match cut {
+            Ok(cut) => cut,
+            // The process is gone from the manager (its feed has ended): no more output comes.
+            Err(_) => {
+                let (lead, replay, at) = read(None);
+                (lead, replay, at, (hold.take().expect("the hold is taken once"))(at))
+            }
+        };
+        let attached = Attached {
+            id: tab.id.clone(),
+            replay,
+            replay_lead,
+            size_owner: self.claims.owner_of(&tab.id),
+        };
+        Some((attached, emitted, held))
+    }
+
+    async fn settled_running(&self, id: &str) -> Option<Arc<Tab>> {
         if self.is_disposed() || id.is_empty() {
             return None;
         }
@@ -1100,8 +1142,7 @@ impl TerminalTabs {
                 None => break,
             }
         }
-        let tab = self.running(id)?;
-        Some(self.attached(&tab))
+        self.running(id)
     }
 
     /// Creates (or reuses) a PTY; the result carries the id and replay for reattach. Concurrent

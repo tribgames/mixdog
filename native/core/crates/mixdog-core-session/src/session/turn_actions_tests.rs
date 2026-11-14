@@ -481,7 +481,7 @@ async fn a_turn_claims_the_originals_it_names_before_it_is_submitted() {
     let options = crate::eventually_on!(&[&handle.cell.stepped], || seen.lock().unwrap().clone()).await;
     assert_eq!(options["pastedImages"]["1"]["originalRef"], json!(claimed));
     assert!(options["pastedImages"]["2"].get("originalRef").is_none() && options["pastedImages"]["2"].get("originalMediaType").is_none());
-    let at = dir_of(&deps).join("prompt-attachments");
+    let at = rig._data.path().join("prompt-attachments");
     let kept: Vec<String> = io(move |lane| snapshot(lane, &at)).await["index"].as_str().map(|t| serde_json::from_str::<Vec<Value>>(t).unwrap()).unwrap().iter().map(|e| e["ref"].as_str().unwrap().to_owned()).collect();
     assert_eq!(kept, vec![bystander], "the claimed original left the staged set, the other stayed");
 }
@@ -519,11 +519,7 @@ async fn a_message_the_intake_refuses_answers_its_text_and_claims_nothing() {
     let CoreError::DomainError { message, code, .. } = refused else { panic!("a domain error: {refused:?}") };
     assert_eq!((message.as_deref(), code), (Some("PDF exceeds the 20 MiB input limit"), None));
     assert!(!ran.load(std::sync::atomic::Ordering::SeqCst), "no turn ran");
-    let at = dir_of(&deps).join("prompt-attachments");
+    let at = rig._data.path().join("prompt-attachments");
     let kept: Vec<String> = io(move |lane| snapshot(lane, &at)).await["index"].as_str().map(|t| serde_json::from_str::<Vec<Value>>(t).unwrap()).unwrap().iter().map(|e| e["ref"].as_str().unwrap().to_owned()).collect();
     assert_eq!(kept, vec![staged], "the original stays staged");
-}
-
-fn dir_of(deps: &super::SessionDeps) -> std::path::PathBuf {
-    deps.attachments.0.clone()
 }

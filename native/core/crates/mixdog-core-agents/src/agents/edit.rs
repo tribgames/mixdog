@@ -36,11 +36,11 @@ use super::connectors::policy_input;
 use super::files::DELETED_MARKER;
 use super::files::FIXED_SLOTS;
 use super::files::Folders;
-use super::files::LEAD_ID;
 use super::files::Lane;
 use super::files::entry_file;
 use super::files::entry_path;
 use super::files::manifest_of;
+use mixdog_core_base::rooms::ids::MIXY_AGENT_ID;
 use mixdog_core_config::config::bot_migration;
 use mixdog_core_config::config::agent_routes::agent_editor_id;
 use mixdog_core_config::workflow::ids::agent_id_from_name;
@@ -681,7 +681,7 @@ pub(super) fn avatar_images(folders: &Folders, lane: &Lane, agent_id: &str) -> V
         return Value::Null;
     }
     // Mixy's face lives in her identity folder, beside no AGENT.md.
-    let lead = id == LEAD_ID;
+    let lead = id == MIXY_AGENT_ID;
     let dir = if lead { folders.identity_dir(lane) } else { folders.user_dir(lane, &id) };
     // An archived agent's face stays readable for its archived chat.
     let archived = !lead && is_archived(&dir);

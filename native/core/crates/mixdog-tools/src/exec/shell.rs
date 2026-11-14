@@ -382,11 +382,13 @@ fn exit_class_diagnostic(code: i32) -> String {
 }
 
 /// The streams of a finished foreground command in one delivery within the shared budget; each
-/// stream's marker names its own log unless compaction archived the full capture elsewhere.
+/// stream's marker names its own log unless compaction archived the full capture elsewhere. A
+/// stream memory no longer holds whole is read as its log (`foregroundPiece`: `shellLogPiece`).
 fn foreground_payload(job: &Job, compaction: Option<&Compaction>) -> String {
     let (stdout, stderr) = job.captured();
+    let [spilled_out, spilled_err] = job.spilled_pieces();
     let own = |log: &std::path::Path| shown_path(log);
-    let piece = |stream: &str, text: &str, log: &std::path::Path, compacted: Option<&String>| match (compacted, compaction) {
+    let piece = |stream: &str, text: &str, spilled: Option<Piece>, log: &std::path::Path, compacted: Option<&String>| match (compacted, compaction) {
         (Some(compacted), Some(c)) => {
             if compacted.is_empty() {
                 Piece::empty()
@@ -395,11 +397,11 @@ fn foreground_payload(job: &Job, compaction: Option<&Compaction>) -> String {
                 shell_text_piece(compacted, &path)
             }
         }
-        _ => shell_text_piece(text, &own(log)),
+        _ => spilled.unwrap_or_else(|| shell_text_piece(text, &own(log))),
     };
     let pieces = [
-        piece("stdout", &stdout, &job.stdout_log, compaction.map(|c| &c.plan.stdout)),
-        piece("stderr", &stderr, &job.stderr_log, compaction.map(|c| &c.plan.stderr)),
+        piece("stdout", &stdout, spilled_out, &job.stdout_log, compaction.map(|c| &c.plan.stdout)),
+        piece("stderr", &stderr, spilled_err, &job.stderr_log, compaction.map(|c| &c.plan.stderr)),
     ];
     let bodies = fit_pieces(&pieces, delivery_full_chars() - 1.0);
     match compaction {
@@ -436,7 +438,10 @@ async fn compaction_of(
             exit_code: Some(exit_code),
             signal: false,
             timed_out: false,
-            has_existing_recovery: raw_out.len() + raw_err.len() > cap,
+            // Node: `Boolean(stdoutPath || stderrPath)`, a capture that outgrew the cap and kept its log. One whose start
+            // memory dropped is not compacted either, since only its log holds it whole: with the cap below its size
+            // Node skips it too; with the cap set above, Node compacts the whole capture, which memory no longer holds.
+            has_existing_recovery: job.spilled() || raw_out.len() + raw_err.len() > cap,
         },
     )?;
     let data_dir = runtime.config.data_dir.as_deref()?;

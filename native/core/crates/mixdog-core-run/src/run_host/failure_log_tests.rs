@@ -153,6 +153,58 @@ async fn a_runs_tool_log_writes_its_batch_and_tool_rows_to_the_agent_trace() {
     assert_eq!(failures.lines().count(), 1, "the error call's failure row, once");
 }
 
+/// A completed send's `loop` row and a host browser command's `browser_timing` row join the agent trace in Node's shape
+/// (`traceAgentLoop`, `traceBrowserTiming`) only under `MIXDOG_AGENT_TRACE_TIMING`; without it nothing of them is queued or
+/// flushed, and the trace holds the run's other rows alone.
+#[tokio::test]
+async fn timing_rows_join_the_agent_trace_only_under_the_timing_env() {
+    use mixdog_agent::env::ToolBatchCall;
+    let tokens = mixdog_rt::testing::tokens();
+    for timing in [false, true] {
+        let data = tempfile::tempdir().unwrap();
+        let env = |name: &str| (name == "MIXDOG_DIAGNOSTICS" || (timing && name == "MIXDOG_AGENT_TRACE_TIMING")).then(|| "1".to_owned());
+        let config = TraceConfig::from_env(data.path(), &env, false);
+        let io = ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io };
+        let writer = Arc::new(FailureWriter::new(&config, io, Arc::new(At(1))));
+        assert_eq!(writer.timing_rows(), timing, "the gate a caller checks before it times or builds anything");
+        let log = RunFailureLog::new(Arc::clone(&writer), "s", Some("lead"), "/ws");
+        log.provider_send(ProviderSend { iteration: 2, send_ms: 40, pre_send_ms: 5, tool_resume_ms: Some(3), message_count: 7 });
+        let Value::Object(command) = json!({
+            "context": { "sessionId": "s", "action": "click" },
+            "bridgeMs": 12.5,
+            "body": { "ok": true, "value": { "timing": { "queueMs": 1, "commandMs": 9, "url": "private" } } },
+        }) else {
+            unreachable!()
+        };
+        writer.record_browser_timing(&command);
+        assert_eq!(writer.armed.load(Ordering::Acquire), timing, "a gated row arms no flush");
+        log.batch(&ToolBatch { iteration: 2, calls: vec![ToolBatchCall { tool_call_id: "c1".into(), tool_name: "browser".into(), array_lengths: None }] });
+        writer.flush().await;
+
+        let written = mixdog_testkit::read_string(data.path().join("history").join("agent-trace.jsonl"));
+        let lines: Vec<&str> = written.lines().collect();
+        let kinds: Vec<String> = lines.iter().map(|line| serde_json::from_str::<Value>(line).unwrap()["kind"].as_str().unwrap().to_owned()).collect();
+        if !timing {
+            assert_eq!(kinds, ["batch"]);
+            continue;
+        }
+        assert_eq!(kinds, ["loop", "browser_timing", "batch"]);
+        assert_eq!(
+            lines[0],
+            r#"{"iteration":2,"kind":"loop","agent":"lead","send_ms":40,"pre_send_ms":5,"tool_resume_ms":3,"message_count":7,"body_bytes_est":null,"ts":1,"session_id":"s","payload":{}}"#
+        );
+        assert_eq!(
+            lines[1],
+            r#"{"kind":"browser_timing","action":"click","bridge_ms":12.5,"ok":true,"payload":{"queueMs":1,"commandMs":9},"ts":1,"session_id":"s"}"#
+        );
+    }
+    // The env alone, with no trace file to take the rows (no diagnostic I/O, no `MIXDOG_AGENT_TRACE_PATH`), opens nothing.
+    let data = tempfile::tempdir().unwrap();
+    let env = |name: &str| (name == "MIXDOG_AGENT_TRACE_TIMING").then(|| "1".to_owned());
+    let io = ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io };
+    assert!(!FailureWriter::new(&TraceConfig::from_env(data.path(), &env, false), io, Arc::new(At(1))).timing_rows());
+}
+
 /// A running flush whose task is cancelled with no job on the lane gives the turn up at once: the flush that waited on it
 /// takes the turn and writes.
 #[tokio::test]

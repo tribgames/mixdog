@@ -451,11 +451,20 @@ struct Compactor100 {
     takes: Option<(Arc<FixedClock>, i64)>,
     /// The attachment preflight rewrites a user message reading "attached" to "referenced".
     preflight: bool,
+    /// The pass wrote a summary that took this long; its answer reported no usage.
+    summary_ms: Option<f64>,
+    /// The session's provider reading of every request.
+    session_reading: Option<u64>,
+    /// The session's header carries `contextPressureUnanchoredAfterRestart`, whatever the run sends.
+    session_unanchored: bool,
 }
 #[async_trait]
 impl Compactor for Compactor100 {
     fn estimate_tokens(&self, messages: &[AgentMessage]) -> u64 {
         messages.len() as u64 * 100
+    }
+    async fn session_pressure(&self, _: &[AgentMessage], _: &[mixdog_core_api::domain::provider::ToolDefinition]) -> SessionPressure {
+        SessionPressure { tokens: self.session_reading, unanchored: self.session_unanchored }
     }
     async fn preflight_attachments(&self, messages: &[AgentMessage]) -> Option<mixdog_agent::compact::fresh::Preflight> {
         let attached = Content::Text("attached".into());
@@ -497,7 +506,7 @@ impl Compactor for Compactor100 {
             dropped: Some(Dropped { message_ids: vec!["gone".into()], call_ids: vec!["call-gone".into()] }),
             skipped: self.skip,
             pipeline_ms: 0.0,
-            summary_ms: None,
+            summary_ms: self.summary_ms,
         })
     }
 }
@@ -1260,7 +1269,7 @@ async fn the_observer_stream_of_a_provider_notice_is_nodes_whole() {
                 turn(steps)
             }
         }];
-        // The two equesting of the send are the provider's own stages (preparing): Node's admission scheduler and its
+        // The two requesting of the send are the provider's own stages (preparing): Node's admission scheduler and its
         // adapter raise them.
         let stages = mixdog_core_api::domain::provider::SendStages { preparing: 2, ..Default::default() };
         let h = Harness { provider: Scripted::staged(script, stages, false), ..Harness::new(Vec::new()) };
@@ -1898,7 +1907,7 @@ async fn compaction_runs_at_the_request_boundary_and_resets_the_epoch() {
     assert_eq!(replaced.len(), 1);
     assert_eq!(
         replaced[0].1,
-        Rewrite { dropped_count: 10, dropped: Some(Dropped { message_ids: vec!["gone".into()], call_ids: vec!["call-gone".into()] }) }
+        Rewrite { dropped_count: 10, dropped: Some(Dropped { message_ids: vec!["gone".into()], call_ids: vec!["call-gone".into()] }), compaction: true }
     );
     drop(replaced);
     let compact_events: Vec<_> = h
@@ -1961,6 +1970,32 @@ async fn the_compact_marker_carries_the_passes_duration_after_tokens_and_status(
     assert!(h.sink.replaced.lock().unwrap().is_empty());
 }
 
+/// `runFreshContextCompact` (`fresh-context.mjs`): a pass that wrote a summary is the session's (`session-local`) whether or
+/// not the summary's answer reported usage; only a pass with no summary is the rules'.
+#[tokio::test]
+async fn the_passes_handoff_source_is_the_written_summary_not_its_usage() {
+    for (summary_ms, source) in [(Some(5.0), "session-local"), (None, "rules")] {
+        let mut h = Harness::new(vec![turn(vec![text("ok"), done(StopReason::EndTurn)])]);
+        h.compactor = Some(Arc::new(Compactor100 { summary_ms, ..Default::default() }));
+        let mut cfg = config();
+        cfg.compact = Some(compact_settings());
+        finish(h.run(cfg, vec![], eleven_messages())).await;
+        let sources: Vec<&str> = h
+            .observer
+            .events()
+            .into_iter()
+            .filter_map(|e| match e {
+                RunEvent::CompactPass(pass) => match pass.stage {
+                    PassStage::Done { handoff_source, .. } => Some(handoff_source),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect();
+        assert_eq!(sources, [source], "summary_ms {summary_ms:?}");
+    }
+}
+
 #[tokio::test]
 async fn the_marker_before_count_is_the_providers_last_measured_context_not_the_passes_pressure() {
     // The session's last measured context differs from the pass's own pressure (11 × 100).
@@ -1979,6 +2014,99 @@ async fn the_marker_before_count_is_the_providers_last_measured_context_not_the_
     cfg.compact = Some(compact_settings());
     finish(h.run(cfg, vec![], eleven_messages())).await;
     assert_eq!(compact_marker(&h)[0].before_tokens, 1_100);
+}
+
+fn three_messages() -> Vec<AgentMessage> {
+    vec![AgentMessage::user("a"), AgentMessage::assistant("b", Vec::new()), AgentMessage::user("c")]
+}
+
+fn send_pressures(h: &Harness) -> Vec<u64> {
+    h.observer.events().into_iter().filter_map(|e| if let RunEvent::ContextPressure { used_tokens, .. } = e { Some(used_tokens) } else { None }).collect()
+}
+
+/// `resolveContextTokensWithSource` over `session.contextPressureBaseline*`: a run's first send has measured nothing, so
+/// the session's provider reading prices it. A transcript the estimate puts under the trigger (3 × 100) compacts when
+/// the provider measured it over.
+#[tokio::test]
+async fn a_runs_first_send_is_priced_from_the_sessions_provider_reading() {
+    let mut h = Harness::new(vec![turn(vec![text("ok"), done(StopReason::EndTurn)])]);
+    h.compactor = Some(Arc::new(Compactor100 { session_reading: Some(1_050), ..Default::default() }));
+    let mut cfg = config();
+    cfg.compact = Some(compact_settings());
+    finish(h.run(cfg, vec![], three_messages())).await;
+    let events = compact_marker(&h);
+    assert_eq!(events.len(), 1);
+    assert_eq!((events[0].status, events[0].pressure_tokens), (CompactStatus::Compacted, 1_050));
+    assert_eq!(wire_dump(&h.provider.requests()[0]), ["User:[summary]", "User:c"]);
+}
+
+/// Once a send of the run measured the transcript, the run's own reading prices the next send (600 measured, plus the
+/// tool result after the reply it paid for), not the session's.
+#[tokio::test]
+async fn the_runs_own_reading_prices_the_sends_after_its_first() {
+    let measured = mixdog_core_api::domain::provider::Usage { input_tokens: 600, ..Default::default() };
+    let mut h = Harness::new(vec![
+        turn(vec![Step::Event(StreamEvent::Usage(measured)), call("c1", "echo", json!({})), done(StopReason::ToolUse)]),
+        turn(vec![text("ok"), done(StopReason::EndTurn)]),
+    ]);
+    h.compactor = Some(Arc::new(Compactor100 { session_reading: Some(900), ..Default::default() }));
+    let mut cfg = config();
+    cfg.compact = Some(compact_settings());
+    finish(h.run(cfg, vec![Echo::tool()], three_messages())).await;
+    assert_eq!(send_pressures(&h), [900, 700]);
+    assert!(compact_marker(&h).is_empty());
+}
+
+/// `shouldCompactForSession` on a session marked `contextPressureUnanchoredAfterRestart`: neither its reading (1 200) nor
+/// the estimate (11 × 100) over the trigger arms a proactive pass before a provider send re-anchors it.
+#[tokio::test]
+async fn an_unanchored_sessions_pressure_arms_no_proactive_pass() {
+    for reading in [Some(1_200), None] {
+        let mut h = Harness::new(vec![turn(vec![text("ok"), done(StopReason::EndTurn)])]);
+        h.compactor = Some(Arc::new(Compactor100 { session_reading: reading, session_unanchored: true, ..Default::default() }));
+        let mut cfg = config();
+        cfg.compact = Some(compact_settings());
+        finish(h.run(cfg, vec![], eleven_messages())).await;
+        assert!(compact_marker(&h).is_empty(), "{reading:?}");
+        assert_eq!(h.provider.requests()[0].messages.len(), 11, "{reading:?}");
+        if let Some(reading) = reading {
+            assert_eq!(send_pressures(&h), [reading]);
+        }
+    }
+}
+
+/// The mark holds only the pressure: an expired cache tail still compacts an unanchored session (`cacheExpired` is
+/// outside `shouldCompactForSession`).
+#[tokio::test]
+async fn an_expired_cache_tail_still_compacts_an_unanchored_session() {
+    let mut h = Harness::new(vec![turn(vec![text("ok"), done(StopReason::EndTurn)])]);
+    h.compactor = Some(Arc::new(Compactor100 { cache_expired: true, session_unanchored: true, ..Default::default() }));
+    let mut cfg = config();
+    cfg.compact = Some(compact_settings());
+    finish(h.run(cfg, vec![], three_messages())).await;
+    assert_eq!(*h.compactor.as_ref().unwrap().requests.lock().unwrap(), [(3, CompactTrigger::CacheExpired)]);
+}
+
+/// A send the run measured re-anchors the session (`recordProviderContextBaseline` drops the mark) while its header may
+/// still show the mark: once the preflight voided the run's own reading, the estimate over the trigger (14 × 100)
+/// compacts.
+#[tokio::test]
+async fn a_send_the_run_measured_lifts_the_unanchored_mark() {
+    let measured = mixdog_core_api::domain::provider::Usage { input_tokens: 900, ..Default::default() };
+    let mut h = Harness::new(vec![
+        turn(vec![Step::Event(StreamEvent::Usage(measured)), call("c1", "echo", json!({})), done(StopReason::ToolUse)]),
+        turn(vec![text("ok"), done(StopReason::EndTurn)]),
+    ]);
+    h.compactor = Some(Arc::new(Compactor100 { preflight: true, session_unanchored: true, ..Default::default() }));
+    // Steering after the tool batch reads "attached": the preflight rewrites it, which voids the run's own reading.
+    h.steer.push(DrainStage::PreSend, "attached");
+    let mut cfg = config();
+    cfg.compact = Some(compact_settings());
+    finish(h.run(cfg, vec![Echo::tool()], eleven_messages())).await;
+    let requests = h.provider.requests();
+    assert_eq!(requests[0].messages.len(), 11, "the mark holds the first send");
+    assert_eq!(*h.compactor.as_ref().unwrap().requests.lock().unwrap(), [(14, CompactTrigger::Auto)]);
+    assert_eq!(wire_dump(&requests[1]), ["User:[summary]", "User:referenced"]);
 }
 
 #[tokio::test]
@@ -2095,6 +2223,23 @@ async fn a_boundary_without_a_window_leaves_the_overflow_budget_and_window_unkno
     assert!(text.contains("stage=send"), "{text}");
     assert!(text.contains("budget=unknown"), "{text}");
     assert!(text.contains("contextWindow=unknown"), "{text}");
+}
+
+#[tokio::test]
+async fn automatic_compaction_off_still_states_the_window_of_a_send_overflow() {
+    // Node's `recoverContextOverflow` states `sessionRef.contextWindow` as the window and the budget
+    // with automatic compaction off too; the reserve is the off policy's (none), and nothing compacts.
+    let overflow = || Attempt::Reject(ProviderError::new(ErrorKind::ContextOverflow, DeliveryState::Accepted));
+    let mut h = Harness::new(vec![overflow()]);
+    h.compactor = Some(Arc::new(Compactor100 { requests: Mutex::new(Vec::new()), ..Default::default() }));
+    let mut cfg = config();
+    cfg.compact = Some(CompactSettings { auto: false, context_window: Some(50_000), token_calibration: 1.0, ..CompactSettings::default() });
+    let messages = vec![AgentMessage::user("a"), AgentMessage::user("b"), AgentMessage::user("c")];
+    let failure = h.run(cfg, vec![], messages).run().await.expect_err("overflow");
+    let text = failure.error.to_string();
+    assert!(text.contains("stage=send"), "{text}");
+    assert!(text.contains("budget=50000 reserve=unknown contextWindow=50000"), "{text}");
+    assert!(h.compactor.as_ref().unwrap().requests.lock().unwrap().is_empty(), "automatic compaction is off");
 }
 
 #[tokio::test]
@@ -5047,6 +5192,12 @@ async fn an_offloaded_returned_error_keeps_its_failure_row() {
     assert_eq!(result.tool_kind, Some(ToolKind::Error));
     let seen: Vec<String> = log.0.lock().unwrap().iter().map(|c| c.result_text.clone()).collect();
     assert_eq!(seen, [result.text()]);
+    // The message the turn sent is the one the next turn reads back from its stored row: a result whose kind became an
+    // error says so itself, or the next request's prefix differs from the sent one and the prefix guard refuses the turn
+    // (`Session state changed unexpectedly.`).
+    assert!(result.message.is_error, "a returned error is an error message");
+    let stored = mixdog_agent::message_row::message_of(&mixdog_agent::message_row::row_of(result)).unwrap();
+    assert_eq!(format!("{:?}", stored.message), format!("{:?}", result.message));
 }
 
 /// Every step of a call's post-processing as one sequence: its failure row and its cache write.
@@ -5091,6 +5242,78 @@ async fn each_calls_failure_row_and_cache_write_come_in_call_order() {
     agent.0.name = "agent".into();
     finish(h.run(config(), vec![Echo::tool(), Arc::new(ErrorText(agent.0))], vec![AgentMessage::user("go")])).await;
     assert_eq!(*steps.0.lock().unwrap(), ["stored c1", "failed agent", "stored c3"]);
+}
+
+/// The sends the loop reported to the host's trace.
+#[derive(Default)]
+struct Sends(Mutex<Vec<ProviderSend>>);
+impl mixdog_agent::env::ToolFailureLog for Sends {
+    fn failed(&self, _call: mixdog_agent::env::FailedCall) {}
+    fn stall_abort(&self, _ctx: serde_json::Map<String, serde_json::Value>) {
+        panic!("the agent loop never records a watchdog stop");
+    }
+    fn provider_send(&self, send: ProviderSend) {
+        self.0.lock().unwrap().push(send);
+    }
+}
+
+/// `traceProviderSend` (`settleSendResult`): every completed send reports its iteration, the transcript's length then, and
+/// from the second send on the time since the run's tool batch ended (on a still clock every span is 0).
+#[tokio::test]
+async fn every_completed_send_reports_its_loop_timing() {
+    let mut h = Harness::new(vec![
+        turn(vec![call("c1", "echo", json!({"n": 1})), done(StopReason::ToolUse)]),
+        turn(vec![text("ok"), done(StopReason::EndTurn)]),
+    ]);
+    let sends = Arc::new(Sends::default());
+    h.failures = Some(sends.clone());
+    finish(h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")])).await;
+    let sent = |iteration, tool_resume_ms, message_count| ProviderSend { iteration, send_ms: 0, pre_send_ms: 0, tool_resume_ms, message_count };
+    assert_eq!(*sends.0.lock().unwrap(), [sent(1, None, 1), sent(2, Some(0), 3)]);
+}
+
+/// A stream step that moves the run's clock on by `ms`: the response took that long on the wire.
+fn elapse(clock: &Arc<FixedClock>, ms: i64) -> Step {
+    let clock = Arc::clone(clock);
+    let wire: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> = Box::pin(async move {
+        clock.0.fetch_add(ms, Ordering::Relaxed);
+    });
+    Step::Wire(wire, "the clock")
+}
+
+/// A replayed send's `loop` row times the round of Node's loop that settled it. A retry on the provider's own ladder (a cut
+/// stream issued again) stays inside the send, as inside Node's `provider.send`; a replay Node's loop runs as a new round (here
+/// the request rebuilt without a rejected tool schema, `retry_tool_schema_drop`) starts the iteration and the send again, as
+/// `beginIteration` and `sendProviderRequest` restart `iterT0` and `sendStartedAt`.
+#[tokio::test]
+async fn a_replayed_sends_loop_row_times_the_round_that_settled_it() {
+    let clock = Arc::new(FixedClock(AtomicI64::new(1_000)));
+    let mut schema = ProviderError::new(ErrorKind::ToolSchemaRejected, DeliveryState::Accepted);
+    schema.status = Some(400);
+    schema.message = "bad request".into();
+    schema.rejected_tool = Some("echo".into());
+    let mut h = Harness {
+        clock: clock.clone(),
+        ..Harness::new(vec![
+            turn(vec![elapse(&clock, 3), Step::Fail(ProviderError::transport(TransportFault::Reset, DeliveryState::Ambiguous))]),
+            turn(vec![elapse(&clock, 4), call("c1", "echo", json!({"n": 1})), done(StopReason::ToolUse)]),
+            turn(vec![elapse(&clock, 6), Step::Fail(schema)]),
+            turn(vec![elapse(&clock, 5), text("ok"), done(StopReason::EndTurn)]),
+        ])
+    };
+    let sends = Arc::new(Sends::default());
+    h.failures = Some(sends.clone());
+    finish(h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")])).await;
+    assert_eq!(h.provider.requests().len(), 4);
+    assert_eq!(
+        *sends.0.lock().unwrap(),
+        [
+            // Both attempts of the first send, from the iteration's start.
+            ProviderSend { iteration: 1, send_ms: 7, pre_send_ms: 0, tool_resume_ms: None, message_count: 1 },
+            // The rebuilt round alone: it began when the refused one ended, 6 ms after the tool batch.
+            ProviderSend { iteration: 2, send_ms: 5, pre_send_ms: 0, tool_resume_ms: Some(6), message_count: 3 },
+        ]
+    );
 }
 
 /// A call whose arguments the provider could not parse is answered with the retry notice and never dispatched.

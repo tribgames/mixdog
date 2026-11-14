@@ -4315,6 +4315,24 @@ crate::client_request_definitions! {
         mutation: none,
         origins: [Local, Ssh],
     },
+    /// Hold the core's Computer Use for a human-only dialog; answered once its running operations ended.
+    HostHumanOnlyBegin => "host/humanOnly/begin" {
+        params: v2::host::HostHumanOnlyBeginParams,
+        result: v2::host::HostHumanOnlyBeginResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local, Ssh],
+    },
+    /// End a hold of `host/humanOnly/begin`.
+    HostHumanOnlyEnd => "host/humanOnly/end" {
+        params: v2::host::HostHumanOnlyEndParams,
+        result: v2::feed::EmptyResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local, Ssh],
+    },
     /// A paired phone's WebRTC live-view signal (Node's `browserRemoteWebrtcSignal` relay call).
     /// The reply settles once every signal it caused was pushed (`browser/webrtcSignal`).
     BrowserWebrtcSignal => "browser/webrtcSignal" {

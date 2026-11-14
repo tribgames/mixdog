@@ -14,6 +14,7 @@ use mixdog_rt::InteractiveIo;
 use serde_json::Map;
 use serde_json::Value;
 
+use mixdog_core_base::rooms::ids::MIXY_AGENT_ID;
 use mixdog_core_config::config::bot_migration;
 use mixdog_core_config::config::is_store_bot;
 use mixdog_core_config::config::agent_routes::agent_editor_id;
@@ -31,8 +32,6 @@ pub(super) type Lane = InLane<InteractiveIo>;
 pub const DELETED_MARKER: &str = ".deleted";
 const BOTS_DIR: &str = "bots";
 const MIXY_BOT_ID: &str = "mixy";
-/// Mixy's runtime id.
-pub const LEAD_ID: &str = "lead";
 
 /// `FIXED_AGENT_SLOTS`: id, label and description of the built-in services.
 pub const FIXED_SLOTS: [(&str, &str, &str, &str); 2] = [
@@ -248,7 +247,7 @@ impl Folders {
                 }
                 let name = entry.file_name().to_string_lossy().into_owned();
                 let Some(id) = workflow_id(&name) else { continue };
-                if id == LEAD_ID || is_role(&id) || self.hidden.contains(&id) {
+                if id == MIXY_AGENT_ID || is_role(&id) || self.hidden.contains(&id) {
                     continue;
                 }
                 match kind {
@@ -388,7 +387,7 @@ impl Folders {
         if is_store_bot(lane, &self.data, id) {
             return (Some("bot".into()), false);
         }
-        if bot_migration(lane, &self.data).is_some() || explicit.is_some() || id == LEAD_ID {
+        if bot_migration(lane, &self.data).is_some() || explicit.is_some() || id == MIXY_AGENT_ID {
             return (explicit, false);
         }
         if self.shipped_dir(id).join("AGENT.md").exists() {
@@ -448,7 +447,7 @@ impl Folders {
         if bot_migration(lane, &self.data).is_some() {
             self.data.join(BOTS_DIR).join(MIXY_BOT_ID)
         } else {
-            self.data.join("agents").join(LEAD_ID)
+            self.data.join("agents").join(MIXY_AGENT_ID)
         }
     }
 }

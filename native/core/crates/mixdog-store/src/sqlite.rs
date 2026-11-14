@@ -16,6 +16,8 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::mpsc;
 
+#[cfg(test)]
+mod batch_tests;
 mod gate;
 pub mod lead;
 #[cfg(test)]
@@ -614,6 +616,9 @@ fn write_row(tx: &Transaction<'_>, row: &CatalogRow, dirty: DirtyMark, labels: &
 
 type Ack = oneshot::Sender<Result<(), DbError>>;
 
+/// The wait for the writer's answer to a projection already queued at it ([`SqliteStore::queue_projection`]).
+pub type Committed = std::pin::Pin<Box<dyn Future<Output = Result<(), DbError>> + Send>>;
+
 /// A session whose log a sensitive rewrite replaced (`log_rewrite`'s step 6): its rows to rebuild under `<data>/sessions`,
 /// then the blobs the old log named and the new one does not, deleted once no row names them (`blobs` holds the pins).
 pub struct Rewritten {
@@ -679,8 +684,8 @@ struct Writer {
     projections: VecDeque<Pending>,
     refold: bool,
     /// Sessions whose row waits for an inherited state still being computed, with the head
-    /// the row is to be built from.
-    waiting: HashMap<String, CatalogHead>,
+    /// the row is to be built from and its arrival order.
+    waiting: HashMap<String, (CatalogHead, u64)>,
     /// Pending fork views may need a maintenance step.
     views: bool,
     /// Deleted sessions whose rows go in maintenance steps, oldest request first.
@@ -982,10 +987,9 @@ impl Writer {
         match step {
             Ok(crate::message_index::Step::Progress) => {}
             Ok(crate::message_index::Step::Done(session)) => {
-                if let Some(head) = self.waiting.remove(&session) {
-                    self.seq += 1;
-                    let seq = self.seq;
-                    // A newer head queued meanwhile wins.
+                if let Some((head, seq)) = self.waiting.remove(&session) {
+                    // A newer head queued meanwhile wins. The head keeps its arrival order, so a projection of the session
+                    // queued after it (whose head is newer) still replaces it, and does not hold its row back.
                     self.upserts.entry(session).or_insert_with(|| (Box::new(head), DirtyMark::Keep, Vec::new(), seq));
                 }
             }
@@ -1032,9 +1036,11 @@ impl Writer {
         }
         let mut acks = Vec::new();
         let mut done_projections = 0usize;
+        // How many projections, from the front, this transaction applied frames of.
+        let mut reached = 0usize;
         let mut rows = 0usize;
         let mut bytes = 0usize;
-        let mut waiting: Vec<(String, CatalogHead)> = Vec::new();
+        let mut waiting: Vec<(String, (CatalogHead, u64))> = Vec::new();
         let mut edges: Vec<RowEdge> = Vec::new();
         // The edges the sink was told are about to commit.
         let mut told = 0usize;
@@ -1099,14 +1105,24 @@ impl Writer {
                     }
                 }
             }
-            // Projections in arrival order, frame by frame.
+            // Projections in arrival order, frame by frame. A projection is answered once its catalog row is written, so past
+            // the transaction's first frame (not held back, so a frame larger than the room the rows leave still goes in) a
+            // frame goes in only while the rows still fit after it: one per session with a row to write, and this projection's.
+            let mut first = true;
             'outer: for pending in self.projections.iter_mut() {
                 while pending.next < pending.projection.frames.len() {
                     let frame = &pending.projection.frames[pending.next];
-                    let budget = self.append_rows.saturating_sub(rows);
+                    let owed = if first {
+                        0
+                    } else {
+                        self.upserts.len() + usize::from(!self.upserts.contains_key(&pending.projection.session))
+                    };
+                    let budget = self.append_rows.saturating_sub(rows + owed);
                     if budget == 0 || bytes >= APPEND_BYTES {
                         break 'outer;
                     }
+                    first = false;
+                    reached = done_projections + 1;
                     let (used, complete) =
                         apply_frame(&tx, &pending.projection.session, frame, budget, self.append_rows)?;
                     rows += used;
@@ -1118,7 +1134,7 @@ impl Writer {
                 }
                 done_projections += 1;
                 // The frames are in: the row is built from this projection's own head (a
-                // newer explicit upsert of the session wins); queued projections wait.
+                // newer explicit upsert of the session wins).
                 let latest = Box::new(pending.projection.head.clone());
                 let seq = pending.seq;
                 let entry = self
@@ -1130,21 +1146,29 @@ impl Writer {
                     entry.3 = seq;
                 }
             }
-            // Catalog rows, coalesced per session, after the frames so they see their state.
-            // A session with a projection still queued is published by that projection.
-            let in_flight: std::collections::HashSet<&str> =
-                self.projections.iter().skip(done_projections).map(|p| p.projection.session.as_str()).collect();
-            let ids: Vec<String> = self.upserts.keys().filter(|id| !in_flight.contains(id.as_str())).cloned().collect();
+            // Catalog rows, coalesced per session, after the frames so they see their state. A session's row waits while a
+            // projection of it still queued is partly in (the row would count part of its frames) or came before the head the
+            // row would take (that projection's own, older head would be written over it once it is in). A projection queued
+            // after it does not hold it back: it writes the row again once it is in, so the row of a session whose
+            // projections keep coming is not put off until they stop.
+            let held: std::collections::HashSet<&str> = self
+                .projections
+                .iter()
+                .skip(done_projections)
+                .filter(|p| p.next > 0 || self.upserts.get(&p.projection.session).is_some_and(|entry| entry.3 > p.seq))
+                .map(|p| p.projection.session.as_str())
+                .collect();
+            let ids: Vec<String> = self.upserts.keys().filter(|id| !held.contains(id.as_str())).cloned().collect();
             for id in ids {
                 if rows >= self.append_rows || bytes >= APPEND_BYTES {
                     break;
                 }
-                let (head, dirty, waiters, _) = self.upserts.remove(&id).expect("listed");
+                let (head, dirty, waiters, seq) = self.upserts.remove(&id).expect("listed");
                 rows += 1;
                 let (written, edge) = upsert_edge(&tx, &head, dirty, &self.labels, watch)?;
                 edges.extend(edge);
                 if written == 0 {
-                    waiting.push((id.clone(), (*head).clone()));
+                    waiting.push((id.clone(), ((*head).clone(), seq)));
                 }
                 bytes += written;
                 acks.extend(waiters);
@@ -1165,18 +1189,33 @@ impl Writer {
             sink.dropped(told);
         }
         debug_assert!(result.is_ok(), "append transaction failed: {result:?}");
-        // Projections: finished ones are acked (and their blob pins released); on a
-        // failure every projection in flight is dropped, to be reconciled from its cursor.
+        // Projections: finished ones leave the queue (their blob pins released). On a failure the frames this transaction
+        // applied are rolled back: the projections it reached (the front one at least, so a transaction that fails before
+        // any frame still leaves fewer queued) are dropped with every later one of their sessions (applied past a dropped
+        // one, it would leave a gap), to be reconciled from their cursor; the others stay queued, as the rows and requests
+        // it did not reach do.
         let finished: Vec<Pending> = if result.is_ok() {
             self.projections.drain(..done_projections).collect()
         } else {
-            self.projections.drain(..).collect()
+            let failed: std::collections::HashSet<String> =
+                self.projections.iter().take(reached.max(done_projections).max(1)).map(|p| p.projection.session.clone()).collect();
+            let (dropped, kept): (VecDeque<Pending>, VecDeque<Pending>) =
+                self.projections.drain(..).partition(|p| failed.contains(&p.projection.session));
+            self.projections = kept;
+            dropped.into()
         };
         // A projection that finished may have opened a view, or advanced the watermark a
         // pending view waits for.
         let advanced = !finished.is_empty();
         for p in finished {
-            acks.extend(p.ack);
+            let Some(ack) = p.ack else { continue };
+            match self.upserts.get_mut(&p.projection.session) {
+                // Its session's row is still to be written (it did not fit in this transaction, or is held for a projection
+                // of the session still queued): the projection is answered with the transaction that writes it, and fails
+                // with it, so whoever waits on its answer (a list's fence, a header's `indexed`) finds the row it made.
+                Some(entry) if result.is_ok() => entry.2.push(ack),
+                _ => acks.push(ack),
+            }
         }
         if result.is_ok() {
             self.waiting.extend(waiting);
@@ -1759,9 +1798,18 @@ impl SqliteStore {
         self.ask(|ack| Command::Delete { session, ack }).await
     }
 
-    /// The projection of a barrier; resolves when every frame is committed.
+    /// The projection of a barrier; resolves when every frame is committed, and the session's catalog row with them (built from
+    /// this head or a newer one; a fork whose inherited state is still being computed keeps its row until that is done).
     pub async fn project(&self, projection: Projection) -> Result<(), DbError> {
         self.ask(|ack| Command::Project { projection, ack: Some(ack) }).await
+    }
+
+    /// [`project`](Self::project) in two steps: resolves once the projection is queued at the writer, with the wait until every
+    /// frame and the session's row are committed. The writer applies projections in the order they were queued, and a transaction
+    /// takes every one queued when it starts, within its bounds.
+    pub async fn queue_projection(&self, projection: Projection) -> Result<Committed, DbError> {
+        let answer = self.shared.gate.queue(|ack| Command::Project { projection, ack: Some(ack) }).await?;
+        Ok(Box::pin(gate::answered(answer)))
     }
 
     /// The rows of `session` (under `<data>/sessions`) rebuilt from its rewritten log, the replaced rows overwritten in

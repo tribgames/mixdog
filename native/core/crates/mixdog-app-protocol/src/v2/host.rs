@@ -341,6 +341,35 @@ pub struct HostRemoteTargetSetParams {
     pub token: Option<String>,
 }
 
+/// Params of `host/humanOnly/begin`: the desktop holds Computer Use for one human-only dialog (`withHumanOnlyApproval`); `label` names what for in the refusal, empty names nothing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct HostHumanOnlyBeginParams {
+    pub label: String,
+}
+
+/// Result of `host/humanOnly/begin`, answered once the Computer Use operations already running ended; `holdId` ends the hold.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct HostHumanOnlyBeginResult {
+    pub hold_id: String,
+}
+
+/// Params of `host/humanOnly/end`: the dialog of hold `holdId` closed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct HostHumanOnlyEndParams {
+    pub hold_id: String,
+}
+
+/// Params of `host/browser/command` (core → host): a browser action on the pages of `threadId`, with its input. The host
+/// answers with the action's result, which may carry the desktop's `BrowserCommandTiming` as `timing`, or fails it with the
+/// JSON-RPC error -32000, whose message is already redacted and whose `data.timing` is the failed command's
+/// `BrowserCommandTiming`. Both timings are diagnostics: the core writes them to its agent trace (`browser_timing` rows)
+/// and never shows them to the model.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]

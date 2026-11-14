@@ -71,6 +71,11 @@ impl GoalQuotaResume {
         self.store.entry(session_id)
     }
 
+    /// `subscribeQuotaResume`: `listener` hears the session whose queued resume changed (`None`: every one).
+    pub fn subscribe(&self, listener: impl Fn(Option<&str>) + Send + Sync + 'static) -> mixdog_core_base::quota_resume::Subscription {
+        self.store.subscribe(listener)
+    }
+
     /// `quotaResumeEntry(sessionId)?.generation`: the queued resume's generation, if one waits.
     pub fn entry_generation(&self, session_id: &str) -> Option<u64> {
         self.store.entry(session_id).map(|entry| entry.generation)

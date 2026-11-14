@@ -321,5 +321,5 @@ pub async fn ask_side_question(side: &dyn SideQuestions, thread: &ThreadId, ques
 
 /// A refusal as the wire carries it: Node's plain `Error`, its message the whole answer.
 pub fn failure(message: &str) -> CoreError {
-    CoreError::DomainError { domain: "session".into(), code: None, message: Some(message.into()), detail: None }
+    mixdog_core_base::support::failed("session", message)
 }

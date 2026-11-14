@@ -66,6 +66,8 @@ pub struct SettingsSources {
     pub heartbeats: Arc<dyn HeartbeatMarks>,
     pub ceilings: Arc<dyn OutputCeilingSource>,
     pub auto_effort: Arc<dyn AutoEffortSource>,
+    /// Whether a route's model sees images (`pdfReadModes`); `None` takes every model as one that does.
+    pub vision: Option<Arc<dyn mixdog_agent::env::ModelVision>>,
 }
 
 /// The turn the settings are for.
@@ -121,6 +123,7 @@ pub fn merge_settings(mut base: RunSettings, sources: &SettingsSources, turn: &T
         base.limits
     };
     base.attachments = Some(sources.attachments.clone());
+    base.vision = sources.vision.clone();
     base.file_text = sources.media.as_ref().map(|media| media(&Value::Object({
         let mut row = serde_json::Map::new();
         row.insert("id".into(), Value::String(turn.thread.as_str().to_owned()));
@@ -223,6 +226,7 @@ mod tests {
             compact: Some(mixdog_agent::boundary::CompactSettings::default()),
             escalated_max_output_tokens: None,
             read_body_required: true,
+            vision: None,
             effort: None,
             step_auto_effort: None,
             text_only: None,
@@ -233,7 +237,7 @@ mod tests {
     }
 
     fn sources(heartbeat: &'static str) -> SettingsSources {
-        SettingsSources { wiring: Arc::new(Wiring), attachments: Arc::new(NoText), media: None, heartbeats: Arc::new(Marks(heartbeat)), ceilings: Arc::new(Ceilings), auto_effort: Arc::new(Auto) }
+        SettingsSources { wiring: Arc::new(Wiring), attachments: Arc::new(NoText), media: None, heartbeats: Arc::new(Marks(heartbeat)), ceilings: Arc::new(Ceilings), auto_effort: Arc::new(Auto), vision: None }
     }
 
     #[test]

@@ -490,6 +490,9 @@ impl ModelStream for CompatStream {
                 Some(Err(fault)) => {
                     self.body = None;
                     let mut err = ProviderError::transport(fault, DeliveryState::Accepted);
+                    // Node reads the body through the OpenAI SDK's `fetch` (`consumeCompatChatCompletionStream`), whose
+                    // socket failure mid-body is undici's `TypeError: terminated`.
+                    err.message = crate::transport::link::TERMINATED.to_owned();
                     err.exposure = self.decoder.exposure();
                     self.failed = Some(err);
                 }

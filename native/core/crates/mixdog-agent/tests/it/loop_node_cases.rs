@@ -258,7 +258,7 @@ struct Rewrite(String);
 
 #[async_trait]
 impl ToolHooks for Rewrite {
-    async fn after_tool(&self, _call: &GateCall, _result: &str) -> Option<String> {
+    async fn after_tool(&self, _call_id: &str, _call: &GateCall, _result: &str) -> Option<String> {
         Some(self.0.clone())
     }
 }

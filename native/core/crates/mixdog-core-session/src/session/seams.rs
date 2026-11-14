@@ -683,6 +683,14 @@ pub trait NewThreadTools: Send + Sync + 'static {
         Ok(header.clone())
     }
 
+    /// [`seed`](Self::seed) for an imported conversation (`createImportedSession`): Node makes it with the manager's
+    /// `createSession`, so it begins with its tool surface and prompt, from the importing runtime's Lead options less
+    /// their `mcpScopeId` (`importedSessionOptions`). The seed opens no MCP scope (the header's stays null: the default
+    /// scope's servers are read) and nothing is abandoned with it; the resume that opens the session gives it a scope.
+    async fn seed_imported(&self, thread: &ThreadId, header: &Header) -> Result<Header, String> {
+        self.seed(thread, header).await
+    }
+
     /// `thread` is about to be created, before its route is adopted: the config the session is created against is the one
     /// now (Node's `createSession` runs before the draft's `setRoute` saves the route, so the draft's change reaches the
     /// session as a change of settings at its first turn).
@@ -732,7 +740,9 @@ impl Drop for SeededThread {
 /// session's first record is composed, and the record then carries it.
 ///
 /// `thread/start` adopts the route under the id the thread will have, composes the thread from it
-/// ([`NewThreadTools`]), and seats it on the created thread's header.
+/// ([`NewThreadTools`]), and seats it on the created thread's header. A thread's runtime also boots on
+/// a route outside `thread/start` ([`boot`](Self::boot)): a session created on its creator's route,
+/// and a stored thread resumed from its record.
 #[async_trait::async_trait]
 pub trait NewThreadRoute: Send + Sync + 'static {
     /// Makes `draft` (else the default route) the live route of `thread`, which does not exist yet.
@@ -748,6 +758,12 @@ pub trait NewThreadRoute: Send + Sync + 'static {
 
     /// The created, still empty `thread` takes its live route onto its header.
     async fn seat(&self, thread: &ThreadId) -> Result<(), String>;
+
+    /// The live route of `thread` becomes the route its header names, when it names a model: a session created on its
+    /// creator's route (a task, a heartbeat run, a delegated worker, a home or room seat: Node boots its runtime with that route,
+    /// `createRuntime({ provider, model, … })`) before it is composed, and a stored thread opened for use (a resume's
+    /// `setRoute(resumedRoute)`). A route set on the thread in this process stands; an owner with no live route boots nothing.
+    fn boot(&self, _thread: &ThreadId, _header: &Header) {}
 }
 
 /// The new task's draft workflow and orchestration mode (`configureDraft`, session-host-lifecycle.ts:765-778): the host calls

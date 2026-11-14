@@ -61,6 +61,10 @@ pub struct Machine {
     secret: [u8; 32],
     phase: Phase,
     hold: bool,
+    /// The drain commit dropped a hold (LR §5.1 step 2), or a confirmed abort closed the starts: they are refused with the drain's
+    /// reason until the drain is cancelled (an aborted one cannot be). A hold released before the commit dropped nothing: what it let
+    /// go starts.
+    starts_closed: Option<mixdog_protocol::DrainReason>,
     clients: usize,
     /// A client has connected since the core served: the `noClients` trigger means "the last
     /// client left", so a core that nobody has reached yet is not stopped by a work item
@@ -73,8 +77,11 @@ pub struct Machine {
     /// The grace ran out with nobody attached (`signalled`): a core idle from now on stops itself, until a client attaches again.
     grace_fired: bool,
     /// Service calls in flight (Node's `inFlightWork().activeCalls`, `daemon.mjs:444-449`): they keep the core from stopping itself with
-    /// nobody attached, but are not listed as running work and do not hold an explicit stop.
+    /// nobody attached and hold a `Quit` drain (`drainDeferral`), but are not listed as running work.
     calls: usize,
+    /// A stop that skips `drainDeferral` was asked in this drain ([`Machine::cut_in_flight`]): the calls in flight no longer hold it,
+    /// and the release's `closeConnections` ends their requests, as Node's `shutdown` closes the lanes. A cancelled drain clears it.
+    calls_cut: bool,
     /// New-task requests in flight (`thread/start` of a task with its first prompt): host logic in Node (`submitNewTask` runs in the
     /// desktop service's `SessionHost`), counted as a call by the self-shutdown (Node's `activeCalls` holds the `desktop.invoke`). A stop
     /// request does not wait for one: Node's `/stop` shuts down without `drainDeferral` (`routes.mjs:200-209` → SIGTERM →
@@ -100,6 +107,7 @@ impl Machine {
             secret: rand::random(),
             phase: Phase::Booting,
             hold: false,
+            starts_closed: None,
             clients: 0,
             client_seen: false,
             client_grace: ClientGrace::immediate(),
@@ -107,6 +115,7 @@ impl Machine {
             grace_generation: 0,
             grace_fired: false,
             calls: 0,
+            calls_cut: false,
             new_tasks: 0,
             new_tasks_cut: false,
             next_id: 1,
@@ -250,15 +259,23 @@ impl Machine {
     /// `routes.mjs:200-209` → `shutdown`) skips `drainDeferral`: every management stop but `Quit` is that stop. A `Quit` stop is Node's
     /// `/shutdown` (`routes.mjs:189-196`) and `NoClients` its last client leaving, both `maybeSelfShutdown`, whose `drainDeferral`
     /// (`daemon.mjs:533-536`, `daemon-drain-policy.mjs:11-16`) waits for every active service call, a new task's `desktop.invoke` included.
-    fn cut_new_tasks_for(&mut self, reason: StopReason) -> bool {
-        !matches!(reason, StopReason::Quit | StopReason::NoClients) && self.cut_new_tasks()
+    fn cut_in_flight_for(&mut self, reason: StopReason) -> bool {
+        !matches!(reason, StopReason::Quit | StopReason::NoClients) && self.cut_in_flight()
     }
 
-    /// Calls a drain waits for: every call, and the new-task requests until a stop request cut them. A cut attempt's call in flight is
-    /// awaited by the release's session shutdown (`NewTaskReceipts::shutdown`), as Node's shutdown awaits the session's work
-    /// (session-service.mjs:271-275); its request is never answered.
+    /// Node's `shutdown()` of a stop that skips `drainDeferral` "aborts busy sessions, service calls and agent runs"
+    /// (`daemon-drain-policy.mjs:9-11`): the new-task attempts are cut and the service calls in flight no longer hold the drain.
+    /// Whether anything in flight was cut now.
+    fn cut_in_flight(&mut self) -> bool {
+        let calls = !std::mem::replace(&mut self.calls_cut, true) && self.calls > 0;
+        self.cut_new_tasks() || calls
+    }
+
+    /// Calls a drain waits for: the calls until a stop that skips `drainDeferral` cut them, and the new-task requests until a stop
+    /// request cut them. A cut attempt's call in flight is awaited by the release's session shutdown (`NewTaskReceipts::shutdown`), as
+    /// Node's shutdown awaits the session's work (session-service.mjs:271-275); its request is never answered.
     fn calls_in_flight(&self) -> bool {
-        self.calls > 0 || (self.new_tasks > 0 && !self.new_tasks_cut)
+        (self.calls > 0 && !self.calls_cut) || (self.new_tasks > 0 && !self.new_tasks_cut)
     }
 
     /// `kind` is the registry the client was in: the last one leaving names Node's self-shutdown text.
@@ -356,7 +373,7 @@ impl Machine {
         match &self.phase {
             Phase::Booting | Phase::Blocked(_) | Phase::Serving => match mode {
                 StopMode::WhenIdle => {
-                    let _ = self.cut_new_tasks_for(reason);
+                    let _ = self.cut_in_flight_for(reason);
                     self.commit_drain(reason);
                     Ok(())
                 }
@@ -364,8 +381,8 @@ impl Machine {
             },
             Phase::Migrating(_) => Err(CommandError::Migrating),
             Phase::Draining(_) if matches!(mode, StopMode::WhenIdle) => {
-                // A stop requested in a self-shutdown's drain: the new-task requests it waited for are cut now.
-                if self.cut_new_tasks_for(reason) {
+                // A stop requested in a self-shutdown's drain: the new-task requests and the service calls it waited for are cut now.
+                if self.cut_in_flight_for(reason) {
                     self.settle("");
                 }
                 Ok(())
@@ -380,13 +397,20 @@ impl Machine {
                     if drain.releasing || drain.aborting {
                         return Ok(());
                     }
-                    self.cut_new_tasks();
+                    let reason = drain.reason;
+                    // The user confirmed: nothing in flight holds the drain any longer (Node's forced `shutdown`), and no turn starts
+                    // after the abort (its `daemonWorkGate.shutdown()`): what the sessions queued stays for the next core rather than
+                    // starting only to be cancelled.
+                    self.starts_closed = Some(reason.drain_reason());
+                    let _ = self.cut_in_flight();
                     let running = self.running();
                     if let Phase::Draining(drain) = &mut self.phase {
                         drain.aborting = true;
                     }
                     self.seq += 1;
                     self.effects.push(Effect::CancelRunning(running));
+                    // A drain only calls held is idle now; one that running work holds releases once the cancelled work ends.
+                    self.settle("");
                     Ok(())
                 }
             },
@@ -418,6 +442,9 @@ impl Machine {
             return Err(CommandError::PastIdleWait);
         }
         self.phase = Phase::Serving;
+        // What the commit closed opens again, and the calls the drain stopped waiting for count again.
+        self.starts_closed = None;
+        self.calls_cut = false;
         self.seq += 1;
         let discovery = self.discovery();
         self.effects.push(Effect::Discovery(discovery));
@@ -512,6 +539,11 @@ impl Machine {
         self.hold
     }
 
+    /// The reason of the drain whose commit dropped a hold or whose abort closed the starts, until that drain is cancelled.
+    pub fn starts_closed(&self) -> Option<mixdog_protocol::DrainReason> {
+        self.starts_closed
+    }
+
     // ---- internals --------------------------------------------------------------------
 
     fn state_name(&self) -> StateName {
@@ -561,7 +593,9 @@ impl Machine {
         self.phase = Phase::Draining(drain);
         self.seq += 1;
         // Deferred starts are released into admission, which now refuses them (LR §5.1 step 2).
-        self.hold = false;
+        if std::mem::take(&mut self.hold) {
+            self.starts_closed = Some(reason.drain_reason());
+        }
         let discovery = self.discovery();
         self.effects.push(Effect::Discovery(discovery));
         self.announce_drain();
@@ -790,6 +824,44 @@ mod tests {
         assert_eq!(releases(&m.take_effects()), 0, "one release only");
     }
 
+    /// `drainDeferral` (`daemon-drain-policy.mjs:9-16`): a `Quit` waits for the service calls in flight; a stop that skips it (the
+    /// user's stop, Node's `/stop {force:true}`) and a confirmed abort do not, and a cancelled drain counts them again.
+    #[test]
+    fn only_a_quit_waits_for_the_service_calls_in_flight() {
+        let mut m = machine();
+        m.call_started();
+        m.stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
+        assert_eq!(releases(&m.take_effects()), 0, "a quit waits for the call");
+        let token = drain_token(&m);
+        m.stop(StopMode::AbortConfirmed, StopReason::Quit, Some(&token)).unwrap();
+        assert_eq!(releases(&m.take_effects()), 1, "the confirmed abort does not");
+        m.call_ended();
+        assert_eq!(releases(&m.take_effects()), 0, "one release only");
+
+        for held in [false, true] {
+            let mut m = machine();
+            m.call_started();
+            if held {
+                m.stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
+                assert_eq!(releases(&m.take_effects()), 0);
+            }
+            m.stop(StopMode::WhenIdle, StopReason::UserStop, None).unwrap();
+            assert_eq!(releases(&m.take_effects()), 1, "the user's stop does not wait for the call (in a quit's drain: {held})");
+        }
+
+        let mut m = machine();
+        m.call_started();
+        let turn = m.begin_activity(work(ActivityKind::Turn));
+        m.stop(StopMode::WhenIdle, StopReason::UserStop, None).unwrap();
+        let id = m.status().drain.unwrap().drain_id;
+        m.cancel_drain(&id).unwrap();
+        m.stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
+        m.end_activity(turn);
+        assert_eq!(releases(&m.take_effects()), 0, "after the cancelled drain the call holds the quit again");
+        m.call_ended();
+        assert_eq!(releases(&m.take_effects()), 1);
+    }
+
     #[test]
     fn abort_needs_the_drain_token_and_never_precedes_a_drain() {
         let mut m = machine();
@@ -812,6 +884,21 @@ mod tests {
         m.stop(StopMode::AbortConfirmed, StopReason::Quit, Some(&token)).unwrap();
         let effects = m.take_effects();
         assert!(effects.iter().any(|e| matches!(e, Effect::CancelRunning(r) if r.len() == 1)));
+    }
+
+    /// Node's forced `shutdown()` closes its work gate (`daemonWorkGate.shutdown()`): a drain alone closes no turn start, a confirmed
+    /// abort closes them for good.
+    #[test]
+    fn a_confirmed_abort_closes_the_turn_starts() {
+        let mut m = machine();
+        let _a = m.begin_activity(work(ActivityKind::Turn));
+        m.stop(StopMode::WhenIdle, StopReason::UserStop, None).unwrap();
+        assert_eq!(m.starts_closed(), None, "the drain alone");
+        let token = drain_token(&m);
+        m.stop(StopMode::AbortConfirmed, StopReason::UserStop, Some(&token)).unwrap();
+        assert_eq!(m.starts_closed(), Some(mixdog_protocol::DrainReason::Quit));
+        let id = m.status().drain.unwrap().drain_id;
+        assert_eq!(m.cancel_drain(&id), Err(CommandError::PastIdleWait));
     }
 
     #[test]
@@ -882,7 +969,16 @@ mod tests {
         let _a = m.begin_activity(work(ActivityKind::Turn));
         m.stop(StopMode::WhenIdle, StopReason::Update, None).unwrap();
         assert!(!m.hold_on());
+        assert_eq!(m.starts_closed(), Some(mixdog_protocol::DrainReason::Update), "what it held is refused");
         assert_eq!(m.hold(true), Err(CommandError::WindingDown));
+        let id = m.status().drain.unwrap().drain_id;
+        m.cancel_drain(&id).unwrap();
+        assert_eq!(m.starts_closed(), None, "a cancelled drain opens it again");
+        // A hold released before the commit drops nothing: the starts it let go start.
+        m.hold(true).unwrap();
+        m.hold(false).unwrap();
+        m.stop(StopMode::WhenIdle, StopReason::Update, None).unwrap();
+        assert_eq!(m.starts_closed(), None);
     }
 
     #[test]

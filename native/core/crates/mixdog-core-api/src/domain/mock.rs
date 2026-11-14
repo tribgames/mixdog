@@ -1093,6 +1093,7 @@ impl FileService for MockFileService {
                         line: i as u64 + 1,
                         column: col as u64 + 1,
                         text: line.to_owned(),
+                        count: 1,
                     }));
                 }
             }

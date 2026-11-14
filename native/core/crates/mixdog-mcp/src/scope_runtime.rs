@@ -25,6 +25,7 @@
 
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
@@ -58,13 +59,36 @@ pub struct Resolved {
     pub configs: Vec<McpServerConfig>,
     /// The hub server names an `Op::Only` stands for (an account name, or all accounts of a connector).
     pub targets: Vec<String>,
+    /// The data folder (`_mixdogPlugin.data`) of each enabled plugin server the catalog names, by that name: what an
+    /// operation makes before it connects the server ([`ScopeConfigs::make_data_folders`]).
+    pub data_folders: Vec<(String, PathBuf)>,
 }
 
 /// The configuration side: `resolveEffectiveMcpServers` for a scope working in a folder.
 #[async_trait]
 pub trait ScopeConfigs: Send + Sync {
-    /// Resolved when asked, never earlier: the answer is as current as the turn it is asked in.
+    /// Resolved when asked, never earlier: the answer is as current as the turn it is asked in. A read: it writes
+    /// nothing (the readiness wait resolves too).
     async fn resolve(&self, scope: &str, cwd: &str, only: Option<&str>) -> Resolved;
+
+    /// `ensurePluginServerData` (`plugin-servers.mjs`): makes `folders`, the data folders of the plugin servers an
+    /// operation is about to connect, in that operation's turn and before its connect.
+    async fn make_data_folders(&self, _folders: Vec<PathBuf>) {}
+}
+
+/// The plugin data folders `op` makes before it connects (`connect.mjs:119`, `server-connection.mjs:41`): every enabled
+/// server's for a full connect or a reconcile (a reconcile connects the new, changed and failed ones only; making a
+/// folder that exists changes nothing), the toggled server's for a toggle on, and none for a toggle off, which connects
+/// nothing (`applyMcpServerConnection` returns before it).
+fn data_folders(op: &Op, folders: &[(String, PathBuf)]) -> Vec<PathBuf> {
+    folders
+        .iter()
+        .filter(|(name, _)| match op {
+            Op::Reset | Op::Reconcile => true,
+            Op::Only(only, enabled) => *enabled && name == only,
+        })
+        .map(|(_, folder)| folder.clone())
+        .collect()
 }
 
 /// An open scope.
@@ -450,6 +474,10 @@ impl ScopeRuntime {
         // the session's folder, and the connected ones are told when it moved.
         self.hub.set_scope_root(&cell.scope, &cell.cwd());
         let resolved = self.configs.resolve(&cell.scope, &cell.cwd(), only).await;
+        let folders = data_folders(op, &resolved.data_folders);
+        if !folders.is_empty() {
+            self.configs.make_data_folders(folders).await;
+        }
         self.connect(&cell.scope, generation, op, resolved).await;
         #[cfg(feature = "test-support")]
         if let Some(watch) = &watch {
@@ -464,7 +492,7 @@ impl ScopeRuntime {
     /// `op` on the servers of `scope`; every change goes through [`McpHub::apply_at`], so a release
     /// or a newer full connect during the awaits above and below voids the rest.
     async fn connect(&self, scope: &str, generation: u64, op: &Op, resolved: Resolved) {
-        let Resolved { mut configs, targets } = resolved;
+        let Resolved { mut configs, targets, .. } = resolved;
         match op {
             Op::Reset => {
                 if !self.hub.apply_at(scope, generation, Vec::new(), &|_| true) {
@@ -472,7 +500,7 @@ impl ScopeRuntime {
                 }
                 let names: Vec<String> = configs.iter().filter(|c| c.enabled).map(|c| c.name.clone()).collect();
                 if self.hub.apply_at(scope, generation, configs, &|_| true) {
-                    self.settled(scope, &names).await;
+                    Self::settled(self.awaited(scope, &names)).await;
                 }
             }
             Op::Reconcile => {
@@ -489,7 +517,7 @@ impl ScopeRuntime {
                 if !self.hub.apply_at(scope, generation, configs, &|_| true) {
                     return;
                 }
-                self.settled(scope, &names.iter().filter(|n| !before.contains(*n)).cloned().collect::<Vec<_>>()).await;
+                Self::settled(self.awaited(scope, &names.iter().filter(|n| !before.contains(*n)).cloned().collect::<Vec<_>>())).await;
             }
             Op::Only(_, enabled) => {
                 if !*enabled {
@@ -497,34 +525,56 @@ impl ScopeRuntime {
                     self.hub.apply_at(scope, generation, configs, &|_| false);
                     return;
                 }
+                // A failed one is not among them: the apply connects it (replaced, or a shared one again in place).
                 let kept: Vec<_> = targets
                     .iter()
                     .filter_map(|t| self.hub.server_in(scope, t))
-                    .filter(|s| configs.iter().any(|c| c.name == s.name() && c == s.config()))
+                    .filter(|s| configs.iter().any(|c| c.name == s.name() && c == s.config()) && !matches!(&*s.state(), ServerState::Failed { .. }))
                     .collect();
                 // The toggle connects its own servers only (`reconnectSingleMcpServer`).
                 if !self.hub.apply_at(scope, generation, configs, &|name| targets.iter().any(|t| t == name)) {
                     return;
                 }
-                // A failed one was replaced by the apply, which connects it.
+                let waits = self.awaited(scope, &targets);
+                // A connection another scope shares is not restarted: `reconnectSingleMcpServer` gives up only this
+                // scope's use of it and adopts it again (`_closeServer`, `connectServer`, mcp/client.mjs:1367-1374, 1425-1426).
                 for server in kept {
-                    if self.hub.server_in(scope, server.name()).is_some_and(|now| Arc::ptr_eq(&now, &server)) {
+                    if self.hub.server_in(scope, server.name()).is_some_and(|now| Arc::ptr_eq(&now, &server)) && !self.hub.held_elsewhere(scope, &server) {
                         let _ = server.reconnect().await;
                     }
                 }
-                self.settled(scope, &targets).await;
+                Self::settled(waits).await;
             }
         }
     }
 
-    /// Waits until every server of `names` of `scope` stopped starting.
-    async fn settled(&self, scope: &str, names: &[String]) {
-        for name in names {
-            let Some(server) = self.hub.server_in(scope, name) else { continue };
+    /// The servers of `names` of `scope` an operation waits for ([`Self::settled`]), read as its apply left them: each
+    /// with whether its connection had ended by itself, which only a shared one the apply connects again in place has.
+    fn awaited(&self, scope: &str, names: &[String]) -> Vec<(Arc<McpServer>, bool)> {
+        names
+            .iter()
+            .filter_map(|name| self.hub.server_in(scope, name))
+            .map(|server| {
+                let in_place = server.is_dead();
+                (server, in_place)
+            })
+            .collect()
+    }
+
+    /// Waits until every one of `servers` ([`Self::awaited`]) stopped starting; one the apply connects again in place,
+    /// until that connect settled. One that went ready and died after it was read is connected again by nothing, and
+    /// ends its wait once failed.
+    async fn settled(servers: Vec<(Arc<McpServer>, bool)>) {
+        for (server, in_place) in servers {
             let mut rx = server.subscribe();
             // A server whose startup budget is disabled may never stop starting: it is not waited for.
             let Some(budget) = server.config().startup_timeout else { continue };
-            let _ = mixdog_rt::time::timeout(budget + Duration::from_secs(5), rx.wait_for(|s| !matches!(**s, ServerState::Starting))).await;
+            let done = rx.wait_for(|s| match &**s {
+                ServerState::Starting => false,
+                ServerState::Failed { .. } => !(in_place && server.is_dead()),
+                _ => true,
+            });
+            let _ = mixdog_rt::time::timeout(budget + Duration::from_secs(5), done).await;
         }
     }
 

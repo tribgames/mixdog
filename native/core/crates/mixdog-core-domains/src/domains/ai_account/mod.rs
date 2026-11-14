@@ -5,7 +5,8 @@ pub mod admin;
 pub mod auth_refresh;
 pub mod collaborators;
 pub mod custom_admin;
-pub mod custom_config;
+/// `custom-provider-config.mjs`, which the provider builder reads too.
+pub use mixdog_ai::providers::custom::config as custom_config;
 pub mod custom_probe;
 pub mod dashboards;
 pub mod failure;

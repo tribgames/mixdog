@@ -1477,7 +1477,7 @@ impl WorkspaceService {
                 let project = s(params, "projectPath")?;
                 let root = self.root(req.ctx.origin, params).await?;
                 let document = DocumentInput::from_value(params.get("document").unwrap_or(&Value::Null))?;
-                value(self.lsp.document(project, &root, document).await)
+                value(self.lsp.document(project, &root, document).await?)
             }
             "lsp/request" => {
                 let project = s(params, "projectPath")?;
@@ -1493,7 +1493,7 @@ impl WorkspaceService {
                             s(r, "method")?,
                             r.get("params").unwrap_or(&Value::Null),
                         )
-                        .await,
+                        .await?,
                 )
             }
             _ => Err(WsError::new(Reason::Unsupported, "This method is served by the desktop host.")),

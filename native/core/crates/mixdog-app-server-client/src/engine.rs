@@ -991,7 +991,11 @@ impl Driver {
             if m.get("id").is_some() {
                 match serde_json::from_value::<ServerRequest>(m) {
                     Ok(r) => {
-                        self.inner.lock().server_requests.push(r.clone());
+                        // A capability holder's request is its handler's to end: only what the core resolves itself is held (a
+                        // method the protocol does not list does not parse, so it is never held: the TS client's `isOfferedRequest`).
+                        if r.requires().is_none() {
+                            self.inner.lock().server_requests.push(r.clone());
+                        }
                         self.inner.emit(ClientEvent::ServerRequest(r));
                     }
                     Err(e) => self.inner.emit(ClientEvent::ProtocolViolation(format!(

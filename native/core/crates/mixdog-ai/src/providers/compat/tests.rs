@@ -693,6 +693,45 @@ fn malformed_tool_arguments_ride_as_data_after_a_finish() {
     assert_eq!(calls[0].arguments["__parseError"], "Unterminated string in JSON at position 3 (line 1 column 4)");
 }
 
+#[test]
+fn a_malformed_frame_reads_as_nodes_malformed_stream_error() {
+    // `malformedCompatStreamError(label, SyntaxError)` over the SDK's `JSON.parse` of the frame (Node v22.20.0).
+    let codec = plain_codec();
+    let mut decoder = codec.decoder(&base_request("m"));
+    let events = decoder
+        .feed(b"data: {\"choices\":[{\"delta\":{\"content\":\"good \"}}]}\n\ndata: {not json at all\n\n")
+        .expect("the events before the frame come first");
+    assert_eq!(text_of(&events), "good ");
+    let err = decoder.feed(b"").expect_err("the stored failure");
+    assert_eq!(err.code.as_deref(), Some("malformed_stream"));
+    assert_eq!(err.message, "groq malformed stream frame: Expected property name or '}' in JSON at position 1 (line 1 column 2)");
+    assert!(err.exposure.text_emitted);
+}
+
+#[test]
+fn calls_sharing_an_id_are_dispatched_once_and_returned_both() {
+    // `emitCompatToolCallOnce` dispatches one call per id; the turn still returns the parsed list whole
+    // (`settleCompatStream`), and the loop's id resolver renames the second.
+    let codec = plain_codec();
+    let call = |index: u32, key: &str| {
+        json!({"index": index, "id": "c", "type": "function", "function": {"name": "lookup", "arguments": json!({"key": key}).to_string()}})
+    };
+    let chunk = json!({"choices": [{"delta": {"tool_calls": [call(0, "a"), call(1, "b")]}, "finish_reason": "tool_calls"}]});
+    let events = decode(&codec, format!("data: {chunk}\n\ndata: [DONE]\n\n").as_bytes(), 7);
+    let dispatched = tool_calls_of(&events);
+    assert_eq!(dispatched.len(), 1);
+    assert_eq!(dispatched[0].arguments, json!({"key": "a"}));
+    let returned = events
+        .iter()
+        .find_map(|e| match e {
+            StreamEvent::ReturnedCalls(calls) => Some(calls.clone()),
+            _ => None,
+        })
+        .expect("the returned list");
+    let returned: Vec<(String, JsonValue)> = returned.into_iter().map(|c| (c.id, c.arguments)).collect();
+    assert_eq!(returned, [("c".to_owned(), json!({"key": "a"})), ("c".to_owned(), json!({"key": "b"}))]);
+}
+
 // ---------------------------------------------------------------------------
 // Retry policy rows
 // ---------------------------------------------------------------------------

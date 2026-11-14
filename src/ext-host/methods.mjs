@@ -106,6 +106,18 @@ async function officeRun(ctx) {
   return { value: { result, writes }, pin: sessionsByThread.has(ctx.thread) };
 }
 
+/**
+ * The worker's end: every Microsoft Office session host gets the EOF cleanup Node's exit hook asks for
+ * (`com-adapter.mjs` installExitHook), closing its document and quitting the application it owns, and this resolves
+ * once each host is gone (or its drain grace lapsed). A host still running when the worker exits dies with it (libuv's
+ * kill-on-close job, and the core's job around the worker), and the application, started by DCOM outside both, would
+ * be left running with its file open.
+ */
+export async function closeOfficeSessions() {
+  const { drainSessionClient, sessionClients } = await import('../runtime/office/com/office-session-client.mjs');
+  await Promise.all([...sessionClients.values()].map((client) => drainSessionClient(client, 'process exit')));
+}
+
 // ---- pdf.js ---------------------------------------------------------------------------------
 
 async function pdfInspect(ctx) {

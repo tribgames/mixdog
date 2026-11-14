@@ -17,6 +17,8 @@ use mixdog_core_api::ids::Method;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_js::JsRegex;
 use mixdog_protocol::JsonValue;
+use mixdog_tools::desktop::host::BrowserCommandClock;
+use mixdog_tools::desktop::host::BrowserTimingLog;
 use mixdog_tools::desktop::host::HOST_COMMAND_FAILED;
 use mixdog_tools::desktop::host::HostCommandError;
 use mixdog_tools::desktop::host::HostCommands;
@@ -92,12 +94,37 @@ pub struct SecretFill {
     gates: Arc<dyn FillGates>,
     computer: Arc<dyn ComputerCommands>,
     channel: Arc<dyn ClaimedHostChannel>,
+    /// Where the `browser_timing` row of each of its browser commands goes, while the agent trace writes them.
+    timing: Option<BrowserTimingLog>,
 }
 
 impl SecretFill {
     /// `slots` is the registry `approval/provideSecret` fills.
     pub fn new(slots: Arc<SecretSlots>, gates: Arc<dyn FillGates>, computer: Arc<dyn ComputerCommands>, channel: Arc<dyn ClaimedHostChannel>) -> Self {
-        Self { slots, sessions: SessionSecrets::new(), gates, computer, channel }
+        Self { slots, sessions: SessionSecrets::new(), gates, computer, channel, timing: None }
+    }
+
+    /// Also hands the `browser_timing` row of each `host/browser/command` it sends (`secret_bind`, `secret_precheck`,
+    /// `secret_fill`) to `timing`, as Node's bridge client traced its `secret_bind` and `secret_input` requests.
+    pub fn with_timing(self, timing: BrowserTimingLog) -> Self {
+        Self { timing: Some(timing), ..self }
+    }
+
+    /// One `host/browser/command` of a secret request, timed for its `browser_timing` row (`BrowserCommandClock`). Nothing
+    /// of the value is in the row: it carries the action and the timing the desktop answered with alone.
+    async fn browser_command<T>(
+        &self,
+        thread: &ThreadId,
+        action: &str,
+        request: impl std::future::Future<Output = Result<T, HostError>>,
+        answered: impl FnOnce(&T) -> &JsonValue,
+    ) -> Result<T, HostError> {
+        let clock = BrowserCommandClock::start(self.timing.as_ref());
+        let answer = request.await;
+        if let Some(clock) = clock {
+            clock.stop(thread, action, None, answer.as_ref().map(answered));
+        }
+        answer
     }
 
     /// `redact` of the window process's registry: `text` with every value filled for the session
@@ -137,7 +164,8 @@ impl SecretFill {
     /// page (an origin and a field form came back).
     async fn bind_through(&self, thread: &ThreadId, input: JsonValue) -> Result<JsonValue, HostCommandError> {
         let request_id = request_id_of(&input).to_owned();
-        let (claim, facts) = self.channel.request_claimed(HostCapability::Browser, BROWSER_COMMAND, command_params(thread, "secret_bind", input)).await.map_err(command_error)?;
+        let bind = self.channel.request_claimed(HostCapability::Browser, BROWSER_COMMAND, command_params(thread, "secret_bind", input));
+        let (claim, facts) = self.browser_command(thread, "secret_bind", bind, |(_, facts)| facts).await.map_err(command_error)?;
         let named = |key: &str| facts.get(key).and_then(Value::as_str).is_some_and(|text| !text.is_empty());
         if named("origin") && named("form") {
             self.bind_browser(thread, &request_id, claim);
@@ -165,10 +193,8 @@ impl SecretFill {
         };
         // Phase one: the bound desktop checks the page, with no value on the wire. It answers
         // `ready` and its own host id, or the outcome that refuses the fill.
-        let check = self
-            .channel
-            .request_to(&binding.claim, HostCapability::Browser, BROWSER_COMMAND, command_params(thread, "secret_precheck", json!({ "request_id": request_id })))
-            .await;
+        let check = self.channel.request_to(&binding.claim, HostCapability::Browser, BROWSER_COMMAND, command_params(thread, "secret_precheck", json!({ "request_id": request_id })));
+        let check = self.browser_command(thread, "secret_precheck", check, |answer| answer).await;
         let answer = check.ok();
         let text = answer.as_ref().and_then(|a| a.get("text")).and_then(Value::as_str).unwrap_or_default();
         let from_bound_host = answer.as_ref().and_then(|a| a.get("hostId")).and_then(Value::as_str) == Some(binding.claim.host.as_str());
@@ -188,7 +214,8 @@ impl SecretFill {
         self.slots.discard(request_id);
         self.sessions.remember(session, &value);
         let input = json!({ "request_id": request_id, "value": value, "username": username, "save": save });
-        match self.channel.request_to(&binding.claim, HostCapability::Browser, BROWSER_COMMAND, command_params(thread, "secret_fill", input)).await {
+        let sent = self.channel.request_to(&binding.claim, HostCapability::Browser, BROWSER_COMMAND, command_params(thread, "secret_fill", input));
+        match self.browser_command(thread, "secret_fill", sent, |answer| answer).await {
             Ok(answer) => answer.get("text").and_then(Value::as_str).and_then(SecretOutcome::from_text).unwrap_or(SecretOutcome::Blocked),
             Err(_) => SecretOutcome::Blocked,
         }

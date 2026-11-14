@@ -408,9 +408,10 @@ async fn close_with_busy_workers_leaves_no_process_behind() {
         assert!(!alive(*helper).await, "helper {helper} is gone");
     }
     assert!(pool.status().is_empty());
+    // Each worker left on the close's `BYE` (its own exit 0, not the kill), its helper ended with its group all the same.
     for call in &mut busy_calls {
         let (_, outcome) = finish(call).await;
-        assert!(matches!(outcome, Err(ExtError::HostExited { .. })), "{outcome:?}");
+        assert!(matches!(outcome, Err(ExtError::HostExited { exit: ExtExit::Code(0) })), "{outcome:?}");
     }
 }
 

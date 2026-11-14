@@ -527,6 +527,60 @@ async fn a_request_is_bound_to_the_desktop_that_bound_its_page() {
     assert_eq!(inner.sent(), vec![("page_url".to_owned(), json!({ "tab": "t1" }))]);
 }
 
+/// Each browser command of a secret request leaves its `browser_timing` row, as Node's bridge client traced its
+/// `secret_bind` and `secret_input` requests (`requestBridge`); the core's fill sends `secret_precheck`, then `secret_fill`.
+/// A row holds the action and the timing the desktop answered with, never the value. A pre-check the changed claim
+/// refused leaves a row with no answer; with no desktop at all nothing was sent and there is none.
+#[tokio::test]
+async fn each_browser_command_of_a_secret_request_leaves_its_timing_row() {
+    let rows: Arc<Mutex<Vec<serde_json::Map<String, Value>>>> = Arc::default();
+    let log: mixdog_tools::desktop::host::BrowserTimingLog = {
+        let rows = rows.clone();
+        Arc::new(move |args| rows.lock().unwrap().push(args))
+    };
+    let desk = Desk::new();
+    let (slots, fill) = browser_fill(&desk, open());
+    let host = SecretHostCommands::new(Page::answering(Ok(json!({}))), Arc::new(fill.with_timing(log)));
+    let thread = ThreadId::from("S1");
+    let live = mixdog_rt::CancellationToken::new();
+    let bind = json!({ "request_id": ID });
+    desk.reply("secret_bind", Ok(json!({ "origin": "https://example.com", "form": "password", "timing": { "commandMs": 3 } })));
+    desk.reply("secret_precheck", Ok(json!({ "text": "ready", "hostId": "host-A", "timing": { "commandMs": 1 } })));
+    desk.reply("secret_fill", Ok(json!({ "text": "entered", "timing": { "inputMs": 2 } })));
+    host.browser(&thread, "secret_bind", bind.clone(), &live).await.unwrap();
+    assert!(slots.provide(ID, VALUE));
+    assert_eq!(host.browser(&thread, "secret_input", bind.clone(), &live).await.unwrap(), json!({ "text": "entered" }));
+
+    host.browser(&thread, "secret_bind", bind.clone(), &live).await.unwrap();
+    assert!(slots.provide(ID, VALUE));
+    desk.claimant_changes();
+    assert_eq!(host.browser(&thread, "secret_input", bind.clone(), &live).await.unwrap(), json!({ "text": "blocked" }));
+
+    desk.reply("secret_bind", Err(HostError::Core(CoreError::CapabilityUnavailable { capability: "desktopHost".into(), detail: "noClaimant".into() })));
+    assert_eq!(host.browser(&thread, "secret_bind", bind, &live).await, Err(HostCommandError::NoHost));
+
+    let rows = rows.lock().unwrap().clone();
+    assert!(!Value::from(rows.clone()).to_string().contains(VALUE), "no row holds the value");
+    let seen: Vec<(Value, Option<Value>)> = rows
+        .iter()
+        .map(|row| {
+            assert!(row["bridgeMs"].as_f64().is_some_and(|ms| ms >= 0.0), "{row:?}");
+            (row["context"].clone(), row.get("body").cloned())
+        })
+        .collect();
+    let answered = |action: &str, timing: Value| (json!({ "sessionId": "S1", "action": action }), Some(json!({ "ok": true, "value": { "timing": timing } })));
+    assert_eq!(
+        seen,
+        [
+            answered("secret_bind", json!({ "commandMs": 3 })),
+            answered("secret_precheck", json!({ "commandMs": 1 })),
+            answered("secret_fill", json!({ "inputMs": 2 })),
+            answered("secret_bind", json!({ "commandMs": 3 })),
+            (json!({ "sessionId": "S1", "action": "secret_precheck" }), None),
+        ]
+    );
+}
+
 #[tokio::test(start_paused = true)]
 async fn an_overdue_entry_is_refused_even_before_its_timer_ran() {
     let slots = lasting();

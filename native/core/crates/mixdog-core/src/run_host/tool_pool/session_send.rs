@@ -22,6 +22,8 @@ use mixdog_core_rooms::rooms::room_ask::Addressee;
 use mixdog_core_rooms::rooms::room_ask::Ask;
 use mixdog_core_rooms::rooms::room_ask::RoomAsk;
 use mixdog_core_session::session::SessionDirectory;
+// `agentDisplayName(agentId)`: the sessions' approval cards name their delegation chain by it too.
+pub use mixdog_core_session::session::delegation::AgentNames;
 use mixdog_core_session::session::delegation::bot_chain_of;
 use mixdog_core_session::session::delegation::delegation_chain;
 use mixdog_services::task_reports::send::Origin;
@@ -69,12 +71,6 @@ impl CallerChains {
         let turn_bots = |id: &str| (self.turn)(id).1;
         delegation_chain(caller, &*self.record, &turn_bots)
     }
-}
-
-/// `agentDisplayName(agentId)`: the name a bot goes by in the envelope of its messages.
-#[async_trait]
-pub trait AgentNames: Send + Sync {
-    async fn name(&self, agent_id: &str) -> String;
 }
 
 /// `readModelCatalog(service, sessionId)`: the model menu's catalog rows

@@ -8,11 +8,12 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
-# The loop talks to providers and tools only through the domain traits in
-# `mixdog-core-api` (injected as `Arc<dyn …>`). `mixdog-ai` is named only for the
-# shared effort projection (`mixdog_ai::effort::EffortProjection`). The one
-# `mixdog-tools` item it names is the tool policy, for the policy-backed `ToolGate`
-# (`env::PolicyGate`).
+# The loop talks to providers and tools through the domain traits in
+# `mixdog-core-api` (injected as `Arc<dyn …>`). From `mixdog-ai` and
+# `mixdog-tools` it reuses shared pieces instead of copying them: for example the
+# effort projection, the route reads of `service::admin_route` and the error
+# presenter of `service::error_text`; the tool policy behind `env::PolicyGate` and
+# the `orch` ports the agent tool implements.
 mixdog-core-api = { workspace = true }
 mixdog-ai = { workspace = true }
 mixdog-tools = { workspace = true }

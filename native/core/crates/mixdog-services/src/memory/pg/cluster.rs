@@ -1,7 +1,8 @@
 //! The PostgreSQL cluster behind memory and session search: one bundled
 //! runtime (`bin/`, `lib/`, `share/`, pgvector included), one data directory.
 //! `PgCluster::ensure` attaches to a postmaster that already serves the data
-//! directory, else initialises it when empty and starts one. The core is the
+//! directory, else makes the cluster when the directory holds none (in
+//! `pgdata.init`, renamed to `pgdata` once whole) and starts one. The core is the
 //! only process of its data dir, so there is no secondary-attach protocol.
 
 //!
@@ -18,7 +19,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use mixdog_rt::{DurabilityIo, TaskClass};
+use mixdog_rt::{DurabilityIo, LaneToken, TaskClass};
 use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
 
@@ -468,6 +469,35 @@ fn initdb_args(data_dir: &Path, share: Option<&Path>, syncs_elided: bool) -> Vec
     args
 }
 
+/// The waits before the second, third and fourth removal attempts; every later one waits 200 ms (`renameWithRetrySync`'s schedule, without its
+/// jitter).
+const REMOVE_BACKOFF_MS: [u64; 3] = [25, 50, 100];
+/// Removal attempts in all (`renameWithRetrySync`'s 24, about four seconds of waiting).
+const REMOVE_ATTEMPTS: usize = 24;
+
+/// Removes the directory `path` (and what it holds when `recursive`; a missing one is then no error), retried while Windows refuses it for a
+/// moment: a scanner or an indexer holding it or a file in it, or a process of an `initdb` just ended still tearing down. Any other answer, and
+/// the last refusal, is the removal's.
+async fn remove_dir_with_retry(lane: DurabilityIo, path: &Path, recursive: bool) -> std::io::Result<()> {
+    let mut attempt: usize = 0;
+    loop {
+        let removed = if recursive { fsio::remove_dir_all(lane, path).await } else { fsio::remove_dir(lane, path).await };
+        match removed {
+            Err(error) if attempt + 1 < REMOVE_ATTEMPTS && refused_for_now(&error) => {
+                let wait = REMOVE_BACKOFF_MS.get(attempt).copied().unwrap_or(200);
+                mixdog_rt::time::sleep(Duration::from_millis(wait)).await;
+                attempt += 1;
+            }
+            removed => return removed,
+        }
+    }
+}
+
+/// A Windows refusal that clears in moments: `ERROR_ACCESS_DENIED` (an entry pending deletion), `ERROR_SHARING_VIOLATION`, `ERROR_LOCK_VIOLATION`.
+fn refused_for_now(error: &std::io::Error) -> bool {
+    cfg!(windows) && matches!(error.raw_os_error(), Some(5 | 32 | 33))
+}
+
 impl std::fmt::Debug for PgCluster {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PgCluster").field("data_dir", &self.data_dir).field("port", &self.port).finish_non_exhaustive()
@@ -615,7 +645,8 @@ impl PgCluster {
         admit: &(dyn Fn() -> bool + Send + Sync),
     ) -> Result<Self> {
         let data_dir = profile.join("pgdata");
-        fsio::create_dir_all(lane, &data_dir).await?;
+        // `pgdata` itself is made only by `init`, whole.
+        fsio::create_dir_all(lane, profile).await?;
         if let Some(port) = read_postmaster_port(lane, &data_dir).await
             && start.healthy(port).await
         {
@@ -769,18 +800,39 @@ impl PgCluster {
         }
     }
 
+    /// `initClusterIfNeeded` (`process.mjs:339-372`): `initdb`, then the configuration appended. Node's `initdb` outlives a daemon that is killed or
+    /// stopped during it (it takes no abort signal, and on Windows its restricted-token worker leaves the daemon's job); here the cancel and the core's
+    /// kill-on-close job end it, and a `pgdata` it left half made (`PG_VERSION`, no `postgres` database) was taken for a cluster by every later start.
+    /// So the cluster is made in `pgdata.init` and becomes `pgdata` in one rename once both steps are done: an init that is ended leaves no `pgdata`,
+    /// and the next start makes the cluster again.
     async fn init(lane: DurabilityIo, processes: &Processes, runtime: &PgRuntime, data_dir: &Path, cancel: &CancellationToken) -> Result<()> {
+        let staging = data_dir.with_extension("init");
+        // `data_dir` holds no cluster here (no `PG_VERSION`): an empty one, which earlier builds made before `initdb`, is removed, and one that holds
+        // anything is refused, as `initdb` refuses it. What an ended init left in `staging` is never a cluster.
+        if let Err(error) = remove_dir_with_retry(lane, data_dir, false).await
+            && error.kind() != std::io::ErrorKind::NotFound
+        {
+            return Err(MemoryError::Runtime(format!("{} holds no cluster (no PG_VERSION) and cannot be replaced by one: {error}", data_dir.display())));
+        }
+        remove_dir_with_retry(lane, &staging, true).await?;
         let share = ShareDir::prepare(lane, processes, runtime).await?;
-        let args = initdb_args(data_dir, share.path(), mixdog_fsio::elide::syncs_elided());
+        let args = initdb_args(&staging, share.path(), mixdog_fsio::elide::syncs_elided());
         // No time limit, as in Node (`runChild` without `timeoutMs`); the cancel ends it.
         let result = runtime.run(processes, "initdb", &args, Duration::ZERO, Some(cancel)).await;
         share.release(lane).await;
         result?;
-        let conf = data_dir.join("postgresql.conf");
+        let conf = staging.join("postgresql.conf");
         let mut text = fsio::read_to_string(lane, &conf).await?;
         text.push_str(CLUSTER_CONF);
         text.push_str(SCRUB_CONF);
         fsio::write(lane, &conf, text.into_bytes()).await?;
+        // Retried while Windows still holds a file of the new tree (a scanner, an indexer).
+        let target = data_dir.to_owned();
+        let renamed = lane
+            .submit_wait(&CancellationToken::new(), move |proof| mixdog_statefile::rename_with_retry(proof, &staging, &target))
+            .await
+            .map_err(std::io::Error::other)?;
+        renamed.await.map_err(std::io::Error::other)??;
         Ok(())
     }
 

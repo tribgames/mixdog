@@ -20,6 +20,7 @@ use serde_json::Value;
 
 use crate::memory::recall::RecallOutcome;
 use crate::memory::service::LocalMemory;
+use crate::memory::service::MemoryModule;
 
 /// Whose memory a session reads and writes.
 #[async_trait]
@@ -62,7 +63,9 @@ struct Host {
 }
 
 impl Host {
+    /// The call's arguments; the calling session's runtime has loaded the module (`knowledge-tools.mjs:45`, `getMemoryModule()`).
     async fn args(&self, call: &ServiceCall<'_>) -> Value {
+        self.memory.note_session_use(call.thread.as_str());
         args_for_caller(call.args, call.cwd.as_path(), self.callers.memory_caller(call.thread).await)
     }
 }

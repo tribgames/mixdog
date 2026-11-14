@@ -54,6 +54,12 @@ pub async fn remove_dir<L: LaneToken>(lane: L, path: &Path) -> io::Result<()> {
     io_on_lane(lane, move || std::fs::remove_dir(path)).await
 }
 
+/// Removes `path` and everything in it; a missing one is no error (`rmSync(path, { recursive: true, force: true })`).
+pub async fn remove_dir_all<L: LaneToken>(lane: L, path: &Path) -> io::Result<()> {
+    let path = path.to_owned();
+    io_on_lane(lane, move || mixdog_core_base::support::remove_dir_all_forced(&path).map_err(|failure| failure.error)).await
+}
+
 /// The names directly inside `path`; a directory that cannot be read has none (`readdirSync` in a
 /// `try`).
 #[allow(clippy::disallowed_methods, reason = "the call is a lane job")]

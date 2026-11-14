@@ -148,6 +148,12 @@ fn with_status<R>(snapshot: &ContextSnapshot, session: &Header, messages: &[Agen
     f(&input)
 }
 
+/// `handoffSummaryTimeoutMs(session)` (`compaction-runner.mjs`): a pass between turns bounds its summary by
+/// `compaction.timeoutMs` alone, without the environment the pre-send policy also reads.
+fn handoff_summary_timeout_ms(header: &Header) -> Option<u64> {
+    mixdog_agent::agent_tool::scope::positive_int(header.get("compaction").and_then(|compaction| compaction.get("timeoutMs")))
+}
+
 /// Node's `session.messages`, which the pass prices: the request's system blocks, then the transcript.
 /// The compactor works on the transcript alone.
 fn priced(header: &Header, transcript: &[AgentMessage]) -> Vec<AgentMessage> {
@@ -349,7 +355,8 @@ impl HostManualCompaction {
         let Some(plan) = plan else { return Ok(None) };
 
         // The compactor of the thread's route: `runSessionHandoff`.
-        let Some(settings) = parts.config.run_settings(thread, &snapshot.header).compact else { return Err(failed(DOMAIN, "no compaction policy for this session")) };
+        let Some(mut settings) = parts.config.run_settings(thread, &snapshot.header).compact else { return Err(failed(DOMAIN, "no compaction policy for this session")) };
+        settings.handoff_timeout_ms = handoff_summary_timeout_ms(&snapshot.header);
         // What left is reported only when its stored row shows (`prepareCompactionArchive`): the pass reads them here.
         let input = CompactorInput {
             settings,
@@ -394,7 +401,7 @@ impl HostManualCompaction {
         let commit_started_at = self.now();
 
         let usage = output.usage.as_ref().map(usage_value);
-        let summarized = usage.is_some();
+        let summarized = output.summarized();
         let fresh = SummaryFacts {
             usage: usage.clone(),
             fresh_context: true,
@@ -491,7 +498,8 @@ impl ManualCompaction for HostManualCompaction {
             compaction.insert("conversationThresholdTokens".into(), json!(1));
             header.insert("compaction".into(), Value::Object(compaction));
         }
-        let Some(settings) = parts.config.run_settings(source, &header).compact else { return Ok(None) };
+        let Some(mut settings) = parts.config.run_settings(source, &header).compact else { return Ok(None) };
+        settings.handoff_timeout_ms = handoff_summary_timeout_ms(&header);
         let input = CompactorInput {
             settings,
             rows: registered(&messages[messages.len() - rows.len()..], &rows),

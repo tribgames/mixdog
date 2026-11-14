@@ -1,7 +1,7 @@
 // =====================================================================
 // Import resolution + dependents (ported from the JS code-graph.mjs
 // import-resolution layer, L658-954). All paths here are repo-relative
-// and forward-slash normalized (same form as `FileRecord.rel`); the
+// and forward-slash normalized (same form as `ImportRecord::rel`); the
 // fileSet is a HashSet of those rels. Resolution that the JS layer did
 // in absolute-path space is done here in repo-relative space — the root
 // directory maps to the empty string "".
@@ -13,21 +13,24 @@
 //   * `manifests` — pubspec/composer/tsconfig/package.json/Cargo.toml/go.mod,
 //                   the only part of this layer that reads the filesystem.
 //   * `languages` — the direct, fileSet-backed leg, one language at a time.
+//   * `top_level_types` — the `topLevelTypes` word scan the java/kotlin FQCN
+//                   index keys on.
 //
 // This file owns the GraphIndex those manifests and records build, the
 // index-backed fallbacks, and `resolve_and_link` — the single entry point
-// `main.rs` calls.
+// `main.rs` and the Rust core's code graph call, each over its own record type
+// (`ImportRecord`).
 
 mod languages;
 mod manifests;
 mod paths;
+mod top_level_types;
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use rayon::prelude::*;
 
-use crate::FileRecord;
 use languages::{
     expand_rust_use_spec, resolve_go_relative, resolve_graph_import, resolve_hcl_module,
     resolve_js_base, resolve_rust_mod, resolve_rust_use_path, rust_crate_src_for,
@@ -37,6 +40,20 @@ use manifests::{
     load_rust_crate_srcs, load_ts_configs, JsPackage, TsConfigScope,
 };
 use paths::{file_stem_rel, is_same_or_under, normalize_import_spec, path_join_norm, rel_dir};
+
+pub use top_level_types::extract_top_level_types;
+
+/// The fields of a file record that import resolution reads, and the two
+/// edge lists it writes back (`resolvedImports`, `importedBy`).
+pub trait ImportRecord {
+    fn rel(&self) -> &str;
+    fn lang(&self) -> &str;
+    fn raw_imports(&self) -> &[String];
+    fn package_name(&self) -> &str;
+    fn namespace_name(&self) -> &str;
+    fn top_level_types(&self) -> &[String];
+    fn set_edges(&mut self, resolved_imports: Vec<String>, imported_by: Vec<String>);
+}
 
 // Case-insensitive strip of a leading `static\s+` (Java/C# static imports).
 fn strip_static_prefix(s: &str) -> String {
@@ -342,7 +359,7 @@ fn push_index_set(map: &mut HashMap<String, Vec<String>>, key: &str, value: &str
     }
 }
 
-fn build_graph_index(records: &[FileRecord], root: &Path) -> GraphIndex {
+fn build_graph_index(records: &[impl ImportRecord], root: &Path) -> GraphIndex {
     // The manifest-backed fields; the record-backed maps start empty and are
     // filled below.
     let mut index = GraphIndex {
@@ -355,64 +372,65 @@ fn build_graph_index(records: &[FileRecord], root: &Path) -> GraphIndex {
     };
     let mut go_mod_cache: HashMap<String, Option<(String, String)>> = HashMap::new();
     for rec in records {
-        match rec.lang {
+        let rel = rec.rel();
+        let package_name = rec.package_name();
+        match rec.lang() {
             "java" | "kotlin" => {
-                if !rec.package_name.is_empty() {
-                    push_index_set(&mut index.package_members, &rec.package_name, &rec.rel);
+                if !package_name.is_empty() {
+                    push_index_set(&mut index.package_members, package_name, rel);
                 }
-                for type_name in &rec.top_level_types {
-                    let fqcn = if rec.package_name.is_empty() {
+                for type_name in rec.top_level_types() {
+                    let fqcn = if package_name.is_empty() {
                         type_name.clone()
                     } else {
-                        format!("{}.{}", rec.package_name, type_name)
+                        format!("{package_name}.{type_name}")
                     };
-                    push_index_set(&mut index.type_by_fqcn, &fqcn, &rec.rel);
+                    push_index_set(&mut index.type_by_fqcn, &fqcn, rel);
                 }
             }
-            "csharp" if !rec.namespace_name.is_empty() => {
-                push_index_set(&mut index.csharp_namespaces, &rec.namespace_name, &rec.rel);
+            "csharp" if !rec.namespace_name().is_empty() => {
+                push_index_set(&mut index.csharp_namespaces, rec.namespace_name(), rel);
             }
             "go" => {
-                let gip = go_import_path(&rec.rel, root, &mut go_mod_cache);
+                let gip = go_import_path(rel, root, &mut go_mod_cache);
                 if !gip.is_empty() {
-                    push_index_set(&mut index.go_import_paths, &gip, &rec.rel);
+                    push_index_set(&mut index.go_import_paths, &gip, rel);
                 }
             }
             "elixir" => {
-                if let Some(module) = elixir_module_from_rel(&rec.rel) {
-                    push_index_set(&mut index.elixir_modules, &module, &rec.rel);
+                if let Some(module) = elixir_module_from_rel(rel) {
+                    push_index_set(&mut index.elixir_modules, &module, rel);
                 }
             }
             "swift" => {
-                if let Some(stem) = file_stem_rel(&rec.rel) {
-                    push_index_set(&mut index.swift_modules, stem, &rec.rel);
+                if let Some(stem) = file_stem_rel(rel) {
+                    push_index_set(&mut index.swift_modules, stem, rel);
                 }
-                let parts: Vec<&str> = rec.rel.split('/').collect();
+                let parts: Vec<&str> = rel.split('/').collect();
                 if let Some(i) = parts.iter().position(|part| *part == "Sources") {
                     if let Some(module) = parts.get(i + 1) {
-                        push_index_set(&mut index.swift_modules, module, &rec.rel);
+                        push_index_set(&mut index.swift_modules, module, rel);
                     }
                 }
             }
             "scala" => {
-                if let Some(without) = rec
-                    .rel
+                if let Some(without) = rel
                     .strip_suffix(".scala")
-                    .or_else(|| rec.rel.strip_suffix(".sc"))
+                    .or_else(|| rel.strip_suffix(".sc"))
                 {
-                    push_index_set(&mut index.scala_types, &without.replace('/', "."), &rec.rel);
+                    push_index_set(&mut index.scala_types, &without.replace('/', "."), rel);
                 }
             }
             "objc" | "c" => {
-                if let Some(name) = rec.rel.rsplit('/').next() {
+                if let Some(name) = rel.rsplit('/').next() {
                     if name.ends_with(".h") || name.ends_with(".m") || name.ends_with(".mm") {
-                        push_index_set(&mut index.objc_headers, name, &rec.rel);
-                        if let Some((parent, _)) = rec.rel.rsplit_once('/') {
+                        push_index_set(&mut index.objc_headers, name, rel);
+                        if let Some((parent, _)) = rel.rsplit_once('/') {
                             if let Some(dir) = parent.rsplit('/').next() {
                                 push_index_set(
                                     &mut index.objc_headers,
                                     &format!("{dir}/{name}"),
-                                    &rec.rel,
+                                    rel,
                                 );
                             }
                         }
@@ -498,7 +516,7 @@ fn resolve_csharp(spec: &str, index: &GraphIndex) -> Vec<String> {
 // JS `_resolveIndexedGraphImport`: direct fileSet resolution first, then
 // the per-language indexed fallbacks (go/java/kotlin/rust/csharp).
 fn resolve_indexed_graph_import(
-    rec: &FileRecord,
+    rec: &impl ImportRecord,
     spec: &str,
     file_set: &HashSet<String>,
     index: &GraphIndex,
@@ -507,18 +525,19 @@ fn resolve_indexed_graph_import(
     if normalized.is_empty() {
         return Vec::new();
     }
-    if let Some(direct) = resolve_graph_import(&rec.rel, &normalized, rec.lang, file_set) {
+    let rel = rec.rel();
+    if let Some(direct) = resolve_graph_import(rel, &normalized, rec.lang(), file_set) {
         return vec![direct];
     }
 
-    match rec.lang {
-        "javascript" | "typescript" => resolve_ts_alias(&rec.rel, &normalized, file_set, index)
-            .or_else(|| resolve_js_hash_import(&rec.rel, &normalized, file_set, index))
+    match rec.lang() {
+        "javascript" | "typescript" => resolve_ts_alias(rel, &normalized, file_set, index)
+            .or_else(|| resolve_js_hash_import(rel, &normalized, file_set, index))
             .or_else(|| resolve_js_package(&normalized, file_set, index))
             .into_iter()
             .collect(),
         "go" => {
-            let relative = resolve_go_relative(&rec.rel, &normalized, file_set);
+            let relative = resolve_go_relative(rel, &normalized, file_set);
             if !relative.is_empty() {
                 relative
             } else {
@@ -530,7 +549,7 @@ fn resolve_indexed_graph_import(
             }
         }
         "java" | "kotlin" => resolve_java_like(&normalized, index),
-        "rust" => resolve_rust_indexed(&rec.rel, &normalized, file_set, index),
+        "rust" => resolve_rust_indexed(rel, &normalized, file_set, index),
         "csharp" => resolve_csharp(&normalized, index),
         // bash/lua/solidity/haskell resolve entirely via the direct fileSet
         // leg above (resolve_graph_import); they have no index-backed
@@ -540,13 +559,13 @@ fn resolve_indexed_graph_import(
         "bash" | "lua" | "r" | "solidity" | "haskell" => Vec::new(),
         // A terraform module is a directory, so this one resolves to MANY
         // files and cannot use the single-answer direct leg.
-        "hcl" => resolve_hcl_module(&rec.rel, &normalized, file_set),
+        "hcl" => resolve_hcl_module(rel, &normalized, file_set),
         "dart" => resolve_dart_package(&normalized, file_set, index)
             .into_iter()
             .collect(),
         "php" => resolve_php_use(&normalized, file_set, index),
         "elixir" => resolve_elixir(&normalized, index),
-        "objc" => resolve_objc_header(&rec.rel, &normalized, file_set, index),
+        "objc" => resolve_objc_header(rel, &normalized, file_set, index),
         "swift" => resolve_swift(&normalized, index),
         "scala" => resolve_scala(&normalized, index),
         _ => Vec::new(),
@@ -555,8 +574,8 @@ fn resolve_indexed_graph_import(
 
 // Post-join: resolve every record's rawImports → resolvedImports (rel,
 // deduped, order-preserving), then a reverse pass fills importedBy.
-pub(crate) fn resolve_and_link(
-    records: &mut [FileRecord],
+pub fn resolve_and_link<R: ImportRecord + Sync>(
+    records: &mut [R],
     root: &Path,
     file_set: &HashSet<String>,
 ) {
@@ -566,9 +585,9 @@ pub(crate) fn resolve_and_link(
         .map(|rec| {
             let mut out = Vec::new();
             let mut seen = HashSet::new();
-            for spec in &rec.raw_imports {
+            for spec in rec.raw_imports() {
                 for dep in resolve_indexed_graph_import(rec, spec, file_set, &index) {
-                    if dep != rec.rel && seen.insert(dep.clone()) {
+                    if dep != rec.rel() && seen.insert(dep.clone()) {
                         out.push(dep);
                     }
                 }
@@ -579,19 +598,17 @@ pub(crate) fn resolve_and_link(
     // Reverse edges (importedBy), in record order, deduped per target.
     let mut reverse: HashMap<String, Vec<String>> = HashMap::new();
     for (i, deps) in resolved.iter().enumerate() {
-        let importer = &records[i].rel;
+        let importer = records[i].rel();
         for dep in deps {
             let entry = reverse.entry(dep.clone()).or_default();
-            if entry.last() != Some(importer) {
-                entry.push(importer.clone());
+            if entry.last().map(String::as_str) != Some(importer) {
+                entry.push(importer.to_string());
             }
         }
     }
     for (rec, resolved_imports) in records.iter_mut().zip(resolved) {
-        rec.resolved_imports = resolved_imports;
-        if let Some(importers) = reverse.remove(&rec.rel) {
-            rec.imported_by = importers;
-        }
+        let imported_by = reverse.remove(rec.rel()).unwrap_or_default();
+        rec.set_edges(resolved_imports, imported_by);
     }
 }
 

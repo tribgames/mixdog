@@ -149,6 +149,7 @@
       "type": "object"
     },
     "HostCommandParams": {
+      "description": "Params of `host/browser/command` (core → host): a browser action on the pages of `threadId`, with its input. The host answers with the action's result, which may carry the desktop's `BrowserCommandTiming` as `timing`, or fails it with the JSON-RPC error -32000, whose message is already redacted and whose `data.timing` is the failed command's `BrowserCommandTiming`. Both timings are diagnostics: the core writes them to its agent trace (`browser_timing` rows) and never shows them to the model.",
       "properties": {
         "action": {
           "type": "string"

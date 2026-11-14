@@ -97,7 +97,7 @@ async fn the_post_tool_hooks_send_and_decide_what_node_does() {
         let post = SessionPostTool::new(bus, Arc::new(move |_: &str| common.clone()));
         let cwd = dir.path().join("work").to_string_lossy().into_owned();
         let args = case["args"].clone();
-        let call = PostCall { session_id: &session_id, name: case["tool"].as_str().unwrap(), args: &args, cwd: &cwd, result: case["result"].as_str().unwrap() };
+        let call = PostCall { session_id: &session_id, call_id: "", name: case["tool"].as_str().unwrap(), args: &args, cwd: &cwd, result: case["result"].as_str().unwrap() };
         let decision = &case["decision"];
         match event {
             "PostToolUse" => {
@@ -127,6 +127,33 @@ async fn the_post_tool_hooks_send_and_decide_what_node_does() {
         assert_eq!(seen, case["payloads"], "{label}: what the handlers received");
         hub.close_all().await;
     }
+}
+
+/// A reported call names its id as `tool_use_id`, after `tool_input` (`toolPayload`, `session-hooks.mjs`).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_reported_call_names_its_id_as_tool_use_id() {
+    let tokens = mixdog_rt::testing::tokens();
+    let io = McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io, cpu: tokens.cpu_bulk };
+    let dir = tempfile::tempdir().unwrap();
+    let cwd = dir.path().join("work").to_string_lossy().into_owned();
+    let handlers = json!([{"type": "mcp_tool", "server": "mock", "tool": "fixture_0"}]);
+    std::fs::write(dir.path().join("hooks.json"), json!({"hooks": {"PostToolUse": [{"matcher": "*", "hooks": handlers}]}}).to_string()).unwrap();
+    let hub = McpHub::new(io, dir.path().join("artifacts"), OutputPolicy::default());
+    let entry = json!({"command": MOCK, "env": {"MOCK_FIXTURES": json!([""]).to_string()}});
+    hub.apply(vec![McpServerConfig::from_entry("mock", &entry, &std::env::vars().collect()).unwrap()]);
+    hub.server("mock").unwrap().connect().await.unwrap();
+    let bus = HookBus::new(dir.path().to_path_buf(), tokens.maintenance_io, Arc::new(NoProcesses), Some(Arc::clone(&hub)), None, None);
+    let post = SessionPostTool::new(bus, Arc::new(|_: &str| HookCommon::default()));
+    let args = json!({"file_path": "a.txt"});
+    post.tool(&PostCall { session_id: "sess_t", call_id: "call_7", name: "edit", args: &args, cwd: &cwd, result: "ok" }).await;
+    let seen = hub.server("mock").unwrap().call_tool_unlisted("t", "fixture_args", json!({}), &tokio_util::sync::CancellationToken::new(), None).await.unwrap();
+    let mixdog_core_api::domain::tool::ToolPart::Text(text) = &seen.parts[0] else { panic!("{:?}", seen.parts) };
+    let payload: Value = serde_json::from_str::<Value>(text).unwrap()[0].clone();
+    assert_eq!(
+        serde_json::to_string(&payload).unwrap(),
+        json!({"session_id": "sess_t", "cwd": cwd, "hook_event_name": "PostToolUse", "tool_name": "edit", "tool_input": args, "tool_use_id": "call_7", "tool_response": "ok"}).to_string()
+    );
+    hub.close_all().await;
 }
 
 /// The transcript a bound export names is the path the handlers receive, placed where Node's
@@ -167,7 +194,7 @@ async fn a_bound_transcript_export_names_the_path_the_handlers_receive() {
 
     // An event no handler is configured for runs nothing, so nothing is exported.
     let args = json!({});
-    post.failure(&PostCall { session_id: "sess_t", name: "edit", args: &args, cwd: &cwd, result: "failed" }).await;
+    post.failure(&PostCall { session_id: "sess_t", call_id: "", name: "edit", args: &args, cwd: &cwd, result: "failed" }).await;
     assert_eq!(export.0.load(std::sync::atomic::Ordering::SeqCst), 0);
 
     post.batch("sess_t", &cwd, 2).await;

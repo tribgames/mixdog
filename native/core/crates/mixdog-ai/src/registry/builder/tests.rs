@@ -186,6 +186,20 @@ async fn a_one_wire_custom_provider_routes_its_wire_like_node() {
     assert!(anthropic.wire_routing().is_none());
 }
 
+/// `createCustomProvider` reads an unversioned entry through `normalizeCustomProviderConfig` (`migrateLegacy`): its `models`
+/// are manual rows with their name, window and output ceiling, as the same entry saved as schema 2 states them.
+#[tokio::test]
+async fn a_legacy_custom_entrys_models_are_its_manual_rows() {
+    let dir = tempfile::tempdir().unwrap();
+    let b = builder(&dir);
+    let legacy = json!({"type": "custom", "name": "Legacy", "protocol": "openai-chat", "baseURL": "http://localhost:1/v1", "apiKey": "k",
+        "models": [{"id": "smoke", "name": "Smoke Legacy", "contextWindow": 30000, "maxOutputTokens": 1234}]});
+    let parts = b.build_custom_parts("custom-legacy", &legacy).unwrap();
+    let rows = parts.listing.cached_rows();
+    let row = rows.iter().find(|row| row.id == "smoke").expect("the legacy model is a row");
+    assert_eq!((row.name.as_deref(), row.context_window, row.max_output_tokens, row.manual, row.hidden), (Some("Smoke Legacy"), Some(30_000), Some(1_234), true, false));
+}
+
 /// `describeVertexAdc` against Node's (`fixtures/vertex-adc/golden.json`, `record-vertex-adc.mjs`):
 /// the gcloud login the settings show, over ADC files and gcloud configuration seeded in a folder.
 mod adc {
@@ -531,4 +545,213 @@ async fn the_xai_server_tool_search_is_the_providers_own_opt_in() {
     );
     assert!(xai_server_tool_search(&json!({"xaiServerToolSearch": true})));
     assert!(!xai_server_tool_search(&json!({})) && !xai_server_tool_search(&json!({"xaiServerToolSearch": 1})));
+}
+
+/// The request a custom provider built from `cfg` sent for `request`, over a network that refuses it: its header names
+/// lower-cased and its body parsed.
+async fn custom_request(cfg: &Value, request: ModelRequest) -> (HashMap<String, String>, Value) {
+    let dir = tempfile::tempdir().unwrap();
+    let replay = Arc::new(crate::providers::listing_row::testing::Replay::new(|_| {
+        (400, br#"{"error":{"message":"scripted refusal","type":"invalid_request_error"}}"#.to_vec())
+    }));
+    let b = builder_over(&dir, Arc::new(ProcessEnv), Some(replay.clone() as Arc<dyn HttpSend>), Arc::new(SessionContext::new()));
+    let provider = b.build("custom-shape", cfg).await.unwrap_or_else(|e| panic!("{e}"));
+    let _ = provider.attempt(Arc::new(request)).await;
+    let requests = replay.requests.lock().unwrap();
+    let sent = requests.iter().find(|r| r.method == "POST").expect("the request left");
+    let headers = sent.headers.iter().map(|(name, value)| (name.to_ascii_lowercase(), value.clone())).collect();
+    (headers, serde_json::from_slice(&sent.body).unwrap())
+}
+
+/// A keyless custom provider on `protocol` at a stand-in endpoint, not warmed, with `overrides` as its `modelOverrides`.
+fn custom_config(protocol: &str, overrides: Value) -> Value {
+    json!({
+        "type": "custom", "protocol": protocol, "baseURL": "http://shape.test/v1", "auth": "none", "preconnect": false,
+        "modelOverrides": overrides,
+    })
+}
+
+/// A one-message request of `model` with `options`.
+fn custom_turn(model: &str, options: mixdog_core_api::domain::provider::RequestOptions) -> ModelRequest {
+    use mixdog_core_api::domain::provider::{Content, Message, Role};
+    ModelRequest {
+        model: model.to_owned(),
+        messages: vec![Message::new(Role::User, Content::Text("hi".into()))],
+        tools: Vec::new(),
+        options,
+    }
+}
+
+/// A model's own `requestHeaders` (the key `modelOverrides[id]` stores them under) ride every request of that model on
+/// each protocol's wire, over the provider's headers of the same name, and no other model's (`customRequestHeaders`).
+#[tokio::test]
+async fn a_custom_models_request_headers_ride_its_requests_only() {
+    for protocol in ["openai-chat", "openai-responses", "anthropic"] {
+        let mut cfg = custom_config(
+            protocol,
+            json!({
+                "smoke": {"manual": true, "requestHeaders": {"X-Model": "smoke", "X-Team": "model"}},
+                "plain": {"manual": true},
+            }),
+        );
+        cfg["headers"] = json!({"X-Team": "provider"});
+        let (headers, _) = custom_request(&cfg, custom_turn("smoke", Default::default())).await;
+        let sent = |name: &str| headers.get(name).cloned();
+        assert_eq!((sent("x-model"), sent("x-team")), (Some("smoke".to_owned()), Some("model".to_owned())), "{protocol}");
+        let (headers, _) = custom_request(&cfg, custom_turn("plain", Default::default())).await;
+        let sent = |name: &str| headers.get(name).cloned();
+        assert_eq!((sent("x-model"), sent("x-team")), (None, Some("provider".to_owned())), "{protocol}");
+    }
+}
+
+/// The turn's effort reaches a custom provider's request on each wire as the model's own row says
+/// (`resolveCustomReasoning`): snapped onto the row's levels and spelled by its `wireValues`, as the Chat wire's
+/// `reasoning_effort`, the Responses wire's `reasoning.effort`, and on the Messages wire as adaptive `thinking` with
+/// `output_config.effort` and the effort beta in place of the engine's own (`none` turns thinking off, which keeps a
+/// forced tool choice). A model whose row declares no levels gets no reasoning field.
+#[tokio::test]
+async fn a_custom_request_carries_its_model_rows_reasoning_at_the_turns_effort() {
+    use mixdog_core_api::domain::provider::{RequestOptions, ToolDefinition};
+    let overrides = json!({
+        "smoke": {"manual": true, "reasoning": {"levels": ["none", "low", "medium", "high"], "wireValues": {"high": "HIGH-WIRE"}}},
+        "plain": {"manual": true},
+    });
+    let at = |effort: &str| RequestOptions { effort: Some(effort.to_owned()), ..RequestOptions::default() };
+
+    let chat = custom_config("openai-chat", overrides.clone());
+    let (_, body) = custom_request(&chat, custom_turn("smoke", at("xhigh"))).await;
+    assert_eq!(body["reasoning_effort"], "HIGH-WIRE", "xhigh snaps to the row's high, sent as its wire value");
+    let (_, body) = custom_request(&chat, custom_turn("smoke", at("low"))).await;
+    assert_eq!(body["reasoning_effort"], "low");
+    let (_, body) = custom_request(&chat, custom_turn("plain", at("high"))).await;
+    assert!(body.get("reasoning_effort").is_none(), "{body}");
+
+    let responses = custom_config("openai-responses", overrides.clone());
+    let (_, body) = custom_request(&responses, custom_turn("smoke", at("medium"))).await;
+    assert_eq!(body["reasoning"], json!({"effort": "medium"}));
+    let (_, body) = custom_request(&responses, custom_turn("plain", at("medium"))).await;
+    assert!(body.get("reasoning").is_none(), "{body}");
+
+    let anthropic = custom_config("anthropic", overrides);
+    let effort_beta = |headers: &HashMap<String, String>| {
+        headers.get("anthropic-beta").is_some_and(|betas| betas.split(',').any(|name| name == "effort-2025-11-24"))
+    };
+    let forced = |effort: &str| {
+        let mut request = custom_turn("smoke", RequestOptions { tool_choice: Some("lookup".to_owned()), ..at(effort) });
+        request.tools = vec![ToolDefinition {
+            name: "lookup".to_owned(),
+            description: "lookup".to_owned(),
+            input_schema: json!({"type": "object", "properties": {}}),
+            defer_loading: false,
+            freeform: None,
+        }];
+        request
+    };
+    let (headers, body) = custom_request(&anthropic, forced("high")).await;
+    assert_eq!((&body["thinking"], &body["output_config"]), (&json!({"type": "adaptive"}), &json!({"effort": "HIGH-WIRE"})));
+    let place = |key: &str| body.as_object().unwrap().keys().position(|k| k == key);
+    assert!(place("thinking") < place("output_config"), "the custom branch places thinking first: {body}");
+    assert!(effort_beta(&headers), "{headers:?}");
+    assert!(body.get("tool_choice").is_none(), "a forced tool choice is dropped while thinking is on: {body}");
+    let (headers, body) = custom_request(&anthropic, forced("none")).await;
+    assert_eq!(body["thinking"], json!({"type": "disabled"}));
+    assert!(body.get("output_config").is_none() && !effort_beta(&headers), "{body}");
+    assert_eq!(body["tool_choice"], json!({"type": "tool", "name": "lookup"}), "thinking off keeps the forced choice");
+    let (headers, body) = custom_request(&anthropic, custom_turn("plain", at("high"))).await;
+    assert!(body.get("thinking").is_none() && body.get("output_config").is_none() && !effort_beta(&headers), "{body}");
+}
+
+/// A custom provider's Responses request carries the session as its `prompt_cache_key` and as the `session-id` /
+/// `x-client-request-id` headers, under a header of the same name the provider or the model sets itself; a one-shot
+/// role's shared scope keys on the request's own key first; a request with neither carries none, and the Chat wire none
+/// at all (`customSessionCacheKey`, `customSessionHeaders`; `openai-compat-responses-boundaries.test.mjs`).
+#[tokio::test]
+async fn a_custom_responses_request_carries_its_session_as_cache_key_and_headers() {
+    use mixdog_core_api::domain::provider::RequestOptions;
+    let some = |text: &str| Some(text.to_owned());
+    let session = |id: &str| RequestOptions { session_id: Some(id.to_owned()), ..RequestOptions::default() };
+    let identity = |headers: &HashMap<String, String>| (headers.get("session-id").cloned(), headers.get("x-client-request-id").cloned());
+    let overrides = json!({
+        "plain": {"manual": true},
+        "own": {"manual": true, "requestHeaders": {"X-Client-Request-ID": "model-request"}},
+    });
+
+    let responses = custom_config("openai-responses", overrides.clone());
+    let (headers, body) = custom_request(&responses, custom_turn("plain", session("sess-shape-1"))).await;
+    assert_eq!(body["prompt_cache_key"], "sess-shape-1");
+    assert_eq!(identity(&headers), (some("sess-shape-1"), some("sess-shape-1")));
+    let shared = RequestOptions { prompt_cache_key: some("role-key"), prompt_cache_scope: some("shared"), ..session("sess-shape-1") };
+    let (headers, body) = custom_request(&responses, custom_turn("plain", shared)).await;
+    assert_eq!(body["prompt_cache_key"], "role-key");
+    assert_eq!(identity(&headers), (some("role-key"), some("role-key")));
+    let (headers, body) = custom_request(&responses, custom_turn("plain", RequestOptions::default())).await;
+    assert!(body.get("prompt_cache_key").is_none() && identity(&headers) == (None, None), "{body}");
+
+    let mut own = responses;
+    own["headers"] = json!({"Session-ID": "provider-session"});
+    let (headers, body) = custom_request(&own, custom_turn("own", session("sess-shape-1"))).await;
+    assert_eq!(body["prompt_cache_key"], "sess-shape-1");
+    assert_eq!(identity(&headers), (some("provider-session"), some("model-request")));
+
+    let chat = custom_config("openai-chat", overrides);
+    let (headers, body) = custom_request(&chat, custom_turn("plain", session("sess-shape-1"))).await;
+    assert!(body.get("prompt_cache_key").is_none() && identity(&headers) == (None, None), "{body}");
+}
+
+/// A custom provider's own body fields sit where Node's request builders put them: on the Chat and Messages wires
+/// before the stream flags the app sets last (`params.stream` follows `applyCustomRequestBody` in
+/// `openai-compat-chat-send.mjs` and `buildAnthropicApiRequest`), on the Responses wire after everything the app builds
+/// (`buildCompatResponsesParams`: the reasoning, the session's cache key, then the provider's and the model's
+/// `requestBody`).
+#[tokio::test]
+async fn a_custom_requests_own_fields_sit_where_node_puts_them() {
+    use mixdog_core_api::domain::provider::RequestOptions;
+    let overrides = json!({
+        "smoke": {"manual": true, "reasoning": {"levels": ["none", "low", "medium", "high"]}, "requestBody": {"top_p": 0.5}},
+    });
+    let options = RequestOptions {
+        effort: Some("high".to_owned()),
+        session_id: Some("sess-order".to_owned()),
+        ..RequestOptions::default()
+    };
+    let last = |body: &Value, n: usize| {
+        let keys: Vec<&str> = body.as_object().unwrap().keys().map(String::as_str).collect();
+        keys[keys.len().saturating_sub(n)..].iter().map(|k| (*k).to_owned()).collect::<Vec<_>>()
+    };
+    let config = |protocol: &str| {
+        let mut cfg = custom_config(protocol, overrides.clone());
+        cfg["requestBody"] = json!({"top_k": 7});
+        cfg
+    };
+
+    let (_, body) = custom_request(&config("openai-chat"), custom_turn("smoke", options.clone())).await;
+    assert_eq!(last(&body, 5), ["reasoning_effort", "top_k", "top_p", "stream", "stream_options"], "{body}");
+    let (_, body) = custom_request(&config("anthropic"), custom_turn("smoke", options.clone())).await;
+    assert_eq!(last(&body, 5), ["thinking", "output_config", "top_k", "top_p", "stream"], "{body}");
+    let (_, body) = custom_request(&config("openai-responses"), custom_turn("smoke", options)).await;
+    assert_eq!(last(&body, 4), ["reasoning", "prompt_cache_key", "top_k", "top_p"], "{body}");
+}
+
+/// On the Messages wire the request's own `anthropic-beta` (here the effort beta) is a per-request header over the
+/// provider's default headers and the model's; a request that names no beta sends the model's, else the provider's
+/// (`requestHeadersFor`, `customRequestHeaders`, the SDK's `defaultHeaders` under a request's headers).
+#[tokio::test]
+async fn a_custom_messages_requests_own_betas_win_over_configured_ones() {
+    use mixdog_core_api::domain::provider::RequestOptions;
+    let mut cfg = custom_config(
+        "anthropic",
+        json!({
+            "smoke": {"manual": true, "reasoning": {"levels": ["low", "high"]}, "requestHeaders": {"Anthropic-Beta": "model-beta"}},
+            "plain": {"manual": true},
+        }),
+    );
+    cfg["headers"] = json!({"anthropic-beta": "provider-beta"});
+    let at = |effort: Option<&str>| RequestOptions { effort: effort.map(str::to_owned), ..RequestOptions::default() };
+    let beta = |headers: &HashMap<String, String>| headers.get("anthropic-beta").cloned();
+    let (headers, _) = custom_request(&cfg, custom_turn("smoke", at(Some("high")))).await;
+    assert_eq!(beta(&headers).as_deref(), Some("effort-2025-11-24"), "{headers:?}");
+    let (headers, _) = custom_request(&cfg, custom_turn("smoke", at(None))).await;
+    assert_eq!(beta(&headers).as_deref(), Some("model-beta"), "{headers:?}");
+    let (headers, _) = custom_request(&cfg, custom_turn("plain", at(Some("high")))).await;
+    assert_eq!(beta(&headers).as_deref(), Some("provider-beta"), "{headers:?}");
 }

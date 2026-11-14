@@ -1,7 +1,9 @@
 //! The lifecycle, for the parts of the composition that run before it exists. `serving::start` builds the `Lifecycle` after `compose()`
-//! (it needs the ports the composed core provides), and three consumers of it are made inside `compose()`: the service-call count
+//! (it needs the ports the composed core provides), and six consumers of it are made inside `compose()`: the service-call count
 //! (`CoreHandle::request_started`, Node's `inFlightWork().activeCalls`, `daemon.mjs:444-449`), the memory-agent run watch
-//! (`busyMemoryAgents`, `:449`, `:1064`) and the fencing ownership (`Ownership::revalidate` failing moves the core to `Fenced`, LR §2.4).
+//! (`busyMemoryAgents`, `:449`, `:1064`), the fencing ownership (`Ownership::revalidate` failing moves the core to `Fenced`, LR §2.4),
+//! the sessions' hold on turn starts ([`LateLifecycle::start_hold`], Node's `daemonWorkGate`), their busy turns and the running
+//! background shells (`exec_events`), both running work (Node's `busySessions`, `:452`).
 //! They read it through this cell, which `serving::start` binds once, before the listener accepts.
 //!
 //! Node's `activeCalls` also counts the model-proxy bridge's active requests (`modelProxyBridgeActive`, set by `trackWork`,
@@ -13,11 +15,24 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::OnceLock;
 
+use mixdog_core_api::CoreState;
 use mixdog_core_api::ids::ConnectionId;
+use mixdog_core_api::ids::ThreadId;
+use mixdog_core_session::session::BusyHold;
+use mixdog_core_session::session::CoreWork;
+use mixdog_core_session::session::NoCoreWork;
+use mixdog_core_session::session::StartHold;
 use mixdog_protocol::ConnectionKind;
+use mixdog_rt::CancellationToken;
+use tokio::sync::watch;
 
 use mixdog_core::run_host::late::Bound;
 
+use crate::lifecycle::ActivityGuard;
+use crate::lifecycle::ActivityInfo;
+use crate::lifecycle::ActivityKind;
+use crate::lifecycle::BUSY_WORK_SETTLED;
+use crate::lifecycle::CancelRegistry;
 use crate::lifecycle::CorePort;
 use crate::lifecycle::DiscoveryState;
 use crate::lifecycle::DrainNotice;
@@ -55,12 +70,41 @@ impl Exiter for Inert {
     fn exit(&self, _: i32) {}
 }
 
-/// The bound lifecycle, and the open client connections it counts (Node's client registries: the core stops itself when the
-/// last one leaves, `maybeSelfShutdown`).
+/// Where the cell says that running work started before the bind (the daemon log).
+pub type WorkLog = Arc<dyn Fn(&str) + Send + Sync>;
+
+/// The bound lifecycle, the open client connections it counts (Node's client registries: the core stops itself when the
+/// last one leaves, `maybeSelfShutdown`), the sessions' copy of its hold on turn starts ([`Self::start_hold`]), the tokens
+/// a confirmed stop's abort cancels the running work by ([`Self::cancels`]), and where running work that came before the bind
+/// is said ([`Self::logging`]).
 #[derive(Default)]
-pub struct LateLifecycle(OnceLock<Arc<Lifecycle>>, Mutex<HashMap<ConnectionId, ConnectionGuard>>);
+pub struct LateLifecycle(OnceLock<Arc<Lifecycle>>, Mutex<HashMap<ConnectionId, ConnectionGuard>>, watch::Sender<StartHold>, Arc<CancelRegistry>, Option<WorkLog>);
 
 impl LateLifecycle {
+    /// The cell of a composed core: running work begun before the bind is said in `log` ([`Self::begin_work`]).
+    pub fn logging(log: WorkLog) -> Self {
+        Self(Default::default(), Default::default(), Default::default(), Default::default(), Some(log))
+    }
+
+    /// The cancellation tokens of the running work registered here, by activity: the core port's `cancel_running` (a confirmed stop's
+    /// abort) cancels them.
+    pub fn cancels(&self) -> &Arc<CancelRegistry> {
+        &self.3
+    }
+
+    /// `info` is running work until the returned guard drops, and the core that stops when it ends says `settled` (Node's
+    /// self-shutdown text for that work: `BUSY_WORK_SETTLED`, `MEMORY_AGENT_ACTIVITY_CHANGED`). Before the bind (a startup bug: the
+    /// listener accepts only after it) it is not counted, which is said in the cell's log, the one place every consumer reports it.
+    pub fn begin_work(&self, info: ActivityInfo, settled: &'static str) -> Option<ActivityGuard> {
+        let Some(lifecycle) = self.0.get() else {
+            if let Some(log) = &self.4 {
+                log(&format!("running work ({:?}: {}) started before the lifecycle was bound; it is not counted", info.kind, info.title));
+            }
+            return None;
+        };
+        Some(lifecycle.begin_activity_settling(info, settled))
+    }
+
     pub fn bind(&self, lifecycle: Arc<Lifecycle>) -> Result<(), &'static str> {
         self.0.set(lifecycle).map_err(|_| "lifecycle")
     }
@@ -91,6 +135,38 @@ impl LateLifecycle {
         let guard = self.1.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(&connection);
         drop(guard);
     }
+
+    /// The hold on turn starts the sessions follow (`Lifecycle::hold_gate`, LR §5.1). The sessions are built before the lifecycle,
+    /// so they read this copy, which [`Self::follow`] keeps at the lifecycle's hold; it reads [`StartHold::Open`] until then, and
+    /// for good in a core that serves no daemon.
+    pub fn start_hold(&self) -> watch::Receiver<StartHold> {
+        self.2.subscribe()
+    }
+
+    /// Follows `lifecycle` (`serving::attach` spawns it): `on_state` hears each move of its state, which the composed core answers
+    /// admission from, and the sessions' copy of the hold is kept at the lifecycle's (`Lifecycle::hold_gate`: closed once the drain
+    /// commit dropped a hold, open again when that drain is cancelled), whose latest reading is the whole of it. Subscribed when
+    /// called, so a move made before the future first runs is not missed.
+    pub fn follow<F: Fn(CoreState) + Send + 'static>(self: &Arc<Self>, lifecycle: &Lifecycle, on_state: F) -> impl Future<Output = ()> + Send + 'static + use<F> {
+        let (late, mut state, mut hold) = (self.clone(), lifecycle.state(), lifecycle.hold_gate());
+        async move {
+            loop {
+                let read = *hold.borrow_and_update();
+                late.2.send_if_modified(|gate| std::mem::replace(gate, read) != read);
+                tokio::select! {
+                    moved = state.changed() => match moved {
+                        Ok(()) => on_state(state.borrow().clone()),
+                        Err(_) => break,
+                    },
+                    moved = hold.changed() => {
+                        if moved.is_err() {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// The registry a connection is in on Node's side: the channel bridge's, the remote clients' (phone, remote desktop), or the
@@ -110,6 +186,30 @@ impl Bound for LateLifecycle {
 
     fn is_bound(&self) -> bool {
         self.0.get().is_some()
+    }
+}
+
+/// `SessionDeps.core_work`: a busy session is a `Turn` of the lifecycle (Node's `busySessions`, `daemon.mjs:452`, which
+/// `maybeSelfShutdown` defers on, `:551-560`), listed by its thread.
+impl CoreWork for LateLifecycle {
+    fn busy(&self, thread: &ThreadId, title: &str) -> Box<dyn BusyHold> {
+        let info = ActivityInfo { kind: ActivityKind::Turn, thread_id: Some(thread.as_str().to_owned()), turn_id: None, title: title.to_owned() };
+        match self.begin_work(info, BUSY_WORK_SETTLED) {
+            Some(activity) => Box::new(BusySession { activity, cancels: self.3.clone() }),
+            None => Box::new(NoCoreWork),
+        }
+    }
+}
+
+/// A busy session's activity, and the tokens its runs are cancelled by.
+struct BusySession {
+    activity: ActivityGuard,
+    cancels: Arc<CancelRegistry>,
+}
+
+impl BusyHold for BusySession {
+    fn run(&self, cancel: &CancellationToken) -> Box<dyn Send + Sync> {
+        Box::new(self.cancels.track(self.activity.id(), cancel.clone()))
     }
 }
 
@@ -135,6 +235,110 @@ mod tests {
         fx.recorder.wait_exit();
         let events = fx.recorder.events();
         assert!(events.iter().any(|e| e == "release_started:service calls settled"), "{events:?}");
+    }
+
+    /// Node's `maybeSelfShutdown` defers on a busy session ("A turn in flight outlives every view", `daemon.mjs:551-560`): the session's
+    /// busy period is a `Turn` listed by its thread, the core stays up with nobody attached while it lasts, a stop that waits for an
+    /// idle core waits for it and a confirmed abort names it to be cancelled; the core stops once it ends.
+    #[test]
+    fn a_busy_session_is_running_work_of_the_lifecycle() {
+        use crate::lifecycle::StopMode;
+        use crate::lifecycle::StopReason;
+        let fx = fixture();
+        fx.lifecycle.set_serving().unwrap();
+        let late = LateLifecycle::default();
+        late.bind(fx.lifecycle.clone()).unwrap();
+        let client = fx.lifecycle.connection(ClientKind::Session);
+        let busy = late.busy(&ThreadId::from("thread-1"), "a turn");
+        let run = busy.run(&CancellationToken::new());
+        drop(client);
+        assert!(!fx.recorder.has_exited(), "the busy session keeps the core alive");
+        let running = fx.lifecycle.status().running.clone();
+        assert_eq!(running.len(), 1);
+        assert_eq!((running[0].kind, running[0].thread_id.as_deref(), running[0].title.as_str()), (ActivityKind::Turn, Some("thread-1"), "a turn"));
+        fx.lifecycle.stop(StopMode::WhenIdle, StopReason::UserStop, None).unwrap();
+        assert!(!fx.recorder.has_exited(), "the user's stop waits for the turn");
+        let token = fx.lifecycle.status().drain.as_ref().expect("draining").confirm_token.clone();
+        fx.lifecycle.stop(StopMode::AbortConfirmed, StopReason::UserStop, Some(&token)).unwrap();
+        assert_eq!(fx.recorder.cancelled().last().map(|work| work.len()), Some(1), "the abort cancels the busy session's run");
+        drop(run);
+        drop(busy);
+        fx.recorder.wait_exit();
+    }
+
+    /// Waits for the sessions' copy of the hold to read `expected`.
+    async fn reads(gate: &mut watch::Receiver<StartHold>, expected: StartHold) {
+        mixdog_rt::time::timeout(std::time::Duration::from_secs(5), gate.wait_for(|hold| *hold == expected))
+            .await
+            .unwrap_or_else(|_| panic!("the copy of the hold never read {expected:?}"))
+            .expect("the cell keeps its sender");
+    }
+
+    /// LR §5.1, as [`LateLifecycle::follow`] keeps it: the sessions' copy of the hold reads held while the lifecycle holds turn
+    /// starts and open once it is released; the drain commit that drops a hold closes it with the drain's reason, so what it held
+    /// is refused rather than started, and a cancelled drain opens it again, telling the core the state it is back in.
+    #[tokio::test]
+    async fn the_sessions_copy_of_the_hold_follows_the_lifecycle_through_a_drain_and_its_cancel() {
+        use crate::lifecycle::StopMode;
+        use crate::lifecycle::StopReason;
+        let fx = fixture();
+        fx.lifecycle.set_serving().unwrap();
+        let _client = fx.lifecycle.connection(ClientKind::Session);
+        let late = Arc::new(LateLifecycle::default());
+        let mut gate = late.start_hold();
+        let heard = Arc::new(Mutex::new(Vec::new()));
+        let told = heard.clone();
+        tokio::spawn(late.follow(&fx.lifecycle, move |state| told.lock().unwrap().push(state)));
+        fx.lifecycle.hold(true).unwrap();
+        reads(&mut gate, StartHold::Held).await;
+        fx.lifecycle.hold(false).unwrap();
+        reads(&mut gate, StartHold::Open).await;
+        let work = fx.lifecycle.begin_activity(crate::lifecycle::ActivityInfo {
+            kind: crate::lifecycle::ActivityKind::Turn,
+            thread_id: Some("thread-1".into()),
+            turn_id: Some("turn-1".into()),
+            title: "a turn".into(),
+        });
+        fx.lifecycle.hold(true).unwrap();
+        reads(&mut gate, StartHold::Held).await;
+        fx.lifecycle.stop(StopMode::WhenIdle, StopReason::Update, None).unwrap();
+        reads(&mut gate, StartHold::Closed(mixdog_protocol::DrainReason::Update)).await;
+        let drain_id = fx.lifecycle.status().drain.as_ref().expect("draining").drain_id.clone();
+        fx.lifecycle.cancel_drain(&drain_id).unwrap();
+        reads(&mut gate, StartHold::Open).await;
+        assert_eq!(heard.lock().unwrap().last(), Some(&CoreState::Serving), "the core is told it serves again");
+        fx.lifecycle.stop(StopMode::WhenIdle, StopReason::Update, None).unwrap();
+        drop(work);
+        fx.recorder.wait_exit();
+    }
+
+    /// A hold released and a drain committed before the follower wakes again: the copy reads open, so the client prompts the
+    /// release let go start and an in-core start that waited is admitted, rather than being refused as starts the commit held.
+    #[tokio::test]
+    async fn a_release_and_a_drain_commit_in_one_wake_leave_the_starts_open() {
+        use crate::lifecycle::StopMode;
+        use crate::lifecycle::StopReason;
+        let fx = fixture();
+        fx.lifecycle.set_serving().unwrap();
+        let _client = fx.lifecycle.connection(ClientKind::Session);
+        let work = fx.lifecycle.begin_activity(crate::lifecycle::ActivityInfo {
+            kind: crate::lifecycle::ActivityKind::Turn,
+            thread_id: Some("thread-1".into()),
+            turn_id: Some("turn-1".into()),
+            title: "a turn".into(),
+        });
+        let late = Arc::new(LateLifecycle::default());
+        let mut gate = late.start_hold();
+        tokio::spawn(late.follow(&fx.lifecycle, |_| {}));
+        fx.lifecycle.hold(true).unwrap();
+        reads(&mut gate, StartHold::Held).await;
+        // Both moves with no await between: the follower, on this test's one thread, wakes once after them.
+        fx.lifecycle.hold(false).unwrap();
+        fx.lifecycle.stop(StopMode::WhenIdle, StopReason::Update, None).unwrap();
+        reads(&mut gate, StartHold::Open).await;
+        assert_eq!(*fx.lifecycle.state().borrow(), CoreState::Draining { reason: mixdog_protocol::DrainReason::Update });
+        drop(work);
+        fx.recorder.wait_exit();
     }
 
     fn recorded(path: &str) -> serde_json::Value {

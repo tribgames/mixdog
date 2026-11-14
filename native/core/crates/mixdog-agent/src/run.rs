@@ -71,6 +71,9 @@ pub struct RunConfig {
     pub select_input_skills: bool,
     /// The route's provider needs the source of a read, not a receipt.
     pub read_body_required: bool,
+    /// Whether the model of the route a tool call runs on sees images (`pdfReadModes`), which a call carries to `read`.
+    /// Without one every model does.
+    pub vision: Option<std::sync::Arc<dyn crate::env::ModelVision>>,
     /// Mid-conversation effort: the route's inputs and the adapter that sets
     /// BuildInputs.effort from the projection of each request.
     pub effort: Option<crate::effort::EffortWiring>,
@@ -122,6 +125,7 @@ impl RunConfig {
             first_request_after: None,
             select_input_skills: false,
             read_body_required: false,
+            vision: None,
             effort: None,
             step_auto_effort: None,
             text_only: None,
@@ -421,9 +425,18 @@ pub struct Run {
     /// request never leaves before the rows it carries (a restart resends what the store holds).
     pub(crate) unsaved: Option<Ticket>,
     pub(crate) baseline: Option<Baseline>,
+    /// A send of this run was measured, or the run compacted: either drops the session's
+    /// `contextPressureUnanchoredAfterRestart`, whose report may not have reached its header yet.
+    pub(crate) reanchored: bool,
     /// The request the latest send settled on, and when its send began (`requestStartedAt`).
     pub(crate) last_request: Option<Arc<mixdog_core_api::domain::provider::ModelRequest>>,
     pub(crate) request_started_ms: i64,
+    /// When the iteration in progress began (`round.iterT0`), and when its send began (`sent.sendStartedAt`), as the `loop`
+    /// row measures them: a replay Node's loop runs as a new round restarts both (`Recovery::LoopReplay`, `Rebuilt`).
+    pub(crate) iteration_started_ms: i64,
+    pub(crate) send_started_ms: i64,
+    /// When the run's last tool batch ended (`state.lastToolBatchEndedAt`); `None` before its first.
+    pub(crate) last_tool_batch_ended_ms: Option<i64>,
     /// The logical send in flight (`RequestOptions.send_group`); settled when it ends unsuccessfully.
     pub(crate) send_group: Option<crate::send::SendGroup>,
     /// The identity of the send in flight (`RequestOptions.send_identity`): a new one for each send, the same for its attempts.
@@ -577,8 +590,12 @@ impl Run {
             unsaved: None,
             context,
             baseline: None,
+            reanchored: false,
             last_request: None,
             request_started_ms: 0,
+            iteration_started_ms: 0,
+            send_started_ms: 0,
+            last_tool_batch_ended_ms: None,
             send_group: None,
             send_identity: Default::default(),
             side_ticket: None,
@@ -749,6 +766,7 @@ impl Run {
     /// Opens an iteration: steering after a tool batch, explicit skill
     /// selection, the request boundary and the per-request options.
     async fn begin_iteration(&mut self) -> Result<(), AgentError> {
+        self.iteration_started_ms = self.env.clock.now_ms();
         self.throw_if_aborted()?;
         if let Some(ticket) = self.config.first_request_after.take() {
             self.until_durable(ticket).await?;
@@ -823,6 +841,19 @@ impl Run {
     fn settle_send(&mut self, response: &ModelResponse) -> Result<(), AgentError> {
         self.context_overflow_retry_used = false;
         self.iterations += 1;
+        // `traceProviderSend` (`session/loop/diagnostics.mjs`), timed from the round that settled: Node runs each of its
+        // loop's replays as a new round, and the provider's own retries stay inside the send. The send began after the
+        // iteration applied the step effort: a wait for its judgment counts as pre-send time here, as send time in Node.
+        if let Some(log) = &self.env.failures {
+            let sent_at = self.send_started_ms;
+            log.provider_send(crate::env::ProviderSend {
+                iteration: self.iterations,
+                send_ms: self.env.clock.now_ms() - sent_at,
+                pre_send_ms: sent_at - self.iteration_started_ms,
+                tool_resume_ms: self.last_tool_batch_ended_ms.map(|ended| sent_at - ended),
+                message_count: self.messages.len(),
+            });
+        }
         let had_usage = self.last_usage.is_some();
         self.last_usage = Some(add_usage(self.last_usage.take(), &response.usage));
         if !had_usage {

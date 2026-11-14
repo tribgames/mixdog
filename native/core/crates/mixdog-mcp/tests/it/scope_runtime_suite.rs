@@ -6,6 +6,7 @@
 //! have arrived, never after a delay.
 
 use std::collections::VecDeque;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
 
@@ -15,6 +16,8 @@ use mixdog_mcp::McpIo;
 use mixdog_mcp::McpServer;
 use mixdog_mcp::McpServerConfig;
 use mixdog_mcp::hub::ScopeReleased;
+use mixdog_mcp::mcp_glue::Failure;
+use mixdog_mcp::mcp_glue::LiveServer;
 use mixdog_mcp::mcp_glue::StatusInput;
 use mixdog_mcp::mcp_glue::record_scope_failure;
 use mixdog_mcp::mcp_glue::status_value;
@@ -59,6 +62,10 @@ struct Configs {
     resolves: Mutex<usize>,
     /// The next resolve that was let on panics.
     panic_next: std::sync::atomic::AtomicBool,
+    /// The plugin data folders a resolve answers, by server name.
+    data_folders: Mutex<Vec<(String, PathBuf)>>,
+    /// The data folders made, in order.
+    made: Mutex<Vec<PathBuf>>,
 }
 
 impl Configs {
@@ -77,6 +84,10 @@ impl Configs {
     fn resolves(&self) -> usize {
         *lock(&self.resolves)
     }
+
+    fn made(&self) -> Vec<PathBuf> {
+        lock(&self.made).clone()
+    }
 }
 
 #[async_trait]
@@ -93,7 +104,15 @@ impl ScopeConfigs for Configs {
         if self.panic_next.swap(false, std::sync::atomic::Ordering::SeqCst) {
             panic!("the configuration could not be read");
         }
-        Resolved { configs: snapshot, targets: only.map(|name| vec![name.to_owned()]).unwrap_or_default() }
+        Resolved {
+            configs: snapshot,
+            targets: only.map(|name| vec![name.to_owned()]).unwrap_or_default(),
+            data_folders: lock(&self.data_folders).clone(),
+        }
+    }
+
+    async fn make_data_folders(&self, folders: Vec<PathBuf>) {
+        lock(&self.made).extend(folders);
     }
 }
 
@@ -475,6 +494,85 @@ fn a_recorded_scope_failure_marks_only_the_server_it_names() {
     assert_eq!((linear["status"].clone(), generic["status"].clone(), failed), (json!("disconnected"), json!("disconnected"), json!(0)));
 }
 
+/// `statusRows` (`server-catalog.mjs:198`, `:232`): a row's warnings are its catalog entry's, then those its connection
+/// carries (`missingEnvWarnings`, which `getMcpServerStatus` reports, mcp/client.mjs:319); a connected server the catalog
+/// does not name lists its own.
+#[test]
+fn a_rows_warnings_are_its_entrys_then_its_connections() {
+    let catalog = Catalog {
+        servers: [("envsrv".to_owned(), json!({"command": "envsrv"}))].into_iter().collect(),
+        sources: Default::default(),
+        entries: [("envsrv".to_owned(), json!({"warnings": ["from the catalog"]}))].into_iter().collect(),
+        plugins: Default::default(),
+        warnings: Vec::new(),
+        adoption: None,
+    };
+    let missing = |name: &str| LiveServer {
+        tools: Vec::new(),
+        capabilities: json!({}),
+        warnings: vec![format!("missing environment variable(s): {name}")],
+        connected: true,
+    };
+    let live: std::collections::HashMap<String, LiveServer> = [("envsrv".to_owned(), missing("FT_A")), ("loose".to_owned(), missing("FT_B"))].into_iter().collect();
+    let status = status_value(&StatusInput {
+        catalog: &catalog,
+        live: &live,
+        failures: &Default::default(),
+        login_pending: &Default::default(),
+        oauth: &Default::default(),
+        health: &Default::default(),
+        in_use: &Default::default(),
+        google_client: false,
+    });
+    let row = |name: &str| status["servers"].as_array().unwrap().iter().find(|row| row["name"] == name).cloned().unwrap();
+    assert_eq!(row("envsrv")["warnings"], json!(["from the catalog", "missing environment variable(s): FT_A"]));
+    assert_eq!(row("loose")["warnings"], json!(["missing environment variable(s): FT_B"]));
+}
+
+/// `statusRows` over `getMcpServerStatus` (`server-catalog.mjs:157-199`, `mcp/client.mjs:307-320`): a server whose
+/// connection ended by itself stays registered, not alive: its row reads failed and not connected, with the end as its
+/// error, and keeps the tools, capabilities and warnings it had. One the catalog does not name reads the same end.
+#[test]
+fn a_dead_connections_row_is_failed_and_keeps_what_it_listed() {
+    let catalog = Catalog {
+        servers: [("dies".to_owned(), json!({"command": "dies"}))].into_iter().collect(),
+        sources: Default::default(),
+        entries: Default::default(),
+        plugins: Default::default(),
+        warnings: Vec::new(),
+        adoption: None,
+    };
+    let dead = LiveServer {
+        tools: vec![("mcp__dies__say".to_owned(), "says".to_owned())],
+        capabilities: json!({"tools": {}}),
+        warnings: vec!["missing environment variable(s): FT_D".to_owned()],
+        connected: false,
+    };
+    let live: std::collections::HashMap<String, LiveServer> = [("dies".to_owned(), dead.clone()), ("loose".to_owned(), dead)].into_iter().collect();
+    let end = |name: &str| Failure { msg: format!("MCP server \"{name}\" closed"), auth_required: false };
+    let failures: std::collections::HashMap<String, Failure> = [("dies".to_owned(), end("dies")), ("loose".to_owned(), end("loose"))].into_iter().collect();
+    let status = status_value(&StatusInput {
+        catalog: &catalog,
+        live: &live,
+        failures: &failures,
+        login_pending: &Default::default(),
+        oauth: &Default::default(),
+        health: &Default::default(),
+        in_use: &Default::default(),
+        google_client: false,
+    });
+    let row = |name: &str| status["servers"].as_array().unwrap().iter().find(|row| row["name"] == name).cloned().unwrap();
+    let dies = row("dies");
+    assert_eq!((dies["connected"].clone(), dies["status"].clone()), (json!(false), json!("failed")));
+    assert_eq!(dies["error"], "MCP server \"dies\" closed");
+    assert_eq!((dies["toolCount"].clone(), dies["tools"].clone()), (json!(1), json!([{"name": "mcp__dies__say", "description": "says"}])));
+    assert_eq!(dies["capabilities"], json!({"tools": true, "prompts": false, "resources": false}));
+    assert_eq!(dies["warnings"], json!(["missing environment variable(s): FT_D"]));
+    let loose = row("loose");
+    assert_eq!((loose["connected"].clone(), loose["error"].clone(), loose["toolCount"].clone()), (json!(false), json!("MCP server \"loose\" closed"), json!(1)));
+    assert_eq!((status["connectedCount"].clone(), status["failedCount"].clone()), (json!(0), json!(1)));
+}
+
 /// A control thread that names the runtime scope as its own (it was created in it, and resumes in it) does
 /// not become its owner: the daemon keeps the scope, so closing the thread releases nothing and the
 /// control thread and a thread-less read share one connection set.
@@ -671,5 +769,37 @@ async fn a_cwd_change_readvertises_the_roots_of_the_scopes_following_servers() {
     assert_eq!(told, "1");
     let listed: serde_json::Value = serde_json::from_str(&asked(&plug, "roots").await).unwrap();
     assert_eq!(listed["result"]["roots"], json!([{"uri": uri(&second), "name": "second"}]));
+    runtime.release("t1");
+}
+
+/// `ensurePluginServerData` (`connect.mjs:119`, `server-connection.mjs:41`): a plugin server's data folder is made in the
+/// turn of an operation that connects it, before the connect: every enabled one's by a full connect or a reconcile, the
+/// toggled one's by a toggle on. The readiness wait and a toggle off, which connect nothing, make none.
+#[tokio::test(flavor = "multi_thread")]
+async fn plugin_data_folders_are_made_only_by_the_operations_that_connect() {
+    fn paths(names: &[&str]) -> Vec<PathBuf> {
+        names.iter().map(|name| PathBuf::from(*name)).collect()
+    }
+    let Rig { runtime, configs, .. } = rig();
+    // A disabled startup budget: the readiness wait resolves, then returns at once.
+    let unbounded = McpServerConfig::from_entry("alpha", &json!({"command": MOCK, "startupTimeoutMs": 0}), &std::env::vars().collect()).unwrap();
+    *lock(&configs.configs) = vec![unbounded];
+    *lock(&configs.data_folders) = vec![("alpha".to_owned(), PathBuf::from("/d/alpha")), ("beta".to_owned(), PathBuf::from("/d/beta"))];
+    let (entered, go) = configs.arm();
+    runtime.start("s1", "t1", "/w").unwrap();
+    entered.await.unwrap();
+    runtime.await_initial("s1").await;
+    assert_eq!(configs.resolves(), 2, "the wait resolved the configuration");
+    assert_eq!(configs.made(), Vec::<PathBuf>::new(), "the wait makes nothing");
+    go.send(()).unwrap();
+    runtime.open("s1", "t1", "/w").await.unwrap();
+    assert_eq!(configs.made(), paths(&["/d/alpha", "/d/beta"]), "the first connect is a full one");
+
+    runtime.run("s1", Op::Only("alpha".to_owned(), false)).await;
+    assert_eq!(configs.made(), paths(&["/d/alpha", "/d/beta"]), "a toggle off makes none");
+    runtime.run("s1", Op::Only("alpha".to_owned(), true)).await;
+    assert_eq!(configs.made(), paths(&["/d/alpha", "/d/beta", "/d/alpha"]), "a toggle on makes its own server's");
+    runtime.run("s1", Op::Reconcile).await;
+    assert_eq!(configs.made(), paths(&["/d/alpha", "/d/beta", "/d/alpha", "/d/alpha", "/d/beta"]), "a reconcile makes every enabled one's");
     runtime.release("t1");
 }

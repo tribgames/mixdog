@@ -775,6 +775,73 @@ async fn a_job_cancel_aborts_the_turn_with_the_close_session_text() {
     assert!(!directory.abort_session_turn(&mixdog_core_api::ids::ThreadId::from("sess_none"), "x"));
 }
 
+/// `closeRuntime` (`agent-cancel.mjs:96-102`): a close that stopped a running turn leaves the session reading `cancelled`,
+/// its stage too, so a scan of the sessions builds no open idle row for it that a cleanup would close again; a turn that
+/// starts on it reads it as its runtime again (`agent-turns.mjs`), and closing a finished agent keeps its status.
+#[tokio::test(start_paused = true)]
+async fn a_close_that_stops_a_running_turn_reads_cancelled_until_a_turn_starts() {
+    use std::sync::atomic::AtomicUsize;
+
+    use mixdog_agent::agent_tool::host::Sessions;
+
+    use crate::session::thread_state::SessionThreads;
+    use crate::session::SessionDirectory;
+    use crate::session::seams::RunOutcome;
+    use crate::eventually_on;
+    use crate::session::tests::idle;
+    use crate::session::tests::start_thread;
+    use crate::session::tests::turn;
+
+    let srig = crate::session::testing::Rig::new();
+    let runs = Arc::new(AtomicUsize::new(0));
+    let counter = runs.clone();
+    // The first turn runs until it is stopped; every later one completes.
+    srig.set_script(Arc::new(move |run| {
+        let first = counter.fetch_add(1, Ordering::SeqCst) == 0;
+        Box::pin(async move {
+            if first {
+                run.cancel.cancelled().await;
+                return RunOutcome::Interrupted;
+            }
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = Arc::new(SessionDirectory::new(srig.deps()));
+    let rig = Rig::new();
+    let registry = Arc::new(AgentRegistry::new(rig.store.clone(), directory.clone(), Arc::new(Hour), rig.clock.clone()));
+    assert!(srig.turn_starts.bind(registry.clone()).is_ok());
+    let handle = start_thread(&directory).await;
+    let id = handle.id.as_str().to_owned();
+    let sessions = AgentSessions::new(
+        directory.clone(),
+        Arc::new(SessionThreads::new(directory.clone())),
+        registry.clone(),
+        Arc::new(Statusline::default()),
+        rig.clock.clone(),
+        Arc::new(ClosedShells::default()),
+        Arc::new(mixdog_tools::fs::ReadState::default()),
+    );
+    // The job board's cancel: the same close, after which the session takes a turn again.
+    let options = mixdog_agent::agent_tool::host::CloseOptions { tombstone: false, owner_close: false };
+    let state = |session: &Row| (session.get("status").cloned(), session.get("stage").cloned());
+    let cancelled = (Some(json!("cancelled")), Some(json!("cancelled")));
+
+    turn(&handle, "work", "op-1").await;
+    eventually_on!(&[&handle.cell.stepped], || handle.cell.run.load().is_some().then_some(())).await;
+    assert!(sessions.close_session(&id, "agent-task-cancel", options).await);
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    assert_eq!(state(&registry.session_of(&id).expect("the session")), cancelled);
+    let listed = registry.open_sessions();
+    let scanned = listed.iter().find(|session| session.get("id").and_then(Value::as_str) == Some(id.as_str())).expect("listed");
+    assert_eq!(state(scanned), cancelled, "the scan reads it so");
+
+    turn(&handle, "again", "op-2").await;
+    eventually_on!(&[&handle.cell.stepped], || (runs.load(Ordering::SeqCst) == 2 && idle(&handle)).then_some(())).await;
+    assert_ne!(state(&registry.session_of(&id).expect("the session")), cancelled, "a turn started on it");
+    assert!(sessions.close_session(&id, "agent-task-cancel", options).await);
+    assert_ne!(state(&registry.session_of(&id).expect("the session")), cancelled, "it was not running");
+}
+
 /// A virtual clock: it moves only when the test advances it, and a wait on it resolves at the advance that reaches it.
 struct Virtual(tokio::sync::watch::Sender<i64>);
 impl Virtual {
@@ -933,7 +1000,7 @@ async fn a_leads_clients_are_told_of_rows_reaped_at_their_deadline_what_nodes_we
     rig.store.on_write.set(Box::new(move || {
         if let Some(directory) = weak.upgrade() {
             for thread in directory.loaded_ids() {
-                directory.agent_activity(thread.as_str());
+                directory.status_may_have_changed(thread.as_str());
             }
         }
     })).ok();

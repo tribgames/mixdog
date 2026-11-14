@@ -9,6 +9,7 @@ use mixdog_agent::compact::pressure::Header;
 use mixdog_agent::compact::pressure::HeaderPatch;
 use mixdog_agent::compact::pressure::TranscriptSigner;
 use mixdog_agent::env::CompactPass;
+use mixdog_agent::env::SessionPressure;
 use mixdog_agent::message::AgentMessage;
 use mixdog_ai::registry::accounted::input_excludes_cache;
 use mixdog_core_api::domain::provider::ToolDefinition;
@@ -84,6 +85,11 @@ pub(crate) fn usage_change(header: &Header, delta: &Value, outgoing: &[AgentMess
 /// The check before a send that compacts nothing.
 pub(crate) fn check_change(header: &Header, check: &SendCheck, books: &Books, now: f64) -> Option<HeaderChange> {
     change(with_books(books, provider_of(header), |books| pressure::check_change(header, &check.messages, &check.tools, check.reactive, books, now)))
+}
+
+/// The session's reading of a request about to go out: its provider pressure, as its check prices it, and its unanchored mark.
+pub(crate) fn send_pressure(header: &Header, messages: &[AgentMessage], tools: &[ToolDefinition], books: &Books) -> SessionPressure {
+    with_books(books, provider_of(header), |books| pressure::send_pressure(header, messages, tools, books))
 }
 
 /// A stage of a pre-send compaction pass.

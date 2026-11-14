@@ -360,6 +360,23 @@ impl BridgeFeatures for SharedBridgeFiles {
     }
 }
 
+/// The composition's one bridge fact: the [`SharedBridgeFiles`], and which bridge tools this core registered. Node registers
+/// every one; here `computer` exists only over a helper pool, so without one Computer Use is never reported on.
+pub struct ToolBridges {
+    pub files: SharedBridgeFiles,
+    pub computer: Arc<crate::late_session::LateComputerHosts>,
+}
+
+impl BridgeFeatures for ToolBridges {
+    fn present(&self, feature: &str) -> bool {
+        self.files.present(feature)
+    }
+
+    fn registered(&self, feature: &str) -> bool {
+        feature != "computer" || self.computer.registered()
+    }
+}
+
 /// Opens a URL in the user's default browser (`openInBrowser`, `runtime/shared/open-url.mjs`).
 pub struct UrlOpener {
     io: SpawnIo,

@@ -118,6 +118,17 @@ async fn the_queue_reads_answer_as_nodes_in_memory_queue_does() {
                 assert_eq!(want["id"].as_str().unwrap().len(), 24);
                 want["id"] = got["id"].clone();
             }
+            // Node's recording queued straight into the runtime; a turn/start is taken in first (`submitAdmitted` ->
+            // `materializePromptSubmission` -> `materializeInlinePart`), so an inline image is queued by its reference.
+            if let Some(parts) = want["content"].as_array_mut() {
+                for part in parts.iter_mut().filter(|part| part.get("data").is_some()) {
+                    let object = part.as_object_mut().unwrap();
+                    let data = object.remove("data").unwrap();
+                    let bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, data.as_str().unwrap()).unwrap();
+                    object.insert("attachmentRef".into(), json!(format!("{:x}", <sha2::Sha256 as sha2::Digest>::digest(&bytes))));
+                    object.insert("sizeBytes".into(), json!(bytes.len()));
+                }
+            }
             want
         })
         .collect();

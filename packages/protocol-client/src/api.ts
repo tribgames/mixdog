@@ -205,8 +205,13 @@ export type ConnectionStatus =
 
 export type ClientEvent =
   | { readonly type: 'status'; readonly status: ConnectionStatus }
-  /** Delivered in order. Removed when `serverRequest/resolved` arrives or the socket closes (the core re-delivers). */
+  /** Delivered in order. One offered to every eligible connection (an approval, P §8.3) is held in `pendingServerRequests` until
+   * `serverRequest/resolved` arrives or the socket closes (the core re-delivers). One addressed to a capability this client declared
+   * (`host/*`, `model/proxy/execute`) is not held: the answer of its handler ends it. Nor is a method the method table does not
+   * list (a newer core's): see `isOfferedRequest`. */
   | { readonly type: 'serverRequest'; readonly request: ServerRequest }
+  /** The core resolved a held request, or stopped waiting for a `host/*` one it got no answer to (its handler stops; a
+   * `model/proxy/execute` one is given up with the `model/proxy/cancel` notification instead). */
   | { readonly type: 'serverRequestResolved'; readonly params: ServerRequestResolvedParams }
   /** Connection-scoped notifications (no `feed`) other than `serverRequest/resolved`; app-feed notifications that are not sections;
    * and every notification of a scoped feed (`fs/changed`, `system/ports/updated`, `search/updated`, ...), in feed order with text
@@ -259,8 +264,10 @@ export interface ProtocolClient<S = Json> {
   /** `app/subscribe`, restored on reconnect with `resumeFrom`. */
   subscribeApp(options?: Pick<CallOptions, 'sent'>): Promise<void>;
 
+  /** The held requests (see `ClientEvent` `serverRequest`): the ones offered to every eligible connection that the core has not resolved. */
   pendingServerRequests(): readonly ServerRequest[];
-  /** Answers a server request. Validity is the core's decision (`serverRequest/resolved` follows). Throws `connectionLost` when not ready. */
+  /** Answers a server request. A held one's validity is the core's decision (`serverRequest/resolved` follows); an addressed one is
+   * ended by the answer. Throws `connectionLost` when not ready. */
   respond(id: RequestId, answer: ServerRequestAnswer): void;
 
   /** Reads all pages of a blob (`blob/read`, page ≤ `server.limits.maxBlobPageBytes`). Rejects `blobNotFound`/`blobCorrupt` for this read only. */

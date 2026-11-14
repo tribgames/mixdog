@@ -21,61 +21,16 @@ use mixdog_core_api::domain::ext::{DocumentText, PdfCounts, PdfIntake};
 // answered as a store that is unavailable.
 use mixdog_core_base::support::on_lane_wait as on_lane;
 use mixdog_protocol::ThreadId;
-use mixdog_protocol::message_class::user_text::{Blobs, ReadError};
 use mixdog_rt::{DurabilityIo, InLane, InteractiveIo, LaneTokens};
 use mixdog_statefile::IoLane;
-use mixdog_store::blobs::{digest_of, BlobStore};
-use mixdog_store::schema::bounded::Digest;
+use mixdog_store::blobs::{digest_of_reference, BlobStore, LaneBlobs};
 use tokio_util::sync::CancellationToken;
 
 use super::attachment_reference::{AttachmentFiles, InvalidReference, OriginalFile, StoredFile};
-use super::media::{AttachmentFacts, StoredFacts, MAX_PDF_BYTES};
-
-/// The store digest of a reference (`/^[a-f0-9]{64}$/`, `attachmentPath`); `None` for anything else.
-fn digest_of_reference(reference: &str) -> Option<Digest> {
-    Digest::try_from(format!("sha256:{reference}")).ok()
-}
-
-/// `readAttachmentTextWithin` (store.mjs:418) on an open lane: the blob's UTF-8 text when the file
-/// holds at most `max_bytes`, `None` when it holds more. A file that is not there is `Missing`;
-/// an empty or non-regular file, one whose bytes do not hash to its name, and every other failure
-/// are `Other`. The size is the file's own, and at most `max_bytes + 1` bytes are read.
-fn read_within<L: IoLane>(lane: &InLane<L>, path: &Path, digest: &Digest, max_bytes: u64) -> Result<Option<String>, ReadError> {
-    let failure = |error: std::io::Error| if error.kind() == std::io::ErrorKind::NotFound { ReadError::Missing } else { ReadError::Other };
-    let meta = mixdog_statefile::metadata(lane, path).map_err(failure)?;
-    if !meta.is_file() || meta.len() == 0 {
-        return Err(ReadError::Other);
-    }
-    if meta.len() > max_bytes {
-        return Ok(None);
-    }
-    let wanted = usize::try_from(max_bytes.saturating_add(1)).unwrap_or(usize::MAX);
-    let bytes = mixdog_statefile::read_range(lane, path, 0, wanted).map_err(failure)?;
-    if bytes.len() as u64 > max_bytes {
-        return Ok(None);
-    }
-    if digest_of(&bytes) != *digest {
-        return Err(ReadError::Other);
-    }
-    Ok(Some(String::from_utf8_lossy(&bytes).into_owned()))
-}
-
-/// The store inside one interactive lane job: the synchronous reader the work is handed.
-struct LaneBlobs<'a> {
-    blobs: &'a BlobStore,
-    lane: &'a InLane<InteractiveIo>,
-}
-
-impl Blobs for LaneBlobs<'_> {
-    fn text_within(&self, hex: &str, max_bytes: u64) -> Result<Option<String>, ReadError> {
-        // `attachmentPath` throws on a reference off the pattern: not a missing blob.
-        let digest = digest_of_reference(hex).ok_or(ReadError::Other)?;
-        read_within(self.lane, &self.blobs.path(&digest), &digest, max_bytes)
-    }
-}
+use super::media::{base64_byte_length, AttachmentFacts, StoredFacts, MAX_PDF_BYTES};
 
 /// The stored attachments as the compaction and the transcript commit read them
-/// (`readAttachmentTextWithin`): their work runs as one interactive-lane job.
+/// (`readAttachmentTextWithin`, [`LaneBlobs`]): their work runs as one interactive-lane job.
 pub struct StoreBlobs {
     blobs: BlobStore,
     interactive: InteractiveIo,
@@ -101,7 +56,8 @@ impl BlobReads for StoreBlobs {
 /// (`attachmentBlobSize`, a `stat`) and, for a PDF, the page and text-layer counts Node's intake
 /// (`preparePromptSubmissionForProvider`) records on the part: the extension host's inspector over
 /// the same bytes, counted once per blob (a reference names its bytes). Image sizes stay `None`. A
-/// blob that is not there, or a reference off the pattern, has no facts.
+/// blob that is not there, or a reference off the pattern, has no facts. An inline PDF is counted
+/// the same way, once per payload.
 pub struct StoreFacts {
     blobs: BlobStore,
     interactive: InteractiveIo,
@@ -125,25 +81,46 @@ impl StoreFacts {
 
     /// A stored PDF's counts, `None` for any other blob or one the inspector rejects.
     async fn pdf_counts(&self, reference: &str, path: PathBuf) -> Option<PdfCounts> {
+        let interactive = self.interactive;
+        self.count_once(reference, async move {
+            let bytes = on_lane(interactive, &CancellationToken::new(), move |lane| mixdog_statefile::read_range(lane, &path, 0, MAX_PDF_BYTES as usize)).await.ok()?.ok()?;
+            Some(bytes.starts_with(b"%PDF-").then(|| STANDARD.encode(&bytes)))
+        })
+        .await
+    }
+
+    /// The counts of the PDF `key` names (a reference, or an inline payload's hash), counted once: `payload` is its
+    /// base64, `Some(None)` for bytes that are no PDF. Bytes that cannot be read, or an inspector that does not answer,
+    /// leave nothing remembered.
+    async fn count_once(&self, key: &str, payload: impl std::future::Future<Output = Option<Option<String>>>) -> Option<PdfCounts> {
         let docs = self.docs.as_ref()?;
-        if let Some(known) = self.counted.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(reference) {
+        if let Some(known) = self.counted.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(key) {
             return *known;
         }
-        let bytes = on_lane(self.interactive, &CancellationToken::new(), move |lane| mixdog_statefile::read_range(lane, &path, 0, MAX_PDF_BYTES as usize)).await.ok()?.ok()?;
-        let counts = if bytes.starts_with(b"%PDF-") {
-            match docs.pdf_counts(&ThreadId::from(COUNTING_THREAD), &STANDARD.encode(&bytes)).await.ok()? {
+        let counts = match payload.await? {
+            Some(data) => match docs.pdf_counts(&ThreadId::from(COUNTING_THREAD), &data).await.ok()? {
                 PdfIntake::Counts(counts) => Some(counts),
                 PdfIntake::Rejected(_) => None,
-            }
-        } else {
-            None
+            },
+            None => None,
         };
         let mut counted = self.counted.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if counted.len() >= COUNTED_CAP {
             counted.clear();
         }
-        counted.insert(reference.to_owned(), counts);
+        counted.insert(key.to_owned(), counts);
         counts
+    }
+}
+
+/// The facts of a file of `size_bytes` with a PDF's `counts`.
+fn facts_of(size_bytes: u64, counts: Option<PdfCounts>) -> StoredFacts {
+    StoredFacts {
+        size_bytes,
+        page_count: counts.map(|c| c.page_count).filter(|pages| *pages > 0),
+        text_pages: counts.map(|c| c.text_pages),
+        text_chars: counts.map(|c| c.text_chars),
+        ..StoredFacts::default()
     }
 }
 
@@ -153,14 +130,13 @@ impl AttachmentFacts for StoreFacts {
         let path = self.blobs.path(&digest_of_reference(reference)?);
         let stat = path.clone();
         let size = on_lane(self.interactive, &CancellationToken::new(), move |lane| mixdog_statefile::metadata(lane, &stat).map(|meta| meta.len())).await.ok()?.ok()?;
-        let counts = self.pdf_counts(reference, path).await;
-        Some(StoredFacts {
-            size_bytes: size,
-            page_count: counts.map(|c| c.page_count).filter(|pages| *pages > 0),
-            text_pages: counts.map(|c| c.text_pages),
-            text_chars: counts.map(|c| c.text_chars),
-            ..StoredFacts::default()
-        })
+        Some(facts_of(size, self.pdf_counts(reference, path).await))
+    }
+
+    /// The same inspector over the inline payload, counted once per payload as a stored PDF is per blob.
+    async fn inline_pdf_facts(&self, key: &str, data: &str) -> Option<StoredFacts> {
+        let counts = self.count_once(key, async { Some(Some(data.to_owned())) }).await?;
+        Some(facts_of(base64_byte_length(data), Some(counts)))
     }
 }
 
@@ -379,7 +355,7 @@ impl AttachmentFiles for StoreFiles {
         let size_bytes = bytes.len() as u64;
         let blobs = self.blobs.clone();
         let pin = on_lane(self.durability, &CancellationToken::new(), move |lane| blobs.put_fresh(lane, &bytes)).await.ok()?.ok()?;
-        let reference = pin.digest().as_str().strip_prefix("sha256:")?.to_owned();
+        let reference = mixdog_store::blobs::hex(pin.digest()).to_owned();
         Some(StoredFile { reference, size_bytes })
     }
 
@@ -405,6 +381,8 @@ mod tests {
     use base64::Engine;
     use base64::engine::general_purpose::STANDARD;
     use mixdog_agent::compact::blob_reads::with_blobs;
+    use mixdog_protocol::message_class::user_text::ReadError;
+    use mixdog_store::blobs::digest_of;
     use serde_json::Value;
 
     use super::*;
@@ -588,6 +566,38 @@ mod tests {
             let want = (!case["file"].is_null()).then_some(StoredFacts { size_bytes: size, ..StoredFacts::default() });
             assert_eq!(got, want, "{}", case["id"]);
         }
+    }
+
+    /// An inline PDF is counted by the stored PDFs' inspector, once per payload; with no inspector, or for a payload the
+    /// inspector rejects, it has no counts.
+    #[tokio::test(flavor = "current_thread")]
+    async fn an_inline_pdf_is_counted_once_by_the_inspector() {
+        struct Inspector(std::sync::atomic::AtomicUsize);
+        #[async_trait]
+        impl DocumentText for Inspector {
+            async fn office_text(&self, _: &ThreadId, _: &str, _: &str) -> Result<Option<String>, mixdog_core_api::domain::ext::ExtError> {
+                unreachable!("no Office file is read")
+            }
+            async fn pdf_text(&self, _: &ThreadId, _: &str) -> Result<String, mixdog_core_api::domain::ext::ExtError> {
+                unreachable!("no PDF text is extracted")
+            }
+            async fn pdf_counts(&self, _: &ThreadId, data: &str) -> Result<PdfIntake, mixdog_core_api::domain::ext::ExtError> {
+                self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Ok(match data {
+                    "bad" => PdfIntake::Rejected("Invalid PDF structure.".to_owned()),
+                    _ => PdfIntake::Counts(PdfCounts { page_count: 3, text_pages: 2, text_chars: 4_001 }),
+                })
+            }
+        }
+        let (_dir, store, tokens, _) = world();
+        assert_eq!(StoreFacts::new(store.clone(), &tokens).inline_pdf_facts("k", "JVBERi0=").await, None);
+        let inspector = Arc::new(Inspector(std::sync::atomic::AtomicUsize::new(0)));
+        let facts = StoreFacts::new(store, &tokens).with_documents(inspector.clone());
+        let want = Some(StoredFacts { size_bytes: 5, page_count: Some(3), text_pages: Some(2), text_chars: Some(4_001), ..StoredFacts::default() });
+        assert_eq!(facts.inline_pdf_facts("k", "JVBERi0=").await, want);
+        assert_eq!(facts.inline_pdf_facts("k", "JVBERi0=").await, want);
+        assert_eq!(facts.inline_pdf_facts("rejected", "bad").await, None);
+        assert_eq!(inspector.0.load(std::sync::atomic::Ordering::SeqCst), 2, "each payload is counted once");
     }
 
     #[test]

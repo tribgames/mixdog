@@ -7,6 +7,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import { ACTION_OVERRIDES, OVERRIDE_THREAD_SOURCE } from '../../../../../packages/protocol-client/src/actions/action-overrides.mjs';
+import { isOfferedRequest } from '../../../../../packages/protocol-client/src/method-table.ts';
 import { METHOD_ARGS } from '../../../../../packages/protocol-client/src/actions/method-args.generated.mjs';
 import { DESKTOP_CAPABILITIES } from '../../shared/contract-capabilities.ts';
 import { createDesktopConnection } from '../connections/desktop-connection.ts';
@@ -61,7 +62,8 @@ function recordingLane(answer = async () => ({ ok: true })) {
   const states = new Map();
   const world = { starts: 0, failStarts: 0, shell: [], inputs: [], responses: [] };
   const listeners = new Set();
-  // The live client's pending set (the library client's: added on ask, removed on resolve, dropped with the socket).
+  // The live client's pending set (the library client's: added on an ask the core offers every connection, removed on resolve,
+  // dropped with the socket).
   const pending = [];
   const protocol = {
     snapshot: () => ({ status: 'ready', entries: world.shell }),
@@ -91,8 +93,9 @@ function recordingLane(answer = async () => ({ ok: true })) {
     },
   };
   const emit = (event) => {
-    if (event.type === 'serverRequest') pending.push(event.request);
-    else if (event.type === 'serverRequestResolved') pending.splice(0, pending.length, ...pending.filter((r) => r.id !== event.params.requestId));
+    if (event.type === 'serverRequest') {
+      if (isOfferedRequest(event.request.method)) pending.push(event.request);
+    } else if (event.type === 'serverRequestResolved') pending.splice(0, pending.length, ...pending.filter((r) => r.id !== event.params.requestId));
     else if (event.type === 'status' && event.status.state !== 'ready') pending.length = 0;
     listeners.forEach((listener) => listener(event));
   };
@@ -221,18 +224,17 @@ test('a call whose op has no threadId names no thread', async () => {
 });
 test('a reply shows the approvals the core is waiting on for its thread, as the library projects them', async () => {
   const { emit, lane } = recordingLane();
-  const ask = (id, thread, order, method = 'item/tool/requestApproval') => ({
+  const ask = (id, thread, order) => ({
     type: 'serverRequest',
     request: {
       id,
-      method,
+      method: 'item/tool/requestApproval',
       params: { threadId: thread, turnId: 't', itemId: `i${id}`, order, request: { name: 'shell' } },
     },
   });
   emit(ask(7, 'pane-1', 1));
   emit(ask(8, 'pane-1', 2));
   emit(ask(9, 'pane-2', 1));
-  emit(ask(10, 'pane-1', 0, 'host/browser/command'));
   const shown = (await lane.invoke('mcpStatus', [], 'pane-1')).snapshot;
   assert.equal(shown.toolApproval.id, '7');
   assert.equal(shown.toolApproval.name, 'shell');
@@ -527,6 +529,7 @@ test("a connection with a core endpoint routes its client's capabilities through
     onEvent: () => () => {},
     onStoreChange: () => () => {},
     onReplaced: () => () => {},
+    watchSection: () => () => {},
     pendingServerRequests: () => [],
     close: async () => {},
   };

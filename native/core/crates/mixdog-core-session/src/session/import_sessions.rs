@@ -1,7 +1,8 @@
 //! The session layer's side of a conversation import (`imported-session.mjs`
 //! `createImportedSession`, `apis.mjs` `createConversationImportApi`): an imported conversation
-//! becomes an ordinary Lead session on the current Main route, its turns stored as plain
-//! user/assistant rows after the session header, with `importOrigin` provenance in the header.
+//! becomes an ordinary Lead session on the current Main route, its tools and prompt seeded as
+//! `createSession` seeds them, its turns stored as plain user/assistant rows after the session
+//! header, with `importOrigin` provenance in the header.
 //!
 //! A turn is stored through the same internal row append the room log uses
 //! (`thread/roomRows/append`): rows of no turn, durable once the append answers.
@@ -179,7 +180,9 @@ impl ImportSessions for DirectoryImportSessions {
         let failed = || "importFailed".to_owned();
         let route = main_route(self.routes.as_ref())?;
         let header = imported_header(&route, &session, self.clock.now_ms());
-        let id = self.directory.create_session(header.clone(), json!({})).await.map_err(|_| failed())?;
+        // The manager's `createSession` seeds the Lead's tools and prompt; `importedSessionOptions` dropped `mcpScopeId`,
+        // so the seed opens no scope of its own.
+        let id = self.directory.create_imported_session(header.clone(), json!({})).await.map_err(|_| failed())?;
         let messages = imported_messages(&session, || format!("msg_{}", uuid::Uuid::new_v4().simple()));
         if SessionRoomLog::new(self.directory.clone()).append_rows(id.as_str(), messages.clone()).await.is_err() {
             // The half-made record is removed (`deleteSession`); a refusal leaves it for the retention sweep.

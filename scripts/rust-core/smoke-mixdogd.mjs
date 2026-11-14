@@ -10,7 +10,7 @@
 //   exactly that row in the core's history/tool-failures.jsonl and no other. A missing or empty spool fails.
 // `--loop <ms>` repeats the boot for that long (smoke-loop). The TUI's first render is the TUI package's own test.
 // Usage: node scripts/rust-core/smoke-mixdogd.mjs --mixdogd <path> [--limit-ms 5000] [--loop <ms>]
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -143,7 +143,8 @@ export function judgeToolFailureRows(rows, run) {
   if (differs.length) throw new Error(`the tool-failure row is not the provoked call's; it differs from Node's row in: ${differs.join('; ')}`);
   return row;
 }
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+// The module's own URL is the real path: a script named through a linked directory or drive is compared resolved too.
+if (process.argv[1] && existsSync(process.argv[1]) && realpathSync(resolve(process.argv[1])) === fileURLToPath(import.meta.url)) {
   const arg = (name, fallback) => (process.argv.includes(name) ? process.argv[process.argv.indexOf(name) + 1] : fallback);
   const bin = resolve(arg('--mixdogd'));
   const limit = Number(arg('--limit-ms', process.env.MIXDOG_BOOT_SMOKE_LIMIT_MS || 5000));

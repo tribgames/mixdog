@@ -289,6 +289,22 @@ fn external_edit_publishes_each_changed_subtree_once() {
     assert_eq!(config.reload().unwrap(), Applied::default());
 }
 
+/// `updateConfig` starts from `readAllForRmW()`, the file itself: an edit another process made that no reload has adopted
+/// yet survives the next write, and the write publishes it.
+#[test]
+fn a_write_keeps_an_external_edit_not_yet_reloaded() {
+    let dir = tempfile::tempdir().unwrap();
+    let (config, _) = open(&dir, Some(json!({ "desktop": {}, "agent": { "profile": { "title": "Start" } } })));
+    fs::write(dir.path().join("mixdog-config.json"), r#"{"desktop":{},"agent":{"profile":{"title":"Hand"},"heartbeatIntervalMinutes":240}}"#)
+        .unwrap();
+    let applied = config.write("desktop.keepAwake", json!(false), replace()).unwrap();
+    assert_eq!(applied.changed, vec!["desktop", "agent"]);
+    let saved = on_disk(&dir);
+    assert_eq!((&saved["agent"]["profile"]["title"], &saved["agent"]["heartbeatIntervalMinutes"]), (&json!("Hand"), &json!(240)));
+    assert_eq!(saved["desktop"]["keepAwake"], json!(false));
+    assert_eq!(config.agent()["profile"]["title"], "Hand");
+}
+
 #[test]
 fn unreadable_file_is_an_error_and_is_never_overwritten() {
     let dir = tempfile::tempdir().unwrap();
@@ -309,6 +325,27 @@ fn unreadable_file_is_an_error_and_is_never_overwritten() {
     fs::write(&config.shared.path, "{ broken").unwrap();
     assert!(config.reload().is_err());
     assert!(config.full().contains_key("desktop"));
+}
+
+/// The boot's recovery before its migration reads the file: a malformed config is kept aside as Node's first read keeps it,
+/// and an intact one is left byte for byte.
+#[test]
+fn recover_malformed_keeps_a_damaged_file_aside_and_leaves_an_intact_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("mixdog-config.json");
+    fs::write(&path, "{\"agent\": {},\n}").unwrap();
+    block_on(Config::recover_malformed(&path, lanes())).unwrap();
+    assert!(!path.exists());
+    let kept: Vec<_> = fs::read_dir(dir.path()).unwrap().map(|e| e.unwrap().file_name().into_string().unwrap()).collect();
+    assert_eq!(kept.len(), 1);
+    assert!(kept[0].starts_with("mixdog-config.json.corrupt-"));
+
+    let intact = tempfile::tempdir().unwrap();
+    let path = intact.path().join("mixdog-config.json");
+    fs::write(&path, "{\"agent\":{\"x\":1}}").unwrap();
+    block_on(Config::recover_malformed(&path, lanes())).unwrap();
+    assert_eq!(fs::read_to_string(&path).unwrap(), "{\"agent\":{\"x\":1}}");
+    assert_eq!(fs::read_dir(intact.path()).unwrap().count(), 1);
 }
 
 #[test]

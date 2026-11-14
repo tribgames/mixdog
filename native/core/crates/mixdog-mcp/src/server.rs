@@ -1,9 +1,11 @@
 //! One MCP server connection (T §4 target 1). The state machine
 //! `Starting → Ready{catalog} → Failed{cause} → Closed` moves only on transport facts and
 //! explicit commands (`connect`, `reconnect`, `close`); nothing retries on a timer. The call path
-//! reads the published state and takes this server's own admission gate — no lock is shared with
-//! any other server.
+//! reads the published state and takes this server's own admission gate (on a connection the scopes
+//! share, the calling scope's) — no lock is shared with any other server.
 
+use std::collections::HashMap;
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::AtomicBool;
@@ -11,6 +13,7 @@ use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 use std::time::Instant;
 
+use arc_swap::ArcSwapOption;
 use mixdog_core_api::domain::tool::ToolAnnotations;
 use mixdog_core_api::domain::tool::ToolOutput;
 use mixdog_rt::CpuBulk;
@@ -34,6 +37,7 @@ use crate::http::HttpTransport;
 use crate::naming::PROVIDER_TOOL_NAME_MAX;
 use crate::naming::qualified_tool_name;
 use crate::output_schema::OutputValidators;
+use crate::plugin_admin::truthy;
 use crate::result::OutputPolicy;
 use crate::result::ReportedError;
 use crate::result::Spiller;
@@ -43,6 +47,7 @@ use crate::rpc::RpcClient;
 use crate::rpc::RpcError;
 use crate::sse::SseTransport;
 use crate::stdio::StdioSpec;
+use crate::tools::Feature;
 use crate::transport::Authorizer;
 use crate::transport::append_stderr_tail;
 use crate::ws::WebSocketTransport;
@@ -67,13 +72,15 @@ pub struct McpIo {
 pub struct ToolEntry {
     /// `mcp__<server>__<tool>`, cut with a hash suffix only when the provider limit forces it.
     pub qualified: String,
-    /// The server's own name for the tool; what `tools/call` carries.
+    /// The server's own name for the tool; what `tools/call` carries. A feature's: the name's leaf.
     pub tool: String,
     pub description: String,
     pub input_schema: Value,
     pub annotations: ToolAnnotations,
     /// The tool's `outboundHint: true` annotation: it opts in as an outbound message.
     pub outbound_hint: bool,
+    /// The resources or prompts request the entry stands for (`mcpOperation`); `None`: a tool of the server.
+    pub feature: Option<Feature>,
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -90,6 +97,21 @@ pub struct Ready {
     pub outputs: Arc<OutputValidators>,
     pub capabilities: Value,
     pub instructions: Option<String>,
+}
+
+/// What a call sends the server.
+#[derive(Clone, Copy)]
+enum Request<'a> {
+    /// `tools/call` of the server's tool.
+    Tool(&'a str),
+    /// A resources or prompts request (`_callMcpFeatureWithTimeout`, mcp/client.mjs).
+    Feature(Feature),
+}
+
+/// What a call of the catalog's `tool` sends; `None`: the catalog lists no such tool.
+fn listed<'a>(ready: &Ready, tool: &'a str) -> Option<Request<'a>> {
+    let entry = ready.catalog.entries.iter().find(|entry| entry.tool == tool)?;
+    Some(entry.feature.map_or(Request::Tool(tool), Request::Feature))
 }
 
 pub enum ServerState {
@@ -153,6 +175,8 @@ pub struct McpServer {
     config: McpServerConfig,
     state: watch::Sender<Arc<ServerState>>,
     gate: Arc<AdmissionGate>,
+    /// The admission gate of each scope holding a connection the scopes share ([`Self::gate_in`]).
+    holder_gates: Mutex<HashMap<String, Arc<AdmissionGate>>>,
     spiller: Spiller,
     policy: OutputPolicy,
     secrets: Vec<String>,
@@ -164,9 +188,10 @@ pub struct McpServer {
     /// The folder of the server's scope now, which a server that follows its scope advertises as its root
     /// (`_scopeRoots`, mcp/client.mjs:79); empty: none set.
     scope_root: Arc<Mutex<String>>,
-    /// The connection the server was ready on ended by itself (Node keeps such a server registered with
-    /// `liveness.alive === false`): a call finds no connection to send on, and reconnects.
-    died: AtomicBool,
+    /// The connection the server was ready on, once that connection ended by itself (Node keeps such a server registered
+    /// with `liveness.alive === false`, with the tools, capabilities and instructions it had): a call finds no connection
+    /// to send on, and reconnects. Cleared when a connect settles.
+    died: ArcSwapOption<Ready>,
     /// One failure-driven reconnect at a time (`reconnects.run(registryKey, …)`).
     reconnecting: tokio::sync::Mutex<()>,
     /// Test seam: the transport that serves a server whose identity (`config`) is a remote one, so a replay can drive the real
@@ -208,9 +233,11 @@ fn annotations_of(tool: &Value) -> ToolAnnotations {
     }
 }
 
-pub(crate) fn build_catalog(server: &str, tools: &[Value]) -> ToolCatalog {
+/// The server's listed tools, then the resources and prompts requests its `capabilities` advertise (`mcpServerTools`,
+/// mcp/client.mjs).
+pub(crate) fn build_catalog(server: &str, tools: &[Value], capabilities: &Value) -> ToolCatalog {
     let digest = Sha256::digest(serde_json::to_vec(tools).unwrap_or_default());
-    let entries = tools
+    let mut entries: Vec<Arc<ToolEntry>> = tools
         .iter()
         .filter_map(|tool| {
             let name = tool.get("name")?.as_str()?;
@@ -221,9 +248,30 @@ pub(crate) fn build_catalog(server: &str, tools: &[Value]) -> ToolCatalog {
                 input_schema: sanitize_schema(tool.get("inputSchema")),
                 annotations: annotations_of(tool),
                 outbound_hint: tool.get("annotations").and_then(|h| h.get("outboundHint")) == Some(&Value::Bool(true)),
+                feature: None,
             }))
         })
         .collect();
+    // `mcpFeatureTools`: each request under a name none of the entries holds, `_` appended until one is free.
+    let mut used: HashSet<String> = entries.iter().map(|entry| entry.qualified.clone()).collect();
+    for feature in Feature::ALL.into_iter().filter(|feature| capabilities.get(feature.capability()).is_some_and(truthy)) {
+        let mut leaf = feature.name().to_owned();
+        let mut qualified = qualified_tool_name(server, &leaf, PROVIDER_TOOL_NAME_MAX);
+        while used.contains(&qualified) {
+            leaf.push('_');
+            qualified = qualified_tool_name(server, &leaf, PROVIDER_TOOL_NAME_MAX);
+        }
+        used.insert(qualified.clone());
+        entries.push(Arc::new(ToolEntry {
+            qualified,
+            tool: leaf,
+            description: feature.description().to_owned(),
+            input_schema: feature.schema(),
+            annotations: ToolAnnotations::default(),
+            outbound_hint: false,
+            feature: Some(feature),
+        }));
+    }
     ToolCatalog { digest: digest.iter().map(|b| format!("{b:02x}")).collect(), entries }
 }
 
@@ -352,6 +400,7 @@ impl McpServer {
             config,
             state,
             gate,
+            holder_gates: Mutex::new(HashMap::new()),
             spiller,
             policy,
             secrets,
@@ -361,7 +410,7 @@ impl McpServer {
             connecting: AtomicBool::new(false),
             shutdown: CancellationToken::new(),
             scope_root: Arc::default(),
-            died: AtomicBool::new(false),
+            died: ArcSwapOption::empty(),
             reconnecting: tokio::sync::Mutex::new(()),
             #[cfg(feature = "test-support")]
             stand_in: None,
@@ -387,6 +436,30 @@ impl McpServer {
         &self.gate
     }
 
+    /// The admission gate of the calls `scope` makes: the server's own, unless the scopes share its connection
+    /// ([`crate::hub::shares_process`]), where each scope holding it has its own, as Node keys `callAdmissionFor` by scope
+    /// and server name (mcp/client.mjs:340-361): one session's backlog never queues another's, and a cap is per session.
+    pub fn gate_in(&self, scope: &str) -> Arc<AdmissionGate> {
+        // A closed server's calls are refused by its own gate, closed with it.
+        if !crate::hub::shares_process(&self.config) || self.shutdown.is_cancelled() {
+            return Arc::clone(&self.gate);
+        }
+        let mut gates = self.holder_gates.lock().unwrap_or_else(|e| e.into_inner());
+        let gate = gates
+            .entry(scope.to_owned())
+            .or_insert_with(|| AdmissionGate::new(self.config.max_concurrency, self.config.max_queue, self.config.min_owner_queue));
+        Arc::clone(gate)
+    }
+
+    /// `closeCallAdmission(scopeId, name)` (mcp/client.mjs:364-370) for a scope that let the shared connection go while
+    /// other scopes keep it: the calls it still has waiting for admission are refused.
+    pub fn release_gate(&self, scope: &str) {
+        let gate = self.holder_gates.lock().unwrap_or_else(|e| e.into_inner()).remove(scope);
+        if let Some(gate) = gate {
+            gate.close(&format!("MCP {} disconnected", self.name()));
+        }
+    }
+
     pub fn state(&self) -> Arc<ServerState> {
         Arc::clone(&self.state.borrow())
     }
@@ -395,12 +468,27 @@ impl McpServer {
         self.state.subscribe()
     }
 
-    /// The tool catalog while the server is ready.
+    /// The tool catalog while the server is ready, and while the connection that listed it has ended by itself and is
+    /// not yet replaced: `getMcpTools` and `resolveMcpToolTarget` (mcp/client.mjs:232-238, 1622-1633) list a dead
+    /// server's tools, and a call of one reconnects it ([`Self::call_tool`]).
     pub fn catalog(&self) -> Option<Arc<ToolCatalog>> {
+        self.connection().map(|connection| Arc::clone(&connection.catalog))
+    }
+
+    /// The connection the server is ready on, or the one that ended by itself and is not yet replaced, whose tools,
+    /// capabilities and instructions Node keeps on the registered entry (`getMcpServerStatus`,
+    /// `getMcpServerInstructionsMap`, mcp/client.mjs:307-320, 384-391); none once the server is closed.
+    pub fn connection(&self) -> Option<Arc<Ready>> {
         match &*self.state() {
-            ServerState::Ready(ready) => Some(Arc::clone(&ready.catalog)),
-            _ => None,
+            ServerState::Ready(ready) => Some(Arc::clone(ready)),
+            ServerState::Closed => None,
+            _ => self.died.load_full(),
         }
+    }
+
+    /// Whether the connection the server was ready on ended by itself and no connect has settled since.
+    pub fn is_dead(&self) -> bool {
+        self.died.load().is_some()
     }
 
     fn publish(&self, generation: u64, state: ServerState) {
@@ -443,14 +531,17 @@ impl McpServer {
             // The budget is disabled: the handshake is not bounded, as Node arms no deadline for it.
             None => self.handshake(&opened).await,
         };
-        // The connect settled: whatever connection died before it is replaced or given up. Until here a call still
-        // finds the dead one and waits for this connect with the others (`died`).
-        self.died.store(false, Ordering::Release);
+        // The connect settled: whatever connection died before it is replaced or given up, and its tools with it (a failed
+        // replacement is unregistered, `replaceServerConnection`). Until here a call still finds the dead one and waits
+        // for this connect with the others (`died`).
+        self.died.store(None);
         match outcome {
             Ok(ready) => {
                 let client = Arc::clone(&ready.client);
+                // `connectServer` (mcp/client.mjs:1501) follows `list_changed` only from a server that advertised it.
+                let follows = ready.capabilities.pointer("/tools/listChanged").is_some_and(truthy);
                 self.publish(generation, ServerState::Ready(Arc::new(ready)));
-                self.watch(generation, client);
+                self.watch(generation, client, follows);
                 Ok(())
             }
             Err(error) => {
@@ -554,7 +645,7 @@ impl McpServer {
         };
         let outputs = OutputValidators::of(&tools).map_err(ConnectError::Failed)?;
         Ok(Ready {
-            catalog: Arc::new(build_catalog(&self.config.name, &tools)),
+            catalog: Arc::new(build_catalog(&self.config.name, &tools, &capabilities)),
             outputs: Arc::new(outputs),
             client,
             capabilities,
@@ -562,15 +653,16 @@ impl McpServer {
         })
     }
 
-    /// Follows one connection: its end is the `Failed` transition, `list_changed` re-lists.
-    fn watch(self: &Arc<Self>, generation: u64, client: Arc<RpcClient>) {
+    /// Follows one connection: its end is the `Failed` transition; when it `follows` the tool list, `list_changed`
+    /// re-lists (a notification no handler subscribed to is dropped).
+    fn watch(self: &Arc<Self>, generation: u64, client: Arc<RpcClient>, follows: bool) {
         let server = Arc::clone(self);
         mixdog_rt::spawn("mcp.server.watch", TaskClass::Work, async move {
             let mut closed = client.closed();
             loop {
                 tokio::select! {
                     () = async { let _ = closed.wait_for(Option::is_some).await; } => break,
-                    () = client.tools_changed() => server.relist(generation, &client).await,
+                    () = client.tools_changed(), if follows => server.relist(generation, &client).await,
                 }
             }
             // `getMcpServerStatus`: a dead connection reads `MCP server "<name>" closed` and the stderr tail.
@@ -578,7 +670,7 @@ impl McpServer {
             let cause = append_stderr_tail(&format!("MCP server \"{}\" closed", server.name()), &tail);
             let cause = scrub(&cause, &server.secrets);
             if server.generation.load(Ordering::Acquire) == generation {
-                server.died.store(true, Ordering::Release);
+                server.died.store(server.connection());
             }
             server.publish(generation, ServerState::Failed { cause });
         });
@@ -611,9 +703,9 @@ impl McpServer {
             }
         }
         let tools = walk.tools;
-        let catalog = build_catalog(&self.config.name, &tools);
         let current = self.state();
         let ServerState::Ready(ready) = &*current else { return };
+        let catalog = build_catalog(&self.config.name, &tools, &ready.capabilities);
         if ready.catalog.digest == catalog.digest {
             return;
         }
@@ -649,7 +741,14 @@ impl McpServer {
         self.shutdown.cancel();
         self.generation.fetch_add(1, Ordering::AcqRel);
         let previous = self.state.send_replace(Arc::new(ServerState::Closed));
-        self.gate.close(&format!("MCP {} closed", self.name()));
+        // A closed server lists nothing: the connection that ended by itself goes too.
+        self.died.store(None);
+        let reason = format!("MCP {} closed", self.name());
+        self.gate.close(&reason);
+        let holders: Vec<Arc<AdmissionGate>> = self.holder_gates.lock().unwrap_or_else(|e| e.into_inner()).drain().map(|(_, gate)| gate).collect();
+        for gate in holders {
+            gate.close(&reason);
+        }
         if let ServerState::Ready(ready) = &*previous {
             ready.client.close().await;
         }
@@ -660,17 +759,6 @@ impl McpServer {
             ServerState::Ready(ready) => Ok(Arc::clone(ready)),
             other => Err(CallError::NotReady { server: self.name().to_owned(), state: other.describe() }),
         }
-    }
-
-    /// A protocol request outside `tools/call` (resources, prompts) with the call timeout.
-    pub async fn request(&self, method: &str, params: Value, cancel: &CancellationToken) -> Result<Value, CallError> {
-        let ready = self.ready()?;
-        let options = RequestOptions {
-            idle_timeout: self.config.call_timeout,
-            max_total: self.config.max_total_timeout,
-            cancel: Some(cancel),
-        };
-        Ok(ready.client.request(method, params, options).await?)
     }
 
     /// `setMcpScopeRoot` (mcp/client.mjs:1603) for this server: the folder its scope works in now. A server that
@@ -694,7 +782,8 @@ impl McpServer {
         }
     }
 
-    /// Calls `tool` (the server's own name). `owner` identifies the caller for fair admission.
+    /// Calls `tool` (the server's own name, or a feature's leaf: its request is sent on the same path, `executeMcpTool`).
+    /// `owner` identifies the caller for fair admission.
     ///
     /// A call its connection fails is answered as `executeMcpTool` answers it (mcp/client.mjs:536-594): the server is
     /// reconnected, one reconnect shared by every call that failed on the same connection, and the call is replayed
@@ -708,22 +797,48 @@ impl McpServer {
         cancel: &CancellationToken,
         deadline: Option<Instant>,
     ) -> Result<ToolOutput, CallError> {
+        self.call_tool_through(&self.gate, owner, tool, arguments, cancel, deadline).await
+    }
+
+    /// [`Self::call_tool`] made in `scope`, admitted by that scope's gate ([`Self::gate_in`]).
+    pub async fn call_tool_in(
+        self: &Arc<Self>,
+        scope: &str,
+        owner: &str,
+        tool: &str,
+        arguments: Value,
+        cancel: &CancellationToken,
+        deadline: Option<Instant>,
+    ) -> Result<ToolOutput, CallError> {
+        let gate = self.gate_in(scope);
+        self.call_tool_through(&gate, owner, tool, arguments, cancel, deadline).await
+    }
+
+    async fn call_tool_through(
+        self: &Arc<Self>,
+        gate: &Arc<AdmissionGate>,
+        owner: &str,
+        tool: &str,
+        arguments: Value,
+        cancel: &CancellationToken,
+        deadline: Option<Instant>,
+    ) -> Result<ToolOutput, CallError> {
         let ready = match self.ready() {
             Ok(ready) if !ready.client.is_closed() => ready,
             // The connection ended before the call: nothing to send on (the SDK's `Not connected`).
             Ok(ready) => {
                 let tail = ready.client.transport().stderr_tail();
-                return self.recover_call(Some(Arc::clone(&ready.client)), None, tail, owner, tool, arguments, cancel, deadline).await;
+                return self.recover_call(gate, Some(Arc::clone(&ready.client)), None, tail, owner, tool, arguments, cancel, deadline).await;
             }
-            Err(_) if self.died.load(Ordering::Acquire) && !self.shutdown.is_cancelled() => {
-                return self.recover_call(None, None, String::new(), owner, tool, arguments, cancel, deadline).await;
+            Err(_) if self.is_dead() && !self.shutdown.is_cancelled() => {
+                return self.recover_call(gate, None, None, String::new(), owner, tool, arguments, cancel, deadline).await;
             }
             Err(not_ready) => return Err(not_ready),
         };
-        if !ready.catalog.entries.iter().any(|e| e.tool == tool) {
+        let Some(request) = listed(&ready, tool) else {
             return Err(CallError::UnknownTool { server: self.name().to_owned(), tool: tool.to_owned() });
-        }
-        let first = match self.call_ready(&ready, owner, tool, arguments.clone(), cancel, deadline).await {
+        };
+        let first = match self.call_ready(gate, &ready, owner, request, arguments.clone(), cancel, deadline).await {
             Ok(output) => return Ok(output),
             Err(error) => error,
         };
@@ -735,7 +850,7 @@ impl McpServer {
         let Some(tail) = tail.filter(|_| !cancel.is_cancelled()) else {
             return Err(first);
         };
-        self.recover_call(Some(Arc::clone(&ready.client)), Some(first.to_string()), tail, owner, tool, arguments, cancel, deadline).await
+        self.recover_call(gate, Some(Arc::clone(&ready.client)), Some(first.to_string()), tail, owner, tool, arguments, cancel, deadline).await
     }
 
     /// The reconnect after a call's connection failed, and what follows it. `sent`: the failure of a call that was
@@ -744,6 +859,7 @@ impl McpServer {
     #[allow(clippy::too_many_arguments)]
     async fn recover_call(
         self: &Arc<Self>,
+        gate: &Arc<AdmissionGate>,
         failed: Option<Arc<RpcClient>>,
         sent: Option<String>,
         tail: String,
@@ -785,10 +901,10 @@ impl McpServer {
             return Err(RpcError::Cancelled.into());
         }
         let ready = self.ready()?;
-        if !ready.catalog.entries.iter().any(|e| e.tool == tool) {
+        let Some(request) = listed(&ready, tool) else {
             return Err(CallError::UnknownTool { server: self.name().to_owned(), tool: tool.to_owned() });
-        }
-        match self.call_ready(&ready, owner, tool, arguments, cancel, deadline).await {
+        };
+        match self.call_ready(gate, &ready, owner, request, arguments, cancel, deadline).await {
             Err(CallError::Rpc(retry)) if !matches!(retry, RpcError::Cancelled) && !cancel.is_cancelled() => {
                 // The SDK's text of a JSON-RPC error (`McpError`).
                 let (text, answered) = match &retry {
@@ -802,10 +918,10 @@ impl McpServer {
         }
     }
 
-    /// `reconnectMcpServer` (mcp/client.mjs:432): replaces the connection `failed` was, unless a peer already did (its
-    /// replacement is reused) or the server was closed meanwhile (a failed call never brings back a server someone
-    /// removed).
-    async fn reconnect_after(self: &Arc<Self>, failed: Option<Arc<RpcClient>>) -> Result<(), String> {
+    /// `reconnectMcpServer` (mcp/client.mjs:432): replaces the connection `failed` was (`None`: the one that ended by
+    /// itself), unless a peer already did (its replacement is reused) or the server was closed meanwhile (a failed call
+    /// never brings back a server someone removed).
+    pub(crate) async fn reconnect_after(self: &Arc<Self>, failed: Option<Arc<RpcClient>>) -> Result<(), String> {
         let _one = self.reconnecting.lock().await;
         let disconnected = || format!("MCP server \"{}\" was disconnected", self.name());
         match &*self.state() {
@@ -814,7 +930,7 @@ impl McpServer {
             }
             ServerState::Closed => return Err(disconnected()),
             // A peer's reconnect of the same connection already failed: this caller shares that failure.
-            ServerState::Failed { cause } if !self.died.load(Ordering::Acquire) => return Err(cause.clone()),
+            ServerState::Failed { cause } if !self.is_dead() => return Err(cause.clone()),
             _ => {}
         }
         if self.shutdown.is_cancelled() {
@@ -834,7 +950,7 @@ impl McpServer {
         deadline: Option<Instant>,
     ) -> Result<ToolOutput, CallError> {
         let ready = self.ready()?;
-        self.call_ready(&ready, owner, tool, arguments, cancel, deadline).await
+        self.call_ready(&self.gate, &ready, owner, Request::Tool(tool), arguments, cancel, deadline).await
     }
 
     /// Calls `tool` (the server's own name) and answers as the SDK's `Client.callTool` settles: the server's result once
@@ -848,19 +964,22 @@ impl McpServer {
         deadline: Option<Instant>,
     ) -> Result<Value, CallError> {
         let ready = self.ready()?;
-        self.settle(&ready, owner, tool, arguments, cancel, deadline).await
+        self.settle(&self.gate, &ready, owner, Request::Tool(tool), arguments, cancel, deadline).await
     }
 
+    /// One call on `ready`, admitted by `gate`.
+    #[allow(clippy::too_many_arguments)]
     async fn call_ready(
         &self,
+        gate: &Arc<AdmissionGate>,
         ready: &Ready,
         owner: &str,
-        tool: &str,
+        request: Request<'_>,
         arguments: Value,
         cancel: &CancellationToken,
         deadline: Option<Instant>,
     ) -> Result<ToolOutput, CallError> {
-        let result = self.settle(ready, owner, tool, arguments, cancel, deadline).await?;
+        let result = self.settle(gate, ready, owner, request, arguments, cancel, deadline).await?;
         map_call_result(&result, self.policy, &self.spiller)
             .await
             .map_err(|mut reported| {
@@ -869,28 +988,37 @@ impl McpServer {
             })
     }
 
+    /// `request` sent as the SDK's `Client.callTool` settles it (a feature's as `_callMcpFeatureWithTimeout` does): the
+    /// result once its output schema passed, or the error.
+    #[allow(clippy::too_many_arguments)]
     async fn settle(
         &self,
+        gate: &Arc<AdmissionGate>,
         ready: &Ready,
         owner: &str,
-        tool: &str,
+        request: Request<'_>,
         arguments: Value,
         cancel: &CancellationToken,
         deadline: Option<Instant>,
     ) -> Result<Value, CallError> {
-        let permit = self.gate.acquire(owner, cancel, self.config.wait_timeout).await?;
+        let permit = gate.acquire(owner, cancel, self.config.wait_timeout).await?;
         let from_deadline = deadline.map(|d| d.saturating_duration_since(Instant::now()));
         let max_total = match (self.config.max_total_timeout, from_deadline) {
             (Some(a), Some(b)) => Some(a.min(b)),
             (a, b) => a.or(b),
         };
         let options = RequestOptions { idle_timeout: self.config.call_timeout, max_total, cancel: Some(cancel) };
-        let result = ready
-            .client
-            .request("tools/call", json!({"name": tool, "arguments": arguments}), options)
-            .await;
+        let (method, params) = match request {
+            Request::Tool(tool) => ("tools/call", json!({"name": tool, "arguments": arguments})),
+            Request::Feature(feature) => (feature.method(), feature.params(&arguments)),
+        };
+        let result = ready.client.request(method, params, options).await;
         drop(permit);
-        self.checked(ready, tool, result?, cancel).await
+        match request {
+            Request::Tool(tool) => self.checked(ready, tool, result?, cancel).await,
+            // The server's answer, as the text of a call that succeeded.
+            Request::Feature(_) => Ok(json!({"content": [{"type": "text", "text": mixdog_js::json_stringify_indent(&result?, 2)}], "isError": false})),
+        }
     }
 
     /// `callTool`'s check of `result` against `tool`'s output schema, as a cpu-bulk lane job: a pattern may backtrack for
@@ -941,6 +1069,7 @@ impl McpServer {
 mod catalog_tests {
     use serde_json::json;
 
+    use super::Feature;
     use super::MAX_TOOL_PAGES;
     use super::ToolPages;
     use super::build_catalog;
@@ -978,9 +1107,41 @@ mod catalog_tests {
             "name": "lookup", "title": "Lookup", "trigger": "when asked",
             "description": "d", "inputSchema": {"type": "object"}, "annotations": {"title": "Lookup", "readOnlyHint": true},
         })];
-        let catalog = build_catalog("srv", &listed);
+        let catalog = build_catalog("srv", &listed, &json!({}));
         let entry = &catalog.entries[0];
         assert_eq!((entry.description.as_str(), &entry.input_schema), ("d", &json!({"type": "object"})));
         assert_eq!((entry.annotations.title.as_deref(), entry.annotations.read_only_hint), (Some("Lookup"), Some(true)));
+    }
+
+    /// Node's `mcpFeatureTools` (`features.test.mjs`): a server that advertises resources and prompts lists their five
+    /// requests after its own tools, under Node's names and schemas; a name one of its own tools holds is taken with `_`
+    /// appended. A server that advertises neither lists none.
+    #[test]
+    fn advertised_resources_and_prompts_are_listed_after_the_servers_tools() {
+        let listed = [json!({"name": "mixdog_read_resource"})];
+        let catalog = build_catalog("catalog", &listed, &json!({"resources": {}, "prompts": {}}));
+        let names: Vec<&str> = catalog.entries.iter().map(|entry| entry.qualified.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "mcp__catalog__mixdog_read_resource",
+                "mcp__catalog__mixdog_list_resources",
+                "mcp__catalog__mixdog_list_resource_templates",
+                "mcp__catalog__mixdog_read_resource_",
+                "mcp__catalog__mixdog_list_prompts",
+                "mcp__catalog__mixdog_get_prompt",
+            ]
+        );
+        assert_eq!((catalog.entries[0].feature, catalog.entries[3].feature), (None, Some(Feature::ReadResource)));
+        assert_eq!(
+            catalog.entries[3].input_schema,
+            json!({
+                "type": "object",
+                "properties": {"uri": {"type": "string", "description": "Resource URI returned by the server."}},
+                "required": ["uri"],
+                "additionalProperties": false,
+            })
+        );
+        assert!(build_catalog("catalog", &[], &json!({"tools": {}})).entries.is_empty());
     }
 }

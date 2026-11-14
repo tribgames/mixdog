@@ -19,8 +19,8 @@ use mixdog_core_api::domain::provider::{BinarySource, Content, ContentPart, Docu
 
 use super::media::{inline_file_kind, AttachmentFacts, FileKind};
 
-/// Up to this many pages per read call; the read tool enforces the same cap.
-pub const READ_PDF_MAX_PAGES_PER_CALL: u64 = 20;
+// Up to this many pages per read call: the cap the read tool enforces.
+pub use mixdog_tools::fs::READ_PDF_MAX_PAGES_PER_CALL;
 
 /// A payload written to the store.
 #[derive(Clone, PartialEq, Debug)]

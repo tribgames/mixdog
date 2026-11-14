@@ -20,6 +20,7 @@ use mixdog_rt::TaskClass;
 use serde_json::Value;
 
 use crate::config::McpServerConfig;
+use crate::config::TransportConfig;
 use crate::connector_accounts::AccountError;
 use crate::connector_accounts::Chosen;
 use crate::connector_accounts::ChooseCall;
@@ -83,6 +84,25 @@ type Registry = HashMap<String, Vec<Arc<McpServer>>>;
 /// A server's name inside a scope.
 type ScopedName = (String, String);
 
+/// `sharedStdioKey` (mcp/client.mjs:123-132): a stdio server's connection is shared by the scopes that connect the same
+/// server with the same configuration, unless the roots it advertises follow its scope; a remote one stays its scope's.
+pub(crate) fn shares_process(config: &McpServerConfig) -> bool {
+    matches!(config.transport, TransportConfig::Stdio { .. }) && !config.roots_follow_scope
+}
+
+/// `_closeServer`'s release (mcp/client.mjs:1367-1374): of the servers `scope` gave up, those no scope of `registry`
+/// holds any more, which close; a shared connection among them is no longer handed on. One another scope still holds
+/// stays open, and `scope`'s calls waiting for its admission are refused (`closeCallAdmission(scopeId, name)`).
+fn unheld(shared: &mut Vec<Arc<McpServer>>, registry: &Registry, scope: &str, given_up: Vec<Arc<McpServer>>) -> Vec<Arc<McpServer>> {
+    let (kept, closing): (Vec<Arc<McpServer>>, Vec<Arc<McpServer>>) =
+        given_up.into_iter().partition(|server| registry.values().flatten().any(|held| Arc::ptr_eq(held, server)));
+    for server in &kept {
+        server.release_gate(scope);
+    }
+    shared.retain(|entry| !closing.iter().any(|server| Arc::ptr_eq(server, entry)));
+    closing
+}
+
 pub struct McpHub {
     /// Each scope's servers in insertion order, as Node's server registry lists them: a server
     /// kept across `apply` holds its place; a new or changed one goes after, in configuration
@@ -108,6 +128,9 @@ pub struct McpHub {
     /// The folder each scope works in now (`_scopeRoots`, mcp/client.mjs:79), which its scope-following servers
     /// advertise as their root; a scope with none has no entry.
     scope_roots: Mutex<HashMap<String, String>>,
+    /// `_sharedStdio` (mcp/client.mjs:80-87): the one connection of each stdio server configuration ([`shares_process`]),
+    /// which every scope connecting that server with that configuration holds; it closes when no scope holds it.
+    shared: Mutex<Vec<Arc<McpServer>>>,
 }
 
 /// The server a prefixed tool name refers to, and its catalog entry when it lists the tool. A
@@ -132,6 +155,7 @@ impl McpHub {
             lives: Mutex::new(HashMap::new()),
             runtime_scope: uuid::Uuid::new_v4().to_string(),
             scope_roots: Mutex::new(HashMap::new()),
+            shared: Mutex::new(Vec::new()),
         })
     }
 
@@ -208,6 +232,10 @@ impl McpHub {
     /// [`resolve_tool_account`](Self::resolve_tool_account) among the servers of `scope`.
     pub async fn resolve_tool_account_in(&self, scope: &str, name: &str, args: &Value, conversation: &str) -> Result<Option<Chosen>, AccountError> {
         let Some(target) = self.tool_target_in(scope, name) else { return Ok(None) };
+        // A resources or prompts request is made under no account (`target.definition?.mcpOperation`).
+        if target.entry.as_ref().is_some_and(|entry| entry.feature.is_some()) {
+            return Ok(None);
+        }
         let held = (normalize_scope(Some(scope)), target.server.name().to_owned());
         let Some(accounts) = self.accounts.load().get(&held).cloned() else { return Ok(None) };
         let leaf = match &target.entry {
@@ -292,9 +320,15 @@ impl McpHub {
         let scope = normalize_scope(Some(scope));
         let current = self.in_scope(&scope);
         let mut kept: Vec<String> = Vec::new();
-        let mut started = Vec::new();
+        // The servers the scope takes on, in configuration order, and those of them it connects (the others it adopted),
+        // each with whether it is a dead shared connection connected again in place.
+        let mut added = Vec::new();
+        let mut started: Vec<(Arc<McpServer>, bool)> = Vec::new();
         let env = self.oauth_env.load_full();
         let mut previous_oauth = self.oauth.lock().unwrap_or_else(|e| e.into_inner());
+        // Held until the registry holds the outcome: no other scope adopts a connection this one gives up meanwhile, nor
+        // gives up one this one adopts.
+        let mut shared = self.shared.lock().unwrap_or_else(|e| e.into_inner());
         let mut next_oauth: HashMap<String, Arc<McpOAuth>> = HashMap::new();
         for config in configs.into_iter().filter(|c| c.enabled) {
             match current.iter().find(|s| s.name() == config.name) {
@@ -312,6 +346,24 @@ impl McpHub {
                     }
                 }
                 _ => {
+                    // `adoptSharedConnection` (mcp/client.mjs:1395-1405): the connection the scopes hold for the same
+                    // configuration, unless it closed or its connect failed. One whose connection ended by itself connects
+                    // again in place, for every scope holding it, as Node's holders each reconnect onto one new shared
+                    // connection (`reconnectMcpServer`).
+                    // `Some(dead)`: it can be adopted, and whether its connection ended by itself (one state read).
+                    let adoptable = |s: &Arc<McpServer>| match &*s.state() {
+                        ServerState::Closed => None,
+                        ServerState::Failed { .. } => s.is_dead().then_some(true),
+                        _ => Some(false),
+                    };
+                    let found = shared.iter().filter(|s| *s.config() == config).find_map(|s| adoptable(s).map(|dead| (Arc::clone(s), dead)));
+                    if let Some((live, dead)) = found {
+                        if dead {
+                            started.push((Arc::clone(&live), true));
+                        }
+                        added.push(live);
+                        continue;
+                    }
                     let oauth = match (&config.oauth, &env) {
                         (Some(binding), Some(env)) => match McpOAuth::new(binding.clone(), env) {
                             Ok(oauth) => Some(oauth),
@@ -334,7 +386,14 @@ impl McpHub {
                     // A server that follows its scope starts with the scope's root as it is now.
                     let root = self.scope_roots.lock().unwrap_or_else(|e| e.into_inner()).get(&scope).cloned();
                     server.set_scope_root(root.as_deref().unwrap_or_default());
-                    started.push(server);
+                    if shares_process(&config) {
+                        // A failed connection of the same configuration is handed on no more (`retireSharedConnection`):
+                        // the scopes holding it keep it until they let it go.
+                        shared.retain(|s| *s.config() != config);
+                        shared.push(Arc::clone(&server));
+                    }
+                    added.push(Arc::clone(&server));
+                    started.push((server, false));
                 }
             }
         }
@@ -342,7 +401,7 @@ impl McpHub {
         previous_oauth.extend(next_oauth.into_iter().map(|(name, oauth)| ((scope.clone(), name), oauth)));
         drop(previous_oauth);
         let mut next: Vec<Arc<McpServer>> = current.iter().filter(|s| kept.iter().any(|n| n == s.name())).cloned().collect();
-        next.extend(started.iter().cloned());
+        next.extend(added);
         let retired: Vec<Arc<McpServer>> = current
             .iter()
             .filter(|old| !next.iter().any(|kept| Arc::ptr_eq(kept, old)))
@@ -362,13 +421,17 @@ impl McpHub {
             }
             registry
         });
-        for server in retired {
+        let closing = unheld(&mut shared, &self.servers.load(), &scope, retired);
+        drop(shared);
+        for server in closing {
             mixdog_rt::spawn("mcp.hub.close", TaskClass::Work, async move { server.close().await });
         }
-        for server in started {
+        for (server, dead) in started {
             mixdog_rt::spawn("mcp.hub.connect", TaskClass::Work, async move {
+                // A dead shared connection takes the shared reconnect, which connects it once whichever scopes asked.
+                let connected = if dead { server.reconnect_after(None).await } else { server.connect().await.map_err(|error| error.to_string()) };
                 // The lines Node's `connectServer` writes to the log (`[mcp-client] Failed to connect`, `[mcp] connected`).
-                match server.connect().await {
+                match connected {
                     Err(error) => crate::config::mcp_log(&format!("[mcp-client] Failed to connect \"{}\": {error}", server.name())),
                     Ok(()) => {
                         let catalog = server.catalog();
@@ -411,12 +474,13 @@ impl McpHub {
             .collect()
     }
 
-    /// The tools of every ready server of the default scope.
+    /// The tools of the default scope's servers ([`tools_in`](Self::tools_in)).
     pub fn tools(&self) -> Vec<Arc<dyn Tool>> {
         self.tools_in(&self.default_scope())
     }
 
-    /// The tools of every ready server of `scope` (`getMcpTools(scopeId)`).
+    /// The tools of the servers of `scope` (`getMcpTools(scopeId)`): the ready ones and those whose connection ended by
+    /// itself ([`McpServer::catalog`]).
     pub fn tools_in(&self, scope: &str) -> Vec<Arc<dyn Tool>> {
         self.ready_tools(scope, |_| true)
     }
@@ -427,23 +491,22 @@ impl McpHub {
         self.ready_tools(scope, |server| scopes.mcp_server_allowed_for_cwd(server.name(), server.config().plugin_id.as_deref(), cwd))
     }
 
+    /// The tools of the servers [`McpServer::catalog`] lists: the ready ones, and those whose connection ended by itself
+    /// (`getMcpTools` does not look at liveness), whose call reconnects them.
     fn ready_tools(&self, scope: &str, keep: impl Fn(&McpServer) -> bool) -> Vec<Arc<dyn Tool>> {
+        let scope = normalize_scope(Some(scope));
         let mut out: Vec<Arc<dyn Tool>> = Vec::new();
-        for server in self.in_scope(scope).iter().filter(|server| keep(server)) {
-            if let ServerState::Ready(ready) = &*server.state() {
-                out.extend(
-                    ready
-                        .catalog
-                        .entries
-                        .iter()
-                        .map(|entry| Arc::new(McpTool::new(Arc::clone(server), Arc::clone(entry))) as Arc<dyn Tool>),
-                );
+        for server in self.in_scope(&scope).iter().filter(|server| keep(server)) {
+            if let Some(catalog) = server.catalog() {
+                out.extend(catalog.entries.iter().map(|entry| {
+                    Arc::new(McpTool::in_scope(Arc::clone(server), Arc::clone(entry), &scope)) as Arc<dyn Tool>
+                }));
             }
         }
         out
     }
 
-    /// The tool a qualified name was published for, by a ready server; the policy asks it what
+    /// The tool a qualified name was published for, by a server that lists it ([`McpServer::catalog`]); the policy asks it what
     /// a call does outside the machine (`Tool::outbound_kind`).
     pub fn tool(&self, qualified: &str) -> Option<Arc<dyn Tool>> {
         self.tool_in(&self.default_scope(), qualified)
@@ -452,7 +515,7 @@ impl McpHub {
     /// [`tool`](Self::tool) among the servers of `scope`.
     pub fn tool_in(&self, scope: &str, qualified: &str) -> Option<Arc<dyn Tool>> {
         let (server, entry) = self.resolve_in(scope, qualified)?;
-        Some(Arc::new(McpTool::new(server, entry)))
+        Some(Arc::new(McpTool::in_scope(server, entry, &normalize_scope(Some(scope)))))
     }
 
     /// The server and entry a qualified tool name was published for in the default scope.
@@ -518,7 +581,8 @@ impl McpHub {
     /// The first half of `disconnectAll({ scopeId })` (`mcp/client.mjs:1182-1230`), synchronous: the
     /// scope is marked released and its generation moves on (so every operation in flight or queued
     /// for it is void from this instant), its servers leave the registry, and its sign-ins and
-    /// accounts are forgotten. The servers are returned to be closed ([`close_retired`]).
+    /// accounts are forgotten. The servers no other scope holds are returned to be closed ([`close_retired`]); a
+    /// connection another scope shares stays open for it.
     ///
     /// The runtime scope is the daemon's and is never tombstoned: Node's `disconnectAll` only drops the
     /// servers and voids what is in flight, so the runtime stays readable (its servers read `disconnected`)
@@ -530,12 +594,15 @@ impl McpHub {
         let life = lives.entry(scope.clone()).or_default();
         life.released = life.released || scope != self.runtime_scope();
         life.generation += 1;
-        let closing = self.in_scope(&scope);
+        let mut shared = self.shared.lock().unwrap_or_else(|e| e.into_inner());
+        let given_up = self.in_scope(&scope);
         self.servers.rcu(|all| {
             let mut registry = Registry::clone(all);
             registry.remove(&scope);
             registry
         });
+        let closing = unheld(&mut shared, &self.servers.load(), &scope, given_up);
+        drop(shared);
         self.oauth.lock().unwrap_or_else(|e| e.into_inner()).retain(|held, _| held.0 != scope);
         self.accounts.rcu(|all| {
             let mut live = HashMap::clone(all);
@@ -547,14 +614,31 @@ impl McpHub {
     }
 
     /// `disconnectAll({ scopeId })`: [`retire_scope`](Self::retire_scope), then every server of the
-    /// scope closes; the other scopes are untouched.
+    /// scope no other scope shares closes; the other scopes are untouched.
     pub async fn release_scope(&self, scope: &str) {
         close_retired(self.retire_scope(scope)).await;
     }
 
+    /// Whether a scope other than `scope` holds `server` (a stdio connection the scopes share, `_sharedStdio`).
+    pub fn held_elsewhere(&self, scope: &str, server: &Arc<McpServer>) -> bool {
+        let scope = normalize_scope(Some(scope));
+        self.servers.load().iter().any(|(other, held)| *other != scope && held.iter().any(|s| Arc::ptr_eq(s, server)))
+    }
+
     /// Every scope's servers close.
     pub async fn close_all(&self) {
-        let all = self.servers.swap(Arc::new(Registry::new()));
-        futures::future::join_all(all.values().flatten().map(|server| server.close())).await;
+        let all = {
+            let mut shared = self.shared.lock().unwrap_or_else(|e| e.into_inner());
+            shared.clear();
+            self.servers.swap(Arc::new(Registry::new()))
+        };
+        // A connection the scopes share sits in each holder's list: it closes once.
+        let mut closing: Vec<&Arc<McpServer>> = Vec::new();
+        for server in all.values().flatten() {
+            if !closing.iter().any(|seen| Arc::ptr_eq(seen, server)) {
+                closing.push(server);
+            }
+        }
+        futures::future::join_all(closing.into_iter().map(|server| server.close())).await;
     }
 }

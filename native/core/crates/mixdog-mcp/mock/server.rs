@@ -207,9 +207,14 @@ fn main() {
             }
             (Some("initialize"), Some(id)) => {
                 *shared.client_capabilities.lock().unwrap() = message["params"]["capabilities"].clone();
+                // `MOCK_CAPABILITIES`: what the server advertises (JSON); by default it announces changes of its tools.
+                let capabilities = std::env::var("MOCK_CAPABILITIES")
+                    .ok()
+                    .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+                    .unwrap_or_else(|| json!({"tools": {"listChanged": true}}));
                 send(&shared, json!({"jsonrpc": "2.0", "id": id, "result": {
                     "protocolVersion": "2025-06-18",
-                    "capabilities": {"tools": {"listChanged": true}},
+                    "capabilities": capabilities,
                     "serverInfo": {"name": "mock", "version": "0"},
                     "instructions": "mock instructions"}}));
             }

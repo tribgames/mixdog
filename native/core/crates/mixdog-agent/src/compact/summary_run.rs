@@ -32,6 +32,10 @@ use mixdog_core_api::domain::provider::Role;
 /// Output ceiling of one summary call.
 pub const SUMMARY_OUTPUT_TOKENS: u64 = 4_096;
 const COMPACTION_PROMPT_HEADROOM: f64 = 0.85;
+/// `HANDOFF_TIMEOUT_MAX_MS` (`session/compact/constants.mjs`): the summary's deadline when the session states none.
+pub const HANDOFF_TIMEOUT_MAX_MS: u64 = 300_000;
+/// The reason `AbortSignal.timeout` aborts with: the failure of a summary past its deadline.
+const SUMMARY_TIMED_OUT: &str = "The operation was aborted due to timeout";
 
 #[derive(Debug)]
 pub enum SummaryFailure {
@@ -393,18 +397,28 @@ pub struct SummarizeContext<'a> {
     pub context_window: u64,
     /// What the summary is written from (`conversation_compaction_input`).
     pub conversation_input: &'a [AgentMessage],
+    /// `handoffTimeoutMs`: how long the fork, and then the isolated request, may take; `None` is
+    /// [`HANDOFF_TIMEOUT_MAX_MS`].
+    pub timeout_ms: Option<u64>,
+}
+
+/// `future` under one summary deadline (`AbortSignal.timeout`): past it the summary fails, it is not a cancellation.
+async fn before_deadline<T>(limit: std::time::Duration, future: impl std::future::Future<Output = T>) -> Result<T, SummaryFailure> {
+    mixdog_rt::time::timeout(limit, future).await.map_err(|_| SummaryFailure::Failed(SUMMARY_TIMED_OUT.to_owned()))
 }
 
 /// The summary on one route: a fork while the cache is warm and the route is
 /// the session's own, else (or when the fork cannot run) an isolated request
-/// whose input budget belongs to its own model.
+/// whose input budget belongs to its own model. Each has its own deadline (`forkSignal`, and `summarySendOpts`'
+/// `combinedSignal` for every batch of the isolated request); a fork past it fails the summary instead of falling back.
 async fn summarize_on_route(
     cx: &SummarizeContext<'_>,
     route: &SummaryRoute,
     warm: bool,
 ) -> Result<Generated, SummaryFailure> {
+    let limit = std::time::Duration::from_millis(cx.timeout_ms.filter(|ms| *ms > 0).unwrap_or(HANDOFF_TIMEOUT_MAX_MS));
     let (fallback, fork_usage) = if warm {
-        match summarize_on_shared_prefix(cx.fork, route, cx.conversation_input).await {
+        match before_deadline(limit, summarize_on_shared_prefix(cx.fork, route, cx.conversation_input)).await? {
             Forked::Generated(done) => return Ok(done),
             Forked::Fallback { reason, usage } => (reason, usage),
         }
@@ -414,21 +428,24 @@ async fn summarize_on_route(
     let window = if route.context_window > 0 { route.context_window } else { cx.context_window };
     let output_tokens = SUMMARY_OUTPUT_TOKENS.min(256.max((window as f64 * 0.15).floor() as u64));
     let input_budget = 1.max(((window.saturating_sub(output_tokens)) as f64 / route.calibration).floor() as u64);
-    let generated = generate_fresh_handoff_summary(
-        cx.fresh,
-        cx.conversation_input,
-        &HandoffInput {
-            sender: &*route.sender,
-            model: &route.model,
-            provider_name: Some(&route.provider_name),
-            budget_tokens: cx.compact_budget_tokens.max(cx.hard_budget_tokens),
-            reserve_tokens: cx.reserve_tokens,
-            input_budget_tokens: input_budget,
-            max_output_tokens: output_tokens,
-            fast: route.fast,
-        },
+    let generated = before_deadline(
+        limit,
+        generate_fresh_handoff_summary(
+            cx.fresh,
+            cx.conversation_input,
+            &HandoffInput {
+                sender: &*route.sender,
+                model: &route.model,
+                provider_name: Some(&route.provider_name),
+                budget_tokens: cx.compact_budget_tokens.max(cx.hard_budget_tokens),
+                reserve_tokens: cx.reserve_tokens,
+                input_budget_tokens: input_budget,
+                max_output_tokens: output_tokens,
+                fast: route.fast,
+            },
+        ),
     )
-    .await?;
+    .await??;
     Ok(Generated {
         usage: sum_usage(generated.usage, fork_usage),
         mode: "isolated",

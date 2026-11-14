@@ -32,7 +32,7 @@ pub fn discovery_path() -> PathBuf {
 
 #[derive(Debug, thiserror::Error)]
 pub enum DiscoveryError {
-    /// No file: no core is running (or it has released).
+    /// No file, or one whose core has ended: no core is running (or it has released).
     #[error("no core is running ({0})")]
     Absent(PathBuf),
     #[error("reading {path}: {source}")]

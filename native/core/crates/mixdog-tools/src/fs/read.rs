@@ -1,10 +1,12 @@
 //! `read`: line windows, binary preview, images, office/PDF through the
 //! extension pool, batches and glob surveys (T §3.1).
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use base64::Engine;
+use mixdog_ai::providers::file_text::MAX_PDF_BYTES;
 use mixdog_core_api::domain::common::AbsPath;
 use mixdog_core_api::domain::ext::ExtCall;
 use mixdog_core_api::domain::ext::ExtError;
@@ -14,6 +16,7 @@ use mixdog_core_api::domain::ext::ImageResizeError;
 use mixdog_core_api::domain::ext::ImageResizer;
 use mixdog_core_api::domain::ext::ResizedImage;
 use mixdog_core_api::domain::fs::EntryKind;
+use mixdog_core_api::domain::fs::FsError;
 use mixdog_core_api::domain::fs::FsErrorKind;
 use mixdog_core_api::domain::fs::ReadRange;
 use mixdog_core_api::domain::fs::WalkRequest;
@@ -46,6 +49,17 @@ const IPYNB_RANGE_REFUSAL: &str = "Error: range args (offset/limit/line) are not
 const IMAGE_MAX_BYTES: usize = 3_750_000;
 /// The hard API ceiling on an inline image's base64 length (`API_IMAGE_MAX_BASE64_SIZE`).
 const IMAGE_MAX_BASE64: usize = 5 * 1024 * 1024;
+/// A paged PDF read spans at most this many pages (`READ_PDF_MAX_PAGES_PER_CALL`).
+pub const READ_PDF_MAX_PAGES_PER_CALL: u64 = 20;
+/// A PDF of up to this many pages is read whole; a longer one shows its first `PDF_PREVIEW_PAGES` (`PDF_WHOLE_READ_MAX_PAGES`).
+const PDF_WHOLE_READ_MAX_PAGES: u64 = 10;
+const PDF_PREVIEW_PAGES: u64 = 5;
+/// A page without a text layer renders at this width (`PDF_PAGE_IMAGE_WIDTH`).
+const PDF_PAGE_IMAGE_WIDTH: u64 = 1200;
+/// The renderer takes at most this many explicit pages per call (`PDF_RENDER_BATCH`).
+const PDF_RENDER_BATCH: usize = 12;
+/// A page has a text layer when its text holds this many characters besides white space (`PDF_TEXT_LAYER_MIN_CHARS`).
+const PDF_TEXT_LAYER_MIN_CHARS: usize = 16;
 const GUARD_DEFAULT_LIMIT: u64 = 500;
 const MAX_WINDOW: i64 = 100_000;
 /// The most lines a from-the-end read of a file past the in-memory cap serves (`TAIL_MODE_LINES_MAX`).
@@ -180,7 +194,8 @@ struct Public {
     entries: Vec<BEntry>,
     /// Distinct files past the per-call cap, named to the caller.
     skipped: Vec<String>,
-    pages: Option<String>,
+    /// `pages` as given: `parsePagesArg` refuses one that is not a string.
+    pages: Option<JsonValue>,
 }
 
 const WINDOW_RANGE_TEXT: &str = "offset must be an integer >= 1 and limit an integer from 1 to 100000";
@@ -288,7 +303,7 @@ fn parse_public(args: &JsonValue) -> Result<Public, ToolError> {
         e.mode = arg_str(args, "mode").map(str::to_owned);
         e.n = args.get("n").filter(|v| !v.is_null()).cloned();
     }
-    Ok(Public { single: !batch, entries, skipped, pages: arg_str(args, "pages").map(str::to_owned) })
+    Ok(Public { single: !batch, entries, skipped, pages: args.get("pages").cloned() })
 }
 
 #[async_trait]
@@ -325,7 +340,7 @@ impl Tool for ReadTool {
         }
         if public.single {
             let e = public.entries.remove(0);
-            return self.run_top(ctx, e, 1, public.pages.as_deref()).await;
+            return self.run_top(ctx, e, 1, public.pages.as_ref()).await;
         }
         let results = self.pipeline(ctx, public.entries, true, READ_MAX_OUTPUT_BYTES, true, 1).await?;
         if args.get("reject_partial") == Some(&JsonValue::Bool(true)) && is_rejected(&results) {
@@ -409,7 +424,7 @@ impl ReadTool {
                     let raw = be.path.clone();
                     self.resolve_tail(ctx, &mut be, &raw).await;
                 }
-                self.run_top(ctx, be, 0, map.get("pages").and_then(JsonValue::as_str)).await
+                self.run_top(ctx, be, 0, map.get("pages")).await
             }
             Some(JsonValue::Array(items)) => self.legacy_batch(ctx, &map, &items).await,
             other => {
@@ -630,7 +645,7 @@ impl ReadTool {
         }
         let bytes = match guarded(ctx, "read", ctx.files.read(ctx.io.interactive, abs.clone(), ReadRange::default())).await? {
             Ok(b) => b.bytes,
-            Err(err) => return Err(fs_failure(&err, &shown)),
+            Err(err) => return Err(read_failure(&err, &abs, &shown)),
         };
         let content = match decode_for_read(&bytes) {
             ReadText::Binary => return Ok(format!("Error: file appears to be binary (contains null bytes): {named}")),
@@ -840,8 +855,15 @@ fn survey_parts(results: &[Resolved], capped: bool) -> Vec<ToolPart> {
 async fn read_range(ctx: &ToolContext, abs: &AbsPath, shown: &str, offset: u64, len: u64) -> Result<Vec<u8>, ToolError> {
     match guarded(ctx, "read", ctx.files.read(ctx.io.interactive, abs.clone(), ReadRange { offset, max_len: Some(len) })).await? {
         Ok(b) => Ok(b.bytes),
-        Err(err) => Err(fs_failure(&err, shown)),
+        Err(err) => Err(read_failure(&err, abs, shown)),
     }
+}
+
+/// A failed open or read of `abs` in Node's words: `Error: ${normalizeErrorMessage(err.message)}`
+/// (read-single-tool.mjs `readBodyResult`, read-mode-tool.mjs `modeError`).
+fn read_failure(err: &FsError, abs: &AbsPath, shown: &str) -> ToolError {
+    let message = read_paths::normalize_error_message(&super::os_error::read_message(err, abs.as_path()), None);
+    fs_failure_worded(err, shown, format!("Error: {message}"))
 }
 
 /// The lines `countLogicalLinesBytesSync` counts: the newlines, and a last line without one.
@@ -927,7 +949,7 @@ enum Plan {
 
 impl ReadTool {
     /// One top-level file read: the answer, and what it taught the session.
-    async fn single(&self, ctx: &ToolContext, e: &Entry, pages: Option<&str>, mode: Mode) -> ToolOutcome {
+    async fn single(&self, ctx: &ToolContext, e: &Entry, pages: Option<&JsonValue>, mode: Mode) -> ToolOutcome {
         let body = self.read_one(ctx, e, pages, mode).await?;
         // An image read's empty, corrupt and over-cap answers are Node's `isError` results; in a
         // batch the same body marks only its own entry (`[error]`).
@@ -990,7 +1012,7 @@ impl ReadTool {
     }
 
     /// One top-level read of `be`, or the survey of a glob that names no real file.
-    async fn run_top(&self, ctx: &ToolContext, be: BEntry, base: u64, pages: Option<&str>) -> ToolOutcome {
+    async fn run_top(&self, ctx: &ToolContext, be: BEntry, base: u64, pages: Option<&JsonValue>) -> ToolOutcome {
         if has_glob_magic(&be.path) && !exists(ctx, &be.path).await {
             match self.survey(ctx, &be, base, SURVEY_BUDGET, true).await? {
                 Some(Survey::Many(results, capped)) => {
@@ -1009,7 +1031,7 @@ impl ReadTool {
         self.run_plan(ctx, &be, base, pages, mode).await
     }
 
-    async fn run_plan(&self, ctx: &ToolContext, be: &BEntry, base: u64, pages: Option<&str>, mode: Mode) -> ToolOutcome {
+    async fn run_plan(&self, ctx: &ToolContext, be: &BEntry, base: u64, pages: Option<&JsonValue>, mode: Mode) -> ToolOutcome {
         match self.plan(ctx, be).await? {
             // A refused path (none, a URL) is an `Error:` answer, a failed call to Node's caller (classifyResultKind).
             Plan::Text(text) => Err(fail(ToolErrorCode::Failed { reason: text.clone() }, text)),
@@ -1296,7 +1318,7 @@ impl ReadTool {
         }
     }
 
-    async fn read_one(&self, ctx: &ToolContext, e: &Entry, pages: Option<&str>, mode: Mode) -> Result<Body, ToolError> {
+    async fn read_one(&self, ctx: &ToolContext, e: &Entry, pages: Option<&JsonValue>, mode: Mode) -> Result<Body, ToolError> {
         let raw = e.path.trim();
         if let Some(reason) = path_string_guard(raw) {
             return Ok(Body::text(format!("Error: {reason}: {}", super::patch_guard::normalize_output_path(raw))));
@@ -1360,7 +1382,13 @@ impl ReadTool {
             }
         }
         if stat.len > MAX_FILE_BYTES {
-            return self.read_huge(ctx, e, &abs, &shown, &stat, version, mode).await;
+            // A document goes to its extractor whatever its size (`readMediaFile` comes before the size cap); the head of a
+            // file with no extension tells whether it is a PDF.
+            let head = read_range(ctx, &abs, &shown, 0, stat.len.min(64 * 1024)).await?;
+            return match document_kind(&head, raw) {
+                Some(document) => self.document(ctx, &abs, &stat, document, &head, pages, mode).await,
+                None => self.read_huge(ctx, e, &abs, &shown, &stat, version, mode, head).await,
+            };
         }
         let window_key = |v: u64| if e.ranged { v.to_string() } else { "d".to_owned() };
         let cache_key = version.map(|v| {
@@ -1385,7 +1413,7 @@ impl ReadTool {
         .await?
         {
             Ok(b) => b.bytes,
-            Err(err) => return Err(fs_failure(&err, &shown)),
+            Err(err) => return Err(read_failure(&err, &abs, &shown)),
         };
         // A cached answer is reused only while the bytes still hash as they did.
         if let (Some(state), Some(key), Some(v), true) = (&self.state, &cache_key, version, cacheable) {
@@ -1408,14 +1436,8 @@ impl ReadTool {
                 state.invalidate(&[key_path.as_str()]);
             }
         }
-        if let Some(method) = document_method(&bytes, raw) {
-            let mut body = self.extract_document(ctx, method, &abs, pages).await?;
-            if let Some(v) = version {
-                if !body.failed() {
-                    body.observed = Some(Observed { path: key_path.clone(), version: v, meta: SnapshotMeta { replace_existing: true, ..SnapshotMeta::new("read") } });
-                }
-            }
-            return Ok(body);
+        if let Some(document) = document_kind(&bytes, raw) {
+            return self.document(ctx, &abs, &stat, document, &bytes, pages, mode).await;
         }
         let observe = |meta: SnapshotMeta| version.map(|v| Observed { path: key_path.clone(), version: v, meta });
         let cache = |out: &str, meta: &SnapshotMeta| {
@@ -1478,8 +1500,10 @@ impl ReadTool {
         Ok(Body { observed: observe(meta), ..Body::text(out) })
     }
 
-    /// A file past the 10 MiB buffered cap, read with its window: a UTF-16 body is refused (it is
-    /// decoded whole), a binary one previewed, any other streamed from disk a megabyte at a time.
+    /// A file past the 10 MiB buffered cap that is no document, read with its window (`head` is its first 64 KiB): a
+    /// UTF-16 body is refused (it is decoded whole), a binary one previewed, any other streamed from disk a megabyte at
+    /// a time.
+    #[allow(clippy::too_many_arguments)]
     async fn read_huge(
         &self,
         ctx: &ToolContext,
@@ -1489,10 +1513,9 @@ impl ReadTool {
         stat: &mixdog_core_api::domain::fs::FileStat,
         version: Option<FileVersion>,
         mode: Mode,
+        head: Vec<u8>,
     ) -> Result<Body, ToolError> {
         let key_path = fwd(abs.as_path());
-        let head_len = stat.len.min(64 * 1024);
-        let head = read_range(ctx, abs, shown, 0, head_len).await?;
         if utf16_bom(&head).is_some() {
             let text = format!(
                 "Error: UTF-16 file size {} bytes exceeds {MAX_FILE_BYTES} bytes; utf16 ranged reads are bounded — convert to UTF-8 or narrow the range.",
@@ -1503,7 +1526,7 @@ impl ReadTool {
         if !e.ranged {
             return Ok(Body::text(format!("Error: file size {} bytes exceeds {MAX_FILE_BYTES}-byte cap.", stat.len)));
         }
-        let tail = if stat.len > head_len && stat.len > 4096 { read_range(ctx, abs, shown, stat.len - 4096, 4096).await? } else { Vec::new() };
+        let tail = if stat.len > head.len() as u64 && stat.len > 4096 { read_range(ctx, abs, shown, stat.len - 4096, 4096).await? } else { Vec::new() };
         let observe = |meta: SnapshotMeta| version.map(|v| Observed { path: key_path.clone(), version: v, meta });
         if head.contains(&0) || tail.contains(&0) {
             let preview = &head[..head.len().min(BINARY_PREVIEW_BYTES)];
@@ -1553,13 +1576,8 @@ impl ReadTool {
         Ok(Body { observed: observe(meta), ..Body::text(out) })
     }
 
-    async fn extract_document(
-        &self,
-        ctx: &ToolContext,
-        method: &'static str,
-        abs: &AbsPath,
-        pages: Option<&str>,
-    ) -> Result<Body, ToolError> {
+    /// One extension-pool call over `abs`: its result and the bytes it streamed (its chunks in order), or why it failed.
+    async fn ext_call(&self, ctx: &ToolContext, method: &str, params: JsonValue, abs: &AbsPath) -> Result<Result<(JsonValue, Vec<u8>), ExtError>, ToolError> {
         let Some(pool) = &self.ext else {
             return Err(fail(
                 ToolErrorCode::Unavailable {
@@ -1572,30 +1590,226 @@ impl ReadTool {
         let call = ExtCall {
             thread: ctx.thread_id.clone(),
             method: method.to_owned(),
-            params: serde_json::json!({ "path": fwd(abs.as_path()), "pages": pages }),
+            params,
             paths: vec![abs.clone()],
         };
         let mut stream = match pool.call(call) {
             Ok(s) => s,
-            Err(e) => return Ok(Body::text(ext_error_text(&e))),
+            Err(e) => return Ok(Err(e)),
         };
+        let mut streamed = Vec::new();
         loop {
             match guarded(ctx, "read", stream.next()).await? {
-                Some(ExtFrame::Chunk(_)) => {}
-                Some(ExtFrame::Done(Ok(v))) => {
-                    return Ok(if method == "ooxml.text" {
-                        Body::text(v.get("text").and_then(JsonValue::as_str).unwrap_or_default())
-                    } else {
-                        Body {
-                            parts: vec![ToolPart::Json(v)],
-                            ..Body::default()
-                        }
-                    });
-                }
-                Some(ExtFrame::Done(Err(e))) => return Ok(Body::text(ext_error_text(&e))),
-                None => return Ok(Body::text("Error: extension call ended without a result")),
+                Some(ExtFrame::Chunk(bytes)) => streamed.extend_from_slice(&bytes),
+                Some(ExtFrame::Done(done)) => return Ok(done.map(|value| (value, streamed))),
+                None => return Ok(Err(ExtError::UnknownWorker)),
             }
         }
+    }
+
+    /// `readMediaFile` for a document: a PDF through `extractPdfText`, an OOXML file through `extractOoxmlText`. `bytes` are
+    /// the file's, or the head of one past the buffered cap. An answer that is not an error records the read.
+    #[allow(clippy::too_many_arguments)]
+    async fn document(
+        &self,
+        ctx: &ToolContext,
+        abs: &AbsPath,
+        stat: &mixdog_core_api::domain::fs::FileStat,
+        document: Document,
+        bytes: &[u8],
+        pages: Option<&JsonValue>,
+        mode: Mode,
+    ) -> Result<Body, ToolError> {
+        let mut body = match document {
+            Document::Pdf => self.pdf(ctx, abs, bytes, stat.len, pages, matches!(mode, Mode::Child { .. })).await?,
+            Document::Ooxml => self.ooxml_text(ctx, abs).await?,
+        };
+        if let Some(v) = FileVersion::of(stat) {
+            if !body.failed() {
+                body.observed = Some(Observed { path: fwd(abs.as_path()), version: v, meta: SnapshotMeta { replace_existing: true, ..SnapshotMeta::new("read") } });
+            }
+        }
+        Ok(body)
+    }
+
+    /// `extractOoxmlText` within the read's output budget (`READ_MAX_OUTPUT_BYTES`), run by the extension host: the
+    /// document's text, or its failure as `Error:` text.
+    async fn ooxml_text(&self, ctx: &ToolContext, abs: &AbsPath) -> Result<Body, ToolError> {
+        let params = serde_json::json!({ "path": fwd(abs.as_path()), "maxOutputBytes": READ_MAX_OUTPUT_BYTES });
+        Ok(Body::text(match self.ext_call(ctx, "ooxml.text", params, abs).await? {
+            Ok((value, _)) => value.get("text").and_then(JsonValue::as_str).unwrap_or_default().to_owned(),
+            Err(e) => ext_error_text(&e),
+        }))
+    }
+
+    /// `extractPdfText` over the extension host's pdf.js: the pages argument checked, then the range it names, or
+    /// without one a PDF of up to `PDF_WHOLE_READ_MAX_PAGES` pages whole and a longer one's first pages. A short PDF
+    /// whole is the document itself for a session whose model sees images and whose provider takes PDFs natively
+    /// (`mode === 'image' && nativeDocument`, up to `MAX_PDF_BYTES`), else every page through the range path. `bytes`
+    /// are the file's `size` bytes, or the head of a file past the buffered cap. `text_only` is a batch's
+    /// `mediaTextOnly`. offset/limit do not apply.
+    async fn pdf(&self, ctx: &ToolContext, abs: &AbsPath, bytes: &[u8], size: u64, pages: Option<&JsonValue>, text_only: bool) -> Result<Body, ToolError> {
+        let range = match parse_pages_arg(pages) {
+            Ok(range) => range,
+            Err(refusal) => return Ok(Body::text(refusal)),
+        };
+        let path = fwd(abs.as_path());
+        // A file without the %PDF- signature: pdf.js reports why it is not one (`extractPdfTextBody`).
+        if !bytes.starts_with(b"%PDF-") {
+            let page_range = range.map(|(from, to)| serde_json::json!({ "from": from, "to": to }));
+            let params = serde_json::json!({ "path": path, "extractText": true, "maxPages": "unlimited", "maxOutputBytes": READ_MAX_OUTPUT_BYTES, "pageRange": page_range });
+            return Ok(Body::text(match self.ext_call(ctx, "pdf.inspect", params, abs).await? {
+                Ok((value, _)) => value["text"].as_str().filter(|text| !text.is_empty()).unwrap_or("(no text content extracted from PDF)").to_owned(),
+                Err(e) => pdf_extraction_failed(&e),
+            }));
+        }
+        let page_count = match self.ext_call(ctx, "pdf.inspect", serde_json::json!({ "path": path, "maxPages": "unlimited" }), abs).await? {
+            Ok((value, _)) => value["pageCount"].as_u64().unwrap_or(0),
+            Err(e) => return Ok(Body::text(pdf_inspect_error(abs, &e))),
+        };
+        if let Some((from, to)) = range {
+            if from > page_count as f64 {
+                let given = pages.and_then(JsonValue::as_str).unwrap_or_default();
+                return Ok(Body::text(format!(
+                    "Error: pages \"{given}\" out of range — this PDF has {page_count} page{}",
+                    if page_count == 1 { "" } else { "s" }
+                )));
+            }
+            return self.pdf_page_range(ctx, abs, page_count, (from as u64, to.min(page_count as f64) as u64), None, text_only).await;
+        }
+        if page_count > PDF_WHOLE_READ_MAX_PAGES {
+            let note = format!(
+                "Showing the first {PDF_PREVIEW_PAGES} pages; pass pages (e.g. \"{}-{}\", up to {READ_PDF_MAX_PAGES_PER_CALL} per call) to read the pages the request needs",
+                PDF_PREVIEW_PAGES + 1,
+                page_count.min(PDF_PREVIEW_PAGES + 10)
+            );
+            return self.pdf_page_range(ctx, abs, page_count, (1, PDF_PREVIEW_PAGES), Some(note), text_only).await;
+        }
+        if !text_only && ctx.options.pdf_page_images && ctx.options.pdf_native_document && size <= MAX_PDF_BYTES {
+            // Of a file past the buffered cap only the head was read.
+            let data = if (bytes.len() as u64) < size { read_range(ctx, abs, &display_path(abs.as_path(), &ctx.cwd), 0, size).await? } else { bytes.to_vec() };
+            return Ok(Body { parts: vec![ToolPart::Document { mime: "application/pdf".to_owned(), data }], rich: true, ..Body::default() });
+        }
+        self.pdf_page_range(ctx, abs, page_count, (1, page_count.max(1)), None, text_only).await
+    }
+
+    /// `readPdfPageRange`: the range's header, then each page in order, a page with a text layer as its text and one
+    /// without as `scannedPageBodies` gives it. The text is capped at the read's output budget; images pass uncounted.
+    async fn pdf_page_range(
+        &self,
+        ctx: &ToolContext,
+        abs: &AbsPath,
+        page_count: u64,
+        (from, to): (u64, u64),
+        note: Option<String>,
+        text_only: bool,
+    ) -> Result<Body, ToolError> {
+        let params = serde_json::json!({
+            "path": fwd(abs.as_path()),
+            "extractText": true,
+            "maxPages": "unlimited",
+            "maxOutputBytes": READ_MAX_OUTPUT_BYTES,
+            "pageRange": { "from": from, "to": to },
+        });
+        let extracted = match self.ext_call(ctx, "pdf.inspect", params, abs).await? {
+            Ok((value, _)) => value,
+            Err(e) => return Ok(Body::text(pdf_extraction_failed(&e))),
+        };
+        let pages: Vec<(u64, String)> = extracted["pages"]
+            .as_array()
+            .map(Vec::as_slice)
+            .unwrap_or_default()
+            .iter()
+            .map(|entry| (entry["page"].as_u64().unwrap_or(0), entry["text"].as_str().unwrap_or_default().to_owned()))
+            .collect();
+        let scanned: Vec<u64> = pages.iter().filter(|(_, text)| !page_has_text_layer(text)).map(|(page, _)| *page).collect();
+        let mut bodies = self.scanned_page_bodies(ctx, abs, &scanned, text_only).await?;
+        let layer = if scanned.is_empty() { "every page has a text layer".to_owned() } else { format!("scanned (no text layer): {}", page_list(&scanned)) };
+        let note = note.map(|note| format!(". {note}")).unwrap_or_default();
+        let mut text = format!("[PDF {}: pages {from}-{to} of {page_count}; {layer}{note}]", pdf_file_label(abs));
+        let mut blocks: Vec<ToolPart> = Vec::new();
+        let mut text_bytes = 0usize;
+        let flush = |text: &mut String, blocks: &mut Vec<ToolPart>, text_bytes: &mut usize| {
+            if !text.is_empty() {
+                blocks.push(ToolPart::Text(cap_pdf_text(text.as_str(), READ_MAX_OUTPUT_BYTES.saturating_sub(*text_bytes).max(1))));
+                *text_bytes += text.len();
+                text.clear();
+            }
+        };
+        for (page, page_text) in pages {
+            let gap = if text.is_empty() { "" } else { "\n\n" };
+            match bodies.remove(&page) {
+                Some(Scanned::Image(image)) => {
+                    text.push_str(&format!("{gap}--- Page {page} (scanned; page image follows) ---"));
+                    flush(&mut text, &mut blocks, &mut text_bytes);
+                    blocks.push(image);
+                }
+                Some(Scanned::Note(shown)) => text.push_str(&format!("{gap}--- Page {page} ---\n{shown}")),
+                None => text.push_str(&format!("{gap}--- Page {page} ---\n{page_text}")),
+            }
+        }
+        flush(&mut text, &mut blocks, &mut text_bytes);
+        if blocks.iter().all(|block| matches!(block, ToolPart::Text(_))) {
+            let joined = blocks.iter().map(|block| if let ToolPart::Text(t) = block { t.as_str() } else { "" }).collect::<Vec<_>>().join("\n\n");
+            return Ok(Body::text(joined));
+        }
+        Ok(Body { parts: blocks, rich: true, ..Body::default() })
+    }
+
+    /// `scannedPageBodies` for a model that reads images (`pageMode: 'image'`) or a batch (`textOnly`): each page
+    /// without a text layer as its page image, or as a note; a render that fails leaves every such page a note. The
+    /// OCR text Node gives a model that sees no images (`pageMode: 'ocr'`) is not offered: that model gets the page
+    /// image too.
+    async fn scanned_page_bodies(&self, ctx: &ToolContext, abs: &AbsPath, scanned: &[u64], text_only: bool) -> Result<HashMap<u64, Scanned>, ToolError> {
+        let mut bodies = HashMap::new();
+        if scanned.is_empty() {
+            return Ok(bodies);
+        }
+        if text_only {
+            for &page in scanned {
+                let note = format!("(no text layer: a scanned page. Read this PDF on its own with pages=\"{page}\" to see it as an image or OCR text.)");
+                bodies.insert(page, Scanned::Note(note));
+            }
+            return Ok(bodies);
+        }
+        match self.render_pdf_pages(ctx, abs, scanned).await? {
+            Ok(images) => bodies.extend(images.into_iter().map(|(page, image)| (page, Scanned::Image(image)))),
+            Err(e) => {
+                let note = format!("(no text layer, and the page image could not be rendered: {})", ext_error_message(&e));
+                bodies.extend(scanned.iter().map(|&page| (page, Scanned::Note(note.clone()))));
+            }
+        }
+        Ok(bodies)
+    }
+
+    /// `renderPdfPageImages`: the pages' images, `PDF_RENDER_BATCH` pages a `pdf.render` call; each image is its byte
+    /// count's share of the call's chunks, in `images` order.
+    async fn render_pdf_pages(&self, ctx: &ToolContext, abs: &AbsPath, pages: &[u64]) -> Result<Result<Vec<(u64, ToolPart)>, ExtError>, ToolError> {
+        let mut out = Vec::new();
+        for batch in pages.chunks(PDF_RENDER_BATCH) {
+            let params = serde_json::json!({ "path": fwd(abs.as_path()), "pages": batch, "maxWidth": PDF_PAGE_IMAGE_WIDTH });
+            let (value, streamed) = match self.ext_call(ctx, "pdf.render", params, abs).await? {
+                Ok(done) => done,
+                Err(e) => return Ok(Err(e)),
+            };
+            let mut rest = streamed.as_slice();
+            for image in value["images"].as_array().map(Vec::as_slice).unwrap_or_default() {
+                let size = usize::try_from(image["bytes"].as_u64().unwrap_or(0)).unwrap_or(usize::MAX).min(rest.len());
+                let (data, tail) = rest.split_at(size);
+                rest = tail;
+                let pixels = |key: &str| image[key].as_u64().and_then(|n| u32::try_from(n).ok());
+                out.push((
+                    image["page"].as_u64().unwrap_or(0),
+                    ToolPart::Image {
+                        mime: image["mimeType"].as_str().unwrap_or("image/png").to_owned(),
+                        data: ImageData::Bytes(data.to_vec()),
+                        width: pixels("width"),
+                        height: pixels("height"),
+                    },
+                ));
+            }
+        }
+        Ok(Ok(out))
     }
 
     /// `extractIpynbText`: a read with a window is refused (cells are not line-addressable); one without renders the
@@ -1878,6 +2092,7 @@ impl ReadTool {
                 recursive: true,
                 include_hidden: false,
                 respect_ignore: true,
+                require_git: true,
                 include_dirs: false,
                 prune: Vec::new(),
                 descent: Default::default(),
@@ -1923,15 +2138,107 @@ pub(crate) fn in_noise_dir(path: &Path, root: &Path) -> bool {
 }
 
 fn ext_error_text(e: &ExtError) -> String {
+    format!("Error: {}", ext_error_message(e))
+}
+
+/// What a failed extension call says: the worker's own message, or what kept the call from it.
+fn ext_error_message(e: &ExtError) -> String {
     match e {
-        ExtError::Failed { message, .. } => format!("Error: {message}"),
-        ExtError::Unavailable { reason } => format!("Error: document extraction unavailable: {reason}"),
-        ExtError::Cancelled => "Error: document extraction cancelled".to_owned(),
-        ExtError::Overloaded => "Error: document extraction is overloaded; retry shortly".to_owned(),
-        ExtError::HostExited { .. } | ExtError::UnknownWorker => {
-            "Error: document extraction worker exited; retry".to_owned()
-        }
+        ExtError::Failed { message, .. } => message.clone(),
+        ExtError::Unavailable { reason } => format!("document extraction unavailable: {reason}"),
+        ExtError::Cancelled => "document extraction cancelled".to_owned(),
+        ExtError::Overloaded => "document extraction is overloaded; retry shortly".to_owned(),
+        ExtError::HostExited { .. } | ExtError::UnknownWorker => "document extraction worker exited; retry".to_owned(),
     }
+}
+
+/// `extractPdfText`'s answer to an extraction pdf.js failed; a call that never reached it keeps its own text.
+fn pdf_extraction_failed(e: &ExtError) -> String {
+    match e {
+        ExtError::Failed { message, .. } => format!("Error: PDF extraction failed — {message}"),
+        other => ext_error_text(other),
+    }
+}
+
+/// `pdfInspectError`: a PDF pdf.js would not open, password-protected or not valid.
+fn pdf_inspect_error(abs: &AbsPath, e: &ExtError) -> String {
+    let ExtError::Failed { message, .. } = e else { return ext_error_text(e) };
+    let label = pdf_file_label(abs);
+    if message.to_lowercase().contains("password") {
+        format!("Error: this PDF is password-protected and cannot be read ({label}).")
+    } else {
+        format!("Error: {label} is not a valid PDF ({message}).")
+    }
+}
+
+/// `pdfFileLabel`: the PDF's file name.
+fn pdf_file_label(abs: &AbsPath) -> String {
+    abs.as_path().file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default()
+}
+
+/// `parsePagesArg`: no pages (absent, null or empty) is `None`, else `"N"` or `"N-M"` (1-based, at most
+/// `READ_PDF_MAX_PAGES_PER_CALL` pages) as JavaScript numbers; a refusal is its `Error:` text.
+fn parse_pages_arg(pages: Option<&JsonValue>) -> Result<Option<(f64, f64)>, String> {
+    let given = match pages {
+        None | Some(JsonValue::Null) => return Ok(None),
+        Some(JsonValue::String(s)) if s.is_empty() => return Ok(None),
+        Some(JsonValue::String(s)) => s,
+        Some(other) => {
+            let kind = match other {
+                JsonValue::Number(_) => "number",
+                JsonValue::Bool(_) => "boolean",
+                _ => "object",
+            };
+            return Err(format!("Error: pages must be a string like \"1-5\"; got {kind}"));
+        }
+    };
+    static FORM: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let trimmed = mixdog_js::js_trim(given);
+    let Some(caps) = FORM.get_or_init(|| regex::Regex::new(r"^([0-9]+)(?:-([0-9]+))?$").expect("a fixed pattern")).captures(trimmed) else {
+        return Err(format!("Error: pages \"{trimmed}\" not in \"N\" or \"N-M\" form (1-based positive integers)"));
+    };
+    let from = mixdog_js::string_to_number(&caps[1]);
+    let to = caps.get(2).map_or(from, |m| mixdog_js::string_to_number(m.as_str()));
+    let n = mixdog_js::number_to_string;
+    if from < 1.0 || to < 1.0 {
+        return Err(format!("Error: pages \"{trimmed}\" out of range — page numbers are 1-based"));
+    }
+    if to < from {
+        return Err(format!("Error: pages \"{trimmed}\" inverted — end ({}) precedes start ({})", n(to), n(from)));
+    }
+    if to - from + 1.0 > READ_PDF_MAX_PAGES_PER_CALL as f64 {
+        return Err(format!(
+            "Error: pages \"{trimmed}\" spans {} pages; max {READ_PDF_MAX_PAGES_PER_CALL} per request — narrow the range",
+            n(to - from + 1.0)
+        ));
+    }
+    Ok(Some((from, to)))
+}
+
+/// `pageHasTextLayer`: the page's text holds `PDF_TEXT_LAYER_MIN_CHARS` UTF-16 units besides white space.
+fn page_has_text_layer(text: &str) -> bool {
+    text.chars().filter(|c| !mixdog_js::is_js_space(*c)).map(char::len_utf16).sum::<usize>() >= PDF_TEXT_LAYER_MIN_CHARS
+}
+
+/// `pageList`: the pages, past six cut to the first six and an ellipsis.
+fn page_list(pages: &[u64]) -> String {
+    let shown = pages.iter().take(6).map(u64::to_string).collect::<Vec<_>>().join(", ");
+    if pages.len() > 6 { format!("{shown}, …") } else { shown }
+}
+
+/// `capPdfText`: the text cut to `max` bytes of UTF-8, the cut marked.
+fn cap_pdf_text(text: &str, max: usize) -> String {
+    let kept = byte_prefix(text, max);
+    if kept.len() == text.len() {
+        return text.to_owned();
+    }
+    format!("{kept}\n\n{}", cap_marker(&format_cap_size(max), "PDF text cut", None, "read a narrower pages range"))
+}
+
+/// What a page without a text layer shows (`scannedPageBodies`): its page image, or a note in place of its text.
+enum Scanned {
+    Image(ToolPart),
+    Note(String),
 }
 
 /// UNC and raw-device namespaces are refused before any path resolution.
@@ -2049,22 +2356,22 @@ fn is_notebook(stat: &mixdog_core_api::domain::fs::FileStat, raw: &str) -> bool 
     stat.kind == EntryKind::File && Path::new(raw.trim()).extension().is_some_and(|x| x.eq_ignore_ascii_case("ipynb"))
 }
 
-/// The extension-pool method a file needs: PDF and OOXML by magic bytes, or by
-/// the declared extension when the container itself is damaged.
-fn document_method(bytes: &[u8], raw: &str) -> Option<&'static str> {
-    let ext = Path::new(raw)
-        .extension()
-        .map(|e| e.to_string_lossy().to_lowercase())
-        .unwrap_or_default();
-    if bytes.starts_with(b"%PDF-") || ext == "pdf" {
-        return Some("pdf.render");
+/// A document the extension host extracts.
+enum Document {
+    Pdf,
+    Ooxml,
+}
+
+/// The document a file is, as `readMediaFile` tells it by the name: a PDF by its `.pdf` extension, or by its signature
+/// on a path with no extension (`sniffedMediaType`); an OOXML file by its extension (`OOXML_EXTENSIONS`). Any other
+/// file is read as text or binary, whatever its bytes.
+fn document_kind(bytes: &[u8], raw: &str) -> Option<Document> {
+    match Path::new(raw).extension().map(|e| e.to_string_lossy().to_lowercase()).as_deref() {
+        Some("pdf") => Some(Document::Pdf),
+        None if bytes.starts_with(b"%PDF-") => Some(Document::Pdf),
+        Some("docx" | "pptx" | "xlsx" | "xlsm") => Some(Document::Ooxml),
+        _ => None,
     }
-    let zip_office = bytes.starts_with(b"PK\x03\x04")
-        && bytes.windows(19).take(8192).any(|w| w == b"[Content_Types].xml");
-    if zip_office || matches!(ext.as_str(), "docx" | "pptx" | "xlsx" | "xlsm") {
-        return Some("ooxml.text");
-    }
-    None
 }
 
 fn binary_preview(shown: &str, bytes: &[u8], size: u64) -> String {

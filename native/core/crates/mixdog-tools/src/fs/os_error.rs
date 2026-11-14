@@ -17,7 +17,7 @@ fn by_code(code: i32) -> (&'static str, &'static str) {
         4 => ("EMFILE", "too many open files"),
         5 | 1314 => ("EPERM", "operation not permitted"),
         19 => ("EROFS", "read-only file system"),
-        32 => ("EBUSY", "resource busy or locked"),
+        32 | 33 => ("EBUSY", "resource busy or locked"),
         39 | 112 => ("ENOSPC", "no space left on device"),
         50 => ("ENOTSUP", "operation not supported on socket"),
         80 | 183 => ("EEXIST", "file already exists"),
@@ -55,6 +55,13 @@ fn message((code, description): (&str, &str), syscall: &str, path: Option<&Path>
         Some(path) => format!("{code}: {description}, {syscall} '{}'", path.display()),
         None => format!("{code}: {description}, {syscall}"),
     }
+}
+
+/// Node's `err.code` of a failed OS call (`EBUSY`, `EPERM`, ...); `None` when the error is no OS error
+/// or its code is not in this table (Node then reads `err.message`, which the caller keeps).
+pub(super) fn io_code_name(error: &io::Error) -> Option<&'static str> {
+    let (code, _) = by_code(error.raw_os_error()?);
+    (code != UNKNOWN.0).then_some(code)
 }
 
 /// `err.message` of a failed `syscall` on `path`; an error that is not an OS error keeps its text.
@@ -102,6 +109,13 @@ pub(super) fn read_message(error: &FsError, target: &Path) -> String {
 /// The same for a file-service failure, which keeps only the kind of the OS error.
 pub(super) fn fs_message(error: &FsError, syscall: &str, path: &Path) -> String {
     message(kind_parts(&error.kind), syscall, Some(path))
+}
+
+/// `CODE: description` of a file-service failure, where no call and path are named; `None` when
+/// this table does not name the error (it covers fewer OS codes than libuv's).
+pub(super) fn cause(kind: &FsErrorKind) -> Option<String> {
+    let (code, description) = kind_parts(kind);
+    (code != UNKNOWN.0).then(|| format!("{code}: {description}"))
 }
 
 fn kind_parts(kind: &FsErrorKind) -> (&'static str, &'static str) {

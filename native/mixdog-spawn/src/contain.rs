@@ -30,6 +30,8 @@ mod imp {
     use std::sync::Arc;
     use std::sync::Mutex;
     use std::sync::OnceLock;
+    use std::sync::RwLock;
+    use std::sync::RwLockReadGuard;
     use std::sync::Weak;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
@@ -125,7 +127,9 @@ mod imp {
 
     /// A job object. Dropping the last handle kills whatever is still in it.
     pub(crate) struct Containment {
-        job: HANDLE,
+        /// Null once the job was seen empty and closed ([`Self::release_if_empty`]). Never passed on null: a null job
+        /// handle names the job this process itself runs in.
+        job: RwLock<HANDLE>,
         /// Set when the job first reports to the port: its key and the signal for "no members".
         watch: OnceLock<(usize, Arc<Notify>)>,
     }
@@ -155,33 +159,65 @@ mod imp {
                 return Err(error);
             }
             Ok(Self {
-                job,
+                job: RwLock::new(job),
                 watch: OnceLock::new(),
             })
         }
 
-        /// Processes of the job still running; `None` when the job could not be asked.
+        fn handle(&self) -> RwLockReadGuard<'_, HANDLE> {
+            self.job.read().unwrap_or_else(|e| e.into_inner())
+        }
+
+        /// Processes of the job still running (none once it was released); `None` when the job could not be asked.
         fn active(&self) -> Option<u32> {
-            let mut info = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
-            let ok = unsafe {
-                QueryInformationJobObject(
-                    self.job,
-                    JobObjectBasicAccountingInformation,
-                    std::ptr::addr_of_mut!(info).cast(),
-                    std::mem::size_of::<JOBOBJECT_BASIC_ACCOUNTING_INFORMATION>() as u32,
-                    std::ptr::null_mut(),
-                )
-            };
-            (ok != 0).then_some(info.ActiveProcesses)
+            let job = self.handle();
+            if job.is_null() {
+                return Some(0);
+            }
+            active_of(*job)
         }
 
         /// After a root that ended: the console hosts it leaves are given time to signal their own exit
         /// ([`crate::console_hosts::settle`]) before anything left in the job is taken for a survivor.
         pub(crate) fn settle_exit(&self) {
-            crate::console_hosts::settle(self.job, crate::console_hosts::SETTLE_DEADLINE, || {
+            let job = self.handle();
+            if job.is_null() {
+                return;
+            }
+            crate::console_hosts::settle(*job, crate::console_hosts::SETTLE_DEADLINE, || {
                 #[cfg(feature = "core-test")]
                 crate::testing::settle_window();
             });
+        }
+
+        /// Closes the job once nothing is left in it, as its drop would, while the process's record stays: an exited
+        /// process is kept for replay and `list`, and its open job held a handle until the retention bound let the record
+        /// go. A job with no active process gains none, so nothing is left to kill or wait for and from here it reads
+        /// empty. True when the job is closed, now or before.
+        pub(crate) fn release_if_empty(&self) -> bool {
+            let mut job = self.job.write().unwrap_or_else(|e| e.into_inner());
+            if job.is_null() {
+                return true;
+            }
+            if active_of(*job) != Some(0) {
+                return false;
+            }
+            self.close(*job);
+            *job = std::ptr::null_mut();
+            drop(job);
+            // A wait the port's last message has not reached yet looks again, and finds the job gone.
+            if let Some((_, notify)) = self.watch.get() {
+                notify.notify_waiters();
+            }
+            true
+        }
+
+        /// Stops the job's reports to the port and closes its handle.
+        fn close(&self, job: HANDLE) {
+            if let (Some((key, _)), Some(port)) = (self.watch.get(), port()) {
+                port.watchers.lock().unwrap_or_else(|e| e.into_inner()).remove(key);
+            }
+            unsafe { CloseHandle(job) };
         }
 
         /// Whether any process of the job might still be running: a job that could not be asked is not empty.
@@ -207,6 +243,10 @@ mod imp {
             if let Some((_, notify)) = self.watch.get() {
                 return Some(Arc::clone(notify));
             }
+            let job = self.handle();
+            if job.is_null() {
+                return None;
+            }
             let port = port()?;
             let key = port.next_key.fetch_add(1, Ordering::Relaxed);
             let notify = Arc::new(Notify::new());
@@ -220,7 +260,7 @@ mod imp {
             };
             let set = unsafe {
                 SetInformationJobObject(
-                    self.job,
+                    *job,
                     JobObjectAssociateCompletionPortInformation,
                     std::ptr::addr_of!(association).cast(),
                     std::mem::size_of::<JOBOBJECT_ASSOCIATE_COMPLETION_PORT>() as u32,
@@ -277,11 +317,14 @@ mod imp {
         /// The job a child is created in (`crate::winspawn::spawn`): it is a member from its first
         /// instruction, so it can neither start anything outside the job nor outlive it suspended.
         pub(crate) fn job(&self) -> HANDLE {
-            self.job
+            *self.handle()
         }
 
         pub(crate) fn kill(&self) {
-            unsafe { TerminateJobObject(self.job, KILL_EXIT_CODE) };
+            let job = self.handle();
+            if !job.is_null() {
+                unsafe { TerminateJobObject(*job, KILL_EXIT_CODE) };
+            }
         }
 
         /// Ends the job and waits, woken by the job's own message, for it to empty (`KILL_ROUNDS` times at most): there
@@ -306,11 +349,26 @@ mod imp {
 
     impl Drop for Containment {
         fn drop(&mut self) {
-            if let (Some((key, _)), Some(port)) = (self.watch.get(), port()) {
-                port.watchers.lock().unwrap_or_else(|e| e.into_inner()).remove(key);
+            let job = *self.job.get_mut().unwrap_or_else(|e| e.into_inner());
+            if !job.is_null() {
+                self.close(job);
             }
-            unsafe { CloseHandle(self.job) };
         }
+    }
+
+    /// Processes of `job` still running; `None` when the job could not be asked.
+    fn active_of(job: HANDLE) -> Option<u32> {
+        let mut info = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
+        let ok = unsafe {
+            QueryInformationJobObject(
+                job,
+                JobObjectBasicAccountingInformation,
+                std::ptr::addr_of_mut!(info).cast(),
+                std::mem::size_of::<JOBOBJECT_BASIC_ACCOUNTING_INFORMATION>() as u32,
+                std::ptr::null_mut(),
+            )
+        };
+        (ok != 0).then_some(info.ActiveProcesses)
     }
 }
 
@@ -373,6 +431,11 @@ mod imp {
         /// nothing about who owns the group.
         pub(crate) fn occupied(&self) -> bool {
             self.tree.get().is_some_and(Tree::group_may_be_occupied)
+        }
+
+        /// A process group holds no handle of its own to close: true once nothing of it may be left.
+        pub(crate) fn release_if_empty(&self) -> bool {
+            !self.occupied()
         }
 
         /// What is left of the tree.

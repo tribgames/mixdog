@@ -29,6 +29,8 @@ const COMPOSITION: &str = include_str!("../../../../../fixtures/tools/memory/ser
 struct FakeMemory {
     calls: Mutex<Vec<Value>>,
     results: Mutex<VecDeque<String>>,
+    /// The sessions marked as having loaded the module, in call order.
+    noted: Mutex<Vec<String>>,
 }
 
 #[async_trait]
@@ -41,6 +43,10 @@ impl MemoryModule for FakeMemory {
     async fn recall(&self, args: Value, _: &tokio_util::sync::CancellationToken) -> String {
         self.calls.lock().expect("calls").push(json!(["recall", args]));
         self.results.lock().expect("results").pop_front().unwrap_or_else(|| "(no results)".into())
+    }
+
+    fn note_session_use(&self, thread: &str) {
+        self.noted.lock().expect("noted").push(thread.to_owned());
     }
 }
 
@@ -100,6 +106,20 @@ async fn the_answer_order_and_memory_calls_match_the_node_product() {
         assert_eq!(answer, scenario["answer"].as_str().expect("answer"), "{name}: answer");
         assert_eq!(Value::Array(memory.calls.lock().expect("calls").clone()), scenario["calls"], "{name}: memory calls");
     }
+}
+
+/// A thread's recall that reaches the memory runtime (`memoryModule()`) marks that session's runtime as holding the
+/// module; one its own rows answer, or one that names no thread, marks nothing.
+#[tokio::test]
+async fn a_recall_that_reaches_the_memory_runtime_marks_its_session() {
+    let memory = Arc::new(FakeMemory::default());
+    let session = SessionData { id: "sess_1".into(), messages: vec![json!({ "role": "user", "content": "the lighthouse is green" })] };
+    let service = MemoryService::new(memory.clone(), Arc::new(Sessions { session: Some(session), cwd: None, title: String::new() }));
+    ask(&service, json!({ "threadId": "sess_1", "query": "lighthouse" })).await;
+    assert!(memory.noted.lock().expect("noted").is_empty(), "answered from the session's own rows");
+    ask(&service, json!({ "threadId": "sess_1", "query": "harbor" })).await;
+    ask(&service, json!({ "query": "harbor" })).await;
+    assert_eq!(*memory.noted.lock().expect("noted"), ["sess_1"]);
 }
 
 #[tokio::test(flavor = "multi_thread")]

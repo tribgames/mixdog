@@ -80,4 +80,6 @@ pub(crate) enum Event {
     /// The grace after a cancel for `call` on `worker` has passed.
     CancelGrace { worker: u32, call: u32 },
     Shutdown(Option<oneshot::Sender<()>>),
+    /// The grace the close gave every worker to leave on its `BYE` has passed.
+    CloseGrace,
 }

@@ -281,6 +281,8 @@ pub struct SummaryConfig {
     pub token_calibration: f64,
     /// `compaction.conversationThresholdTokens`, when the operator set one.
     pub conversation_threshold_tokens: Option<u64>,
+    /// `handoffTimeoutMs`: the deadline of the summary on each route.
+    pub timeout_ms: Option<u64>,
 }
 
 /// The conversation summary through the route plan: a fork of the cached
@@ -309,6 +311,7 @@ impl PlannedHandoff {
                 context_window,
                 token_calibration: policy.token_calibration,
                 conversation_threshold_tokens: session.conversation_threshold_tokens,
+                timeout_ms: session.settings.handoff_timeout_ms,
             },
         };
         Some((summary, CompactorConfig { reserve_tokens: policy.reserve_tokens, max_budget_tokens, context_window, handoff_token_cap: None }))
@@ -364,6 +367,7 @@ impl PlannedHandoff {
             hard_budget_tokens: hard,
             context_window: self.config.context_window,
             conversation_input: &input,
+            timeout_ms: self.config.timeout_ms,
         };
         summarize_on_plan(&cx, &plan_steps(mode, warm)).await
     }

@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use mixdog_agent::env::Clock;
 use mixdog_ai::catalog::CatalogService;
+use mixdog_core_session::session::thread_settings::tool_spec_for_mode;
 use mixdog_mcp::mcp_glue::McpScopes;
 use mixdog_store::schema::record::{Header, HeaderChange};
 use serde_json::{Map, Value};
@@ -20,6 +21,7 @@ use mixdog_core_run::run_host::session_context_meta::ContextMeta;
 use super::route_change::{RouteFacts, SurfaceLookup};
 use super::session_tools::header_scope;
 use super::session_cache_opts::session_provider_cache_opts;
+use super::surface_host::thread_mode;
 use mixdog_core_run::run_host::session_context_meta::session_context_meta;
 use super::tool_exposure::{
     bridge_surface_outdated, session_tool_exposure, tool_exposure_mode_for_provider, LoadToolDef, TOOL_EXPOSURE_BRIDGE, TOOL_EXPOSURE_NATIVE,
@@ -179,6 +181,17 @@ pub fn resumed_surface_change(surface: &ToolSurface, clock: &dyn Clock, header: 
     change
 }
 
+/// The header a resume's manager step resolves the thread's tools from: `resume(id)` reopens it through
+/// `mgr.resumeSession(id, toolSpecForMode(getMode()))` (`session-switch/resume.mjs:146`), and `_prepareResumeTools` takes
+/// that spec over the stored one (`preset || session.preset || 'full'`). `getMode()` is the thread's own tool mode, the one
+/// the restore after it reads: a readonly Lead resolves the readonly spec again, not the `full` of the `preset` its record
+/// names. An agent's session resolves `full` either way.
+pub fn resume_header(scoped: &Header) -> Header {
+    let mut resuming = scoped.clone();
+    resuming.insert("preset".to_owned(), tool_spec_for_mode(thread_mode(scoped)));
+    resuming
+}
+
 /// `applyAgentToolExposure(session, { existing: true })` over `session` (the header with its new
 /// tools), as the header change from `header`; a changed exposure is marked migrated.
 fn exposure_change(surface: &ToolSurface, clock: &dyn Clock, header: &Header, mut session: Value, hidden_agent: bool) -> HeaderChange {
@@ -214,6 +227,14 @@ pub trait PrepareTools: Send + Sync {
     fn prepare_with(&self, header: &Header, skills_listed: bool) -> Option<PreparedTools>;
 }
 
+/// `restoreResumedToolSurface(target, targetRoute)` (`session-switch/resume.mjs:66-75`), which follows the manager
+/// step of every resume: the thread's deferred surface applied again over the tools that step left it.
+#[async_trait::async_trait]
+pub trait ResumedSurface: Send + Sync {
+    /// `session` (the stored header after `_refreshResumedTools`) with its surface restored, as the header it becomes.
+    async fn restored(&self, session: &Header) -> Result<Header, String>;
+}
+
 /// The route facts of the running host: the catalog's context windows, the configured cache
 /// policy and the tool surface a route change rebuilds.
 pub struct AiRouteFacts {
@@ -228,6 +249,8 @@ pub struct AiRouteFacts {
     pub hidden_agent: Arc<dyn Fn(Option<&str>) -> bool + Send + Sync>,
     /// The MCP scope a resumed thread takes (`resumeSession`'s `mcpScopeId` option).
     pub scopes: Arc<dyn McpScopes>,
+    /// `restoreResumedToolSurface` after a resumed thread's manager step.
+    pub resumed_surface: Arc<dyn ResumedSurface>,
 }
 
 impl AiRouteFacts {
@@ -257,6 +280,24 @@ impl AiRouteFacts {
         let mut scoped = header.clone();
         scoped.insert("mcpScopeId".to_owned(), Value::String(scope.clone()));
         (scoped, minted.then_some(scope))
+    }
+
+    /// `resumeSession`'s manager step, then `restoreResumedToolSurface` (`session-switch/resume.mjs:146,168`): the
+    /// manager step's `change` over the thread in its scope (`scoped`), its deferred surface applied again, as the change
+    /// from `header`. `None`: the surface could not be restored (the cause logged), and the stored one stays.
+    async fn restored_change(&self, header: &Header, scoped: &Header, change: HeaderChange) -> Option<HeaderChange> {
+        let mut session = scoped.clone();
+        for key in &change.unset {
+            session.shift_remove(key);
+        }
+        session.extend(change.set);
+        match self.resumed_surface.restored(&session).await {
+            Ok(restored) => Some(header_diff(header, &restored)),
+            Err(error) => {
+                tracing::warn!(%error, "[session] the resumed thread keeps its stored tool surface");
+                None
+            }
+        }
     }
 }
 
@@ -290,16 +331,23 @@ impl RouteFacts for AiRouteFacts {
     }
 }
 
-/// `SessionDeps.resumed_tools`: `_refreshResumedTools(session, sessionId, session.preset || 'full')`
-/// with the same producer a route change uses.
+/// `SessionDeps.resumed_tools`: `_refreshResumedTools(session, sessionId, toolSpecForMode(getMode()))`
+/// ([`resume_header`]) with the same producer a route change uses, then `restoreResumedToolSurface`.
 #[async_trait::async_trait]
 impl mixdog_core_session::session::ResumedTools for AiRouteFacts {
     async fn refreshed(&self, thread: &mixdog_core_api::ids::ThreadId, header: &Header) -> Option<HeaderChange> {
         let (scoped, minted) = self.scoped_header(thread, header).await;
         let surface = ToolSurface { host: self.surface_host.as_ref(), clock: self.clock.as_ref() };
         let agent = header.get("agent").and_then(Value::as_str);
-        let mut change = match self.prepare_tools.prepare(&scoped).await {
-            Some(prepared) => resumed_surface_change(&surface, self.clock.as_ref(), header, prepared, (self.hidden_agent)(agent)),
+        let restored = match self.prepare_tools.prepare(&resume_header(&scoped)).await {
+            Some(prepared) => {
+                let change = resumed_surface_change(&surface, self.clock.as_ref(), header, prepared, (self.hidden_agent)(agent));
+                self.restored_change(header, &scoped, change).await
+            }
+            None => None,
+        };
+        let mut change = match restored {
+            Some(change) => change,
             // The tools stay as stored, but a scope just minted for the thread is still written.
             None if minted.is_some() => HeaderChange { set: Map::new(), unset: Vec::new() },
             None => return None,

@@ -88,10 +88,35 @@ fn the_books_request_is_the_hook_request_nodes_caller_sent() {
     for case in golden["cases"].as_array().unwrap() {
         let Some(request) = rust_request(case, thread) else { continue };
         assert_eq!(Value::Object(hook_request(&request)), case["input"], "{} request", case["name"]);
-        assert_eq!(tool_approval(&request), case["toolApproval"], "{} toolApproval", case["name"]);
+        let shown = tool_approval(&request);
+        assert_eq!(shown, case["toolApproval"], "{} toolApproval", case["name"]);
+        // The kind the actor reads off the ask, before the card exists, to look a sub-agent's surface up is the card's.
+        assert_eq!(is_delegated(&request.ask), DELEGATED_KINDS.contains(&shown["kind"].as_str().unwrap_or_default()), "{} delegated", case["name"]);
         mapped += 1;
     }
     assert!(mapped >= 9, "{mapped}");
+}
+
+/// `requestToolApproval`'s delegation step: a sub-agent's request of a delegated kind names who asks and the chat it shows in;
+/// a question, a connector widening and a request whose surface is its own session carry neither.
+#[test]
+fn a_sub_agents_card_names_its_chain_and_its_chat() {
+    let surface = ApprovalSurface { session_id: "lead".into(), chain: vec!["Lead".into(), "Worker".into()] };
+    let delegated = |kind: &str, session: &str| {
+        let mut card = json!({ "kind": kind, "sessionId": session });
+        delegate_card(&mut card, &surface);
+        card
+    };
+    assert_eq!(delegated("approval", "w1"), json!({ "kind": "approval", "sessionId": "w1", "chain": ["Lead", "Worker"], "surfaceSessionId": "lead" }));
+    assert_eq!(delegated("", "w1")["surfaceSessionId"], "lead");
+    for (kind, session) in [("question", "w1"), ("connector", "w1"), ("approval", "lead")] {
+        assert_eq!(delegated(kind, session), json!({ "kind": kind, "sessionId": session }), "{kind} of {session}");
+    }
+    // Read off the ask before the card is built: a bare gate (no kind) is delegated, a question and a connector widening are not.
+    let ask = |kind: ApprovalKind, tool: &str, payload: Value| ApprovalAsk { kind, call_id: None, tool: Some(tool.to_owned()), action_kind: None, reason: None, payload, remember: Vec::new(), expires_after: None };
+    assert!(is_delegated(&ask(ApprovalKind::Tool, "bash", json!({ "name": "bash", "args": { "command": "ls" } }))));
+    assert!(!is_delegated(&ask(ApprovalKind::UserInput, "ask_user", json!({ "questions": [] }))));
+    assert!(!is_delegated(&ask(ApprovalKind::Tool, "connect", json!({ "kind": "connector" }))));
 }
 
 /// `decorateRoomSnapshot` for each recorded state.

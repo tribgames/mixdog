@@ -60,19 +60,39 @@ pub(super) fn has_unsafe_win32_component(p: &str) -> bool {
     })
 }
 
-/// The refusal a path string earns, in Node's order: UNC, device, ADS, blocked device.
-pub(super) fn string_guard(p: &str) -> Option<&'static str> {
+/// The refusal a path string earns, in Node's order: UNC, device, ADS, blocked device; `texts` words each.
+fn guard_in_order(p: &str, texts: [&'static str; 4]) -> Option<&'static str> {
     if is_unc_path(p) {
-        Some("cannot read UNC / SMB path (network credential leak risk)")
+        Some(texts[0])
     } else if is_windows_device_path(p) {
-        Some("cannot read Windows device path (reserved name or raw-device namespace)")
+        Some(texts[1])
     } else if has_unsafe_win32_component(p) {
-        Some("cannot read Windows path with trailing dot/space or NTFS ADS suffix (bypasses device guard)")
+        Some(texts[2])
     } else if is_blocked_device_path(p) {
-        Some("cannot read device file (would block or produce infinite output)")
+        Some(texts[3])
     } else {
         None
     }
+}
+
+/// The refusal a path string earns from `read`.
+pub(super) fn string_guard(p: &str) -> Option<&'static str> {
+    guard_in_order(p, [
+        "cannot read UNC / SMB path (network credential leak risk)",
+        "cannot read Windows device path (reserved name or raw-device namespace)",
+        "cannot read Windows path with trailing dot/space or NTFS ADS suffix (bypasses device guard)",
+        "cannot read device file (would block or produce infinite output)",
+    ])
+}
+
+/// Node `guardWritePath` (external-tool-adapters.mjs): the refusal a write target earns.
+pub(super) fn write_guard(p: &str) -> Option<&'static str> {
+    guard_in_order(p, [
+        "cannot write UNC / SMB path (network credential leak risk)",
+        "cannot write Windows device path (reserved name or raw-device namespace)",
+        "cannot write Windows path with trailing dot/space or NTFS ADS suffix (bypasses device guard)",
+        "cannot write device file (would block or corrupt a device)",
+    ])
 }
 
 /// `posixPathToWindowsPath`: `/c/x`, `/cygdrive/c/x`, `/mnt/c/x` and `//host/x` on Windows.

@@ -14,10 +14,11 @@ use mixdog_core_api::domain::tool::ToolErrorCode;
 use mixdog_core_api::domain::tool::ToolOutcome;
 use mixdog_core_api::domain::tool::ToolSpec;
 use mixdog_js::js_object_keys;
-use mixdog_js::js_trim;
 use mixdog_protocol::JsonValue;
 
 use super::common::*;
+use super::os_error::read_message;
+use super::os_error::write_message;
 use crate::orch::util::spec_from_def;
 use super::patch_review::committed_edit;
 use super::patch_review::note_edit;
@@ -110,7 +111,7 @@ impl Tool for EditTool {
             return Err(invalid("new_string", "same_as_old", SAME_STRINGS));
         }
         let replace_all = replace_all_arg(&args);
-        // An empty target is no target (Node tests the argument's truthiness); a blank one is the cwd.
+        // An empty target is no target (Node tests the argument's truthiness).
         let raw = arg_str(&args, "file_path").filter(|p| !p.is_empty()).or_else(|| arg_str(&args, "path").filter(|p| !p.is_empty())).ok_or_else(|| {
             invalid(
                 "file_path",
@@ -118,7 +119,7 @@ impl Tool for EditTool {
                 "Error: unknown builtin tool \"edit\" — use `apply_patch` with a `*** Update File:` V4A section.",
             )
         })?;
-        let abs = if js_trim(raw).is_empty() { ctx.cwd.clone() } else { resolve_path(&ctx.cwd, raw)? };
+        let abs = resolve_write_target(ctx, raw).await?;
         let shown = display_path(abs.as_path(), &ctx.cwd);
         let full = abs.as_path().display().to_string();
 
@@ -144,10 +145,9 @@ impl Tool for EditTool {
             Err(e) if e.kind == FsErrorKind::IsADirectory => {
                 return Err(unreadable(&full, "EISDIR: illegal operation on a directory, read"));
             }
-            Err(e) if e.kind == FsErrorKind::PermissionDenied => {
-                return Err(unreadable(&full, &format!("EACCES: permission denied, open '{full}'")));
-            }
-            Err(e) => return Err(fs_failure(&e, &shown)),
+            // Node `readEditTarget`: the failed read's own message (a file held open without sharing is EBUSY;
+            // a denied read is EPERM on Windows, as libuv names ERROR_ACCESS_DENIED, and EACCES elsewhere).
+            Err(e) => return Err(unreadable(&full, &read_message(&e, abs.as_path()))),
         };
         let (content, codec) = decode_text(&bytes).map_err(|reason| {
             fail(
@@ -215,15 +215,17 @@ async fn write_checked(
                 format!("Error: {full} {why}"),
             ))
         }
+        // Node `createEditTarget` writes with the in-process `atomicWrite`, whose message the adapter
+        // wraps as `edit failed (…)` (`tryExecuteExternalToolAdapter`).
+        Err(e) if created => Err(fs_failure_worded(&e, full, format!("Error: edit failed ({})", write_message(&e, abs.as_path())))),
         Err(e) => Err(fs_failure(&e, full)),
     }
 }
 
 async fn create(ctx: &ToolContext, state: Option<&ReadState>, abs: &AbsPath, shown: &str, full: &str, new: &str) -> ToolOutcome {
     if let Some(parent) = abs.as_path().parent().and_then(|p| AbsPath::new(p.to_path_buf())) {
-        if let Err(e) = guarded(ctx, "edit", ctx.files.create_dir(ctx.io.durability, parent, true)).await? {
-            return Err(fs_failure(&e, full));
-        }
+        // Node `createEditTarget`: a parent that cannot be made is surfaced by the write.
+        let _ = guarded(ctx, "edit", ctx.files.create_dir(ctx.io.durability, parent, true)).await?;
     }
     write_checked(ctx, abs, full, new.as_bytes().to_vec(), WritePrecondition::Absent).await?;
     if let Some(state) = state {

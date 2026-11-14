@@ -3,6 +3,7 @@
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::OnceLock;
+use std::sync::Weak;
 
 use async_trait::async_trait;
 use mixdog_ai::catalog::CatalogService;
@@ -127,29 +128,55 @@ impl RemoteBridge for RemotePower {
     }
 }
 
+/// `method` called inside the core by `caller`, as Node's runtime functions are called: with no op id. A mutation
+/// (`update/checkForUpdate` the doctor reads, the setup tool's writes, a new task's draft settings) is refused without
+/// one (`OpScopes::run`: `OpIdRequired`), so each such call is its own operation: the `opId` its params name, else a
+/// fresh one they now name.
+pub(crate) fn internal_request(method: &'static str, mut params: Value, caller: &'static str) -> CoreRequest {
+    let mutation = mixdog_app_protocol::client_method_spec(method).is_some_and(|spec| spec.mutation != mixdog_app_protocol::common::Mutation::None);
+    let op = match params.as_object_mut() {
+        Some(map) if mutation => {
+            let id = match map.get("opId").and_then(Value::as_str) {
+                Some(given) => given.to_owned(),
+                None => {
+                    let minted = uuid::Uuid::now_v7().to_string();
+                    map.insert("opId".to_owned(), Value::String(minted.clone()));
+                    minted
+                }
+            };
+            Some(mixdog_core_api::ids::OpId::from(id))
+        }
+        _ => None,
+    };
+    CoreRequest { method: Method(method), params, op, ctx: CallContext::internal(caller) }
+}
+
 /// The method table of the registered services, bound once the registration is done: the
-/// doctor reads each status through the service that owns it.
+/// doctor reads each status through the service that owns it. The table is held weakly: its own
+/// services hold this cell (the doctor), and the composed core owns the table.
 #[derive(Default)]
-pub struct LateDomains(OnceLock<Arc<Domains>>);
+pub struct LateDomains(OnceLock<Weak<Domains>>);
 
 impl LateDomains {
     /// Binds the built table; a second bind is refused.
     pub fn bind(&self, domains: Arc<Domains>) -> Result<(), Arc<Domains>> {
-        self.0.set(domains)
+        self.0.set(Arc::downgrade(&domains)).map_err(|_| domains)
+    }
+
+    fn table(&self) -> Option<Arc<Domains>> {
+        self.0.get().and_then(Weak::upgrade)
     }
 
     /// Whether a registered service answers `method`.
     pub fn serves(&self, method: &str) -> bool {
-        self.0.get().is_some_and(|domains| domains.get(method).is_some())
+        self.table().is_some_and(|domains| domains.get(method).is_some())
     }
 
-    /// One method of the table as an internal call: its value, or its failure.
+    /// One method of the table as an internal call (`internal_request`): its value, or its failure.
     pub async fn call(&self, method: &'static str, params: Value) -> Result<Value, CoreError> {
-        let domains = self.0.get().ok_or_else(|| failed("domains", format!("{method} was called before the services were registered")))?;
+        let domains = self.table().ok_or_else(|| failed("domains", format!("{method} was called before the services were registered")))?;
         let service = domains.get(method).ok_or_else(|| failed("domains", format!("{method} has no service")))?;
-        let reply = service
-            .call(CoreRequest { method: Method(method), params, op: None, ctx: CallContext::internal("domains") })
-            .await?;
+        let reply = service.call(internal_request(method, params, "domains")).await?;
         match reply {
             Reply::Value(value) => Ok(value),
             Reply::Subscribe(_) => Err(failed("domains", format!("{method} answered a subscription"))),

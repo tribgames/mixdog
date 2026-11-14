@@ -577,25 +577,32 @@ impl SessionState {
         merge_context(initial, self.sections.context.clone().unwrap_or_default())
     }
 
-    /// The workflow section before a producer publishes one: the session's workflow meta (`toSessionWorkflowMeta`:
-    /// `id`, `name`, `description`, `source`, `delegatesAgents`) as the header holds it, the configured orchestration
-    /// mode (`getOrchestrationMode`, `balanced` by default), and no pending switch (`baseRouteState`).
     /// The route pick held for the next turn (`pendingRoute`, Node's `heldRoutePick`).
     fn held_pick(&self) -> Option<&serde_json::Map<String, Value>> {
         self.header.get("pendingRoute").and_then(Value::as_object)
     }
 
-    fn initial_workflow(&self) -> ThreadWorkflow {
+    /// The workflow section as clients hold it (`routeState`, `tui/session/context-state.mjs`), read from the header the
+    /// switches write: the session's workflow meta (`toSessionWorkflowMeta`: `id`, `name`, `description`, `source`,
+    /// `delegatesAgents`) and orchestration mode (`balanced` by default). A choice made while a turn runs shows at once,
+    /// marked pending until the next turn start applies it (`getOrchestrationMode`: `pendingOrchestrationMode ??` the
+    /// session's; `currentWorkflow` of `boot/facade.mjs` resolves the staged workflow, whose meta its switch publishes, as
+    /// the header holds its id only).
+    pub fn workflow(&self) -> ThreadWorkflow {
+        let staged_workflow = self.header.get("pendingWorkflowId");
+        let staged_mode = self.header.get("pendingOrchestrationMode");
+        let published = self.sections.workflow.as_ref().and_then(|section| section.workflow.as_ref());
+        let staged_meta = published.filter(|meta| staged_workflow.is_some_and(|id| meta.get("id") == Some(id)));
         ThreadWorkflow {
-            workflow: self.header.get("workflow").filter(|workflow| workflow.is_object()).cloned(),
+            workflow: staged_meta.or_else(|| self.header.get("workflow").filter(|workflow| workflow.is_object())).cloned(),
             orchestration_mode: Some(
-                self.header
-                    .get("orchestrationMode")
+                staged_mode
+                    .or_else(|| self.header.get("orchestrationMode"))
                     .and_then(|mode| serde_json::from_value(mode.clone()).ok())
                     .unwrap_or(OrchestrationMode::Balanced),
             ),
-            pending_workflow_switch: Some(false),
-            pending_orchestration_mode_switch: Some(false),
+            pending_workflow_switch: Some(staged_workflow.is_some()),
+            pending_orchestration_mode_switch: Some(staged_mode.is_some()),
         }
     }
 
@@ -605,7 +612,7 @@ impl SessionState {
         // Sections no producer has published yet hold the engine's initial values (`initial-state.mjs`,
         // `baseRouteState`): the session's route, an idle composer, no agents, no approval result.
         state.route = Some(self.route());
-        state.workflow.get_or_insert_with(|| self.initial_workflow());
+        state.workflow = Some(self.workflow());
         state.runtime = Some(self.runtime(StorageState::Ok));
         state.context = Some(self.context());
         state.agents.get_or_insert_with(Default::default);

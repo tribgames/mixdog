@@ -183,7 +183,7 @@ async fn a_closing_runtime_fires_session_end_with_nodes_reason() {
     assert!(unloaded.cell.subscribing());
     unloaded.cell.subscribed(true);
     assert!(fired.of("SessionEnd", &unloaded.id).is_empty(), "a loaded session has not ended");
-    unloaded.cell.unsubscribed();
+    super::tests::left_idle(&unloaded).await;
     eventually_on!(&[&*rig.closes.ended], || (lock(&rig.closes.seen).len() == 1).then_some(())).await;
     assert_eq!(fired.of("SessionEnd", &unloaded.id), ["/ws:other"], "fired before the ingest ended");
 

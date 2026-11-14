@@ -244,19 +244,28 @@ pub fn continuation_entry(prompt: &str, goal: Option<&Goal>, now: i64) -> Value 
 }
 
 /// The input row of an automatic Goal turn: runtime-synthetic, never the user speaking
-/// (`ask-queue.mjs` `initialPromptSourceFor`).
+/// (`ask-queue.mjs` `initialPromptSourceFor`). Its prompt carries transcript metadata as every
+/// turn's does (`beginTurn`, `persistedUserTranscriptMetadata`: a stable `messageId`, the turn's
+/// start stamps the rest), so the turn's end is recorded with its attempt.
 pub fn input_row(entry: &Value) -> Value {
     let mode = entry.get("mode").and_then(Value::as_str).unwrap_or(CONTINUATION_MODE);
+    // `newTranscriptMessageId`.
+    let message_id = format!("msg_{}", uuid::Uuid::new_v4().simple());
     json!({
         "role": "user",
         "content": entry.get("message").and_then(Value::as_str).unwrap_or_default(),
-        "meta": { "source": mode, "synthetic": true },
+        "meta": { "source": mode, "synthetic": true, "transcript": { "messageId": message_id } },
     })
 }
 
 /// Whether a turn's input row is an automatic Goal turn (`promptSource === 'goal-continuation'`).
 pub fn automatic(input_row: &Value) -> bool {
     input_row.pointer("/meta/source").and_then(Value::as_str) == Some(CONTINUATION_MODE)
+}
+
+/// Whether a row is the prompt of a Goal entry's turn ([`input_row`]), which shows no row of its own.
+pub fn is_goal_prompt(row: &Value) -> bool {
+    matches!(row.pointer("/meta/source").and_then(Value::as_str), Some(CONTINUATION_MODE | CLOSEOUT_MODE))
 }
 
 /// `isUsageLimitError`: a spent quota, a plan-gated feature or a billing refusal, never a bare

@@ -19,6 +19,7 @@ use std::time::Duration;
 
 use mixdog_agent::env::Clock;
 use mixdog_agent::env::FailedCall;
+use mixdog_agent::env::ProviderSend;
 use mixdog_agent::env::ToolBatch;
 use mixdog_agent::env::ToolFailureLog;
 use mixdog_agent::env::TracedCall;
@@ -252,6 +253,31 @@ impl FailureWriter {
         let due = self.trace.cache_break(record, self.clock.now_ms());
         self.after_append(due);
         mixdog_rt::node_stderr!("{}", mixdog_trace::cache_break_line(record));
+    }
+
+    /// `traceAgentLoop(args)`: the `loop` row of a completed send (`mixdog_trace::loop_record` has the fields of `args`).
+    pub fn record_loop(self: &Arc<Self>, args: &Map<String, Value>) {
+        self.record_timing_row(mixdog_trace::loop_record, args);
+    }
+
+    /// `traceBrowserTiming(context, bridgeMs, body, status)`: the `browser_timing` row of one host browser command
+    /// (`mixdog_trace::browser_timing_record` has the fields of `args`).
+    pub fn record_browser_timing(self: &Arc<Self>, args: &Map<String, Value>) {
+        self.record_timing_row(mixdog_trace::browser_timing_record, args);
+    }
+
+    /// Whether the timing rows (`loop`, `browser_timing`) are written: `MIXDOG_AGENT_TRACE_VERBOSE` / `_TIMING` and a trace
+    /// that takes rows (`AgentTrace::timing_rows`). A caller checks it before it times anything or builds the row's arguments.
+    pub fn timing_rows(&self) -> bool {
+        self.trace.timing_rows()
+    }
+
+    /// A row of the timing gate ([`FailureWriter::timing_rows`]): without it nothing is built, queued or flushed.
+    fn record_timing_row(self: &Arc<Self>, build: fn(&Map<String, Value>) -> Map<String, Value>, args: &Map<String, Value>) {
+        if self.timing_rows() {
+            let due = self.trace.append(&build(args), self.clock.now_ms());
+            self.after_append(due);
+        }
     }
 
     fn after_append(self: &Arc<Self>, due: bool) {
@@ -506,5 +532,27 @@ impl ToolFailureLog for RunFailureLog {
 
     fn cache_break(&self, record: Map<String, Value>) {
         self.writer.record_cache_break(&record);
+    }
+
+    /// `traceProviderSend`. Under `MIXDOG_AGENT_TRACE_VERBOSE` Node also sizes the request (`estimateProviderPayloadBytes`
+    /// over its in-memory message objects), which has no counterpart here: `body_bytes_est` is null, as Node writes it
+    /// under `MIXDOG_AGENT_TRACE_TIMING`. Nothing is built without the timing gate.
+    fn provider_send(&self, send: ProviderSend) {
+        if !self.writer.timing_rows() {
+            return;
+        }
+        let ProviderSend { iteration, send_ms, pre_send_ms, tool_resume_ms, message_count } = send;
+        let args = json!({
+            "sessionId": self.session_id,
+            "iteration": iteration,
+            "sendMs": send_ms,
+            "preSendMs": pre_send_ms,
+            "toolResumeMs": tool_resume_ms,
+            "messageCount": message_count,
+            "agent": self.agent,
+        });
+        if let Value::Object(args) = args {
+            self.writer.record_loop(&args);
+        }
     }
 }

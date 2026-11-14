@@ -1630,6 +1630,10 @@ async fn lsp_feed_carries_node_keyed_sections_with_a_snapshot_for_late_subscribe
     let conn = MockConnection::new(ConnectionId(1), env.limits);
     let attached = subscribe(&sub.feed, SubscriptionId::from("s1"), sub.window, None, &conn).unwrap();
     conn.send_control_release(bytes::Bytes::from_static(b"ok"), attached.release).unwrap();
+    // An entry beyond the project fails the call (Node's `projectEntryPathIn` threw) and publishes no status: the first one
+    // below is the open's `starting` at revision 1.
+    let outside = call(&env, "lsp/document", json!({ "projectPath": root, "root": root, "document": { "kind": "open", "languageId": "typescript", "relPath": "../x.ts", "content": "x", "version": 1 } })).await;
+    assert!(matches!(outside, Err(CoreError::PermissionDenied { .. })), "{outside:?}");
     // The mock process manager starts no real server: opening a TypeScript file publishes statuses.
     call(&env, "lsp/document", json!({ "projectPath": root, "root": root, "document": { "kind": "open", "languageId": "typescript", "relPath": "a.ts", "content": "x", "version": 1 } })).await.unwrap();
     let raw = conn.drain_text_until(|texts| texts.iter().any(|f| f.contains("lsp/status/updated"))).await;

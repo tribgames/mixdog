@@ -9,7 +9,8 @@
 //!   ([`request_definitions`]) and the session rebuilt for `openai-oauth`;
 //! * a turn whose provider calls `Skill` twice and ends: each request the loop sent, with its tools snapshotted at the
 //!   boundary as the product does ([`boundary_tools`]), encoded by the provider's own codec; the whole wire tools and,
-//!   for OpenAI and Anthropic, the whole transcript part of the body, against Node's;
+//!   for OpenAI and Anthropic, the whole transcript part of the body, against Node's; then the next turn, whose load of
+//!   the same skill injects no second body;
 //! * `skillToolContent` (the MCP caller's Skill): the same tool once on `openai-oauth`.
 //!
 //! A session is compared as the header's whole value against Node's whole session object, less only what `thread/start`
@@ -35,8 +36,6 @@ use mixdog_ai::providers::openai::config::OpenAiConfig;
 use mixdog_ai::providers::openai::config::WireContext;
 use mixdog_core_api::domain::keepalive::TransportKind;
 use mixdog_core_api::domain::provider::ToolDefinition;
-use mixdog_core_ports::ports::route::Route;
-use mixdog_core_ports::ports::route::RouteSession;
 use mixdog_core_ports::ports::threads::ThreadState;
 use mixdog_core_session::session::NoRouteExclusions;
 use mixdog_core_session::session::testing::eventually_on_awaiting;
@@ -112,36 +111,6 @@ impl TranscriptTexts for NoTexts {
     }
 }
 
-/// The running turn's working messages, as the product's route adapter reads them (`turn_messages`).
-struct Live(Weak<SessionDirectory>);
-
-#[async_trait]
-impl RouteSession for Live {
-    fn generation(&self, _: &ThreadId) -> u64 {
-        0
-    }
-    async fn live_turn_messages(&self, thread: &ThreadId) -> Result<Vec<Value>, PortError> {
-        Ok(self.0.upgrade().and_then(|directory| directory.handle(thread)).map(|handle| (*handle.turn_messages_snapshot()).clone()).unwrap_or_default())
-    }
-    fn has_user_conversation(&self, _: &[Value]) -> bool {
-        unreachable!("the transcript asks for messages only")
-    }
-    async fn update_route(&self, _: &ThreadId, _: Route, _: bool) -> Result<bool, PortError> {
-        unreachable!("the transcript asks for messages only")
-    }
-    async fn record_boundary(&self, _: &ThreadId, _: &str, _: Value) -> Result<bool, PortError> {
-        unreachable!("the transcript asks for messages only")
-    }
-    async fn rebuild_tool_surface(&self, _: &ThreadId, _: &str) -> Result<(), PortError> {
-        unreachable!("the transcript asks for messages only")
-    }
-    async fn owner_fallbacks(&self, _: &ThreadId, _: &mixdog_store::schema::record::Header, _: &str, _: &str) -> Result<Option<Vec<Value>>, PortError> {
-        unreachable!("the transcript asks for messages only")
-    }
-    fn write_statusline(&self, _: &ThreadId, _: &Route) {}
-    fn invalidate_context_status(&self, _: &ThreadId) {}
-}
-
 /// One of the session's tools, under the definition the session holds: `Skill` is the real tool, and the test's
 /// provider never calls another.
 struct Defined {
@@ -175,7 +144,8 @@ fn spec_of(doc: &Value) -> ToolSpec {
     }
 }
 
-/// The test's provider: `Skill` on the first two requests, then an answer; every request is kept.
+/// The test's provider: `Skill` on the first two requests and on the next turn's first (the fourth), else an answer;
+/// every request is kept.
 struct Calls {
     id: ProviderId,
     policy: RetryPolicy,
@@ -206,7 +176,7 @@ impl ProviderAdapter for Calls {
             requests.len()
         };
         let completed = |stop| StreamEvent::Completed { stop: Some(stop), pricing_model: None, request_ms: None };
-        let steps = if n <= 2 {
+        let steps = if n <= 2 || n == 4 {
             vec![StreamEvent::ToolCallDone(ToolCall { id: format!("skill-{n}"), name: "Skill".into(), arguments: json!({ "name": "deck-guide" }), native_type: None }), completed(StopReason::ToolUse)]
         } else {
             vec![StreamEvent::TextDelta("done".into()), completed(StopReason::EndTurn)]
@@ -560,7 +530,7 @@ async fn skill_dependencies_reach_the_next_request_as_in_node() {
         let mut want_opened = node["loop"]["opened"].clone();
         want_opened.as_object_mut().expect("session").retain(|key, _| key != "id" && key != "compaction");
         assert_eq!(loop_opened, want_opened, "{provider}: the loop's session");
-        let _ = world.run.skill.set(Arc::new(world.skill(Arc::new(ThreadTranscript::new(Arc::new(Live(Arc::downgrade(&world.directory))), world.threads.clone())))));
+        let _ = world.run.skill.set(Arc::new(world.skill(Arc::new(ThreadTranscript::new(world.threads.clone())))));
         let handle = world.directory.handle(&loop_id).expect("loaded");
         handle.request(request("turn/start", json!({ "threadId": loop_id, "opId": "op-1", "input": { "prompt": "Create a presentation." } }), "op-1")).await.expect("turn/start");
         let answered = || world.rig.store.records(&loop_id).into_iter().any(|(_, record)| matches!(record, Record::Item(item) if matches!(&item.body, Slot::Inline(body) if body["role"] == "assistant" && body["content"] == "done")));
@@ -603,6 +573,15 @@ async fn skill_dependencies_reach_the_next_request_as_in_node() {
             assert!(sent.as_ref().is_some_and(Value::is_number), "{provider}: a send time, as a number: {sent:?}");
         }
         assert_eq!(got_session, want_session, "{provider}: the loop's session after");
+
+        // The next turn loads the skill again. Node's check reads the history and the turn so far (`liveTurnMessages`,
+        // ask-turn-execute.mjs), which hold the first turn's body: the load answers 'already active' and injects no copy.
+        handle.request(request("turn/start", json!({ "threadId": loop_id, "opId": "op-2", "input": { "prompt": "Again." } }), "op-2")).await.expect("turn/start");
+        let ended = || world.rig.feeds.frames(loop_id.as_str()).into_iter().filter(|(_, method, _)| method == "turn/completed").count() == 2;
+        eventually_on_awaiting(|| "the next turn's end".to_owned(), &[handle.stepped()], || ended().then_some(())).await;
+        assert_eq!(lock(&world.run.provider.requests).len(), 5, "{provider}: the next turn's requests");
+        let bodies = world.rig.store.records(&loop_id).into_iter().filter(|(_, record)| matches!(record, Record::Item(item) if matches!(&item.body, Slot::Inline(body) if body["role"] == "user" && body.to_string().contains("<name>deck-guide</name>")))).count();
+        assert_eq!(bodies, 1, "{provider}: the next turn's load injects no second body");
     }
 
     // `skillToolContent` on an `openai-oauth` session.

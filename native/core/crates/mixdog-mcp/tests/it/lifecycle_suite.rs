@@ -208,7 +208,7 @@ struct Folders(Mutex<Vec<(String, String)>>);
 impl ScopeConfigs for Folders {
     async fn resolve(&self, scope: &str, cwd: &str, _only: Option<&str>) -> Resolved {
         self.0.lock().unwrap().push((scope.to_owned(), cwd.to_owned()));
-        Resolved { configs: Vec::new(), targets: Vec::new() }
+        Resolved { configs: Vec::new(), targets: Vec::new(), data_folders: Vec::new() }
     }
 }
 

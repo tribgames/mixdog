@@ -22,6 +22,7 @@ use mixdog_agent::compact::pressure::TranscriptSigner;
 use mixdog_agent::compact::pressure::check_change;
 use mixdog_agent::compact::pressure::iteration_metrics;
 use mixdog_agent::compact::pressure::pass_change;
+use mixdog_agent::compact::pressure::send_pressure;
 use mixdog_agent::compact::pressure::settled_change;
 use mixdog_agent::compact::pressure::terminal_usage;
 use mixdog_agent::compact::pressure::turn_started;
@@ -105,6 +106,8 @@ fn usage_bookkeeping_equals_node() {
     let meter = MessageMeter { media: &TextOnly, replay_owner: &owner };
     let cases = golden["cases"].as_array().expect("cases");
     let mut ops = std::collections::BTreeSet::new();
+    let mut provider_priced = Vec::new();
+    let mut unanchored_priced = Vec::new();
     for case in cases {
         let name = case["name"].as_str().expect("name");
         let op = case["op"].as_str().expect("op");
@@ -154,6 +157,26 @@ fn usage_bookkeeping_equals_node() {
             }
             "check" => {
                 let patch = check_change(&header, &messages, &tools, args["reactive"].as_bool().expect("reactive"), &books, now);
+                // The decision before the send prices the figure the check records wherever the session's provider reading
+                // describes the request (`resolveContextTokensWithSource`'s `provider` source).
+                if let Some(tokens) = send_pressure(&header, &messages, &tools, &books).tokens {
+                    assert_eq!(Value::Object(applied(&header, &patch))["compaction"]["lastPressureTokens"].as_f64(), Some(tokens as f64), "{name}: send pressure");
+                    provider_priced.push(name);
+                }
+                // The same session marked unanchored after a restart (`markUnanchoredContext`): the decision reads the mark,
+                // and still prices the figure the check records, the last actual reading where no provider reading
+                // describes the request (`provider_resume`).
+                if args["reactive"].as_bool() == Some(false) {
+                    let mut marked = header.clone();
+                    marked.insert("contextPressureUnanchoredAfterRestart".into(), Value::Bool(true));
+                    let read = send_pressure(&marked, &messages, &tools, &books);
+                    assert!(read.unanchored, "{name}: unanchored mark");
+                    if let Some(tokens) = read.tokens {
+                        let check = check_change(&marked, &messages, &tools, false, &books, now);
+                        assert_eq!(Value::Object(applied(&marked, &check))["compaction"]["lastPressureTokens"].as_f64(), Some(tokens as f64), "{name}: unanchored send pressure");
+                        unanchored_priced.push(name);
+                    }
+                }
                 let recorded = Value::Bool(patch.is_some());
                 (patch, recorded)
             }
@@ -211,4 +234,10 @@ fn usage_bookkeeping_equals_node() {
     }
     assert_eq!(ops.into_iter().collect::<Vec<_>>(), ["check", "install", "iteration", "pass", "settled", "sync", "terminal", "turnStart", "usage"]);
     assert!(cases.len() > 50, "the golden holds every writer's cases");
+    assert_eq!(provider_priced, ["check-second-send-adds-growth-to-the-baseline"], "only the check over a provider reading prices it");
+    assert_eq!(
+        unanchored_priced,
+        ["check-second-send-adds-growth-to-the-baseline", "check-keeps-prior-telemetry-and-clears-errors"],
+        "marked unanchored, a session's last actual reading prices a request no provider reading describes"
+    );
 }

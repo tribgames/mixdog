@@ -172,8 +172,18 @@ async fn edit_read_failures_are_answered_as_node_answers_them_on_windows() {
     assert_eq!(answers["platform"], "win32", "the answers compared here are the Windows recording");
     let edit = EditTool::new();
     let mut failures = Vec::new();
-    let mut compared = 0;
+    let (mut compared, mut skipped) = (0, 0);
     for case in answers["cases"].as_array().unwrap().iter().filter(|c| c["tool"] == "edit") {
+        // `edit-access-denied` was recorded unelevated, where even an attribute-only stat of the SAM hive is denied.
+        // Elevated that stat succeeds (Node's `existsSync` passes too), so the read answers its own cause instead:
+        // not the recorded case, so it is skipped there.
+        if case["name"] == "edit-access-denied"
+            && let Some(target) = case["input"]["path"].as_str().and_then(AbsPath::new)
+            && ctx.files.stat(ctx.io.interactive, target).await.is_ok()
+        {
+            skipped += 1;
+            continue;
+        }
         let (_, text) = text_of(edit.call(&ctx, schema_args("edit", case["input"].clone())).await);
         let text = text.replace(&ws.to_string_lossy().into_owned(), "<ROOT>");
         if text != case["text"].as_str().unwrap() {
@@ -182,7 +192,7 @@ async fn edit_read_failures_are_answered_as_node_answers_them_on_windows() {
         compared += 1;
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
-    assert_eq!(compared, 9);
+    assert_eq!(compared + skipped, 9);
 }
 
 /// Sets a file's or a directory's modification time.
@@ -912,6 +922,202 @@ async fn read_decodes_non_ascii_in_notebook_base64_as_node_does() {
     replay_fs_search("read-ipynb-base64-junk").await;
 }
 
+use mixdog_core_api::domain::common::EventSource;
+use mixdog_core_api::domain::ext::ExtCall;
+use mixdog_core_api::domain::ext::ExtError;
+use mixdog_core_api::domain::ext::ExtFrame;
+use mixdog_core_api::domain::ext::ExtPool;
+use mixdog_core_api::domain::ext::ExtWorkerId;
+use mixdog_core_api::domain::ext::ExtWorkerStatus;
+
+/// An extension host serving a two-page PDF whose second page has no text layer; its page image streams in two chunks.
+struct ScriptedPdfHost;
+
+struct ScriptedFrames(std::collections::VecDeque<ExtFrame>);
+
+#[async_trait::async_trait]
+impl EventSource<ExtFrame> for ScriptedFrames {
+    async fn next(&mut self) -> Option<ExtFrame> {
+        self.0.pop_front()
+    }
+}
+
+impl ExtPool for ScriptedPdfHost {
+    fn call(&self, call: ExtCall) -> Result<Box<dyn EventSource<ExtFrame>>, ExtError> {
+        let done = |value: JsonValue| ExtFrame::Done(Ok(value));
+        let frames = match call.method.as_str() {
+            "pdf.inspect" if call.params.get("extractText").is_none() => vec![done(serde_json::json!({ "pageCount": 2 }))],
+            "pdf.inspect" => {
+                let range = &call.params["pageRange"];
+                let (from, to) = (range["from"].as_u64().unwrap(), range["to"].as_u64().unwrap());
+                let pages: Vec<JsonValue> = [(1_u64, "MIXED-TEXT-PAGE-7701 hello there"), (2_u64, "")]
+                    .into_iter()
+                    .filter(|(page, _)| (from..=to).contains(page))
+                    .map(|(page, text)| serde_json::json!({ "page": page, "text": text }))
+                    .collect();
+                vec![done(serde_json::json!({ "pageCount": 2, "pages": pages }))]
+            }
+            "pdf.render" => {
+                assert_eq!(call.params["pages"], serde_json::json!([2]), "only the page without a text layer is rendered");
+                let images = serde_json::json!({ "images": [{ "page": 2, "width": 800, "height": 600, "mimeType": "image/png", "bytes": 4 }] });
+                vec![ExtFrame::Chunk(b"PN".to_vec()), ExtFrame::Chunk(b"G2".to_vec()), done(images)]
+            }
+            other => panic!("unexpected extension call {other}"),
+        };
+        Ok(Box::new(ScriptedFrames(frames.into())))
+    }
+
+    fn status(&self) -> Vec<ExtWorkerStatus> {
+        Vec::new()
+    }
+
+    fn stop_worker(&self, _worker: ExtWorkerId) -> Result<(), ExtError> {
+        Ok(())
+    }
+}
+
+async fn read_pdf(read: &ReadTool, ctx: &ToolContext, pages: JsonValue) -> ToolOutcome {
+    read.call(ctx, serde_json::json!({ "file_path": "mixed.pdf", "pages": pages })).await
+}
+
+/// A PDF read is `extractPdfText`'s answer: the pages argument refused in Node's words, a page range as each page's text
+/// under the range's header, and a page without a text layer as its page image (the render's chunks joined).
+#[tokio::test]
+async fn read_answers_a_pdf_by_its_pages_as_node_does() {
+    let root = AbsPath::new(std::env::temp_dir().join("mixdog-fs-pdf").join("ws")).unwrap();
+    let ctx = context_seeded(&root, Arc::new(MockFileService::default()), vec![("mixed.pdf".to_owned(), b"%PDF-1.7 scripted".to_vec())]).await;
+    let read = ReadTool::new(Some(Arc::new(ScriptedPdfHost) as Arc<dyn ExtPool>), None);
+    for (pages, want) in [
+        (serde_json::json!(3), "Error: pages must be a string like \"1-5\"; got number"),
+        (serde_json::json!("2-x"), "Error: pages \"2-x\" not in \"N\" or \"N-M\" form (1-based positive integers)"),
+        (serde_json::json!("0"), "Error: pages \"0\" out of range — page numbers are 1-based"),
+        (serde_json::json!("3-1"), "Error: pages \"3-1\" inverted — end (1) precedes start (3)"),
+        (serde_json::json!("1-30"), "Error: pages \"1-30\" spans 30 pages; max 20 per request — narrow the range"),
+        (serde_json::json!("9"), "Error: pages \"9\" out of range — this PDF has 2 pages"),
+        (serde_json::json!(" 1 "), "[PDF mixed.pdf: pages 1-1 of 2; every page has a text layer]\n\n--- Page 1 ---\nMIXED-TEXT-PAGE-7701 hello there"),
+    ] {
+        assert_eq!(text_of(read_pdf(&read, &ctx, pages.clone()).await).1, want, "pages {pages}");
+    }
+    let whole = read_pdf(&read, &ctx, JsonValue::Null).await.unwrap();
+    assert_eq!(
+        whole.parts,
+        vec![
+            ToolPart::Text(
+                "[PDF mixed.pdf: pages 1-2 of 2; scanned (no text layer): 2]\n\n--- Page 1 ---\nMIXED-TEXT-PAGE-7701 hello there\n\n--- Page 2 (scanned; page image follows) ---".to_owned()
+            ),
+            ToolPart::Image { mime: "image/png".to_owned(), data: ImageData::Bytes(b"PNG2".to_vec()), width: Some(800), height: Some(600) },
+        ]
+    );
+}
+
+/// A PDF past the read tool's 10 MiB buffered cap, which the scripted host answers for as it does for `mixed.pdf`.
+fn large_pdf() -> Vec<u8> {
+    let mut bytes = b"%PDF-1.7 ".to_vec();
+    bytes.resize(11 * 1024 * 1024, b'x');
+    bytes
+}
+
+/// A PDF past the 10 MiB buffered cap goes to `extractPdfText` like any other (`readMediaFile` comes before the size
+/// cap), not to the binary preview of a large file.
+#[tokio::test]
+async fn read_answers_a_pdf_past_the_buffered_cap_by_its_pages_as_node_does() {
+    let root = AbsPath::new(std::env::temp_dir().join("mixdog-fs-pdf-large").join("ws")).unwrap();
+    let ctx = context_seeded(&root, Arc::new(MockFileService::default()), vec![("big.pdf".to_owned(), large_pdf())]).await;
+    let read = ReadTool::new(Some(Arc::new(ScriptedPdfHost) as Arc<dyn ExtPool>), None);
+    let whole = read.call(&ctx, serde_json::json!({ "file_path": "big.pdf" })).await.unwrap();
+    assert_eq!(
+        whole.parts[0],
+        ToolPart::Text(
+            "[PDF big.pdf: pages 1-2 of 2; scanned (no text layer): 2]\n\n--- Page 1 ---\nMIXED-TEXT-PAGE-7701 hello there\n\n--- Page 2 (scanned; page image follows) ---".to_owned()
+        )
+    );
+}
+
+/// A short PDF read whole by a session whose provider takes PDFs natively and whose model sees images is the document
+/// itself (`mode === 'image' && nativeDocument`), up to `MAX_PDF_BYTES` whatever the buffered cap; a page range, a batch
+/// entry and a model that sees no images still read the pages.
+#[tokio::test]
+async fn read_answers_a_short_pdf_with_the_document_when_the_model_reads_pdfs_natively() {
+    let root = AbsPath::new(std::env::temp_dir().join("mixdog-fs-pdf-native").join("ws")).unwrap();
+    let seeds = vec![("mixed.pdf".to_owned(), b"%PDF-1.7 scripted".to_vec()), ("big.pdf".to_owned(), large_pdf())];
+    let mut ctx = context_seeded(&root, Arc::new(MockFileService::default()), seeds).await;
+    ctx.options.pdf_native_document = true;
+    let read = ReadTool::new(Some(Arc::new(ScriptedPdfHost) as Arc<dyn ExtPool>), None);
+    let pages = "[PDF mixed.pdf: pages 1-2 of 2; scanned (no text layer): 2]\n\n--- Page 1 ---\nMIXED-TEXT-PAGE-7701 hello there\n\n--- Page 2 (scanned; page image follows) ---";
+    assert_eq!(text_of(read_pdf(&read, &ctx, JsonValue::Null).await).1, pages, "a model that sees no images reads the pages");
+    ctx.options.pdf_page_images = true;
+    let document = |data: Vec<u8>| vec![ToolPart::Document { mime: "application/pdf".to_owned(), data }];
+    assert_eq!(read_pdf(&read, &ctx, JsonValue::Null).await.unwrap().parts, document(b"%PDF-1.7 scripted".to_vec()));
+    assert_eq!(read.call(&ctx, serde_json::json!({ "file_path": "big.pdf" })).await.unwrap().parts, document(large_pdf()));
+    assert_eq!(
+        text_of(read_pdf(&read, &ctx, serde_json::json!("1")).await).1,
+        "[PDF mixed.pdf: pages 1-1 of 2; every page has a text layer]\n\n--- Page 1 ---\nMIXED-TEXT-PAGE-7701 hello there"
+    );
+    let batch = read.call(&ctx, serde_json::json!({ "file_path": ["mixed.pdf", "big.pdf"] })).await.unwrap();
+    assert!(batch.parts.iter().all(|part| matches!(part, ToolPart::Text(_))), "{batch:?}");
+}
+
+/// An extension host that extracts an OOXML file, answering with the output budget it was asked for.
+struct ScriptedOoxmlHost;
+
+impl ExtPool for ScriptedOoxmlHost {
+    fn call(&self, call: ExtCall) -> Result<Box<dyn EventSource<ExtFrame>>, ExtError> {
+        assert_eq!(call.method, "ooxml.text", "only an OOXML file goes to the extractor");
+        let text = format!("OOXML within {}", call.params["maxOutputBytes"]);
+        Ok(Box::new(ScriptedFrames(vec![ExtFrame::Done(Ok(serde_json::json!({ "text": text })))].into())))
+    }
+
+    fn status(&self) -> Vec<ExtWorkerStatus> {
+        Vec::new()
+    }
+
+    fn stop_worker(&self, _worker: ExtWorkerId) -> Result<(), ExtError> {
+        Ok(())
+    }
+}
+
+/// An OOXML file is `extractOoxmlText`'s text within the read's 50 KiB output budget (`READ_MAX_OUTPUT_BYTES`), on its
+/// own and in a batch.
+#[tokio::test]
+async fn read_extracts_an_ooxml_file_within_the_read_budget_as_node_does() {
+    let root = AbsPath::new(std::env::temp_dir().join("mixdog-fs-ooxml").join("ws")).unwrap();
+    let seeds = vec![("report.docx".to_owned(), b"PK\x03\x04[Content_Types].xml".to_vec()), ("plain.txt".to_owned(), b"plain\n".to_vec())];
+    let ctx = context_seeded(&root, Arc::new(MockFileService::default()), seeds).await;
+    let read = ReadTool::new(Some(Arc::new(ScriptedOoxmlHost) as Arc<dyn ExtPool>), None);
+    let budget = format!("OOXML within {}", 50 * 1024);
+    assert_eq!(text_of(read.call(&ctx, serde_json::json!({ "file_path": "report.docx" })).await).1, budget);
+    let batch = read.call(&ctx, serde_json::json!({ "file_path": ["report.docx", "plain.txt"] })).await.unwrap();
+    assert!(batch.parts.iter().any(|part| matches!(part, ToolPart::Text(text) if text.contains(&budget))), "{batch:?}");
+}
+
+/// A file is a document by its name, as `readMediaFile` tells it: a PDF by `.pdf`, or by its signature only on a path with
+/// no extension; an OOXML file by its extension. A text file that starts like a PDF reads as text, and an OOXML package
+/// under any other name is a binary file.
+#[tokio::test]
+async fn read_tells_a_document_by_its_name_as_node_does() {
+    let root = AbsPath::new(std::env::temp_dir().join("mixdog-fs-document-kind").join("ws")).unwrap();
+    let package = b"PK\x03\x04\x14\x00\x00\x00[Content_Types].xml".to_vec();
+    let seeds = vec![
+        ("pdf-magic.txt".to_owned(), b"%PDF-1.4 this is really a text file\nsecond line\n".to_vec()),
+        ("archive.zip".to_owned(), package.clone()),
+        ("template.xltx".to_owned(), package.clone()),
+        ("noext-office".to_owned(), package),
+        ("noext-pdf".to_owned(), b"%PDF-1.7 scripted".to_vec()),
+    ];
+    let ctx = context_seeded(&root, Arc::new(MockFileService::default()), seeds).await;
+    // The OOXML host fails the test on any call but `ooxml.text`: none of these files reaches the PDF extractor.
+    let read = ReadTool::new(Some(Arc::new(ScriptedOoxmlHost) as Arc<dyn ExtPool>), None);
+    let text = text_of(read.call(&ctx, serde_json::json!({ "file_path": "pdf-magic.txt" })).await).1;
+    assert!(text.contains("%PDF-1.4 this is really a text file") && text.contains("second line"), "{text}");
+    for name in ["archive.zip", "template.xltx", "noext-office"] {
+        let text = text_of(read.call(&ctx, serde_json::json!({ "file_path": name })).await).1;
+        assert!(text.contains("\nbinary, 27 bytes\n50 4b 03 04"), "{name}: {text}");
+    }
+    let pdf = ReadTool::new(Some(Arc::new(ScriptedPdfHost) as Arc<dyn ExtPool>), None);
+    let text = text_of(pdf.call(&ctx, serde_json::json!({ "file_path": "noext-pdf" })).await).1;
+    assert!(text.starts_with("[PDF "), "{text}");
+}
+
 /// A missing `list` / `grep` path carries Node's recovery hints.
 #[tokio::test]
 async fn list_and_grep_answer_a_missing_path_as_node_does() {
@@ -1498,6 +1704,87 @@ async fn edit_and_apply_patch_wait_for_the_advisory_lock_of_their_file() {
         let (is_error, text) = task.await.unwrap();
         assert!(!is_error, "{text}");
     }
+}
+
+/// `edit` refuses the targets Node's `guardWritePath` refuses, in its words, before touching them:
+/// a UNC share, a device, and on Windows a trailing dot or a stream suffix. Nothing is written.
+#[tokio::test]
+async fn edit_refuses_the_write_targets_node_refuses() {
+    let (_dir, root) = small_dir();
+    std::fs::write(root.as_path().join("keep.txt"), "keep me\n").unwrap();
+    let ctx = context_seeded(&root, local_ctx_files(), Vec::new()).await;
+    let ads = "Error: cannot write Windows path with trailing dot/space or NTFS ADS suffix (bypasses device guard)";
+    let mut cases = vec![
+        ("//127.0.0.1/no-such-share/x.txt", "", "Error: cannot write UNC / SMB path (network credential leak risk): //127.0.0.1/no-such-share/x.txt".to_owned()),
+        ("/dev/zero", "a", "Error: cannot write device file (would block or corrupt a device): /dev/zero".to_owned()),
+    ];
+    if cfg!(windows) {
+        cases.extend([
+            ("keep.txt.", "keep me", format!("{ads}: keep.txt.")),
+            ("dir./new.txt", "", format!("{ads}: dir./new.txt")),
+            ("ads.txt:hidden", "", format!("{ads}: ads.txt:hidden")),
+            ("NUL", "", "Error: cannot write Windows device path (reserved name or raw-device namespace): NUL".to_owned()),
+        ]);
+    }
+    for (path, old, want) in cases {
+        let args = serde_json::json!({ "file_path": path, "old_string": old, "new_string": "CHANGED\n" });
+        assert_eq!(text_of(EditTool::new().call(&ctx, args).await), (true, want), "{path}");
+    }
+    assert_eq!(std::fs::read_to_string(root.as_path().join("keep.txt")).unwrap(), "keep me\n");
+    let names: Vec<_> = std::fs::read_dir(root.as_path()).unwrap().map(|e| e.unwrap().file_name()).collect();
+    assert_eq!(names, ["keep.txt"]);
+}
+
+/// A file another handle holds open without sharing still stats (as libuv's stat does), so `read`
+/// and `edit` answer with the open's own cause in Node's words, not a missing target.
+#[cfg(windows)]
+#[tokio::test]
+async fn a_file_held_without_sharing_reads_as_busy() {
+    use std::os::windows::fs::OpenOptionsExt;
+    let (_dir, root) = small_dir();
+    let held = root.as_path().join("held.txt");
+    std::fs::write(&held, "locked body\n").unwrap();
+    let _hold = std::fs::OpenOptions::new().read(true).share_mode(0).open(&held).unwrap();
+    let ctx = context_seeded(&root, local_ctx_files(), Vec::new()).await;
+    let (is_error, text) = text_of(ReadTool::new(None, None).call(&ctx, serde_json::json!({ "file_path": "held.txt" })).await);
+    assert!(is_error && text.starts_with("Error: EBUSY: resource busy or locked, open '") && text.ends_with("/ws/held.txt'"), "{text}");
+    let open = format!("EBUSY: resource busy or locked, open '{}'", held.display());
+    for old in ["locked body", ""] {
+        let args = serde_json::json!({ "file_path": "held.txt", "old_string": old, "new_string": "EDITED\n" });
+        assert_eq!(text_of(EditTool::new().call(&ctx, args).await), (true, format!("Error: cannot read {} ({open})", held.display())), "{old:?}");
+    }
+}
+
+/// An Add under a parent that is a file fails at the parent's mkdir, named as Node names it, and
+/// the batch is rolled back.
+#[tokio::test]
+async fn an_add_under_a_file_parent_names_the_failed_mkdir() {
+    let (_dir, root) = small_dir();
+    std::fs::write(root.as_path().join("p"), "a file\n").unwrap();
+    let ctx = context_seeded(&root, local_ctx_files(), Vec::new()).await;
+    let args = serde_json::json!({ "patch": "*** Begin Patch\n*** Add File: p/child.txt\n+x\n*** End Patch\n" });
+    let (_, text) = text_of(ApplyPatchTool::new().call(&ctx, args).await);
+    let want = format!(
+        "Error: EEXIST: file already exists, mkdir '{}'\n--- rolled back: every touched path was restored to its pre-patch state ---",
+        root.as_path().join("p").display()
+    );
+    assert_eq!(text, want);
+    assert_eq!(std::fs::read_to_string(root.as_path().join("p")).unwrap(), "a file\n");
+}
+
+/// An edit that creates under a parent that is a file fails at its temp file's open, worded as
+/// Node's adapter words a failed `atomicWrite` of `createEditTarget`.
+#[cfg(windows)]
+#[tokio::test]
+async fn an_edit_create_under_a_file_parent_names_the_failed_open() {
+    let (_dir, root) = small_dir();
+    std::fs::write(root.as_path().join("e"), "a file\n").unwrap();
+    let ctx = context_seeded(&root, local_ctx_files(), Vec::new()).await;
+    let args = serde_json::json!({ "file_path": "e/child.txt", "old_string": "", "new_string": "x\n" });
+    let (is_error, text) = text_of(EditTool::new().call(&ctx, args).await);
+    let open = "Error: edit failed (ENOENT: no such file or directory, open '";
+    assert!(is_error && text.starts_with(open) && text.contains("\\e\\child.txt.mixdog-tmp-") && text.ends_with("')"), "{text}");
+    assert_eq!(std::fs::read_to_string(root.as_path().join("e")).unwrap(), "a file\n");
 }
 
 /// The local file service, except that removing `a.txt` fails as a busy file does.
@@ -2657,7 +2944,7 @@ impl mixdog_core_api::domain::common::EventSource<Result<mixdog_core_api::domain
             match regex::RegexBuilder::new(&self.request.pattern).case_insensitive(!self.request.case_sensitive).build() {
                 Err(e) => out.push_back(Err(FsError::new(FsErrorKind::InvalidPattern { message: e.to_string() }, None))),
                 Ok(re) => {
-                    let walk = WalkRequest { root: self.request.root.clone(), recursive: true, include_hidden: true, respect_ignore: false, include_dirs: false, prune: Vec::new(), descent: Default::default(), server: None };
+                    let walk = WalkRequest { root: self.request.root.clone(), recursive: true, include_hidden: true, respect_ignore: false, require_git: true, include_dirs: false, prune: Vec::new(), descent: Default::default(), server: None };
                     let mut walk = self.inner.walk(self.walk_lane, walk);
                     let mut paths = Vec::new();
                     while let Some(Ok(entry)) = walk.next().await {
@@ -2669,7 +2956,7 @@ impl mixdog_core_api::domain::common::EventSource<Result<mixdog_core_api::domain
                         let bytes = self.inner.read(read_lane, path.clone(), ReadRange::default()).await.unwrap().bytes;
                         for (index, line) in String::from_utf8_lossy(&bytes).lines().enumerate() {
                             if let Some(hit) = re.find(line) {
-                                out.push_back(Ok(SearchMatch { path: path.clone(), line: index as u64 + 1, column: hit.start() as u64 + 1, text: line.to_owned() }));
+                                out.push_back(Ok(SearchMatch { path: path.clone(), line: index as u64 + 1, column: hit.start() as u64 + 1, text: line.to_owned(), count: 1 }));
                                 if self.request.first_per_file {
                                     continue 'files;
                                 }

@@ -362,7 +362,8 @@ impl Feed for CoreFeed {
                 }
             }
         }
-        if !frames.is_empty() {
+        // A view swapped with no frame is a new state at the same seq: no snapshot cached of the old view may serve it.
+        if !frames.is_empty() || view.is_some() {
             state.snapshots.clear();
         }
         if let Some(view) = view {

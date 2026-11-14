@@ -94,6 +94,9 @@ pub struct SessionSurface {
     pub project_disabled: bool,
     /// A read-only session.
     pub readonly: bool,
+    /// The thread's tool mode is `readonly` (`toolMode`, Node's `rt.mode`), which `thread/setToolMode` moves on a
+    /// conversation without moving its tool surface.
+    pub mode_readonly: bool,
     /// The session's persisted deferred surface is read-only (`deferredSurfaceMode`), whatever its tool mode: the deferred-call guard
     /// counts it with `readonly` (`isBridgeReadonlySession`, `tool-bridge.mjs:187`).
     pub deferred_readonly: bool,
@@ -278,6 +281,7 @@ impl SessionSurface {
             disallowed,
             feature_denied: names("featureDeniedTools").unwrap_or_default(),
             readonly: readonly_tool_spec(header.get("toolSpec")),
+            mode_readonly: mixdog_js::js_trim(text("toolMode")).to_lowercase() == "readonly",
             deferred_readonly: text("deferredSurfaceMode") == "readonly",
             active_tools: tool_names("tools"),
             catalog_tools,
@@ -311,6 +315,17 @@ impl SessionSurface {
         if name.starts_with("mcp__") && self.mcp_names.as_ref().is_some_and(|names| !names.iter().any(|known| known == name)) {
             return Some(format!("Error: MCP tool \"{name}\" is unavailable in the current session catalog; no call was sent."));
         }
+        // Not Node's: there a conversation switched to `readonly` keeps its tools and runs them (`setToolMode` only rebuilds an
+        // empty session, `tool-policy-refresh.mjs:226`). Here the kept surface stays in the request prefix, and a tool a
+        // read-only surface would not hold (`isReadonlySelectable`) is refused when called, with `isOffReadonlySurface`'s text.
+        if self.mode_readonly
+            && !self.readonly
+            && !INACTIVE_INFRA.contains(&name)
+            && !BRIDGE_DISCOVERY_TOOLS.contains(&name)
+            && !readonly_selectable(name, annotations)
+        {
+            return Some(format!("Error: tool \"{name}\" is not available in this read-only session."));
+        }
         if !listed(&self.catalog_tools, name) || listed(&self.active_tools, name) || INACTIVE_INFRA.contains(&name) {
             return None;
         }
@@ -339,6 +354,23 @@ impl SessionSurface {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_conversation_switched_to_readonly_refuses_what_a_read_only_surface_would_not_hold() {
+        let header = serde_json::json!({"toolMode": "readonly", "toolSpec": "full", "tools": [{"name": "edit"}, {"name": "read"}]});
+        let surface = SessionSurface::from_header(header.as_object().expect("object"), Vec::new());
+        assert!(surface.mode_readonly && !surface.readonly);
+        let read_only = ToolAnnotations { read_only_hint: Some(true), ..ToolAnnotations::default() };
+        assert_eq!(
+            surface.deferred_call_refusal("edit", &ToolAnnotations::default()).as_deref(),
+            Some("Error: tool \"edit\" is not available in this read-only session.")
+        );
+        assert_eq!(surface.deferred_call_refusal("read", &ToolAnnotations::default()), None);
+        assert_eq!(surface.deferred_call_refusal("load_tool", &ToolAnnotations::default()), None);
+        assert_eq!(surface.deferred_call_refusal("todo", &read_only), None);
+        let full = SessionSurface { mode_readonly: false, ..surface };
+        assert_eq!(full.deferred_call_refusal("edit", &ToolAnnotations::default()), None);
+    }
 
     fn names(items: &[&str]) -> Vec<String> {
         items.iter().map(|s| (*s).to_owned()).collect()

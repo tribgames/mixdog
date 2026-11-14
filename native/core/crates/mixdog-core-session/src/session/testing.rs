@@ -1206,6 +1206,11 @@ impl Transcript for TextTranscript {
         let Slot::Inline(body) = &record.body else {
             return Vec::new();
         };
+        // A Goal entry's prompt is listed but shows no row of its own, as with [`RecordTranscript`]: its text is the runtime's, so
+        // it has no prompt text. One that got prompt text shows as a user row here too, so the tests catch it.
+        if record.prompt.is_none() && super::goal_lane::is_goal_prompt(body) {
+            return Vec::new();
+        }
         if let Some(call) = body["toolCallId"].as_str() {
             return vec![Shown::Update(ThreadItem::ToolCall {
                 id: format!("call:{call}").as_str().into(),
@@ -1436,11 +1441,15 @@ impl Feed for RecFeed {
 }
 
 /// The turns' workspace admissions: `admit:<thread>` when one is admitted, `release:<thread>`
-/// when its guard drops; `refuse` answers the next admission with that failure instead.
+/// when its guard drops; `refuse` answers the next admission with that failure instead. The
+/// workspace gate records `<thread>:<submission id>:<prompt>` in `prepared`; `refuse_prepare`
+/// answers the next gate with that failure instead.
 #[derive(Default)]
 pub struct TestAdmission {
     pub seen: Arc<Mutex<Vec<String>>>,
     pub refuse: Mutex<Option<mixdog_scm::error::ScmFailure>>,
+    pub prepared: Arc<Mutex<Vec<String>>>,
+    pub refuse_prepare: Mutex<Option<mixdog_scm::error::ScmFailure>>,
     /// Wakes after each admission and release is recorded.
     pub changed: Arc<tokio::sync::Notify>,
 }
@@ -1468,6 +1477,19 @@ impl super::worktree::TurnAdmission for TestAdmission {
         lock(&self.seen).push(format!("admit:{thread}"));
         self.changed.notify_waiters();
         Ok(Box::new(Released(self.seen.clone(), thread.to_owned(), self.changed.clone())))
+    }
+
+    async fn prepare(
+        &self,
+        thread: &str,
+        start: super::worktree::TurnStart,
+        _cancel: &mixdog_rt::CancellationToken,
+    ) -> Result<(), mixdog_scm::error::ScmFailure> {
+        if let Some(failure) = lock(&self.refuse_prepare).take() {
+            return Err(failure);
+        }
+        lock(&self.prepared).push(format!("{thread}:{}:{}", start.submission_id, start.prompt));
+        Ok(())
     }
 }
 
@@ -1631,6 +1653,16 @@ pub struct FixedTaskWorkspace(pub &'static str);
 impl super::TaskWorkspace for FixedTaskWorkspace {
     async fn path(&self) -> Result<String, String> {
         Ok(self.0.to_owned())
+    }
+}
+
+/// Agent display names that are the ids.
+pub struct IdAgentNames;
+
+#[async_trait::async_trait]
+impl super::delegation::AgentNames for IdAgentNames {
+    async fn name(&self, agent_id: &str) -> String {
+        agent_id.to_owned()
     }
 }
 
@@ -2294,7 +2326,7 @@ impl Rig {
             transcripts: None,
             sensitive: Arc::new(super::store::SensitiveMarksOf::new(self.sensitive.clone())),
             user_cwd: super::UserCwd::new(self._data.path(), tokens.interactive_io),
-            attachments: super::user_facts::AttachmentStore(self._data.path().to_path_buf()),
+            attachments: super::user_facts::AttachmentStore(mixdog_store::blobs::BlobStore::new(self._data.path())),
             session_grants: mixdog_tools::policy::SessionGrantRegistry::new(),
             staged_originals: Arc::new(super::staged_originals::StagedOriginals::new(self._data.path())),
             prompt_intake: Arc::new(super::AdmitAll),
@@ -2305,6 +2337,9 @@ impl Rig {
             devices: Arc::new(NamedDevices),
             clock: self.clock.clone(),
             turn_starts: self.turn_starts.clone(),
+            // A test core has no lifecycle: nothing holds its turn starts.
+            start_hold: tokio::sync::watch::channel(super::StartHold::Open).1,
+            core_work: Arc::new(super::NoCoreWork),
             runtime_hooks: Arc::new(super::runtime_hooks::NoRuntimeHooks),
             snapshots: self.snapshots.clone(),
             notices: self.notices.clone(),
@@ -2329,6 +2364,7 @@ impl Rig {
             lifecycle: Arc::new(super::lifecycle_hooks::NoLifecycleHooks),
             shell_strips: Arc::new(NoShellStrips),
             agent_signals: self.signals.clone(),
+            agent_names: Arc::new(IdAgentNames),
             side: self.side.clone(),
             inherit: self.inherit.clone(),
             compaction: self.compaction.clone(),

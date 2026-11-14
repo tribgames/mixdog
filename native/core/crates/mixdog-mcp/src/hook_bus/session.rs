@@ -19,6 +19,8 @@ pub type CommonOf = Arc<dyn Fn(&str) -> HookCommon + Send + Sync>;
 /// A finished tool call as the loop reports it.
 pub struct PostCall<'a> {
     pub session_id: &'a str,
+    /// The model's id of the call (`toolCallId`): the payload's `tool_use_id`, left out when empty.
+    pub call_id: &'a str,
     pub name: &'a str,
     pub args: &'a Value,
     /// The call's effective directory.
@@ -46,8 +48,7 @@ impl SessionPostTool {
     }
 
     fn call<'a>(call: &'a PostCall<'a>, common: &'a HookCommon) -> ToolCall<'a> {
-        // The loop's hook input carries no call id on this path, so `tool_use_id` is left out.
-        ToolCall { session_id: call.session_id, call_id: "", name: call.name, args: call.args, cwd: Path::new(call.cwd), common }
+        ToolCall { session_id: call.session_id, call_id: call.call_id, name: call.name, args: call.args, cwd: Path::new(call.cwd), common }
     }
 
     /// `PostToolUse`: the result the model sees instead, when a hook replaced it.

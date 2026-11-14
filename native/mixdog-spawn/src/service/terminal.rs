@@ -339,6 +339,19 @@ impl DomainService for TerminalService {
                 if req.ctx.origin == mixdog_protocol::Origin::Relay {
                     return Ok(Reply::Value(attached_reply(&attached, &client)));
                 }
+                // The replay and the subscription start at one position: the replay is read under the lock that appends the tab's
+                // output, the pump is held there until the answer is queued, and the subscription attaches once the pump has
+                // published up to it, so no chunk is written twice (in the replay and as a frame) or lost between them.
+                let mut attached = attached;
+                if let Some(cut) = self.feeds.terminal_cut(&attached.id, || self.tabs.relay_order(&attached.id)) {
+                    let id = attached.id.clone();
+                    let Some((cut_attached, emitted, held)) = self.tabs.attach_cut(&id, |at| cut.hold_at(at)).await else {
+                        return Ok(Reply::Value(Value::Null));
+                    };
+                    cut.published(emitted).await;
+                    req.ctx.after_answer.keep(held);
+                    attached = cut_attached;
+                }
                 Ok(Reply::Subscribe(Subscribe {
                     result: attached_reply(&attached, &client),
                     feed: self.feeds.feed(&attached.id, true),

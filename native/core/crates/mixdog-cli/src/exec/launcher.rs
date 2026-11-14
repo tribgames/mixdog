@@ -9,10 +9,12 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use mixdog_app_server_client::api::CallOptions;
+use mixdog_app_server_client::api::ClientError;
 use mixdog_app_server_client::api::ClientEvent;
 use mixdog_app_server_client::api::ClientInfo;
 use mixdog_app_server_client::api::ConnectOptions;
 use mixdog_app_server_client::api::ConnectionStatus;
+use mixdog_app_server_client::api::ErrorData;
 use mixdog_app_server_client::api::ProtocolClient;
 use mixdog_app_server_client::api::ResumeWindow;
 use mixdog_app_server_client::api::Target;
@@ -159,6 +161,16 @@ impl CoreLauncher for InProcessLauncher {
     }
 }
 
+/// A refused request as the exec reports it: a domain error is the Node error the runtime threw, so its own message is the
+/// line (`mixdog: ${error.message}` in `executeHeadlessPrompt`), e.g. `[provider] Failed to init "x": unknown enabled
+/// provider: x` for a provider the pristine config cannot build; anything else keeps the protocol's rendering.
+fn rendered(error: &ClientError) -> String {
+    match error.error_data() {
+        Some(ErrorData::DomainError { message: Some(message), .. }) if !message.is_empty() => message,
+        _ => error.to_string(),
+    }
+}
+
 struct InProcessSession {
     client: mixdog_app_server_client::engine::Client,
     core: Arc<ComposedCore>,
@@ -172,13 +184,13 @@ impl CoreSession for InProcessSession {
     /// snapshot, and the exec's observations (`ExecLifecycle`'s callbacks in Node) all ride that feed. Header-only: the run
     /// needs the live events, not past turns.
     async fn call(&self, method: &str, params: Value) -> Result<Value, String> {
-        let result = self.client.call_raw(method, params, CallOptions::default()).await.map_err(|error| error.to_string())?;
+        let result = self.client.call_raw(method, params, CallOptions::default()).await.map_err(|error| rendered(&error))?;
         if method == "thread/start" {
             let thread_id = result["thread"]["id"].as_str().ok_or("thread/start answered without a thread id")?;
             self.client
                 .resume_thread(&ThreadId::from(thread_id), ResumeWindow::None { none: true })
                 .await
-                .map_err(|error| error.to_string())?;
+                .map_err(|error| rendered(&error))?;
         }
         Ok(result)
     }

@@ -27,9 +27,15 @@ export function startScriptedProvider({ tool, args }) {
         res.end(JSON.stringify({ object: 'list', data: [{ id: 'smoke', object: 'model' }] }));
         return;
       }
+      // Only a chat request is scripted and recorded. The core also probes the endpoint (a preconnect `HEAD /` before
+      // the first chat request): anything else is answered empty, so it is never taken for the tool-result request.
+      if (req.method !== 'POST' || !req.url.split('?')[0].endsWith('/chat/completions')) {
+        res.writeHead(req.method === 'HEAD' || req.method === 'OPTIONS' ? 204 : 404);
+        res.end();
+        return;
+      }
       requests.push({ method: req.method, url: req.url, body });
-      const first = requests.filter((r) => r.url.endsWith('/chat/completions')).length === 1;
-      if (first) {
+      if (requests.length === 1) {
         sse(res, [chunk({ role: 'assistant', tool_calls: [{ index: 0, id: 'call_smoke', type: 'function', function: { name: tool, arguments: args } }] }), chunk({}, 'tool_calls'), '[DONE]']);
       } else {
         sawToolResult(requests.at(-1));

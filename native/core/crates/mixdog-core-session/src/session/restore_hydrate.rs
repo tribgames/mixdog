@@ -7,28 +7,24 @@
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use mixdog_core_api::CoreError;
+use mixdog_core_base::support::failed;
 use mixdog_rt::InLane;
 use mixdog_rt::InteractiveIo;
 use serde_json::Map;
 use serde_json::Value;
 
+use super::prompt_submission::LaneAttachments;
+use super::prompt_submission::pasted_text;
+use super::prompt_submission::reference_of;
 use super::user_facts::AttachmentStore;
 use super::user_facts::BlobError;
-
-fn reference_of(raw: &Value) -> Option<&str> {
-    raw.get("attachmentRef")
-        .and_then(Value::as_str)
-        .filter(|reference| reference.len() == 64 && reference.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')))
-}
 
 /// The blob's bytes; `None` when it is permanently unreadable.
 fn read(store: &AttachmentStore, lane: &InLane<InteractiveIo>, reference: &str) -> Result<Option<Vec<u8>>, CoreError> {
     match store.read_blob(lane, reference) {
         Ok(bytes) => Ok(Some(bytes)),
         Err(BlobError::Permanent) => Ok(None),
-        Err(BlobError::Invalid(message) | BlobError::Transient(message)) => {
-            Err(CoreError::DomainError { domain: "thread".into(), code: None, message: Some(message.into()), detail: None })
-        }
+        Err(BlobError::Invalid(message) | BlobError::Transient(message)) => Err(failed("thread", message)),
     }
 }
 
@@ -61,49 +57,24 @@ fn hydrate_map(
     Ok(())
 }
 
-/// `materializePastedTexts` (`attachments/store.mjs:466-499`): an inline pasted text is kept as a content-addressed blob and its entry
-/// states `attachmentRef`, `sizeBytes` and `chars` in place of the text (a Stop's reply reads it back, [`hydrate`]). Done when the
-/// prompt is taken in (`turn/start`), as Node does; a Stop handing back an entry that still has none (one queued without the intake)
-/// writes it then.
+/// `materializePastedTexts`' entry ([`pasted_text`], `attachments/store.mjs:478-512`) over a Stop's hand-back: an inline pasted text
+/// an entry still holds (one queued without the `turn/start` intake, which stores every one) is kept as a content-addressed blob and
+/// the entry states `attachmentRef`, `sizeBytes` and `chars` in place of the text, so the reply reads it back as every other
+/// ([`hydrate`]). A referenced entry, and anything else, stays as queued.
 pub(super) fn materialize_texts(store: &AttachmentStore, lane: &InLane<InteractiveIo>, map: &mut Value) -> Result<(), CoreError> {
     let Value::Object(entries) = map else { return Ok(()) };
+    let store = LaneAttachments { store, lane };
     for raw in entries.values_mut() {
-        if !raw.is_object() || reference_of(raw).is_some() {
+        if !raw.is_object() || reference_of(raw).is_some() || !raw.get("text").is_some_and(Value::is_string) {
             continue;
         }
-        let Some(text) = raw.get("text").and_then(Value::as_str).map(str::to_owned) else { continue };
-        // A refusal (`Invalid`) is answered with Node's own sentence, as `saveBuffer`'s throw reaches the caller.
-        let message = |error: BlobError| match error {
-            BlobError::Invalid(sentence) => sentence,
-            other => format!("{other:?}"),
-        };
-        let reference = store.write_blob(lane, text.as_bytes()).map_err(|error| CoreError::DomainError { domain: "thread".into(), code: None, message: Some(message(error).into()), detail: None })?;
-        let chars = chars_of(raw.get("chars"), &text);
-        raw.as_object_mut().expect("an object entry").shift_remove("text");
-        raw["attachmentRef"] = Value::String(reference);
-        raw["sizeBytes"] = Value::from(text.len());
-        raw["chars"] = chars;
+        // A refusal is answered with Node's own sentence, as `saveBuffer`'s throw reaches the caller.
+        let taken = pasted_text(&store, raw).map_err(|message| failed("thread", message))?;
+        if let Some((_, entry)) = taken {
+            *raw = entry;
+        }
     }
     Ok(())
-}
-
-/// `Number(raw.chars) || raw.text.length` (`store.mjs:496`): `Number()` reads a numeric string, `length` counts UTF-16 units.
-pub(super) fn chars_of(supplied: Option<&Value>, text: &str) -> Value {
-    let number = match supplied {
-        Some(Value::Number(n)) => n.as_f64().unwrap_or(f64::NAN),
-        Some(Value::String(s)) => {
-            let s = mixdog_js::js_trim(s);
-            if s.is_empty() { 0.0 } else { s.parse::<f64>().unwrap_or(f64::NAN) }
-        }
-        Some(Value::Bool(b)) => f64::from(u8::from(*b)),
-        Some(Value::Null) | None => 0.0,
-        Some(_) => f64::NAN,
-    };
-    if number != 0.0 && !number.is_nan() {
-        if number.fract() == 0.0 && number.abs() < 9e15 { Value::from(number as i64) } else { serde_json::Number::from_f64(number).map_or(Value::Null, Value::Number) }
-    } else {
-        Value::from(text.encode_utf16().count())
-    }
 }
 
 /// `hydrateRestorableFileParts(content)`: `{ type: 'file', data, mimeType, filename }` with the bytes inlined as base64.
@@ -260,7 +231,7 @@ pub(super) const REWIND_FILES_REFUSAL: &str = "this message has PDF/Office attac
 pub(super) fn rewind_restore(store: &AttachmentStore, lane: &InLane<InteractiveIo>, content: &Value, row_text: &str, restore_files: bool) -> Result<Option<Value>, CoreError> {
     let Some(parts) = content.as_array() else { return Ok(None) };
     if !restore_files && parts.iter().any(|part| part.get("type").and_then(Value::as_str) == Some("file")) {
-        return Err(CoreError::DomainError { domain: "thread".into(), code: None, message: Some(REWIND_FILES_REFUSAL.into()), detail: None });
+        return Err(failed("thread", REWIND_FILES_REFUSAL));
     }
     let (texts, images) = restorable_attachments(parts, row_text);
     let mut raw = Map::new();
@@ -326,20 +297,3 @@ mod rewind_tests {
     }
 }
 
-#[cfg(test)]
-mod chars_tests {
-    use super::chars_of;
-    use serde_json::Value;
-
-    /// Node's own `materializePastedTexts` (`record-pasted-text-chars.mjs`) is the oracle for `chars` and `sizeBytes`.
-    #[test]
-    fn chars_and_size_are_nodes() {
-        let recorded: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/pasted-text-chars/pasted-text-chars.json")).unwrap();
-        for case in recorded["cases"].as_array().unwrap() {
-            let name = case["name"].as_str().unwrap();
-            let text = case["entry"]["text"].as_str().unwrap();
-            assert_eq!(chars_of(case["entry"].get("chars"), text).as_f64(), case["materialized"]["chars"].as_f64(), "{name}: chars");
-            assert_eq!(text.len() as u64, case["materialized"]["sizeBytes"].as_u64().unwrap(), "{name}: sizeBytes");
-        }
-    }
-}

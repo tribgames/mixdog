@@ -32,7 +32,6 @@ use crate::lifecycle::Exiter;
 use crate::control::new_token;
 use crate::control::ControlListener;
 use crate::discovery;
-use crate::lifecycle::CancelRegistry;
 use crate::lifecycle::CoreWiring;
 use crate::lifecycle::DiscoveryPublication;
 use crate::lifecycle::Lifecycle;
@@ -137,7 +136,8 @@ fn core_wiring(
         connections: Arc::new(running.hub.clone()),
         ext_host: core.ext_host().clone(),
         runtime: runtime.clone(),
-        cancel: Arc::new(CancelRegistry::default()),
+        // The tokens of the running work the sessions and the shells registered through the late cell.
+        cancel: core.late_lifecycle().cancels().clone(),
         cut_new_tasks: {
             let core = core.clone();
             Arc::new(move || core.cut_new_tasks())
@@ -391,15 +391,10 @@ pub async fn attach(
     let cells: [&dyn mixdog_core::run_host::late::Bound; 3] = [&**core.local_dialer(), core.connection_owners(), &**core.late_lifecycle()];
     crate::compose::verify_bound(&cells).map_err(ServingError::Unbound)?;
     mixdog_rt::spawn("server.rpc", TaskClass::Control, async move { running.serve_transport(rpc).await });
-    // The composed core answers admission from its own state; follow the lifecycle's.
-    let mut state = lifecycle.state();
+    // The composed core answers admission from its own state, and the sessions wait out the lifecycle's hold on turn starts (LR §5.1),
+    // from the hold it has now (a `ctl hold` while booting) on: one follower keeps both at the lifecycle's.
     let followed = core.clone();
-    mixdog_rt::spawn("server.core-state", TaskClass::Control, async move {
-        while state.changed().await.is_ok() {
-            let current = state.borrow_and_update().clone();
-            followed.set_state(current);
-        }
-    });
+    mixdog_rt::spawn("server.core-state", TaskClass::Control, core.late_lifecycle().follow(&lifecycle, move |state| followed.set_state(state)));
     // The relay opens last (DS 7.2 "relay starts at core boot"): the listener, the lifecycle and the dialer are bound, so a phone that gets through at once finds a serving core.
     let runtime = core.remote().runtime.clone();
     core.on_stop("remote access", async move { runtime.close().await });

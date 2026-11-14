@@ -13,6 +13,7 @@ use std::path::PathBuf;
 use mixdog_core_api::domain::repo::InspectorKey;
 use mixdog_core_api::domain::repo::ObjectId;
 use mixdog_core_api::domain::repo::RepoOperation;
+use mixdog_rt::JobHandle;
 use mixdog_rt::LaneToken;
 use mixdog_rt::MaintenanceIo;
 use tokio_util::sync::CancellationToken;
@@ -34,12 +35,20 @@ pub async fn on_lane<R: Send + 'static>(
     cancel: &CancellationToken,
     job: impl FnOnce() -> R + Send + 'static,
 ) -> Result<R, ScmFailure> {
-    let handle = lane
-        .submit(cancel, move |_proof| job())
-        .map_err(|full| ScmFailure::QueueFull {
-            queue: full.lane.name().to_owned(),
-        })?;
-    handle.await.map_err(|_| ScmFailure::Cancelled)
+    admit(lane, cancel, job)?.await.map_err(|_| ScmFailure::Cancelled)
+}
+
+/// Queues `job` on the maintenance lane without waiting for it: a lane that refuses it answers `QueueFull` at once, so a
+/// caller can change its own state only after the job that goes with the change is admitted. The caller's cancellation drops
+/// it at dequeue.
+pub fn admit<R: Send + 'static>(
+    lane: MaintenanceIo,
+    cancel: &CancellationToken,
+    job: impl FnOnce() -> R + Send + 'static,
+) -> Result<JobHandle<R>, ScmFailure> {
+    lane.submit(cancel, move |_proof| job()).map_err(|full| ScmFailure::QueueFull {
+        queue: full.lane.name().to_owned(),
+    })
 }
 
 fn open(path: &Path) -> Result<gix::Repository, ScmFailure> {

@@ -15,6 +15,7 @@
 use std::path::Path;
 use std::path::PathBuf;
 
+use mixdog_core_base::rooms::ids::MIXY_AGENT_ID;
 use mixdog_rt::DurabilityIo;
 use mixdog_rt::InLane;
 use mixdog_rt::InteractiveIo;
@@ -30,8 +31,6 @@ const BOTS_DIR: &str = "bots";
 const MIGRATION_MANIFEST: &str = "migration.json";
 const MIGRATION_VERSION: i64 = 1;
 const MIXY_BOT_ID: &str = "mixy";
-/// Mixy's runtime id (agent-home.mjs `MIXY_AGENT_ID`).
-pub const MIXY_RUNTIME_ID: &str = "lead";
 /// `DEFAULT_MIXY_NAME` (mixy-name.mjs).
 pub const DEFAULT_MIXY_NAME: &str = "Mixy";
 
@@ -58,7 +57,7 @@ impl AgentRoutes {
 
     /// Which store holds `id`'s route (`isMixy`, `isStoreBot`).
     pub async fn home(&self, id: &str) -> Result<RouteHome, ConfigError> {
-        if id == MIXY_RUNTIME_ID && !self.data_dir.as_os_str().is_empty() {
+        if id == MIXY_AGENT_ID && !self.data_dir.as_os_str().is_empty() {
             return Ok(RouteHome::Mixy);
         }
         let (dir, id) = (self.data_dir.clone(), id.to_owned());
@@ -423,7 +422,7 @@ pub fn mixy_identity_dir(lane: &InLane<InteractiveIo>, data_dir: &Path) -> PathB
     if bot_migration(lane, data_dir).is_some() {
         data_dir.join(BOTS_DIR).join(MIXY_BOT_ID)
     } else {
-        data_dir.join("agents").join(MIXY_RUNTIME_ID)
+        data_dir.join("agents").join(MIXY_AGENT_ID)
     }
 }
 

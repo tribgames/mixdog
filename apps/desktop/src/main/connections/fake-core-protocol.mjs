@@ -1,7 +1,9 @@
 // A protocol connection stand-in for tests of a connection built around one: records what is sent and called,
-// and lets the test emit client events (status, server requests) as the core would.
+// and lets the test emit client events (status, server requests), section changes and a replaced client as the core would.
 export function fakeProtocol(entries = []) {
   const listeners = new Set();
+  const sectionWatchers = new Map();
+  const replacedListeners = new Set();
   const protocol = {
     sent: [],
     calls: [],
@@ -18,7 +20,14 @@ export function fakeProtocol(entries = []) {
     call(method, params) {
       return new Promise((resolve, reject) => this.calls.push({ method, params, resolve, reject }));
     },
-    watchSection: () => () => {},
+    watchSection: (section, listener) => {
+      const watchers = sectionWatchers.get(section) ?? new Set();
+      sectionWatchers.set(section, watchers.add(listener));
+      return () => watchers.delete(listener);
+    },
+    /** The core's app section `section` now holds `value`. */
+    pushSection: (section, value) =>
+      sectionWatchers.get(section)?.forEach((listener) => listener({ section, key: null, revision: 1, value })),
     // The session lane's readers: no client is open, so nothing is folded and no store change arrives.
     client: () => null,
     whenSynced: async () => {},
@@ -32,7 +41,9 @@ export function fakeProtocol(entries = []) {
     start: async () => {},
     reopen: async () => {},
     ensureOpen: async () => {},
-    onReplaced: () => () => {},
+    onReplaced: (listener) => (replacedListeners.add(listener), () => replacedListeners.delete(listener)),
+    /** A reopen attached a new client. */
+    replace: () => replacedListeners.forEach((listener) => listener()),
     async close() {
       this.closed += 1;
     },

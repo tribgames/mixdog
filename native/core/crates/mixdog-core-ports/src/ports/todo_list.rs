@@ -54,3 +54,20 @@ pub fn list_of(header: &Header) -> TodoList {
     let updated_at_ms = record.and_then(|todo| todo.get("updatedAt")).map_or(0.0, |at| mixdog_js::to_number(at));
     TodoList { phases, updated_at_ms: if updated_at_ms.is_finite() { updated_at_ms as i64 } else { 0 } }
 }
+
+/// `todoSnapshot(session)`: what the session state's `todo` holds, `{ phases, completed, abandoned, total }`;
+/// `None` for an empty list.
+pub fn snapshot_of(header: &Header) -> Option<Value> {
+    let phases = list_of(header).phases;
+    if phases.is_empty() {
+        return None;
+    }
+    let count = |status: TodoStatus| phases.iter().flat_map(|phase| phase.tasks.iter()).filter(|task| task.status == status).count();
+    let total: usize = phases.iter().map(|phase| phase.tasks.len()).sum();
+    Some(serde_json::json!({
+        "phases": phases,
+        "completed": count(TodoStatus::Completed),
+        "abandoned": count(TodoStatus::Abandoned),
+        "total": total,
+    }))
+}

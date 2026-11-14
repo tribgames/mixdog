@@ -194,6 +194,20 @@ impl RouteChange for RunHostRouteChange {
         crate::run_host::prompt_session::reset_environment(header, &blocks).change
     }
 
+    fn turn_window(&self, header: &Header) -> HeaderChange {
+        let mut change = HeaderChange { set: Map::new(), unset: Vec::new() };
+        let (provider, model) = (text(header.get("provider")), text(header.get("model")));
+        // The window is derived only while the route names a model the facts know; no row keeps what the session holds.
+        if provider.is_empty() || model.is_empty() || self.facts.context_meta(provider, model, &Value::Null).is_none() {
+            return change;
+        }
+        self.context_window(header, &Route::new(), false, &mut change);
+        // Only what differs from the header is a change: a turn whose window did not move writes nothing.
+        change.set.retain(|key, value| header.get(key) != Some(&*value));
+        change.unset.retain(|key| header.contains_key(key));
+        change
+    }
+
     async fn lookups(&self, header: &Header, route: &Route) -> RouteLookups {
         let mut previous = Route::new();
         for key in ["provider", "model"] {

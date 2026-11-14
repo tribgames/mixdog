@@ -239,6 +239,10 @@ impl ContextWorld for LiveContextWorld {
             })
             .collect();
         let (media, images) = (self.lowering)(thread, &provider);
+        // The meter is synchronous: the facts of the stored media and the counts of every inline PDF (the page counts a read's
+        // document block carries) are read into it first, as the compaction does (`Compactor::prepare`). A read that fails
+        // leaves that part unpriced, as there.
+        let _ = media.prepare(&messages).await;
         let agent_mode = is_agent_mode_session(&header);
         let request_native = native_request_tools(&Value::Object(header.clone()));
         let replay_owner = ProviderId::from(provider.as_str());

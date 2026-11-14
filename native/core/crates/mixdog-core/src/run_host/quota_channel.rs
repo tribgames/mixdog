@@ -6,7 +6,7 @@
 //! Node's published `{ provider, method, model }`), answered by `ProxyAnswer::Usable`. Node's
 //! claim and lease run on the request itself (`HostCapability::lease`: the PC claims it with its
 //! first `model/proxy/heartbeat` inside 10 s and keeps it alive inside 20 s); a PC that does not,
-//! ends the request, and dropping this future tells the PC to stop (`CancelOnDrop`).
+//! ends the request, and dropping this future tells the PC to stop (`model/proxy/cancel`).
 //!
 //! A PC that is gone is `ChannelError::Unavailable` with Node's `ModelProxyUnavailableError`
 //! text (`model proxy unavailable: <detail>`), the one table of `model_proxy_unavailable_text`

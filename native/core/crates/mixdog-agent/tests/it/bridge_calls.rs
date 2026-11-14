@@ -538,7 +538,7 @@ struct PostHooks(Mutex<Vec<Value>>, Timeline, Arc<Stages>);
 
 #[async_trait]
 impl ToolHooks for PostHooks {
-    async fn after_tool(&self, call: &GateCall, result: &str) -> Option<String> {
+    async fn after_tool(&self, _: &str, call: &GateCall, result: &str) -> Option<String> {
         self.0.lock().expect("after").push(json!({ "name": call.name, "args": call.args, "result": result }));
         self.1.note(json!({ "ev": "post", "name": call.name, "args": call.args }));
         self.2.step("post", &call.name, &call.args).await;
@@ -1407,7 +1407,7 @@ struct Uncompared {
 
 const HOST_ROW: &str = "the host's record of a stored row (`run_host/factory.rs` stamps it when it stores the row); the loop's message has none";
 const NOT_YET: &str = "nothing yet";
-const HOST_TRACE: &str = "written by the host's agent-trace writer from the loop's reports; the core writes no agent trace (`mixdog_trace::AgentTrace` is built by no product code; owner: the run host's trace wiring)";
+const HOST_TRACE: &str = "written by the host's agent-trace writer (`mixdog-core-run` `FailureWriter`) from the loop's reports (`ToolFailureLog`); not compared here";
 const HOST_USAGE: &str = "the host's usage report (`UsageReport::from_event` in the run host), derived from the loop's `Usage` event, which carries the request's own figures";
 
 /// Everything the recording holds that the replay does not compare: by construction the complete list, since every comparison is the

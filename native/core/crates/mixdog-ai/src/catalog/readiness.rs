@@ -35,8 +35,6 @@ struct Gate {
     flights: HashMap<String, Flight>,
     /// Advances whenever the flights are cleared.
     generation: u64,
-    /// Whether this runtime has started its providers.
-    started: bool,
     closed: bool,
     /// The runtime's own `config.providers`.
     providers: Map<String, Value>,
@@ -386,7 +384,6 @@ impl ProviderReadiness {
                 if gate.closed {
                     return Err(closing());
                 }
-                gate.started = true;
                 let generation = gate.generation;
                 let forced = forced_providers(&providers, &gate.providers);
                 gate.flights
@@ -479,18 +476,20 @@ impl ProviderReadiness {
         self.invalidation.get().is_some()
     }
 
-    /// `reinitProviders`: provider config or secrets changed; the registry is
-    /// rebuilt from the reloaded config when this runtime had started it.
-    pub async fn reinit_providers(self: &Arc<Self>) -> Result<(), RegistryError> {
+    /// `reinitProviders`: provider config or secrets changed. Everything keyed to the old ones is dropped and the
+    /// registry is synced to the runtime's providers (`syncProviders(providerRecord(), { decisions })`): a registered
+    /// provider whose config changed is rebuilt, one the stored `decisions` turned off (a deleted custom provider among
+    /// them) is removed, and none is added. `decisions` is `None` when no stored section reads.
+    pub async fn reinit_providers(&self, decisions: Option<Map<String, Value>>) -> Result<(), RegistryError> {
         self.invalidate_provider_caches(false);
-        let (started, closed) = {
+        let record = {
             let gate = self.gate();
-            (gate.started, gate.closed)
+            if gate.closed {
+                return Ok(());
+            }
+            gate.providers.clone()
         };
-        if !started || closed {
-            return Ok(());
-        }
-        self.ensure_providers_ready(None).await
+        self.registry.sync_providers(&record, decisions).await
     }
 
     /// A forced full catalog refresh (`refreshCatalogs({ force: true })`, which also arms the next 24 h one), then the
@@ -748,6 +747,29 @@ mod tests {
         assert_eq!(builder.builds.load(Ordering::SeqCst), 1);
         ready.close();
         assert_eq!(ready.ensure_providers_ready(Some(cfg)).await.unwrap_err().message, "runtime is closing");
+    }
+
+    /// `reinitProviders` syncs the registry to the runtime's providers with the stored decisions
+    /// (`syncProviders(providerRecord(), { decisions })`): a registered provider whose config changed is built again, a
+    /// custom provider the decisions no longer hold (a deleted one) leaves, and one only the record turns on is not added.
+    #[tokio::test]
+    async fn a_reinit_rebuilds_an_edited_provider_and_removes_a_deleted_custom_one_without_adding() {
+        let (ready, builder) = readiness().await;
+        ready.set_providers(config(json!({
+            "anthropic": {"enabled": true, "k": 1},
+            "custom-0123abcd-0123-4567-89ab-0123456789ab": {"type": "custom", "enabled": true}
+        })));
+        ready.ensure_providers_ready(None).await.unwrap();
+        assert_eq!(builder.builds.load(Ordering::SeqCst), 2);
+        let before = ready.registry.generation("anthropic");
+        assert!(before.is_some());
+        // The custom provider was deleted (gone from the record and from the stored section), the other one was edited,
+        // and a third is turned on in the record only.
+        ready.set_providers(config(json!({"anthropic": {"enabled": true, "k": 2}, "xai": {"enabled": true}})));
+        ready.reinit_providers(Some(config(json!({"anthropic": {"enabled": true}})))).await.unwrap();
+        assert_eq!(builder.builds.load(Ordering::SeqCst), 3, "only the edited provider is built again");
+        assert_ne!(ready.registry.generation("anthropic"), before, "the edited provider is a new registration");
+        assert_eq!(ready.registry.names().into_iter().collect::<Vec<_>>(), ["anthropic"]);
     }
 
     #[tokio::test]

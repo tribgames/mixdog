@@ -364,6 +364,15 @@ pub(crate) enum ProducerMsg {
     GoalReminderAcknowledged {
         revision: u64,
     },
+    /// What the pre-send decision reads from the session for the request about to go out, over the header as it stands:
+    /// the pressure its provider reading gives it (`resolveContextTokensWithSource` over `session.contextPressureBaseline*`)
+    /// and its unanchored mark.
+    ProviderPressure {
+        turn: TurnId,
+        messages: Vec<mixdog_agent::message::AgentMessage>,
+        tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>,
+        reply: oneshot::Sender<mixdog_agent::env::SessionPressure>,
+    },
     /// The turn's prompt goes back to the composer (`finalizeInterruptedTurn` rewound it): the rewind record.
     PromptRewound {
         turn: TurnId,
@@ -585,6 +594,14 @@ impl RunPort {
     /// Clears the session's pending Goal reminder if `revision` is still the pending one: the compaction carried it.
     pub async fn acknowledge_goal_reminder(&self, revision: u64) -> Result<(), RunError> {
         self.send(ProducerMsg::GoalReminderAcknowledged { revision }).await
+    }
+
+    /// The session's reading of the request the loop is about to send (`messages`, `tools`): the pressure its provider
+    /// reading gives it, the figure that send's check records, and whether its transcript is unanchored after a restart.
+    pub async fn session_pressure(&self, messages: Vec<mixdog_agent::message::AgentMessage>, tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>) -> Result<mixdog_agent::env::SessionPressure, RunError> {
+        self.prepare_meters(&messages).await;
+        let (reply, rx) = oneshot::channel();
+        self.call(ProducerMsg::ProviderPressure { turn: self.turn.clone(), messages, tools, reply }, rx).await
     }
 
     /// The port for what closes a cancelled run (`finalizeCancelledTurn` saves after the abort): the same

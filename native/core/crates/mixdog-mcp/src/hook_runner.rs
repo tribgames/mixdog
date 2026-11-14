@@ -45,14 +45,16 @@ pub async fn run_mcp_tool_handler(
         return HandlerRun::failed("mcp_tool handler missing tool name".to_owned(), false);
     }
     let timeout = handler_timeout(&handler.raw, event);
-    let Some((server, entry)) = hub.resolve_in(&normalize_scope(scope), &name) else {
+    let scope = normalize_scope(scope);
+    let Some((server, entry)) = hub.resolve_in(&scope, &name) else {
         let server = name.strip_prefix("mcp__").and_then(|r| r.split("__").next()).unwrap_or_default();
         return HandlerRun::failed(format!("MCP server \"{server}\" not connected"), false);
     };
     // Losing the race to the timeout cancels the call itself, not just the wait for it.
     let call_cancel = cancel.child_token();
     let owner = format!("hook:{name}");
-    let call = server.call_tool(&owner, &entry.tool, payload, &call_cancel, None);
+    // Admitted by the gate of the session's scope, as Node's call is by its scope's registered server.
+    let call = server.call_tool_in(&scope, &owner, &entry.tool, payload, &call_cancel, None);
     let outcome = tokio::select! {
         () = cancel.cancelled() => {
             call_cancel.cancel();

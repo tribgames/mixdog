@@ -249,13 +249,16 @@ impl ImportJobs {
         Imported(map)
     }
 
-    pub fn get_jobs(&self, job_id: Option<&str>) -> Value {
+    /// `getConversationImportJobs`' list (`service.mjs:335-339`): every job when `job_id` is absent or null, else the job whose
+    /// id it is (`job.jobId === jobId`, so a value that is not text matches none).
+    pub fn get_jobs(&self, job_id: Option<&Value>) -> Value {
+        let job_id = job_id.filter(|id| !id.is_null());
         let registry = self.registry.lock().unwrap();
         let list: Vec<Value> = registry
             .jobs
             .iter()
             .map(|j| j.lock().unwrap())
-            .filter(|j| job_id.is_none_or(|id| j.job_id == id))
+            .filter(|j| job_id.is_none_or(|id| id.as_str() == Some(j.job_id.as_str())))
             .map(|j| j.snapshot())
             .collect();
         json!({ "jobs": list })

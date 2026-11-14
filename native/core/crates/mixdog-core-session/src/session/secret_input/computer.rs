@@ -1,6 +1,7 @@
 //! The production [`ComputerCommands`]: the secret fill's Computer Use commands (`find`, `type`),
 //! run on the session's computer helper with the command names and shapes the desktop host
-//! takes (`computer-bridge` `executeSerialized`; `ProcessComputerBackend` is the helper).
+//! takes (`computer-bridge` `executeSerialized`; `ProcessComputerBackend` is the helper), each
+//! under the human-only lock as each command of the desktop's queue was (`command-attempt.ts`).
 
 use std::sync::Arc;
 
@@ -10,6 +11,7 @@ use mixdog_tools::state::secrets::ComputerSecretHost;
 use serde_json::Value;
 
 use super::ComputerCommands;
+use super::HumanOnlyLock;
 
 /// The computer helper of a thread's session; `None` when no desktop control is attached to it.
 pub trait ComputerSecretHosts: Send + Sync {
@@ -19,11 +21,12 @@ pub trait ComputerSecretHosts: Send + Sync {
 /// [`ComputerCommands`] over the session's computer helper.
 pub struct HostComputerCommands {
     hosts: Arc<dyn ComputerSecretHosts>,
+    lock: Arc<HumanOnlyLock>,
 }
 
 impl HostComputerCommands {
-    pub fn new(hosts: Arc<dyn ComputerSecretHosts>) -> Self {
-        Self { hosts }
+    pub fn new(hosts: Arc<dyn ComputerSecretHosts>, lock: Arc<HumanOnlyLock>) -> Self {
+        Self { hosts, lock }
     }
 }
 
@@ -32,7 +35,8 @@ impl ComputerCommands for HostComputerCommands {
     /// The only commands sent here are the fill's own: a `find` read of the bound window and the
     /// `type` of the secret. The helper withholds captures once a secret may hold focus
     /// (`arm_focus`), so it is armed just before the secret is typed, as Node arms its registry
-    /// (`armFocus`) after taking the value.
+    /// (`armFocus`) after taking the value. A command a pending human-only approval refuses fails
+    /// with the lock's text, which the fill answers `blocked`.
     async fn execute(&self, thread: &ThreadId, command: Value) -> Result<Value, String> {
         let host = self
             .hosts
@@ -44,6 +48,7 @@ impl ComputerCommands for HostComputerCommands {
         if command.get("action").and_then(Value::as_str) == Some("type") {
             host.arm_focus();
         }
+        let _operation = self.lock.begin_computer_operation()?;
         host.execute(command).await.map(Value::Object)
     }
 }
@@ -56,6 +61,7 @@ mod tests {
     use std::sync::atomic::Ordering;
     use std::time::Duration;
 
+    use mixdog_core_api::CallContext;
     use mixdog_core_api::CoreError;
     use mixdog_core_api::ClaimedHostChannel;
     use mixdog_core_api::HostClaim;
@@ -69,6 +75,7 @@ mod tests {
     use super::super::FillGates;
     use super::super::SecretFill;
     use super::super::SecretSlots;
+    use super::super::human_only::free_lock;
     use super::*;
 
     const ID: &str = "secret_0123456789ab";
@@ -156,7 +163,7 @@ mod tests {
             let Some(session) = case["command"]["session_id"].as_str().filter(|s| !s.is_empty()) else { continue };
             let helper = Arc::new(Helper { script: case["script"].as_array().unwrap().clone(), sent: Mutex::new(Vec::new()), armed: AtomicUsize::new(0) });
             let slots = Arc::new(SecretSlots::new(Duration::from_secs(3600)));
-            let commands = Arc::new(HostComputerCommands::new(Arc::new(Hosts(Some(helper.clone())))));
+            let commands = Arc::new(HostComputerCommands::new(Arc::new(Hosts(Some(helper.clone()))), free_lock()));
             let fill = SecretFill::new(slots.clone(), Arc::new(Open(case["gateHeld"] != json!(true))), commands, Arc::new(NoDesktop));
             let thread = ThreadId::from(session);
             if let Some(provided) = case["provide"].as_str() {
@@ -180,13 +187,36 @@ mod tests {
     #[tokio::test]
     async fn no_helper_or_a_non_object_command_is_an_error_text_the_fill_blocks_on() {
         let thread = ThreadId::from("S1");
-        let none = HostComputerCommands::new(Arc::new(Hosts(None)));
+        let none = HostComputerCommands::new(Arc::new(Hosts(None)), free_lock());
         assert!(none.execute(&thread, json!({ "action": "find" })).await.unwrap_err().starts_with("computer_backend_unavailable"));
         let helper = Arc::new(Helper { script: Vec::new(), sent: Mutex::new(Vec::new()), armed: AtomicUsize::new(0) });
-        let some = HostComputerCommands::new(Arc::new(Hosts(Some(helper.clone()))));
+        let some = HostComputerCommands::new(Arc::new(Hosts(Some(helper.clone()))), free_lock());
         assert!(some.execute(&thread, json!("type")).await.is_err());
         assert!(helper.sent.lock().unwrap().is_empty() && helper.armed.load(Ordering::SeqCst) == 0);
         some.execute(&thread, json!({ "action": "find" })).await.unwrap();
         assert_eq!(helper.armed.load(Ordering::SeqCst), 0, "a read does not arm focus");
+    }
+
+    /// Each command runs under the human-only lock (`command-attempt.ts` `beginComputerOperation`): one a
+    /// pending approval refuses never reaches the helper and fails with the lock's text, so a fill whose
+    /// gate was free when it was checked answers `blocked` with nothing typed.
+    #[tokio::test]
+    async fn a_command_a_pending_human_only_approval_refuses_never_reaches_the_helper() {
+        let thread = ThreadId::from("S1");
+        let helper = Arc::new(Helper { script: Vec::new(), sent: Mutex::new(Vec::new()), armed: AtomicUsize::new(0) });
+        let lock = free_lock();
+        let desktop = CallContext::internal("desktop");
+        let hold = lock.hold("Allow all actions", &desktop);
+        let commands = Arc::new(HostComputerCommands::new(Arc::new(Hosts(Some(helper.clone()))), lock.clone()));
+        let refusal = "Computer Use is blocked while a human-only approval is pending: Allow all actions";
+        assert_eq!(commands.execute(&thread, json!({ "action": "find" })).await.unwrap_err(), refusal);
+        let slots = Arc::new(SecretSlots::new(Duration::from_secs(3600)));
+        let fill = SecretFill::new(slots.clone(), Arc::new(Open(true)), commands.clone(), Arc::new(NoDesktop));
+        assert!(slots.provide(ID, "hunter2") && slots.bind_computer(ID, "S1", "w1", "e1"));
+        assert_eq!(fill.computer_input(&thread, ID, "w1", "e1").await, "blocked");
+        assert!(helper.sent.lock().unwrap().is_empty());
+        assert!(lock.end(&hold, &desktop.caller));
+        commands.execute(&thread, json!({ "action": "find" })).await.unwrap();
+        assert_eq!(helper.sent.lock().unwrap().len(), 1);
     }
 }

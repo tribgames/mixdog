@@ -13,7 +13,7 @@ use async_trait::async_trait;
 use base64::Engine;
 use mixdog_core_api::domain::ext::DocumentText;
 use mixdog_core_api::ids::ThreadId;
-use mixdog_core_session::session::composer_image::node_base64_decode;
+use mixdog_core_session::session::prompt_submission::{LongText, PromptStore, blob_size, materialize_prompt_submission, reference_of, saved, truthy};
 use mixdog_rt::InLane;
 use mixdog_store::fsio::{IoLane, WriteLane};
 use mixdog_store::schema::bounded::Digest;
@@ -135,21 +135,8 @@ pub fn stored_file_fields(files: &[Value]) -> Map<String, Value> {
     out
 }
 
-const TEXT_REFERENCE_THRESHOLD_BYTES: usize = 800;
-const MAX_PROMPT_TEXT_BYTES: f64 = 1024.0 * 1024.0;
 const MAX_MESSAGE_ATTACHMENTS: usize = 64;
 const MAX_BLOB_BYTES: usize = 64 * 1024 * 1024;
-
-/// JavaScript truthiness of a field.
-fn truthy(value: Option<&Value>) -> bool {
-    match value {
-        None | Some(Value::Null) => false,
-        Some(Value::Bool(flag)) => *flag,
-        Some(Value::Number(number)) => number.as_f64().is_some_and(|n| n != 0.0 && !n.is_nan()),
-        Some(Value::String(text)) => !text.is_empty(),
-        Some(_) => true,
-    }
-}
 
 /// `String(a || b || fallback).slice(0, limit)`.
 fn first_text(values: &[Option<&Value>], fallback: &str, limit: usize) -> String {
@@ -157,23 +144,9 @@ fn first_text(values: &[Option<&Value>], fallback: &str, limit: usize) -> String
     mixdog_js::slice_utf16(&text, limit)
 }
 
-/// `isAttachmentReference(value)`: the stored reference a part or pasted entry names.
-fn reference_of(value: &Value) -> Option<&str> {
-    value.get("attachmentRef").and_then(Value::as_str).filter(|r| r.len() == 64 && r.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
-}
-
-/// `Object.entries(object)` in JavaScript's order: array-index keys ascending, then the rest as inserted.
-fn js_entries(object: &Map<String, Value>) -> Vec<(&String, &Value)> {
-    let index = |key: &str| key.parse::<u32>().ok().filter(|n| *n < u32::MAX && n.to_string() == key);
-    let mut indexed: Vec<_> = object.iter().filter(|(key, _)| index(key).is_some()).collect();
-    indexed.sort_by_key(|(key, _)| index(key));
-    indexed.extend(object.iter().filter(|(key, _)| index(key).is_none()));
-    indexed
-}
-
 /// The attachment store as the prompt intake writes and measures it (`saveBuffer`, `attachmentBlobSize`). A save is
 /// staged: the intake's checks all run over the staged files, and only an intake that passes every one stores them
-/// ([`Store::commit`]), so a refused message leaves nothing in the store.
+/// ([`SessionFiles::stored_row`]), so a refused message leaves nothing in the store.
 struct Store<'a, L> {
     blobs: &'a BlobStore,
     lane: &'a InLane<L>,
@@ -184,8 +157,10 @@ impl<'a, L: WriteLane + IoLane> Store<'a, L> {
     fn new(blobs: &'a BlobStore, lane: &'a InLane<L>) -> Self {
         Self { blobs, lane, staged: std::cell::RefCell::new(Vec::new()) }
     }
+}
 
-    /// `saveBuffer(buffer)`'s checks and reference `{ attachmentRef, sizeBytes }`; the bytes are stored by `commit`.
+impl<L: WriteLane + IoLane> PromptStore for Store<'_, L> {
+    /// `saveBuffer(buffer)`'s checks and reference `{ attachmentRef, sizeBytes }`; the bytes are stored once every check passed.
     fn save(&self, bytes: &[u8]) -> Result<Map<String, Value>, String> {
         if bytes.is_empty() {
             return Err("prompt attachment is empty".into());
@@ -198,10 +173,7 @@ impl<'a, L: WriteLane + IoLane> Store<'a, L> {
         if !staged.iter().any(|(staged, _)| *staged == reference) {
             staged.push((reference.clone(), bytes.to_vec()));
         }
-        let mut stored = Map::new();
-        stored.insert("attachmentRef".into(), json!(reference));
-        stored.insert("sizeBytes".into(), json!(bytes.len()));
-        Ok(stored)
+        Ok(saved(&reference, bytes.len()))
     }
 
     fn stored_len(&self, reference: &str) -> Result<Option<u64>, String> {
@@ -211,104 +183,6 @@ impl<'a, L: WriteLane + IoLane> Store<'a, L> {
         let digest = Digest::try_from(format!("sha256:{reference}")).map_err(|error| error.to_string())?;
         self.blobs.len(self.lane, &digest).map_err(|error| error.to_string())
     }
-
-    /// `attachmentBlobSize(reference, claimed)`: the stored file's size, else `Number(claimed) || 0`.
-    fn size(&self, reference: &str, claimed: Option<&Value>) -> Result<Value, String> {
-        Ok(match self.stored_len(reference)? {
-            Some(len) => json!(len),
-            None => {
-                let claimed = mixdog_js::to_number_of(claimed);
-                mixdog_js::json_number(if claimed.is_nan() { 0.0 } else { claimed })
-            }
-        })
-    }
-
-    /// `materializeText(text, metadata)`.
-    fn text(&self, text: &str, meta: &Value) -> Result<Value, String> {
-        let mut part = Map::new();
-        part.insert("type".into(), json!("text"));
-        part.extend(self.save(text.as_bytes())?);
-        if truthy(meta.get("textKind")) {
-            part.insert("textKind".into(), meta["textKind"].clone());
-        }
-        for (key, limit) in [("filename", 200), ("mimeType", 100)] {
-            if truthy(meta.get(key)) {
-                part.insert(key.into(), json!(mixdog_js::slice_utf16(&mixdog_js::value_to_string(&meta[key]), limit)));
-            }
-        }
-        Ok(Value::Object(part))
-    }
-
-    /// `materializeInlinePart(part)`: inline bytes and long text stored, by reference.
-    fn inline(&self, part: &Value) -> Result<Value, String> {
-        let Value::Object(fields) = part else { return Ok(part.clone()) };
-        if reference_of(part).is_some() {
-            return Ok(part.clone());
-        }
-        let kind = part.get("type").and_then(Value::as_str);
-        if let (Some("image" | "file"), Some(data)) = (kind, part.get("data").and_then(Value::as_str).filter(|data| !data.is_empty())) {
-            let bytes = node_base64_decode(data);
-            let mut stored = fields.clone();
-            stored.shift_remove("data");
-            // The magic header outranks the transport label.
-            if kind == Some("file") && bytes.starts_with(b"%PDF-") {
-                stored.insert("mimeType".into(), json!("application/pdf"));
-            }
-            stored.extend(self.save(&bytes)?);
-            return Ok(Value::Object(stored));
-        }
-        if let (Some("text"), Some(text)) = (kind, part.get("text").and_then(Value::as_str))
-            && text.len() >= TEXT_REFERENCE_THRESHOLD_BYTES
-        {
-            return self.text(text, part);
-        }
-        Ok(part.clone())
-    }
-}
-
-/// `TEXT_TOKEN_RE` (`/\[(?:Pasted text|File) #(\d+)[^\]\r\n]*\]/g`): each token's byte range and number.
-fn text_tokens(text: &str) -> Vec<(usize, usize, &str)> {
-    let mut found = Vec::new();
-    let mut at = 0;
-    while let Some(open) = text[at..].find('[').map(|offset| at + offset) {
-        let rest = &text[open + 1..];
-        let after = ["Pasted text #", "File #"].iter().find_map(|head| rest.strip_prefix(head));
-        let token = after.and_then(|after| {
-            let digits = after.bytes().take_while(u8::is_ascii_digit).count();
-            let tail = &after[digits..];
-            let close = tail.find(|c| matches!(c, ']' | '\r' | '\n')).filter(|&i| tail.as_bytes()[i] == b']')?;
-            (digits > 0).then(|| (&after[..digits], text.len() - tail.len() + close + 1))
-        });
-        match token {
-            Some((number, end)) => {
-                found.push((open, end, number));
-                at = end;
-            }
-            None => at = open + 1,
-        }
-    }
-    found
-}
-
-/// `expandTextTokens(text, refs)`: the text split around the tokens that name a stored text; `None` when none does.
-fn expand_text_tokens(text: &str, refs: &Map<String, Value>) -> Option<Vec<Value>> {
-    let mut out = Vec::new();
-    let mut offset = 0;
-    for (start, end, number) in text_tokens(text) {
-        let Some(part) = refs.get(number) else { continue };
-        if start > offset {
-            out.push(json!({ "type": "text", "text": &text[offset..start] }));
-        }
-        out.push(part.clone());
-        offset = end;
-    }
-    if offset == 0 {
-        return None;
-    }
-    if offset < text.len() {
-        out.push(json!({ "type": "text", "text": &text[offset..] }));
-    }
-    Some(out)
 }
 
 /// A user message's files as the prompt intake takes them in (`materializePromptSubmission`,
@@ -317,103 +191,6 @@ struct Intake {
     prompt: Vec<Value>,
     attachments: Vec<Value>,
     images: Vec<Value>,
-}
-
-/// `materializePastedTexts`: the stored part of each pasted text by its id, and the entries with their references.
-fn pasted_texts<L: WriteLane + IoLane>(store: &Store<'_, L>, pasted: Option<&Value>) -> Result<(Map<String, Value>, Option<Map<String, Value>>), String> {
-    let (mut refs, mut options) = (Map::new(), Map::new());
-    let Some(Value::Object(pasted)) = pasted else { return Ok((refs, None)) };
-    for (key, raw) in js_entries(pasted) {
-        if !raw.is_object() {
-            continue;
-        }
-        let text_kind = if raw.get("source").and_then(Value::as_str) == Some("file") { "file" } else { "paste" };
-        let part = if let Some(reference) = reference_of(raw) {
-            let mut part = Map::new();
-            part.insert("type".into(), json!("text"));
-            part.insert("attachmentRef".into(), json!(reference));
-            part.insert("sizeBytes".into(), store.size(reference, raw.get("sizeBytes"))?);
-            part.insert("textKind".into(), json!(text_kind));
-            for key in ["filename", "mimeType"] {
-                if truthy(raw.get(key)) {
-                    part.insert(key.into(), raw[key].clone());
-                }
-            }
-            Value::Object(part)
-        } else if let Some(text) = raw.get("text").and_then(Value::as_str) {
-            let meta = json!({ "textKind": text_kind, "filename": raw.get("filename"), "mimeType": raw.get("mimeType") });
-            store.text(text, &meta)?
-        } else {
-            continue;
-        };
-        let id = match raw.get("id") {
-            None | Some(Value::Null) => key.clone(),
-            Some(id) => mixdog_js::value_to_string(id),
-        };
-        let mut entry = raw.as_object().cloned().unwrap_or_default();
-        entry.shift_remove("text");
-        entry.insert("attachmentRef".into(), part["attachmentRef"].clone());
-        entry.insert("sizeBytes".into(), part["sizeBytes"].clone());
-        let chars = mixdog_js::to_number_of(raw.get("chars"));
-        let chars = if chars.is_nan() || chars == 0.0 { raw.get("text").and_then(Value::as_str).map_or(0.0, |text| mixdog_js::utf16_len(text) as f64) } else { chars };
-        entry.insert("chars".into(), mixdog_js::json_number(chars));
-        refs.insert(id, part);
-        options.insert(key.clone(), Value::Object(entry));
-    }
-    Ok((refs, (!options.is_empty()).then_some(options)))
-}
-
-/// `materializePastedImages`: each entry with the stored image it names, by its own bytes or reference, else paired
-/// with an image part by paste id, else with the next part no entry claimed.
-fn pasted_images<L: WriteLane + IoLane>(store: &Store<'_, L>, pasted: &Value, image_parts: &[&Value]) -> Result<Option<Map<String, Value>>, String> {
-    let Value::Object(pasted) = pasted else { return Ok(None) };
-    let entries: Vec<(&String, &Value)> = js_entries(pasted).into_iter().filter(|(_, raw)| raw.is_object()).collect();
-    let mut resolved: Vec<Option<Value>> = Vec::with_capacity(entries.len());
-    for (_, raw) in &entries {
-        resolved.push(if reference_of(raw).is_some() {
-            Some((*raw).clone())
-        } else if let Some(content) = raw.get("content").and_then(Value::as_str).filter(|c| !c.is_empty()) {
-            Some(Value::Object(store.save(&node_base64_decode(content))?))
-        } else {
-            None
-        });
-    }
-    let mut claimed: Vec<String> = resolved.iter().flatten().filter_map(|r| reference_of(r).map(str::to_owned)).collect();
-    for (index, (key, raw)) in entries.iter().enumerate() {
-        if resolved[index].is_some() {
-            continue;
-        }
-        let id = match raw.get("id") {
-            None | Some(Value::Null) => (*key).clone(),
-            Some(id) => mixdog_js::value_to_string(id),
-        };
-        let free = |part: &&&Value| !claimed.iter().any(|c| Some(c.as_str()) == reference_of(part));
-        let paste_id = |part: &Value| part.get("pasteId").filter(|v| !v.is_null()).map(mixdog_js::value_to_string);
-        let part = image_parts
-            .iter()
-            .filter(free)
-            .find(|part| paste_id(part).unwrap_or_default() == id)
-            .or_else(|| image_parts.iter().filter(free).find(|part| paste_id(part).is_none()))
-            .map(|part| (*part).clone());
-        if let Some(reference) = part.as_ref().and_then(reference_of) {
-            claimed.push(reference.to_owned());
-        }
-        resolved[index] = part;
-    }
-    let mut out = Map::new();
-    for ((key, raw), reference) in entries.iter().zip(&resolved) {
-        let mut entry = raw.as_object().cloned().unwrap_or_default();
-        entry.shift_remove("content");
-        if let Some(reference) = reference {
-            let at = reference_of(reference).unwrap_or_default().to_owned();
-            // `ref.sizeBytes || raw.sizeBytes`.
-            let claimed = if truthy(reference.get("sizeBytes")) { reference.get("sizeBytes") } else { raw.get("sizeBytes") };
-            entry.insert("attachmentRef".into(), json!(at));
-            entry.insert("sizeBytes".into(), store.size(&at, claimed)?);
-        }
-        out.insert((*key).clone(), Value::Object(entry));
-    }
-    Ok((!out.is_empty()).then_some(out))
 }
 
 /// `attachmentsForIntake(prompt, options)`: one record per stored image, file and pasted or attached text.
@@ -446,7 +223,7 @@ fn intake_attachments<L: WriteLane + IoLane>(store: &Store<'_, L>, prompt: &[Val
     for part in prompt {
         let Some(reference) = reference_of(part) else { continue };
         let mime = first_text(&[part.get("mimeType"), part.get("mediaType")], "", 100);
-        let size = store.size(reference, part.get("sizeBytes"))?;
+        let size = blob_size(store, reference, part.get("sizeBytes"))?;
         match (part.get("type").and_then(Value::as_str), part.get("textKind").and_then(Value::as_str)) {
             (Some("image"), _) => {
                 let meta = images.iter().find(|raw| raw.get("attachmentRef").and_then(Value::as_str) == Some(reference)).copied();
@@ -470,14 +247,14 @@ fn intake_attachments<L: WriteLane + IoLane>(store: &Store<'_, L>, prompt: &[Val
     for raw in images {
         let Some(reference) = reference_of(raw) else { continue };
         let mut info = original(Some(raw))?;
-        let size = store.size(reference, raw.get("sizeBytes"))?;
+        let size = blob_size(store, reference, raw.get("sizeBytes"))?;
         info.extend(record("image", named(raw, "image"), first_text(&[raw.get("mediaType")], "image/png", 100), size));
         add(reference, info);
     }
     for raw in texts {
         let Some(reference) = reference_of(raw) else { continue };
         let fallback = if raw.get("source").and_then(Value::as_str) == Some("file") { "attachment.txt" } else { "pasted-text.txt" };
-        let size = store.size(reference, raw.get("sizeBytes"))?;
+        let size = blob_size(store, reference, raw.get("sizeBytes"))?;
         add(reference, record("text", named(raw, fallback), first_text(&[raw.get("mimeType")], "text/plain", 100), size));
     }
     Ok(found
@@ -492,50 +269,33 @@ fn intake_attachments<L: WriteLane + IoLane>(store: &Store<'_, L>, prompt: &[Val
         .collect())
 }
 
-/// `materializePromptSubmission(prompt, { pastedImages, pastedTexts })`, then its attachment records and image chips.
+/// `materializePromptSubmission(prompt, { pastedImages, pastedTexts })` (the session's one implementation,
+/// [`materialize_prompt_submission`]), then its attachment records and image chips.
 fn take_upload<L: WriteLane + IoLane>(store: &Store<'_, L>, text: &str, upload: &Value) -> Result<Intake, String> {
     // The words ride along so the composer's text tokens find their pastes.
     let mut prompt = vec![json!({ "type": "text", "text": text })];
     prompt.extend(upload.get("parts").and_then(Value::as_array).cloned().unwrap_or_default());
-    let image_table = upload.get("pastedImages").filter(|value| truthy(Some(value)));
-    let text_table = upload.get("pastedTexts").filter(|value| truthy(Some(value)));
-    let (refs, texts) = pasted_texts(store, text_table)?;
-    let mut materialized = Vec::new();
-    for part in &prompt {
-        let expanded = match (part.get("type").and_then(Value::as_str), part.get("text").and_then(Value::as_str)) {
-            (Some("text"), Some(text)) => expand_text_tokens(text, &refs),
-            _ => None,
-        };
-        match expanded {
-            Some(pieces) => {
-                for piece in &pieces {
-                    materialized.push(store.inline(piece)?);
-                }
-            }
-            None => materialized.push(store.inline(part)?),
+    // `{ ...(upload.pastedImages ? { pastedImages } : {}), ...(upload.pastedTexts ? { pastedTexts } : {}) }`.
+    let mut options = Map::new();
+    for key in ["pastedImages", "pastedTexts"] {
+        if let Some(table) = upload.get(key).filter(|table| truthy(Some(table))) {
+            options.insert(key.into(), table.clone());
         }
     }
-    let mut text_bytes = 0.0;
-    for part in materialized.iter().filter(|part| part.get("type").and_then(Value::as_str) == Some("text")) {
-        text_bytes += match reference_of(part) {
-            Some(reference) => store.size(reference, part.get("sizeBytes"))?.as_f64().unwrap_or(0.0),
-            None => part.get("text").filter(|text| truthy(Some(text))).map_or(0, |text| mixdog_js::value_to_string(text).len()) as f64,
-        };
-    }
-    if text_bytes > MAX_PROMPT_TEXT_BYTES {
-        return Err("prompt text exceeds the 1 MiB input limit".into());
-    }
-    let image_parts: Vec<&Value> = materialized.iter().filter(|part| part.get("type").and_then(Value::as_str) == Some("image") && reference_of(part).is_some()).collect();
-    let images = match image_table {
-        Some(pasted) => pasted_images(store, pasted, &image_parts)?,
-        None => None,
+    let taken = materialize_prompt_submission(store, &Value::Array(prompt), &Value::Object(options), LongText::Stored)?;
+    // A prompt of parts stays parts.
+    let materialized = match taken.prompt {
+        Value::Array(parts) => parts,
+        _ => Vec::new(),
     };
-    let image_entries: Vec<&Value> = images.iter().flat_map(|map| map.values()).filter(|raw| raw.is_object()).collect();
-    let text_entries: Vec<&Value> = texts.iter().flat_map(|map| map.values()).filter(|raw| raw.is_object()).collect();
+    let images = taken.options.get("pastedImages").and_then(Value::as_object);
+    let texts = taken.options.get("pastedTexts").and_then(Value::as_object);
+    let image_entries: Vec<&Value> = images.into_iter().flat_map(|map| map.values()).filter(|raw| raw.is_object()).collect();
+    let text_entries: Vec<&Value> = texts.into_iter().flat_map(|map| map.values()).filter(|raw| raw.is_object()).collect();
     let attachments = intake_attachments(store, &materialized, &image_entries, &text_entries)?;
     let chips = mixdog_core_session::session::transcript::image_meta(&json!({
         "message": materialized,
-        "options": { "pastedImages": images.map_or(Value::Null, Value::Object) },
+        "options": { "pastedImages": images.map_or(Value::Null, |images| Value::Object(images.clone())) },
     }));
     Ok(Intake { prompt: materialized, attachments, images: chips })
 }
@@ -582,7 +342,7 @@ impl SessionFiles {
                         .submit(&CancellationToken::new(), move |lane| {
                             let blobs = BlobStore::new(&data_dir);
                             let store = Store::new(&blobs, lane);
-                            let size = store.size(&reference, claimed.as_ref())?.as_f64().unwrap_or(0.0) as u64;
+                            let size = blob_size(&store, &reference, claimed.as_ref())?.as_f64().unwrap_or(0.0) as u64;
                             let digest = Digest::try_from(format!("sha256:{reference}")).map_err(|error| error.to_string())?;
                             let bytes = if size > MAX_PDF_BYTES { Vec::new() } else { blobs.read(lane, &digest).map_err(|error| error.to_string())? };
                             Ok::<_, String>((bytes, size))
@@ -651,6 +411,7 @@ impl RoomFiles for SessionFiles {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use mixdog_core_session::session::prompt_submission::MAX_PROMPT_TEXT_BYTES;
     use mixdog_core_session::session::testing::Rig;
 
     const REF: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";

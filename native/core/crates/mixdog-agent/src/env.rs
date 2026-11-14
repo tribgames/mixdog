@@ -258,6 +258,9 @@ pub struct Dropped {
 pub struct Rewrite {
     pub dropped_count: u64,
     pub dropped: Option<Dropped>,
+    /// The rewrite of a compaction pass, which the transcript shows as one. Any other (a repair, a route's replay
+    /// strip, an image strip, an effort stamp) is Node's in-place splice of `state.messages`: no compaction boundary.
+    pub compaction: bool,
 }
 
 /// Node's event `status`: `compacted`, `no_change` (shown as checked), `skipped`, `failed`.
@@ -558,6 +561,14 @@ pub struct CompactOutput {
     pub summary_ms: Option<f64>,
 }
 
+impl CompactOutput {
+    /// The pass wrote a summary (`summaryTriggered`), whether or not its answer reported usage: its handoff is the
+    /// session's (`session-local`), a summary-less pass's the rules'.
+    pub fn summarized(&self) -> bool {
+        self.summary_ms.is_some()
+    }
+}
+
 #[derive(Debug)]
 pub enum CompactError {
     /// The summary request itself overflowed the model window.
@@ -568,6 +579,20 @@ pub enum CompactError {
     /// The summary failed on a route the plan resolved (Node's `error.compactRoute`): the failure
     /// names that route's provider and model, which need not be the conversation's.
     RouteFailed(String, CompactRoute),
+}
+
+/// The session's reading of a request the run has not measured itself (`resolveContextTokensWithSource` over
+/// `session.contextPressureBaseline*`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SessionPressure {
+    /// The pressure the provider's reading gives the request: the tokens it billed for the prefix it measured plus the
+    /// estimated growth after it (`provider`), or the last actual reading of a transcript not re-anchored after a restart
+    /// (`provider_resume`). `None`: the run's own estimate prices it.
+    pub tokens: Option<u64>,
+    /// `contextPressureUnanchoredAfterRestart`: the restored transcript was never measured, so its pressure arms no
+    /// proactive pass until a provider send re-anchors it (`shouldCompactForSession`); a reactive retry, an expired cache
+    /// and request media still do.
+    pub unanchored: bool,
 }
 
 /// The provider and model of the summary route a compaction failed on.
@@ -589,6 +614,14 @@ pub trait Compactor: Send + Sync {
     /// before `estimate_tokens` and `request_media` are asked about new messages.
     async fn prepare(&self, messages: &[AgentMessage]) {
         let _ = messages;
+    }
+
+    /// The session's own reading of the request about to go out (`messages`, `tools`), for a send the run has not measured:
+    /// the pressure its provider reading gives the request, and whether its transcript is unanchored after a restart. The
+    /// default holds neither.
+    async fn session_pressure(&self, messages: &[AgentMessage], tools: &[mixdog_core_api::domain::provider::ToolDefinition]) -> SessionPressure {
+        let _ = (messages, tools);
+        SessionPressure::default()
     }
 
     /// Whether compacting to `budget_tokens` would shrink the transcript.
@@ -635,6 +668,12 @@ pub struct RouteSwitch {
     pub effort: Option<crate::effort::EffortWiring>,
     /// The new route's text-only input handling, if its model takes no media.
     pub text_only: Option<crate::text_only::TextOnlyInput>,
+}
+
+/// `seesImages` of `pdfReadModes` (`tool-exec/dispatch.mjs`): whether a route's model sees images, asked for each tool
+/// call with the route the run stands on. Owner: the host, over the provider registry and the catalog.
+pub trait ModelVision: Send + Sync {
+    fn sees_images(&self, provider: &str, model: &str) -> bool;
 }
 
 /// The agent lane's slot, as the loop uses it (`runYielded`): a provider request is I/O, so the
@@ -771,16 +810,17 @@ pub trait ToolGate: Send + Sync {
 }
 
 /// PostToolUse, PostToolUseFailure and PostToolBatch hooks. Best-effort: a
-/// hook never breaks the loop.
+/// hook never breaks the loop. `call_id` is the model's id of the call
+/// (`executeOpts.toolCallId`, `call.id`), as [`ToolGate::check_call`] gets it.
 #[async_trait]
 pub trait ToolHooks: Send + Sync {
     /// May override the model-visible text of a successful call.
-    async fn after_tool(&self, call: &GateCall, result: &str) -> Option<String> {
-        let _ = (call, result);
+    async fn after_tool(&self, call_id: &str, call: &GateCall, result: &str) -> Option<String> {
+        let _ = (call_id, call, result);
         None
     }
-    async fn after_failure(&self, call: &GateCall, result: &str) {
-        let _ = (call, result);
+    async fn after_failure(&self, call_id: &str, call: &GateCall, result: &str) {
+        let _ = (call_id, call, result);
     }
     /// The whole batch resolved: `Some(reason)` blocks continuation and
     /// injects the reason as a system note before the next model call.
@@ -1190,6 +1230,23 @@ pub struct TracedCall {
     pub local_search: Option<serde_json::Value>,
 }
 
+/// One completed send as the fields of Node's `traceProviderSend` call (`session/loop/send-phase.mjs` `settleSendResult`):
+/// where the iteration's time went before and during the provider round trip. The spans are those of the round that settled
+/// the send: a replay Node's loop runs as a new round starts the iteration and the send again.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProviderSend {
+    /// The iteration the send completed (`state.iterations` once it settled).
+    pub iteration: u32,
+    /// From the send's start to its settlement (`Date.now() - sent.sendStartedAt`).
+    pub send_ms: i64,
+    /// From the iteration's start to the send's (`sendStartedAt - round.iterT0`).
+    pub pre_send_ms: i64,
+    /// From the run's last tool batch's end to the send's start; `None` before the run's first batch.
+    pub tool_resume_ms: Option<i64>,
+    /// The transcript's length when the send settled (`messages.length`).
+    pub message_count: usize,
+}
+
 /// The host's tool log: the agent trace's `batch` and `tool` rows (`agent-trace.jsonl`) and the failure log
 /// (`tool-failures.jsonl`). Called in call order, before a call's result is cached or committed. Never blocks and never fails
 /// the run.
@@ -1212,6 +1269,9 @@ pub trait ToolFailureLog: Send + Sync {
     /// `traceCacheBreak(record)`: a send changed what the provider's prompt cache holds (`mixdog_trace::cache_break_payload`
     /// has the fields of `record`); the `cache_break` row joins the trace and its line goes to stderr.
     fn cache_break(&self, _record: serde_json::Map<String, serde_json::Value>) {}
+    /// `traceProviderSend(...)`: a completed send's `loop` row (`traceAgentLoop`), which the host writes only under
+    /// `MIXDOG_AGENT_TRACE_VERBOSE` / `_TIMING`. A host without the trace writes nothing.
+    fn provider_send(&self, _send: ProviderSend) {}
 }
 
 /// Everything a run borrows from its host.

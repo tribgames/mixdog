@@ -284,14 +284,20 @@ impl CtlClient {
         Self { endpoint }
     }
 
-    /// Resolves the control listener from the discovery file at `path` (read now; build a new client after a core restart).
-    pub async fn from_discovery(path: &Path) -> Result<Self, CtlError> {
-        Ok(Self::new(Discovery::read(path)?.control_endpoint()))
+    /// Resolves the control listener from the discovery file at `path` (read now; build a new client after a core restart). A file
+    /// whose core `runs` says has ended (killed, or ended by `terminate`, without withdrawing it) names no core, as in Node's
+    /// `readSessionDiscovery`, which drops a file whose pid is not alive: the call answers that no core is running.
+    pub async fn from_discovery(path: &Path, runs: impl FnOnce(&Discovery) -> bool) -> Result<Self, CtlError> {
+        let discovery = Discovery::read(path)?;
+        if !runs(&discovery) {
+            return Err(DiscoveryError::Absent(path.to_path_buf()).into());
+        }
+        Ok(Self::new(discovery.control_endpoint()))
     }
 
     /// The core's own discovery file (`runtime_root()/daemon.json`).
-    pub async fn local() -> Result<Self, CtlError> {
-        Self::from_discovery(&crate::discovery::discovery_path()).await
+    pub async fn local(runs: impl FnOnce(&Discovery) -> bool) -> Result<Self, CtlError> {
+        Self::from_discovery(&crate::discovery::discovery_path(), runs).await
     }
 
     pub async fn status(&self) -> Result<CoreStatus, CtlError> {
@@ -866,5 +872,34 @@ mod tests {
             client(port).hold(true).await.unwrap_err(),
             CtlError::Unauthorized
         ));
+    }
+
+    /// `readSessionDiscovery` drops a file whose pid is not alive: a file whose core has ended (killed, or ended by `terminate`)
+    /// names no core, and the call answers that no core is running instead of connecting to the port the file names.
+    #[tokio::test]
+    #[allow(clippy::disallowed_methods, reason = "test setup: the discovery file in a temp dir")]
+    async fn a_discovery_file_whose_core_has_ended_names_no_core() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(crate::discovery::DISCOVERY_FILE);
+        let document = json!({
+            "pid": 7,
+            "endpoints": {"session": {"port": 4100, "token": "tok"}},
+            "core": {
+                "version": "1.4.6", "build": "b6", "instanceId": "i1", "processStartTime": "99", "state": "serving",
+                "rpc": {"port": 4200}, "control": {"port": 4100}
+            }
+        });
+        std::fs::write(&path, document.to_string()).unwrap();
+        let mut asked = None;
+        let ended = CtlClient::from_discovery(&path, |core| {
+            asked = Some((core.pid, core.core.process_start_time.clone()));
+            false
+        })
+        .await;
+        assert!(matches!(&ended, Err(CtlError::Discovery(DiscoveryError::Absent(named))) if *named == path), "{ended:?}");
+        assert_eq!(ended.unwrap_err().to_string(), format!("no core is running ({})", path.display()));
+        assert_eq!(asked, Some((7, "99".to_owned())));
+        let running = CtlClient::from_discovery(&path, |_| true).await.unwrap();
+        assert_eq!(running.endpoint, Endpoint { port: 4100, token: "tok".into() });
     }
 }

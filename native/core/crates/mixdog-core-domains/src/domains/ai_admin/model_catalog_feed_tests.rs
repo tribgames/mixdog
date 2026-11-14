@@ -57,13 +57,12 @@ async fn apply(rig: &Rig, sync: &mut super::provider_sync::ProviderSync, applied
     if call["action"] == "setModelPreferences" {
         return false;
     }
-    let record = rig.loaded.get()["providers"].as_object().cloned().unwrap();
-    rig.registry.sync_providers(&record, None).await.unwrap();
     if call["action"] == "removeCustomProvider" {
         // `onCustomProviderRemoved`: the removed provider leaves the registry at once.
         rig.registry.disable(call["args"][0].as_str().unwrap());
     }
-    rig.readiness.reinit_providers().await.unwrap();
+    // `reinitProviders`: the caches drop and the registry is synced to the record the provider sync handed on.
+    rig.readiness.reinit_providers(None).await.unwrap();
     true
 }
 

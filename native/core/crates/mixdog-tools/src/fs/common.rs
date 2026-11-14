@@ -46,6 +46,11 @@ pub(crate) const NOISE_DIRS: &[&str] = &[
     ".gradle",
 ];
 
+/// [`NOISE_DIRS`] as a walk's `Descent::bare`: each noise folder listed, never entered.
+pub(crate) fn noise_bare() -> Vec<String> {
+    NOISE_DIRS.iter().map(|n| (*n).to_owned()).collect()
+}
+
 /// The result's `meta` keys the run's trace row reads (Node's `resultTelemetry` and `localSearchTelemetry` objects of
 /// the call, `agent-trace-format.mjs` `traceAgentTool`); never model text.
 pub const RESULT_TELEMETRY_META: &str = "resultTelemetry";
@@ -132,15 +137,26 @@ pub(crate) fn fs_failure(err: &FsError, shown: &str) -> ToolError {
             ToolErrorCode::Io { os_code: None },
             format!("Error: not a directory — {shown}"),
         ),
-        FsErrorKind::Io { os_code } => fail(
-            ToolErrorCode::Io { os_code: *os_code },
-            format!("Error: I/O failure on {shown}"),
-        ),
+        // The OS error by libuv's name, as Node's message starts with it; one the name table does not
+        // know keeps the plain I/O text rather than claiming an unknown error.
+        FsErrorKind::Io { .. } | FsErrorKind::AlreadyExists => {
+            let os_code = if let FsErrorKind::Io { os_code } = &err.kind { *os_code } else { None };
+            let text = match super::os_error::cause(&err.kind) {
+                Some(cause) => format!("Error: {cause}: {shown}"),
+                None => format!("Error: I/O failure on {shown}"),
+            };
+            fail(ToolErrorCode::Io { os_code }, text)
+        }
         other => fail(
             ToolErrorCode::Io { os_code: None },
             format!("Error: {other:?} on {shown}"),
         ),
     }
+}
+
+/// [`fs_failure`]'s typed error for `err`, with Node's wording of the failed call as its text.
+pub(crate) fn fs_failure_worded(err: &FsError, shown: &str, text: String) -> ToolError {
+    ToolError { message_for_model: text, ..fs_failure(err, shown) }
 }
 
 /// Runs `fut` until it ends, the call is cancelled, or the deadline passes.
@@ -189,18 +205,70 @@ pub(crate) async fn lock_patch_targets(ctx: &ToolContext, targets: &[AbsPath]) -
     Ok(WriteLocks { _advisory: advisory, _paths: paths })
 }
 
-/// Node `realpathNearestExisting` joined back to the missing tail: the target with its nearest
-/// existing ancestor resolved through symlinks and junctions. `None` when nothing on the path
-/// exists or cannot be resolved.
-#[allow(clippy::disallowed_methods, reason = "runs only as an interactive-lane job body (real_target_on_lane)")]
-fn real_target(full: &Path) -> Option<PathBuf> {
+/// Node `realpathNearestExisting`: the nearest existing ancestor of `full` (itself included) and
+/// its real path. `None` when nothing on the path exists or cannot be resolved.
+#[allow(clippy::disallowed_methods, reason = "runs only as an interactive-lane job body (real_target_on_lane, resolve_write_target)")]
+fn nearest_existing(full: &Path) -> Option<(&Path, PathBuf)> {
     let mut probe = full;
     while !probe.exists() {
         probe = probe.parent().filter(|p| *p != probe)?;
     }
     // Node's `realpathSync` has no `\\?\` prefix, and the lock key must read like the other tools'.
-    let real = mixdog_workspace::pathguard::canonical(probe).ok()?;
+    Some((probe, mixdog_workspace::pathguard::canonical(probe).ok()?))
+}
+
+/// [`nearest_existing`] joined back to the missing tail: the target with its nearest existing
+/// ancestor resolved through symlinks and junctions.
+fn real_target(full: &Path) -> Option<PathBuf> {
+    let (probe, real) = nearest_existing(full)?;
     Some(real.join(full.strip_prefix(probe).ok()?))
+}
+
+/// Node `guardWritePath`'s refusal of `p`, which it shows as `normalizeOutputPath` does.
+fn write_path_refusal(p: &str) -> Option<String> {
+    super::read_paths::write_guard(p).map(|reason| format!("Error: {reason}: {}", super::patch_guard::normalize_output_path(p)))
+}
+
+/// Node `guardRealTarget`: when a link lies on the way to the target's nearest existing ancestor
+/// (the target itself when it exists), the real path it leads to meets `guardWritePath`; a special
+/// file is refused.
+#[allow(clippy::disallowed_methods, reason = "runs only as an interactive-lane job body (resolve_write_target)")]
+fn guard_real_target(full: &Path) -> Option<String> {
+    if let Some((probe, real)) = nearest_existing(full)
+        // Node's `realpathSync` follows links only: a mapped drive's share is no link's target.
+        && probe.ancestors().any(|p| std::fs::symlink_metadata(p).is_ok_and(|meta| meta.file_type().is_symlink()))
+        && let Some(refusal) = write_path_refusal(&real.to_string_lossy())
+    {
+        return Some(format!("{refusal} (symlink target of {})", super::patch_guard::normalize_output_path(&probe.to_string_lossy())));
+    }
+    let special = std::fs::metadata(full).is_ok_and(|meta| mixdog_js::device_paths::is_special_file(&meta));
+    special.then(|| {
+        format!(
+            "Error: cannot write special file (FIFO / character / block device / socket): {}",
+            super::patch_guard::normalize_output_path(&full.to_string_lossy())
+        )
+    })
+}
+
+/// Node `resolveTargetPath` of the edit adapter: the spelling given (normalized) and its
+/// resolution against the cwd each meet `guardWritePath`, then [`guard_real_target`], before
+/// anything else touches the path. A blank spelling is the cwd.
+pub(crate) async fn resolve_write_target(ctx: &ToolContext, raw: &str) -> Result<AbsPath, ToolError> {
+    // A refusal, not malformed arguments: Node's `_isToolArgShapeFailure` does not count it.
+    let refuse = |text: String| crate::orch::util::refused("write-path-guard", text);
+    if let Some(text) = write_path_refusal(&super::normalize_input_path(raw)) {
+        return Err(refuse(text));
+    }
+    let abs = if mixdog_js::js_trim(raw).is_empty() { ctx.cwd.clone() } else { resolve_path(&ctx.cwd, raw)? };
+    if let Some(text) = write_path_refusal(&abs.as_path().to_string_lossy()) {
+        return Err(refuse(text));
+    }
+    let full = abs.as_path().to_path_buf();
+    let job = ctx.io.interactive.submit(&ctx.cancel, move |_| guard_real_target(&full)).map_err(|_| cancelled())?;
+    match job.await.map_err(|_| cancelled())? {
+        Some(text) => Err(refuse(text)),
+        None => Ok(abs),
+    }
 }
 
 /// [`real_target`] as a job on the interactive lane.

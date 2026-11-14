@@ -18,6 +18,7 @@ use std::sync::Mutex;
 use async_trait::async_trait;
 use mixdog_app_server_client::api::ThreadReducer;
 use mixdog_cli::exec::ExecArgs;
+use mixdog_cli::exec::Invocation;
 use mixdog_cli::exec::Sink;
 use mixdog_cli::exec::boundary::Boundary;
 use mixdog_cli::exec::launcher::InProcessLauncher;
@@ -228,7 +229,10 @@ fn an_exec_on_its_own_core_does_what_node_recorded_for_every_case() {
                 #[command(flatten)]
                 args: ExecArgs,
             }
-            let options = <Wrapper as clap::Parser>::try_parse_from(std::iter::once("exec".to_owned()).chain(argv)).unwrap().args.into_options(None).unwrap();
+            let options = match <Wrapper as clap::Parser>::try_parse_from(std::iter::once("exec".to_owned()).chain(argv)).unwrap().args.into_invocation(None) {
+                Ok(Invocation::Run(options)) => options,
+                other => panic!("{label}: the command line runs: {other:?}"),
+            };
             let host = Host {
                 launcher: &launcher,
                 credentials: &ResolvedCredentials { api_key: Some("sk-fake".into()), pool_credential: None },

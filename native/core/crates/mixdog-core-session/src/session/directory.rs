@@ -182,6 +182,8 @@ pub(crate) struct DirInner {
     gate: Arc<super::turn_gate::TurnGate>,
     /// `onGoalStatusChange`: each change goes to its loaded thread's Goal lane.
     goal_events: Mutex<Option<mixdog_core_goal::goal::Subscription>>,
+    /// `subscribeQuotaResume`: each change of the quota-resume queue goes to the loaded thread it names.
+    quota_events: Mutex<Option<mixdog_core_base::quota_resume::Subscription>>,
     /// What each runtime's teardown does for the agents its session owns (`OwnerTeardown`).
     owner_teardown: std::sync::OnceLock<Arc<dyn OwnerTeardown>>,
     /// What each runtime's teardown does to its own session (`ExitClose`).
@@ -273,6 +275,11 @@ impl DirInner {
     pub(super) fn outer(&self) -> Option<SessionDirectory> {
         self.me.upgrade().map(SessionDirectory::over)
     }
+
+    /// A new thread's id, minted at the directory's clock (`mintSessionId`).
+    pub(super) fn mint_session_id(&self) -> ThreadId {
+        ThreadId::from(super::new_session_id(self.deps.clock.now_ms()))
+    }
 }
 
 impl SessionDirectory {
@@ -282,17 +289,17 @@ impl SessionDirectory {
     }
 }
 
-/// Counts a create while it runs.
-struct CreateInFlight<'a>(&'a std::sync::atomic::AtomicUsize);
+/// Counts work while it runs: a create, an in-core start waiting out the core's hold ([`super::SessionHandle`]'s `deferring`).
+pub(super) struct InFlight<'a>(&'a std::sync::atomic::AtomicUsize);
 
-impl<'a> CreateInFlight<'a> {
-    fn enter(count: &'a std::sync::atomic::AtomicUsize) -> Self {
+impl<'a> InFlight<'a> {
+    pub(super) fn enter(count: &'a std::sync::atomic::AtomicUsize) -> Self {
         count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         Self(count)
     }
 }
 
-impl Drop for CreateInFlight<'_> {
+impl Drop for InFlight<'_> {
     fn drop(&mut self) {
         self.0.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
     }
@@ -352,6 +359,7 @@ impl SessionDirectory {
             creating: Default::default(),
             gate: Default::default(),
             goal_events: Mutex::new(None),
+            quota_events: Mutex::new(None),
             owner_teardown: std::sync::OnceLock::new(),
             exit_close: std::sync::OnceLock::new(),
             arriving: std::sync::OnceLock::new(),
@@ -372,6 +380,19 @@ impl SessionDirectory {
             }
         }));
         *lock(&inner.goal_events) = Some(subscription);
+        // A change that names no session changed every entry: each loaded thread reads its own again.
+        let me = Arc::downgrade(&inner);
+        let subscription = inner.deps.quota.goals.subscribe(move |session| {
+            let Some(directory) = me.upgrade() else { return };
+            let handles: Vec<Arc<SessionHandle>> = match session {
+                Some(id) => directory.loaded(&ThreadId::from(id)).into_iter().collect(),
+                None => SessionDirectory::over(directory).loaded_handles(),
+            };
+            for handle in handles {
+                let _ = handle.inbox.try_send(Inbox::QuotaResumeChanged);
+            }
+        });
+        *lock(&inner.quota_events) = Some(subscription);
         let me = Arc::downgrade(&inner);
         inner.deps.sensitive.on_carried(Box::new(move |thread| {
             let Some(directory) = me.upgrade() else { return };
@@ -810,8 +831,8 @@ impl SessionDirectory {
         Ok(mixdog_core_ports::ports::route::has_session(&header, &rows))
     }
 
-    /// Creates the thread under a fixed `id` (agent homes and room sessions are derived keys, not
-    /// minted ids) with `header` as its first durable write.
+    /// Creates the thread under a fixed `id` with `header` as its first durable write, unseeded: the
+    /// header is the record as it is, with no tool surface, prompt identity or MCP scope added.
     pub async fn create_with_id(&self, id: ThreadId, header: Header, params: Value) -> Result<(), CoreError> {
         self.inner
             .create(CreateSpec {
@@ -831,7 +852,10 @@ impl SessionDirectory {
 
     /// [`create_with_id`](Self::create_with_id) over a `header` carrying a session's options (`session_options::write_header`):
     /// a home or room session is a Node `createSession` too, so it begins with its tool surface seeded, as `thread/start`'s.
+    /// A header that names its route (a task session, a heartbeat run) boots the thread's live route on it first, so the
+    /// seed composes for it, as Node boots the session's runtime with its creator's route (`createRuntime`).
     pub async fn create_seeded_with_id(&self, id: ThreadId, header: Header, params: Value) -> Result<(), CoreError> {
+        self.inner.deps.new_route.boot(&id, &header);
         let seeded = super::seams::SeededThread::new(self.inner.deps.new_tools.clone(), id.clone());
         let header = self
             .inner
@@ -861,7 +885,9 @@ impl SessionDirectory {
     /// (`NewThreadTools::seed_agent`), so its first turn composes its prompt and sends its tools. Without them the
     /// worker's requests carried no system prompt and no tools.
     pub async fn create_agent_session(&self, header: Header, params: Value) -> Result<ThreadId, CoreError> {
-        let id = ThreadId::from(super::new_session_id(self.inner.deps.clock.now_ms()));
+        let id = self.inner.mint_session_id();
+        // Its runtime is booted with the agent's route (`createAgentChild`'s `createSession({ provider, model, … })`).
+        self.inner.deps.new_route.boot(&id, &header);
         let header = self
             .inner
             .deps
@@ -874,10 +900,30 @@ impl SessionDirectory {
     }
 
     /// Creates a thread under a minted id with `header` as its first durable write (an internal
-    /// `createSession`: nobody subscribes to it).
+    /// `createSession`: nobody subscribes to it). The session service's `createSession` boots a runtime of the
+    /// session's own, so the thread is seeded as [`create_seeded_with_id`](Self::create_seeded_with_id) seeds it: its
+    /// tool surface, its prompt identity and an MCP scope of its own, which its close or delete releases.
     pub async fn create_session(&self, header: Header, params: Value) -> Result<ThreadId, CoreError> {
-        let spec = CreateSpec { id: None, header, base: None, op: None, method: Method("thread/start"), params, seed: None, settings: None, starting: None };
-        self.inner.create(spec).await.map(|handle| handle.id.clone())
+        let id = self.inner.mint_session_id();
+        self.create_seeded_with_id(id.clone(), header, params).await?;
+        Ok(id)
+    }
+
+    /// [`create_session`](Self::create_session) for an imported conversation (`createImportedSession`): Node makes it with
+    /// the manager's `createSession`, so its header begins with the tool surface and prompt a new thread's does
+    /// (`NewThreadTools::seed_imported`), in no MCP scope of its own: nothing is abandoned with it. Without them its turns
+    /// carried no system prompt and no tools.
+    pub async fn create_imported_session(&self, header: Header, params: Value) -> Result<ThreadId, CoreError> {
+        let id = self.inner.mint_session_id();
+        let header = self
+            .inner
+            .deps
+            .new_tools
+            .seed_imported(&id, &header)
+            .await
+            .map_err(|message| mixdog_core_base::support::failed("session", format!("session: tools: {message}")))?;
+        self.create_with_id(id.clone(), header, params).await?;
+        Ok(id)
     }
 
     /// A session's title, agent, owner session and source type, from the index without loading
@@ -1362,6 +1408,8 @@ impl DirInner {
                         // before any caller gets it.
                         if for_use && let Ok(handle) = &result {
                             me.refresh_resumed_tools(handle).await;
+                            // `resume`'s `setRoute(resumedRoute)`: the runtime takes the route its session holds.
+                            me.deps.new_route.boot(&thread, &handle.cell.header.load_full());
                         }
                         // An open a person waits for: one that took long says which step did.
                         let ended = me.deps.clock.now_ms();
@@ -1560,6 +1608,7 @@ impl DirInner {
             steer_cap: limits.steer_queue,
             subscribers: Default::default(),
             closed: Default::default(),
+            session_ended: Default::default(),
             turn_held: Default::default(),
             turn_pending: Default::default(),
             ui_busy: Default::default(),
@@ -1568,6 +1617,7 @@ impl DirInner {
             compaction_cancel: Default::default(),
             pending_compact: Default::default(),
             gated: Default::default(),
+            deferring: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             stepped: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
@@ -1598,6 +1648,7 @@ impl DirInner {
             control,
             cell: cell.clone(),
             feed: feed.clone(),
+            subscriptions: Arc::new(super::handle::CountedFeed::new(cell.clone(), feed.clone())),
             inbox: inbox_tx,
             producers: prod_tx.clone(),
             lineage: lineage.clone(),
@@ -1654,8 +1705,8 @@ impl DirInner {
         // The create settling, whichever way, is a busy-state change (`rt.wakeDeferredWarmups`):
         // a warm parked on it re-checks.
         let _settled = super::prewarm_signals::WakeOnDrop(self.deps.code_graph_prewarm.clone());
-        let _creating = CreateInFlight::enter(&self.creating);
-        let id = spec.id.unwrap_or_else(|| ThreadId::from(super::new_session_id(self.deps.clock.now_ms())));
+        let _creating = InFlight::enter(&self.creating);
+        let id = spec.id.unwrap_or_else(|| self.mint_session_id());
         let invalid = |path: &str| CoreError::InvalidParams {
             path: path.into(),
             expected: "a shorter value".into(),
@@ -1873,7 +1924,7 @@ impl SessionDirectory {
         // `createSession`'s tool surface and `seedToolSurface`, for the id it will have.
         // A new task's address is given (`client.create` at the reserved address).
         let reserved = id.is_some();
-        let id = id.unwrap_or_else(|| ThreadId::from(super::new_session_id(self.inner.deps.clock.now_ms())));
+        let id = id.unwrap_or_else(|| self.inner.mint_session_id());
         // The control session is followed by the config's adoption from before its route is first resolved.
         let starting = if control { Some(self.inner.start(&id)?) } else { None };
         // The route the thread begins on is settled first: the tools and the prompt below are
@@ -2026,9 +2077,9 @@ impl SessionDirectory {
         })
     }
 
-    /// The reply of a `thread/start`: the thread's feed from its last items.
+    /// The reply of a `thread/start`: the thread's feed from its last items, its subscription counted ([`super::handle::CountedFeed`]).
     pub(super) fn subscribed(&self, handle: &Arc<SessionHandle>, result: Value) -> Subscribe {
-        let feed: Arc<dyn mixdog_core_api::FeedSource> = handle.feed.clone();
+        let feed: Arc<dyn mixdog_core_api::FeedSource> = handle.subscriptions.clone();
         Subscribe { result, feed, window: Window::LastItems(200), resume_from: None }
     }
 
@@ -2140,13 +2191,13 @@ mod create_count_tests {
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
 
-    use super::CreateInFlight;
+    use super::InFlight;
 
     #[test]
     fn a_create_counts_while_its_guard_lives_and_two_count_twice() {
         let count = AtomicUsize::new(0);
-        let first = CreateInFlight::enter(&count);
-        let second = CreateInFlight::enter(&count);
+        let first = InFlight::enter(&count);
+        let second = InFlight::enter(&count);
         assert_eq!(count.load(Ordering::SeqCst), 2);
         drop(first);
         assert_eq!(count.load(Ordering::SeqCst), 1);

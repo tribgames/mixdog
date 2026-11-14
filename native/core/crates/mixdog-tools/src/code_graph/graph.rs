@@ -13,12 +13,12 @@ use std::sync::OnceLock;
 use mixdog_graph::calls::CallInfo;
 use mixdog_graph::lang::{lang_for, lang_static};
 use mixdog_graph::outline::{self, SymbolInfo};
+use mixdog_graph::resolve::{ImportRecord, extract_top_level_types, resolve_and_link};
 use mixdog_graph::scan_lang::{ScanLang, scan_lang_for_path};
 use mixdog_graph::{MAX_FILE_BYTES, walk_classified_files};
 use rayon::prelude::*;
 
 use super::cache::{CachedFile, GraphCache};
-use super::resolve::resolve_imports;
 use super::roots::path_key;
 
 /// Files indexed per graph; the files after the cut are not part of any answer.
@@ -34,6 +34,14 @@ pub(super) struct Node {
     pub parse_error: String,
     pub symbols: Vec<SymbolInfo>,
     pub raw_imports: Vec<String>,
+    /// java/kotlin `package` (`packageName`): the import index's package members and the prefix of its FQCNs.
+    pub package_name: String,
+    /// csharp `namespace` (`namespaceName`): the import index's namespace members.
+    pub namespace_name: String,
+    /// go `package` clause (`goPackageName`): the resolver does not read it; it is counted in the node's bytes.
+    pub go_package_name: String,
+    /// java/kotlin `topLevelTypes` word scan: the type names of the import index's FQCNs.
+    pub top_level_types: Vec<String>,
     /// Rels of the indexed files this file imports, in import order.
     pub resolved_imports: Vec<String>,
     /// Sorted unique identifier tokens.
@@ -292,7 +300,7 @@ impl Graph {
                 }
             })
             .collect::<Result<Vec<_>, _>>()?;
-        link(&mut nodes);
+        link(root, &mut nodes);
         // Every file came from the cache and none went away: Node's disk-cache hit (`_deserializeGraph`).
         let unchanged = whole_set_cached && reused.into_inner() == nodes.len() && previous_len == nodes.len();
         if whole_tree && !unchanged {
@@ -359,10 +367,10 @@ impl Graph {
                 + field("resolvedImportsRel", js_strings(node.resolved_imports.iter().map(String::as_str)))
                 + field("resolvedImports", resolved)
                 + field("importedBy", js_strings(imported_by.get(node.rel.as_str()).into_iter().flatten().copied()))
-                + field("packageName", js_units(0))
-                + field("namespaceName", js_units(0))
-                + field("goPackageName", js_units(0))
-                + field("topLevelTypes", 24)
+                + field("packageName", js_str(&node.package_name))
+                + field("namespaceName", js_str(&node.namespace_name))
+                + field("goPackageName", js_str(&node.go_package_name))
+                + field("topLevelTypes", js_strings(node.top_level_types.iter().map(String::as_str)))
                 + field("tokenSymbols", tokens)
                 + field("symbols", symbols)
                 + field("calls", calls);
@@ -475,6 +483,7 @@ fn parse_node(root: &Path, path: &Path, lang: &'static str) -> Result<Node, Stri
     } else {
         None
     };
+    let top_level_types = extract_top_level_types(&text, lang);
     Ok(Node {
         rel,
         lang,
@@ -483,6 +492,10 @@ fn parse_node(root: &Path, path: &Path, lang: &'static str) -> Result<Node, Stri
         parse_error,
         symbols: extraction.symbols,
         raw_imports: extraction.imports,
+        package_name: extraction.package_name,
+        namespace_name: extraction.namespace_name,
+        go_package_name: extraction.go_package_name,
+        top_level_types,
         resolved_imports: Vec::new(),
         tokens: extraction.tokens,
         calls,
@@ -503,6 +516,10 @@ impl Node {
             parse_error: file.parse_error,
             symbols: file.symbols.into_iter().map(super::cache::CachedSymbol::into_symbol).collect(),
             raw_imports: file.raw_imports,
+            package_name: file.package_name,
+            namespace_name: file.namespace_name,
+            go_package_name: file.go_package_name,
+            top_level_types: file.top_level_types,
             resolved_imports: Vec::new(),
             tokens: file.tokens,
             calls: file.calls.map(|calls| calls.into_iter().map(super::cache::CachedCall::into_call).collect()),
@@ -513,13 +530,41 @@ impl Node {
     }
 }
 
-fn link(nodes: &mut [Node]) {
-    let files: HashSet<String> = nodes.iter().map(|n| n.rel.clone()).collect();
-    let resolved: Vec<Vec<String>> = nodes
-        .par_iter()
-        .map(|n| resolve_imports(&n.rel, n.lang, &n.raw_imports, &files))
-        .collect();
-    for (node, edges) in nodes.iter_mut().zip(resolved) {
-        node.resolved_imports = edges;
+impl ImportRecord for Node {
+    fn rel(&self) -> &str {
+        &self.rel
     }
+
+    fn lang(&self) -> &str {
+        self.lang
+    }
+
+    fn raw_imports(&self) -> &[String] {
+        &self.raw_imports
+    }
+
+    fn package_name(&self) -> &str {
+        &self.package_name
+    }
+
+    fn namespace_name(&self) -> &str {
+        &self.namespace_name
+    }
+
+    fn top_level_types(&self) -> &[String] {
+        &self.top_level_types
+    }
+
+    /// The graph's reverse edges come from `resolved_imports` (`Graph::assemble`), so `importedBy` is not kept.
+    fn set_edges(&mut self, resolved_imports: Vec<String>, _imported_by: Vec<String>) {
+        self.resolved_imports = resolved_imports;
+    }
+}
+
+/// The import edges Node's graph takes from the `mixdog-graph` binary's records (graph-binary.mjs
+/// `_fileInfoFromRustRecord`): the binary's own `resolve_and_link` over every indexed file, with the project's
+/// manifests (go.mod, tsconfig/jsconfig, package.json workspaces, Cargo.toml, composer, pubspec) read under `root`.
+fn link(root: &Path, nodes: &mut [Node]) {
+    let files: HashSet<String> = nodes.iter().map(|n| n.rel.clone()).collect();
+    resolve_and_link(nodes, root, &files);
 }

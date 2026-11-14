@@ -94,6 +94,7 @@ use tokio::sync::watch;
 use mixdog_tools::policy::SessionSurface;
 
 use super::SessionDeps;
+use super::StartHold;
 use super::control::ActiveRun;
 use super::control::ControlCell;
 use super::control::Ctl;
@@ -161,8 +162,9 @@ const SESSION_TITLE_INVALID: &str = "Session title is invalid.";
 /// Node host gone the core is the first place a phone's rename is checked.
 const TITLE_INVALID: &str = "title is invalid.";
 
-/// How long a thread nobody ever watched may sit quiet before it unloads (`idleEvictMs` of
-/// `session-service.mjs`: `MIXDOG_SESSION_IDLE_EVICT_MS`, default 5 minutes).
+/// How long a thread nobody watches may sit quiet before it unloads (`idleEvictMs` of
+/// `session-service.mjs`: `MIXDOG_SESSION_IDLE_EVICT_MS`, default 5 minutes): one nobody ever watched, or one its last
+/// subscriber left (`retainedAt`).
 pub(super) const IDLE_EVICT: Duration = Duration::from_secs(5 * 60);
 /// `STATUS_SETTLE_MS` (`session-status-scheduler.mjs:14`): the beat a status pass waits after its
 /// first mark, here the load's.
@@ -171,6 +173,8 @@ pub(super) const STATUS_SETTLE: Duration = Duration::from_millis(16);
 const ROUTE_STATUS_DEADLINE: Duration = Duration::from_secs(10);
 /// The header keys that move the route's context window (`applyRouteContextWindow`).
 const WINDOW_KEYS: [&str; 5] = ["provider", "model", "contextWindow", "compactBoundaryTokens", "autoCompactTokenLimit"];
+/// The header keys the workflow section is read from ([`SessionState::workflow`]).
+const WORKFLOW_KEYS: [&str; 4] = ["workflow", "orchestrationMode", "pendingWorkflowId", "pendingOrchestrationMode"];
 
 /// `item/completed` of an item a history row shows.
 fn item_completed(thread: &ThreadId, row: &ItemRecord, item: &ThreadItem) -> Note {
@@ -225,9 +229,9 @@ pub(crate) enum Inbox {
         /// `enqueuePendingMessage`), or once the same entry, already queued, is.
         durable: Option<oneshot::Sender<Result<(), RunError>>>,
     },
-    /// The job board's activity signal: a job of this thread was added or finished
-    /// (`agent_activity.rs`).
-    AgentActivity,
+    /// An agent status signal (`agent_activity.rs`): `named`, the job board's, a job of this thread was added or finished;
+    /// otherwise one from a source that names no session.
+    AgentActivity { named: bool },
     /// A value marked in a session whose text this thread holds reached it (`SensitiveMarks::carry`): what the thread
     /// stored goes as for a mark of its own, whether a turn runs or not.
     SensitiveCarried,
@@ -248,6 +252,8 @@ pub(crate) enum Inbox {
     QuotaFacts { tx: oneshot::Sender<super::quota_lane::ResumeCheck> },
     /// `cancelQuotaResume`: the explicit cancel of the pending resume.
     QuotaCancelled { tx: oneshot::Sender<()> },
+    /// `subscribeQuotaResume`: the queued resume of this thread (or of every thread) changed.
+    QuotaResumeChanged,
     /// `fireQuotaResume({ generation })`: the scheduler fires the queued resume of `generation`.
     QuotaResumeFire { generation: u64, tx: oneshot::Sender<Result<super::quota_resume_scheduler::FireOutcome, String>> },
     /// `commitSessionCompaction`: a manual compaction's result, committed when no turn runs.
@@ -276,6 +282,9 @@ pub(crate) enum Inbox {
     /// the prune the turn stopped runs, as a turn's end runs it (`run_ended`).
     #[cfg(test)]
     AskEnded,
+    /// The idle deadline, come now: a test on the real clock does not wait out [`IDLE_EVICT`].
+    #[cfg(any(test, feature = "test-support"))]
+    IdleDue,
 }
 
 /// A route move waiting for its new route's context status: applied, with those figures, when the read returns.
@@ -365,6 +374,8 @@ pub(crate) enum JobDone {
         ask: ApprovalAsk,
         reply: oneshot::Sender<ApprovalResolution>,
         result: Result<ApprovalId, CoreError>,
+        /// `approvalSurface` of the asking session: `None` for a top-level one.
+        surface: Option<super::delegation::ApprovalSurface>,
     },
     /// The running turn's session gained a sensitive value.
     SensitiveMarked,
@@ -680,6 +691,9 @@ struct RunSlot {
     live_call: super::live_call::LiveCall,
     /// The session's input and output tokens as the turn began (`turn.inputBaseline`, `turn.outputBaseline`).
     tokens_at_start: (u64, u64),
+    /// The run's registration with the core's lifecycle ([`super::BusyHold::run`]), held for the run's life: a confirmed stop's abort
+    /// cancels it.
+    _core_abort: Box<dyn Send + Sync>,
 }
 
 /// What a failed turn's close reads of its run ([`SessionActor::close_failed`]).
@@ -777,6 +791,12 @@ pub(crate) struct SessionActor {
     /// A turn asked while records are unsaved (`awaitPreviousTurnDurable`): it starts once they land, and is refused
     /// if their retry fails.
     deferred_start: Option<DeferredStart>,
+    /// The core's hold on new turn starts ([`SessionDeps::start_hold`]), read once where a start is decided: a client's
+    /// `turn/start` ([`Self::turn_start`]) and a queue drain ([`Self::drain_gated`]). An in-core start waited it out before it
+    /// was admitted (`SessionHandle::turn_start`).
+    start_hold: watch::Receiver<StartHold>,
+    /// The session's hold on the core while it is busy ([`Self::core_busy`], [`SessionDeps::core_work`]).
+    core_busy_hold: Option<Box<dyn super::BusyHold>>,
     /// The outbox entry of the last closed turn's `turnCoverage` record: the turn is settled once it is gone.
     coverage: Option<u64>,
     book: ApprovalBook,
@@ -826,7 +846,7 @@ pub(crate) struct SessionActor {
     suppressed: std::collections::HashSet<String>,
     /// Completions a wake drained that still wait for their own turns, oldest first.
     wake_tail: Vec<String>,
-    /// A queue drain waited for [`Self::starts_gated`]: the pump runs it once starts are free.
+    /// A queue drain waited for [`Self::drain_gated`]: the pump runs it once starts are free.
     drain_held: bool,
     /// A delete closed the thread (`Ctl::Delete`): no run starts again.
     deleting: bool,
@@ -865,7 +885,7 @@ pub(crate) struct SessionActor {
     recovering: bool,
     /// The opener waiting for the open-time recovery.
     opened: Option<oneshot::Sender<()>>,
-    /// When a thread nobody ever watched, quiet since, is unloaded (Node's `idleEvictMs` deadline
+    /// When a thread nobody watches, quiet since, is unloaded (Node's `idleEvictMs` deadline
     /// on the idle clock); `None` while it is not waiting for that.
     idle_evict_at: Option<tokio::time::Instant>,
     /// A continuation was asked for while that check ran; it is decided once the check is back.
@@ -1020,6 +1040,19 @@ fn display_text(input: &TurnInput) -> String {
     mixdog_js::js_trim(given.map_or_else(|| prompt_text(input), str::to_owned).as_str()).to_owned()
 }
 
+/// `promptDisplayText(..).trim()` is not blank (`submission.mjs:10`) as far as the prompt's texts go: it shows text
+/// ([`display_text`]), or holds a text the intake moved into the store (a pasted text, `materializePromptSubmission`), which
+/// Node's `promptContentText` reads back and the store never keeps empty (`saveBuffer`).
+fn shows_text(input: &TurnInput) -> bool {
+    let stored = match &input.prompt {
+        PromptContent::Parts(parts) => parts
+            .iter()
+            .any(|part| matches!(part, PromptPart::Text { attachment_ref: Some(reference), .. } if super::prompt_submission::is_attachment_ref(reference))),
+        PromptContent::Text(_) => false,
+    };
+    stored || !display_text(input).is_empty()
+}
+
 /// The prompt's text parts, as the user row shows them.
 fn prompt_text(input: &TurnInput) -> String {
     match &input.prompt {
@@ -1049,9 +1082,16 @@ pub(super) struct Taken {
 
 impl Taken {
     pub(super) fn of(queued: &Queued) -> Self {
-        let text = serde_json::from_value::<PromptContent>(queued.entry["message"].clone())
-            .map(|prompt| prompt_text(&TurnInput { prompt, options: None }))
-            .unwrap_or_default();
+        // `entry.text` is `promptDisplayText(content, options)` (`entry-shape.mjs:17`): the display text when it is not blank, so
+        // a composer's chip tokens come back though the intake turned the pasted texts they name into stored parts
+        // (`materializePromptSubmission`); else the prompt's text.
+        let shown = queued.entry.pointer("/options/displayText").and_then(Value::as_str).filter(|text| !mixdog_js::js_trim(text).is_empty());
+        let text = match shown {
+            Some(shown) => shown.to_owned(),
+            None => serde_json::from_value::<PromptContent>(queued.entry["message"].clone())
+                .map(|prompt| prompt_text(&TurnInput { prompt, options: None }))
+                .unwrap_or_default(),
+        };
         let files = queued.entry["message"]
             .as_array()
             .map(|parts| parts.iter().filter(|part| part["type"] == "file").cloned().collect())
@@ -1156,7 +1196,7 @@ mod restored_reply_tests {
             std::fs::create_dir_all(&folder).unwrap();
             std::fs::write(folder.join(reference), STANDARD.decode(data.as_str().unwrap()).unwrap()).unwrap();
         }
-        let store = AttachmentStore(dir.path().to_path_buf());
+        let store = AttachmentStore(mixdog_store::blobs::BlobStore::new(dir.path()));
         let tokens = mixdog_rt::testing::tokens();
         let cases = twin["cases"].as_array().unwrap();
         assert_eq!(cases.len(), 13);
@@ -1176,6 +1216,20 @@ mod restored_reply_tests {
             let left: Vec<&str> = queue.iter().filter(|q| !taken.iter().any(|t| t.id == q.qid)).map(|q| q.qid.as_str()).collect();
             assert_eq!(json!(left), case["left"], "{name}: what stays queued");
         }
+    }
+
+    /// `entry.text` is `promptDisplayText`: a queued paste comes back with its chip's token, which the desktop composer needs to
+    /// restore the pasted text (`restoreAttachmentsFromRecord` keeps a pasted text only when its token is in the text), though
+    /// the intake moved the text out of the prompt; a blank display text falls back to the prompt's text.
+    #[test]
+    fn a_queued_prompt_comes_back_as_its_display_text() {
+        let pasted = json!({
+            "message": [{ "type": "text", "text": "see " }, { "type": "text", "textKind": "paste", "attachmentRef": "a".repeat(64), "sizeBytes": 3 }],
+            "options": { "displayText": "see [Pasted text #1 +400 lines]", "pastedTexts": { "1": { "id": 1, "attachmentRef": "a".repeat(64), "sizeBytes": 3, "chars": 3 } } },
+        });
+        assert_eq!(Taken::of(&Queued { qid: "q1".into(), entry: pasted, display: Value::Null }).text, "see [Pasted text #1 +400 lines]");
+        let blank = json!({ "message": "plain", "options": { "displayText": "  " } });
+        assert_eq!(Taken::of(&Queued { qid: "q2".into(), entry: blank, display: Value::Null }).text, "plain");
     }
 }
 
@@ -1228,6 +1282,8 @@ impl SessionActor {
             retry_due: false,
             save_failure: Arc::from(""),
             deferred_start: None,
+            start_hold: deps.start_hold.clone(),
+            core_busy_hold: None,
             coverage: None,
             book: ApprovalBook::default(),
             ops: OpTable::default(),
@@ -1357,11 +1413,11 @@ impl SessionActor {
         // The session is installed (created or resumed): `syncSessionCompaction` (`boot/infrastructure.mjs`).
         self.sync_compaction();
         self.seed_route_config();
+        self.seed_todo();
         self.deps.runtime_hooks.started(&self.id);
         self.load_persisted_prompts();
         self.pump();
-        // A thread opened for a caller that never attaches a feed (a worker, a headless run) has
-        // no last unsubscribe to unload it: it starts on the idle clock.
+        // Nobody watches it until a client attaches (a worker, a headless run never does): it starts on the idle clock.
         self.arm_idle_evict();
         // `applyResolvedCwd` of the opened session's cwd (`resume.mjs:158`): unchanged.
         self.cwd_applied(false);
@@ -1372,6 +1428,8 @@ impl SessionActor {
         if let Some(agents) = self.agents_with_scope() {
             self.accept_view(Change::Section(Section::Agents(agents)), Vec::new());
         }
+        // The state starts with the resume this thread waits on (`getQuotaResume`, `context-state.mjs`).
+        self.publish_quota_resume();
         self.read_agent_status(false);
         self.reconcile_offloads();
         self.read_context_display();
@@ -1396,6 +1454,9 @@ impl SessionActor {
                         done => self.on_job(done),
                     }
                 }
+                // The core's hold moved while a queue drain waits on it: the pump below drains once it is open (a release, a
+                // cancelled drain).
+                Ok(()) = self.start_hold.changed(), if self.drain_held => self.stepping(),
                 _ = sleep_until(deadline), if deadline.is_some() => { self.stepping(); self.on_deadline() }
                 _ = sleep_until(self.idle_evict_at), if self.idle_evict_at.is_some() => { self.stepping(); self.on_idle_evict() }
                 _ = sleep_until(self.frames.due()), if self.frames.due().is_some() => {
@@ -1419,11 +1480,15 @@ impl SessionActor {
             // as their writes are acked, so the chain ends once no write of it is still in flight. The frame timer still bounds it.
             let flushed = if self.outbox.is_empty() { self.frames.chain_end() } else { None };
             self.publish_frame(flushed);
-            // An unload that waited for its writes: everything accepted is on disk now.
+            // An unload that waited for its writes: everything accepted is on disk now. It is decided again as it was: a closed
+            // thread's by its close ([`Self::try_unload`]), an idle one's by its deadline ([`Self::idle_checked`]: one no longer
+            // evictable, or whose clock restarted meanwhile, stays).
             if self.unload_due && self.outbox.is_empty() {
                 self.unload_due = false;
-                if self.quiet() {
-                    self.unload();
+                if self.tombstoned {
+                    self.try_unload();
+                } else {
+                    self.idle_checked(false);
                 }
             }
             // A close this session could not follow at once: it leaves as soon as what it was finishing is over,
@@ -1434,6 +1499,7 @@ impl SessionActor {
             if let Some(follow) = &settings {
                 follow.shown();
             }
+            self.hold_core_while_busy();
             self.cell.turn_held.store(self.ask_lock_held(), SeqCst);
             self.cell.turn_pending.store(self.turn_pending(), SeqCst);
             self.cell.ui_busy.store(self.ui_busy(), SeqCst);
@@ -1576,10 +1642,16 @@ impl SessionActor {
         self.accept_record(meta, Class::Control, Display::None, Vec::new(), vec![Effect::MarkAck(marked)]);
     }
 
-    /// Unloads when the last subscriber has left and nothing is live: no run, no queued
-    /// input, no pending approval. The memory ingest fires without waiting (today's
+    /// Unloads a closed thread once nothing is live: no run, no queued input, no pending approval. Any other thread stays
+    /// loaded, its idle clock started over. The memory ingest fires without waiting (today's
     /// `void ingestSessionIntoMemory(session)` when the CLI closes a session).
     fn try_unload(&mut self) {
+        // Retained, as Node retains a session none ever watched or its last view left (`unsubscribeSession` sets
+        // `retainedAt`): the idle deadline unloads it once it finds it quiet, unwatched and not busy ([`Self::on_idle_evict`]).
+        if !self.tombstoned {
+            self.arm_idle_evict();
+            return;
+        }
         if !self.quiet() {
             // A close waits for what this session is finishing by itself; a subscriber, queued input or a pending
             // approval may stay for good, and the close is answered with the session still loaded.
@@ -1588,13 +1660,52 @@ impl SessionActor {
             }
             return;
         }
-        // Nobody ever attached: there is no last unsubscribe, so the idle clock decides; a
-        // closed thread unloads at once (`_clearSessionRuntime`).
-        if !self.cell.ever_attached() && !self.tombstoned {
-            self.arm_idle_evict();
-            return;
-        }
+        // A closed thread unloads at once (`_clearSessionRuntime`).
         self.unload();
+    }
+
+    /// Work besides what [`Self::quiet`] reads that keeps a thread nobody watches loaded (`busy.mjs` `sessionBusy`: the turn
+    /// state, `commandBusy`): a turn about to start (a deferred start, a Goal entry checked, a quota resume), a Goal
+    /// continuation being decided, a compaction running or holding the turns after it.
+    fn session_busy(&self) -> bool {
+        self.turn_busy() || self.goal_scheduled || self.compactions > 0 || self.compaction_held()
+    }
+
+    /// Node's `sessionTurnBusy` (`busy.mjs` `stateBusy`: `busy`, `commandBusy`, `queued`) as the core's lifecycle counts the session
+    /// ([`SessionDeps::core_work`]): a turn runs, starts, settles or waits to start, a Goal continuation is decided or its entry
+    /// checked, a compaction runs, or queued input waits only for the previous turn to land (or the scheduled compaction to end).
+    /// Node's `stateBusy` counts any queued input (`queued.length > 0`); here input queued while nothing gates its start is not
+    /// counted: input the core's hold keeps queued (under Node's hold a client's submit is refused and nothing queues), and input
+    /// queued while a quota resume is pending (Node's `drain-enqueue.mjs` queues it under `flags.quotaResumePending`, and it keeps
+    /// Node's daemon up until the resume) or for a session that is not woken by it. That divergence is a follow-up.
+    fn core_busy(&self) -> bool {
+        self.turn_held()
+            || self.goal_checking
+            || self.goal_scheduled
+            || self.compactions > 0
+            || (self.starts_gated() && !self.projected.queue.is_empty())
+    }
+
+    /// The session's hold on the core follows [`Self::core_busy`], after every step.
+    fn hold_core_while_busy(&mut self) {
+        if self.core_busy() {
+            self.hold_core();
+        } else {
+            self.core_busy_hold = None;
+        }
+    }
+
+    /// The session's hold on the core, taken now if the session held none.
+    fn hold_core(&mut self) -> &dyn super::BusyHold {
+        let title = self.acked.header.get("title").and_then(Value::as_str).unwrap_or_default();
+        &**self.core_busy_hold.get_or_insert_with(|| self.deps.core_work.busy(&self.id, title))
+    }
+
+    /// `evictable` (`retention.mjs`): unwatched with nothing live ([`Self::quiet`]) and not busy ([`Self::session_busy`]), with no
+    /// in-core start waiting out the core's hold on it (`ControlCell::deferring`). The background work `sessionBusy` also counts is
+    /// read apart, off the actor ([`Self::on_idle_evict`]).
+    fn evictable(&self) -> bool {
+        self.quiet() && !self.session_busy() && self.cell.deferring.load(SeqCst) == 0
     }
 
     /// Work that ends by itself is still under way: a delete, a turn's settle, a start, a Goal check, the run.
@@ -1653,17 +1764,17 @@ impl SessionActor {
         }
     }
 
-    /// The idle clock of a thread nobody watched starts over.
+    /// The idle clock of a thread nobody watches starts over; a watched one is off it (`retention.mjs` `unwatchedRetained`).
     fn arm_idle_evict(&mut self) {
-        self.idle_evict_at = (!self.cell.ever_attached()).then(|| tokio::time::Instant::now() + IDLE_EVICT);
+        self.idle_evict_at = (self.cell.attached() == 0).then(|| tokio::time::Instant::now() + IDLE_EVICT);
     }
 
-    /// The idle deadline came: a thread found working waits the whole delay again. Working is
-    /// also background work the thread started that still runs (`idle-clock.mjs` `working`:
+    /// The idle deadline came: a thread found working waits the whole delay again, one found watched waits for its last
+    /// subscriber to leave. Working is also background work the thread started that still runs (`idle-clock.mjs` `working`:
     /// `hasActiveBackgroundTasks({ callerSessionId })`, any surface), read before the unload.
     fn on_idle_evict(&mut self) {
         self.idle_evict_at = None;
-        if !self.quiet() {
+        if !self.evictable() {
             self.arm_idle_evict();
             return;
         }
@@ -1674,20 +1785,20 @@ impl SessionActor {
         });
     }
 
-    /// The idle deadline's background-work read answered. A clock armed again meanwhile (the
-    /// thread went quiet once more) is the newer one.
+    /// The idle deadline's background-work read answered, or the unload it decided has its writes on disk. A clock armed again
+    /// meanwhile (the thread went quiet once more, a client resumed it) is the newer one.
     fn idle_checked(&mut self, working: bool) {
         if self.idle_evict_at.is_some() {
             return;
         }
-        if working || !self.quiet() {
+        if working || !self.evictable() {
             self.arm_idle_evict();
         } else {
             self.unload();
         }
     }
 
-    /// The close of a quiet session (`closeSession`'s teardown, the last unsubscribe, the idle clock). It completes only once
+    /// The close of a quiet session (`closeSession`'s teardown, the idle clock). It completes only once
     /// everything the session accepted is on disk: what a failed write left goes first, in accept order, and a write that
     /// fails meanwhile fails the close, the session staying open with all of it held ([`Self::on_durability`]), as Node keeps
     /// the runtime whose close barrier did not land (`session-close.mjs` `finishClose`). So an unloaded session leaves nothing
@@ -1711,10 +1822,11 @@ impl SessionActor {
     /// longer than `withTeardownDeadline`'s 300 ms (a slower hook goes on by itself), then the memory ingest. `reason` is the
     /// payload's (`sessionEndReason`): `exit` for the core's shutdown (`cli-exit`), `other` for an unload. A session its
     /// close tombstoned or deleted has none left to end: `closeCanonicalSession` drops it before the runtime closes
-    /// (`if (!session?.id) return`).
+    /// (`if (!session?.id) return`). Nor has one the core's exit already ended (`ExitClose`, which fires `SessionEnd` before it
+    /// closes the session, as `close(reason)` dispatches it before `closeOwnSession`).
     fn close_work(&self, reason: &'static str) -> futures::future::BoxFuture<'static, ()> {
         let ingest = self.close_ingest();
-        if self.tombstoned || self.deleting {
+        if self.tombstoned || self.deleting || self.cell.session_ended.load(SeqCst) {
             return ingest;
         }
         let (hooks, thread, header) = (self.deps.lifecycle.clone(), self.id.clone(), self.acked.header.clone());
@@ -1790,6 +1902,8 @@ impl SessionActor {
         let window_moved = moved(&WINDOW_KEYS);
         // A pick held for the next turn is the runtime's route at once (the state's provider, model, effort and contextPercent).
         let held_moved = moved(&["pendingRoute"]);
+        // The session's list moved (`commitPhases` / `clearTodo` of `todo-list.mjs` write `session.todo`).
+        let todo_moved = moved(&["todo"]);
         let route_moved = moved(&["provider", "model"]) || moved(&["cwd"]) || held_moved;
         let window_before = (self.projected.header.get("contextWindow").cloned(), self.projected.header.get("rawContextWindow").cloned());
         let change = Change::Record {
@@ -1834,6 +1948,14 @@ impl SessionActor {
                 self.accept_view_after(Some(entry), Change::Section(Section::Agents(agents)), Vec::new(), Vec::new());
             }
             self.read_agent_status(false);
+        }
+        if todo_moved {
+            // A todo call republishes the list at once (`onTodoChange` -> `set({ todo: todoSnapshot(runtime.session) })`,
+            // local-session-runtime.mjs:506-509).
+            let todo = mixdog_core_ports::ports::todo_list::snapshot_of(&self.projected.header);
+            if self.projected.sections.todo != todo {
+                self.accept_view_after(Some(entry), Change::Section(Section::Todo(todo)), Vec::new(), Vec::new());
+            }
         }
         entry
     }
@@ -2276,7 +2398,8 @@ impl SessionActor {
                 ask,
                 reply,
                 result,
-            } => self.approval_id(turn, ask, reply, result),
+                surface,
+            } => self.approval_id(turn, ask, reply, result, surface),
             // Today's `ingestSessionTurn(turn.session)` on a mark (`ask-turn-state.mjs:104`):
             // the search rows get a replacement under the new version, once what the turn
             // committed so far is durable.
@@ -2375,7 +2498,11 @@ impl SessionActor {
             }
             JobDone::Replied { op, tx, result } => self.replied(op, tx, result),
             JobDone::Compacted { op, tx, result, recover } => self.compacted(op, tx, result, recover),
-            JobDone::CompactionEnded => self.compactions = self.compactions.saturating_sub(1),
+            JobDone::CompactionEnded => {
+                self.compactions = self.compactions.saturating_sub(1);
+                // A busy change (`updateEntryBusy`'s `onBusyChange`): the idle clock starts over.
+                self.try_unload();
+            }
             JobDone::ScheduledCompactionEnded => self.scheduled_compaction_ended(),
             JobDone::SetupUiExpired(id) => self.setup_ui_settled(&id),
             JobDone::RetryChecked { op, tx, key, retained, provenance } => self.retry_checked(op, tx, key, retained, provenance),
@@ -2615,7 +2742,8 @@ impl SessionActor {
             && !self.cell.closed.load(SeqCst)
     }
 
-    /// The continuation decision: an active Goal's prompt is queued as the next turn.
+    /// The continuation decision: an active Goal's prompt is queued as the next turn. A decision that queues none is no busy
+    /// change (Node decides inside `scheduleGoalContinuation`'s `setImmediate`): the idle clock is left as it is.
     fn goal_decision(&mut self, decision: Option<mixdog_core_goal::goal::Continuation>) {
         self.goal_scheduled = false;
         let Some(decision) = decision else { return };
@@ -2674,12 +2802,13 @@ impl SessionActor {
             }
         }
         let mut notes = Vec::new();
+        let mut header_moved = false;
         self.releasing = true;
         while let Some((entry, ordinal)) = self.outbox.pop_ready() {
             if entry.held {
                 self.saved(&entry, ordinal);
             } else {
-                self.release(entry, ordinal, &mut notes);
+                header_moved |= self.release(entry, ordinal, &mut notes);
             }
         }
         self.releasing = false;
@@ -2690,7 +2819,7 @@ impl SessionActor {
             // kickoff's busy still waits for the turn's own next runtime change, however the writes are timed.
             notes.push(self.storage_note());
         }
-        if !notes.is_empty() {
+        if !notes.is_empty() || header_moved {
             self.publish(notes);
         }
         for released in self.after_publish.drain(..) {
@@ -2701,11 +2830,11 @@ impl SessionActor {
             let _ = tx.send(Ok(Reply::Value(value)));
         }
         // The unsaved records landed (and the crashed runs ended): the turn that waited for them starts, or the queue
-        // drain that waited goes on.
+        // drain that waited goes on (once the core's hold is open too).
         if !self.starts_gated() {
             if let Some(start) = self.deferred_start.take() {
                 self.start_run_with(start.input, start.body, start.op_ref, start.reply, start.prompt, start.wake);
-            } else if std::mem::take(&mut self.drain_held) {
+            } else if !self.drain_gated() && std::mem::take(&mut self.drain_held) {
                 self.start_next_queued();
             }
         }
@@ -2739,7 +2868,10 @@ impl SessionActor {
         }
     }
 
-    fn release(&mut self, entry: Entry, ordinal: Option<u64>, notes: &mut Vec<Note>) {
+    /// Applies a released entry to the acked state; `true` when it changed the stored header. The view (`thread/read`, a
+    /// snapshot's summary) is published then even when no note carries the change: Node's rows read the live session
+    /// (`session-catalog.mjs`), as after a compaction that shows nothing live.
+    fn release(&mut self, entry: Entry, ordinal: Option<u64>, notes: &mut Vec<Note>) -> bool {
         let title = self.acked.sections.title.clone();
         let prompts = self.acked.prompt_history.clone();
         let queue_rows = self.acked.queued_rows();
@@ -2788,9 +2920,8 @@ impl SessionActor {
                 }
             }
         }
-        if let Change::Record { record, .. } = &entry.change
-            && matches!(**record, Record::Meta(_) | Record::Session(_))
-        {
+        let header_moved = matches!(&entry.change, Change::Record { record, .. } if matches!(**record, Record::Meta(_) | Record::Session(_)));
+        if header_moved {
             self.publish_live_header();
             self.refresh_surface();
             // `sessionRecords.onChange`: this session's stored record changed.
@@ -2818,6 +2949,7 @@ impl SessionActor {
         for effect in entry.effects {
             self.effect_done(effect);
         }
+        header_moved
     }
 
     fn derived_notes(
@@ -2876,12 +3008,26 @@ impl SessionActor {
                     )));
                 }
                 Record::Meta(_) | Record::Session(_) => {
-                    // `toolMode` is runtime state (Node's `runtime.toolMode`), moved by `thread/setToolMode` in the header.
                     if let Record::Meta(meta) = &**record
                         && let mixdog_store::schema::blob::Slot::Inline(header) = &meta.change
-                        && header.set.contains_key("toolMode")
                     {
-                        notes.push(self.runtime_note());
+                        // `toolMode` is runtime state (Node's `runtime.toolMode`), moved by `thread/setToolMode` in the header.
+                        if header.set.contains_key("toolMode") {
+                            notes.push(self.runtime_note());
+                        }
+                        // A workflow or orchestration-mode switch, applied or staged for the next turn, and the turn start that
+                        // applies a staged one republish the workflow state (`publishRoute()` after `setWorkflow` /
+                        // `setOrchestrationMode`, `tui/session/session-api/routes.mjs`, and after `applyPendingSessionSwitches`).
+                        // A workflow staged under an id whose meta the thread does not hold yet is shown by the meta its switch
+                        // publishes right after this record (`SessionSwitchAdapter::switch`; the header holds the id only): that
+                        // section sends the state, so the old workflow is not shown as the pending one first (Node's one
+                        // `publishRoute()` shows the staged summary).
+                        let staged = header.set.get("pendingWorkflowId").and_then(Value::as_str).filter(|id| !id.is_empty());
+                        let held_meta = self.acked.sections.workflow.as_ref().and_then(|section| section.workflow.as_ref());
+                        let meta_follows = staged.is_some_and(|id| held_meta.and_then(|meta| meta.get("id")).and_then(Value::as_str) != Some(id));
+                        if !meta_follows && WORKFLOW_KEYS.iter().any(|key| header.set.contains_key(*key) || header.unset.iter().any(|unset| unset.as_str() == *key)) {
+                            notes.push(self.workflow_note());
+                        }
                     }
                     if self.acked.sections.title != *title_before
                         && let Some(title) = &self.acked.sections.title
@@ -2934,7 +3080,7 @@ impl SessionActor {
             Section::QuotaResume(v) => note("thread/quotaResume/updated", t, v),
             Section::Agents(v) => note("thread/agents/updated", t, v),
             Section::ShellJobs(v) => note("thread/shellJobs/updated", t, v),
-            Section::Workflow(v) => note("thread/workflow/updated", t, v),
+            Section::Workflow(_) => self.workflow_note(),
             Section::Workspace(v) => note("thread/workspace/updated", t, v),
             Section::Approvals(v) => note("thread/approvals/updated", t, v),
             Section::PromptRestore(v) => note("thread/promptRestore", t, v),
@@ -2953,6 +3099,11 @@ impl SessionActor {
             value.spinner = None;
         }
         Note::new("thread/runtime/updated", &ThreadSectionParams { thread_id: self.id.clone(), value })
+    }
+
+    /// The workflow section as the header and a staged workflow's published meta give it ([`SessionState::workflow`]).
+    fn workflow_note(&self) -> Note {
+        Note::new("thread/workflow/updated", &ThreadSectionParams { thread_id: self.id.clone(), value: self.acked.workflow() })
     }
 
     fn runtime_note(&self) -> Note {
@@ -3114,6 +3265,7 @@ impl SessionActor {
         }
         self.tell_retained(&retained, error);
         let mut notes = Vec::new();
+        let mut header_moved = false;
         let handed: Vec<u64> = self.outbox.handed();
         // A turn whose start was not saved does not run: no provider call is made while the session cannot be saved,
         // and its input row goes with it, as Node's ask is refused before it touches the session.
@@ -3155,7 +3307,7 @@ impl SessionActor {
                 let entry = Entry { id, durable: None, change, notes: kept, effects, needs: None, held: false };
                 // The replies of what is released unsaved are sent once its view is published, as the pump's are.
                 self.releasing = true;
-                self.release(entry, None, &mut notes);
+                header_moved |= self.release(entry, None, &mut notes);
                 self.releasing = false;
             }
         }
@@ -3171,7 +3323,7 @@ impl SessionActor {
             }
         }
         self.rebuild_projected();
-        if !notes.is_empty() {
+        if !notes.is_empty() || header_moved {
             self.publish(notes);
         }
         // A turn waiting for the barrier that failed gets the one fresh save `awaitPreviousTurnDurable` makes.
@@ -3567,6 +3719,9 @@ impl SessionActor {
             // (`restoreLeadSteeringFromDisk`, `steering.mjs:291`), the resume's release drains it once (`resume.mjs:72`).
             // A resume also drains the rows the thread holds queued now.
             Ctl::Resumed => {
+                // The view coming restarts the idle clock (`addSubscriber`'s `onViewersChange`, `idleClock.refresh`): an unload the
+                // deadline decided before the client's attach is counted is void ([`Self::idle_checked`]).
+                self.arm_idle_evict();
                 let restored = std::mem::take(&mut self.restored_queue);
                 if restored || !self.projected.queued_rows().is_empty() {
                     self.start_next_queued();
@@ -3839,12 +3994,12 @@ impl SessionActor {
             let (phase, detail) = match outcome {
                 RunOutcome::Completed(_) => (RunPhase::Completed, None),
                 RunOutcome::Interrupted => (RunPhase::Interrupted, None),
-                RunOutcome::Failed(error) => (
-                    RunPhase::Failed,
-                    Some(Slot::Inline(
-                        serde_json::to_value(&error).expect("protocol types serialize"),
-                    )),
-                ),
+                // The record is read back, forked and restored, and its error is the one `turn/completed` carries: its
+                // message is masked as the failure record's `errorDetails` is (`safeErrorDetails`, `turn-failure.mjs`).
+                RunOutcome::Failed(mut error) => {
+                    error.message = mixdog_ai::service::error_text::safe_error_details(&error.message);
+                    (RunPhase::Failed, Some(Slot::Inline(serde_json::to_value(&error).expect("protocol types serialize"))))
+                }
             };
             let completed = phase == RunPhase::Completed;
             let record = Record::Run(RunRecord {
@@ -4194,7 +4349,7 @@ impl SessionActor {
         }
         // Nothing is dequeued while starts are held: the drain goes on once they are not (an unsaved turn's records
         // are written again first).
-        if self.starts_gated() {
+        if self.drain_gated() {
             #[cfg(any(test, feature = "test-support"))]
             if !self.projected.queue.is_empty() {
                 self.cell.gate_holds.fetch_add(1, SeqCst);
@@ -4399,6 +4554,19 @@ impl SessionActor {
         self.turn_unsettled() || self.compaction_held()
     }
 
+    /// A queue drain may not dequeue now: starts are held ([`Self::starts_gated`]), or the core holds new turn starts (`hold{on}`,
+    /// LR §5.1 step 1: deferred, not refused) or its drain commit closed them (step 2: the queue stays for the next core, or for
+    /// this one once the drain is cancelled). The hold is read here, where the drain decides, and not again by the start: what it
+    /// dequeues (a prompt, a completion, a Goal entry checked later) starts whatever the hold reads next, so none is lost.
+    fn drain_gated(&self) -> bool {
+        self.starts_gated() || self.core_hold() != StartHold::Open
+    }
+
+    /// The core's hold on new turn starts as it reads now.
+    fn core_hold(&self) -> StartHold {
+        *self.start_hold.borrow()
+    }
+
     /// A turn runs, is starting or is settling: what Node's ask lock is held for.
     fn turn_held(&self) -> bool {
         self.run.is_some() || self.starting || self.settling || self.deferred_start.is_some()
@@ -4580,6 +4748,17 @@ impl SessionActor {
         let change = Change::Section(Section::Route(self.deps.compaction.route_config(&self.projected.header)));
         self.projected.apply(&change, None);
         self.acked.apply(&change, None);
+    }
+
+    /// The installed session's state holds its stored list from its start (`todo: todoSnapshot(session)`,
+    /// store-transcript-projection.mjs:312): seeded like the route values, no frame announces it.
+    fn seed_todo(&mut self) {
+        let todo = mixdog_core_ports::ports::todo_list::snapshot_of(&self.projected.header);
+        if todo.is_some() {
+            let change = Change::Section(Section::Todo(todo));
+            self.projected.apply(&change, None);
+            self.acked.apply(&change, None);
+        }
     }
 
     /// The route section's configured values (`autoClear`, `systemShell`, `webSearchRoute` of `baseRouteState`), published when the
@@ -4765,6 +4944,10 @@ impl SessionActor {
             }
             ProducerMsg::GoalReminder { turn, preview, reply } => self.compaction_reminder_asked(turn, preview, reply),
             ProducerMsg::GoalReminderAcknowledged { revision } => self.compaction_reminder_acknowledged(revision),
+            ProducerMsg::ProviderPressure { turn, messages, tools, reply } => {
+                let books = self.active(&turn).then(|| self.deps.compaction.books(&self.id, &self.projected.header)).flatten();
+                let _ = reply.send(books.map(|books| super::usage_books::send_pressure(&self.projected.header, &messages, &tools, &books)).unwrap_or_default());
+            }
             ProducerMsg::Header { turn, change, ack } => {
                 if !self.active(&turn) {
                     let _ = ack.send(Err(RunError::NotApplied));
@@ -5433,8 +5616,9 @@ impl SessionActor {
         }))
     }
 
-    /// The id comes from the durable allocator off the actor; the request continues in
-    /// [`Self::approval_id`].
+    /// The id comes from the durable allocator off the actor, and a sub-agent's surface (`approvalSurface`, read by the
+    /// queue's `delegationSurface`) from its record and the agents' names; the request continues in [`Self::approval_id`].
+    /// Only a request of a delegated kind looks its surface up: a question's card never carries one, so it does not wait on it.
     fn request_approval(
         &mut self,
         turn: TurnId,
@@ -5443,13 +5627,21 @@ impl SessionActor {
     ) {
         let ids = self.deps.approval_ids.clone();
         let jobs = self.jobs_tx.clone();
+        let lookup = super::room_approval::is_delegated(&ask)
+            .then(|| (self.ch.directory.clone(), self.deps.agent_names.clone(), self.id.clone()));
         tokio::spawn(async move {
             let result = ids.next().await;
+            let lookup = lookup.and_then(|(directory, names, thread)| Some((directory.upgrade()?.outer()?, names, thread)));
+            let surface = match lookup {
+                Some((directory, names, thread)) => super::delegation::approval_surface(thread.as_str(), &directory, &*names).await,
+                None => None,
+            };
             let _ = jobs.send(JobDone::ApprovalId {
                 turn,
                 ask,
                 reply,
                 result,
+                surface,
             });
         });
     }
@@ -5461,6 +5653,7 @@ impl SessionActor {
         ask: ApprovalAsk,
         reply: oneshot::Sender<ApprovalResolution>,
         result: Result<ApprovalId, CoreError>,
+        surface: Option<super::delegation::ApprovalSurface>,
     ) {
         let aid = match result {
             Ok(aid) if self.active(&turn) => aid,
@@ -5478,6 +5671,9 @@ impl SessionActor {
         // `room_approval.rs` `tool_approval`), which the phone shows as Node's did.
         params["card"] = super::room_approval::tool_approval(&request);
         params["card"]["id"] = json!(super::room_approval::card_id(&request.id.0.to_string()));
+        if let Some(surface) = &surface {
+            super::room_approval::delegate_card(&mut params["card"], surface);
+        }
         let method = request.ask.kind.method();
         let pending = PendingServerRequest {
             id: aid.request_id(),
@@ -5525,7 +5721,7 @@ impl SessionActor {
                 live,
                 durable,
             } => self.task_notification(&surface, task_id, status, text, origin, live, durable),
-            Inbox::AgentActivity => self.agent_activity(),
+            Inbox::AgentActivity { named } => self.agent_activity(named),
             Inbox::SensitiveCarried => {
                 self.redact_prompts();
                 // The log now (a queued batch rewrites it before it appends anyway); the search rows once what is
@@ -5581,6 +5777,7 @@ impl SessionActor {
                     let _ = tx.send(());
                 });
             }
+            Inbox::QuotaResumeChanged => self.publish_quota_resume(),
             Inbox::QuotaResumeFire { generation, tx } => self.quota_fire(generation, tx),
             Inbox::Op { call, tx } => self.op_call(call, tx),
             Inbox::UpdateHeader { update, tx } => self.update_header(update, tx),
@@ -5595,6 +5792,8 @@ impl SessionActor {
                 self.cell.ask_marked.store(false, SeqCst);
                 self.run_deferred_prune();
             }
+            #[cfg(any(test, feature = "test-support"))]
+            Inbox::IdleDue => self.on_idle_evict(),
             Inbox::Request { req, tx } => {
                 let tx = match &req.op {
                     Some(op) => {
@@ -5786,7 +5985,7 @@ impl SessionActor {
         // A retried submission joins the original (`drain-enqueue.mjs:37`): an idempotent success, not a second prompt.
         if req.method.as_str() == "turn/start"
             && let Ok(params) = parse::<TurnStartParams>(&req.params, "TurnStartParams")
-            && display_text(&params.input) != ""
+            && shows_text(&params.input)
             && let Some(answer) = submission_id(&params.input).and_then(|id| self.submissions.answers.get(id))
         {
             let _ = tx.send(Ok(Reply::Value(answer.clone())));
@@ -5794,7 +5993,7 @@ impl SessionActor {
         }
         let tx = if req.method.as_str() == "turn/start"
             && let Ok(params) = parse::<TurnStartParams>(&req.params, "TurnStartParams")
-            && display_text(&params.input) != ""
+            && shows_text(&params.input)
             && let Some(id) = submission_id(&params.input)
         {
             match self.submissions.join(id, tx) {
@@ -5898,7 +6097,7 @@ impl SessionActor {
         }
         // `submission` (`submission.mjs:10`): a prompt that shows nothing is not a submission. Node answers `false`
         // before the session is touched; the wire answers a refusal with this code.
-        if user_prompt.is_some() && display_text(&params.input).is_empty() {
+        if user_prompt.is_some() && !shows_text(&params.input) {
             return Err(coded("session", SUBMIT_REFUSED, "The message is empty."));
         }
         // A deleted bot's chat is kept to read, never to talk to (`submitToSession` asks `sessionMetadata.isRetired`: the
@@ -5906,6 +6105,16 @@ impl SessionActor {
         if self.projected.header.get("retiredAt").and_then(Value::as_f64).is_some_and(|at| at > 0.0) {
             return Err(coded("session", SUBMIT_REFUSED, "This bot was deleted."));
         }
+        // The core holds new turn starts (`hold{on}`, LR §5.1 step 1): a client's prompt is queued below and answered at once, so
+        // its call keeps none of the thread's requests waiting behind it (Node refuses the send instead, `workGate.callRefusal`'s
+        // 503; LR defers it). An in-core start waited the hold out before it was admitted (`SessionHandle::turn_start`, Node's
+        // `daemonWorkGate.deferring`), so one the hold reached since starts, as Node's admitted start counts as running work.
+        // Once the drain commit dropped the hold, a start is refused as admission refuses one (step 2).
+        let hold = self.core_hold();
+        if let StartHold::Closed(drain_reason) = hold {
+            return Err(CoreError::ServerShuttingDown { drain_reason });
+        }
+        let held = hold == StartHold::Held && matches!(req.ctx.caller, Caller::Connection(_));
         // The device that sent a user prompt rides it (`transcriptMeta.device`, stamped by the host in Node).
         let submitter = match req.ctx.caller {
             Caller::Connection(connection) => Some(Submitter {
@@ -5925,10 +6134,10 @@ impl SessionActor {
             });
             self.archive_goal_on_user_input();
         }
-        // A turn starting or still settling, or the scheduled compaction's gate, holds the next one
-        // back: it is queued and starts after. A previous turn that is not saved yet holds it too, but as a
+        // A turn starting or still settling, the scheduled compaction's gate, or the core's hold on a client's start, holds the
+        // next one back: it is queued and starts after. A previous turn that is not saved yet holds it too, but as a
         // start that waits for the save ([`Self::start_run_with`]), not as a queued prompt.
-        if !self.turn_busy() && !self.compaction_held() {
+        if !self.turn_busy() && !self.compaction_held() && !held {
             let value = json!({ "kind": "started" });
             let op_ref = self.op_ref(req, None)?;
             self.submitter = submitter;
@@ -5985,6 +6194,8 @@ impl SessionActor {
         let display = Display::Queued(self.deps.transcript.queued(&qid, &entry));
         // New input ends the running turn's passive `task wait` / shell hold, as today.
         self.deps.wakes.interrupt(&self.id, WakeReason::UserMessage, None);
+        // The hold's release drains what it queued ([`Self::pump`]).
+        self.drain_held |= held;
         Ok(Plan {
             kind: PlanKind::Records(vec![(record, Class::Normal, display, Vec::new())], Vec::new()),
             value,
@@ -6255,7 +6466,7 @@ impl SessionActor {
         // `updateSessionManualTitle` (`session-crud.mjs:103-115`) writes nothing and answers `false` for a closed session, a
         // title that is empty once normalized, and the title the user already gave; the desktop host turns that `false` into
         // `Session is not available.` (`session-host-lifecycle.ts:228`), the text the window shows.
-        let refuse = |text: &str| CoreError::DomainError { domain: "thread".into(), code: None, message: Some(text.into()), detail: None };
+        let refuse = |text: &str| mixdog_core_base::support::failed("thread", text);
         // The checks in the order Node ran them: `sessionDisplayName` (IPC / remote method), then the host's, then the runtime's.
         let shown = mixdog_js::js_trim(&params.title);
         if shown.is_empty() || shown.encode_utf16().count() > 1_024 || shown.chars().any(|c| c <= '\u{1f}' || c == '\u{7f}') {
@@ -6506,14 +6717,14 @@ impl SessionActor {
         }
     }
 
-    /// A job of this thread was added or finished (`emitSessionActivityChange(ownerSessionId)`).
-    /// The idle clock starts over (`refresh`), and the agent status is read again (the agent
-    /// tool's `statusMayHaveChanged`). A closed thread has no runtime to tell.
-    fn agent_activity(&mut self) {
+    /// The agent status is read again (the agent tool's `statusMayHaveChanged`). When the signal is `named`, a job of this
+    /// thread added or finished (`emitSessionActivityChange(ownerSessionId)`), the idle clock also starts over (`refresh`):
+    /// Node's clock hears no source that names no session. A closed thread has no runtime to tell.
+    fn agent_activity(&mut self, named: bool) {
         if self.tombstoned || self.cell.closed.load(SeqCst) {
             return;
         }
-        if self.idle_evict_at.is_some() {
+        if named && self.idle_evict_at.is_some() {
             self.arm_idle_evict();
         }
         self.read_agent_status(true);
@@ -6955,6 +7166,7 @@ impl SessionActor {
     }
 
     /// A turn that does not start: its waiter hears why (never a dropped reply), and the sends that joined it hear the drop.
+    /// The start's end is a busy change (`updateEntryBusy`'s `onBusyChange`): the idle clock starts over.
     fn refuse_start(&mut self, reply: Option<Effect>, error: &CoreError) {
         self.submissions.unstarted();
         if let Some(Effect::Reply { op, tx, .. }) = reply {
@@ -6965,6 +7177,7 @@ impl SessionActor {
                 let _ = tx.send(Err(error.clone()));
             }
         }
+        self.try_unload();
     }
 
     /// [`Self::start_run_with`] once the input row's facts are read.
@@ -7086,13 +7299,19 @@ impl SessionActor {
         // drain.mjs `renderBatchItems`), though the model's content reads blank.
         let shown = display_text(&input);
         let shown_blank = submitter.is_some() && !facts.visible && facts.prompt.is_none() && !shown.is_empty();
+        // A Goal entry's prompt shows no row of its own, but history pages list it: the failed end of a turn that stopped
+        // before any output is recorded on it, and a reload restores that end (`restoreTranscriptRange` runs
+        // `restoredFailedTurnItems` for every message). The rule is the live writer's, not `row_facts`' (`user_facts.rs`): a Goal
+        // prompt migrated from Node keeps `visible: false`, so a failed end recorded on one is not restored, and a live row and a
+        // migrated row of this one message differ. Moving it into `message_class::row_facts` would change the migration's output.
+        let listed = facts.visible || shown_blank || super::goal_lane::is_goal_prompt(&input_body);
         let input_row = ItemRecord {
             iid: id(input_iid.as_str()),
             turn: Some(id(turn.as_str())),
             role: Some(Text::try_from("user").expect("short")),
             form: Form::Message,
             model: true,
-            visible: (facts.visible || shown_blank) && !hidden,
+            visible: listed && !hidden,
             archive: None,
             op: op_ref,
             prompt: facts.prompt.or_else(|| shown_blank.then_some(shown)).filter(|_| !hidden).map(Slot::Inline),
@@ -7100,6 +7319,11 @@ impl SessionActor {
             body: Slot::Inline(body),
         };
         let last_model = Some(input_row.clone());
+        // `applyTurnContextMeta`: the turn starts with the window figures the live provider's rows give the model now.
+        let window = self.deps.route_change.turn_window(&self.projected.header);
+        if !window.set.is_empty() || !window.unset.is_empty() {
+            self.accept_header(Some(window));
+        }
         self.accept_record(Record::Item(input_row), Class::Normal, input_display, Vec::new(), row_effects);
         // `startUsageMetricsTurn` goes out with the turn's first save (the user message's), not the debounce: a process
         // killed before that save keeps neither.
@@ -7160,6 +7384,8 @@ impl SessionActor {
             }),
             reclaim: None,
         }));
+        // The run is the busy session's running work, which a confirmed stop's abort cancels.
+        let core_abort = self.hold_core().run(&token);
         self.run = Some(RunSlot {
             journal: Default::default(),
             prompt: prompt_state.clone(),
@@ -7188,6 +7414,7 @@ impl SessionActor {
             verb: super::live_end::done_verb(self.turns_closed),
             live_call: Default::default(),
             tokens_at_start: self.stats.tokens(),
+            _core_abort: core_abort,
         });
         // `onGoalTurnStarted`: the turn takes the Goal's open clock segment.
         let (goals, thread) = (self.deps.goals.clone(), self.id.clone());
@@ -7264,13 +7491,24 @@ impl SessionActor {
         // A session takes moved settings gates at its next turn start (today's
         // `stageToolAvailability`).
         self.refresh_surface();
-        // `admitTurnWorkspace` follows the session's live cwd, the one its header carries.
+        // `admitTurnWorkspace` follows the session's live cwd, the one its header carries. The admitted turn then passes the
+        // workspace gate (`prepareTurnWorkspace`) with its submission id and `promptContentText(prompt)`; `turn/start` carries
+        // no `confirmLarge`.
         let admission = {
             let (admission, thread, token) = (self.deps.turn_admission.clone(), self.id.clone(), token.clone());
             let cell = self.cell.clone();
             let cwd: super::worktree::Cwd =
                 Arc::new(move || cell.header.load().get("cwd").and_then(Value::as_str).unwrap_or_default().to_owned());
-            async move { admission.admit(thread.as_str(), cwd, &token).await }
+            let start = super::worktree::TurnStart {
+                submission_id: submission_id(&input).unwrap_or_default().to_owned(),
+                prompt: super::pending::content_text(input_body.get("content").unwrap_or(&Value::Null)),
+                confirm_large: false,
+            };
+            async move {
+                let admitted = admission.admit(thread.as_str(), cwd, &token).await?;
+                admission.prepare(thread.as_str(), start, &token).await?;
+                Ok::<_, mixdog_scm::error::ScmFailure>(admitted)
+            }
         };
         let (hooks, hook_thread, hook_header) = (self.deps.lifecycle.clone(), self.id.clone(), self.acked.header.clone());
         let future = self.deps.runs.start(RunStart {
@@ -7307,9 +7545,9 @@ impl SessionActor {
         let run = async move {
             // Ended with the run, before it reports settled (`endCacheWarmTurn`, `ask-session.mjs:353,386`).
             let warm = warm.begin().await;
-            // The turn is admitted to its workspace before its loop runs: no checkout it reads
-            // changes under it until it settles. An abort while it waits ends it unrun; a failed
-            // admission fails it with the refusal's text.
+            // The turn is admitted to its workspace and passes its gate before its loop runs: no
+            // checkout it reads changes under it until it settles. An abort while it waits ends it
+            // unrun; a failed admission or gate fails it with the refusal's text.
             let (outcome, admitted) = match admission.await {
                 Ok(guard) => (future.await, Some(guard)),
                 Err(mixdog_scm::error::ScmFailure::Cancelled) => (RunOutcome::Interrupted, None),
@@ -7512,6 +7750,10 @@ impl SessionActor {
         self.recovering = false;
         if let Some(ready) = self.opened.take() {
             let _ = ready.send(());
+            // The end of `createLocalSessionRuntime` (`local-session-runtime.mjs`): the opened thread's lane reads its Goal,
+            // and an active one continues once the thread is idle, with no client needed (Goal recovery's materialize).
+            self.refresh_goal();
+            self.schedule_goal_continuation();
         }
     }
 

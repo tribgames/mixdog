@@ -9,9 +9,11 @@ use async_trait::async_trait;
 use mixdog_ai::service::admin_route::clean;
 use mixdog_ai::service::admin_route::truthy;
 use mixdog_app_protocol::v2::thread::ThreadSessionOptions;
+use mixdog_app_protocol::v2::thread::ToolProfile;
 use mixdog_core_domains::domains::ai_admin::chain::RouteContext;
 use mixdog_services::bots::WakeHost;
 use mixdog_services::bots::delivery::home::AgentHomeDelivery;
+use mixdog_services::bots::routine::HEARTBEAT_SOURCE;
 use mixdog_store::schema::record::Header;
 use serde_json::Map;
 use serde_json::Value;
@@ -50,7 +52,10 @@ pub fn hidden_session_header(route: &Value, profile: &Value, now_ms: i64) -> Hea
     let mut header = Header::new();
     header.insert("createdAt".into(), json!(now_ms));
     header.insert("updatedAt".into(), json!(now_ms));
-    super::session_options::write_header(&ThreadSessionOptions::default(), &mut header);
+    let name = clean(profile.get("sourceName"));
+    // `sessionToolProfile`: a session created as a heartbeat run is fenced to the heartbeat tools.
+    let tool_profile = (name == HEARTBEAT_SOURCE).then_some(ToolProfile::Heartbeat);
+    super::session_options::write_header(&ThreadSessionOptions { tool_profile, ..ThreadSessionOptions::default() }, &mut header);
     header.insert("provider".into(), route.get("provider").cloned().unwrap_or(Value::Null));
     header.insert("model".into(), route.get("model").cloned().unwrap_or(Value::Null));
     header.insert("owner".into(), json!("cli"));
@@ -58,7 +63,6 @@ pub fn hidden_session_header(route: &Value, profile: &Value, now_ms: i64) -> Hea
     header.insert("lane".into(), json!("cli"));
     let exec = profile.get("sourceType").and_then(Value::as_str) == Some("exec");
     header.insert("sourceType".into(), json!(if exec { "exec" } else { "lead" }));
-    let name = clean(profile.get("sourceName"));
     header.insert("sourceName".into(), json!(if name.is_empty() { "main".to_owned() } else { name }));
     let owner_agent = clean(profile.get("ownerAgentId"));
     if !owner_agent.is_empty() {

@@ -837,17 +837,15 @@ impl LspManager {
         let _ = self.pm.kill(&session.handle);
     }
 
-    /// Editor document events (`lsp/document`).
-    pub async fn document(self: &Arc<Self>, project_path: &str, root: &Path, input: DocumentInput) -> Value {
+    /// Editor document events (`lsp/document`). An entry `projectEntryPathIn` refuses fails the call, as Node's
+    /// `LanguageServerRouter.document` threw it, and leaves the language's status alone.
+    pub async fn document(self: &Arc<Self>, project_path: &str, root: &Path, input: DocumentInput) -> WsResult<Value> {
         let spec = match self.spec_for(root, &input.language_id).await {
             Ok(Some(spec)) => spec,
-            Ok(None) => return public_state(None, "unsupported", None, None),
-            Err(error) => return self.emit_status(project_path, root, &input.language_id, None, "error", Some(&error.message), None, None),
+            Ok(None) => return Ok(public_state(None, "unsupported", None, None)),
+            Err(error) => return Ok(self.emit_status(project_path, root, &input.language_id, None, "error", Some(&error.message), None, None)),
         };
-        let uri = match project_entry_path(root, &input.rel_path) {
-            Ok(p) => file_uri(&p),
-            Err(error) => return self.emit_status(project_path, root, &input.language_id, Some(&spec), "error", Some(&error.message), None, None),
-        };
+        let uri = file_uri(&project_entry_path(root, &input.rel_path)?);
         let key = session_key(root, &spec);
         // A late cleanup must never start a server merely to close a document.
         let session = if input.kind == "close" {
@@ -857,7 +855,7 @@ impl LspManager {
         };
         let Some(session) = session else {
             let fallback = public_state(Some(&spec), if input.kind == "close" { "stopped" } else { "missing" }, None, None);
-            return self.states.lock().expect("lsp states").get(&key).cloned().unwrap_or(fallback);
+            return Ok(self.states.lock().expect("lsp states").get(&key).cloned().unwrap_or(fallback));
         };
         session.language_ids.lock().expect("lsp languages").insert(input.language_id.clone());
         let known = session.documents.lock().expect("lsp documents").contains_key(&uri);
@@ -872,7 +870,7 @@ impl LspManager {
                 }));
             }
             self.schedule_idle(&session);
-            return public_state(Some(&spec), "ready", None, Some(&caps()));
+            return Ok(public_state(Some(&spec), "ready", None, Some(&caps())));
         }
         let doc = DocInfo { language_id: input.language_id.clone(), rel_path: input.rel_path.clone() };
         if !known {
@@ -894,15 +892,16 @@ impl LspManager {
             );
             session.documents.lock().expect("lsp documents").insert(uri.clone(), doc);
         }
-        public_state(Some(&spec), "ready", None, Some(&caps()))
+        Ok(public_state(Some(&spec), "ready", None, Some(&caps())))
     }
 
-    /// A language-server request (`lsp/request`).
-    pub async fn request(self: &Arc<Self>, project_path: &str, root: &Path, rel_path: &str, language_id: &str, method: &str, params: &Value) -> Value {
+    /// A language-server request (`lsp/request`). An entry `projectEntryPathIn` refuses fails the call, as Node's
+    /// `LanguageServerRouter.request` threw it (the idle stop re-armed all the same).
+    pub async fn request(self: &Arc<Self>, project_path: &str, root: &Path, rel_path: &str, language_id: &str, method: &str, params: &Value) -> WsResult<Value> {
         let spec = match self.spec_for(root, language_id).await {
             Ok(Some(spec)) => spec,
-            Ok(None) => return json!({ "available": false, "status": "unsupported", "server": "" }),
-            Err(error) => return json!({ "available": false, "status": "error", "server": "", "detail": error.message }),
+            Ok(None) => return Ok(json!({ "available": false, "status": "unsupported", "server": "" })),
+            Err(error) => return Ok(json!({ "available": false, "status": "error", "server": "", "detail": error.message })),
         };
         let Some(session) = self.ensure(project_path, root, language_id, &spec).await else {
             let state = self
@@ -916,26 +915,23 @@ impl LspManager {
             if let Some(detail) = state.get("detail") {
                 out["detail"] = detail.clone();
             }
-            return out;
+            return Ok(out);
         };
         let reply = async {
-            let uri = match project_entry_path(root, rel_path) {
-                Ok(p) => file_uri(&p),
-                Err(error) => return json!({ "available": true, "status": "error", "server": spec.name, "detail": error.message }),
-            };
+            let uri = file_uri(&project_entry_path(root, rel_path)?);
             let caps = session.capabilities(language_id, Some(&uri));
             if !lspcaps::method_supported(method, &caps) {
-                return public_state(Some(&spec), "ready", Some(&format!("{} does not support {method}.", spec.name)), Some(&caps));
+                return Ok(public_state(Some(&spec), "ready", Some(&format!("{} does not support {method}.", spec.name)), Some(&caps)));
             }
             let mut wire = params.as_object().cloned().unwrap_or_default();
             if method.starts_with("textDocument/") {
                 wire.insert("textDocument".into(), json!({ "uri": uri }));
             }
             let timeout = format!("{} request timed out.", spec.name);
-            match session.conn.request(method, Value::Object(wire), REQUEST_TIMEOUT, &timeout).await {
+            Ok::<_, WsError>(match session.conn.request(method, Value::Object(wire), REQUEST_TIMEOUT, &timeout).await {
                 Ok(result) => json!({ "available": true, "status": "ready", "server": spec.name, "capabilities": caps, "result": result }),
                 Err(detail) => json!({ "available": true, "status": "error", "server": spec.name, "capabilities": caps, "detail": detail }),
-            }
+            })
         }
         .await;
         self.schedule_idle(&session);
