@@ -97,7 +97,7 @@ struct Settings;
 #[async_trait]
 impl ChannelSettings for Settings {
     async fn webhook(&self) -> Result<WebhookSettings, String> {
-        Ok(WebhookSettings { enabled: true, ..WebhookSettings::default() })
+        Ok(WebhookSettings { enabled: Some(true), ..WebhookSettings::default() })
     }
     async fn update_webhook(&self, _patch: &WebhookPatch) -> Result<WebhookSettings, String> {
         unreachable!("no recorded step changes the webhook settings")

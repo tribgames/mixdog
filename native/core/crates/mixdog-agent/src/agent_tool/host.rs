@@ -105,6 +105,10 @@ pub trait Registry: Send + Sync {
     fn forget_terminal_session(&self, tag: Option<&str>, session_id: &str);
     fn remove_worker_row(&self, session_id: &str);
     fn mark_released(&self, session_ids: &[String]);
+    /// Whether the owner closed the session and no turn started on it since (`markReleased`'s marker, inside its TTL): a list leaves it out.
+    fn is_released(&self, _session_id: &str) -> bool {
+        false
+    }
     fn read_worker_rows(&self, scope: &Scope) -> Result<Vec<TagRecord>, String>;
     fn read_all_tag_tombstones(&self) -> Vec<TagRecord>;
     fn tag_tombstone_for_tag(&self, tag: &str, scope: &Scope) -> Option<TagRecord>;

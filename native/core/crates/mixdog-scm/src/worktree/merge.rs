@@ -106,11 +106,15 @@ impl Scm {
         if !output.success() {
             return Err(ScmFailure::git(format!("git status failed: {}", output.stderr_text().trim())));
         }
-        Ok(parse_status_entries(&output.stdout_text())
+        let files: Vec<String> = parse_status_entries(&output.stdout_text())
             .into_iter()
             .filter(|(code, path)| !(code == "??" && *path == identity))
             .map(|(_, path)| path)
-            .collect())
+            .collect();
+        // The paths are named as Node's `uncommittedPaths` names them (an untracked folder once, not file by file); a folder
+        // that holds nothing but the identity marker is not a change.
+        let listed = self.uncommitted_paths(cancel, cwd).await?;
+        Ok(listed.into_iter().filter(|path| files.iter().any(|file| file == path || (path.ends_with('/') && file.starts_with(path.as_str())))).collect())
     }
 
     pub async fn merge_branch_into_checkout(

@@ -9720,9 +9720,8 @@
               ]
             },
             "sizeBytes": {
-              "format": "int64",
               "type": [
-                "integer",
+                "number",
                 "null"
               ]
             },
@@ -9775,9 +9774,8 @@
               "type": "string"
             },
             "sizeBytes": {
-              "format": "int64",
               "type": [
-                "integer",
+                "number",
                 "null"
               ]
             },
@@ -9818,9 +9816,8 @@
               "type": "string"
             },
             "sizeBytes": {
-              "format": "int64",
               "type": [
-                "integer",
+                "number",
                 "null"
               ]
             },

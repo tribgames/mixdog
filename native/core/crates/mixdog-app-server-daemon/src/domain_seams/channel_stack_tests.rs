@@ -40,7 +40,8 @@ fn expected(webhook: &Value) -> WebhookSettings {
         _ => json!(3333),
     };
     WebhookSettings {
-        enabled: webhook["enabled"] == json!(true),
+        // Stored, `true` runs it; nothing stored is the automatic rule.
+        enabled: webhook.get("enabled").map(|stored| *stored == json!(true)),
         port,
         domain: webhook["domain"].as_str().filter(|d| !d.is_empty()).map(str::to_owned),
     }
@@ -74,7 +75,7 @@ async fn the_receivers_secret_and_opt_in_come_from_the_section() {
     assert_eq!(config.secret.as_deref(), Some("s"));
     assert!(config.allow_unsigned_webhooks);
     assert_eq!(config.endpoints["gh"].allow_unsigned, Some(true));
-    assert_eq!(settings.webhook().await.unwrap(), WebhookSettings { enabled: true, port: json!(5000), domain: None });
+    assert_eq!(settings.webhook().await.unwrap(), WebhookSettings { enabled: Some(true), port: json!(5000), domain: None });
 }
 
 /// The session service's routine boundary (Node: the live surface's `submit`, daemon.mjs:1199-1201): every routine turn
@@ -285,8 +286,8 @@ async fn a_delivery_during_a_config_edit_reload_is_answered_and_runs_once_as_nod
     let root = tempfile::tempdir().unwrap();
     let config = open(root.path(), None).await;
     let _file_watch = mixdog_core_config::config::ConfigWatcher::start(config.clone()).unwrap();
-    // `setWebhookConfigAsync({ port })`, as the recorder seeds the receiver's port (and, the receiver being off by default
-    // here, switched on).
+    // `setWebhookConfigAsync({ port })`, as the recorder seeds the receiver's port (and switched on, stored: the
+    // receiver follows what is registered otherwise).
     ConfigChannelSettings::new(config.clone()).update_webhook(&WebhookPatch::from_params(&json!({ "enabled": true, "port": port }))).await.unwrap();
     let Stack { admin, runtime, automation, host, .. } = channel_stack(root.path(), &config, wall, tz);
     let reloaded = automation.reloaded.clone();

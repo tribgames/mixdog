@@ -385,6 +385,10 @@ impl Views for JobViews {
         self.registry.refresh_tags_from_sessions(options.scan_sessions, scope).await;
         let mut rows = Vec::new();
         for (tag, facts) in self.workers.entries(options.scan_sessions, scope).await {
+            // An agent its owner closed (and no turn started on since) is not listed, as Node's list drops it once closed.
+            if self.registry.is_released(&facts.id) {
+                continue;
+            }
             let live = self.workers.live(&facts.id);
             let (status, stage) = row_state(&facts, live.runtime_stage.as_deref());
             // Whether a row is listed depends on its status and stage alone, so a finished

@@ -134,7 +134,14 @@ pub fn parse_handler_output(run: &HandlerRun, event: &str) -> Parsed {
         if EXIT2_BLOCK_EVENTS.contains(&event) {
             out.block = true;
             let stderr = limit_text(js_trim(&run.stderr).to_owned());
-            out.reason = Some(if stderr.is_empty() { format!("blocked by {event} hook") } else { stderr });
+            // A Stop block without a reason carries none: the agent loop ignores it with a warning.
+            out.reason = if !stderr.is_empty() {
+                Some(stderr)
+            } else if event == "Stop" {
+                None
+            } else {
+                Some(format!("blocked by {event} hook"))
+            };
         }
         return out;
     }
@@ -180,10 +187,13 @@ pub fn parse_handler_output(run: &HandlerRun, event: &str) -> Parsed {
             .is_some_and(|v| !v.is_null() && v.as_str() != Some(""));
     if json.get("decision").and_then(Value::as_str) == Some("block") && TOP_LEVEL_DECISION_EVENTS.contains(&event) && !specific_permission {
         out.block = true;
-        let text = non_empty(json.get("reason"))
-            .or_else(|| out.reason.clone().filter(|r| !r.is_empty()))
-            .unwrap_or_else(|| format!("blocked by {event} hook"));
-        out.reason = Some(limit_text(text));
+        let text = non_empty(json.get("reason")).or_else(|| out.reason.clone().filter(|r| !r.is_empty()));
+        out.reason = match text {
+            Some(t) => Some(limit_text(t)),
+            // A Stop block without a reason stays reasonless so the agent loop ignores it with a warning.
+            None if event == "Stop" => None,
+            None => Some(format!("blocked by {event} hook")),
+        };
     }
     if let Some(text) = json.get("additionalContext").and_then(Value::as_str) {
         out.additional_context = Some(limit_text(text.to_owned()));
@@ -378,6 +388,19 @@ mod tests {
         assert_eq!(bare.reason.as_deref(), Some("blocked by PreToolUse hook"));
         let allowed = r#"{"decision":"block","reason":"x","hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"}}"#;
         assert!(!parse_handler_output(&run(0, allowed, ""), "PreToolUse").block);
+    }
+
+    /// A Stop block without a reason keeps no default reason (the agent loop ignores it with a warning);
+    /// PreToolUse keeps its default.
+    #[test]
+    fn a_stop_block_without_a_reason_has_none() {
+        for out in [r#"{"decision":"block"}"#, r#"{"decision":"block","reason":""}"#] {
+            let parsed = parse_handler_output(&run(0, out, ""), "Stop");
+            assert!(parsed.block && parsed.reason.is_none(), "{out}: {parsed:?}");
+        }
+        assert!(parse_handler_output(&run(2, "", ""), "Stop").reason.is_none());
+        assert_eq!(parse_handler_output(&run(0, r#"{"decision":"block","reason":"r"}"#, ""), "Stop").reason.as_deref(), Some("r"));
+        assert_eq!(parse_handler_output(&run(0, r#"{"decision":"block"}"#, ""), "PreToolUse").reason.as_deref(), Some("blocked by PreToolUse hook"));
     }
 
     #[test]

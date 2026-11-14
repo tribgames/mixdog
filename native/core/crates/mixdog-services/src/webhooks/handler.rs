@@ -105,6 +105,11 @@ pub trait WebhookStore: Send + Sync {
     async fn load_endpoint(&self, name: &str) -> Result<Option<Endpoint>, String>;
     /// The one explicit read path of an endpoint's signing secret.
     async fn read_secret(&self, name: &str) -> Result<Option<String>, String>;
+    /// Whether the endpoint table holds an endpoint that is not switched off: the receiver has something to receive
+    /// for. A store that cannot list says none.
+    async fn any_enabled_endpoint(&self) -> Result<bool, String> {
+        Ok(false)
+    }
     /// Atomic claim and dedup in one step; false when the delivery was already claimed.
     async fn claim_delivery(&self, endpoint: &str, delivery_id: &str, claim: Claim<'_>) -> Result<bool, String>;
     async fn update_delivery_status(
@@ -212,6 +217,16 @@ impl WebhookService {
 
     pub fn set_config(&self, config: WebhookConfig) {
         *self.config.write().unwrap() = config;
+    }
+
+    /// Whether anything that receives through the listener is registered: an endpoint of the table that is not
+    /// switched off, or one of the config file's (`channels.endpoints`). Node serves `/webhook/<name>` for exactly
+    /// these (`handleWebhookPost`: the table first, the config second, `enabled === false` refused).
+    pub async fn has_registered(&self) -> Result<bool, String> {
+        if self.config.read().unwrap().endpoints.values().any(|e| e.enabled != Some(false)) {
+            return Ok(true);
+        }
+        self.store.any_enabled_endpoint().await
     }
 
     /// Held by the transport while the webhook listener is up: a listening server is work.

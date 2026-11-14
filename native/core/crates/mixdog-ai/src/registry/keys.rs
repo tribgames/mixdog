@@ -279,6 +279,11 @@ impl ApiKeyStore {
     /// `Err` when the keychain read never ran: an empty key would read as "not configured".
     pub async fn resolve(&self, provider: &str, config: &KeyConfig) -> Result<String, VaultError> {
         if let Some(env) = config.api_key_env.as_deref().filter(|e| !e.is_empty()) {
+            // A headless exec binds the key it read from the variable before scrubbing it: the binding stands in for
+            // the variable, which is no longer set.
+            if let Some(key) = bound_api_key(provider.trim()) {
+                return Ok(key);
+            }
             return Ok(self.read_env(env).unwrap_or_default());
         }
         if let Some(key) = config.api_key.as_deref().filter(|k| !k.is_empty()) {
@@ -306,7 +311,7 @@ impl ApiKeyStore {
     /// `hasProviderApiKey`: [`Self::resolve`]'s precedence without reading a value.
     pub async fn has_resolved(&self, provider: &str, config: &KeyConfig) -> Result<bool, VaultError> {
         if let Some(env) = config.api_key_env.as_deref().filter(|e| !e.is_empty()) {
-            return Ok(self.set_env(env).is_some());
+            return Ok(bound_api_key(provider.trim()).is_some() || self.set_env(env).is_some());
         }
         if config.api_key.as_deref().is_some_and(|k| !k.is_empty()) {
             return Ok(true);
@@ -318,6 +323,9 @@ impl ApiKeyStore {
     /// environment key is read first, so a rotated key beats the stale one in config.
     pub async fn reload(&self, provider: &str, config: &KeyConfig) -> Result<String, VaultError> {
         if let Some(env) = config.api_key_env.as_deref().filter(|e| !e.is_empty()) {
+            if let Some(key) = bound_api_key(provider.trim()) {
+                return Ok(key);
+            }
             return Ok(self.read_env(env).unwrap_or_default());
         }
         if let Some(key) = self.get(provider).await? {
@@ -572,6 +580,23 @@ mod tests {
         // A reload prefers the stored key to the one captured in config.
         assert_eq!(s.reload("p", &cfg(Some("cfg"), None)).await.unwrap(), "stored");
         assert!(s.has_resolved("p", &cfg(Some("cfg"), Some("UNSET"))).await.unwrap() == false);
+    }
+
+    /// A headless exec's custom provider names a variable it has already scrubbed: the key bound in memory answers for it,
+    /// and nothing is read from the environment.
+    #[tokio::test]
+    async fn a_bound_key_stands_in_for_the_scrubbed_key_variable() {
+        let (s, _vault) = store(&[], false);
+        let cfg = KeyConfig { api_key: None, api_key_env: Some("SCRUBBED_EXEC_KEY".into()) };
+        assert_eq!(s.resolve("custom-bound-exec", &cfg).await.unwrap(), "");
+        assert!(!s.has_resolved("custom-bound-exec", &cfg).await.unwrap());
+        let restore = replace_provider_api_key_bindings(HashMap::from([("custom-bound-exec".to_owned(), "sk-bound".to_owned())]));
+        assert_eq!(s.resolve("custom-bound-exec", &cfg).await.unwrap(), "sk-bound");
+        assert_eq!(s.reload("custom-bound-exec", &cfg).await.unwrap(), "sk-bound");
+        assert!(s.has_resolved("custom-bound-exec", &cfg).await.unwrap());
+        // Another provider naming the same variable is not served by the binding.
+        assert_eq!(s.resolve("custom-other", &cfg).await.unwrap(), "");
+        restore();
     }
 
     #[tokio::test]

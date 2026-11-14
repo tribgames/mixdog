@@ -498,8 +498,8 @@ type Parsed = (Value, u64);
 /// lone surrogates replaced on the way.
 fn read_document(path: &Path) -> Result<Option<(Vec<u8>, Option<Parsed>)>> {
     let Some(bytes) = durable::read_optional(path)? else { return Ok(None) };
-    let text = bytes.strip_prefix("\u{feff}".as_bytes()).unwrap_or(&bytes);
-    let parsed = json::parse_source(text).ok().map(|parsed| (parsed.value, parsed.replaced_surrogates));
+    // As Node reads a file (`JSON.parse(readFileSync(path, 'utf8'))`): invalid UTF-8 as U+FFFD, any nesting, 1e400 as null.
+    let parsed = json::parse_config(&bytes).ok().map(|parsed| (parsed.value, parsed.replaced_surrogates));
     Ok(Some((bytes, parsed)))
 }
 

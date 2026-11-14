@@ -427,6 +427,9 @@
           }
         },
         "channels": {
+          "webhook": {
+            "enabled": false
+          },
           "other": 1
         },
         "defaultsVersion": 2
@@ -463,6 +466,9 @@
           }
         },
         "channels": {
+          "webhook": {
+            "enabled": false
+          },
           "other": 1
         },
         "defaultsVersion": 2

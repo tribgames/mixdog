@@ -80,7 +80,7 @@ pub(super) fn needs_separation(root: &Doc) -> bool {
 fn stripped_channels(channels: &Doc) -> Option<Value> {
     let mut next = channels.clone();
     if let Some(webhook) = next.get("webhook").cloned() {
-        match without_defaults(&webhook, &json!({ "enabled": false, "port": 3333 })) {
+        match without_defaults(&webhook, &json!({ "port": 3333 })) {
             Some(kept) => {
                 next.insert("webhook".into(), kept);
             }

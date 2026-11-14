@@ -595,7 +595,7 @@ async fn run_prompt(runner: &dyn PromptRunner, handler: &HookHandler, payload: &
         Ok(verdict) if verdict.is_object() || verdict.is_array() => {
             if verdict.get("ok") == Some(&Value::Bool(false)) {
                 let reason = verdict.get("reason").and_then(Value::as_str).filter(|r| !r.is_empty()).map(str::to_owned);
-                return deny(reason.unwrap_or_else(|| format!("blocked by {event} prompt hook")));
+                return deny(if event == "Stop" { reason.unwrap_or_default() } else { reason.unwrap_or_else(|| format!("blocked by {event} prompt hook")) });
             }
             allow
         }

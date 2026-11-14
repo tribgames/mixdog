@@ -1522,6 +1522,11 @@ impl Registry for AgentRegistry {
         }
     }
 
+    fn is_released(&self, session_id: &str) -> bool {
+        let st = self.lock();
+        st.map(&clean_str(session_id)).is_some_and(|map| released_at(map, self.now()))
+    }
+
     fn read_worker_rows(&self, scope: &Scope) -> Result<Vec<TagRecord>, String> {
         let st = self.lock();
         Ok(st.rows(scope, self.now()).iter().map(|row| tag_record(row, "tag", "sessionId")).collect())
