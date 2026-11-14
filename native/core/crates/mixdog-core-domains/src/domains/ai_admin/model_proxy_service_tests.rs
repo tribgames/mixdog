@@ -338,3 +338,17 @@ async fn run_local_closing() {
     let w::ProxyAnswer::Failed { failure } = answer else { panic!("not a failure") };
     assert_eq!(failure.message, APP_CLOSING);
 }
+
+/// The events of a local run are those of `modelProxy/run` for the same call, in the same order.
+#[tokio::test]
+async fn run_local_events_are_those_of_run_in_order() {
+    let (remote, notes) = service(vec![MockAttempt::Body(b"t:hi\ndone\n".to_vec())]).await;
+    remote.call(run("mock", 7)).await.unwrap();
+    let relayed: Vec<Value> = notes.0.lock().unwrap().iter().map(|(_, _, params)| params["event"].clone()).collect();
+    let (local, _) = service(vec![MockAttempt::Body(b"t:hi\ndone\n".to_vec())]).await;
+    let events = Arc::new(Seen::default());
+    local.run_local(local_call("mock"), None, events.clone(), CancellationToken::new()).await;
+    let seen: Vec<Value> = events.0.lock().unwrap().iter().map(|event| serde_json::to_value(event).unwrap()).collect();
+    assert!(!seen.is_empty());
+    assert_eq!(seen, relayed);
+}
