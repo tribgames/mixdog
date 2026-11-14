@@ -163,7 +163,7 @@ async fn a_call_the_connection_could_not_carry_fails_with_the_sessions_error_not
     assert_eq!(error.message, ClientError::ClientClosed.to_string());
 
     // A link whose ssh side stopped for a reason: that reason.
-    let rig = rig().await;
+    let rig = crate::link::tests::rig().await;
     let (link, _conn, _) = open_link(&rig).await;
     let reader = rig.pool.reader("box").unwrap();
     stop_session(&link);

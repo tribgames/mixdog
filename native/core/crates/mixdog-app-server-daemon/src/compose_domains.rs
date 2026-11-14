@@ -427,7 +427,13 @@ pub async fn compose_domains_post(inputs: &DomainInputs, post: PostSeams, pre: P
     // `import/*`: built over the session layer's side of an import, which exists only now.
     let discovery = mixdog_services::import::Discovery::new(mixdog_services::import::Env::from_process(), inputs.tokens.maintenance_io);
     let jobs = mixdog_services::import::ImportJobs::new(discovery.clone(), post.import_sessions, mixdog_services::import::Limits::default());
-    services.push(Arc::new(mixdog_services::import::ImportService::new(discovery, jobs, mixdog_services::import::Limits::default())));
+    let import = Arc::new(mixdog_services::import::ImportService::new(discovery, jobs, mixdog_services::import::Limits::default()));
+    // conversation-import-progress.ts: each changed job snapshot reaches every client on the app feed.
+    let import_feed = state.app.clone();
+    services.push(Arc::new(mixdog_core_domains::domains::desktop_residual_b::ImportProgressService::new(
+        import,
+        Arc::new(move |_event, job| import_feed.notify("import/progress/updated", &serde_json::json!({ "job": job }))),
+    )));
     services.push(DiagnosticsService::new(
         Arc::new(ServiceDoctor::new(late.clone(), post.doctor)),
         DoctorConfig {

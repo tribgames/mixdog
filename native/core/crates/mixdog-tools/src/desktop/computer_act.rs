@@ -359,6 +359,12 @@ impl ProcessComputerBackend {
     /// `createInputPreflight`: the background route's refusal of a key or type step, found before any step is sent. `None` when
     /// every step may go (or none needs the route).
     async fn preflight(&self, planned: &[Map<String, Value>], window_id: &str, cancel: &CancellationToken) -> Result<Option<ComputerError>, ComputerError> {
+        // The renderer's key table refuses a key it cannot map; a sequence found to hold one runs none of its steps (`electronKeyPresses` in `createInputPreflight`).
+        for step in planned.iter().filter(|step| text(step, "action") == "key") {
+            if let Some(refused) = APP_OWNED.unmapped_key(step, window_id) {
+                return Ok(Some(refused));
+            }
+        }
         let native: Vec<Value> = planned
             .iter()
             .filter(|step| matches!(text(step, "action"), "key" | "type"))

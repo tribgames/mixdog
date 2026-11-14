@@ -1149,6 +1149,14 @@
     },
     {
       "list": "operations",
+      "name": "relayPayloadRefused",
+      "target": {
+        "kind": "notification",
+        "target": "ui/relayPayloadRefused"
+      }
+    },
+    {
+      "list": "operations",
       "name": "visualizeRemotePublish",
       "target": {
         "kind": "method",

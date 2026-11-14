@@ -55,6 +55,12 @@ mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 # self dev-dependency below) or of a crate that depends on it turns it on; no normal build does.
 count-work = ["mixdog-ai/count-work"]
 
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock"] }
+
 [dev-dependencies]
 mixdog-testkit = { workspace = true }
 mixdog-core-domains = { path = ".", features = ["count-work"] }

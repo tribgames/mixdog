@@ -1414,20 +1414,8 @@ impl ComputerSecretHost for ProcessComputerBackend {
             return Err(held(parts));
         }
         let issued = command.clone();
-        let outcome = self.call(command, &cancel).await.map(|result| (result.clone(), vec![ToolPart::Text(Value::Object(result).to_string())]));
-        let (result, expected) = match outcome {
-            Ok((result, parts)) => (Some(result), Ok(parts)),
-            Err(error) => (None, Err(error)),
-        };
-        let expected_text = expected.as_ref().ok().map(|parts| held(parts.clone()));
-        match control.settle(self, &issued, expected).await {
-            Ok(parts) => match result {
-                Some(result) if Some(held(parts.clone())) == expected_text => Ok(result),
-                // The person's input interrupted the step: the reply that yields the session is no result of the step.
-                _ => Err(held(parts)),
-            },
-            Err(error) => Err(message_of(error)),
-        }
+        let outcome = self.call(command, &cancel).await;
+        control.settle_step(self, &issued, outcome).await
     }
 
     fn arm_focus(&self) {

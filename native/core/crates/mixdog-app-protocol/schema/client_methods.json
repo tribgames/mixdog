@@ -6179,6 +6179,33 @@
       ],
       "type": "string"
     },
+    "HeldTakeover": {
+      "description": "One session whose own Browser Use is paused by an open takeover card.",
+      "properties": {
+        "sessionId": {
+          "type": "string"
+        },
+        "step": {
+          "description": "What it waits on (`takeoverStep`).",
+          "type": "string"
+        },
+        "surface": {
+          "$ref": "#/definitions/TakeoverSurface",
+          "description": "The surface of that takeover."
+        },
+        "takeoverId": {
+          "description": "The request id of the takeover the hold is named by (the oldest of the session).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId",
+        "step",
+        "surface",
+        "takeoverId"
+      ],
+      "type": "object"
+    },
     "HostCapabilities": {
       "description": "The desktop host role (DS §12.2): what this connection serves for the core.",
       "properties": {
@@ -14521,6 +14548,14 @@
     },
     "RemoteHostPresenceResult": {
       "properties": {
+        "offline": {
+          "default": [],
+          "description": "Hosts the relay reported offline. A host in neither list could not be asked (its relay did not answer): its state is unknown.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "online": {
           "items": {
             "type": "string"
@@ -17396,6 +17431,57 @@
         "ready"
       ],
       "type": "object"
+    },
+    "TakeoverStateParams": {
+      "description": "Params of `takeover/state`: the secret request ids the client asks about (none: no slot is read).",
+      "properties": {
+        "secretRequestIds": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "TakeoverStateResult": {
+      "description": "Result of `takeover/state`.",
+      "properties": {
+        "held": {
+          "description": "Every session with an open takeover, by session id.",
+          "items": {
+            "$ref": "#/definitions/HeldTakeover"
+          },
+          "type": "array"
+        },
+        "screen": {
+          "description": "The step of a screen takeover some session holds: Computer Use refuses new operations for every session meanwhile.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "secretSlots": {
+          "description": "The ids among `secretRequestIds` whose one-shot value slot holds a value.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "held",
+        "secretSlots"
+      ],
+      "type": "object"
+    },
+    "TakeoverSurface": {
+      "description": "The surface a held takeover names.",
+      "enum": [
+        "browser",
+        "computer"
+      ],
+      "type": "string"
     },
     "TerminalAttachParams": {
       "description": "Params of `terminal/attach`.",
@@ -22631,12 +22717,12 @@
         "focused": {
           "type": "boolean"
         },
-        "sessionId": {
-          "description": "The session the window shows, when it shows one.",
-          "type": [
-            "string",
-            "null"
-          ]
+        "sessionIds": {
+          "description": "Every session the window shows on screen (one per pane of a split view); empty when it shows none.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         },
         "visible": {
           "type": "boolean"
@@ -25623,6 +25709,14 @@
       },
       "result": {
         "$ref": "#/definitions/TakeoverReadyResult"
+      }
+    },
+    "takeover/state": {
+      "params": {
+        "$ref": "#/definitions/TakeoverStateParams"
+      },
+      "result": {
+        "$ref": "#/definitions/TakeoverStateResult"
       }
     },
     "terminal/attach": {

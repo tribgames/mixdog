@@ -251,6 +251,10 @@ impl mixdog_core_session::session::secret_input::TakeoverHolds for LateHolds {
     fn screen(&self) -> Option<String> {
         self.directory().screen()
     }
+
+    fn holding(&self) -> Vec<(mixdog_core_api::ids::ThreadId, mixdog_core_session::session::secret_input::TakeoverHold)> {
+        self.directory().holding()
+    }
 }
 
 /// `abortSessionTurn(id, reason)` of the handoff env over the live directory.

@@ -126,6 +126,38 @@
   },
   {
     "client": "tui",
+    "method": "feed/subscribe",
+    "params": {
+      "feedId": "feedId-1"
+    },
+    "source": "native/core/crates/mixdog-app-server-client/src/engine.rs:feed/subscribe",
+    "case": "required fields"
+  },
+  {
+    "client": "tui",
+    "method": "system/ports/subscribe",
+    "params": {},
+    "source": "native/core/crates/mixdog-app-server-client/src/engine.rs:system/ports/subscribe",
+    "case": "required fields"
+  },
+  {
+    "client": "tui",
+    "method": "feed/unsubscribe",
+    "params": {
+      "feedId": "feedId-1"
+    },
+    "source": "native/core/crates/mixdog-app-server-client/src/engine.rs:feed/unsubscribe",
+    "case": "required fields"
+  },
+  {
+    "client": "tui",
+    "method": "system/ports/unsubscribe",
+    "params": {},
+    "source": "native/core/crates/mixdog-app-server-client/src/engine.rs:system/ports/unsubscribe",
+    "case": "required fields"
+  },
+  {
+    "client": "tui",
     "method": "initialize",
     "params": {
       "clientInfo": {
@@ -1981,6 +2013,23 @@
   },
   {
     "client": "desktop",
+    "method": "takeover/state",
+    "params": {},
+    "source": "apps/desktop/src/main/takeover-gate.ts:takeover/state",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "takeover/ready",
+    "params": {
+      "sessionId": "sessionId-1",
+      "takeoverId": "takeoverId-1"
+    },
+    "source": "apps/desktop/src/main/takeover-gate.ts:takeover/ready",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
     "method": "connections/subscribe",
     "params": {},
     "source": "apps/desktop/src/renderer/connections-core-api.ts:connections/subscribe",
@@ -2342,6 +2391,16 @@
   },
   {
     "client": "desktop",
+    "method": "projectFs/readText",
+    "params": {
+      "rel": "rel-1",
+      "root": "root-1"
+    },
+    "source": "apps/desktop/src/renderer/core-direct/api-files.ts:projectFs/readText",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
     "method": "projectFs/entryPath",
     "params": {
       "rel": "rel-1",
@@ -2382,16 +2441,6 @@
   },
   {
     "client": "desktop",
-    "method": "projectFs/readText",
-    "params": {
-      "rel": "rel-1",
-      "root": "root-1"
-    },
-    "source": "apps/desktop/src/renderer/core-direct/api-files.ts:projectFs/readText",
-    "case": "required fields"
-  },
-  {
-    "client": "desktop",
     "method": "projectFs/writeText",
     "params": {
       "content": "content-1",
@@ -2412,16 +2461,6 @@
       "secret": "secret-1"
     },
     "source": "apps/desktop/src/renderer/core-direct/api-takeover.ts:approval/provideSecret",
-    "case": "required fields"
-  },
-  {
-    "client": "desktop",
-    "method": "takeover/ready",
-    "params": {
-      "sessionId": "sessionId-1",
-      "takeoverId": "takeoverId-1"
-    },
-    "source": "apps/desktop/src/renderer/core-direct/api-takeover.ts:takeover/ready",
     "case": "required fields"
   },
   {
@@ -4052,6 +4091,42 @@
   },
   {
     "client": "tui",
+    "method": "feed/subscribe",
+    "params": {
+      "feedId": "feedId-1",
+      "resumeFrom": {
+        "epoch": "epoch-1",
+        "seq": 1
+      }
+    },
+    "source": "native/core/crates/mixdog-app-server-client/src/engine.rs:feed/subscribe",
+    "case": "every optional field"
+  },
+  {
+    "client": "tui",
+    "method": "system/ports/subscribe",
+    "params": {},
+    "source": "native/core/crates/mixdog-app-server-client/src/engine.rs:system/ports/subscribe",
+    "case": "every optional field"
+  },
+  {
+    "client": "tui",
+    "method": "feed/unsubscribe",
+    "params": {
+      "feedId": "feedId-1"
+    },
+    "source": "native/core/crates/mixdog-app-server-client/src/engine.rs:feed/unsubscribe",
+    "case": "every optional field"
+  },
+  {
+    "client": "tui",
+    "method": "system/ports/unsubscribe",
+    "params": {},
+    "source": "native/core/crates/mixdog-app-server-client/src/engine.rs:system/ports/unsubscribe",
+    "case": "every optional field"
+  },
+  {
+    "client": "tui",
     "method": "initialize",
     "params": {
       "capabilities": {
@@ -4106,28 +4181,6 @@
       ]
     },
     "source": "apps/mobile/src/phone-client.ts:ui/screenSessions/changed",
-    "case": "every optional field"
-  },
-  {
-    "client": "phone",
-    "method": "feed/subscribe",
-    "params": {
-      "feedId": "feedId-1",
-      "resumeFrom": {
-        "epoch": "epoch-1",
-        "seq": 1
-      }
-    },
-    "source": "apps/mobile/src/phone-lanes.ts:feed/subscribe",
-    "case": "every optional field"
-  },
-  {
-    "client": "phone",
-    "method": "feed/unsubscribe",
-    "params": {
-      "feedId": "feedId-1"
-    },
-    "source": "apps/mobile/src/phone-lanes.ts:feed/unsubscribe",
     "case": "every optional field"
   },
   {
@@ -5759,20 +5812,6 @@
   },
   {
     "client": "desktop",
-    "method": "system/ports/subscribe",
-    "params": {},
-    "source": "apps/desktop/src/main/protocol/connection.ts:system/ports/subscribe",
-    "case": "every optional field"
-  },
-  {
-    "client": "desktop",
-    "method": "system/ports/unsubscribe",
-    "params": {},
-    "source": "apps/desktop/src/main/protocol/connection.ts:system/ports/unsubscribe",
-    "case": "every optional field"
-  },
-  {
-    "client": "desktop",
     "method": "model/proxy/event",
     "params": {
       "event": {
@@ -5856,6 +5895,27 @@
       ]
     },
     "source": "apps/desktop/src/main/settings-store.ts:config/read",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
+    "method": "takeover/state",
+    "params": {
+      "secretRequestIds": [
+        "secretRequestIds-1"
+      ]
+    },
+    "source": "apps/desktop/src/main/takeover-gate.ts:takeover/state",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
+    "method": "takeover/ready",
+    "params": {
+      "sessionId": "sessionId-1",
+      "takeoverId": "takeoverId-1"
+    },
+    "source": "apps/desktop/src/main/takeover-gate.ts:takeover/ready",
     "case": "every optional field"
   },
   {
@@ -6214,16 +6274,6 @@
       "scope": "desktop"
     },
     "source": "apps/desktop/src/renderer/core-direct/api-capabilities.ts:ui/settings/announce",
-    "case": "every optional field"
-  },
-  {
-    "client": "desktop",
-    "method": "takeover/ready",
-    "params": {
-      "sessionId": "sessionId-1",
-      "takeoverId": "takeoverId-1"
-    },
-    "source": "apps/desktop/src/renderer/core-direct/api-takeover.ts:takeover/ready",
     "case": "every optional field"
   },
   {

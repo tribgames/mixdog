@@ -6117,7 +6117,8 @@ impl SessionActor {
     }
 
     fn turn_start(&mut self, req: &CoreRequest) -> Result<Plan, CoreError> {
-        let params: TurnStartParams = parse(&req.params, "TurnStartParams")?;
+        let mut params: TurnStartParams = parse(&req.params, "TurnStartParams")?;
+        mixdog_app_protocol::boundary::validate::normalize::turn_input(&mut params.input);
         let user_prompt = matches!(req.ctx.caller, Caller::Connection(_))
             .then(|| display_text(&params.input));
         if user_prompt.is_some() && params.input.options.as_ref().is_some_and(|o| o.context.is_some() || o.attachment_sizes.is_some()) {

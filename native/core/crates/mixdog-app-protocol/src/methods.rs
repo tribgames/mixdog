@@ -3221,7 +3221,7 @@ crate::client_request_definitions! {
         mutation: none,
         origins: [Local],
     },
-    /// What a paired device's file preview reads first: kind, mime, size, modification time and the media lease (Node's `previewProjectFile`).
+    /// What a paired device's file preview reads first: kind, mime, size and modification time (Node's `previewProjectFile`).
     ProjectFsPreviewFile => "projectFs/previewFile" {
         params: ProjectFsPreviewFileParams,
         result: JsonValue,
@@ -5087,6 +5087,15 @@ crate::client_request_definitions! {
     TakeoverReady => "takeover/ready" {
         params: v2::takeover::TakeoverReadyParams,
         result: v2::takeover::TakeoverReadyResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local, Ssh],
+    },
+    /// What the core holds for takeovers and secret slots: the sessions with an open takeover card (id, step, surface), the step of a screen takeover, and which of the named secret request ids hold a value (never the value). The desktop's takeover gate and secret request slots mirror it.
+    TakeoverState => "takeover/state" {
+        params: v2::takeover_state::TakeoverStateParams,
+        result: v2::takeover_state::TakeoverStateResult,
         scope: none,
         class: C2,
         mutation: none,

@@ -25,6 +25,8 @@ use crate::v2::host::BrowserWebrtcSignalParams;
 use crate::v2::host::HostBrowserViewFramesParams;
 use crate::v2::host::CoreDrainParams;
 use crate::v2::host::HostNotificationShowParams;
+use crate::v2::host_notification::HostNotificationCloseParams;
+use crate::v2::relay_payload::UiRelayPayloadRefusedParams;
 use crate::v2::host::ModelProxyCancelParams;
 use crate::v2::host::ModelProxyRunEventParams;
 use crate::v2::host::RemotePointerParams;
@@ -178,6 +180,8 @@ crate::notification_definitions! {
     Error => "error" (ErrorNotificationParams) @connection,
     ServerRequestResolved => "serverRequest/resolved" (ServerRequestResolvedParams) @connection,
     HostNotificationShow => "host/notification/show" (HostNotificationShowParams) @connection,
+    /// The core closes the toasts still showing for a server's connection (its notifier ended).
+    HostNotificationClose => "host/notification/close" (HostNotificationCloseParams) @connection,
     HostBrowserViewFrames => "host/browser/viewFrames" (HostBrowserViewFramesParams) @connection,
     /// The lease on a page ended (the host stops keeping it alive for the command that took it).
     HostBrowserLeaseRelease => "host/browser/lease/release" (HostBrowserLeaseReleaseParams) @connection,
@@ -214,6 +218,10 @@ crate::notification_definitions! {
     UiSettingsChanged => "ui/settings/changed" (UiSettingsChangedParams) @app,
     /// Node's `provider-models-changed` event: every client drops its provider model lists; `origin` names the announcer.
     UiProviderModelsChanged => "ui/providerModels/changed" (UiProviderModelsChangedParams) @app,
+    /// Node's `relay-payload-refused` event: the relay refused an oversize frame of the core's leg; the windows show the size and the ceiling.
+    UiRelayPayloadRefused => "ui/relayPayloadRefused" (UiRelayPayloadRefusedParams) @app,
+    /// The desktop's `conversation-import-progress` event: one changed snapshot of a conversation-import job (every client, as the app feed).
+    ImportProgressUpdated => "import/progress/updated" (crate::v2::import_progress::ImportProgressUpdatedParams) @app,
     /// The pet's stored settings after a `desktopPet/state/write`.
     DesktopPetStateChanged => "desktopPet/state/changed" (crate::v2::desktop_pet::DesktopPetStateChangedParams) @app,
     RemotePointer => "remote/pointer" (RemotePointerParams) @app,

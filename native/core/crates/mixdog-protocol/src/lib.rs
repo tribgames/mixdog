@@ -10,6 +10,7 @@ pub mod ids;
 pub mod item;
 pub mod json;
 pub mod message_class;
+pub mod redact;
 pub mod section;
 pub mod text_class;
 pub mod thread;

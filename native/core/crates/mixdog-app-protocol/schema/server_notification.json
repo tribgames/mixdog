@@ -825,6 +825,18 @@
       ],
       "type": "object"
     },
+    "HostNotificationCloseParams": {
+      "description": "`host/notification/close`: closes the toasts still showing for a server's connection (its notifier ended), so a toast cannot be clicked after the link it is about is gone.",
+      "properties": {
+        "connectionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "connectionId"
+      ],
+      "type": "object"
+    },
     "HostNotificationShowParams": {
       "properties": {
         "body": {
@@ -950,6 +962,16 @@
       },
       "required": [
         "line"
+      ],
+      "type": "object"
+    },
+    "ImportProgressUpdatedParams": {
+      "description": "The job snapshot exactly as `import/getConversationImportJobs` lists it (`jobId`, `seq`, `state`, `processed`, ...).",
+      "properties": {
+        "job": true
+      },
+      "required": [
+        "job"
       ],
       "type": "object"
     },
@@ -5991,6 +6013,28 @@
       ],
       "type": "object"
     },
+    "UiRelayPayloadRefusedParams": {
+      "description": "The size of the refused frame and the relay's ceiling, each null when the relay reported none.",
+      "properties": {
+        "bytes": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "limit": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "UiSettingsChangedParams": {
       "description": "`ui/settings/changed` (app feed) and `ui/settings/announce`: Node's `settings-changed` desktop event, which reached the windows and every paired device (ipc-state-bridge.ts:114, remote-relay-push-lanes.ts:54).",
       "properties": {
@@ -6985,6 +7029,25 @@
       "type": "object"
     },
     {
+      "description": "The core closes the toasts still showing for a server's connection (its notifier ended).",
+      "properties": {
+        "method": {
+          "enum": [
+            "host/notification/close"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostNotificationCloseParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
       "properties": {
         "method": {
           "enum": [
@@ -7399,6 +7462,44 @@
         },
         "params": {
           "$ref": "#/definitions/UiProviderModelsChangedParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Node's `relay-payload-refused` event: the relay refused an oversize frame of the core's leg; the windows show the size and the ceiling.",
+      "properties": {
+        "method": {
+          "enum": [
+            "ui/relayPayloadRefused"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/UiRelayPayloadRefusedParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "The desktop's `conversation-import-progress` event: one changed snapshot of a conversation-import job (every client, as the app feed).",
+      "properties": {
+        "method": {
+          "enum": [
+            "import/progress/updated"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ImportProgressUpdatedParams"
         }
       },
       "required": [

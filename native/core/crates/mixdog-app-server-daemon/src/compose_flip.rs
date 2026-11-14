@@ -1624,6 +1624,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             frame_dir: crate::compose_browser_engine::frame_dir(&b.data_dir),
         },
     ));
+    // `downloads` with `attach: true` reads the completed download through the core.
+    engine.set_download_files(Arc::new(crate::compose_browser_engine::EngineFiles { lane: b.tokens.interactive_io }));
     // What the desktop pushes reaches the engine's facts memory first, then the lane's sink (`host/browser/events`, `page/facts`, `userInput`, host gone).
     let engine_sink = engine.sink(Arc::new(mixdog_browser_engine::lane::sink::EngineSinkImpl::new(engine_lane.mirror().clone(), engine_lane.hold().clone())));
     let pool_host: Arc<dyn mixdog_tools::desktop::host::HostCommands> = Arc::new(mixdog_core_session::session::secret_input::SecretHostCommands::new(
@@ -2913,7 +2915,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     ))?;
     builder.register(secret.service.clone())?; // `approval/provideSecret`: the same `SecretSlots` as `SecretFill`
     builder.register(Arc::new(mixdog_core_session::session::secret_input::HumanOnlyService::new(human_only)))?; // `host/humanOnly/*`: the desktop's holds on the one human-only lock
-    builder.register(Arc::new(crate::takeover_port::TakeoverReadyService::new(takeover.clone())))?; // `takeover/ready`: the takeover card and the sign-in window ask whether the person may act
+    builder.register(Arc::new(crate::takeover_port::TakeoverReadyService::new(takeover.clone()).with_secret_slots(secret.slots.clone())))?; // `takeover/ready`: the takeover card and the sign-in window ask whether the person may act
     builder.register(Arc::new(mixdog_tools::orch::status::ToolsService::new(tool_surface.clone())))?; // `tools/*`
     let scm_service = mixdog_scm::service::ScmService::new(
         scm.clone(),
@@ -2958,7 +2960,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             Arc::new(crate::compose_computer_bridge::PoolBridgeHost(pool.clone())),
             Arc::new(crate::compose_computer_bridge::FillBridgeSecrets { fill: fill.clone(), redactor: redactor.clone() }),
             Arc::new(crate::compose_computer_bridge::RegistryBridgeSavedLogins(saved_logins.clone())),
-            None,
+            Arc::new(crate::compose_computer::CoreComputerBlobs::new(blobs.clone(), b.tokens.interactive_io)),
             bridge_fill_turns.clone(),
         )))?;
     }

@@ -102,7 +102,7 @@ mod tests {
             // The renderer reaches these through main today (Connection settings, the PC access row, the remote host list,
             // the takeover card and the link, attachment and font lanes): a window keeps them.
             "connections/ssh/open", "connections/link/get", "connections/ports/forward", "remoteHosts/list", "remoteHosts/redeemCode",
-            "remoteHosts/rename", "remoteHosts/forget", "remoteHosts/presence", "pcAccess/readiness", "pcAccess/approve", "takeover/ready",
+            "remoteHosts/rename", "remoteHosts/forget", "remoteHosts/presence", "pcAccess/readiness", "pcAccess/approve", "takeover/ready", "takeover/state",
             "desktop/link/resolve", "desktop/attachment/resolve", "desktop/attachment/stage", "desktop/fonts/list", "projectFs/grant/describe",
             "projectFs/grant/redeem",
             // x-residual-moves-b: the link, thumbnail, attachment, save-as, what's-new and Linux input-access lanes reach these through main.

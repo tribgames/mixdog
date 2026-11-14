@@ -252,6 +252,27 @@ pub fn browser_output(value: &Value) -> ToolOutcome {
             parts.push(ToolPart::Image { mime: mime.to_owned(), data: ImageData::Bytes(bytes), width: None, height: None });
         }
     }
+    // An attached download (`result.file`): a PDF as a document, an image as an image, a text type as its text under the file name;
+    // any other type stays named in the reply text only.
+    if let Some(file) = value.get("file").and_then(Value::as_object) {
+        let mime = file.get("mimeType").and_then(Value::as_str).unwrap_or_default();
+        let name = file.get("name").and_then(Value::as_str).unwrap_or_default();
+        let bytes = file.get("data").and_then(Value::as_str).and_then(|data| STANDARD.decode(data).ok());
+        let Some(bytes) = bytes else {
+            return Err(bridge_error("browser bridge returned an invalid file"));
+        };
+        let kind = mime.split(';').next().unwrap_or_default().trim().to_ascii_lowercase();
+        if kind == "application/pdf" {
+            parts.push(ToolPart::Document { mime: kind, data: bytes });
+        } else if kind == "image/jpeg" || kind == "image/png" {
+            if bytes.len() > MAX_IMAGE_BYTES {
+                return Err(bridge_error("browser bridge returned an invalid image"));
+            }
+            parts.push(ToolPart::Image { mime: kind, data: ImageData::Bytes(bytes), width: None, height: None });
+        } else if kind.starts_with("text/") || matches!(kind.as_str(), "application/json" | "application/xml" | "image/svg+xml") {
+            parts.push(ToolPart::Text(format!("{name}\n{}", String::from_utf8_lossy(&bytes))));
+        }
+    }
     let output = ToolOutput { parts, ..ToolOutput::default() };
     // An inconclusive outcome is a failure carrying its output, as the bridge flagged it.
     if value.get("outcome").and_then(Value::as_str) == Some("blocked") {
