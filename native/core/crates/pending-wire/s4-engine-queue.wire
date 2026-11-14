@@ -1,0 +1,3 @@
+# s4-engine-queue
+# No hot-file edit: queue:: uses only crates mixdog-browser-engine already depends on (mixdog-rt, mixdog-app-protocol); no Cargo edge, no SERVICE_PENDING name.
+# Consumers (later tasks, not hot files): the EngineSink of s4-engine-lane calls UserHold::on_user_input(params) from user_input and UserHold::host_gone() from host_gone; the runner (s4-engine-runner) builds QueueKey::for_command and CommandQueue::run.
