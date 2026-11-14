@@ -5,7 +5,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,8 +13,6 @@ import test from 'node:test';
 
 import electron from 'electron';
 import { build } from 'esbuild';
-
-const require = createRequire(import.meta.url);
 
 async function runFixture() {
   const directory = await mkdtemp(join(tmpdir(), 'mixdog-offscreen-isolation-'));
@@ -26,17 +23,7 @@ async function runFixture() {
       platform: 'node',
       format: 'cjs',
       external: ['electron'],
-      // koffi is native (the page server's opened-file check): it is
-      // required from the app's own modules, as in the built app.
       supported: { 'dynamic-import': false },
-      plugins: [
-        {
-          name: 'native-koffi',
-          setup(bundle) {
-            bundle.onResolve({ filter: /^koffi$/ }, () => ({ path: require.resolve('koffi'), external: true }));
-          },
-        },
-      ],
       write: false,
     });
     const main = join(directory, 'index.cjs');

@@ -1,11 +1,16 @@
 /**
- * The files of a scripted inline page (`chart` / `html` content) for the local
+ * The files of a scripted inline page (`chart` / `html` content) for the core
  * page server's virtual lease: the page itself and, for a chart, the locally
  * bundled ECharts it loads. Nothing is read from or written to the project.
  */
 import { INLINE_ECHARTS_FILE, INLINE_PAGE_FILE, inlinePageDocument } from '../../shared/visualize-inline-page';
 import type { VisualizeInlineContent } from '../../shared/visualize';
-import type { VirtualPageFile } from '../local-page-server';
+
+/** One in-memory file of a virtual page (nothing on disk). */
+export interface VirtualPageFile {
+  type: string;
+  body: Buffer;
+}
 
 const JS = 'text/javascript; charset=utf-8';
 const HTML = 'text/html; charset=utf-8';
