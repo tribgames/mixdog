@@ -22,6 +22,7 @@ import { PROVIDER_MODELS_EVENT } from '../../shared/provider-models';
 import { SETTINGS_CHANGED_EVENT } from '../../shared/settings-changed';
 import type { DirectKey } from '../../shared/desktop-api-split';
 import { createOperationLane, watchAnnouncements } from '../../shared/core-lanes/desktop-operation-route';
+import { remotePagedMember } from '../../shared/core-lanes/remote-reads';
 import { readActivityRailPins } from '../../shared/core-lanes/section-reads';
 import type { DirectContext } from './context.ts';
 import { withDirectErrors } from './errors.ts';
@@ -122,25 +123,18 @@ export function createSettingsApi(ctx: DirectContext): SettingsApi {
       }
     });
   };
-  /** The whole `remote` value; a section over the inline limit is held as a stub and paged with `remoteAccess/state`. */
-  const remoteValue = async (): Promise<Record<string, unknown> | null> => {
-    const value = held('remote', null);
-    if (value === undefined) return null;
-    return record(value === null ? await ctx.call('remoteAccess/state', {}) : value);
-  };
-  /** Runs `read` on every change of the `remote` section, one at a time and in order. The first run only records where
-   *  things stand. */
-  const followRemote = (read: (value: Record<string, unknown>, first: boolean) => void): (() => void) => {
+  /** Runs `read` with the `remote` member `name` on every change of the section, one at a time and in order (a section
+   *  over the inline limit is paged, remotePagedMember). The first run only records where things stand. */
+  const followRemote = (name: string, read: (value: unknown, first: boolean) => void): (() => void) => {
     let first = true;
     let queue: Promise<void> = Promise.resolve();
     const check = (): void => {
       queue = queue
         .then(async () => {
-          const value = await remoteValue();
-          if (!value) return;
-          read(value, first);
+          read(await remotePagedMember(connection.snapshot(), name, ctx.call), first);
           first = false;
         })
+        // Not held yet (sectionUnavailable) or a failed page: the next change reads again.
         .catch(() => undefined);
     };
     check();
@@ -148,17 +142,17 @@ export function createSettingsApi(ctx: DirectContext): SettingsApi {
   };
   const subscribeRemoteSettings: SettingsApi['subscribeRemoteAccessSettings'] = (listener) => {
     let told: string | null = null;
-    return followRemote((value, first) => {
-      const settings = JSON.stringify(value.settings ?? null);
+    return followRemote('settings', (value, first) => {
+      const settings = JSON.stringify(value ?? null);
       const changed = settings !== told;
       told = settings;
-      if (changed && !first) listener(value.settings as never);
+      if (changed && !first) listener(value as never);
     });
   };
   const subscribeRemoteClaims: SettingsApi['subscribeRemoteClientClaim'] = (listener) => {
     let known = new Set<string>();
-    return followRemote((value, first) => {
-      const claims = Array.isArray(value.claims) ? value.claims.map(record) : [];
+    return followRemote('claims', (value, first) => {
+      const claims = Array.isArray(value) ? value.map(record) : [];
       const fresh = claims.filter((claim) => typeof claim.claimId === 'string' && !known.has(claim.claimId));
       known = new Set(claims.map((claim) => String(claim.claimId)));
       if (!first) for (const claim of fresh) listener(claim as never);
