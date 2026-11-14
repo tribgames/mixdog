@@ -141,7 +141,13 @@ export function createBrowserCommandRunner(options: BrowserCommandRunnerOptions)
           const fields = input as Record<string, unknown>;
           const requestId = String(fields.request_id || '');
           if (command.action === 'secret_precheck') return options.secretFill.precheck(browserSessionId(session_id), requestId);
-          const secret = { value: String(fields.value ?? ''), username: String(fields.username ?? ''), save: fields.save === true };
+          const secret = {
+            value: String(fields.value ?? ''),
+            username: String(fields.username ?? ''),
+            save: fields.save === true,
+            // The page state the core decided the fill against (checked beside the write in engine mode).
+            expect: fields.expect,
+          };
           return options.secretFill.fill(browserSessionId(session_id), requestId, secret, signal);
         }
         // Runtime-only, from the core that runs a Computer Use saved-login fill: admit the fill, hand over its
