@@ -179,12 +179,16 @@ impl<'a> RealSources<'a> {
     }
 }
 
-/// `readSafe(path)`: the trimmed text, `None` when absent, unreadable or blank.
+/// `readSafe(path)`: the trimmed text, `None` when absent, unreadable or blank. A file of nothing but NUL bytes and
+/// blanks, what a crash leaves of data that never reached disk (`holdsNoData`), is no text either.
 fn read_safe(path: &Path) -> Option<String> {
     if !path.exists() {
         return None;
     }
     let text = fs::read(path).ok()?;
+    if text.iter().all(|byte| matches!(byte, 0 | b' ' | b'\t' | b'\n' | b'\r')) {
+        return None;
+    }
     let text = String::from_utf8_lossy(&text);
     let text = js_trim(&text);
     (!text.is_empty()).then(|| text.to_owned())

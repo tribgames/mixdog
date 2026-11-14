@@ -10,6 +10,7 @@ use async_trait::async_trait;
 use mixdog_core_api::domain::tool::ToolIo;
 use mixdog_core_prompt::prompt::compose::ProfileSkip;
 use mixdog_core_prompt::prompt::real_sources::RealSources;
+use mixdog_core_session::session::UserCwd;
 use mixdog_core_session::session::thread_switches::WorkflowTarget;
 use mixdog_mcp::skill_catalog::SkillCatalog;
 use mixdog_mcp::skills::MANIFEST_CHAR_BUDGET;
@@ -93,6 +94,8 @@ pub struct ComposedPrompt {
     pub config: Arc<dyn Fn() -> Value + Send + Sync>,
     pub core_memory: CoreMemoryContext,
     pub skills: Arc<dyn PromptSkills>,
+    /// `captureOriginalUserCwd()`: the prompt's env cwd of a session whose header names none.
+    pub user_cwd: UserCwd,
 }
 
 /// The composition input, owned so the lane job can borrow it.
@@ -163,6 +166,12 @@ impl PromptRebuild for ComposedPrompt {
         // `delegationDisabled(session, ownerIsAgent)` reads the workflow the session holds now.
         let delegation_free = !owner_is_agent && header.get("workflow").is_some_and(|workflow| workflow_disallows_agent_tool(workflow, agent_mode));
         let core_memory = if owner_is_agent { String::new() } else { self.core_memory.load(&cwd, agent.as_deref().unwrap_or_default()).await };
+        // `opts.cwd || captureOriginalUserCwd()`.
+        let prompt_cwd = if cwd.is_empty() {
+            self.user_cwd.captured_cwd(None).await.map_err(|error| error.to_string())?.unwrap_or_default()
+        } else {
+            cwd.clone()
+        };
         let skill_manifest = if tool_free_role || request.allow.as_ref().is_some_and(Vec::is_empty) { String::new() } else { self.skills.manifest(&cwd).await? };
         let mut omit = request.denied.clone();
         omit.push(unused_model_edit_tool_name(&request.model).to_owned());
@@ -176,7 +185,7 @@ impl PromptRebuild for ComposedPrompt {
             system_prompt: identity.get("systemPrompt").and_then(Value::as_str).unwrap_or_default().to_owned(),
             skip_agent_rules: flag("skipAgentRules"),
             profile_skip: ProfileSkip { skills: skip("skills"), claudemd: skip("claudemd"), memory: skip("memory") },
-            cwd,
+            cwd: prompt_cwd,
             agent,
             owner_is_agent,
             agent_mode,
