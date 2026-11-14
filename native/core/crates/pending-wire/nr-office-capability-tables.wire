@@ -1,0 +1,33 @@
+# nr-office-capability-tables: the new crate mixdog-office (office capability tables). Nothing else consumes it yet.
+
+## native/core/Cargo.toml
+
+[workspace] members: add, after "crates/mixdog-fsio" (any place in the list):
+
+    "crates/mixdog-office",
+
+[workspace.dependencies]: add, next to `mixdog-fsio = { path = "crates/mixdog-fsio" }`:
+
+    mixdog-office = { path = "crates/mixdog-office" }
+
+## native/core/Cargo.lock
+
+A new package `mixdog-office` (dependencies: indexmap, mixdog-workspace-hack, serde, serde_json, sha2). Every one of them is
+already in the lock, so `cargo metadata --locked` only needs the new package entry (regenerate with `cargo update -w`
+offline). The crate is not compiled by this task: neither the workspace entry nor the lock entry existed.
+
+## native/core/crates/mixdog-workspace-hack/Cargo.toml
+
+Nothing to add by hand: the crate's features (indexmap "serde", serde "derive", serde_json "preserve_order" and
+"float_roundtrip", sha2) are the ones the hack already unifies. Run the repository's hakari check after adding the member
+and take its output if it asks for a line.
+
+## SERVICE_PENDING (compose_flip.rs)
+
+No name to remove: this task registers no service.
+
+## Later tasks
+
+nr-office-rewire-office-run replaces native/core/crates/mixdog-tools/src/orch/defs/office.json from
+mixdog-office/data/tool-defs.json (toolDefs[0]); until then tests/twin_capability_tables.rs compares them by value (key
+order differs: Node's TOOL_DEFS lists inputSchema before annotations, the front end's copy after).

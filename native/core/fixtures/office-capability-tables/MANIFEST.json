@@ -1,0 +1,31 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-office-capability-tables.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 120098,
+      "path": "golden.json",
+      "sha256": "dab0c53b2d3b453a9832224788cf4e057641e4e29c0e655eebb73ba5a26de480"
+    }
+  ],
+  "product": {
+    "appsSha256": "f609d20527e44cef50caf8d73f47569092bfc5d8688377623dcb6d43025e3610",
+    "commit": "f6ac6584899028446d6f7a1fb51ffb8384f0194a",
+    "comparedAgainst": "f6ac6584899028446d6f7a1fb51ffb8384f0194a",
+    "exact": true,
+    "files": 9185,
+    "refComparison": {
+      "closestCommit": "f6ac6584899028446d6f7a1fb51ffb8384f0194a",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "2a77c866831fc796ce856c9b2a11e6542a86d8ded3f1d05c298caa84972ab301",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-office-capability-tables.mjs",
+  "set": "office-capability-tables",
+  "totalBytes": 120098
+}

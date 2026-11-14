@@ -605,6 +605,15 @@
       "totalBytes": 29302
     },
     {
+      "command": "node benchmarks/rust-core/recorders/record-office-capability-tables.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "office-capability-tables/MANIFEST.json",
+      "manifestSha256": "af1c6598dd9255fea02b179414ab6d75f3095f389ad45e19392cf08aebdd9f42",
+      "recorder": "benchmarks/rust-core/recorders/record-office-capability-tables.mjs",
+      "set": "office-capability-tables",
+      "totalBytes": 120098
+    },
+    {
       "command": "node benchmarks/rust-core/recorders/record-office-detect.mjs --tree <tree>",
       "fileCount": 1,
       "manifest": "office-detect/MANIFEST.json",
