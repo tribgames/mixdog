@@ -1,6 +1,6 @@
 // The renderer's read side of pushed state (desktop-services.md §2.3, §15). One store per window, fed by a
-// `SectionsSource`: Electron's preload bridge (main owns the socket), or, on the phone, the client library's own
-// fold store over the relay. `value` of a section is replaced whole when its `revision` is higher, so a snapshot
+// `SectionsSource`: the window's own client (core-direct/sections.ts: the client library's store in this renderer), or,
+// on the phone, the client library's own fold store over the relay. `value` of a section is replaced whole when its `revision` is higher, so a snapshot
 // read racing a push can never move a section backwards. Nothing in the renderer polls for what a section carries.
 import { useCallback, useSyncExternalStore } from 'react';
 import { EVENT_SECTIONS } from '../shared/contract-sections';
@@ -59,7 +59,7 @@ export interface SectionStore {
   status(): DesktopProtocolStatus;
   /** Called after each change of `section` (every section for `'*'`, plus status changes). */
   subscribe(section: string, listener: () => void): () => void;
-  /** A scoped feed main could not restore after a reconnect for a reason other than the core not holding it. */
+  /** A scoped feed the window's connection could not restore after a reconnect for a reason other than the core not holding it. */
   onFeedError(listener: (feedId: string, message: string) => void): () => void;
   /** Resolves once the first snapshot is folded. */
   ready(): Promise<void>;
@@ -214,7 +214,7 @@ export function createSectionStore(source: SectionsSource): SectionStore {
 let installed: SectionStore | undefined;
 const HOST_STORES = new WeakMap<object, SectionStore>();
 
-/** Installs the window's store over `source` (the phone installs the library's; Electron's is created on first use). */
+/** Installs the window's store over `source` (the phone installs the library's; the window's own is created on first use). */
 export function installSectionStore(source: SectionsSource): SectionStore {
   installed?.dispose();
   installed = createSectionStore(source);
@@ -226,7 +226,7 @@ export function installedSectionStore(): SectionStore | undefined {
   return installed;
 }
 
-/** The store of a desktop bridge (`window.mixdogDesktop`), one per bridge object. */
+/** The store of the window's api (`window.mixdogDesktop`), one per api object. */
 export function sectionStoreFor(host: { readonly sections?: SectionsSource } | undefined): SectionStore | undefined {
   if (installed) return installed;
   if (!host?.sections) return undefined;
