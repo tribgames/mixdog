@@ -1,20 +1,19 @@
 import type { ChildProcess } from 'node:child_process';
 
 import { BrowserWindow } from 'electron';
-import type { ComputerHost } from '../index';
 import { sleep } from '../shared/common';
 import { actionPayload } from './scenario-ocr';
 import { ScenarioSkip } from './scenario-runtime';
 import { foregroundHwnd, nativeHwnd } from './scenario-fixtures';
-import type { BridgeDiscovery, ScenarioCommand } from './scenario-types';
+import type { ComputerCore } from './core-transport';
+import type { ScenarioCommand } from './scenario-types';
 
-/** What every scenario group shares: the resident host, the command helper, the fixture windows and their ids. */
+/** What every scenario group shares: the connection to the core, the command helper, the fixture windows and their ids. */
 export interface ScenarioContext {
-  host: ComputerHost;
+  /** The core the commands run in: `call` for any protocol request, `helperPid(session)`, the presence `mirror`. */
+  core: ComputerCore;
   session: string;
   command: ScenarioCommand;
-  /** Republished on a bridge restart, so scenarios read and replace it in place. */
-  bridge: { discovery: BridgeDiscovery };
   windows: BrowserWindow[];
   fixture: BrowserWindow;
   fixtureWindowId: string;

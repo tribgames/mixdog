@@ -4,21 +4,19 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { app, BrowserWindow } from 'electron';
-import { createComputerHost, type ComputerHost } from '../index';
-import { harnessForegroundLease } from './harness-foreground-lock';
 import { createComputerUseOverlay, type ComputerUseOverlay } from '../overlay';
+import { createComputerPillControls, createCoreUserControl } from '../../host/computer-user-control';
 import { compileNativeTextFixture } from '../backend/native-fixture';
+import { type ComputerCore, openComputerCore } from './core-transport';
 import { createTurnEndHelpers, type ScenarioContext, type ScenarioGroup } from './scenario-context';
 import { externalFixtureProgram } from './scenario-fixture-html';
 import { createDenseFixture, createScenarioFixtureWindows, fixtureWindowIds } from './scenario-fixtures';
 import { SCENARIO_GROUPS, SCENARIO_RUN_ORDER, unknownScenarioIds } from './scenario-ids';
 import {
   createScenarioCommand,
-  dataDirectory,
   isScenarioDeclared,
   profile,
   progress,
-  readDiscovery,
   scenarioOnly,
   writeScenarioReport,
 } from './scenario-runtime';
@@ -57,7 +55,7 @@ async function run(): Promise<void> {
   const unknown = unknownScenarioIds(scenarioOnly);
   if (unknown.length) throw new Error(`unknown scenario id(s): ${unknown.join(', ')}`);
   const declarations = scenarioDeclarations();
-  let host: ComputerHost | null = null;
+  let core: ComputerCore | null = null;
   let overlay: ComputerUseOverlay | null = null;
   let externalChild: ChildProcess | null = null;
   let context: ScenarioContext | null = null;
@@ -71,22 +69,6 @@ async function run(): Promise<void> {
 
   try {
     progress('SETUP app ready');
-    // This harness is its own Electron app: the activity overlay and pointer
-    // feedback the product shows only appear while this process owns them too.
-    if (process.env.MIXDOG_COMPUTER_SCENARIO_OVERLAY !== 'off') {
-      overlay = createComputerUseOverlay(
-        {
-          stop: async () => {
-            host?.takeOver('user_stop');
-          },
-          pause: async () => {
-            host?.takeOver('user_pause');
-          },
-        },
-        'ko'
-      );
-      progress('SETUP activity overlay ready');
-    }
     if (needsNativeTextFixture) {
       nativeTextFixturePath = compileNativeTextFixture(profile);
       progress('SETUP native text fixture ready');
@@ -119,11 +101,25 @@ async function run(): Promise<void> {
       progress('SETUP external fixture spawned');
     }
 
-    host = createComputerHost({ foregroundLease: harnessForegroundLease() });
-    progress('SETUP resident host created');
-    const bridge = { discovery: await readDiscovery(join(dataDirectory, 'computer-bridge.json'), 45_000) };
-    progress('SETUP resident host discovered');
-    const command = createScenarioCommand(session, () => bridge.discovery);
+    core = await openComputerCore();
+    progress('SETUP core connected, host role claimed');
+    // The overlay is drawn from the presence mirror the core's `computer` section feeds, with the pill's own controls (Pause and
+    // Stop reach the core), so the pill, the arrow and the user's hold behave as the product's.
+    if (process.env.MIXDOG_COMPUTER_SCENARIO_OVERLAY !== 'off') {
+      const connected = core;
+      overlay = createComputerUseOverlay(
+        createComputerPillControls({
+          core: createCoreUserControl(connected.call),
+          mirror: connected.mirror,
+          abortSession: (sessionId) => connected.runCommand({ action: 'session_abort' }, sessionId),
+        }),
+        'ko',
+        {},
+        connected.mirror
+      );
+      progress('SETUP activity overlay ready');
+    }
+    const command = createScenarioCommand(session, core);
 
     const setupWindows = (await command({ action: 'list_windows' }, '__computer_scenario_setup__')).text;
     const setupIds = fixtureWindowIds(setupWindows);
@@ -139,10 +135,9 @@ async function run(): Promise<void> {
     progress('SETUP exact fixture windows resolved');
 
     context = {
-      host,
+      core,
       session,
       command,
-      bridge,
       windows,
       fixture,
       fixtureWindowId: setupIds.fixture,
@@ -168,7 +163,7 @@ async function run(): Promise<void> {
     overlay?.dispose();
     externalChild?.kill();
     context?.nativeDialogChild?.kill();
-    await host?.dispose();
+    await core?.dispose();
     for (const window of BrowserWindow.getAllWindows()) {
       if (!window.isDestroyed()) window.destroy();
     }

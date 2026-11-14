@@ -78,9 +78,10 @@ fn fits_file_budget(length: usize) -> bool {
 pub async fn attach_frame(files: &dyn FilePort, reply: &mut ToolReply, output: ImageOutput, frame_dir: &Path, capture: &CapturedScreenshot) -> Result<(), ReplyError> {
     let length = capture.bytes.len();
     if output == ImageOutput::File && fits_file_budget(length) {
-        let path = files.write_frame(frame_dir, capture.bytes.clone()).await;
-        reply.text.push_str(&format!("\n\nFrame written to {} ({length} bytes).", path.display()));
-        return Ok(());
+        if let Ok(path) = files.write_frame(frame_dir, capture.bytes.clone(), &capture.mime_type).await {
+            reply.text.push_str(&format!("\n\nFrame written to {} ({length} bytes).", path.display()));
+            return Ok(());
+        }
     }
     if length > MAX_INLINE_IMAGE_BYTES {
         return Err(ReplyError::new(format!(
@@ -144,7 +145,7 @@ mod tests {
     use crate::types::FileFacts;
 
     #[derive(Default)]
-    struct Frames(Mutex<Vec<(PathBuf, usize)>>);
+    struct Frames(Mutex<Vec<(PathBuf, usize)>>, std::sync::atomic::AtomicBool);
 
     #[async_trait]
     impl FilePort for Frames {
@@ -152,9 +153,13 @@ mod tests {
             FileFacts::default()
         }
 
-        async fn write_frame(&self, run_dir: &Path, bytes: Bytes) -> PathBuf {
+        async fn write_frame(&self, run_dir: &Path, bytes: Bytes, mime_type: &str) -> std::io::Result<PathBuf> {
+            if self.1.load(std::sync::atomic::Ordering::SeqCst) {
+                return Err(std::io::Error::other("disk full"));
+            }
             self.0.lock().unwrap().push((run_dir.to_path_buf(), bytes.len()));
-            run_dir.join("frame.png")
+            assert_eq!(mime_type, "image/png", "the frame is written with its type");
+            Ok(run_dir.join("frame.png"))
         }
     }
 
@@ -257,6 +262,15 @@ mod tests {
         assert!(reply.image.is_none());
         assert!(reply.text.ends_with(&format!("\n\nFrame written to {} (6 bytes).", Path::new("frames").join("frame.png").display())), "{}", reply.text);
         assert_eq!(*frames.0.lock().unwrap(), vec![(PathBuf::from("frames"), 6)]);
+    }
+
+    #[tokio::test]
+    async fn a_frame_that_cannot_be_written_stays_in_the_reply() {
+        let frames = Frames::default();
+        frames.1.store(true, std::sync::atomic::Ordering::SeqCst);
+        let mut reply = ToolReply::default();
+        attach_frame(&frames, &mut reply, ImageOutput::File, Path::new("frames"), &capture(b"pixels", false)).await.unwrap();
+        assert!(reply.image.is_some() && !reply.text.contains("Frame written"), "the picture is not lost with the file");
     }
 
     #[tokio::test]

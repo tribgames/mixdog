@@ -82,6 +82,8 @@ function harness({ cdpFails = false, destroyed = false, answer = () => ({ ok: tr
       if (method === 'DOMSnapshot.captureSnapshot') {
         return options?.sessionId ? { documents: [], strings: [] } : DOM_SNAPSHOT;
       }
+      if (method === 'DOM.getFrameOwner') return { backendNodeId: 7 };
+      if (method === 'DOM.getBoxModel') return { model: { content: [300, 200.5, 400, 200.5, 400, 250, 300, 250] } };
       if (method === 'DOM.resolveNode') return { object: { objectId: `obj-${params.backendNodeId}` } };
       if (method === 'Runtime.callFunctionOn') return callResponse ? callResponse(params) : { result: { value: 'clicked' } };
       throw new Error(`unexpected ${method}`);
@@ -181,6 +183,8 @@ test('the revision is the sum of the DOM-change counters across frames', async (
   const h = harness();
   const result = await h.call('host/browser/snapshot', { pageId: 'p1', mode: 'interactive' });
   assert.equal(result.revision, 12);
+  // The whole observation travels beside it: the core judges "no observable change" by every frame's document, viewport and scrollers.
+  assert.equal(result.observation, 'origin:4:800:600:0:0:7:0:0|origin:2:800:600:0:0:5:0:0');
 });
 
 test('modes and limits become the capture command', async () => {
@@ -270,9 +274,13 @@ test('ref/call on an accessibility ref resolves the node in its session, calls, 
     [
       ['DOM.resolveNode', 'S-frame'],
       ['Runtime.callFunctionOn', 'S-frame'],
+      ['DOM.getFrameOwner', undefined],
+      ['DOM.getBoxModel', undefined],
       ['release', 'S-frame'],
     ]
   );
+  // The ref lives in a cross-origin frame: where that frame sits in the top viewport goes with the value.
+  assert.deepEqual(result.frameOffset, { x: 300, y: 200.5 });
   assert.deepEqual(h.cdpCalls[1].params.arguments, [{ value: 'x' }]);
   assert.equal(h.cdpCalls[1].params.returnByValue, true);
 });

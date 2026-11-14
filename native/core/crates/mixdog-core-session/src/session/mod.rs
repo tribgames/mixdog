@@ -257,7 +257,6 @@ use mixdog_rt::CpuInteractive;
 use mixdog_rt::DurabilityIo;
 use mixdog_rt::InteractiveIo;
 
-pub use self::attachments::SessionAttachmentLinks;
 pub use self::directory::ArrivingThreads;
 pub use self::directory::SessionDirectory;
 pub use self::reads::transcript_row;

@@ -38,6 +38,7 @@ const PENDING = {
   'host/browser/cdp/send': 's4-host-page-methods (wired by s4-wire-desktop)',
   'host/browser/snapshot': 's4-host-snapshot (wired by s4-wire-desktop)',
   'host/browser/ref/call': 's4-host-snapshot (wired by s4-wire-desktop)',
+  'host/browser/ref/mint': 'g45-fu-rest ref-mint.ts (wired by s4-wire-desktop)',
   'host/browser/screenshot': 's4-host-snapshot (wired by s4-wire-desktop)',
   'host/browser/input/batch': 's4-host-input-batch (wired by s4-wire-desktop)',
   'host/browser/cookies': 's4-host-session-methods (wired by s4-wire-desktop)',

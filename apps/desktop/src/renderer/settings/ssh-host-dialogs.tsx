@@ -8,6 +8,7 @@ import type {
   DesktopSshModelLogin,
   DesktopSshServerLogins,
 } from '../../shared/contract-ssh';
+import { sshCleanupHost, sshUpdateHostSettings, subscribeSshCleanupProgress } from '../connections-core-api';
 import { t } from '../i18n';
 import { record } from '../record-utils';
 import { providerLabel, rows, type CapabilityApi } from './capability-data';
@@ -255,7 +256,7 @@ export function SshHostSettingsDialog({
   const [graceMinutes, setGraceMinutes] = useState(String(host.settings?.graceMinutes ?? 30));
   const [modelLogin, setModelLogin] = useState<DesktopSshModelLogin>(savedModelLogin(host));
   const access = useModelAccess(api, host.settings);
-  const { logins, refresh: refreshLogins } = useServerLogins(api, host.id);
+  const { logins, refresh: refreshLogins } = useServerLogins(host.id);
   const [view, setView] = useState<'settings' | 'confirm' | 'logins'>('settings');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -265,7 +266,7 @@ export function SshHostSettingsDialog({
     setError('');
     const { providers } = access;
     void Promise.resolve(
-      api.sshUpdateHostSettings?.(host.id, {
+      sshUpdateHostSettings(host.id, {
         remoteCwd,
         identityFile,
         autoReconnect,
@@ -304,7 +305,6 @@ export function SshHostSettingsDialog({
   if (view === 'logins') {
     return (
       <SshServerLoginsDialog
-        api={api}
         host={host}
         onClose={() => {
           refreshLogins();
@@ -506,12 +506,10 @@ function CleanupFailedDialog({
 /** "Clean up Mixdog on the server…": remove what Mixdog put on the server, with
  *  the work history only when asked, then optionally forget the saved entry. */
 export function SshCleanupDialog({
-  api,
   host,
   onDone,
   onClose,
 }: {
-  api: CapabilityApi;
   host: DesktopSshHost;
   onDone(): void;
   onClose(): void;
@@ -522,13 +520,13 @@ export function SshCleanupDialog({
   const [detail, setDetail] = useState('');
   const [step, setStep] = useState<DesktopSshCleanupProgress['phase']>('connect');
   const operationId = useRef(globalThis.crypto.randomUUID());
-  const { question, answer } = useSshAskpass(api, (id) => id === operationId.current);
+  const { question, answer } = useSshAskpass((id) => id === operationId.current);
   useEffect(() => {
-    const unsubscribe = api.subscribeSshCleanupProgress?.((progress) => {
+    const unsubscribe = subscribeSshCleanupProgress((progress) => {
       if (progress.operationId === operationId.current) setStep(progress.phase);
     });
     return unsubscribe;
-  }, [api]);
+  }, []);
   // ConfirmDialog closes before it confirms, in the same click: leaving waits one tick.
   const phaseRef = useRef<CleanupPhase>('confirm');
   phaseRef.current = phase;
@@ -537,7 +535,7 @@ export function SshCleanupDialog({
     phaseRef.current = 'running';
     setStep('connect');
     setPhase('running');
-    void Promise.resolve(api.sshCleanupHost?.(host.id, { operationId: operationId.current, removeUserData, forget }))
+    void Promise.resolve(sshCleanupHost(host.id, { operationId: operationId.current, removeUserData, forget }))
       .then((result) => {
         if (!result) return;
         if (result.ok) {

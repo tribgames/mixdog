@@ -400,7 +400,7 @@ const CHANGED: AttachmentError = AttachmentError::Refused { reason: "changed", m
 
 /// The attachment this session's conversation names by `id`: the transcript window, else (a compaction moves older rows into
 /// the archive, so a chip the pane still shows can name an id only the whole stored conversation holds) the whole history.
-async fn named_attachment(host: &dyn AttachmentHost, session_id: &str, id: &str) -> Option<SessionAttachment> {
+pub async fn named_attachment(host: &dyn AttachmentHost, session_id: &str, id: &str) -> Option<SessionAttachment> {
     let find = |snapshot: Value| session_attachments(&snapshot).into_iter().find(|attachment| attachment.id == id);
     if let Some(found) = host.session_transcript(session_id).await.and_then(find) {
         return Some(found);

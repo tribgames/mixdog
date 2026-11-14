@@ -9,6 +9,7 @@ import type {
 import { nativeAppInfo } from '../../shared/native-app';
 import { remoteClientKind } from '../../shared/remote-trust';
 import { ErrorNotice } from '../ErrorNotice';
+import { sshForgetHost, sshRenameHost } from '../connections-core-api';
 import { t } from '../i18n';
 import { deviceKindText, deviceTitle } from '../remote-client-kind-label';
 import { sectionStoreFor } from '../section-store';
@@ -328,13 +329,11 @@ function SavedHostsGroup({
 
 /** The SSH servers this PC has connected to. `error` is the host failure shown here when no saved-PC group shows it. */
 function SshHostsGroup({
-  api,
   hosts,
   busy,
   error,
   setDialog,
 }: {
-  api: CapabilityApi;
   hosts: DesktopSshHost[];
   busy: boolean;
   error: string;
@@ -366,7 +365,7 @@ function SshHostsGroup({
                 <SmallButton
                   disabled={busy}
                   onClick={() =>
-                    void openSshHost(api, host, () =>
+                    void openSshHost(host, () =>
                       setDialog({ kind: 'ssh', host: { id: host.id, name: host.name, target: host.target } })
                     )
                   }
@@ -379,11 +378,9 @@ function SshHostsGroup({
                 <SmallButton disabled={busy} onClick={() => setDialog({ kind: 'settings-ssh', host })}>
                   {t('Settings')}
                 </SmallButton>
-                {api.sshCleanupHost && (
-                  <SmallButton disabled={busy} onClick={() => setDialog({ kind: 'cleanup-ssh', host })}>
-                    {t('Clean up Mixdog on the server…')}
-                  </SmallButton>
-                )}
+                <SmallButton disabled={busy} onClick={() => setDialog({ kind: 'cleanup-ssh', host })}>
+                  {t('Clean up Mixdog on the server…')}
+                </SmallButton>
                 <SmallButton disabled={busy} onClick={() => setDialog({ kind: 'forget-ssh', host })}>
                   {t('Forget')}
                 </SmallButton>
@@ -392,7 +389,7 @@ function SshHostsGroup({
           />
         ))}
       </div>
-      <ReopenServerWindowsToggle api={api} />
+      <ReopenServerWindowsToggle />
       {error && <ErrorNotice error={error} />}
     </section>
   );
@@ -438,7 +435,7 @@ function ConnectionDialogs({
           description={t('Only this computer shows the new name.')}
           initial={dialog.host.name}
           allowEmpty={false}
-          onSave={(name) => Promise.resolve(api.sshRenameHost?.(dialog.host.id, name)).then(refreshSshHosts)}
+          onSave={(name) => Promise.resolve(sshRenameHost(dialog.host.id, name)).then(refreshSshHosts)}
           onClose={closeDialog}
         />
       )}
@@ -446,7 +443,7 @@ function ConnectionDialogs({
         <SshHostSettingsDialog api={api} host={dialog.host} onSaved={refreshSshHosts} onClose={closeDialog} />
       )}
       {dialog?.kind === 'cleanup-ssh' && (
-        <SshCleanupDialog api={api} host={dialog.host} onDone={refreshSshHosts} onClose={closeDialog} />
+        <SshCleanupDialog host={dialog.host} onDone={refreshSshHosts} onClose={closeDialog} />
       )}
       {dialog?.kind === 'forget-ssh' && (
         <ConfirmDialog
@@ -456,7 +453,7 @@ function ConnectionDialogs({
           })}
           confirmLabel={t('Forget')}
           onConfirm={() =>
-            runHost(`forget-ssh:${dialog.host.id}`, () => api.sshForgetHost?.(dialog.host.id).then(refreshSshHosts))
+            runHost(`forget-ssh:${dialog.host.id}`, () => sshForgetHost(dialog.host.id).then(refreshSshHosts))
           }
           onClose={closeDialog}
         />
@@ -546,7 +543,7 @@ export function ConnectionPanel({ api }: { api: CapabilityApi }) {
   });
   const [settings, setSettings, settingsSettled] = useRemoteAccessSettings(api);
   const { hosts, refresh: refreshHosts } = useRemoteHosts(api);
-  const { hosts: sshHosts, refresh: refreshSshHosts } = useSshHosts(api);
+  const { hosts: sshHosts, refresh: refreshSshHosts } = useSshHosts();
   const enabled = settings ? settings.enabled : info?.enabled !== false;
   const enabledRef = useRef(enabled);
   enabledRef.current = enabled;
@@ -710,12 +707,10 @@ export function ConnectionPanel({ api }: { api: CapabilityApi }) {
             {t('Open another PC')}
           </button>
         )}
-        {api.sshConnect && (
-          <button type="button" className="conn-btn" onClick={() => setDialog({ kind: 'ssh', host: null })}>
-            <Terminal size={16} aria-hidden="true" />
-            {t('Connect SSH server')}
-          </button>
-        )}
+        <button type="button" className="conn-btn" onClick={() => setDialog({ kind: 'ssh', host: null })}>
+          <Terminal size={16} aria-hidden="true" />
+          {t('Connect SSH server')}
+        </button>
         <button
           type="button"
           className="conn-btn conn-btn--primary conn-connect-device"
@@ -738,7 +733,6 @@ export function ConnectionPanel({ api }: { api: CapabilityApi }) {
       )}
       {sshHosts.length > 0 && (
         <SshHostsGroup
-          api={api}
           hosts={sshHosts}
           busy={Boolean(hostBusy)}
           error={hosts.length > 0 ? '' : hostError}

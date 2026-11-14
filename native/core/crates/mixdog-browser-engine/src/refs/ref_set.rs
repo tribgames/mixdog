@@ -65,6 +65,8 @@ pub struct RefSet {
     pub document_id: String,
     /// The document revision of the snapshot, when the host gave one.
     pub revision: Option<u32>,
+    /// The page's whole observation revision at the snapshot (`observation` of the result): the baseline a gesture's reply is judged against.
+    pub observation: Option<String>,
     pub url: String,
     pub viewport_width: f64,
     pub viewport_height: f64,
@@ -85,6 +87,7 @@ impl RefSet {
             snapshot_id: snapshot_id.to_string(),
             document_id: String::new(),
             revision: None,
+            observation: None,
             url: payload.url.clone(),
             viewport_width: payload.viewport_width,
             viewport_height: payload.viewport_height,
@@ -111,6 +114,12 @@ impl RefSet {
     pub fn with_document(mut self, document_id: &str, revision: u32) -> Self {
         self.document_id = document_id.to_string();
         self.revision = Some(revision);
+        self
+    }
+
+    /// The observation revision the host reported with the snapshot.
+    pub fn with_observation(mut self, observation: Option<&str>) -> Self {
+        self.observation = observation.map(str::to_string);
         self
     }
 
@@ -201,6 +210,9 @@ pub(crate) mod tests {
         assert_eq!(set.get("p-s1-e2").map(|entry| (entry.value.as_str(), entry.sensitive)), Some(("[REDACTED]", true)));
         assert_eq!((set.revision, set.covered_elements, set.total_elements, set.query.as_deref()), (Some(4), 2, 2, Some("go")));
         assert!(set.get("p-s1-e3").is_none());
+        assert_eq!(set.observation, None);
+        let observed = set.with_observation(Some("1700000000000.5:3:1280:720:0:0:4:0"));
+        assert_eq!(observed.observation.as_deref(), Some("1700000000000.5:3:1280:720:0:0:4:0"));
     }
 
     #[test]

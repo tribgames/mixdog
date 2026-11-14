@@ -34,6 +34,9 @@ pub struct TakeoverHold {
     pub held: bool,
     /// The screen is held: a `computer` takeover, named by the step it waits on (`takeoverStep`).
     pub screen: Option<String>,
+    /// The takeover that names the hold (the oldest) is itself a `computer` one: its hand-over waits for Computer Use to drain,
+    /// whatever a later takeover of the session holds (`surface === 'computer'` of the takeover the gate holds).
+    pub names_screen: bool,
     /// What the held takeover waits on (`takeoverStep`), of either surface: the Browser Use refusal names it.
     pub step: Option<String>,
     /// The id of the held takeover's request (`takeover/ready` names the takeover it asks about by it).
@@ -54,11 +57,12 @@ pub(crate) fn takeover_hold<'a>(asks: impl Iterator<Item = (ApprovalId, &'a Appr
         }
         hold.held = true;
         let takeover = ask.payload.get("takeover");
+        let surface = takeover.and_then(|takeover| takeover.get("surface")).and_then(|surface| surface.as_str());
         if hold.step.is_none() {
             hold.step = Some(takeover_step(takeover));
             hold.id = Some(id.0.to_string());
+            hold.names_screen = surface == Some("computer");
         }
-        let surface = takeover.and_then(|takeover| takeover.get("surface")).and_then(|surface| surface.as_str());
         if surface == Some("computer") && hold.screen.is_none() {
             hold.screen = Some(takeover_step(takeover));
         }
@@ -235,13 +239,16 @@ mod tests {
         let step = Some("a step only the user can do".to_owned());
         assert_eq!(
             takeover_hold([(ApprovalId(1), &secret), (ApprovalId(7), &takeover("browser"))].into_iter()),
-            TakeoverHold { held: true, screen: None, step: step.clone(), id: Some("7".to_owned()) }
+            TakeoverHold { held: true, screen: None, names_screen: false, step: step.clone(), id: Some("7".to_owned()) }
         );
         // The oldest takeover names the hold, whatever order the book lists them in.
         assert_eq!(
             takeover_hold([(ApprovalId(9), &takeover("computer")), (ApprovalId(4), &takeover("browser"))].into_iter()),
-            TakeoverHold { held: true, screen: step.clone(), step, id: Some("4".to_owned()) }
+            TakeoverHold { held: true, screen: step.clone(), names_screen: false, step, id: Some("4".to_owned()) }
         );
+        // The same takeovers with the screen one oldest: the hold is named by it.
+        let oldest = takeover_hold([(ApprovalId(2), &takeover("computer")), (ApprovalId(5), &takeover("browser"))].into_iter());
+        assert!(oldest.names_screen && oldest.screen.is_some());
         assert_eq!(takeover_hold(std::iter::empty()), TakeoverHold::default());
     }
 

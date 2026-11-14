@@ -90,6 +90,7 @@ host_methods! {
     page_sync, "host/browser/page/sync", HostBrowserPageSyncParams, HostBrowserPageSyncResult;
     snapshot, "host/browser/snapshot", HostBrowserSnapshotParams, HostBrowserSnapshotResult;
     ref_call, "host/browser/ref/call", HostBrowserRefCallParams, HostBrowserRefCallResult;
+    ref_mint, "host/browser/ref/mint", HostBrowserRefMintParams, HostBrowserRefMintResult;
     input_batch, "host/browser/input/batch", HostBrowserInputBatchParams, HostBrowserInputBatchResult;
     screenshot, "host/browser/screenshot", HostBrowserScreenshotParams, HostBrowserScreenshotResult;
     cdp_send, "host/browser/cdp/send", HostBrowserCdpSendParams, HostBrowserCdpSendResult;
@@ -134,7 +135,9 @@ pub trait BlobPort: Send + Sync {
 #[async_trait]
 pub trait FilePort: Send + Sync {
     async fn stat(&self, path: &Path) -> FileFacts;
-    async fn write_frame(&self, run_dir: &Path, bytes: Bytes) -> PathBuf;
+    /// Writes one frame beside the run: the file's name (its extension follows `mime_type`) and the pruning of old frames are the
+    /// implementation's. A frame that cannot be written is an error, and the reply then keeps the picture inline.
+    async fn write_frame(&self, run_dir: &Path, bytes: Bytes, mime_type: &str) -> std::io::Result<PathBuf>;
 }
 
 /// A turn ended: pages the turn's session held for it are released.

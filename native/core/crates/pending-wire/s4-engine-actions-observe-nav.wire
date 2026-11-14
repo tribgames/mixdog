@@ -1,0 +1,36 @@
+# s4-engine-actions-observe-nav core wiring
+
+## 1. Cargo dependency of the engine crate
+File: native/core/crates/mixdog-browser-engine/Cargo.toml, section [dependencies]: `base64 = { workspace = true }` (the line pending-wire/s4-engine-reply.wire
+already asks for). actions/observe.rs decodes the inline base64 of a `Page.printToPDF` answer with `base64::engine::general_purpose::STANDARD`, the same way
+reply/screenshot.rs decodes a picture. Nothing else is new: mixdog-browser-policy (`url_policy::{normalize_agent_url, MailLink, UrlPolicy, MAIL_LINK_WINDOW_MS}`,
+`redaction`), mixdog-js, mixdog-rt, async-trait and serde_json are already dependencies.
+
+## 2. No module line, no registration, no SERVICE_PENDING change
+actions/mod.rs already declares observe, navigation, flow and diagnostics. The modules register nothing: the runner (s4-engine-runner) calls them.
+
+## 3. What the engine runner takes from these modules
+actions::observe::{ActionError, PageCall, SnapshotPlan, plan_snapshot, screenshot_params, ShotPorts, visual_screenshot, element_screenshot, print_pdf,
+LocateInput, locate, visual_locator_expression, read, extract}
+actions::navigation::{NavigateCall, NavigateOutcome, open, navigate, back}
+actions::flow::{WaitReport, wait}
+actions::diagnostics::{status, console, network}
+
+- ActionError {Failed(text the agent reads), Host(HostCallError), Cancelled(settle::settle::Cancelled)} is the one failure type of the four modules (From<HostCallError>,
+  From<Cancelled>, From<ReplyError>); the runner maps Host(..) as it maps every HostCallError (dialog blocking, page gone, user input, stale snapshot) and
+  Cancelled as the command's cancellation.
+- `snapshot`: plan_snapshot(command) first. Semantic -> the runner's snapshot reply; Both -> the same with a viewport screenshot (use screenshot_params for the capture
+  request); Visual -> visual_screenshot; Element -> resolve command.ref / command.target with refs::target_resolve (the resolved snapshot_id and ref_id) then
+  element_screenshot; Pdf -> print_pdf. The runner invalidates the page's interaction state before a navigation or reload (`invalidateInteraction`).
+- `locate`: the runner takes the semantic snapshot with the command's `query` cleared; when `facts.pending_dialog` is set it answers with that reply alone (as the old
+  engine did), otherwise it calls locate(LocateInput{ page, blobs, command, snapshot: that reply, ref_set: the RefSet of that snapshot, background, now }).
+  The returned ToolReply carries `grounding`, which the runner stores with the page.
+- `wait`: the runner implements WaitReport::snapshot with its snapshot reply (build_reply over one host snapshot, no screenshot unless the command asked) and wraps the
+  call in the `wait` timing phase (measureBrowserPhase('wait')). `internalStep` is read from the command; a sequence step passes it.
+- `navigate` and `back` need a Precondition (the page's current document): NavigateCall.expect. After NavigateOutcome::Moved the runner answers with the dialog when
+  facts.pending_dialog is set, else with its snapshot reply; Refused(text) is the reply text of `back` with nowhere to go. navigate takes the runner's UrlPolicy
+  (allow_private_network, allowed_domains) and the epoch milliseconds; the host admits the URL once more against the address it resolves to.
+- `status`/`console`/`network`: PageLedgers of the page, `status` also its PageFacts; these three also run while a dialog blocks the page (limits::DIALOG_TOLERANT_ACTIONS).
+
+## 4. Host side (apps/desktop, see apps/desktop/pending-wire/s4-engine-actions-observe-nav.wire)
+print_pdf and `network <requestId>` use `host/browser/cdp/send`, whose host allowlist (host/browser-engine/cdp-send.ts) lists none of the three methods: see that file.

@@ -16,6 +16,12 @@ import {
   subscribeServerRestore,
   useConnectionLink,
 } from './connection-link-store';
+import {
+  getServerRestoreProgress,
+  retryConnection,
+  retryConnectionNow,
+  subscribeConnectionSignIn,
+} from './connections-core-api';
 import { desktopConnection, isSshConnectionWindow } from './desktop-connection';
 import { t } from './i18n';
 import { displaySessionTitle } from './session-display-title';
@@ -70,7 +76,6 @@ function LinkBanner({ view, serverName }: { view: DesktopConnectionLinkView; ser
   const { state } = view;
   const counting = state.status === 'reconnecting' && state.nextRetryAt !== null;
   const now = useNow(counting);
-  const api = window.mixdogDesktop;
   const [logOpen, setLogOpen] = useState(false);
   if (state.status !== 'reconnecting' && state.status !== 'lost') return null;
   const reconnecting = state.status === 'reconnecting';
@@ -90,36 +95,32 @@ function LinkBanner({ view, serverName }: { view: DesktopConnectionLinkView; ser
         <span className="conn-link-sub">{sub}</span>
       </div>
       <div className="conn-link-actions">
-        {api?.sshDiagnosticsLog ? (
-          <button type="button" className="conn-btn conn-btn--sm" onClick={() => setLogOpen(true)}>
-            {t('View log')}
-          </button>
-        ) : (
-          <span className="conn-link-log-slot" />
-        )}
+        <button type="button" className="conn-btn conn-btn--sm" onClick={() => setLogOpen(true)}>
+          {t('View log')}
+        </button>
         {logOpen &&
           createPortal(
-            <SshLogDialog api={api ?? {}} reference="" name={serverName} onClose={() => setLogOpen(false)} />,
+            <SshLogDialog reference="" name={serverName} onClose={() => setLogOpen(false)} />,
             document.body
           )}
-        {counting && api?.retryConnectionNow && (
+        {counting && (
           <button
             type="button"
             className="conn-btn conn-btn--sm conn-btn--primary"
-            onClick={() => void api.retryConnectionNow?.()}
+            onClick={() => void retryConnectionNow()}
           >
             {t('Reconnect now')}
           </button>
         )}
         {state.status === 'lost' && (
           <>
-            <button type="button" className="conn-btn conn-btn--sm" onClick={() => void api?.closeConnectionWindow?.()}>
+            <button type="button" className="conn-btn conn-btn--sm" onClick={() => void window.mixdogDesktop?.closeConnectionWindow?.()}>
               {t('Close window')}
             </button>
             <button
               type="button"
               className="conn-btn conn-btn--sm conn-btn--primary"
-              onClick={() => void api?.retryConnection?.()}
+              onClick={() => void retryConnection()}
             >
               {t('Reconnect')}
             </button>
@@ -230,10 +231,10 @@ function ServerRestoreStatus() {
   // connect dialog here runs that attempt and reopens the server in place.
   useEffect(
     () =>
-      window.mixdogDesktop?.subscribeConnectionSignIn?.((server) => {
+      subscribeConnectionSignIn((server) => {
         requestConnectionDialog('ssh-host', server);
         window.dispatchEvent(new Event(OPEN_CONNECTION_SETTINGS_EVENT));
-      }) ?? undefined,
+      }),
     []
   );
   useEffect(() => {
@@ -247,8 +248,7 @@ function ServerRestoreStatus() {
         return progress.phase === 'ready' ? others : [...others, progress];
       });
     });
-    void window.mixdogDesktop
-      ?.getServerRestoreProgress?.()
+    void getServerRestoreProgress()
       .then((earlier) => {
         const missed = earlier.filter((entry) => !heard.has(entry.id));
         if (missed.length) setEntries((current) => [...missed, ...current]);

@@ -378,7 +378,7 @@ mod tests {
 
     impl TakeoverHolds for Takeover {
         fn hold(&self, _: &ThreadId) -> TakeoverHold {
-            TakeoverHold { held: true, screen: Some(self.0.to_owned()), step: Some(self.0.to_owned()), id: None }
+            TakeoverHold { held: true, screen: Some(self.0.to_owned()), names_screen: true, step: Some(self.0.to_owned()), id: None }
         }
         fn screen(&self) -> Option<String> {
             Some(self.0.to_owned())

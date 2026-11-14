@@ -1,6 +1,6 @@
-// `readSessionHistory` lets the host decide whether an attachment id belongs to a session whose chip the pane still shows
-// after a compaction. It is an internal host read, never a transcript read a window, a paired phone or a page can make:
-// only readSessionAttachment calls it. (The reads of the stored history itself are the core's: thread/items/list.)
+// `readSessionHistory` is an internal host read of a session's stored history, never a transcript read a window, a paired phone
+// or a page can make. (Whether an attachment belongs to a session is the core's: desktop/attachment/resolve reads the stored
+// history itself, thread/items/list.)
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
@@ -22,7 +22,7 @@ function sourceFiles(directory) {
   });
 }
 
-test('only the host, its client and readSessionAttachment name the history read', () => {
+test('only the host and its client name the history read', () => {
   const root = join(import.meta.dirname, '..');
   const naming = sourceFiles(root)
     .filter((file) => readFileSync(file, 'utf8').includes('readSessionHistory'))
@@ -32,13 +32,12 @@ test('only the host, its client and readSessionAttachment name the history read'
     // The service RPC list and its typed contract (main <-> service process only).
     'main/desktop-service-client.ts',
     'main/desktop-service-contract.ts',
-    // The download host's type Pick, handed on to readSessionAttachment.
-    // The service RPC's route onto the core's `thread/items/list` op (main <-> core only).
-    'main/protocol/service-route.ts',
+    // The service RPC's route onto the core's `thread/items/list` op (main <-> core only; it lives with the core lanes).
+    'shared/core-lanes/session-lane.ts',
   ]);
   // Not the window's preload / renderer / shared contract, nor any remote table.
   assert.equal(
-    naming.some((file) => /^(preload|renderer|shared)\//.test(file) || /remote/.test(file)),
+    naming.some((file) => /^(preload|renderer)\//.test(file) || /^shared\/(?!core-lanes\/)/.test(file) || /remote/.test(file)),
     false
   );
 });

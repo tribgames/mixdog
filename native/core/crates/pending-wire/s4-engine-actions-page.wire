@@ -1,0 +1,30 @@
+# s4-engine-actions-page core wiring
+
+## 1. Cargo dependency of the engine crate
+File: native/core/crates/mixdog-browser-engine/Cargo.toml, section [dependencies], after the `mixdog-js = { workspace = true }` line add:
+
+    icu_locale_core = { workspace = true }
+
+(`icu_locale_core = "2"` is already in [workspace.dependencies], in Cargo.lock and in the workspace-hack crate; actions/emulation.rs checks that a locale is a
+well-formed BCP 47 tag, as `new Intl.Locale` did. Cargo.lock gains `icu_locale_core` in the dependency list of `mixdog-browser-engine`.)
+The timezone check uses `mixdog_js::time::Tz`, which `mixdog-js` re-exports: no edge for it.
+
+## 2. Protocol type edit this crate needs
+pending-rows/s4-engine-actions-page.rows adds `check_unchanged: Option<bool>` to `HostBrowserPageEvalParams` and `unchanged: Option<bool>` to
+`HostBrowserPageEvalResult`; actions/page.rs reads and writes them, so the rows must be applied before the crate is compiled.
+
+## 3. What the engine runner (s4-engine-runner) takes from these modules
+actions::page::{PageCall, PageActionError, evaluate (EvaluateRequest, EvaluateDone, EvaluateError), intercept, init_script, cookies, storage (StorageOutcome),
+performance, format_performance_metrics, storage_key_is_sensitive}; actions::emulation::{plan, emulate, configured_reply}.
+Each takes `&PageCall { host, page_id, cancel }` and the command's `input` as a JSON object and answers a `ToolReply` of the words only; the runner:
+- evaluate: invalidates the refs it holds on `EvaluateError::refs_stale`; on `EvaluateDone::kept_snapshot() == Some(_)` answers `unchanged_reply(page_report_text(..))`
+  (no snapshot), otherwise takes the snapshot and answers `changed_reply(snapshot_reply)`. It passes its latest `RefSet`, the precondition it decided the call
+  against, and whether the command carries `expect` / screenshot options.
+- storage: invalidates its refs when `StorageOutcome::invalidates_refs`.
+- emulate: after `emulate(..)` invalidates its refs, takes the snapshot with the settle of a gesture, and answers `configured_reply(&applied, snapshot_reply)`.
+  The Rust shape check of `emulate_rule` in mixdog-tools desktop/browser.rs stays as it is and runs first; `emulation::plan` is the validation after it.
+- cookies: passes the page's current URL (the default scope). performance: passes the navigation action's reload-and-settle as the `reload` closure (it is
+  called only for `start` with `reload`), and the engine's FilePort (the size of a saved trace is read from it when the file is visible).
+- Host answers the engine now needs of the host side (apps/desktop/pending-wire/s4-engine-actions-page.wire).
+
+No registration, no SERVICE_PENDING change.

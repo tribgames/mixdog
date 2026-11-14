@@ -1,11 +1,9 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { BrowserWindow, screen } from 'electron';
 import { sleep } from '../shared/common';
 import type { CapturePayload } from './scenario-types';
 import { capturePayload, actionPayload, ocrText, ocrMark } from './scenario-ocr';
-import { progress, eventually, readDiscovery, runScenario, dataDirectory } from './scenario-runtime';
+import { progress, eventually, runScenario } from './scenario-runtime';
 import { createDenseFixture, foregroundHwnd, nativeHwnd, spawnNativeDialogFixture } from './scenario-fixtures';
 import type { ScenarioContext, ScenarioGroup } from './scenario-context';
 
@@ -414,103 +412,39 @@ export const recoveryScenarios: ScenarioGroup = {
     });
   },
   S35: async (ctx) => {
-    const { command, host } = ctx;
-    await runScenario('S35', 'bridge restart retires workers and republishes one generation', 'lifecycle', async () => {
-      const discoveryPath = join(dataDirectory, 'computer-bridge.json');
-      // Every queued command first reads window arrivals on the host's own
-      // reader worker (window-arrivals.ts `read`), so after its first command a
-      // republished bridge owns exactly two: that reader and the session's
-      // worker. Neither may be one the restart should have retired.
-      const republishedWorkers = async (retired: number[]) => {
-        await eventually(
-          async () => host.residentWorkerPids(),
-          (pids) => pids.length === 2 && !pids.some((pid) => retired.includes(pid)),
-          10_000
-        ).catch((error: Error) => {
-          throw new Error(
-            `${error.message}; resident workers ${JSON.stringify(host.residentWorkerPids())}, retired ${JSON.stringify(retired)}`
-          );
-        });
-      };
-      const rapidPreviousToken = ctx.bridge.discovery.token;
-      const rapidRetired = host.residentWorkerPids();
-      host.setBridgeEnabled(false);
-      host.setBridgeEnabled(true);
-      await eventually(
-        async () => {
-          try {
-            return String(JSON.parse(readFileSync(discoveryPath, 'utf8')).token || '');
-          } catch {
-            return '';
-          }
-        },
-        (candidate) => Boolean(candidate && candidate !== rapidPreviousToken),
-        45_000
-      );
-      ctx.bridge.discovery = await readDiscovery(discoveryPath, 45_000);
-      const rapidSessionId = 'bridge-rapid-toggle';
-      try {
-        const waited = await command(
-          {
-            action: 'wait',
-            duration: 0,
-          },
-          rapidSessionId
-        );
-        assert.equal(waited.text, 'waited 0s');
-        // Workers are created on demand, so a republished bridge owns them only
-        // after a command has actually needed them.
-        await republishedWorkers(rapidRetired);
-      } finally {
-        await command({ action: 'session_release' }, rapidSessionId);
-      }
-      for (let cycle = 1; cycle <= 3; cycle += 1) {
-        const previousToken = ctx.bridge.discovery.token;
-        // The restart has to retire a live worker, so create one here instead of
-        // depending on an earlier session having left one behind.
-        const warmSessionId = `bridge-restart-warm-${cycle}`;
-        assert.equal((await command({ action: 'wait', duration: 0 }, warmSessionId)).text, 'waited 0s');
-        const retired = host.residentWorkerPids();
-        assert.ok(retired.length > 0);
-        host.setBridgeEnabled(false);
-        progress(`S35 cycle ${cycle} disable requested`);
-        await eventually(
-          async () => {
-            try {
-              readFileSync(discoveryPath);
-              return false;
-            } catch {
-              return true;
-            }
-          },
-          Boolean,
-          10_000
-        );
-        progress(`S35 cycle ${cycle} discovery removed`);
-        await eventually(
-          async () => host.residentWorkerPids().length,
-          (count) => count === 0,
-          10_000
-        );
-        progress(`S35 cycle ${cycle} workers retired`);
-        host.setBridgeEnabled(true);
-        progress(`S35 cycle ${cycle} enable requested`);
-        ctx.bridge.discovery = await readDiscovery(discoveryPath, 45_000);
-        progress(`S35 cycle ${cycle} discovery republished`);
-        assert.notEqual(ctx.bridge.discovery.token, previousToken);
-        const sessionId = `bridge-restart-${cycle}`;
+    const { command, core } = ctx;
+    await runScenario('S35', 'a killed helper is respawned by the next command and its cleanup runs', 'lifecycle', async () => {
+      const alive = (pid: number) => {
         try {
-          const waited = await command(
-            {
-              action: 'wait',
-              duration: 0,
-            },
-            sessionId
+          process.kill(pid, 0);
+          return true;
+        } catch {
+          return false;
+        }
+      };
+      for (let cycle = 1; cycle <= 3; cycle += 1) {
+        // The kill has to take a live helper, so a command that needs one runs first.
+        const sessionId = `helper-restart-${cycle}`;
+        try {
+          const warm = await command({ action: 'wait', duration: 0 }, sessionId);
+          assert.equal(warm.text, 'waited 0s');
+          const killed = core.helperPid(sessionId);
+          assert.ok(typeof killed === 'number' && alive(killed), `no live helper after a command: ${String(killed)}`);
+          process.kill(killed);
+          await eventually(async () => alive(killed), (running) => !running, 10_000);
+          progress(`S35 cycle ${cycle} helper ${killed} killed`);
+          const next = await command({ action: 'wait', duration: 0 }, sessionId);
+          assert.equal(next.text, 'waited 0s');
+          const respawned = core.helperPid(sessionId);
+          assert.ok(
+            typeof respawned === 'number' && respawned !== killed && alive(respawned),
+            `the command after the kill did not run on a new helper: ${String(respawned)}`
           );
-          assert.equal(waited.text, 'waited 0s');
-          progress(`S35 cycle ${cycle} command passed`);
-          await republishedWorkers(retired);
-          progress(`S35 cycle ${cycle} session worker and arrivals reader ready`);
+          progress(`S35 cycle ${cycle} helper respawned as ${respawned}`);
+          // The abort cleans up from a fresh process and says whether it did.
+          const aborted = actionPayload(await command({ action: 'session_abort' }, sessionId));
+          assert.equal(aborted.confirmed, true, JSON.stringify(aborted));
+          progress(`S35 cycle ${cycle} cleanup confirmed`);
         } finally {
           await command({ action: 'session_release' }, sessionId);
         }
