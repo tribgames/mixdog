@@ -11,3 +11,4 @@ mod recorded_145_support;
 mod request_system_corpus;
 mod session_log_migration_node_cases;
 mod supplement;
+mod upgrade_chain;

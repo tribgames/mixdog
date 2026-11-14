@@ -1,0 +1,1 @@
+{"version":1,"hosts":[{"id":"ssh-7f3a","name":"build box","target":"dev@build.example.test:2222","lastConnectedAt":1730000000000}]}
