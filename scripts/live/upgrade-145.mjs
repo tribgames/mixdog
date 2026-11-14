@@ -2,9 +2,9 @@
 // Upgrade check: a packaged (unpacked or installed) Mixdog started on a 1.4.5-shaped profile.
 //   node scripts/live/upgrade-145.mjs --app=<unpacked dir or Mixdog executable> --profile-vector=<dir> [--out=<dir>] [--iso-root=<dir>] [--keep]
 //
-// The vector directory holds `profile/` (the 1.4.5 Electron userData files), optionally `data/` (a 1.4.5 data directory,
-// the recorded one of mixdog-migrate/tests/vectors/migration-145) and optionally `expect.json`:
-//   { "projects": [<path>], "sshHosts": [<id>], "remoteHosts": [<id>], "notifications": true, "owedRevokes": [<key>] }
+// The vector directory holds `profile/` (the 1.4.5 Electron userData files), optionally `.mixdog/` (a 1.4.5 MIXDOG_HOME:
+// `data/`, `projects.json`; the recorded one is native/core/fixtures/migration-145/.mixdog) and optionally `expect.json`:
+//   { "projects": [<path>], "sshHosts": [<id>], "remoteHosts": [<id>], "notifications": true | {<key>: <value>}, "owedRevokes": [<key>] }
 // With no `sshHosts` (or `remoteHosts`) entry the ids of profile/ssh-hosts.json (remote-hosts.json) are expected. Both
 // folders are copied under an isolated root (the vector is never written), the app is started on them with
 // MIXDOG_DESKTOP_USER_DATA, and once the core serves the run asserts the migration markers (complete.json,
@@ -14,6 +14,7 @@ import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statS
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isDeepStrictEqual } from 'node:util';
 
 import { attachCore, isolatedEnv, isolatedPaths } from '../rust-core/lib/core-session.mjs';
 import { endTree, spawnTree } from '../rust-core/lib/process-tree.mjs';
@@ -36,16 +37,16 @@ export function findApp(app, { exists = existsSync, isDir = (p) => statSync(p).i
   return found;
 }
 
-/** What the vector directory holds: its profile, its data directory (or null) and what a start must read back. */
+/** What the vector directory holds: its profile, its MIXDOG_HOME (or null) and what a start must read back. */
 export function loadVector(dir, { exists = existsSync, read = readJson } = {}) {
   const root = resolve(dir);
   const profile = join(root, 'profile');
   if (!exists(profile)) throw new Error(`the vector has no profile/ folder: ${root}`);
-  const data = exists(join(root, 'data')) ? join(root, 'data') : null;
+  const home = exists(join(root, '.mixdog')) ? join(root, '.mixdog') : null;
   const expect = exists(join(root, 'expect.json')) ? read(join(root, 'expect.json')) : {};
   if (!expect.sshHosts && exists(join(profile, 'ssh-hosts.json'))) expect.sshHosts = read(join(profile, 'ssh-hosts.json')).hosts.map((host) => host.id);
   if (!expect.remoteHosts && exists(join(profile, 'remote-hosts.json'))) expect.remoteHosts = read(join(profile, 'remote-hosts.json')).hosts.map((host) => host.id);
-  return { root, profile, data, expect };
+  return { root, profile, home, expect };
 }
 
 /** Every migration marker the run requires, each with the reason it fails. */
@@ -112,7 +113,12 @@ export function checksFor({ expect, dataDir }) {
       run: async ({ core }) => {
         if (!expect.notifications) return 'not expected';
         const state = await core.call('notify/state', {});
-        if (!state?.notifications || typeof state.notifications !== 'object') throw new Error('notify/state holds no notification preferences');
+        const stored = state?.notifications;
+        if (!stored || typeof stored !== 'object') throw new Error('notify/state holds no notification preferences');
+        if (typeof expect.notifications === 'object') {
+          const differ = Object.keys(expect.notifications).filter((key) => !isDeepStrictEqual(stored[key], expect.notifications[key]));
+          if (differ.length) throw new Error(`notify/state differs at ${differ.join(', ')}`);
+        }
         return 'stored';
       },
     },
@@ -173,12 +179,12 @@ async function main() {
   const userData = join(paths.appData, 'Mixdog');
   for (const dir of [paths.runtimeRoot, paths.localAppData, paths.tmp, paths.workspace]) mkdirSync(dir, { recursive: true });
   cpSync(vector.profile, userData, { recursive: true });
-  if (vector.data) cpSync(vector.data, paths.dataDir, { recursive: true });
-  else mkdirSync(paths.dataDir, { recursive: true });
+  if (vector.home) cpSync(vector.home, paths.mixdogHome, { recursive: true });
+  mkdirSync(paths.dataDir, { recursive: true });
 
   const out = typeof args.out === 'string' ? resolve(args.out) : join(tmpdir(), `mixdog-upgrade-145-out-${process.pid}`);
   mkdirSync(out, { recursive: true });
-  const child = spawnTree(exe, [], { env: isolatedEnv(paths), cwd: paths.root, stdio: 'ignore', windowsHide: false });
+  const child = spawnTree(exe, [], { env: isolatedEnv(paths), cwd: paths.root, stdio: 'ignore' });
   let core = null;
   let results = [];
   let failure = null;
