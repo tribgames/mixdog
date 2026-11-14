@@ -1550,7 +1550,7 @@ mod tests {
         let delays: Vec<_> = (0..4).map(|n| denied_spawn_delay("pwsh.exe", &denied, n).map(|d| d.as_millis())).collect();
         if cfg!(windows) {
             assert_eq!(delays, [Some(100), Some(300), Some(700), None]);
-            assert!(denied_spawn_delay("C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe", &denied, 0).is_some());
+            assert!(denied_spawn_delay(r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe", &denied, 0).is_some());
         } else {
             assert_eq!(delays, [None, None, None, None]);
         }
