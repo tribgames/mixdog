@@ -1,0 +1,17 @@
+[package]
+name = "mixdog-jssyntax"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+tree-sitter = { workspace = true }
+tree-sitter-javascript = { workspace = true }
+regress = { workspace = true }
+unicode-ident = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
