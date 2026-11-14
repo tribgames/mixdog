@@ -35,6 +35,9 @@ protocol service; the engine is a library the tool adapter (s4-tool-adapter) and
 exist: a command's turn id is enough (a command with no turn id owns no page); `finish_turn(thread, turn, aborted)` closes an aborted
 turn's pages and refuses later commands of that turn; `forget_session(thread)` releases a session. The runtime-only bridge actions
 (`secret_precheck`, `secret_fill`, `saved_login_*`, `secret_bind`, `login_accounts`, `page_url`) are not engine actions.
+The turn id given to `run` and to `TurnEvents::turn_ended` must be the session's positive turn NUMBER, increasing per turn (the
+number `SavedLoginTurns::turn` answers), as a decimal string: the engine parses it as u64 and orders turns by it. A core `TurnId`
+(a UUIDv7 string) parses to 0, and then no command owns a page, an aborted turn closes nothing and `turn_ended` is ignored.
 
 ## 5. What the engine does not carry (reasons, for the lead)
 - `fill` with `savedAccount`: no host request fills a stored login (the form handler's `fill_stored` answers "not available").
