@@ -1,7 +1,6 @@
 //! The pixels of a display, read from the desktop's computer host (`host/computer/pixels`, which answers a blob reference) and issued as a
 //! frame a click or a zoom can name (`observation/screenshot-target.ts` `displayScreenshotTarget`, `observation/screenshot-frame.ts`).
 //! `host/computer/displays` is the display list the capture and the frames' validity (`session/frame-validity.ts`) are judged against.
-#![cfg_attr(not(test), expect(dead_code, reason = "the capture of a screen (the wiring of computer_pixels) calls capture_display in place of host/computer/capture"))]
 
 use async_trait::async_trait;
 use mixdog_app_protocol::v2::host::HostComputerDisplay;

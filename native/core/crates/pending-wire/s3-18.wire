@@ -1,0 +1,38 @@
+# s3-18 core wire (CORE-WIRE-G3)
+
+## native/core/crates/mixdog-tools/src/desktop/mod.rs
+After `pub mod computer_linux;` (before `mod computer_ocr;`) add:
+    mod computer_marks_draw;
+(`computer_capture.rs` calls `paint_marks_or_input` for a set-of-marks capture; without the line mixdog-tools does not compile.
+Private is enough: the only caller sits in mixdog-tools.)
+
+## native/core/crates/mixdog-tools/Cargo.toml  [dependencies]
+After `sha2 = { workspace = true }` (any place in the list) add the two crates computer_marks_draw.rs names; both are workspace
+dependencies already in Cargo.lock (flate2 1.x, jpeg-decoder 0.3):
+    flate2 = { workspace = true }
+    jpeg-decoder = { workspace = true }
+Then `cargo update --workspace --offline` and `cargo hakari generate` (Cargo.lock gets the two edges for mixdog-tools).
+jpeg-encoder 0.6 is still the open item of deferred-g2.md (s3-04): until it is vendored `encode()` answers an error for a JPEG frame, so
+a real (JPEG) som capture keeps its pixels and says "Marks overlay not drawn: ... jpeg-encoder ..." after the image. When the crate is
+there, only `computer_marks_draw.rs` `encode()` and the Cargo line `jpeg-encoder = { workspace = true }` change; this task's call
+needs nothing more.
+
+## Compose calls (s3-19 / CORE-WIRE-G3 where the computer pool is built; compose_flip.rs / native_tools.rs, not this task)
+`ComputerShared` (mixdog_tools::desktop::computer_backend) gained three fields, all with a default, so every existing
+`ComputerShared { .., ..ComputerShared::default() }` still builds:
+- `delta: Arc<DeltaStore>` (default: a store of its own per `ComputerShared`; clone the one `ComputerShared` into every session's
+  backend, as `lane` and `user_control` already are).
+- `pointer_hold: Option<Arc<PointerHold>>` (default None): the pool builds `PointerHold::new(Arc<dyn PointerHost>)` once and sets it
+  here, the same instance `ComputerPointerService::new(..)` (s3-08, deferred-g2.md) is registered with.
+- `blobs: Option<Arc<dyn computer_pixels::ComputerBlobs>>` (default None): the core blob store's reader. Without it a capture of a
+  display (`capture screen=N`) and a zoom of its frame answer `Unavailable: display pixels need the core's blob store`.
+  The `DisplayOcr` of a display capture is the backend's own helper (`ocr_image`), nothing to attach.
+
+## SERVICE_PENDING (compose_flip.rs)
+No name is removed: this task registers no service and no protocol method.
+
+## Not a core line, for the desktop side
+`host/computer/capture` is no longer asked by the core (display captures use `host/computer/pixels` + `host/computer/displays`);
+the desktop's handler of it has no caller left (s3-26 removes it). The core now also asks `host/computer/cursorPrepare`,
+`host/computer/appWindows`, `host/computer/appInput` and, in a diagnose off Linux, `host/computer/permissions`; each is answered as
+"not served" by an older desktop and the core goes on without it.

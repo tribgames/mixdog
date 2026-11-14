@@ -43,7 +43,7 @@ const WHEEL_NOTCH: f64 = 100.0;
 
 /// A window's physical bounds on its display.
 #[derive(Clone, Debug, PartialEq)]
-#[allow(dead_code, reason = "the act wiring (s3-18) reads the size; the point math reads the origin")]
+#[allow(dead_code, reason = "the answer is parsed whole; routing reads the origin")]
 pub(super) struct Bounds {
     pub(super) x: f64,
     pub(super) y: f64,
@@ -53,7 +53,7 @@ pub(super) struct Bounds {
 
 /// One entry of the `host/computer/appWindows` answer.
 #[derive(Clone, Debug, PartialEq)]
-#[allow(dead_code, reason = "the act wiring (s3-18) reads the window's kind, display and focus")]
+#[allow(dead_code, reason = "the answer is parsed whole; routing reads the origin")]
 pub(super) struct AppWindow {
     pub(super) window_id: String,
     /// `main`, `browser_guest` or `aux`.
@@ -140,15 +140,8 @@ impl AppOwnedWindows {
     }
 
     /// `refresh_with` over a request to `desktop`.
-    #[allow(dead_code, reason = "the act wiring (s3-18) refreshes through the backend's channel")]
     pub(super) async fn refresh(&self, desktop: &dyn HostChannel, cancel: &CancellationToken) {
         self.refresh_with(|| request(desktop, WINDOWS_METHOD, json!({}), cancel)).await;
-    }
-
-    /// `isAppOwnedWindow`: the desktop named this window at the last read.
-    #[allow(dead_code, reason = "the act wiring (s3-18) asks it before routing a step")]
-    pub(super) fn is_app_owned(&self, window_id: &str) -> bool {
-        self.window(window_id).is_some()
     }
 
     pub(super) fn window(&self, window_id: &str) -> Option<AppWindow> {
@@ -167,7 +160,6 @@ impl AppOwnedWindows {
 
     /// The window and the input a step of an `act` is delivered as, when the window is the desktop's and the step is one its
     /// renderer takes (`canUseAppOwnedInput`: not foreground delivery, no ref); `None` sends the step to the helper.
-    #[allow(dead_code, reason = "the act wiring (s3-18) routes each step through it")]
     pub(super) fn route(&self, step: &Map<String, Value>, window_id: &str) -> Option<(AppWindow, AppInputOp)> {
         let window = self.window(window_id)?;
         let op = AppInputOp::from_step(step, &window)?;
@@ -177,7 +169,6 @@ impl AppOwnedWindows {
 
 /// Whether an error is the desktop's method-not-found, or its answer that the window is not its own: either way the step goes
 /// to the helper, as it did before the desktop served the methods.
-#[allow(dead_code, reason = "the act wiring (s3-18) falls back to the helper on it")]
 pub(super) fn falls_back(error: &ComputerError) -> bool {
     not_served(error) || matches!(error, ComputerError::Failed { message, .. } if message == NOT_OWNED)
 }
@@ -308,7 +299,6 @@ impl AppInputOp {
 
 /// `host/computer/appInput`: one input into the app-owned window, answered as the result of an `act` step. A desktop that does
 /// not serve the method, or that does not own the window, is an error `falls_back` names: the step then goes to the helper.
-#[allow(dead_code, reason = "the act wiring (s3-18) sends each routed step through it")]
 pub(super) async fn app_input(desktop: &dyn HostChannel, session: &str, window_id: &str, op: AppInputOp, cancel: &CancellationToken) -> Result<Value, ComputerError> {
     let answer = match request(desktop, INPUT_METHOD, op.params(session, window_id), cancel).await {
         Ok(answer) => answer,
@@ -437,7 +427,7 @@ mod tests {
         let desk = Desk::new(delivered());
         let windows = known(&desk).await;
         let step = object(json!({ "action": "type", "text": "héllo", "delivery": "background" }));
-        assert!(windows.is_app_owned("HWND:0xab"));
+        assert!(windows.window("HWND:0xab").is_some());
         let (window, op) = windows.route(&step, "hwnd:0xab").expect("routed");
         assert_eq!(window.title, "Mixdog");
         assert_eq!(op, AppInputOp::Type { text: "héllo".into(), point: None });
@@ -504,7 +494,7 @@ mod tests {
         assert_eq!(desk.reads.load(Ordering::SeqCst), 2);
         sleep(TTL * 2).await;
         windows.refresh_with(|| async { Err(failed("Error: computer bridge timed out".into())) }).await;
-        assert!(!windows.is_app_owned("hwnd:0xab"));
+        assert!(!windows.window("hwnd:0xab").is_some());
     }
 
     #[tokio::test(start_paused = true)]
