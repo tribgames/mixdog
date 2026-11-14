@@ -10,7 +10,7 @@ const METHOD = 'host/browser/input/batch';
  * A page whose debugger records every input event. `script(event, n)` may answer 'dialog'
  * for the n-th event, abort the call, or change the page; the default answer is 'completed'.
  */
-function harness({ script, guardVerdict = { blocked: false } } = {}) {
+function harness({ script, guardVerdict = { blocked: false }, stateOverride, evaluated } = {}) {
   const handlers = new Map();
   const connection = { request: async () => ({}), handleRequest: (method, handler) => handlers.set(method, handler) };
   const guest = {
@@ -26,6 +26,7 @@ function harness({ script, guardVerdict = { blocked: false } } = {}) {
     cdpSessions: new Map(),
     pendingDialog: null,
     accessibilityRefs: { snapshotId: 's1', refs: new Map([['e1', { backendNodeId: 7 }]]) },
+    ...stateOverride,
   };
   const sent = [];
   const cdp = {
@@ -38,6 +39,10 @@ function harness({ script, guardVerdict = { blocked: false } } = {}) {
     },
     call: async (_guest, method, params) => {
       if (method === 'DOM.resolveNode') return { object: { objectId: 'o1' } };
+      if (method === 'Runtime.evaluate') {
+        evaluated?.push(params.expression);
+        return evaluated?.stale ? { exceptionDetails: {} } : { result: { objectId: 'dom1' } };
+      }
       if (method === 'Runtime.callFunctionOn') {
         const stopping = params.arguments[1].value === true;
         return { result: { value: stopping ? guardVerdict : { blocked: false } } };
@@ -202,4 +207,28 @@ test('a batch bound to no state is refused as document in engine mode, and nothi
   const h = harness();
   await assert.rejects(h.call({ steps: [{ op: 'press', key: 'Enter' }], expect: undefined }), (e) => e.code === -32010 && e.data.reason === 'document');
   assert.equal(h.sent.length, 0);
+});
+
+test('a hit guard on a page with DOM refs only finds its element in the page ref table, and a stale one is -32010', async () => {
+  const dom = { accessibilityRefs: undefined, refSet: { snapshotId: 'd1' } };
+  const step = { op: 'pointer', kind: 'click', x: 10, y: 20, hitGuard: { snapshotId: 'd1', ref: 'e1' } };
+  const evaluated = [];
+  const ok = await harness({ stateOverride: dom, evaluated }).call({ steps: [step] });
+  assert.deepEqual([ok.outcome, ok.completedSteps], ['completed', 1]);
+  assert.equal(evaluated.length, 1);
+  assert.match(evaluated[0], /__mixdogAgentSnapshot/);
+  const missed = await harness({ stateOverride: dom, guardVerdict: { blocked: true } }).call({ steps: [step] });
+  assert.equal(missed.outcome, 'hitGuard');
+  const stale = harness({ stateOverride: dom, evaluated: Object.assign([], { stale: true }) });
+  await assert.rejects(stale.call({ steps: [step] }), (e) => e.code === -32010 && e.data.reason === 'snapshot');
+  assert.equal(stale.sent.length, 0);
+  const other = harness({ stateOverride: dom });
+  await assert.rejects(
+    other.call({ steps: [{ ...step, hitGuard: { snapshotId: 'old', ref: 'e1' } }] }),
+    (e) => e.code === -32010 && e.data.reason === 'snapshot'
+  );
+  // DOM refs left behind by an accessibility snapshot taken since are not the page's current refs.
+  const superseded = harness({ stateOverride: { refSet: { snapshotId: 'd1' } } });
+  await assert.rejects(superseded.call({ steps: [step] }), (e) => e.code === -32010 && e.data.reason === 'snapshot');
+  assert.equal(superseded.sent.length, 0);
 });

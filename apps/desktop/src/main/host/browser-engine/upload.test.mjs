@@ -268,3 +268,19 @@ test('a file input that holds fewer files than were sent is not verified', async
     h.cleanup();
   }
 });
+
+test('the route the approval named has to be what the ref is: a file input is not picked by click or drop, and a button is not a file input', async () => {
+  const h = harness();
+  try {
+    const base = { pageId: 'p1', ref: 'e1', files: [h.file], receiverKey: DOCUMENT_KEY, expect: expectOf() };
+    for (const route of ['pickerClick', 'drop']) {
+      await assert.rejects(h.call({ ...base, route }), (error) => error.code === -32010 && error.data.reason === 'receiver');
+    }
+    h.files.input = false;
+    await assert.rejects(h.call({ ...base, route: 'fileInput' }), (error) => error.code === -32010 && error.data.reason === 'receiver');
+    assert.equal(h.sent.length, 0);
+    assert.equal(h.counts.clicks + h.counts.drops, 0);
+  } finally {
+    h.cleanup();
+  }
+});
