@@ -1,4 +1,4 @@
-import { trackReplay } from './terminal-replay-state';
+import { trackReplay } from './terminal-replay-state.ts';
 
 export interface TerminalOutputOwner {
   id: string | null;
