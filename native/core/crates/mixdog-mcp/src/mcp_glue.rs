@@ -205,6 +205,9 @@ pub trait McpScopes: Send + Sync {
     async fn open_runtime(&self, cwd: &Path) -> Result<String, ScopeReleased>;
     /// `awaitInitialMcpConnect()` for `scope`: returns once its first connect settled or the startup budget passed.
     async fn await_initial(&self, _scope: &str) {}
+    /// [`await_initial`](Self::await_initial) bounded by `cap` as well (`awaitInitialConnect(maxWaitMs)`): a spawned
+    /// agent's first turn waits no longer than the agent grace for servers still connecting.
+    async fn await_initial_within(&self, _scope: &str, _cap: Duration) {}
     /// `onCwdChanged` (`boot/infrastructure.mjs:299`): the session that holds `scope` moved to `cwd`. Plugin
     /// servers without a declared cwd follow the session's folder, so the scope reconciles for it in place
     /// (`connectConfiguredMcp({ reconcile: true })`). A host with no scopes reconnects nothing.
@@ -825,6 +828,10 @@ impl McpScopes for McpGlue {
 
     async fn await_initial(&self, scope: &str) {
         self.scopes.await_initial(scope).await;
+    }
+
+    async fn await_initial_within(&self, scope: &str, cap: Duration) {
+        self.scopes.await_initial_within(scope, cap).await;
     }
 }
 

@@ -39,6 +39,7 @@ use mixdog_core_session::session::thread_settings::ThreadSettings;
 use mixdog_rt::InteractiveIo;
 use mixdog_rt::LaneToken;
 use mixdog_services::bots::beat::Change;
+use mixdog_services::bots::beat::state::{suggestion_key, suggestion_line};
 use mixdog_services::bots::beat::HeartbeatStore;
 use mixdog_store::schema::record::Header;
 use mixdog_tools::orch::session::ControlCall;
@@ -363,7 +364,8 @@ impl HeartbeatSuggestions {
 #[async_trait]
 impl Suggestions for HeartbeatSuggestions {
     async fn record(&self, key: &str, text: &str, dismissed: bool) -> Result<Value, String> {
-        self.store.update(Change::Suggest { key: key.to_owned(), text: text.to_owned(), dismissed, at: (self.now_ms)() }).await
+        let key = suggestion_key(key)?;
+        self.store.update(Change::Suggest { key, text: suggestion_line(text), dismissed, at: (self.now_ms)() }).await
     }
 }
 
