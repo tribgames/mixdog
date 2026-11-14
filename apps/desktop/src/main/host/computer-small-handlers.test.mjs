@@ -1,0 +1,127 @@
+import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
+import { test } from 'node:test';
+
+import { registerComputerPermissions } from './computer-permissions.ts';
+import { bindComputerEnvironment } from './computer-environment.ts';
+import { registerComputerCommand } from './computer-command.ts';
+import { COMPUTER_USER_CONTROL } from './computer-user-control.ts';
+
+function fakeConnection() {
+  const handlers = new Map();
+  const requests = [];
+  return {
+    requests,
+    handlers,
+    handleRequest: (method, handler) => handlers.set(method, handler),
+    request: async (method, params) => {
+      requests.push([method, params]);
+      return {};
+    },
+    serve: (method, params) => handlers.get(method)(params, new AbortController().signal),
+  };
+}
+
+test('permissions: reads the grants, prompts only when asked, rejects a non-boolean request', async () => {
+  const connection = fakeConnection();
+  let prompts = 0;
+  registerComputerPermissions(connection, {
+    read: async () => ({ screen_capture: 'granted', accessibility: 'denied', input: 'accessibility_dependent' }),
+    request: () => {
+      prompts += 1;
+    },
+  });
+  const grants = { screenCapture: 'granted', accessibility: 'denied', input: 'accessibility_dependent' };
+  assert.deepEqual(await connection.serve('host/computer/permissions', {}), grants);
+  assert.deepEqual(await connection.serve('host/computer/permissions', { request: false }), grants);
+  assert.equal(prompts, 0);
+  await connection.serve('host/computer/permissions', { request: true });
+  assert.equal(prompts, 1);
+  await assert.rejects(connection.serve('host/computer/permissions', { request: 'yes' }), /boolean/);
+  await assert.rejects(connection.serve('host/computer/permissions', []), /object/);
+});
+
+test('permissions: Linux readiness travels as `linux`', async () => {
+  const connection = fakeConnection();
+  const linux = { capabilities: {} };
+  registerComputerPermissions(connection, {
+    read: () => ({ screen_capture: 'ready', accessibility: 'ready', input: 'ready', linux }),
+    request: () => undefined,
+  });
+  assert.equal((await connection.serve('host/computer/permissions', {})).linux, linux);
+});
+
+test('environment: lock, suspend and display changes send a takeover; unrelated metrics send nothing', async () => {
+  const power = new EventEmitter();
+  const screen = new EventEmitter();
+  const sent = [];
+  const stop = bindComputerEnvironment(power, screen, async (method, params) => {
+    sent.push([method, params]);
+  });
+  power.emit('lock-screen');
+  power.emit('suspend');
+  screen.emit('display-added');
+  screen.emit('display-removed');
+  screen.emit('display-metrics-changed', {}, {}, ['workArea']);
+  screen.emit('display-metrics-changed', {}, {}, ['colorSpace']);
+  const unavailable = { action: 'takeover', reason: 'desktop_unavailable' };
+  const changed = { action: 'takeover', reason: 'display_changed' };
+  assert.deepEqual(sent, [unavailable, unavailable, changed, changed, changed].map((p) => [COMPUTER_USER_CONTROL, p]));
+  stop();
+  power.emit('lock-screen');
+  assert.equal(sent.length, 5);
+});
+
+test('environment: a failed send is reported, not thrown', async () => {
+  const power = new EventEmitter();
+  const errors = [];
+  bindComputerEnvironment(power, new EventEmitter(), async () => {
+    throw new Error('core down');
+  }, (error) => errors.push(error.message));
+  power.emit('suspend');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(errors, ['core down']);
+});
+
+function commandHost(answer, { deny } = {}) {
+  const seen = [];
+  return {
+    seen,
+    assertPublic(command) {
+      if (deny?.(command)) throw new Error('computer_policy_denied: internal');
+    },
+    answerBridgeCommand: async (command) => {
+      seen.push(command);
+      return answer;
+    },
+  };
+}
+
+test('command: the text answer and an uploaded image come back as result and blob', async () => {
+  const connection = fakeConnection();
+  const bytes = Buffer.from('frame-bytes');
+  const host = commandHost({ ok: true, value: { text: 'done', isError: true, image: { mimeType: 'image/png', data: bytes.toString('base64') } } });
+  registerComputerCommand(connection, () => host);
+  const result = await connection.serve('host/computer/command', { sessionThreadId: 't', command: { action: 'capture' } });
+  assert.equal(result.ok, true);
+  assert.equal(result.text, 'done');
+  assert.equal(result.isError, true);
+  assert.equal(result.imageBlob.byteLength, bytes.length);
+  assert.equal(result.imageBlob.mimeType, 'image/png');
+  assert.match(result.imageBlob.digest, /^sha256:[0-9a-f]{64}$/);
+  assert.equal(connection.requests.length, 1);
+  assert.equal(connection.requests[0][0], 'blob/put');
+  assert.equal(connection.requests[0][1].digest, result.imageBlob.digest);
+});
+
+test('command: a failed answer is the result error; policy and a missing host refuse', async () => {
+  const connection = fakeConnection();
+  let host = commandHost({ ok: false, error: 'boom' }, { deny: (c) => c.session_id === 'internal' });
+  registerComputerCommand(connection, () => host);
+  assert.deepEqual(await connection.serve('host/computer/command', { command: { action: 'capture' } }), { ok: false, error: 'boom' });
+  await assert.rejects(connection.serve('host/computer/command', { command: { session_id: 'internal' } }), /invalid request/);
+  assert.equal(host.seen.length, 1);
+  await assert.rejects(connection.serve('host/computer/command', 'x'), /object/);
+  host = null;
+  await assert.rejects(connection.serve('host/computer/command', { command: {} }), /unavailable/);
+});

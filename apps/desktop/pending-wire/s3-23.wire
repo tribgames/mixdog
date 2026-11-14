@@ -1,0 +1,17 @@
+# s3-23: small computer host handlers (permissions, environment events, legacy command)
+
+No HOST_METHOD rows: the three methods are served (host/computer/permissions, host/computer/command) or sent (computer/userControl)
+by name, as host/computer.ts does for host/computer/capture; the host capability `host.computer` they require is already claimed.
+
+main/host/index.ts (where registerComputerHost(connection, source) is called, after it):
+  import { registerComputerPermissions } from './computer-permissions';
+  import { registerComputerCommand } from './computer-command';
+  registerComputerPermissions(connection, { read: readComputerPermissions, request: requestComputerPermissions });
+  // readComputerPermissions / requestComputerPermissions: computer/host/permission-reads.ts
+  registerComputerCommand(connection, () => (legacyWindowsHost ? { assertPublic: assertPublicComputerRequest, answerBridgeCommand: (command, signal) => legacyWindowsHost.answerBridgeCommand(command as ComputerCommand, signal) } : null));
+  // legacyWindowsHost: the PowerShellComputerHost while the dual path runs it, else null (assertPublicComputerRequest: computer/host/request-policy.ts)
+
+main/index.ts (where the Electron `powerMonitor` and `screen` are available and the core connection `callCore` exists; keep the returned disposer with the other app-quit cleanups):
+  import { bindComputerEnvironment } from './host/computer-environment';
+  const unbindComputerEnvironment = bindComputerEnvironment(powerMonitor, screen, (method, params) => protocolConnection.call(method, params), (error) => log.warn('computer environment report failed', error));
+  // the old in-process call of bindComputerEnvironmentGuard (powershell-host.ts) is removed by the same task that deletes the legacy path (s3-30); until then both fire, which is harmless: the core's takeover is idempotent.
