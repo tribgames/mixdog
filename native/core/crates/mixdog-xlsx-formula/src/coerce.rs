@@ -799,7 +799,8 @@ mod tests {
                 None => panic!("invalid date for {serial}"),
             };
             assert_eq!(date(1.0), (1900, 1, 1, 0));
-            assert_eq!(date(59.0), (1900, 2, 28, 0));
+            // formulajs increments 59 to 60 before applying its fake leap-day rollover.
+            assert_eq!(date(59.0), (1900, 3, 1, 0));
             // The day Excel counts and the calendar does not have: the library's `new Date(1900, 1, 29)` rolls over.
             assert_eq!(date(60.0), (1900, 3, 1, 0));
             assert_eq!(date(61.0), (1900, 3, 1, 0));

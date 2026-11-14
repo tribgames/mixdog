@@ -802,8 +802,8 @@ mod tests {
         assert_eq!(run_in(&mut cells, "=TaxRate*21"), Ok(Value::Number(441.0)));
         assert_eq!(run_in(&mut cells, "=Uplift*4"), Ok(Value::Number(6.0)));
         assert!(matches!(run_in(&mut cells, "=Empty+1"), Err(Failure::Unsupported(refusal)) if refusal.reason == "defined name Empty"));
-        // A name that defines itself ends in a refusal, not a stack overflow.
-        assert!(matches!(run_in(&mut cells, "=Loop"), Err(Failure::Unsupported(_))));
+        // Match Node's thrown circular-name result without overflowing the Rust stack.
+        assert_eq!(run_in(&mut cells, "=Loop"), Err(Failure::thrown("Maximum call stack size exceeded")));
     }
 
     #[test]
