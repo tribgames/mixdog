@@ -151,24 +151,37 @@ impl ProcessComputerBackend {
         }
         let mut parts = read.parts(&resolved)?;
         let ocr_content = pixels.as_ref().is_some_and(|pixels| recognized_words(&pixels.result));
-        self.observe(&mut parts, command, mode, &window_id, &related, &read, &resolved, budget, ocr_content);
-        if let Some(pixels) = pixels {
+        // The frame is issued before the text is finished: the words keep a share of the element budget, so the rows of the
+        // accessibility text beyond what is left of it are cut from the text before the capture's bookkeeping reads it.
+        let frame = pixels.as_ref().and_then(|pixels| {
             let idle = settle_input(before.as_ref(), after.as_ref());
             let id = format!("frame-{}", uuid::Uuid::new_v4().simple());
             // A child window the helper read through its owner (`captureThroughOwner`) is a frame of the owner's window.
             let (frame_window, frame_related) = match pixels.result.get("window_id").and_then(Value::as_str) {
                 Some(owner) if pixels.result.contains_key("requested_window_id") => (owner.to_string(), vec![owner.to_string()]),
-                _ => (window_id.clone(), related),
+                _ => (window_id.clone(), related.clone()),
             };
-            let frame = frame_of(&pixels.result, &id, &frame_window, frame_related, idle);
-            let capture = computer_ocr::Capture { command, mode, ask: ocr.as_ref(), accessibility: read.result.as_ref().filter(|_| read.error.is_empty()), budget };
+            frame_of(&pixels.result, &id, &frame_window, frame_related, idle)
+        });
+        let capture = computer_ocr::Capture { command, mode, ask: ocr.as_ref(), accessibility: read.result.as_ref().filter(|_| read.error.is_empty()), budget };
+        if let (Some(frame), Some(ToolPart::Text(shown))) = (&frame, parts.first_mut()) {
+            let cut = computer_ocr::rows_beyond_reservation(&capture, frame);
+            if !cut.is_empty() {
+                *shown = without_element_lines(shown, &cut);
+            }
+        }
+        self.observe(&mut parts, command, mode, &window_id, &related, &read, &resolved, budget, ocr_content);
+        if let Some(pixels) = pixels {
             let marked = frame.clone().filter(|_| mode == "som");
             let from = parts.len();
             parts.extend(self.pixel_parts(&pixels.result, frame, quality, &capture)?);
             if let Some(frame) = marked
-                && let Some(note) = mark_frame(&mut parts[from..], capture.accessibility, &self.frames.ocr_boxes(&frame), &frame, quality)
+                && let Some(overlay) = mark_frame(&mut parts[from..], capture.accessibility, &self.frames.ocr_boxes(&frame), &frame, quality)
             {
-                parts.push(ToolPart::Text(note));
+                if let Some(error) = &overlay.error {
+                    parts.push(ToolPart::Text(format!("Marks overlay not drawn: {error}")));
+                }
+                overlay.record(&mut parts);
             }
             self.keep_image(command, &mut parts);
         }
@@ -354,6 +367,13 @@ fn recognized_words(result: &Map<String, Value>) -> bool {
     rows("lines") || rows("words")
 }
 
+/// The text of a capture without the lines the helper wrote for the elements whose refs are named (`elements.splice` of
+/// `mergeCaptureOcr`, which cut the rows beyond the budget less the words' reservation).
+fn without_element_lines(shown: &str, refs: &[String]) -> String {
+    let prefixes: Vec<String> = refs.iter().map(|reference| format!("[{reference}] ")).collect();
+    shown.split('\n').filter(|line| !prefixes.iter().any(|prefix| line.starts_with(prefix.as_str()))).collect::<Vec<_>>().join("\n")
+}
+
 /// The text of a capture with the delta in place of its element lines: each line the helper wrote for an element (`[<ref>] ...`)
 /// is dropped and one `Elements delta` line, the rows that changed in full and the ones that did not by their refs, stands where the
 /// first was. `None` when the text holds no element line to replace, so the full list stays.
@@ -374,20 +394,49 @@ fn with_delta(shown: &str, rows: &[Value], delta: &Value) -> Option<String> {
     Some(out.join("\n"))
 }
 
+/// What drawing the marks came to (`overlay_rendered`, `overlay_error` and `overlay_ms` of the capture payload).
+#[derive(Debug)]
+struct Marked {
+    rendered: bool,
+    error: Option<String>,
+    ms: u64,
+}
+
+impl Marked {
+    /// The fields in the reply: in the first text part when that is the payload object, else as a part of their own.
+    fn record(&self, parts: &mut Vec<ToolPart>) {
+        let mut fields = Map::new();
+        fields.insert("overlay_rendered".into(), json!(self.rendered));
+        if let Some(error) = &self.error {
+            fields.insert("overlay_error".into(), json!(error));
+        }
+        fields.insert("overlay_ms".into(), json!(self.ms));
+        if let Some(ToolPart::Text(shown)) = parts.first_mut()
+            && let Ok(Value::Object(mut payload)) = serde_json::from_str::<Value>(shown)
+        {
+            payload.extend(fields);
+            *shown = Value::Object(payload).to_string();
+        } else {
+            parts.push(ToolPart::Text(Value::Object(fields).to_string()));
+        }
+    }
+}
+
 /// `renderSomOverlay` over the frame's image part: the elements of the snapshot and the OCR words listed after them, each outlined and
 /// numbered in the pixels the model will point at. A frame that cannot be drawn on keeps its pixels and the reply says why; a capture
 /// with neither an accessibility read nor a word has nothing to draw.
-fn mark_frame(parts: &mut [ToolPart], snapshot: Option<&Map<String, Value>>, words: &[(i64, [i64; 4])], frame: &Frame, quality: i64) -> Option<String> {
+fn mark_frame(parts: &mut [ToolPart], snapshot: Option<&Map<String, Value>>, words: &[(i64, [i64; 4])], frame: &Frame, quality: i64) -> Option<Marked> {
     if snapshot.is_none() && words.is_empty() {
         return None;
     }
     let mut marks = snapshot.map(|snapshot| som_marks(snapshot, frame)).unwrap_or_default();
     marks.extend(word_marks(words, frame));
     let ToolPart::Image { mime, data: ImageData::Bytes(bytes), .. } = parts.iter_mut().find(|part| matches!(part, ToolPart::Image { .. }))? else { return None };
+    let started = Instant::now();
     let overlay = paint_marks_or_input(bytes, mime, u32::try_from(frame.capture_width).unwrap_or(0), u32::try_from(frame.capture_height).unwrap_or(0), &marks, quality.clamp(0, 100) as u8);
     *bytes = overlay.image.bytes;
     *mime = overlay.image.mime;
-    overlay.error.map(|error| format!("Marks overlay not drawn: {error}"))
+    Some(Marked { rendered: overlay.rendered, error: overlay.error, ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX) })
 }
 
 /// The OCR words as marks: their boxes are already in the frame's pixels, clipped to them; one entirely outside is not drawn.
@@ -1146,6 +1195,13 @@ mod tests {
         assert!(!full.contains("Elements delta") && full.contains("Item 0"), "{full}");
     }
 
+    #[test]
+    fn the_lines_of_the_cut_rows_leave_the_text() {
+        let shown = "Window\n[e1] Button \"a\"\n[e2] Button \"b\"\n[e10] Text \"c\"\nfooter";
+        assert_eq!(without_element_lines(shown, &["e2".to_string()]), "Window\n[e1] Button \"a\"\n[e10] Text \"c\"\nfooter");
+        assert_eq!(without_element_lines(shown, &["e2".to_string(), "e10".to_string(), "e1".to_string()]), "Window\nfooter");
+    }
+
     /// The marks of a frame are the snapshot's elements in its pixels, clipped to it; one entirely outside is not drawn.
     #[test]
     fn the_marks_are_the_elements_in_the_frames_pixels() {
@@ -1162,17 +1218,31 @@ mod tests {
         ]);
     }
 
+    #[test]
+    fn the_overlay_fields_join_the_capture_reply() {
+        let overlay = Marked { rendered: true, error: None, ms: 7 };
+        let mut plain = vec![ToolPart::Text("snap".into())];
+        overlay.record(&mut plain);
+        let [ToolPart::Text(first), ToolPart::Text(fields)] = plain.as_slice() else { panic!("{plain:?}") };
+        assert_eq!((first.as_str(), serde_json::from_str::<Value>(fields).unwrap()), ("snap", json!({"overlay_rendered": true, "overlay_ms": 7})));
+        let mut payload = vec![ToolPart::Text(json!({"mode": "som"}).to_string())];
+        Marked { rendered: false, error: Some("no paint".into()), ms: 1 }.record(&mut payload);
+        let [ToolPart::Text(only)] = payload.as_slice() else { panic!("{payload:?}") };
+        assert_eq!(serde_json::from_str::<Value>(only).unwrap(), json!({"mode": "som", "overlay_rendered": false, "overlay_error": "no paint", "overlay_ms": 1}));
+    }
+
     /// A frame the overlay cannot draw on keeps its pixels, and the reply says why.
     #[test]
     fn a_frame_that_cannot_be_marked_keeps_its_pixels() {
         let frame = frame_of(&object(json!({"x": 0, "y": 0, "width": 200, "height": 100})), "f", "hwnd:0x2", Vec::new(), None).unwrap();
         let snapshot = object(json!({"elements": [{"mark": 1, "x": 10, "y": 10, "width": 50, "height": 20}]}));
         let mut parts = vec![ToolPart::Text("frame".into()), ToolPart::Image { mime: "image/jpeg".into(), data: ImageData::Bytes(b"not a jpeg".to_vec()), width: Some(200), height: Some(100) }];
-        let note = mark_frame(&mut parts, Some(&snapshot), &[], &frame, 55).expect("the reason");
-        assert!(note.starts_with("Marks overlay not drawn: "), "{note}");
+        let overlay = mark_frame(&mut parts, Some(&snapshot), &[], &frame, 55).expect("the reason");
+        assert!(!overlay.rendered && overlay.error.is_some(), "{overlay:?}");
         assert!(matches!(&parts[1], ToolPart::Image { data: ImageData::Bytes(bytes), .. } if bytes == b"not a jpeg"));
-        assert_eq!(mark_frame(&mut parts, Some(&object(json!({"elements": []}))), &[], &frame, 55), None, "no element, no overlay, nothing to say");
-        assert_eq!(mark_frame(&mut parts, None, &[], &frame, 55), None, "no read and no word: nothing to draw");
+        let empty = mark_frame(&mut parts, Some(&object(json!({"elements": []}))), &[], &frame, 55).expect("an overlay that drew nothing");
+        assert!(!empty.rendered && empty.error.is_none(), "no element, nothing drawn, nothing to say: {empty:?}");
+        assert!(mark_frame(&mut parts, None, &[], &frame, 55).is_none(), "no read and no word: nothing to draw");
     }
 
     /// The OCR words listed after the elements are outlined too, in the frame's pixels, clipped to it.

@@ -151,6 +151,15 @@ impl AppOwnedWindows {
         }
     }
 
+    /// `createInputPreflight`'s refusal of a key the renderer's input table cannot map, found before any step of a sequence is sent:
+    /// `Some` for a `key` step the desktop would deliver into the window (`step`'s own `window_id`, else `window_id`) whose keys name
+    /// a key with no mapping. The step would refuse the same way at its turn, after the steps before it had run.
+    pub(super) fn unmapped_key(&self, step: &Map<String, Value>, window_id: &str) -> Option<ComputerError> {
+        let target = Some(text(step, "window_id")).filter(|id| !id.is_empty()).unwrap_or(window_id);
+        let Some((_, AppInputOp::Key { keys })) = self.route(step, target) else { return None };
+        unmapped_key_name(&keys).map(|name| failed(format!("background_unsupported: key {{{name}}} has no Electron input mapping; no input was sent")))
+    }
+
     /// A window the desktop says it does not own is forgotten until the next read.
     fn forget(&self, window_id: &str) {
         if let Read::Windows(_, windows) = &mut *self.slot() {
@@ -193,6 +202,43 @@ async fn request(desktop: &dyn HostChannel, method: &'static str, params: Value,
 
 fn failed(message: String) -> ComputerError {
     ComputerError::Failed { code: "computer_failed".into(), message }
+}
+
+/// `NAMED_KEYS` of `input-electron-keys.ts`: the named keys of the helper's grammar the renderer's key table knows.
+const MAPPED_KEY_NAMES: [&str; 16] =
+    ["BACKSPACE", "TAB", "ENTER", "ESC", "SPACE", "PGUP", "PGDN", "HOME", "END", "LEFT", "UP", "RIGHT", "DOWN", "DELETE", "PLUS", "MINUS"];
+
+/// `namedKey` over every `{NAME [count]}` of a key sequence in the helper's grammar (`electronKeyPresses`): the first name with no
+/// mapping, as the sequence wrote it. A single character is the literal key, whatever the grammar says of it.
+fn unmapped_key_name(grammar: &str) -> Option<String> {
+    let chars: Vec<char> = grammar.chars().collect();
+    if chars.len() == 1 {
+        return None;
+    }
+    let mut index = 0;
+    while index < chars.len() {
+        while chars.get(index).is_some_and(|c| matches!(c, '^' | '%' | '+' | '#')) {
+            index += 1;
+        }
+        if chars.get(index) == Some(&'{') {
+            let end = chars[index..].iter().position(|c| *c == '}').map_or(chars.len(), |offset| index + offset);
+            let inside: String = chars[index + 1..end].iter().collect();
+            // `^(\S+)(?:\s+(\d+))?$`: the name, and a repeat count after whitespace.
+            let name = match inside.split_once(char::is_whitespace) {
+                Some((name, count)) if !name.is_empty() && !count.trim_start().is_empty() && count.trim_start().chars().all(|c| c.is_ascii_digit()) => name,
+                _ => inside.as_str(),
+            };
+            let upper = name.to_uppercase();
+            let function = upper.strip_prefix('F').and_then(|number| number.parse::<u8>().ok()).is_some_and(|number| (1..=24).contains(&number) && !upper.starts_with("F0") && !upper.contains('+'));
+            if !MAPPED_KEY_NAMES.contains(&upper.as_str()) && !function {
+                return Some(name.to_owned());
+            }
+            index = end + 1;
+        } else {
+            index += 1;
+        }
+    }
+    None
 }
 
 /// One input into an app-owned window; its points are physical pixels relative to the window's bounds.
@@ -559,5 +605,24 @@ mod tests {
         let window = AppWindow::from_json(&json!({ "windowId": "hwnd:0x1", "bounds": { "x": 1, "y": 2, "width": 3, "height": 4 } })).unwrap();
         assert_eq!(window.scale_factor, 1.0);
         assert!(!window.focused);
+    }
+
+    #[test]
+    fn a_key_the_renderer_cannot_map_is_found_before_any_step_runs() {
+        let window = AppWindow::from_json(&json!({ "windowId": "hwnd:0x1", "bounds": { "x": 0, "y": 0, "width": 8, "height": 6 } })).unwrap();
+        let owned = AppOwnedWindows::new();
+        *owned.slot() = Read::Windows(Instant::now(), HashMap::from([("hwnd:0x1".to_string(), window)]));
+        let refused = owned.unmapped_key(&object(json!({ "action": "key", "keys": "^{INSERT}" })), "hwnd:0x1").expect("refused");
+        assert!(matches!(&refused, ComputerError::Failed { message, .. } if message == "background_unsupported: key {INSERT} has no Electron input mapping; no input was sent"));
+        for keys in ["^a", "%{F4}", "{ENTER 3}", "+{left}", "{F24}", "{", "^{PGDN}{DELETE 2}", "+", "#{PLUS}"] {
+            assert!(owned.unmapped_key(&object(json!({ "action": "key", "keys": keys })), "hwnd:0x1").is_none(), "{keys}");
+        }
+        // The first unmapped name is the one named; F25 and F0 are no function keys.
+        assert_eq!(unmapped_key_name("{ENTER}{F25}{HOME}"), Some("F25".into()));
+        assert_eq!(unmapped_key_name("{F0}"), Some("F0".into()));
+        // A native window and a step the helper takes are not the renderer's to refuse.
+        assert!(owned.unmapped_key(&object(json!({ "action": "key", "keys": "{INSERT}" })), "hwnd:0x2").is_none());
+        assert!(owned.unmapped_key(&object(json!({ "action": "key", "keys": "{INSERT}", "delivery": "foreground" })), "hwnd:0x1").is_none());
+        assert!(owned.unmapped_key(&object(json!({ "action": "type", "text": "{INSERT}" })), "hwnd:0x1").is_none());
     }
 }
