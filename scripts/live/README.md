@@ -33,3 +33,7 @@ The core identity is checked after start (daemon.json pid must be the staged cor
 CPU load readings (`lib/cpu.mjs`) use Windows CIM, Linux `/proc/stat` or macOS `top`, and are `null` when unavailable.
 
 Test the library: `node --test scripts/live/lib/env.test.mjs`.
+
+## Smoke
+
+`node scripts/live/smoke.mjs --core=<mixdogd> [--out=<dir>]` runs the checks in `scripts/live/checks/` (core identity, host claim, terminal output, browser navigate, notify state) and writes `<out>/summary.json` (`checks: [{name, ok, ms, detail}]`); exit 0 when all pass, 1 otherwise.
