@@ -300,6 +300,11 @@ fn prepare_a_key_file_in_the_home_folder_is_expanded_and_the_key_goes_in_front_o
     let context = AttemptContext { settings: Some(settings), ..Default::default() };
     let args = prepare_spawn(&env, "ssh", &strings(&EXEC), Some(&context)).args;
     assert_eq!(args[..6], strings(&["-i", "/home/tester/.ssh/id_work", "-o", "IdentitiesOnly=yes", "-F", "/data/ssh/config"])[..]);
+    // On Windows the path is joined with `\`, whatever host the test runs on.
+    let mut windows = plain_env(Platform::Windows, &[], None);
+    windows.home = PathBuf::from(r"C:\Users\tester");
+    let args = prepare_spawn(&windows, "ssh", &strings(&EXEC), Some(&context)).args;
+    assert_eq!(args[1], r"C:\Users\tester\.ssh\id_work");
 }
 
 // ---- ssh_exec ----
