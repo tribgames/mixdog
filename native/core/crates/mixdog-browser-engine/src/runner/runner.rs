@@ -338,6 +338,7 @@ observed_facts!(
     HostBrowserStorageResult,
     HostBrowserEmulationResult,
     HostBrowserUploadResult,
+    HostBrowserUploadReceiverResult,
     HostBrowserRefMintResult,
 );
 observed_nothing!(HostBrowserPagesCloseResult, HostBrowserInitScriptsResult, HostBrowserInterceptResult, HostBrowserPerformanceResult, HostBrowserDownloadsResult);
@@ -425,6 +426,7 @@ recording_host! {
     emulation, HostBrowserEmulationParams, HostBrowserEmulationResult;
     downloads, HostBrowserDownloadsParams, HostBrowserDownloadsResult;
     upload, HostBrowserUploadParams, HostBrowserUploadResult;
+    upload_receiver, HostBrowserUploadReceiverParams, HostBrowserUploadReceiverResult;
     ref_mint, HostBrowserRefMintParams, HostBrowserRefMintResult;
 }
 
