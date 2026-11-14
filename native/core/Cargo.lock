@@ -5325,6 +5325,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "mixdog-office-base"
+version = "1.5.0"
+dependencies = [
+ "mixdog-js",
+ "mixdog-office-base",
+ "mixdog-testkit",
+ "mixdog-workspace-hack",
+ "serde_json",
+ "sha2 0.10.9",
+ "uuid",
+]
+
+[[package]]
 name = "mixdog-office-com"
 version = "1.5.0"
 dependencies = [
@@ -5378,6 +5391,14 @@ dependencies = [
  "sha2 0.10.9",
  "unicode-normalization",
  "windows-sys 0.60.2",
+]
+
+[[package]]
+name = "mixdog-pdf"
+version = "1.5.0"
+dependencies = [
+ "flate2",
+ "tracing",
 ]
 
 [[package]]
