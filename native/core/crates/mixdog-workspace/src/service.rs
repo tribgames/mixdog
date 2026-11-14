@@ -266,8 +266,6 @@ pub struct WorkspaceService {
     fs: Arc<ProjectFs>,
     paths: Claims<PathBuf>,
     transfers: Arc<Transfers>,
-    /// The file previews' media leases (`media-leases.ts`), served by the media lane through [`WorkspaceService::file_leases`].
-    file_leases: Arc<crate::preview::FileLeases>,
     /// The text reads answered a window at a time, each held as the one read of its file ([`crate::readwindow`]).
     read_windows: crate::readwindow::ReadWindows,
     watcher: Arc<FolderWatcher>,
@@ -407,7 +405,6 @@ impl WorkspaceService {
             fs: Arc::new(ProjectFs::new(Arc::new(RecoveryStore::new(deps.recovery_dir)))),
             paths: path_claims(),
             transfers,
-            file_leases: Arc::default(),
             read_windows: crate::readwindow::ReadWindows::default(),
             watcher,
             router,
@@ -469,10 +466,6 @@ impl WorkspaceService {
                 .await;
             }
         }));
-    }
-    /// The media leases a file preview minted: the media lane resolves a `mediaAssetId` through them.
-    pub fn file_leases(&self) -> Arc<crate::preview::FileLeases> {
-        self.file_leases.clone()
     }
     pub fn catalog(&self) -> &Catalog {
         &self.catalog
@@ -1017,8 +1010,7 @@ impl WorkspaceService {
             }
             "projectFs/previewFile" => {
                 let (root, rel) = self.file_target(req, params).await?;
-                let leases = self.file_leases.clone();
-                value(run_fallible(self.lanes.interactive, &cancel, move || crate::preview::preview_file(&leases, &root, &rel)).await?)
+                value(run_fallible(self.lanes.interactive, &cancel, move || crate::preview::preview_file(&root, &rel)).await?)
             }
             "projectFs/previewRange" => {
                 let (root, rel) = self.file_target(req, params).await?;
