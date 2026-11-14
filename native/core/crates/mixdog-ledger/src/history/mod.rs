@@ -18,6 +18,7 @@ use std::sync::Mutex;
 use mixdog_rt::CancellationToken;
 use mixdog_rt::CpuBulk;
 use mixdog_rt::InLane;
+use mixdog_rt::LaneToken;
 use mixdog_rt::MaintenanceIo;
 use serde_json::Value;
 

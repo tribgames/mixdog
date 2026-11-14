@@ -129,9 +129,13 @@ async fn read_postgres(pid_file: &str, until: i64) -> Result<Vec<Value>> {
         .user("postgres")
         .dbname("mixdog")
         .application_name("mixdog-usage-import-readonly")
-        .connect_timeout(CONNECT_LIMIT)
         .options("-c default_transaction_read_only=on -c statement_timeout=30000");
-    let (client, connection) = config.connect(NoTls).await.map_err(failed)?;
+    // The limit covers the whole opening (`connectionTimeoutMillis`), the startup exchange included:
+    // a port a stale pid file names may answer the connect and then say nothing.
+    let (client, connection) = mixdog_rt::time::timeout(CONNECT_LIMIT, config.connect(NoTls))
+        .await
+        .map_err(|_| LedgerError::History("Connection terminated due to connection timeout".to_owned()))?
+        .map_err(failed)?;
     let work = async {
         client
             .batch_execute("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
