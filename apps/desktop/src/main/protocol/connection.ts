@@ -1,7 +1,7 @@
 // The one protocol connection of this Electron process to one core (a target: this PC's core, or a server's
-// through its SSH tunnel). Main owns the socket and the client library's fold store; windows get the pushed
-// the held sections readable as a snapshot and the scoped feeds they open. Nothing here
-// polls: state arrives as sections, liveness is the connection's own ticker (protocol.md §4.7).
+// through its SSH tunnel). Main owns the socket and the client library's fold store; its held sections are readable
+// as a snapshot, and the scoped feeds a window opens are routed to that window. Nothing here polls:
+// state arrives as sections, liveness is the connection's own ticker (protocol.md §4.7).
 import type {
   DesktopProtocolStatus,
   DesktopSectionChange,
@@ -348,7 +348,7 @@ export function createProtocolConnection({ open }: ProtocolConnectionOptions): P
     await connected().call(isViewed ? 'system/ports/subscribe' : 'system/ports/unsubscribe', {});
   };
 
-  /** Drops the current client and everything bound to it; the windows and their registrations stay. They are told
+  /** Drops the current client and everything bound to it; the windows and their registrations stay.
    *  The followed sign-in flows are lost: their feeds ended with the client, and unsubscribing first keeps its
    *  closing from reaching them. */
   const release = async (next: DesktopProtocolStatus): Promise<void> => {
