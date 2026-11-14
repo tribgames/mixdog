@@ -18,6 +18,8 @@ with `CARGO_TARGET_DIR` under `D:/mixdog-build/mig/target/`.
 | 3-way base for desktop merges | merge-base(mig/int, wincu-int) | - | `08b7df616d6d69e502757d9d8402ae443d83e323` |
 | ft-desk k1-desktop-reads (stale) | clone `origin/k1-desktop-reads` | - | `08b7df616d6d69e502757d9d8402ae443d83e323` |
 
+ft-fix `main` moved past the SHA used: at the G0 check (2026-11-14) it is `1755165c4400834187fc3f0e0410136d7bc0201a` (`5bb270aad` + 7 commits: c25b21707, f67251003, eb3ca2449, 9304dc1d5, 622533877, 4fd89c678, 1755165c4). They are not in mig/int and come over as patches; `native/mixdog-spawn` is the same tree at both SHAs.
+
 Port check of w31 commits that ft-fix carries in another form:
 
 - `0b05dd132` (live transcript archived rows) = ft-fix `eb3ade28ef76dbd652af016e88c16f3fe4afe309`: identical `git patch-id --stable` (`7f1e4cfdb9b88ea21f8bb37d75a234ecb2780126`); nothing ported by hand.
@@ -54,6 +56,9 @@ No desktop fix was needed: `npm run typecheck` in apps/desktop passed against th
 | packages/protocol-client `npm run typecheck` | pass after base-fix |
 | packages/protocol-client tests (252) | pass when run with tsx from apps/desktop/node_modules; `npm test` fails here because the root node_modules (junction to w31) has no `tsx` |
 | apps/mobile `npm run typecheck` | fails: `@capacitor/*` and `@capacitor-mlkit/barcode-scanning` are not installed anywhere reachable (no apps/mobile/node_modules in w31; installing is not allowed) |
+| `cargo-gate.ps1 test --locked -p mixdog-core-session` (G0 check) | plain `cargo test`: 11-18 of 985 fail per run, a different set each run (process-global state shared between tests of one process: `AlreadyInstalled`, injected EIO, barrier faults; each passes alone). `cargo-gate.ps1 nextest run -p mixdog-core-session -p mixdog-app-protocol`: 1014/1014 pass. Same tree as ft-fix `5bb270aad`: baseline. Set `MIXDOG_GATE_ISO_BASE=D:\mixdog-build\mig\iso`: with the gate's default temp base (`D:\mixdog-build\tmp`, a junction to C:) the worktree tests fail with `WORKTREE_PROJECT_MISMATCH` (D: path vs its C: target) |
+| apps/desktop `npm test` (fast lane, G0 check) | 8 failures, all baseline (inputs byte-identical to the w31 working tree): 7 from the `remote-protocol-chat-*.core/` fixture manifests, recorded against an older `packages/protocol-client/src/client.ts` (sha256 443b20b3... in the manifest, 3298a348... in w31 and here); 1 `session-history-boundary.test.mjs` expects `main/protocol/service-route.ts` and finds `main/protocol/session-lane.ts` |
+| `node scripts/test.mjs smoke` (G0 check) | fails as run: no `tsx` in the root node_modules (w31's). With `node --import <apps/desktop tsx> --test`, `MIXDOGD_BIN` (mixdogd built in target\int) and `MIXDOG_TREE_HELPER` (treerun built in target\int): 7/7 pass |
 
 ## node_modules
 
@@ -65,19 +70,19 @@ Line numbers cited by area plans refer to w31 or ft-fix before X-BASE. Locate ed
 
 ### protocol
 
-#### `native/core/crates/mixdog-app-protocol/src/methods.rs` (4375 lines)
+#### `native/core/crates/mixdog-app-protocol/src/methods.rs` (4374 lines)
 
 | kind | symbol | line at base |
 |---|---|---|
 | macro table | `client_request_definitions!` | 10 |
 
-#### `native/core/crates/mixdog-app-protocol/src/server_requests.rs` (117 lines)
+#### `native/core/crates/mixdog-app-protocol/src/server_requests.rs` (116 lines)
 
 | kind | symbol | line at base |
 |---|---|---|
 | macro table | `server_request_definitions!` | 12 |
 
-#### `native/core/crates/mixdog-app-protocol/src/notifications.rs` (495 lines)
+#### `native/core/crates/mixdog-app-protocol/src/notifications.rs` (494 lines)
 
 | kind | symbol | line at base |
 |---|---|---|
@@ -98,7 +103,7 @@ Line numbers cited by area plans refer to w31 or ft-fix before X-BASE. Locate ed
 | impl | `ClientNotification` | 462 |
 | fn | `section_notification_methods` | 490 |
 
-#### `native/core/crates/mixdog-app-protocol/src/inventory.rs` (3646 lines)
+#### `native/core/crates/mixdog-app-protocol/src/inventory.rs` (3645 lines)
 
 | kind | symbol | line at base |
 |---|---|---|
@@ -106,7 +111,7 @@ Line numbers cited by area plans refer to w31 or ft-fix before X-BASE. Locate ed
 | enum | `Target` | 22 |
 | static | `INVENTORY` | 49 |
 
-#### `native/core/crates/mixdog-app-protocol/src/free_text.rs` (356 lines)
+#### `native/core/crates/mixdog-app-protocol/src/free_text.rs` (355 lines)
 
 | kind | symbol | line at base |
 |---|---|---|
@@ -117,7 +122,7 @@ Line numbers cited by area plans refer to w31 or ft-fix before X-BASE. Locate ed
 | fn | `refused` | 311 |
 | mod | `tests` | 316 |
 
-#### `native/core/crates/mixdog-app-protocol/src/v1.rs` (229 lines)
+#### `native/core/crates/mixdog-app-protocol/src/v1.rs` (228 lines)
 
 | kind | symbol | line at base |
 |---|---|---|
@@ -135,7 +140,7 @@ Line numbers cited by area plans refer to w31 or ft-fix before X-BASE. Locate ed
 | struct | `InitializeResponse` | 206 |
 | struct | `InitializedParams` | 228 |
 
-#### `native/core/crates/mixdog-app-protocol/src/v2/mod.rs` (12 lines)
+#### `native/core/crates/mixdog-app-protocol/src/v2/mod.rs` (11 lines)
 
 | kind | symbol | line at base |
 |---|---|---|
@@ -149,7 +154,7 @@ Line numbers cited by area plans refer to w31 or ft-fix before X-BASE. Locate ed
 | mod | `params` | 10 |
 | mod | `thread` | 11 |
 
-#### `native/core/crates/mixdog-app-protocol/src/v2/host.rs` (1100 lines)
+#### `native/core/crates/mixdog-app-protocol/src/v2/host.rs` (1099 lines)
 
 | kind | symbol | line at base |
 |---|---|---|
@@ -239,15 +244,15 @@ Line numbers cited by area plans refer to w31 or ft-fix before X-BASE. Locate ed
 | struct | `ModelProxyCancelParams` | 1088 |
 | struct | `ModelProxyRunCancelParams` | 1097 |
 
-#### `native/core/crates/mixdog-app-protocol/src/v2/params.rs` (6423 lines)
+#### `native/core/crates/mixdog-app-protocol/src/v2/params.rs` (6422 lines)
 
 676 top-level declarations (generated or flat type list): locate by name with `git grep -n "<Name>" -- native/core/crates/mixdog-app-protocol/src/v2/params.rs`. New param structs are appended near the type of the same method family.
 
-#### `native/core/crates/mixdog-app-protocol/tests/it/free_text_fields.json` (4619 lines)
+#### `native/core/crates/mixdog-app-protocol/tests/it/free_text_fields.json` (4618 lines)
 
 JSON data file: edits are rows located by their key (method name / pointer), not by line.
 
-#### `native/core/crates/mixdog-protocol/src/section.rs` (230 lines)
+#### `native/core/crates/mixdog-protocol/src/section.rs` (229 lines)
 
 | kind | symbol | line at base |
 |---|---|---|
@@ -263,7 +268,7 @@ JSON data file: edits are rows located by their key (method name / pointer), not
 | struct | `ComputerSection` | 216 |
 | impl | `Section` | 226 |
 
-#### `native/core/crates/mixdog-core-api/src/host.rs` (295 lines)
+#### `native/core/crates/mixdog-core-api/src/host.rs` (294 lines)
 
 | kind | symbol | line at base |
 |---|---|---|
@@ -288,11 +293,11 @@ JSON data file: edits are rows located by their key (method name / pointer), not
 | trait | `ApprovalSurfaces` | 286 |
 | trait | `HostMediaSink` | 292 |
 
-#### `packages/protocol/src/index.ts` (17268 lines)
+#### `packages/protocol/src/index.ts` (17267 lines)
 
 867 top-level declarations (generated or flat type list): locate by name with `git grep -n "<Name>" -- packages/protocol/src/index.ts`. Generated: never edited by hand; regenerate with MIXDOG_UPDATE_PROTOCOL_GOLDEN=1 cargo test -p mixdog-app-protocol.
 
-#### `packages/protocol-client/src/method-table.ts` (60 lines)
+#### `packages/protocol-client/src/method-table.ts` (59 lines)
 
 | kind | symbol | line at base |
 |---|---|---|
@@ -308,13 +313,13 @@ JSON data file: edits are rows located by their key (method name / pointer), not
 | const | `methodInfo` | 57 |
 | const | `isSectionMethod` | 59 |
 
-#### `packages/protocol-client/src/actions/method-args.generated.mjs` (250 lines)
+#### `packages/protocol-client/src/actions/method-args.generated.mjs` (249 lines)
 
 | kind | symbol | line at base |
 |---|---|---|
 | const | `METHOD_ARGS` | 3 |
 
-#### `packages/protocol-client/src/actions/method-args.generated.d.mts` (2 lines)
+#### `packages/protocol-client/src/actions/method-args.generated.d.mts` (1 lines)
 
 | kind | symbol | line at base |
 |---|---|---|
@@ -327,7 +332,7 @@ not present in mig/int at this commit (created by a later task).
 
 ### core
 
-#### `native/core/Cargo.toml` (274 lines)
+#### `native/core/Cargo.toml` (273 lines)
 
 | kind | symbol | line at base |
 |---|---|---|
@@ -340,7 +345,7 @@ not present in mig/int at this commit (created by a later task).
 | section | `[workspace.dependencies]` | 108 |
 | section | `[patch.crates-io]` | 270 |
 
-#### `native/core/crates/mixdog-workspace-hack/Cargo.toml` (186 lines)
+#### `native/core/crates/mixdog-workspace-hack/Cargo.toml` (185 lines)
 
 | kind | symbol | line at base |
 |---|---|---|
@@ -356,7 +361,7 @@ not present in mig/int at this commit (created by a later task).
 | section | `[target.x86_64-pc-windows-msvc.dependencies]` | 168 |
 | section | `[target.x86_64-pc-windows-msvc.build-dependencies]` | 181 |
 
-#### `native/core/crates/mixdog-app-server-daemon/Cargo.toml` (155 lines)
+#### `native/core/crates/mixdog-app-server-daemon/Cargo.toml` (154 lines)
 
 | kind | symbol | line at base |
 |---|---|---|
@@ -369,7 +374,7 @@ not present in mig/int at this commit (created by a later task).
 | section | `[dev-dependencies]` | 88 |
 | section | `[target.'cfg(windows)'.dev-dependencies]` | 152 |
 
-#### `native/core/crates/mixdog-app-server-daemon/src/compose_flip.rs` (3604 lines)
+#### `native/core/crates/mixdog-app-server-daemon/src/compose_flip.rs` (3603 lines)
 
 | kind | symbol | line at base |
 |---|---|---|
@@ -391,7 +396,7 @@ not present in mig/int at this commit (created by a later task).
 | impl | `mixdog_workspace` | 3528 |
 | mod | `tests` | 3573 |
 
-#### `native/core/crates/mixdog-app-server-daemon/src/lib.rs` (304 lines)
+#### `native/core/crates/mixdog-app-server-daemon/src/lib.rs` (303 lines)
 
 | kind | symbol | line at base |
 |---|---|---|
@@ -479,7 +484,7 @@ not present in mig/int at this commit (created by a later task).
 | fn | `run` | 138 |
 | fn | `serve` | 152 |
 
-#### `native/core/crates/mixdog-tools/Cargo.toml` (96 lines)
+#### `native/core/crates/mixdog-tools/Cargo.toml` (95 lines)
 
 | kind | symbol | line at base |
 |---|---|---|
@@ -491,7 +496,7 @@ not present in mig/int at this commit (created by a later task).
 | section | `[target.'cfg(windows)'.dependencies]` | 89 |
 | section | `[target.'cfg(unix)'.dependencies]` | 94 |
 
-#### `native/core/crates/mixdog-tools/src/desktop/mod.rs` (17 lines)
+#### `native/core/crates/mixdog-tools/src/desktop/mod.rs` (16 lines)
 
 | kind | symbol | line at base |
 |---|---|---|
@@ -509,7 +514,7 @@ not present in mig/int at this commit (created by a later task).
 | mod | `terminal` | 15 |
 | mod | `visualize` | 16 |
 
-#### `native/core/crates/mixdog-core-domains/src/domains/mod.rs` (187 lines)
+#### `native/core/crates/mixdog-core-domains/src/domains/mod.rs` (186 lines)
 
 | kind | symbol | line at base |
 |---|---|---|
@@ -534,7 +539,7 @@ not present in mig/int at this commit (created by a later task).
 | impl | `Domains` | 108 |
 | mod | `tests` | 115 |
 
-#### `native/core/crates/mixdog-core-domains/src/notify/mod.rs` (14 lines)
+#### `native/core/crates/mixdog-core-domains/src/notify/mod.rs` (13 lines)
 
 | kind | symbol | line at base |
 |---|---|---|
@@ -549,7 +554,7 @@ not present in mig/int at this commit (created by a later task).
 | mod | `service` | 12 |
 | mod | `timeline` | 13 |
 
-#### `native/core/crates/mixdog-core-domains/Cargo.toml` (100 lines)
+#### `native/core/crates/mixdog-core-domains/Cargo.toml` (99 lines)
 
 | kind | symbol | line at base |
 |---|---|---|
@@ -567,7 +572,7 @@ not present in mig/int at this commit (created by a later task).
 
 ### desktop
 
-#### `apps/desktop/src/main/index.ts` (3045 lines)
+#### `apps/desktop/src/main/index.ts` (3044 lines)
 
 | kind | symbol | line at base |
 |---|---|---|
@@ -748,7 +753,7 @@ not present in mig/int at this commit (created by a later task).
 | function | `watchPowerAndNetwork` | 2783 |
 | function | `registerLocalSshHostIpc` | 2821 |
 
-#### `apps/desktop/src/main/ipc.ts` (498 lines)
+#### `apps/desktop/src/main/ipc.ts` (497 lines)
 
 | kind | symbol | line at base |
 |---|---|---|
@@ -758,14 +763,14 @@ not present in mig/int at this commit (created by a later task).
 | interface | `DesktopIpcDependencies` | 135 |
 | function | `registerDesktopIpc` | 219 |
 
-#### `apps/desktop/src/main/host/index.ts` (107 lines)
+#### `apps/desktop/src/main/host/index.ts` (106 lines)
 
 | kind | symbol | line at base |
 |---|---|---|
 | interface | `DesktopHostOptions` | 20 |
 | function | `createDesktopHost` | 48 |
 
-#### `apps/desktop/src/main/host/connection.ts` (81 lines)
+#### `apps/desktop/src/main/host/connection.ts` (80 lines)
 
 | kind | symbol | line at base |
 |---|---|---|
@@ -778,7 +783,7 @@ not present in mig/int at this commit (created by a later task).
 | type | `WireFields` | 72 |
 | function | `objectParams` | 75 |
 
-#### `apps/desktop/src/preload/index.ts` (808 lines)
+#### `apps/desktop/src/preload/index.ts` (807 lines)
 
 | kind | symbol | line at base |
 |---|---|---|
@@ -800,13 +805,13 @@ not present in mig/int at this commit (created by a later task).
 | const | `noticeListeners` | 105 |
 | const | `api` | 113 |
 
-#### `apps/desktop/src/shared/contract-ipc.ts` (351 lines)
+#### `apps/desktop/src/shared/contract-ipc.ts` (350 lines)
 
 | kind | symbol | line at base |
 |---|---|---|
 | const | `DESKTOP_IPC` | 3 |
 
-#### `apps/desktop/src/shared/contract.ts` (1237 lines)
+#### `apps/desktop/src/shared/contract.ts` (1236 lines)
 
 | kind | symbol | line at base |
 |---|---|---|
@@ -814,7 +819,7 @@ not present in mig/int at this commit (created by a later task).
 | interface | `DesktopAgentMemoryEntry` | 213 |
 | interface | `DesktopApi` | 221 |
 
-#### `apps/desktop/src/renderer/main.tsx` (83 lines)
+#### `apps/desktop/src/renderer/main.tsx` (82 lines)
 
 | kind | symbol | line at base |
 |---|---|---|
@@ -822,7 +827,7 @@ not present in mig/int at this commit (created by a later task).
 | const | `remoteShimReady` | 22 |
 | let | `launchApplication` | 23 |
 
-#### `apps/desktop/src/main/ipc-state-bridge.ts` (342 lines)
+#### `apps/desktop/src/main/ipc-state-bridge.ts` (341 lines)
 
 | kind | symbol | line at base |
 |---|---|---|
