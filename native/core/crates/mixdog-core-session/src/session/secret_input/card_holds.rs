@@ -21,7 +21,7 @@ use tokio_util::sync::CancellationToken;
 use super::HumanOnlyLock;
 use super::Timer;
 
-/// What a card is, which names the hold in the refusal Computer Use gives meanwhile.
+/// What a card is, which may name the hold in the refusal Computer Use gives meanwhile.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HumanOnlyCard {
     /// `item/browser/requestApproval`: the desktop's browser approval dialog.
@@ -33,10 +33,11 @@ pub enum HumanOnlyCard {
 }
 
 impl HumanOnlyCard {
-    /// The label after `: ` in `Computer Use is blocked while a human-only approval is pending`.
+    /// The label after `: ` in `Computer Use is blocked while a human-only approval is pending`; empty names nothing, as
+    /// the desktop's browser approval dialog held the lock without a label (`approval-dialog.ts`).
     fn label(self) -> &'static str {
         match self {
-            Self::BrowserApproval => "the browser approval card",
+            Self::BrowserApproval => "",
             Self::ScreenTakeover => "the user has the screen for a takeover and was shown a card for it; try again once it ends",
             Self::SecretRequest => "a secret request card",
         }

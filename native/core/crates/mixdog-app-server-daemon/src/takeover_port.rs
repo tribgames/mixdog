@@ -1,15 +1,15 @@
 //! The core's takeover owner (Node `takeover-gate.ts`): while a session waits on a `takeover` card (handoff_user) its Browser Use
 //! is refused and what is running is stopped, until the card is answered or expires and the session's open requests no longer
 //! hold it. [`CoreTakeover`] is the engine's [`TakeoverPort`] over the takeover state the sessions publish
-//! ([`TakeoverHolds`]); [`TakeoverReadyService`] is `takeover/ready`, by which the renderer reports a login takeover ready.
+//! ([`TakeoverHolds`]); [`TakeoverReadyService`] is `takeover/ready`, by which a client asks whether the person may act on a
+//! takeover it shows (the desktop's `takeoverReady`: the card and the sign-in window wait on it).
 //!
 //! - `begin(session)` is `beginOperation`: refused with Node's text while the session's own takeover is pending (another
 //!   session's never refuses), else one running command, counted until its guard drops. The guard's `cancelled()` fires when a
 //!   takeover of the session starts meanwhile (`drainOperations` aborting the in-flight commands). The takeover state is read
 //!   by polling while a command runs: the sessions publish it into their control cell without a notification.
-//! - `ready(session, takeover)` is `ready`: true once the renderer reported it ready, the takeover is held and the session's
-//!   commands drained (no agent capture lands after it); false when the renderer reports it never will be, when it ends first,
-//!   or when it is not held within [`UNSEEN_READY`].
+//! - `ready(session, takeover)` is `ready`: true once the takeover is held and the session's commands drained (no agent
+//!   capture lands after it); false when it ends first, or when it is not held within [`UNSEEN_READY`].
 //! - The screen takeover's hold on Computer Use is the human-only lock's own read of the same state, and the hold the core takes
 //!   for the cards it raises is `CardHolds`, both in `mixdog_core_session::session::secret_input`.
 
@@ -22,6 +22,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use mixdog_app_protocol::v2::takeover::TakeoverReadyParams;
+use mixdog_app_protocol::v2::takeover::TakeoverReadyResult;
 use mixdog_browser_engine::port::TakeoverPort;
 use mixdog_browser_engine::types::TakeoverGuard;
 use mixdog_core_api::CoreError;
@@ -37,14 +38,14 @@ use mixdog_core_base::support::wrong_method;
 use mixdog_core_session::session::secret_input::TakeoverHolds;
 use serde_json::Value;
 use serde_json::json;
-use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
 pub const TAKEOVER_READY: &str = "takeover/ready";
 
 /// `UNSEEN_READY_MS`: how long a card may ask about a takeover the core has not seen held yet.
 pub const UNSEEN_READY: Duration = Duration::from_secs(30);
-/// How often the takeover state is read while a command runs or a readiness is awaited.
+/// How often the takeover state is read while a command runs or a readiness is awaited: the sessions publish it without a
+/// notification.
 const POLL: Duration = Duration::from_millis(50);
 
 #[derive(Default)]
@@ -54,8 +55,6 @@ struct State {
     operations: HashMap<u64, (String, CancellationToken)>,
     /// Whether a task reads the takeover state for the running commands.
     watching: bool,
-    /// `(session, takeover)` -> what the renderer reported.
-    reports: HashMap<(String, String), watch::Sender<Option<bool>>>,
 }
 
 struct Shared {
@@ -87,40 +86,22 @@ impl CoreTakeover {
         Self { shared: Arc::new(Shared { holds, state: Mutex::default() }) }
     }
 
-    /// The renderer's report for takeover `takeover_id` of `session_id`. A report names the session's current takeover, so the
-    /// reports of its earlier ones are dropped.
-    pub fn report(&self, session_id: &str, takeover_id: &str, ready: bool) {
-        let mut state = self.shared.state();
-        state.reports.retain(|(session, id), _| session != session_id || id == takeover_id);
-        let sender = state.reports.entry((session_id.to_owned(), takeover_id.to_owned())).or_insert_with(|| watch::channel(None).0);
-        sender.send_replace(Some(ready));
-    }
-
     /// Resolves true once the person may act on takeover `takeover_id` of `session_id`, false when it ends first or is never
-    /// seen.
-    pub async fn ready(&self, session_id: &str, takeover_id: &str) -> bool {
-        let key = (session_id.to_owned(), takeover_id.to_owned());
-        let mut reported = self.shared.state().reports.entry(key.clone()).or_insert_with(|| watch::channel(None).0).subscribe();
+    /// seen. The takeover state names no takeover id: the session's current takeover answers for `takeover_id`.
+    pub async fn ready(&self, session_id: &str, _takeover_id: &str) -> bool {
         let deadline = tokio::time::Instant::now() + UNSEEN_READY;
         let mut seen = false;
-        let answer = loop {
+        loop {
             let held = self.shared.held(session_id);
             seen |= held;
+            if held && self.shared.running(session_id) == 0 {
+                return true;
+            }
             if (!held && seen) || (!seen && tokio::time::Instant::now() >= deadline) {
-                break false;
+                return false;
             }
-            match *reported.borrow() {
-                Some(false) => break false,
-                Some(true) if held && self.shared.running(session_id) == 0 => break true,
-                _ => {}
-            }
-            // A report wakes it at once; else the takeover state is read again after a poll.
-            if let Ok(Err(_)) = tokio::time::timeout(POLL, reported.changed()).await {
-                break false;
-            }
-        };
-        self.shared.state().reports.remove(&key);
-        answer
+            tokio::time::sleep(POLL).await;
+        }
     }
 
     /// The commands of `session` running now.
@@ -180,7 +161,7 @@ impl TakeoverPort for CoreTakeover {
     }
 }
 
-/// `takeover/ready` (renderer -> core).
+/// `takeover/ready` (client -> core): answered once the takeover is ready or never will be.
 pub struct TakeoverReadyService {
     takeover: Arc<CoreTakeover>,
 }
@@ -201,9 +182,9 @@ impl DomainService for TakeoverReadyService {
         if request.method.as_str() != TAKEOVER_READY {
             return Err(wrong_method("takeover", request.method.as_str()));
         }
-        let TakeoverReadyParams { session_id, takeover_id, ready } = decode(&request)?;
-        self.takeover.report(&session_id, &takeover_id, ready);
-        Ok(Reply::Value(json!({})))
+        let TakeoverReadyParams { session_id, takeover_id } = decode(&request)?;
+        let ready = self.takeover.ready(&session_id, &takeover_id).await;
+        Ok(Reply::Value(json!(TakeoverReadyResult { ready })))
     }
 
     fn notify(&self, _: Method, _: Value, _: ConnectionId) -> Admit {
@@ -275,7 +256,7 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn ready_waits_for_the_report_and_for_the_commands_to_drain() {
+    async fn ready_waits_for_the_commands_of_the_session_to_drain() {
         let (holds, owner) = owner();
         let running = owner.begin("s1").unwrap();
         holds.take("s1", None);
@@ -283,7 +264,6 @@ mod tests {
             let owner = owner.clone();
             async move { owner.ready("s1", "t1").await }
         });
-        owner.report("s1", "t1", true);
         tokio::time::sleep(Duration::from_secs(1)).await;
         assert!(!waiting.is_finished(), "a command of the session is still draining");
         drop(running);
@@ -291,33 +271,36 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn ready_is_false_when_the_takeover_ends_or_is_never_seen_or_is_reported_never() {
+    async fn ready_is_false_when_the_takeover_ends_or_is_never_seen() {
         let (holds, owner) = owner();
         holds.take("s1", None);
-        let ended = tokio::spawn({
+        assert!(owner.ready("s1", "t1").await, "held and nothing of the session runs: ready at once");
+        let other = owner.begin("s2").unwrap();
+        holds.take("s2", None);
+        let ends = tokio::spawn({
             let owner = owner.clone();
-            async move { owner.ready("s1", "t1").await }
+            async move { owner.ready("s2", "t2").await }
         });
         tokio::time::sleep(Duration::from_millis(200)).await;
-        holds.end("s1");
-        assert!(!ended.await.unwrap());
+        holds.end("s2");
+        assert!(!ends.await.unwrap(), "the takeover ended before its command drained");
+        drop(other);
         // Never held: the answer comes at the end of the unseen wait.
         let started = tokio::time::Instant::now();
-        assert!(!owner.ready("s2", "t2").await);
-        assert!(started.elapsed() >= UNSEEN_READY);
-        holds.take("s3", None);
-        owner.report("s3", "t3", false);
         assert!(!owner.ready("s3", "t3").await);
+        assert!(started.elapsed() >= UNSEEN_READY);
     }
 
     #[tokio::test(start_paused = true)]
-    async fn takeover_ready_records_the_report_and_answers_empty() {
+    async fn takeover_ready_answers_whether_the_person_may_act() {
         let (holds, owner) = owner();
         holds.take("s1", None);
         let service = TakeoverReadyService::new(owner.clone());
-        let answer = value(&service, request(TAKEOVER_READY, json!({ "sessionId": "s1", "takeoverId": "t1", "ready": true }), None)).await.unwrap();
-        assert_eq!(answer, json!({}));
-        assert!(owner.ready("s1", "t1").await, "the report reached the owner");
+        let answer = value(&service, request(TAKEOVER_READY, json!({ "sessionId": "s1", "takeoverId": "t1" }), None)).await.unwrap();
+        assert_eq!(answer, json!({ "ready": true }));
+        holds.end("s1");
+        let answer = value(&service, request(TAKEOVER_READY, json!({ "sessionId": "s1", "takeoverId": "t1" }), None)).await.unwrap();
+        assert_eq!(answer, json!({ "ready": false }), "never seen held within the unseen wait");
         assert!(value(&service, request(TAKEOVER_READY, json!({ "sessionId": "s1" }), None)).await.is_err());
     }
 }

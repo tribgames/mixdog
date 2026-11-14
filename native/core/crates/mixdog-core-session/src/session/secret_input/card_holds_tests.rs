@@ -86,7 +86,7 @@ async fn an_act_is_refused_while_a_browser_approval_is_pending_and_free_after_de
         gated.run(act(), CancellationToken::new()).await.unwrap_err(),
         ComputerError::Failed {
             code: "human_only_approval_pending".into(),
-            message: "Computer Use is blocked while a human-only approval is pending: the browser approval card".into()
+            message: "Computer Use is blocked while a human-only approval is pending".into()
         }
     );
     assert!(lock.begin_computer_operation().is_err(), "a secret fill's host command is refused by the same lock");
