@@ -180,8 +180,9 @@ impl<K: Hash + Eq + Clone + Send + 'static, T: Clone + Send + Sync + 'static> Fl
         let work = work();
         tokio::spawn(async move {
             let result = work.await;
-            sender.send_replace(Some(result));
+            // The key is free again before the result is sent: a caller woken by it starts a new request, never joins this one.
             flights.lock().remove(&key);
+            sender.send_replace(Some(result));
         });
         receiver
     }
