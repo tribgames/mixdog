@@ -455,4 +455,48 @@ mod tests {
         assert!(out.contains("<base-dir>C:/s/d</base-dir>"));
         assert!(out.contains("run mixdog-skill-node in C:/s/d"));
     }
+
+    const BROWSER_USE: &str = include_str!("../../../../../src/defaults/skills/browser-use/SKILL.md");
+    const BROWSER_TOOL: &str = include_str!("../../mixdog-tools/src/desktop/defs/browser.json");
+    const BROWSER_DEVTOOLS_TOOL: &str = include_str!("../../mixdog-tools/src/desktop/defs/browser_devtools.json");
+
+    /// The step that gets the bundled browser-use skill in front of the model before its first browser call: both browser tool
+    /// definitions tell it to load the skill, the skill is offered (named in the prompt manifest with the tools it arms) exactly while the
+    /// browser feature is active, and loading it delivers its body, which the next provider request carries.
+    #[test]
+    fn browser_use_is_offered_while_the_browser_is_active_and_delivers_its_body() {
+        for definition in [BROWSER_TOOL, BROWSER_DEVTOOLS_TOOL] {
+            assert!(definition.contains("Load the browser-use skill before first use"));
+        }
+        let document = parse_document(js_trim(BROWSER_USE)).unwrap();
+        assert_eq!(document.name, "browser-use");
+        let dependencies = crate::skill_deps::normalize_dependencies(&document.frontmatter["dependencies"]["tools"], false).unwrap();
+        let skill = Skill {
+            name: document.name.clone(),
+            description: document.description.clone(),
+            when_to_use: document.when_to_use.clone(),
+            file_path: PathBuf::from("browser-use/SKILL.md"),
+            source: SkillSource::Builtin,
+            plugin: None,
+            requires: required_features(&document.frontmatter),
+            tool_dependencies: SkillToolDependencies {
+                tool_dependencies: dependencies.clone(),
+                declared: dependencies,
+                source: crate::skill_deps::DependencySource::Declaration,
+                issues: Vec::new(),
+            },
+        };
+        assert_eq!(skill.requires, vec!["browser"]);
+        let mut gate = SkillGate::default();
+        assert!(gate.offered(std::slice::from_ref(&skill)).is_empty());
+        assert!(matches!(gate.refusal(&skill), Some(SkillRefusal::MissingFeature { feature, .. }) if feature == "browser"));
+        gate.active_features.insert("browser".to_owned());
+        let offered = gate.offered(std::slice::from_ref(&skill));
+        assert_eq!(offered.len(), 1);
+        let manifest = build_manifest(&offered, MANIFEST_LIMIT, MANIFEST_CHAR_BUDGET);
+        assert!(manifest.contains("- browser-use: ") && manifest.contains("[tools: browser, handoff_user]"), "{manifest}");
+        let envelope = result_envelope(&skill.name, &document.body, Some(Path::new("C:/s/browser-use")));
+        assert!(envelope.starts_with("<skill>\n<name>browser-use</name>\n<base-dir>C:/s/browser-use</base-dir>\n"));
+        assert!(envelope.contains("# Browser Use"));
+    }
 }

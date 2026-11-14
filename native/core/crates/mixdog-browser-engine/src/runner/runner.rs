@@ -1033,7 +1033,9 @@ impl Inner {
     }
 
     async fn execute(self: &Arc<Self>, thread: &ThreadId, turn: u64, prepared: Prepared, ctx: &RunContext, timer: &Arc<CommandTimer>) -> Result<ToolReply, RunError> {
-        match self.execute_resolved(thread, turn, prepared, ctx, timer).await {
+        // Keep the large action-dispatch future out of every enclosing queue/scope future.
+        // The production executor uses a 2 MB stack, as does the browser ceiling regression.
+        match Box::pin(self.execute_resolved(thread, turn, prepared, ctx, timer)).await {
             Err(RunError::Reply(reply)) => Ok(reply),
             other => other,
         }

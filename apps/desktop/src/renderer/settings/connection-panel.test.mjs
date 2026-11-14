@@ -192,7 +192,7 @@ test('the page has no tabs or lede: identity card, two buttons, one device list,
 
   assert.deepEqual(
     [...document.querySelectorAll('.conn-toolbar button')].map((b) => b.textContent),
-    ['Open another PC', 'Connect SSH server', 'Connect a device']
+    ['Open another PC', 'Connect a device']
   );
   const heads = [...document.querySelectorAll('.conn-group-head')];
   assert.deepEqual(
@@ -694,4 +694,22 @@ test('a device whose revoke is pending shows "Removing…" and cannot be revoked
   assert.equal(normal.querySelector('button').disabled, false);
   await click(action);
   assert.deepEqual(calls, []);
+});
+
+test('Connect SSH server belongs to desktop windows: a client without the SSH connect call has none', async (t) => {
+  const { document } = await mount(t, {});
+  assert.equal(buttonNamed(document, 'Connect SSH server'), undefined);
+});
+
+test('a window that can connect SSH servers shows the button and opens the connect dialog', async (t) => {
+  const dom = installTestDom(t, DOM);
+  const made = makeApi({});
+  made.api.sshConnect = () => Promise.resolve({});
+  t.after(() => updateClaimQueue(() => []));
+  await act(async () => dom.root.render(React.createElement(ConnectionPanel, { api: made.api })));
+  await settle();
+  const button = buttonNamed(dom.document, 'Connect SSH server');
+  assert.ok(button);
+  await click(button);
+  assert.ok(dom.document.querySelector('.conn-dialog'));
 });
