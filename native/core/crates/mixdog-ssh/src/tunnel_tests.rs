@@ -275,8 +275,7 @@ async fn the_tunnel_writes_its_starts_readiness_and_exits_into_the_servers_log()
     let ctx = AttemptContext { diagnostics_key: Some("tunnel-log".to_owned()), ..AttemptContext::default() };
     let tunnel = SshTunnel::start_with(env, Some(ctx), spec(Some(port), vec![forward(41001)]), timing());
     state_is(&tunnel, |state| *state == TunnelState::Up).await;
-    spawner.probe(0).finish(255, "client_loop: send disconnect: Connection reset
-").await;
+    spawner.probe(0).finish(255, "client_loop: send disconnect: Connection reset\n").await;
     until(|| spawner.count() == 2).await;
     tunnel.stop().await;
     let lines: Vec<String> = diagnostics
@@ -306,9 +305,7 @@ async fn ready_waits_through_a_restart_for_the_forward_and_reports_a_terminal_fa
     let spawner = Spawner::new(false);
     let tunnel = SshTunnel::start_with(env_of(spawner.clone()), None, spec(Some(port), vec![forward(41001)]), timing());
     until(|| spawner.count() == 1).await;
-    spawner.probe(0).finish(255, "@    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @
-Host key verification failed.
-").await;
+    spawner.probe(0).finish(255, "@    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @\nHost key verification failed.\n").await;
     let failure = tunnel.ready(Duration::from_secs(5)).await.unwrap_err();
     assert_eq!(failure.kind, FailureClass::Terminal);
     assert!(failure.message.contains("REMOTE HOST IDENTIFICATION HAS CHANGED"), "{}", failure.message);

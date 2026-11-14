@@ -675,11 +675,13 @@ mod tests {
     #[tokio::test]
     async fn the_effect_is_judged_against_the_gestures_baseline_while_the_brief_compares_the_last_report() {
         let earlier = RefSet::from_payload("p1-s1", &before());
-        let targeted = RefSet::from_payload("p1-s2", &payload("p1-s2", vec![element("p1-s2-e1", "button", "Save")])).with_document("d1", 6);
+        let targeted = RefSet::from_payload("p1-s2", &payload("p1-s2", vec![element("p1-s2-e1", "button", "Save")]))
+            .with_document("d1", 6)
+            .with_observation(Some(&observed(6, 0, 0)));
         let request = ReplyRequest {
             brief: true,
             brief_against: Some(&earlier),
-            effect: ReplyEffect { settle_action: true, baseline: Some(EffectBaseline::of(&targeted, None)), ..ReplyEffect::default() },
+            effect: ReplyEffect { settle_action: true, baseline: Some(EffectBaseline::of(&targeted)), ..ReplyEffect::default() },
             action: "click",
         };
         let mut f = fixture();
