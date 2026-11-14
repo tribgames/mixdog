@@ -1,0 +1,1 @@
+{"version":1,"hosts":[{"id":"ssh-7f3a","name":"build box","target":"dev@build.example.test:2222","lastConnectedAt":1731000000000,"settings":{"remoteDir":"/srv/work","graceMinutes":45}},{"id":"ssh-c19e","name":"gpu","target":"gpu-alias","lastConnectedAt":null}]}
