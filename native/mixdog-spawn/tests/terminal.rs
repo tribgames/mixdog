@@ -1169,8 +1169,8 @@ async fn terminal_corpus_replays_on_a_real_tab() {
                 rig.tabs.focus(&id, a[1].as_str().unwrap(), a[2].as_bool().unwrap());
                 assert_eq!(rig.tabs.size_owner(&id).map(|o| o.owner), Some("client-a".to_owned()));
             }
-            "termPause" => rig.tabs.pause_output(&id),
-            "termResume" => rig.tabs.resume_output(&id),
+            "termPause" => rig.tabs.pause_output(&id, "client-a"),
+            "termResume" => rig.tabs.resume_output(&id, "client-a"),
             "termAttach" => {
                 let attached = rig.tabs.attach(&id).await.unwrap();
                 let got = json!({ "hasReplay": !attached.replay.is_empty(), "id": "<id>" });
