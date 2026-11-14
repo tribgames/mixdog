@@ -114,6 +114,15 @@ fn guard_args(args: JsonValue) -> Result<JsonValue, String> {
             serde_json::to_string(&a["mode"]).unwrap_or_default()
         ));
     }
+    // A `file` list is anchors of `files`, ahead of the ones `files` names (a `files` that is no list gives way to it).
+    if let Some(JsonValue::Array(file)) = a.get("file") {
+        let files = match a.get("files") {
+            Some(JsonValue::Array(files)) => file.iter().chain(files).cloned().collect(),
+            _ => file.clone(),
+        };
+        a.insert("files".to_owned(), JsonValue::Array(files));
+        a.shift_remove("file");
+    }
     if FILE_MODES.contains(&mode.as_str()) {
         a.shift_remove("symbol");
         a.shift_remove("symbols");
