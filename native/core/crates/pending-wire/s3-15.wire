@@ -1,0 +1,33 @@
+# s3-15 core wire (GNOME Shell extension kept installed while Computer Use is on)
+
+## mixdog-tools: native/core/crates/mixdog-tools/src/desktop/mod.rs
+After `mod computer_gnome;` add:
+    pub mod computer_gnome_extension;
+(`pub`, because the daemon's config handler calls it; if desktop/mod.rs re-exports a facade instead, re-export
+`computer_gnome_extension::{apply_gnome_extension, bundled_dir, GnomeExtensionState}` there.)
+
+## Dependencies
+None: it uses async-trait, serde, serde_json, tokio, tokio-util, tracing and mixdog-core-api, all already [dependencies] of mixdog-tools.
+
+## The one call (compose / config wiring, Linux only, a no-op elsewhere)
+Where the core observes the config value `desktop.computerControl` (at start with its current value, then on every change), spawn:
+    let state = mixdog_tools::desktop::computer_gnome_extension::apply_gnome_extension(
+        process_manager.clone(),
+        enabled,                                   // the boolean value of desktop.computerControl
+        &env,                                      // the session env map (computer_linux::Env), as the diagnose probes get it
+        &bundled_dir(&env, exe_dir)?,              // computer_gnome_extension::bundled_dir(&env, <dir of current_exe>)
+        &cancel,
+    ).await;
+`diagnose` already reports the result: computer_gnome::linux_permissions adds `gnome_extension` {installed, enabled, needsRelogin, error?}.
+
+## Packaging (the packaging task of the wave, not s3-15)
+The extension payload native/gnome-extension/mixdog-windows@mixdog.io must be found by bundled_dir: next to the executable in
+`gnome-extension/mixdog-windows@mixdog.io`, or `resources/gnome-extension/...` beside it (electron-builder.yml already copies it to
+resources/gnome-extension/ for the desktop app); MIXDOG_GNOME_EXTENSION_DIR overrides. The .deb ships it system-wide already.
+
+## SERVICE_PENDING
+Nothing to remove: no protocol method is added.
+
+## Desktop (after wiring, s3-26)
+apps/desktop/src/main/index.ts applyComputerControlSetting: drop the applyGnomeExtensionSetting call and its import;
+delete apps/desktop/src/main/computer/host/gnome-extension.ts and gnome-extension.test.mjs.
