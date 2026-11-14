@@ -1,0 +1,90 @@
+# s1-proto: desktop file grants, core page server owners and origin, standalone project roots.
+# Types live in src/v2/desktop_files.rs (new, owned by this task). PROTO-WIRE adds `pub mod desktop_files;` to
+# src/v2/mod.rs (after `pub mod config;`). The rows name the params by path (`v2::desktop_files::...`), as the
+# v2::feed and v2::op rows do, so methods.rs needs no new `use`.
+
+[methods]
+# Paste after the ProjectFsLocalPageUrl row in src/methods.rs (symbol: ProjectFsLocalPageUrl => "projectFs/localPageUrl").
+    /// Describe local paths for the desktop and mint one-file grants (Node's `describeLocalPaths`, selected-file-access.ts).
+    ProjectFsGrantDescribe => "projectFs/grant/describe" {
+        params: v2::desktop_files::ProjectFsGrantDescribeParams,
+        result: JsonValue,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Check a one-file grant against the path asked for and answer the file's folder and name (Node's `requireGrant`, selected-file-access.ts).
+    ProjectFsGrantRedeem => "projectFs/grant/redeem" {
+        params: v2::desktop_files::ProjectFsGrantRedeemParams,
+        result: JsonValue,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Local],
+    },
+    /// End every page lease a desktop window holds (Node's `revokeLocalPagesForOwner`, local-page-server.ts).
+    ProjectFsLocalPageRevokeOwner => "projectFs/localPage/revokeOwner" {
+        params: v2::desktop_files::ProjectFsLocalPageRevokeOwnerParams,
+        result: JsonValue,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Origin of the core's local page server (Node's `localPageOrigin`, local-page-server.ts).
+    ProjectFsLocalPageOrigin => "projectFs/localPage/origin" {
+        params: v2::desktop_files::ProjectFsLocalPageOriginParams,
+        result: JsonValue,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Local],
+    },
+
+[server_requests]
+# none: host/localPage/url stays until s1-del-proto.
+
+[notifications]
+# none
+
+[inventory]
+# none. The inventory is the frozen 1.4.5 list (tests/fixtures/parity-inventory.json; ds_all_1_every_inventory_name_is_mapped_once
+# pins 166/61/190/303 and fails on a name outside the fixture), so the new desktop operation names (grantDescribe, grantRedeem,
+# standaloneRoot, localPageUrlIn, localPageRevokeOwner, localPageOrigin, the *In entry operations, trashProjectEntryIn) get no row.
+
+[free_text]
+# none for FREE_TEXT: every new string field is refused, never free text. Add to tests/it/free_text_fields.json `classes`
+# (each line is a field entry of the named existing class):
+#   class "a path, or a file, command or record name compared with what is on disk ..." (the one holding "request projectFs/localPageUrl /root"):
+#     request projectFs/grant/describe /paths/*
+#     request projectFs/grant/redeem /projectPath
+#     request projectFs/grant/redeem /relPath
+#   class "a secret, token or credential name ..." (the one holding "request projectFs/localPageUrl /accessToken"):
+#     request projectFs/grant/redeem /accessToken
+#   class "an id, cursor, revision or digest ...":
+#     request projectFs/grant/describe /sessionId
+#     request projectFs/localPage/revokeOwner /ownerId
+#     request projectFs/localPageUrl /ownerId
+
+[type_edits]
+# file: src/v2/params.rs, struct ProjectFsLocalPageUrlParams: add after `access_token`:
+    /// The desktop window that asked: its leases end when it closes (`projectFs/localPage/revokeOwner`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_id: Option<String>,
+# file: src/v2/params.rs, struct ProjectDirectoryParams: add after `owner`:
+    /// Answer `path` itself as the root of a standalone folder (a folder opened without registering a Project).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(optional))]
+    pub standalone: Option<bool>,
+# Both structs may be built by field outside this crate: PROTO-WIRE greps `ProjectDirectoryParams {` and
+# `ProjectFsLocalPageUrlParams {` and adds `standalone: None` / `owner_id: None` to each literal.
+
+[remove]
+# none
+
+[window]
+projectFs/grant/describe allow the renderer described and minted through main IPC describeLocalPaths today
+projectFs/grant/redeem allow the renderer's page and file IPCs redeem a grant through main today
+projectFs/localPage/origin allow the renderer's CSP and preview read the page origin through main today
+projectFs/localPage/revokeOwner deny internal: main revokes when a window closes
