@@ -137,11 +137,12 @@ fn validate_structured(value: &Value, state: &mut StructuredState, depth: usize,
             if fields.len() > MAX_STRUCTURED_ENTRIES {
                 return Err(invalid(path, "structured input contains too many fields."));
             }
-            for (key, entry) in fields {
+            // `Object.entries`: integer keys first, so the first refusal is the one JavaScript reports.
+            for key in mixdog_js::js_object_keys(fields) {
                 if matches!(key.as_str(), "__proto__" | "prototype" | "constructor") {
                     return Err(invalid(path, "structured input contains an invalid field."));
                 }
-                validate_structured(entry, state, depth + 1, path)?;
+                validate_structured(&fields[key], state, depth + 1, path)?;
             }
             Ok(())
         }

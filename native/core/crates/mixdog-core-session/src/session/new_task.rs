@@ -18,6 +18,7 @@ use std::sync::Mutex;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::Reply;
 use mixdog_core_api::call::CoreRequest;
+use mixdog_app_protocol::boundary::validate::normalize;
 use mixdog_app_protocol::v2::thread::ThreadStartParams;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_base::support::failed;
@@ -537,8 +538,10 @@ pub fn starts_new_task(params: &Value) -> bool {
 
 /// The id of a new-task request and the content it is signed over (`submitNewTask`): `id` is the client's submission id, else a
 /// random one; the input is `{ prompt, options: { ...options, id, submittedAt: undefined }, draft }` with a worktree choice signed as
-/// `{}` (acknowledging a large repository resends the same submission).
-pub fn signed_request(params: &Value) -> (String, Value) {
+/// `{}` (acknowledging a large repository resends the same submission). `params` is the request as it arrived, `started` the
+/// same request after [`normalised`]: the host signed the prompt and the draft that `requiredPromptContent` and
+/// `requiredNewTaskDraft` returned (trimmed, cut, cleaned), and the options as the client sent them.
+pub fn signed_request(params: &Value, started: &ThreadStartParams) -> (String, Value) {
     let input = params.get("initialInput");
     let mut options = input.and_then(|input| input.get("options")).and_then(Value::as_object).cloned().unwrap_or_default();
     let supplied = options.shift_remove("clientSubmissionId");
@@ -550,14 +553,26 @@ pub fn signed_request(params: &Value) -> (String, Value) {
         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     options.insert("id".into(), Value::String(id.clone()));
     options.shift_remove("submittedAt");
-    let mut draft = params.get("draft").cloned().unwrap_or_else(|| Value::Object(Default::default()));
+    let mut draft = started.draft.as_ref().and_then(|draft| serde_json::to_value(draft).ok()).unwrap_or_else(|| Value::Object(Default::default()));
     if let Some(draft) = draft.as_object_mut()
         && draft.get("worktree").is_some_and(truthy)
     {
         draft.insert("worktree".into(), Value::Object(Default::default()));
     }
-    let prompt = input.and_then(|input| input.get("prompt")).cloned().unwrap_or(Value::Null);
+    let prompt = started.initial_input.as_ref().and_then(|input| serde_json::to_value(&input.prompt).ok()).unwrap_or(Value::Null);
     (id, serde_json::json!({ "prompt": prompt, "options": options, "draft": draft }))
+}
+
+/// `params` as the host's validators handed them on (`requiredPromptContent`, `requiredNewTaskDraft`): the first prompt and the
+/// draft normalised ([`normalize`]), which everything of the new task reads, its signature included.
+pub fn normalised(mut params: ThreadStartParams) -> ThreadStartParams {
+    if let Some(input) = &mut params.initial_input {
+        normalize::turn_input(input);
+    }
+    if let Some(draft) = &mut params.draft {
+        normalize::new_task_draft(draft);
+    }
+    params
 }
 
 /// JavaScript truthiness of a JSON value.
@@ -574,7 +589,8 @@ fn truthy(value: &Value) -> bool {
 impl SessionDirectory {
     /// `submitNewTask` at `thread/start`: the request runs once for its submission id (see [`NewTaskReceipts::run`]).
     pub(super) async fn start_new_task(&self, req: CoreRequest, params: ThreadStartParams) -> Result<Reply, CoreError> {
-        let (submission, input) = signed_request(&req.params);
+        let params = normalised(params);
+        let (submission, input) = signed_request(&req.params, &params);
         let ctx = req.ctx.clone();
         // The attempt runs without its caller (Node's promise does): a connection that ends while it runs, which loses the reply,
         // must not cancel it, or a retry that joins it would get the cancellation instead of the task.
@@ -720,5 +736,55 @@ impl SessionDirectory {
             tracing::warn!("project recency update failed (non-fatal): {error}");
         }
         Ok(Started { thread: id.clone(), summary, turn })
+    }
+}
+
+#[cfg(test)]
+mod normalised_request {
+    use serde_json::json;
+
+    use super::*;
+
+    fn start(draft: Value, prompt: Value) -> (Value, ThreadStartParams) {
+        let raw = json!({
+            "opId": "0190f3c2-7a31-7c00-8000-000000000901",
+            "kind": "task",
+            "draft": draft,
+            "initialInput": { "prompt": prompt, "options": { "clientSubmissionId": " sub-1 " } },
+        });
+        let params: ThreadStartParams = serde_json::from_value(raw.clone()).expect("thread/start params");
+        (raw, params)
+    }
+
+    #[test]
+    fn the_draft_workflow_and_worktree_branch_are_trimmed() {
+        let (_, params) = start(
+            json!({ "workflowId": "  review\u{a0}", "worktree": { "branch": " \tfeature/x \n", "create": true, "confirmLarge": false } }),
+            json!("hi"),
+        );
+        let draft = normalised(params).draft.expect("the draft");
+        assert_eq!(draft.workflow_id.as_deref(), Some("review"));
+        assert_eq!(draft.worktree, Some(json!({ "branch": "feature/x", "create": true })));
+    }
+
+    #[test]
+    fn the_signature_is_over_the_normalised_prompt_and_draft() {
+        let prompt = json!([{ "type": "file", "mimeType": "Application/PDF", "data": "AAAA", "filename": "n".repeat(170) }]);
+        let (raw, params) = start(json!({ "workflowId": " w ", "projectPath": " /p " }), prompt);
+        let (id, signed) = signed_request(&raw, &normalised(params));
+        assert_eq!(id, "sub-1");
+        assert_eq!(signed["draft"], json!({ "projectPath": "/p", "workflowId": "w" }));
+        assert_eq!(
+            signed["prompt"],
+            json!([{ "type": "file", "mimeType": "application/pdf", "data": "AAAA", "filename": "n".repeat(160) }])
+        );
+        assert_eq!(signed["options"], json!({ "id": "sub-1" }));
+    }
+
+    #[test]
+    fn a_worktree_choice_is_signed_as_an_empty_object() {
+        let (raw, params) = start(json!({ "worktree": { "branch": " b " } }), json!("hi"));
+        let (_, signed) = signed_request(&raw, &normalised(params));
+        assert_eq!(signed["draft"], json!({ "worktree": {} }));
     }
 }
