@@ -33,6 +33,7 @@ windows-sys = { workspace = true, features = [
     "Win32_Foundation",
     "Win32_Security",
     "Win32_System_JobObjects",
+    "Win32_System_Threading",
 ] }
 
 [dev-dependencies]
@@ -74,3 +75,14 @@ mixdog-core-base = { workspace = true, features = ["test-support"] }
 [features]
 # Observation hooks for the G8 driver (the core reader's outstanding-window counts).
 test-support = []
+
+# Scripted stand-ins the pool's tests start instead of a JavaScript runtime and a browser.
+[[bin]]
+name = "ext_fake_worker"
+path = "src/bin/ext_fake_worker.rs"
+required-features = ["test-support"]
+
+[[bin]]
+name = "ext_fake_browser"
+path = "src/bin/ext_fake_browser.rs"
+required-features = ["test-support"]

@@ -1,0 +1,9 @@
+# nr-exthost-pool-fakes: nothing in a hot file is needed.
+# The two binaries (ext_fake_worker, ext_fake_browser) are declared as [[bin]] with required-features = ["test-support"]
+# in native/core/crates/mixdog-exthost/Cargo.toml, which this task owns; no dependency edge, no workspace member and no
+# Cargo.lock line changes (windows-sys "Win32_System_Threading" is already in mixdog-workspace-hack).
+# Unit tests of src/pool.rs and src/browser.rs find the binaries beside their own test binary (Cargo names them to
+# integration tests only), so run them with `cargo nextest run -p mixdog-exthost --features test-support` (all targets
+# built together), not `cargo test --lib` alone.
+# nr-exthost-retire-node-methods deletes src/ext-host/test/{fake-worker,g8-worker,fake-browser}.mjs and
+# tests/fixtures/browser/*.mjs once a grep shows nothing references them (nothing in mixdog-exthost does any more).

@@ -1,4 +1,4 @@
-//! Pool behaviour against scripted Node workers (`src/ext-host/test/fake-worker.mjs`).
+//! Pool behaviour against scripted workers and browsers (`src/bin/ext_fake_worker.rs`, `src/bin/ext_fake_browser.rs`).
 //! Waits are on facts (a frame, a status change); the only timeouts are test watchdogs.
 
 #![allow(
@@ -40,23 +40,23 @@ fn host_dir() -> PathBuf {
     root.join("src").join("ext-host").join("test")
 }
 
-/// The browsers that never publish an endpoint, kept with this crate's tests.
-fn browser_fixtures() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/browser")
+/// The fake browser started in `mode` (`endpoint`, `silent` or `stderr-closed`), the last two recording their pid in `pid_file`.
+fn fake_browser(mode: &str, pid_file: Option<&Path>) -> (PathBuf, Vec<std::ffi::OsString>) {
+    let mut args = vec![mode.into()];
+    args.extend(pid_file.map(|file| file.as_os_str().to_owned()));
+    (env!("CARGO_BIN_EXE_ext_fake_browser").into(), args)
 }
 
 fn config(workers: usize, extra: &[&str]) -> ExtHostConfig {
-    let mut args = vec![host_dir().join("fake-worker.mjs").into_os_string()];
-    args.extend(extra.iter().map(Into::into));
     ExtHostConfig {
-        program: "node".into(),
-        args,
+        program: env!("CARGO_BIN_EXE_ext_fake_worker").into(),
+        args: extra.iter().map(Into::into).collect(),
         electron: false,
         workers,
         pending_cap: 64,
         spawn_io: mixdog_rt::testing::tokens().spawn_io,
         render_browser: RenderBrowserConfig {
-            command: Some(("node".into(), vec![host_dir().join("fake-browser.mjs").into_os_string()])),
+            command: Some(fake_browser("endpoint", None)),
             profile_root: std::env::temp_dir().join("mixdog-exthost-tests"),
             no_sandbox: false,
         },
@@ -249,15 +249,42 @@ async fn a_crash_ends_only_its_own_call() {
     drop(other);
 }
 
-/// Whether `pid` is a live process, asked of Node (`process.kill(pid, 0)`) so it reads the same on
-/// every platform.
+/// Whether `pid` is a live process.
 async fn alive(pid: u32) -> bool {
-    tokio::process::Command::new("node")
-        .args(["-e", &format!("try {{ process.kill({pid}, 0) }} catch (e) {{ process.exit(e.code === 'EPERM' ? 0 : 1) }}")])
-        .status()
-        .await
-        .unwrap()
-        .success()
+    process_exists(pid)
+}
+
+#[cfg(unix)]
+fn process_exists(pid: u32) -> bool {
+    // SAFETY: signal 0 only asks whether the process exists.
+    let found = unsafe { libc::kill(pid as libc::pid_t, 0) } == 0;
+    // A process of another user exists too.
+    found || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+}
+
+#[cfg(windows)]
+fn process_exists(pid: u32) -> bool {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::Threading::GetExitCodeProcess;
+    use windows_sys::Win32::System::Threading::OpenProcess;
+    use windows_sys::Win32::System::Threading::PROCESS_QUERY_LIMITED_INFORMATION;
+
+    /// The exit code of a process that has not exited.
+    const STILL_ACTIVE: u32 = 259;
+    const ACCESS_DENIED: i32 = 5;
+
+    // SAFETY: plain Win32 calls on a handle opened here and closed before returning.
+    unsafe {
+        let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if process.is_null() {
+            // A process this one may not open exists too.
+            return std::io::Error::last_os_error().raw_os_error() == Some(ACCESS_DENIED);
+        }
+        let mut code = 0;
+        let queried = GetExitCodeProcess(process, &mut code);
+        CloseHandle(process);
+        queried == 0 || code == STILL_ACTIVE
+    }
 }
 
 /// Reads the helper pid a scripted worker recorded, and waits for that process to be gone: the
@@ -424,13 +451,7 @@ async fn close_with_busy_workers_leaves_no_process_behind() {
 async fn close_ends_a_browser_that_never_publishes_its_endpoint() {
     let pid_file = pid_file("silent-browser");
     let mut config = config(1, &[]);
-    config.render_browser.command = Some((
-        "node".into(),
-        vec![
-            browser_fixtures().join("silent-browser.mjs").into_os_string(),
-            pid_file.clone().into_os_string(),
-        ],
-    ));
+    config.render_browser.command = Some(fake_browser("silent", Some(&pid_file)));
     let pool = ExtHostPool::new(config).unwrap();
     // The worker asks for the browser and waits; the browser lives but never answers.
     let mut waiting = pool.call(call("a", "browser", json!(null))).unwrap();
@@ -452,13 +473,7 @@ async fn close_racing_a_failed_endpoint_channel_still_waits_for_the_browser() {
     for round in 0..5 {
         let pid_file = pid_file(&format!("stderr-closed-{round}"));
         let mut config = config(1, &[]);
-        config.render_browser.command = Some((
-            "node".into(),
-            vec![
-                browser_fixtures().join("stderr-closed-browser.mjs").into_os_string(),
-                pid_file.clone().into_os_string(),
-            ],
-        ));
+        config.render_browser.command = Some(fake_browser("stderr-closed", Some(&pid_file)));
         let pool = ExtHostPool::new(config).unwrap();
         let _waiting = pool.call(call("a", "browser", json!(null))).unwrap();
         let browser = helper_pid(&pid_file).await;
@@ -521,6 +536,7 @@ async fn document_text_equals_nodes_recorded_extraction_for_every_format_error_a
         serde_json::from_slice(&std::fs::read(fixtures.join(name)).unwrap()).unwrap()
     };
     let mut real = config(1, &[]);
+    real.program = "node".into();
     real.args = vec![host_dir().parent().unwrap().join("worker.mjs").into_os_string()];
     let pool = std::sync::Arc::new(ExtHostPool::new(real).unwrap());
     let media = ExtDocumentText::new(pool.clone());
@@ -648,6 +664,7 @@ async fn image_codec_equals_nodes_sharp_for_png_jpeg_and_webp() {
 
     let hex = |bytes: &[u8]| format!("{:x}", sha2::Sha256::digest(bytes));
     let mut real = config(1, &[]);
+    real.program = "node".into();
     real.args = vec![host_dir().parent().unwrap().join("worker.mjs").into_os_string()];
     let pool = std::sync::Arc::new(ExtHostPool::new(real).unwrap());
     let codec = ExtImageCodec::new(pool.clone());
@@ -743,6 +760,7 @@ async fn image_codec_equals_nodes_sharp_for_png_jpeg_and_webp() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn syntax_check_asks_a_real_worker_whether_v8_compiles_the_source() {
     let mut real = config(1, &[]);
+    real.program = "node".into();
     real.args = vec![host_dir().parent().unwrap().join("worker.mjs").into_os_string()];
     let pool = ExtHostPool::new(real).unwrap();
     let thread = || ThreadId::from("t");
