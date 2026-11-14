@@ -255,7 +255,13 @@ pub struct SessionTurns {
     /// The registry whose cancellations a turn is admitted against (`registry.assertAdmission`,
     /// `agent-turns.mjs:96,108,116`); a turn with none is not checked.
     admission: Option<Arc<AgentRegistry>>,
+    /// The sessions' MCP scopes: a spawned agent's first turn waits for its scope's servers still connecting.
+    mcp: Option<Arc<dyn mixdog_mcp::mcp_glue::McpScopes>>,
 }
+
+/// How long a spawned agent's first turn waits for the MCP servers still connecting
+/// (`MIXDOG_MCP_AGENT_GRACE_MS`, 3 s).
+const AGENT_MCP_GRACE: std::time::Duration = std::time::Duration::from_secs(3);
 
 /// `assistantMessageText(content)`: a string, else the `text`/`output_text` parts joined by a
 /// line break.
@@ -309,7 +315,7 @@ fn provider_replay_text(replay: Option<&Value>) -> String {
 
 impl SessionTurns {
     pub fn new(directory: Arc<SessionDirectory>, release: Arc<dyn RuntimeRelease>) -> Self {
-        Self { directory, release, shells: None, admission: None }
+        Self { directory, release, shells: None, admission: None, mcp: None }
     }
 
     /// Admits each turn against the agent registry's cancellations: a turn on a session being
@@ -318,6 +324,26 @@ impl SessionTurns {
     pub fn with_admission(mut self, registry: Arc<AgentRegistry>) -> Self {
         self.admission = Some(registry);
         self
+    }
+
+    /// The MCP scopes a spawned agent's first turn waits on for connecting servers (`awaitMcpGrace`, agent grace).
+    pub fn with_mcp(mut self, scopes: Arc<dyn mixdog_mcp::mcp_glue::McpScopes>) -> Self {
+        self.mcp = Some(scopes);
+        self
+    }
+
+    /// `awaitMcpGrace({ untilConnected })`: a spawned agent's first turn starts with the tools of the servers that
+    /// connect within the agent grace; never fails.
+    async fn await_first_connect(&self, handle: &crate::session::handle::SessionHandle, kind: mixdog_agent::agent_tool::flow::seams::TurnKind) {
+        let Some(scopes) = &self.mcp else { return };
+        if kind != mixdog_agent::agent_tool::flow::seams::TurnKind::Spawn {
+            return;
+        }
+        let header = handle.live_header().header();
+        let scope = header.get("mcpScopeId").and_then(Value::as_str).map(mixdog_js::js_trim).filter(|scope| !scope.is_empty());
+        if let Some(scope) = scope {
+            scopes.await_initial_within(scope, AGENT_MCP_GRACE).await;
+        }
     }
 
     /// `registry.assertAdmission(sessionId, epoch)`.
@@ -440,6 +466,7 @@ impl SessionTurns {
             .open_handle(&thread, &ctx)
             .await
             .map_err(|error| TurnError::new(format!("agent session {} is unavailable: {error:?}", request.session_id)))?;
+        self.await_first_connect(&handle, request.kind).await;
         // After `entryForSession` (`:108`), and again before the turn is submitted (`:116`, after
         // the transcript length is read).
         self.admitted(thread.as_str(), epoch)?;

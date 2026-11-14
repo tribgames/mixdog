@@ -30,6 +30,7 @@ pub const MAX_REVIEWS: usize = 200;
 /// Mixy's last delivered heartbeat message is cut to this.
 pub const REPORT_LIMIT: usize = 1000;
 const SUGGESTION_LIMIT: usize = 300;
+const SUGGESTION_KEY_LIMIT: usize = 160;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Suggestion {
@@ -306,6 +307,24 @@ fn commit_check(state: &mut HeartbeatState, commit: &Commit) {
     state.prune_reviews(at);
 }
 
+/// The key a `recordSuggestion` stores: trimmed and lowercased, `action:target` shaped
+/// (`/^[a-z][a-z0-9-]*:\S.*$/u`), at most 160 UTF-16 units and on one line; so two spellings of
+/// one proposal are one, and declining either blocks both.
+pub fn suggestion_key(key: &str) -> Result<String, String> {
+    let key = mixdog_js::js_trim(key).to_lowercase();
+    let shaped = key.split_once(':').is_some_and(|(action, target)| {
+        let mut chars = action.chars();
+        chars.next().is_some_and(|c| c.is_ascii_lowercase())
+            && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+            && target.chars().next().is_some_and(|c| !mixdog_js::is_js_space(c))
+    });
+    // `.` matches no line terminator: the key is one line.
+    if !shaped || key.encode_utf16().count() > SUGGESTION_KEY_LIMIT || key.contains(['\r', '\n', '\u{2028}', '\u{2029}']) {
+        return Err("session: suggest needs key as action:target, e.g. pause-routine:daily-news".to_owned());
+    }
+    Ok(key)
+}
+
 /// The proposal text a `recordSuggestion` stores: one quoted line.
 pub fn suggestion_line(text: &str) -> String {
     quoted_text(text, SUGGESTION_LIMIT)
@@ -429,5 +448,33 @@ impl HeartbeatStore {
             inner.dirty || !inner.pending.is_empty()
         };
         if unsettled { self.update(Change::Settle).await.map(drop) } else { Ok(()) }
+    }
+}
+
+#[cfg(test)]
+mod suggestion_tests {
+    use super::*;
+
+    #[test]
+    fn key_is_trimmed_lowercased_and_shaped() {
+        assert_eq!(suggestion_key("  Pause-Routine:Daily-News ").unwrap(), "pause-routine:daily-news");
+        for bad in ["", "pause", "1a:x", "a:", "a: x", "a:\u{feff}x", "a b:x", ":x", "a:x\ny", "a:x\u{2028}y"] {
+            assert!(suggestion_key(bad).is_err(), "{bad:?}");
+        }
+        assert!(suggestion_key(&format!("a:{}", "x".repeat(158))).is_ok());
+        assert!(suggestion_key(&format!("a:{}", "x".repeat(159))).is_err());
+    }
+
+    #[test]
+    fn two_spellings_are_one_proposal_and_a_dismissal_blocks_both() {
+        let mut state = HeartbeatState::default();
+        let a = suggestion_key("Pause-Routine:X ").unwrap();
+        let b = suggestion_key("pause-routine:x").unwrap();
+        suggest(&mut state, &a, "one", false, 1);
+        suggest(&mut state, &b, "two", false, 2);
+        assert_eq!(state.pending.len(), 1);
+        suggest(&mut state, &a, "", true, 3);
+        let receipt = suggest(&mut state, &b, "three", false, 4);
+        assert_eq!(receipt["recorded"], json!(false));
     }
 }

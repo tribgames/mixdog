@@ -719,6 +719,22 @@ async fn the_wait_for_a_held_first_connect_ends_when_it_settles_or_on_the_startu
 /// How long a paused-clock test waits for a step that needs no time; past it the step is named as missing.
 const BARRIER: std::time::Duration = std::time::Duration::from_secs(60);
 
+/// `awaitInitialConnect(maxWaitMs)` with the agent grace: a spawned agent's first turn waits for a held first connect for the grace
+/// (3 s) and not for the whole startup budget.
+#[tokio::test(flavor = "current_thread", start_paused = true)]
+async fn the_wait_for_a_held_first_connect_ends_at_the_cap_before_the_startup_budget() {
+    let Rig { runtime, configs, .. } = rig();
+    configs.set(&[]);
+    let (entered, go) = configs.arm();
+    runtime.start("s-capped", "t1", "/w").unwrap();
+    tokio::time::timeout(BARRIER, entered).await.expect("the first connect to reach its gate").unwrap();
+    let started = tokio::time::Instant::now();
+    let grace = std::time::Duration::from_secs(3);
+    tokio::time::timeout(BARRIER, runtime.await_initial_within("s-capped", grace)).await.expect("the wait to return");
+    assert_eq!(started.elapsed(), grace, "the cap ended the wait, not the 30 s budget");
+    go.send(()).unwrap();
+}
+
 /// A server whose startup budget is disabled may never settle its connect, so the wait is not made at all
 /// (`budgets.includes(0) ? 0`): it returns while the first connect is still held.
 #[tokio::test(flavor = "current_thread", start_paused = true)]
