@@ -71,8 +71,9 @@ extraResources:
   # Product-native executables stay canonical GitHub release assets. Desktop
   # preparation downloads, verifies, and embeds only this platform's set,
   # plus the in-repo helpers built from source: the Computer Use helper
-  # (mixdog-computer, .exe on Windows) on every platform, and on Windows the
-  # browser importer, the secure-desktop helper and the window library.
+  # (mixdog-computer, .exe on Windows) and the main-process Node-API module
+  # (mixdog_main_native.node) on every platform, and on Windows the browser
+  # importer, the secure-desktop helper and the window library.
   - from: .runtime/native-tools
     to: native-tools
   # License obligations travel with the installed app: MIT requires its
@@ -91,9 +92,10 @@ win:
   verifyUpdateCodeSignature: false
   # Only .exe files are signed by default, which covers every native-tools
   # executable (mixdog-computer.exe included); the main process also loads
-  # this in-repo library (native-tools). Matched by file-name suffix.
+  # these in-repo libraries (native-tools). Matched by file-name suffix.
   signExts:
     - mixdog_window.node
+    - mixdog_main_native.node
   target:
     - nsis
 nsis:

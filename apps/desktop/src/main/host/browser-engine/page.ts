@@ -30,7 +30,7 @@ import type { createBrowserDocuments } from '../../browser/documents';
 import { type BrowserGuestStateStore, pushBounded } from '../../browser/guest-state';
 import { redactBrowserText } from '../../browser/redaction';
 import { pause } from '../../browser/settle';
-import { type BrowserMailLink, MAIL_LINK_WINDOW_MS } from '../../browser/url-policy';
+import { type BrowserMailLink, mailLinkWindowMs } from '../../browser/url-policy';
 import { HOST_INVALID_PARAMS, type HostConnection, HostRpcError } from '../connection';
 import type { EngineContext } from './context';
 import { ENGINE_ERROR } from './errors';
@@ -142,7 +142,7 @@ function policyMailLink(link: unknown): BrowserMailLink | undefined {
   } catch {
     return undefined;
   }
-  return { url, from_domain: hostname, read_at: expiresAt - MAIL_LINK_WINDOW_MS };
+  return { url, from_domain: hostname, read_at: expiresAt - mailLinkWindowMs() };
 }
 
 /** The policy's verdict on `raw`: the normalised url, or the -32015 refusal that carries the reason. */

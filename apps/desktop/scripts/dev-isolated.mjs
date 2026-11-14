@@ -38,6 +38,7 @@ const ONBOARDING_VERSION = 1;
 
 import {
   assertDebugPortAvailable,
+  buildMainNativeModule,
   buildWindowLibrary,
   createPersistentDevEnv,
   DEV_DEBUG_PORT,
@@ -776,6 +777,7 @@ export async function startInstance({
     // never launch against a binary older than its sources.
     await refreshStaleLocalBinaries();
     await buildWindowLibrary();
+    await buildMainNativeModule();
     // Electron 42+ has no install script; electron-vite only reads path.txt, so
     // download the binary on first use and hand it over.
     env.ELECTRON_EXEC_PATH = electronBinary();

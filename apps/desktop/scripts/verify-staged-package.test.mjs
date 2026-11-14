@@ -14,6 +14,16 @@ import { DEFAULT_DELETION_LIST, parseDeletionList, verifyStagedResources } from 
 const SERVERS = [['linux', 'x64'], ['linux', 'arm64'], ['darwin', 'x64'], ['darwin', 'arm64']];
 const sha256Of = (file) => createHash('sha256').update(readFileSync(file)).digest('hex');
 
+/** The header of a 64-bit little-endian ELF image for `machine` (0x3e x64, 0xb7 arm64): what the architecture check reads. */
+function elfImage(machine) {
+  const image = Buffer.alloc(64);
+  image.writeUInt32BE(0x7f454c46, 0);
+  image[4] = 2;
+  image[5] = 1;
+  image.writeUInt16LE(machine, 18);
+  return image;
+}
+
 /** A complete linux-x64 desktop package: core/, the unpacked root, and a complete bundle for each server
  *  platform (a real payload of core-layout's remote layout). */
 function resources() {
@@ -21,6 +31,7 @@ function resources() {
   const { root, top } = desktop;
   put(join(root, 'core', 'mixdogd'));
   put(join(root, 'core', 'mixdog-askpass'));
+  put(join(root, 'native-tools', 'mixdog_main_native.node'), elfImage(0x3e));
   const tree = { ...desktop, bundleDirs: {}, binaries: {} };
   tree.pack = (key) => {
     const bundle = join(root, 'server-cores', key, 'bundle.tgz');
@@ -63,6 +74,16 @@ test('resources missing what the core needs are refused', () => {
   const noLibrary = resources();
   rmSync(join(noLibrary.modules, 'onnxruntime-node', ortBinaryDir('linux', 'x64'), 'libonnxruntime.so.1'));
   assert.throws(() => verify(noLibrary), /ONNX Runtime library .* does not exist/);
+});
+
+test('a package without the main-process native module, or with one built for another architecture, is refused', () => {
+  const absent = resources();
+  rmSync(join(absent.root, 'native-tools', 'mixdog_main_native.node'));
+  assert.throws(() => verify(absent), /the main-process native module .*mixdog_main_native\.node is not in the package/);
+
+  const foreign = resources();
+  writeFileSync(join(foreign.root, 'native-tools', 'mixdog_main_native.node'), elfImage(0xb7));
+  assert.throws(() => verify(foreign), /the main-process native module .* does not run on linux-x64/);
 });
 
 test('a manifest that does not list exactly the server platforms is refused', () => {
