@@ -1,4 +1,3 @@
-import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import type { BrowserWindow } from 'electron';
 
@@ -6,8 +5,12 @@ const WM_NCACTIVATE = 0x0086;
 const WM_THEMECHANGED = 0x031a;
 const WM_DWMCOLORIZATIONCOLORCHANGED = 0x0320;
 
-/** Built from native/mixdog-window; packaged in resources/native-tools. */
-export const MICA_LIBRARY_FILE = 'mixdog_window.dll';
+/** The Node-API module built from native/mixdog-window; packaged in
+ *  resources/native-tools. */
+export const MICA_LIBRARY_FILE = 'mixdog_window.node';
+/** What cargo names the same library in native/mixdog-window/target (the
+ *  packaged copy is renamed by build.ps1); a dev build loads it from there. */
+export const MICA_BUILD_FILE = 'mixdog_window.dll';
 
 type MicaWindow = Pick<
   BrowserWindow,
@@ -33,7 +36,7 @@ export function micaLibraryPath(environment: { isPackaged: boolean; resourcesPat
     : join(
         process.env.CARGO_TARGET_DIR ?? join(environment.appPath, '..', '..', 'native', 'mixdog-window', 'target'),
         'release',
-        MICA_LIBRARY_FILE
+        MICA_BUILD_FILE
       );
 }
 
@@ -41,37 +44,48 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** The native bindings. The library's functions are plain calls: nothing in
- *  it calls back into JavaScript. A library that fails to load leaves
- *  keepActive false and is reported. */
-export function nativeMica(library: string, report: MicaReport): MicaNative {
-  // Only the Windows 11 Mica path loads the native module.
-  const koffi: typeof import('koffi') = createRequire(import.meta.url)('koffi');
-  const defWindowProc = koffi
-    .load('user32.dll')
-    .func('intptr_t __stdcall DefWindowProcW(uintptr_t hwnd, uint32_t message, uintptr_t wParam, intptr_t lParam)');
-  let install: ((hwnd: bigint) => boolean) | undefined;
-  let uninstall: ((hwnd: bigint) => boolean) | undefined;
+interface MicaModule {
+  install(hwnd: bigint): boolean;
+  uninstall(hwnd: bigint): boolean;
+  activate(hwnd: bigint): void;
+}
+
+/** Loads a Node-API module from any file name (the dev build keeps cargo's
+ *  .dll name). */
+function loadModule(library: string): MicaModule {
+  const module = { exports: {} as MicaModule };
+  process.dlopen(module as NodeJS.Module, library);
+  return module.exports;
+}
+
+/** The native bindings: the Node-API module's three functions, nothing else.
+ *  The library's functions are plain calls: nothing in it calls back into
+ *  JavaScript. A module that fails to load (a stale dev build) leaves
+ *  keepActive false and activate a no-op, and is reported as
+ *  mica-native-unavailable. */
+export function nativeMica(
+  library: string,
+  report: MicaReport,
+  load: (library: string) => MicaModule = loadModule
+): MicaNative {
+  let native: MicaModule | undefined;
   try {
-    const window = koffi.load(library);
-    install = window.func('bool __stdcall install(uintptr_t hwnd)');
-    uninstall = window.func('bool __stdcall uninstall(uintptr_t hwnd)');
+    native = load(library);
   } catch (error) {
-    report('mica-native-load-failed', { library, message: errorMessage(error) });
+    report('mica-native-unavailable', { library, message: errorMessage(error) });
   }
   return {
     activate(handle) {
-      // -1 prevents the native caption from being painted over our custom bar.
-      defWindowProc(handle, WM_NCACTIVATE, 1, -1);
+      native?.activate(handle);
     },
     keepActive(handle) {
-      if (!install) return false;
-      if (install(handle)) return true;
+      if (!native) return false;
+      if (native.install(handle)) return true;
       report('mica-native-install-failed', { library });
       return false;
     },
     release(handle) {
-      uninstall?.(handle);
+      native?.uninstall(handle);
     },
   };
 }
@@ -79,7 +93,7 @@ export function nativeMica(library: string, report: MicaReport): MicaNative {
 /** Keep a Mica window's backdrop visually active without changing input focus.
  *  The caller limits this to supported Windows Mica windows.
  *  The window's messages never pass through a JavaScript window procedure:
- *  forwarding one is a koffi call, which runs on koffi's own stack, and the
+ *  forwarding one is a foreign call, which runs on the callback stack, and the
  *  title-bar move and resize loops run Chromium's tasks inside it, where a V8
  *  garbage collection aborts the whole app (issue #325). The native library's
  *  window procedure keeps deactivations from painting at all; without it each

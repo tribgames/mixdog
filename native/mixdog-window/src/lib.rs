@@ -16,13 +16,17 @@
 //! The window procedure is native on purpose: a window procedure that calls
 //! into JavaScript runs Windows' modal move and size loops, and the browser's
 //! tasks inside them, on the FFI callback stack, where a V8 garbage collection
-//! aborts the process.
+//! aborts the process. The module's three functions are plain calls that
+//! register no callback.
 //!
-//! No std and no C runtime: the library imports only comctl32 and user32
-//! (raw-dylib, no import libraries), so it loads without the Visual C++
-//! runtime and links for x64 and arm64 with rust-lld alone (.cargo/config.toml).
+//! The library is a Node-API module (mixdog_window.node): Node-API is
+//! ABI-stable across Electron versions, and the loader needs no FFI library.
+//! The Windows imports (comctl32, user32) are raw-dylib, so there are no
+//! import libraries and the build needs no Windows SDK.
 #![cfg(windows)]
-#![no_std]
+
+use napi::bindgen_prelude::BigInt;
+use napi_derive::napi;
 
 type Hwnd = isize;
 type SubclassProc = unsafe extern "system" fn(Hwnd, u32, usize, isize, usize, usize) -> isize;
@@ -45,19 +49,6 @@ extern "system" {
     fn IsIconic(hwnd: Hwnd) -> i32;
     fn IsWindow(hwnd: Hwnd) -> i32;
     fn DefWindowProcW(hwnd: Hwnd, message: u32, wparam: usize, lparam: isize) -> isize;
-}
-
-// Nothing here can panic; both profiles abort regardless.
-#[panic_handler]
-fn panic(_: &core::panic::PanicInfo) -> ! {
-    loop {}
-}
-
-/// The DLL entry point the C runtime would otherwise provide; there is no
-/// attach or detach work.
-#[no_mangle]
-extern "system" fn _DllMainCRTStartup(_module: isize, _reason: u32, _reserved: isize) -> i32 {
-    1
 }
 
 /// WM_NCACTIVATE as an activation: the low word says active; the high word
@@ -96,16 +87,32 @@ unsafe extern "system" fn keep_active(
     }
 }
 
+/// An HWND from JavaScript: a bigint, as `BrowserWindow.getNativeWindowHandle`
+/// yields it (64-bit on both supported architectures).
+fn window(hwnd: &BigInt) -> Hwnd {
+    hwnd.get_u64().1 as Hwnd
+}
+
 /// Subclasses `hwnd`. Must be called on the thread that owns the window.
 /// Installing twice replaces the first installation.
-#[no_mangle]
-pub extern "system" fn install(hwnd: Hwnd) -> bool {
-    unsafe { SetWindowSubclass(hwnd, keep_active, SUBCLASS_ID, 0) != 0 }
+#[napi]
+pub fn install(hwnd: BigInt) -> bool {
+    unsafe { SetWindowSubclass(window(&hwnd), keep_active, SUBCLASS_ID, 0) != 0 }
 }
 
 /// Removes the subclass from `hwnd`; false when it is not installed, for
 /// example because the window was already destroyed. Owning thread only.
-#[no_mangle]
-pub extern "system" fn uninstall(hwnd: Hwnd) -> bool {
-    unsafe { RemoveWindowSubclass(hwnd, keep_active, SUBCLASS_ID) != 0 }
+#[napi]
+pub fn uninstall(hwnd: BigInt) -> bool {
+    unsafe { RemoveWindowSubclass(window(&hwnd), keep_active, SUBCLASS_ID) != 0 }
+}
+
+/// Paints the frame and backdrop active; not SetFocus/SetForegroundWindow.
+/// -1 as lParam: the frame state changes without painting the native caption
+/// over the custom title bar. Owning thread only.
+#[napi]
+pub fn activate(hwnd: BigInt) {
+    unsafe {
+        DefWindowProcW(window(&hwnd), WM_NCACTIVATE, 1, -1);
+    }
 }
