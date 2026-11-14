@@ -1,0 +1,44 @@
+# x-residual-moves-client: callers of the four residual files -> core methods (NOT applied: see why)
+
+Why this is a fragment and not an edit: every caller is a file other tasks own (ipc-sessions.ts: s2a-ts-api-sessions;
+ipc-window-settings.ts: s2a-ts-api-settings; model-bootstrap.ts: x-residual-verdicts; ipc.ts is a desktop hot file), and the core
+does not serve the six methods yet (DesktopResidualService is not registered: no AttachmentHost implementation exists, the six
+names are in SERVICE_PENDING). Switching a caller first would lose the attachment open, the font list and the link resolution.
+Deleting a file first would break its caller's import. So the four files stay byte for byte until the lines below are applied,
+in this order, by the wiring after the core registers the service (CORE-WIRE-G7: AttachmentHost + register + remove the six names).
+
+## 1. system-fonts.ts + system-fonts.test.mjs: delete
+ipc-window-settings.ts: drop `import { listSystemFonts } from './system-fonts'`; replace
+  handle(DESKTOP_IPC.listSystemFonts, () => listSystemFonts());
+with
+  handle(DESKTOP_IPC.listSystemFonts, async () => ((await core.call('desktop/fonts/list', {})) as { families: string[] }).families);
+(`core` = the window's ProtocolConnection, passed from ipc.ts the way registerNotificationIpc gets `core: protocol`; with no
+connection the call fails as notifications do.) The core listing answers [] on failure, as the TS one did.
+
+## 2. session-attachments.ts + transcript-file-links.ts + both tests: delete
+ipc-sessions.ts: drop the import of './session-attachments'; replace the readSessionAttachment handler body with
+  const sid = requiredSessionId(sessionId);
+  const { viewName, attachment, dataUrl, bytes } = await core.call('desktop/attachment/resolve', { sessionId: sid, attachmentId });
+  return { name: viewName, mimeType: attachment.mimeType, size: bytes, dataUrl };
+A refusal arrives with code `file-download:not-linked|not-found|changed`; map it back with FileDownloadError (shared/file-downloads)
+where the paired-device download path reads fileDownloadErrorReason. The staging write used by the opened-attachment path
+becomes `desktop/attachment/stage` { sessionId, attachmentId } -> { path }. `requestedLinkPath` / `resolveLinkedPath` had no
+caller outside the two files: the core methods desktop/link/resolve and desktop/link/resolvePath serve later callers.
+session-history-boundary.test.mjs: remove 'main/session-attachments.ts' from the expected `readSessionHistory` list (the DesktopService
+`readSessionHistory` / `readSessionTranscript?` members then have no reader in main: drop them from desktop-service-contract.ts,
+desktop-service-client.ts and the SERVICE_OPERATION list with the sessionLane read if nothing else calls them).
+
+## 3. workflow-config.ts: delete
+Only `objectRecord` is used (model-bootstrap.ts, import line 9); `parseJsonc` / `readJsoncFile` have no caller (core:
+desktop/workflowConfig/read). Put `const record = (v: unknown) => v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : null;`
+in model-bootstrap.ts in place of the import, then delete the file.
+
+## Parity checklist (TS case -> Rust twin in mixdog-core-domains desktop_residual_tests.rs)
+session-attachments.test: names attachments from user rows only, legacy images -> a_task_reports_and_a_room_speechs_returned_files...;
+  reads by id for its own session only / compacted history names it / store lost or corrupted -> the attachment cases in `fixture(with_history)` + `refused(..)`;
+transcript-file-links.test: href decoding -> an_href_is_decoded_the_way_markdown_link_decodes_it_and_a_web_link_names_no_file (+ windows_hrefs_resolve_with_node_win32_rules);
+  resolve against the session folder / UNC never -> a_link_resolves_against_the_session_folder_and_network_paths_never_resolve;
+  task report / room speech attachments -> a_task_reports_and_a_room_speechs_returned_files_are_attachments_and_other_notices_carry_none;
+system-fonts.test: sorted unique families -> font_listings_become_sorted_unique_family_names; no listing -> a_platform_without_a_listing_answers_an_empty_list_and_free_text_stays;
+workflow-config (no TS test): jsonc_comments_and_trailing_commas_are_read_and_strings_are_left_alone, a_jsonc_file_that_is_missing_empty_or_nul_filled_holds_no_settings;
+stage -> an_attachment_stages_under_the_temp_directory_with_a_previewable_name; sessionId trim -> a_session_id_is_trimmed_and_holds_only_id_characters.
