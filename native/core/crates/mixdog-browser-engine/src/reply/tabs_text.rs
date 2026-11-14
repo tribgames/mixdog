@@ -2,8 +2,8 @@
 //! What the agent can see of the open pages (the list text of `tabs.ts`) and what closing one says. Which page a command runs
 //! against is the host's (`host/browser/pages/resolve`); this is only the words.
 //!
-//! A background page is addressed by its page id (the `tab` selector carries a page id, not a name the way the old engine's
-//! background pages had), so a listing names it by that id.
+//! A background page is addressed by its page id (the `tab` selector carries a page id), so a listing names it by that id; a
+//! popup also names the page that opened it.
 
 use mixdog_app_protocol::v2::browser_engine::PageDescriptor;
 use mixdog_browser_policy::redaction::redact_browser_text;
@@ -20,7 +20,10 @@ pub fn list_tabs_text(pages: &[PageDescriptor], active_page_id: Option<&str>) ->
         lines.push(format!("- {} [v{visible}]{marker}: {}", page.page_id, title_and_address(page)));
     }
     for page in pages.iter().filter(|page| page.background) {
-        lines.push(format!("- {} (background): {}", page.page_id, title_and_address(page)));
+        // A popup is named by the page that opened it (`popup from <opener>`), as the listing always did.
+        let opener = pages.iter().find(|other| other.facts.opened_popups.iter().any(|id| *id == page.page_id));
+        let kind = opener.map(|opener| format!("popup from {}", opener.page_id)).unwrap_or_else(|| "background".to_owned());
+        lines.push(format!("- {} ({kind}): {}", page.page_id, title_and_address(page)));
     }
     if lines.is_empty() {
         return "No tabs are open. navigate opens the visible tab; background:true opens a hidden page.".to_owned();
@@ -82,6 +85,17 @@ mod tests {
         assert_eq!(
             list_tabs_text(&pages, Some("p2")),
             "Tabs:\n- p1 [v1]: One — https://one.test/\n- p2 [v2] (active): (untitled) — about:blank\n- p9 (background): Worker — https://w.test/"
+        );
+    }
+
+    #[test]
+    fn a_background_popup_names_the_page_that_opened_it() {
+        let mut opener = page("p1", false, "One", "https://one.test/");
+        opener.facts.opened_popups = vec!["p7".into()];
+        let pages = vec![opener, page("p7", true, "Pop", "https://pop.test/"), page("p9", true, "Worker", "https://w.test/")];
+        assert_eq!(
+            list_tabs_text(&pages, Some("p1")),
+            "Tabs:\n- p1 [v1] (active): One — https://one.test/\n- p7 (popup from p1): Pop — https://pop.test/\n- p9 (background): Worker — https://w.test/"
         );
     }
 
