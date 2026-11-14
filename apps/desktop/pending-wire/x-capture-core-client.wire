@@ -1,0 +1,12 @@
+x-capture-core-client (G6)
+
+No hot file needs a line from this task: capture-window.ts registers its own host handlers and the core port open
+channel, and creates its relay with createCaptureRelay (capture-core.ts).
+
+Delete (not owned by this task, tests the removed fake host):
+  apps/desktop/src/main/capture-new-task.test.mjs
+    It imports CaptureService from capture-host.ts, which no longer exists: the capture window's new task is a real
+    thread on the capture core now.
+
+The capture harness must give the capture process MIXDOGD_BIN (the built mixdogd with its js-runtime.json beside it,
+as scripts/live/lib/instance.mjs prepareCore stages it); startCaptureCore refuses to start without it.
