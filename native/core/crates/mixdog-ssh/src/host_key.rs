@@ -7,7 +7,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use mixdog_app_protocol::v2::connections::{SshConfigSummary, SshHopKey, SshHopRole, SshHopStatus, SshHostKeyCheck, SshMissing};
 use mixdog_fsio::Unlaned;
@@ -20,6 +20,7 @@ use crate::diagnostics::{describe_argv, DiagnosticKind};
 use crate::known_hosts::{host_field_matches, key_fingerprint, known_hosts_spec, parse, KnownHostEntry, KnownHostMarker};
 use crate::mixdog_config::{account, append_text, word, MixdogSshConfig};
 use crate::private_dir::{create_private_dir, join_name};
+use crate::spawn::now_ms;
 
 const SCAN_TIMEOUT: Duration = Duration::from_millis(12_000);
 const PROXY_SCAN_TIMEOUT: Duration = Duration::from_millis(30_000);
@@ -176,10 +177,6 @@ pub fn parse_ssh_config_dump(stdout: &str, env: &SshEnv) -> Option<ResolvedHost>
         proxy_command,
         forwards,
     })
-}
-
-fn now_ms() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_millis() as u64)
 }
 
 fn error(message: impl Into<String>) -> SshError {

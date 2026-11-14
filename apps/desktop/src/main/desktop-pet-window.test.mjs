@@ -41,7 +41,7 @@ const clampPoint = (point, size, area) => ({
   y: Math.round(clampToRange(point.y, area.y, area.y + area.height - size.height)),
 });
 const placementRules = {
-  geometry: ({ scale }) => desktopPetGeometry(scale),
+  geometry: ({ scale }) => ({ ...desktopPetGeometry(scale), pinInset: DESKTOP_PET_PIN_INSET }),
   pinned({ content, composer, zoom, scale }) {
     const { sprite, window } = desktopPetGeometry(scale);
     const card = composer.rect;

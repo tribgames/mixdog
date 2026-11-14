@@ -204,7 +204,7 @@ pub struct DomainSeams {
 /// The seams of the post-directory stage: both read the session directory, which is built from the
 /// tool pool, which needs the pre-pool stage's services. See [`compose_domains_post`].
 pub struct PostSeams {
-    /// SessionAttachmentLinks over the session directory: WP-SESSION.
+    /// DesktopAttachmentHost over the session directory and the blob store: WP-SESSION.
     pub session_attachments: Arc<dyn SessionAttachments>,
     /// The doctor's statuses no domain answers: WP-SESSION (provider, notice), WP-CHANNELS
     /// (worker, setup), WP-MCP (hooks), WP-MIGRATE (session log), WP-INSTALL (JS runtime).

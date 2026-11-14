@@ -253,6 +253,8 @@ const mainNativeSourceRoots = [
   join('native', 'core', 'crates', 'mixdog-browser-rules'),
   join('native', 'core', 'crates', 'mixdog-js'),
 ];
+// The workspace manifest those crates inherit their versions, features and lints from.
+const mainNativeSourceFiles = [join('native', 'core', 'Cargo.toml')];
 // What cargo names the library of the crate for the target.
 const mainNativeBuiltFileName = {
   win32: 'mixdog_main_native.dll',
@@ -268,6 +270,7 @@ const mainNativeBuiltFileName = {
 async function prepareMainNative() {
   const sourceHashes = [];
   for (const root of mainNativeSourceRoots) sourceHashes.push(await sourceTreeHash(join(rootDir, root)));
+  for (const file of mainNativeSourceFiles) sourceHashes.push(sha256(await readFile(join(rootDir, file))));
   const identity = { schemaVersion: 1, target: embeddingTarget.key, sourceHash: sha256(sourceHashes.join('\n')) };
   const overrideDir = String(process.env.MIXDOG_NATIVE_TOOLS_OVERRIDE_DIR ?? '').trim();
   if (overrideDir && embeddingTarget.platform === 'linux') {
