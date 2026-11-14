@@ -103,6 +103,8 @@ struct CaptureBaseline {
     window_id: String,
     baseline_key: String,
     elements: IdentityMap,
+    /// Each row's ref to its identity: what an action on a ref of this capture targets (`semanticTargetIdentity`).
+    ref_identities: HashMap<String, String>,
 }
 
 #[derive(Default)]
@@ -146,15 +148,22 @@ impl DeltaStore {
     /// `recordCaptureBaseline`: the change summary of this capture against the last one of the session when it read the same
     /// window with the same parameters; this capture becomes the baseline either way. `raw_elements` are the accessibility rows.
     pub fn record_baseline(&self, session: &str, window_id: &str, baseline_key: &str, raw_elements: &[Value]) -> Option<Value> {
-        let identities = capture_identity_map(raw_elements, &mut HashMap::new());
+        let mut ref_identities = HashMap::new();
+        let identities = capture_identity_map(raw_elements, &mut ref_identities);
         let mut inner = self.inner();
         let changes = inner
             .baselines
             .get(session)
             .filter(|baseline| !window_id.is_empty() && baseline.window_id == window_id && baseline.baseline_key == baseline_key)
             .map(|baseline| summarize_capture_changes(&baseline.elements, &identities));
-        inner.baselines.insert(session.to_string(), CaptureBaseline { window_id: window_id.to_string(), baseline_key: baseline_key.to_string(), elements: identities });
+        inner.baselines.insert(session.to_string(), CaptureBaseline { window_id: window_id.to_string(), baseline_key: baseline_key.to_string(), elements: identities, ref_identities });
         changes
+    }
+
+    /// The identity the session's last capture gave this ref (`lastCaptureBySession.get(session).refIdentities.get(ref)`): the
+    /// semantic target of an action on it, which decides whether the capture after it may drop its image.
+    pub fn ref_identity(&self, session: &str, reference: &str) -> Option<String> {
+        self.inner().baselines.get(session).and_then(|baseline| baseline.ref_identities.get(reference).cloned())
     }
 
     /// The model no longer holds the list of this session: the next observation is a full one.
@@ -490,7 +499,7 @@ pub fn layout_fingerprint(elements: Option<&Value>) -> Option<String> {
 }
 
 /// `awaitSettledLayout`: wait, within a bound, until two reads of the launched window agree; true when they did. `read` is one
-/// read-only `window_predicates` read answered through [`layout_fingerprint`] (none when it failed); `check_running` fails the
+/// read-only `window_predicates` read (`max_elements` 400, the command's session) answered through [`layout_fingerprint`] (none when it failed); `check_running` fails the
 /// wait when the command was cancelled. The reads never touch the session's refs, so the capture that follows is the only
 /// observation the caller receives.
 pub async fn launch_layout_reread<E, R, Fut>(mut read: R, mut check_running: impl FnMut() -> Result<(), E>) -> Result<bool, E>
@@ -937,6 +946,9 @@ mod tests {
         assert_eq!(store.record_baseline("a", "other", "k", &after), None, "another window");
         assert_eq!(store.record_baseline("a", "other", "k2", &after), None, "another read");
         assert_eq!(store.record_baseline("a", "", "k2", &after), None, "a baseline without a window is never compared");
+        assert_eq!(store.ref_identity("a", "s1:e1"), Some("Button|OK#2".into()), "the last capture names what a ref targets");
+        assert_eq!(store.ref_identity("a", "s1:e9"), None);
+        assert_eq!(store.ref_identity("b", "s1:e1"), None);
     }
 
     #[test]
