@@ -61,6 +61,23 @@ members = [
     "crates/mixdog-askpass",
     "crates/mixdog-ssh",
     "crates/mixdog-connections",
+    "crates/mixdog-exthost-worker",
+    "crates/mixdog-highlight",
+    "crates/mixdog-imaging",
+    "crates/mixdog-jssyntax",
+    "crates/mixdog-launch",
+    "crates/mixdog-markdown-ansi",
+    "crates/mixdog-office",
+    "crates/mixdog-office-com",
+    "crates/mixdog-office-crypto",
+    "crates/mixdog-ooxml-text",
+    "crates/mixdog-pdf-codec",
+    "crates/mixdog-session-view",
+    "crates/mixdog-skill-scripts",
+    "crates/mixdog-term",
+    "crates/mixdog-termtext",
+    "crates/mixdog-tui-style",
+    "crates/mixdog-view-model",
     "crates/mixdog-cli",
     "crates/mixdog-workspace-hack",
 ]
@@ -165,6 +182,23 @@ mixdog-app-server-client = { path = "crates/mixdog-app-server-client" }
 # Wired by CORE-WIRE-G1 (s2b-scaffold); not members yet: their module files land in later waves (see members above).
 mixdog-ssh = { path = "crates/mixdog-ssh" }
 mixdog-connections = { path = "crates/mixdog-connections" }
+mixdog-exthost-worker = { path = "crates/mixdog-exthost-worker" }
+mixdog-highlight = { path = "crates/mixdog-highlight" }
+mixdog-imaging = { path = "crates/mixdog-imaging" }
+mixdog-jssyntax = { path = "crates/mixdog-jssyntax" }
+mixdog-launch = { path = "crates/mixdog-launch" }
+mixdog-markdown-ansi = { path = "crates/mixdog-markdown-ansi" }
+mixdog-office = { path = "crates/mixdog-office" }
+mixdog-office-com = { path = "crates/mixdog-office-com" }
+mixdog-office-crypto = { path = "crates/mixdog-office-crypto" }
+mixdog-ooxml-text = { path = "crates/mixdog-ooxml-text" }
+mixdog-pdf-codec = { path = "crates/mixdog-pdf-codec" }
+mixdog-session-view = { path = "crates/mixdog-session-view" }
+mixdog-skill-scripts = { path = "crates/mixdog-skill-scripts" }
+mixdog-term = { path = "crates/mixdog-term" }
+mixdog-termtext = { path = "crates/mixdog-termtext" }
+mixdog-tui-style = { path = "crates/mixdog-tui-style" }
+mixdog-view-model = { path = "crates/mixdog-view-model" }
 mixdog-askpass = { path = "crates/mixdog-askpass" }
 
 # External crates. Versions match codex-rs/Cargo.toml wherever Codex uses the same crate;
@@ -280,7 +314,20 @@ webrtc = "=0.21.1" # not in Codex
 rtc = "=0.21.1" # not in Codex; protocol core under `webrtc`
 shiguredo_libvpx = "=2026.2.0-canary.3" # not in Codex
 jpeg-decoder = { version = "0.3", default-features = false } # not in Codex
-image = { version = "0.25", default-features = false, features = ["jpeg"] } # s3-04: JPEG encoder (image::codecs::jpeg::JpegEncoder) for the set-of-marks burn-in; jpeg-encoder 0.6 is not cached
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "tiff", "webp"] } # s3-04: JPEG encoder (image::codecs::jpeg::JpegEncoder) for the set-of-marks burn-in; jpeg-encoder 0.6 is not cached
+dunce = "1.0.5"
+moxcms = "0.7.11"
+zune-core = { version = "0.5.1", default-features = false }
+zune-jpeg = "0.5.12"
+tree-sitter = "0.27"
+tree-sitter-javascript = "0.25"
+unicode-ident = "1"
+aes = "0.8.4"
+md-5 = "0.10.6"
+portable-pty = "0.9.0"
+vte = "0.14.1"
+signal-hook = "0.3.18"
+windows = { version = "0.62.2", default-features = false }
 
 [patch.crates-io]
 # The same 0.19.2 with a stop a thread may set that a match reads at bounded intervals of counted steps

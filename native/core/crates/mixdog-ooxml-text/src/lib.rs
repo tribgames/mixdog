@@ -60,6 +60,7 @@ impl Default for Limits {
 }
 
 /// Why an extraction failed.
+#[derive(Debug)]
 pub(crate) enum Failure {
     /// A structural refusal (`OfficeFormatError`): shown as `Error: <message>`.
     Format(String),
