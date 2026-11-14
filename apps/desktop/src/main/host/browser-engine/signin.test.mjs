@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import { SAVED_SIGN_IN_DONE, SAVED_SIGN_IN_NEEDS_USER } from '../../browser/auto-sign-in.ts';
 import { registerSignIn, savedSignInNote } from './signin.ts';
 
-function harness({ afterCommand, replyLine, fillStored } = {}) {
+function harness({ afterCommand, replyLine, fillStored, capture } = {}) {
   const handlers = new Map();
   const log = [];
   const connection = { request: async () => ({}), handleRequest: (method, handler) => handlers.set(method, handler) };
@@ -35,7 +35,11 @@ function harness({ afterCommand, replyLine, fillStored } = {}) {
     forget: (sessionId) => log.push(`forget ${sessionId}`),
     onDiagnostic: (event) => log.push(`diagnostic ${event}`),
   };
-  registerSignIn(connection, ctx, deps);
+  const snapshot = {
+    captureSnapshotPayload:
+      capture ?? (async (_guest, command) => (log.push(`capture ${command.action}`), { snapshotId: 'p1-s1', elements: [] })),
+  };
+  registerSignIn(connection, ctx, deps, snapshot);
   const call = (method, params) => handlers.get(`host/browser/${method}`)(params, new AbortController().signal);
   return { call, log, handlers };
 }
@@ -73,6 +77,20 @@ test('after a command a sign-in the host made answers its note, and the identity
   const answer = await h.call('signIn', { sessionId: 'sess', pageId: 'p1', op: 'afterCommand', turn: 1 });
   assert.equal(answer.note, `${SAVED_SIGN_IN_DONE}a.test with its saved login (the password never left the host).`);
   assert.equal(answer.line, 'Linked sign-in: a.test used Google.');
+});
+
+test('the observation the sign-in flow asks for is a capture of the page, and one the page refuses is reported, not fatal', async () => {
+  const h = harness();
+  await h.call('signIn', { sessionId: 'sess', pageId: 'p1', op: 'afterCommand', turn: 1 });
+  assert.deepEqual(h.log, ['begin sess 1', 'capture snapshot', 'after sess 1 true', 'line 1']);
+  const refused = harness({
+    capture: async () => {
+      throw new Error('a dialog is open');
+    },
+  });
+  const answer = await refused.call('signIn', { sessionId: 'sess', pageId: 'p1', op: 'afterCommand', turn: 1 });
+  assert.deepEqual(answer.note, undefined);
+  assert.ok(refused.log.includes('diagnostic browser-sign-in-observe-failed') && refused.log.includes('after sess 1 true'));
 });
 
 test('a command that filled a saved account itself is followed by no automatic sign-in', async () => {

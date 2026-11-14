@@ -96,7 +96,7 @@ export function registerBrowserEngine(connection: HostConnection, ctx: EngineCon
   registerScreenshot(connection, ctx, deps.screenshot);
   registerSession(connection, ctx, deps.session);
   registerUpload(connection, ctx, deps.upload);
-  registerSignIn(connection, ctx, deps.signIn);
+  registerSignIn(connection, ctx, deps.signIn, deps.snapshot);
 }
 
 /** The guests the host has now: the pane's pages and every named background page. */
@@ -131,6 +131,7 @@ export const ENGINE_REQUEST_METHODS: readonly string[] = [
   'host/browser/performance',
   'host/browser/ref/call',
   'host/browser/ref/mint',
+  'host/browser/revision',
   'host/browser/screenshot',
   'host/browser/signIn',
   'host/browser/snapshot',
@@ -329,6 +330,7 @@ export function createBrowserEngine(
     snapshot: {
       captureSnapshotPayload: (guest, command, signal) =>
         ports.tools.snapshots.captureSnapshotPayload(guest, command, signal),
+      revision: (guest, signal) => documents.revision(guest, signal),
     },
     refCall: { evaluate },
     cdpSend: { prepareVisualOutput: async (guest, signal) => ports.tools.screenshots.prepareVisualOutput(guest, signal) },

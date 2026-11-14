@@ -8,7 +8,8 @@
  *    noted (`linkedSignIn.beforeAction`).
  *  - `signIn` `afterCommand`: a page that asks for a sign-in a saved login fits is signed in once per site and turn
  *    (`autoSignIn.afterCommand`, unless the command filled a saved account itself); the answer is the saved-login note, which the
- *    engine puts ahead of a fresh observation, and the line of the identity a provider flow last used here (`replyLine`).
+ *    engine puts ahead of a fresh observation, and the line of the identity a provider flow last used here (`replyLine`). The flow
+ *    observes the page the way the command runner's `observe` did: a snapshot capture of the page, taken when the flow asks for one.
  *  - `credentials/fill`: `fill` with `savedAccount`; the stored login of the page's origin is written into the page and the
  *    form's answer (whether the password was taken) goes back.
  *  - `turn`: the session's turn ended (what the sign-in flows remember per turn goes, and the untouched blank page the agent left
@@ -21,6 +22,7 @@ import { browserSessionId } from '../../browser/session-registry';
 import { HOST_INVALID_PARAMS, type HostConnection, HostRpcError } from '../connection';
 import type { EngineContext } from './context';
 import { registerEngineMethod, registerEngineSessionMethod } from './registry';
+import type { SnapshotHost } from './snapshot';
 
 /** What a stored login's fill reports (browser/credential-autofill.ts). */
 export interface FilledLogin {
@@ -78,7 +80,12 @@ export function savedSignInNote(text: string): string {
 }
 
 /** Registers `host/browser/signIn`, `host/browser/credentials/fill` and `host/browser/turn`. */
-export function registerSignIn(connection: HostConnection, ctx: EngineContext, deps: SignInDeps): void {
+export function registerSignIn(
+  connection: HostConnection,
+  ctx: EngineContext,
+  deps: SignInDeps,
+  snapshot: Pick<SnapshotHost, 'captureSnapshotPayload'>
+): void {
   registerEngineMethod(connection, ctx, 'host/browser/signIn', async (params, signal, page) => {
     const sessionId = sessionOf(params);
     const turnId = turnOf(params.turn);
@@ -94,8 +101,18 @@ export function registerSignIn(connection: HostConnection, ctx: EngineContext, d
     }
     let note = '';
     if (params.explicitFill !== true) {
-      // The engine takes its own observation behind the note: this one is only the flow's own, never read.
-      const signedIn = await deps.afterCommand({ guest, sessionId, turnId, signal, observe: async () => ({ text: '' }) });
+      // The flow's observation is a capture of the page (`reply.snapshotResult`): its text is never read, the engine takes its own
+      // observation behind the note. A capture the page refused (a dialog opened meanwhile) leaves the flow's reading as it was.
+      const observe = async (): Promise<{ text: string }> => {
+        try {
+          await snapshot.captureSnapshotPayload(guest, { action: 'snapshot' }, signal);
+        } catch (error) {
+          if (signal?.aborted) throw signal.reason ?? error;
+          deps.onDiagnostic?.('browser-sign-in-observe-failed', { error: (error as Error)?.message ?? String(error) });
+        }
+        return { text: '' };
+      };
+      const signedIn = await deps.afterCommand({ guest, sessionId, turnId, signal, observe });
       note = signedIn ? savedSignInNote(signedIn.text) : '';
     }
     let line = '';

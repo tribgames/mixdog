@@ -32,6 +32,7 @@ use super::access::prepare_ref;
 use crate::error::HostCallError;
 use crate::limits::COMMAND_TIMEOUT;
 use crate::port::BrowserHost;
+use crate::runner::timing_rows::CommandTimer;
 
 /// The page-world editability check (`assets/page/editability.js`), spliced into the functions that write to an element.
 pub(super) const EDITABILITY_CHECK: &str = include_str!("../../assets/page/editability.js");
@@ -55,6 +56,8 @@ pub struct RefActions {
     /// How long a custom dropdown may take to render its options, and how often it is looked at meanwhile.
     pub dropdown_timeout: Duration,
     pub dropdown_poll: Duration,
+    /// The command's timing row, which the actionability wait of a ref's point is entered on; `None` where no command keeps one.
+    pub timer: Option<Arc<CommandTimer>>,
 }
 
 /// The snapshot a ref belongs to: a ref is `<snapshot id>-e<n>`.
@@ -161,6 +164,7 @@ pub(crate) mod tests {
             format_snapshot: Arc::new(|_: &HostBrowserSnapshotResult| "fresh snapshot".to_string()),
             dropdown_timeout: Duration::from_millis(30),
             dropdown_poll: Duration::from_millis(1),
+            timer: None,
         }
     }
 

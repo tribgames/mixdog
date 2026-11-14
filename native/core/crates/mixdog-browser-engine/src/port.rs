@@ -89,6 +89,8 @@ host_methods! {
     page_dialog_answer, "host/browser/page/dialog/answer", HostBrowserPageDialogAnswerParams, HostBrowserPageDialogAnswerResult;
     page_sync, "host/browser/page/sync", HostBrowserPageSyncParams, HostBrowserPageSyncResult;
     snapshot, "host/browser/snapshot", HostBrowserSnapshotParams, HostBrowserSnapshotResult;
+    /// `host/browser/revision`: the page's observation revision now, read without taking a snapshot (a snapshot retires the refs the agent holds).
+    revision, "host/browser/revision", HostBrowserRevisionParams, HostBrowserRevisionResult;
     ref_call, "host/browser/ref/call", HostBrowserRefCallParams, HostBrowserRefCallResult;
     ref_mint, "host/browser/ref/mint", HostBrowserRefMintParams, HostBrowserRefMintResult;
     input_batch, "host/browser/input/batch", HostBrowserInputBatchParams, HostBrowserInputBatchResult;
