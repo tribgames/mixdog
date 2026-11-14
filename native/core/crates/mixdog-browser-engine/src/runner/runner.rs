@@ -28,6 +28,7 @@ use std::time::UNIX_EPOCH;
 use async_trait::async_trait;
 use mixdog_app_protocol::v2::browser_engine::*;
 use mixdog_browser_policy::redaction::redact_browser_text;
+use mixdog_browser_policy::timing::CommandTiming;
 use mixdog_browser_policy::timing::Phase;
 use mixdog_browser_policy::url_policy::UrlPolicy;
 use mixdog_core_api::domain::tool::ToolError;
@@ -146,6 +147,8 @@ use crate::reply::downloads_text::did_not_complete;
 use crate::reply::downloads_text::ended_as;
 use crate::reply::downloads_text::list_text;
 use crate::reply::downloads_text::none_to_attach;
+use crate::reply::downloads_text::not_a_file;
+use crate::reply::downloads_text::not_complete_to_attach;
 use crate::reply::reply::EffectBaseline;
 use crate::reply::reply::PageReplyState;
 use crate::reply::reply::ReplyContext;
@@ -341,6 +344,7 @@ observed_facts!(
     HostBrowserUploadReceiverResult,
     HostBrowserRefMintResult,
     HostBrowserCredentialsFillResult,
+    HostBrowserRevisionResult,
 );
 observed_nothing!(HostBrowserPagesCloseResult, HostBrowserInitScriptsResult, HostBrowserInterceptResult, HostBrowserPerformanceResult, HostBrowserDownloadsResult, HostBrowserTurnResult);
 
@@ -423,6 +427,7 @@ recording_host! {
     page_dialog_answer, HostBrowserPageDialogAnswerParams, HostBrowserPageDialogAnswerResult;
     page_sync, HostBrowserPageSyncParams, HostBrowserPageSyncResult;
     snapshot, HostBrowserSnapshotParams, HostBrowserSnapshotResult;
+    revision, HostBrowserRevisionParams, HostBrowserRevisionResult;
     ref_call, HostBrowserRefCallParams, HostBrowserRefCallResult;
     input_batch, HostBrowserInputBatchParams, HostBrowserInputBatchResult;
     screenshot, HostBrowserScreenshotParams, HostBrowserScreenshotResult;
@@ -708,6 +713,26 @@ impl RunError {
     }
 }
 
+/// A command that did not answer: what the tool fails with, and the timing row of the part of the command that ran (`None` where it
+/// failed before it took its place, an invalid request).
+#[derive(Debug)]
+pub struct CommandFailure {
+    pub error: ToolError,
+    pub timing: Option<CommandTiming>,
+}
+
+/// [`CommandFailure`] before the secret guard has worded the error.
+struct Failed {
+    error: RunError,
+    timing: Option<CommandTiming>,
+}
+
+impl From<RunError> for Failed {
+    fn from(error: RunError) -> Self {
+        Self { error, timing: None }
+    }
+}
+
 /// A page a command holds by its lease; the host is told when the command is done with it.
 struct LeaseGuard {
     host: Arc<FactsHost>,
@@ -749,12 +774,12 @@ impl BrowserEngine {
     /// One Browser Use command of `thread`. `input` is the tool's arguments without `action`, with the runtime-set fields the
     /// runtime adds (`unattended_run`, `unattended_agent`, `session_life`, `mail_link`). The command belongs to the session's
     /// running turn (`TurnEvents` ends it).
-    pub async fn run(&self, thread: &ThreadId, action: &str, input: &Map<String, Value>, cancel: &CancellationToken) -> Result<ToolReply, ToolError> {
+    pub async fn run(&self, thread: &ThreadId, action: &str, input: &Map<String, Value>, cancel: &CancellationToken) -> Result<ToolReply, CommandFailure> {
         let inner = &self.inner;
         let turn = locked(&inner.tasks).current(thread.as_str());
         match inner.run_command(thread, turn, action, input, cancel).await {
             Ok(reply) => Ok(guard_reply(&*inner.ports.secrets, thread.as_str(), reply)),
-            Err(error) => Err(error.into_tool_error(&*inner.ports.secrets, thread.as_str())),
+            Err(Failed { error, timing }) => Err(CommandFailure { error: error.into_tool_error(&*inner.ports.secrets, thread.as_str()), timing }),
         }
     }
 
@@ -763,30 +788,10 @@ impl BrowserEngine {
     /// turn and the untouched blank page the agent has since left behind. A turn nobody ran a command in is nothing to finish.
     /// Answers how many pages were closed.
     pub async fn finish_turn(&self, thread: &ThreadId, aborted: bool) -> usize {
-        let inner = &self.inner;
-        let (turn, closing) = {
-            let mut tasks = locked(&inner.tasks);
-            if !tasks.take_touched(thread.as_str()) {
-                return 0;
-            }
-            let turn = tasks.current(thread.as_str());
-            let store = inner.store.clone();
-            (turn, tasks.finish(thread.as_str(), turn, aborted, |page| !store.get(page).is_some_and(|facts| facts.pending_dialog.is_some())))
-        };
-        let mut closed = 0;
-        for page_id in closing {
-            let params = HostBrowserPagesCloseParams { page_id: page_id.clone(), reason: BrowserPageCloseReason::TurnEnd };
-            match inner.host.pages_close(params, &CancellationToken::new()).await {
-                Ok(answer) => {
-                    closed += usize::from(answer.closed);
-                    inner.drop_page(&page_id);
-                }
-                // A close the host failed leaves the page owned, as the lifecycle kept it, so a later cleanup of it can try again.
-                Err(_) => locked(&inner.tasks).reown(thread.as_str(), turn, &page_id),
-            }
+        match self.inner.end_turn(thread, aborted) {
+            Some(ended) => self.inner.close_ended(thread, ended, aborted).await,
+            None => 0,
         }
-        inner.turn_note(thread, BrowserTurnOp::End, Some(turn), aborted).await;
-        closed
     }
 
     /// The session is released: the pages it owned are no longer tracked, and the host forgets what it remembered of it.
@@ -798,10 +803,13 @@ impl BrowserEngine {
 
 impl TurnEvents for BrowserEngine {
     fn turn_ended(&self, thread: &ThreadId, aborted: bool) {
-        let engine = self.clone();
+        // The turn's end is marked here, before this returns: the first command of the next turn is the next turn's however soon it
+        // comes. Only the closing of the pages and the note to the host are left to the task.
+        let Some(ended) = self.inner.end_turn(thread, aborted) else { return };
+        let inner = self.inner.clone();
         let thread = thread.clone();
         mixdog_rt::spawn("browser-turn-pages", mixdog_rt::TaskClass::Work, async move {
-            engine.finish_turn(&thread, aborted).await;
+            inner.close_ended(&thread, ended, aborted).await;
         });
     }
 
@@ -814,7 +822,43 @@ impl TurnEvents for BrowserEngine {
     }
 }
 
+/// A turn that was marked ended: its number and the pages it owned that are to be closed.
+struct EndedTurn {
+    turn: u64,
+    closing: Vec<String>,
+}
+
 impl Inner {
+    /// Marks the running turn of `thread` as ended, and takes the pages it releases. `None`: no command ran in it.
+    fn end_turn(&self, thread: &ThreadId, aborted: bool) -> Option<EndedTurn> {
+        let mut tasks = locked(&self.tasks);
+        if !tasks.take_touched(thread.as_str()) {
+            return None;
+        }
+        let turn = tasks.current(thread.as_str());
+        let store = self.store.clone();
+        let closing = tasks.finish(thread.as_str(), turn, aborted, |page| !store.get(page).is_some_and(|facts| facts.pending_dialog.is_some()));
+        Some(EndedTurn { turn, closing })
+    }
+
+    /// Closes the pages an ended turn released and tells the host the turn ended; answers how many pages were closed.
+    async fn close_ended(&self, thread: &ThreadId, ended: EndedTurn, aborted: bool) -> usize {
+        let mut closed = 0;
+        for page_id in ended.closing {
+            let params = HostBrowserPagesCloseParams { page_id: page_id.clone(), reason: BrowserPageCloseReason::TurnEnd };
+            match self.host.pages_close(params, &CancellationToken::new()).await {
+                Ok(answer) => {
+                    closed += usize::from(answer.closed);
+                    self.drop_page(&page_id);
+                }
+                // A close the host failed leaves the page owned, as the lifecycle kept it, so a later cleanup of it can try again.
+                Err(_) => locked(&self.tasks).reown(thread.as_str(), ended.turn, &page_id),
+            }
+        }
+        self.turn_note(thread, BrowserTurnOp::End, Some(ended.turn), aborted).await;
+        closed
+    }
+
     /// A turn-level note to the host (the turn ended, the session was released). The host keeps only memory for them, so a host
     /// that cannot answer changes nothing the agent reads.
     async fn turn_note(&self, thread: &ThreadId, op: BrowserTurnOp, turn: Option<u64>, aborted: bool) {
@@ -833,7 +877,7 @@ impl Inner {
         self.ports.mirror.forget(page_id);
     }
 
-    async fn run_command(self: &Arc<Self>, thread: &ThreadId, turn: u64, action: &str, input: &Map<String, Value>, cancel: &CancellationToken) -> Result<ToolReply, RunError> {
+    async fn run_command(self: &Arc<Self>, thread: &ThreadId, turn: u64, action: &str, input: &Map<String, Value>, cancel: &CancellationToken) -> Result<ToolReply, Failed> {
         let session = thread.as_str();
         let prepared = prepare(action, input, session, turn).map_err(RunError::Failed)?;
         let key = {
@@ -848,14 +892,14 @@ impl Inner {
         let queued = self.queue.run(&key, kind, &deadline, &parent, |ctx| self.in_lane(thread, turn, prepared, ctx, enqueued));
         match Scope::new().cancel(cancel).run(queued).await {
             Scoped::Done(Ok(result)) => result,
-            Scoped::Done(Err(error)) => Err(error.into()),
-            Scoped::Cancelled | Scoped::DeadlineExceeded => Err(RunError::Cancelled(None)),
+            Scoped::Done(Err(error)) => Err(RunError::from(error).into()),
+            Scoped::Cancelled | Scoped::DeadlineExceeded => Err(RunError::Cancelled(None).into()),
         }
     }
 
     /// The command holds its lane: the session's takeover guard begins (a person who took the session over refuses it, and one who
     /// takes it over meanwhile stops it), and its timing row is kept.
-    async fn in_lane(self: &Arc<Self>, thread: &ThreadId, turn: u64, prepared: Prepared, ctx: RunContext, enqueued: Instant) -> Result<ToolReply, RunError> {
+    async fn in_lane(self: &Arc<Self>, thread: &ThreadId, turn: u64, prepared: Prepared, ctx: RunContext, enqueued: Instant) -> Result<ToolReply, Failed> {
         let timer = Arc::new(CommandTimer::start(enqueued.elapsed().as_secs_f64() * 1000.0));
         let guard = self.ports.takeover.begin(thread.as_str()).map_err(RunError::Failed)?;
         let stopped = guard.cancelled();
@@ -867,8 +911,8 @@ impl Inner {
                 reply.timing = Some(timing);
                 Ok(reply)
             }
-            Scoped::Done(Err(error)) => Err(error),
-            Scoped::Cancelled | Scoped::DeadlineExceeded => Err(RunError::Failed(TakeoverGuard::STOPPED.to_owned())),
+            Scoped::Done(Err(error)) => Err(Failed { error, timing: Some(timing) }),
+            Scoped::Cancelled | Scoped::DeadlineExceeded => Err(Failed { error: RunError::Failed(TakeoverGuard::STOPPED.to_owned()), timing: Some(timing) }),
         }
     }
 
@@ -912,7 +956,11 @@ impl Inner {
         };
         let hints = SignInHints::of(&command);
         let worked = async {
-            let reply = page.dispatch(action, command, expected, has_screenshot_options).await?;
+            // A page a dialog holds answers with the dialog and runs no sign-in hook: the host's reader would read a blocked page.
+            if let Some(blocked) = page.dialog_block(action) {
+                return Ok(blocked);
+            }
+            let reply = page.act(action, command, expected, has_screenshot_options).await?;
             page.after_command(action, background, placement, &hints, reply).await
         }
         .await;
@@ -1051,12 +1099,12 @@ impl Inner {
         };
         let Some(chosen) = chosen else { return Err(RunError::Failed(none_to_attach().to_owned())) };
         if chosen.state != "completed" {
-            return Err(RunError::Failed(format!("download {} is {}; wait for completion before attaching", chosen.id, chosen.state)));
+            return Err(RunError::Failed(not_complete_to_attach(&chosen.id, &chosen.state)));
         }
         // The file stays where the host saved it and the reply names its path: nothing travels inline, whatever its size. It must still
         // be a file the model can read.
         if !self.ports.files.stat(std::path::Path::new(&chosen.path)).await.is_file {
-            return Err(RunError::Failed(format!("download {} is not a readable file", chosen.id)));
+            return Err(RunError::Failed(not_a_file(&chosen.id)));
         }
         reply.text.push_str(&format!("\n\nDownload {} is saved at {}; read it with that path.", chosen.id, chosen.path));
         Ok(reply)
@@ -1433,6 +1481,7 @@ impl PageCtx {
             format_snapshot: Arc::new(move |snapshot: &HostBrowserSnapshotResult| formatting.format_snapshot_text(snapshot)),
             dropdown_timeout: CUSTOM_DROPDOWN_TIMEOUT,
             dropdown_poll: CUSTOM_DROPDOWN_POLL,
+            timer: Some(self.timer.clone()),
         }
     }
 
@@ -1441,18 +1490,23 @@ impl PageCtx {
         let expect = self.page_precondition();
         let (host, cancel, page_id) = (self.host(), &self.cancel, self.page_id.as_str());
         let expect_ref = &expect;
-        let resolved = wait_for_actionable(
-            move || async move {
-                let target = TargetContext { host, page_id, expect: Some(expect_ref), cancel: cancel.token() };
-                resolve_targets(&target, raw).await.map_err(|error| match error {
-                    TargetError::Missing(message) => ProbeFailure::NotActionable(ActionabilityError::new(message, ActionabilityReason::Missing)),
-                    other => ProbeFailure::Other(other),
-                })
-            },
-            cancel,
-            ACTIONABILITY_TIMEOUT,
-        )
-        .await?;
+        let resolved = self
+            .timer
+            .phase(
+                Phase::Target,
+                wait_for_actionable(
+                    move || async move {
+                        let target = TargetContext { host, page_id, expect: Some(expect_ref), cancel: cancel.token() };
+                        resolve_targets(&target, raw).await.map_err(|error| match error {
+                            TargetError::Missing(message) => ProbeFailure::NotActionable(ActionabilityError::new(message, ActionabilityReason::Missing)),
+                            other => ProbeFailure::Other(other),
+                        })
+                    },
+                    cancel,
+                    ACTIONABILITY_TIMEOUT,
+                ),
+            )
+            .await?;
         Ok(resolved)
     }
 
@@ -1573,15 +1627,27 @@ impl PageCtx {
 
     /// One action on the page, after the command was admitted: the dialog check, the approval, the action itself and its reply. A
     /// step of a sequence comes back through here (`internalStep`), without the approval.
-    async fn dispatch(&self, action: Action, mut command: Value, expected: Option<Postcondition>, has_screenshot_options: bool) -> Result<ToolReply, RunError> {
+    /// What a page held by a dialog answers to an action that needs the page: a blocked page accepts no gesture (the input would
+    /// queue behind the dialog and replay after handle_dialog, which nobody asked for).
+    fn dialog_block(&self, action: Action) -> Option<ToolReply> {
+        if DIALOG_TOLERANT_ACTIONS.contains(&action.name()) {
+            return None;
+        }
+        self.page_facts().pending_dialog.map(|dialog| blocking_dialog_reply(&dialog, false, &|text: &str| self.redact(text)))
+    }
+
+    /// One step of a sequence: the dialog's answer when the page is blocked, else the action.
+    async fn dispatch(&self, action: Action, command: Value, expected: Option<Postcondition>, has_screenshot_options: bool) -> Result<ToolReply, RunError> {
+        match self.dialog_block(action) {
+            Some(blocked) => Ok(blocked),
+            None => self.act(action, command, expected, has_screenshot_options).await,
+        }
+    }
+
+    /// The action itself, on a page no dialog blocks for it.
+    async fn act(&self, action: Action, mut command: Value, expected: Option<Postcondition>, has_screenshot_options: bool) -> Result<ToolReply, RunError> {
         let internal = command.get("internalStep") == Some(&Value::Bool(true));
         let facts = self.page_facts();
-        // A blocked page accepts no gesture: the input would queue behind the dialog and replay after handle_dialog, which nobody asked for.
-        if !DIALOG_TOLERANT_ACTIONS.contains(&action.name())
-            && let Some(dialog) = &facts.pending_dialog
-        {
-            return Ok(blocking_dialog_reply(dialog, false, &|text: &str| self.redact(text)));
-        }
         let mut recovery = RefRecoveryContext::new(self.latest_refs());
         let report_baseline = self.latest_refs();
         // The latest observation of this page is what the gesture starts from; a target resolution moves it to a fresher one.
@@ -1905,14 +1971,19 @@ impl ActionPage for PageCtx {
         self.state_lock().grounding = None;
     }
 
-    /// The host names a document's revision only in a snapshot answer; asking for one here would mint a snapshot that retires the
-    /// refs the agent holds, so the grounding is judged by its age and its page alone.
-    async fn document_revision(&self, _cancel: &CancellationToken) -> Option<u32> {
-        None
+    /// The page's observation revision now, read through the host without a snapshot (one would retire the refs the agent holds). A host
+    /// that cannot answer leaves the grounding judged by its age and its page alone.
+    async fn document_revision(&self, cancel: &CancellationToken) -> Option<u32> {
+        let params = HostBrowserRevisionParams { page_id: self.page_id.clone() };
+        self.host().revision(params, cancel).await.ok().map(|answer| answer.revision)
     }
 
     fn format_snapshot(&self, snapshot: &HostBrowserSnapshotResult) -> String {
         self.format_snapshot_text(snapshot)
+    }
+
+    fn timer(&self) -> Option<&CommandTimer> {
+        Some(&*self.timer)
     }
 }
 
@@ -2278,6 +2349,10 @@ mod tests {
     }
 
     fn engine_with(host: &Arc<FakeHost>, takeover: Option<&'static str>, approval_policy: ActionPolicy) -> BrowserEngine {
+        engine_over(host, takeover, approval_policy, Arc::new(NoFiles))
+    }
+
+    fn engine_over(host: &Arc<FakeHost>, takeover: Option<&'static str>, approval_policy: ActionPolicy, files: Arc<dyn FilePort>) -> BrowserEngine {
         BrowserEngine::new(
             host.clone(),
             EnginePorts {
@@ -2286,7 +2361,7 @@ mod tests {
                 approvals: Arc::new(Allows),
                 takeover: Arc::new(Takeovers(takeover)),
                 blobs: Arc::new(NoBlobs),
-                files: Arc::new(NoFiles),
+                files,
                 secrets: Arc::new(Masks),
                 approval_policy,
                 urls: UrlPolicy::default(),
@@ -2301,7 +2376,7 @@ mod tests {
 
     async fn run(engine: &BrowserEngine, action: &str, input: Value) -> Result<ToolReply, ToolError> {
         let input = input.as_object().cloned().unwrap_or_default();
-        engine.run(&thread(), action, &input, &CancellationToken::new()).await
+        engine.run(&thread(), action, &input, &CancellationToken::new()).await.map_err(|failure| failure.error)
     }
 
     fn page_row(page: &str, tab: &str) -> Value {
@@ -2330,6 +2405,50 @@ mod tests {
 
     fn no_downloads() -> Expect {
         Expect::ok("host/browser/downloads", json!({"items": []}))
+    }
+
+    /// A disk that holds the files it is told of.
+    struct FilesOn(&'static str);
+
+    #[async_trait]
+    impl FilePort for FilesOn {
+        async fn stat(&self, path: &Path) -> FileFacts {
+            FileFacts { exists: path == Path::new(self.0), is_file: path == Path::new(self.0), ..FileFacts::default() }
+        }
+
+        async fn write_frame(&self, run_dir: &Path, _bytes: Bytes, _mime_type: &str) -> std::io::Result<PathBuf> {
+            Ok(run_dir.to_path_buf())
+        }
+    }
+
+    fn download(id: &str, state: &str, path: &str) -> Value {
+        json!({"id": id, "file": "report.pdf", "path": path, "url": "https://a.test/report.pdf", "mimeType": "application/pdf", "state": state, "received": 4, "total": 4, "startedAt": 1})
+    }
+
+    fn downloads_of(items: &[Value]) -> Expect {
+        Expect::ok("host/browser/downloads", json!({"items": items}))
+    }
+
+    #[tokio::test]
+    async fn an_attached_download_names_its_path_and_is_refused_when_it_is_no_readable_file_or_not_complete() {
+        let saved = "/dl/report.pdf";
+        let finished = download("d1", "completed", saved);
+        let on_disk = Arc::new(FakeHost::scripted(vec![downloads_of(&[finished.clone()])]));
+        let engine_on = engine_over(&on_disk, None, ActionPolicy::from_env(None, None, None, is_action), Arc::new(FilesOn(saved)));
+        let reply = run(&engine_on, "downloads", json!({"attach": true})).await.expect("the download is a file");
+        assert!(reply.text.ends_with(&format!("Download d1 is saved at {saved}; read it with that path.")), "{}", reply.text);
+
+        let gone = Arc::new(FakeHost::scripted(vec![downloads_of(&[finished])]));
+        let error = run(&engine(&gone, None), "downloads", json!({"attach": true})).await.expect_err("no file at the path");
+        assert_eq!(error.message_for_model, "download d1 is not a readable file");
+
+        let running = Arc::new(FakeHost::scripted(vec![downloads_of(&[download("d2", "in_progress", saved)])]));
+        let error = run(&engine(&running, None), "downloads", json!({"attach": true, "downloadId": "d2"})).await.expect_err("not complete");
+        assert_eq!(error.message_for_model, "download d2 is in_progress; wait for completion before attaching");
+
+        let none = Arc::new(FakeHost::scripted(vec![downloads_of(&[download("d3", "interrupted", saved)])]));
+        let error = run(&engine(&none, None), "downloads", json!({"attach": true})).await.expect_err("nothing completed");
+        assert_eq!(error.message_for_model, "no completed download is available to attach");
     }
 
     #[tokio::test]
@@ -2399,6 +2518,46 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_first_command_after_a_turn_ended_is_the_next_turns_even_before_the_ended_turns_pages_are_closed() {
+        let close = Expect::ok("host/browser/pages/close", json!({"closed": true})).with_params(json!({"pageId": "p1", "reason": "turnEnd"}));
+        let host = Arc::new(FakeHost::scripted(vec![resolved_new("p1"), snapshot_answer(), no_downloads(), resolved("p1"), snapshot_answer(), no_downloads(), close]));
+        let engine = engine(&host, None);
+        run(&engine, "snapshot", json!({})).await.expect("snapshot");
+        // What `turn_ended` does before it hands the closing to a task.
+        let ended = engine.inner.end_turn(&thread(), true).expect("a command ran in the turn");
+        assert_eq!((ended.turn, ended.closing.as_slice()), (1, ["p1".to_owned()].as_slice()));
+        run(&engine, "snapshot", json!({})).await.expect("the next turn's first command");
+        {
+            let mut tasks = locked(&engine.inner.tasks);
+            assert_eq!(tasks.current("s1"), 2);
+            assert!(tasks.take_touched("s1"), "the command is counted in the turn that is running");
+        }
+        assert_eq!(engine.inner.close_ended(&thread(), ended, true).await, 1);
+        host.finish().expect("the ended turn's page closed after the next turn's command");
+    }
+
+    #[tokio::test]
+    async fn the_document_revision_of_a_page_is_read_from_the_host_now_and_unknown_when_the_host_cannot_say() {
+        let revision = |value: i64| Expect::ok("host/browser/revision", json!({"revision": value, "facts": page_facts("p1", 3)})).with_params(json!({"pageId": "p1"}));
+        let host = Arc::new(FakeHost::scripted(vec![revision(7), Expect::err("host/browser/revision", HostCallError::Failed { message: "page is gone".into() })]));
+        let engine = engine(&host, None);
+        let page = PageCtx {
+            inner: engine.inner.clone(),
+            slot: engine.inner.slot("p1"),
+            page_id: "p1".to_owned(),
+            thread: thread(),
+            turn: 1,
+            cancel: CancelSource::new().view(),
+            user_wait: UserWait::new(),
+            timer: Arc::new(CommandTimer::start(0.0)),
+            background: false,
+        };
+        assert_eq!(page.document_revision(&CancellationToken::new()).await, Some(7));
+        assert_eq!(page.document_revision(&CancellationToken::new()).await, None);
+        host.finish().expect("both reads were made");
+    }
+
+    #[tokio::test]
     async fn a_page_the_host_did_not_call_disposable_is_never_closed_by_a_turn_and_an_idle_turn_tells_the_host_nothing() {
         let host = Arc::new(FakeHost::scripted(vec![resolved("p1"), snapshot_answer(), no_downloads()]));
         let engine = engine(&host, None);
@@ -2408,6 +2567,20 @@ mod tests {
         host.finish().expect("no close");
         let told = host.calls().into_iter().filter(|call| call.method == "host/browser/turn").count();
         assert_eq!(told, 1, "only the turn that ran a command ends at the host");
+    }
+
+    #[tokio::test]
+    async fn a_command_that_failed_after_it_ran_carries_its_timing_and_an_invalid_request_none() {
+        let host = Arc::new(FakeHost::scripted(vec![resolved("p1"), Expect::err("host/browser/snapshot", HostCallError::Failed { message: "page is unavailable".into() })]));
+        let engine = engine(&host, None);
+        let failure = engine.run(&thread(), "snapshot", &Map::new(), &CancellationToken::new()).await.expect_err("the snapshot fails");
+        assert_eq!(failure.error.message_for_model, "page is unavailable");
+        let timing = failure.timing.expect("the command held its lane");
+        assert!(timing.command_ms >= 0.0 && timing.command_ms >= timing.snapshot_ms);
+
+        let invalid = json!({"includeScreenshot": true}).as_object().cloned().unwrap_or_default();
+        let failure = engine.run(&thread(), "snapshot", &invalid, &CancellationToken::new()).await.expect_err("an unknown field");
+        assert!(failure.timing.is_none(), "an invalid request never took its place");
     }
 
     #[tokio::test]
@@ -2443,6 +2616,16 @@ mod tests {
         assert!(reply.text.starts_with(&format!("Linked sign-in: a.test used Google.\n\n{note}\n\n")), "{}", reply.text);
         assert!(reply.text.contains("Go"), "{}", reply.text);
         host.finish().expect("the observation was taken again");
+    }
+
+    #[tokio::test]
+    async fn a_page_a_dialog_holds_answers_with_the_dialog_and_the_sign_in_hooks_are_not_asked() {
+        let mut page = page_row("p1", "v1");
+        page["facts"]["pendingDialog"] = json!({"type": "alert", "message": "Sure?", "openedAt": 1, "bridge": false});
+        let host = Arc::new(FakeHost::scripted(vec![Expect::ok("host/browser/pages/resolve", json!({"page": page, "leaseId": "lease-1"}))]));
+        let reply = run(&engine(&host, None), "click", json!({"ref": "e1"})).await.expect("the dialog is the reply");
+        assert!(reply.text.contains("Sure?"), "{}", reply.text);
+        assert!(!host.calls().iter().any(|call| call.method == "host/browser/signIn"), "a page a dialog blocks is not read by the sign-in hooks");
     }
 
     #[tokio::test]

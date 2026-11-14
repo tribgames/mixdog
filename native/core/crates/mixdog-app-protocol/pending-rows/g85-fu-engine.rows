@@ -1,0 +1,57 @@
+# g85-fu-engine: the live observation revision of a page. The visual grounding of a coordinate action (a screenshot x/y) is current only
+# while the page's DOM-change counter is the one the snapshot was stamped with (ref-visual-grounding.ts `visualPoint`: `documents.revision`
+# read now). The engine could not read it without taking a snapshot, which retires the refs the agent holds, so
+# ActionPage::document_revision answered None and the grounding was judged by its age and page alone. This request reads it.
+# The Rust that uses it is mixdog-browser-engine port.rs (`revision`) and runner/runner.rs (`PageCtx::document_revision`); the desktop side
+# is apps/desktop/src/main/host/browser-engine/snapshot.ts (`host/browser/revision`, done). The crate does not compile until these edits
+# are applied (it also needs the rows of g75-fu-engine-live).
+
+[methods]
+# none (host methods are server requests)
+
+[server_requests]
+Beside HostBrowserSnapshot (after it):
+
+    /// The observation revision of a page now (the DOM-change counter summed over its frames), read without a snapshot.
+    HostBrowserRevision => "host/browser/revision" {
+        params: HostBrowserRevisionParams,
+        result: HostBrowserRevisionResult,
+        requires: Some("host.browserEngine"),
+    },
+
+[notifications]
+# none
+
+[inventory]
+# none
+
+[free_text]
+# none (the result carries a number and the revision string, no model text)
+
+[type_edits]
+# file: native/core/crates/mixdog-app-protocol/src/v2/browser_engine.rs
+# After HostBrowserSnapshotResult add (derives and attrs exactly as HostBrowserSnapshotResult: Debug, Clone, PartialEq, Serialize,
+# Deserialize, schemars::JsonSchema and ts_rs::TS under `codegen`, camelCase, ts(optional_fields)):
+
+    /// `host/browser/revision`.
+    pub struct HostBrowserRevisionParams {
+        pub page_id: String,
+    }
+
+    /// `revision` is the number a snapshot answers as its `revision` (the sum of every frame's DOM-change counter); `observation` is the
+    /// whole revision string, as a snapshot answers it.
+    pub struct HostBrowserRevisionResult {
+        pub revision: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub observation: Option<String>,
+        pub facts: PageFacts,
+    }
+
+# After the change the generated schema files and packages/protocol/src/index.ts carry the two types and the client method table the
+# request.
+
+[remove]
+# none
+
+[window]
+# none (host/* requests are served by the desktop host, not a window method)

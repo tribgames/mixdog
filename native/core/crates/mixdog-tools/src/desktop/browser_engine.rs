@@ -17,15 +17,19 @@ use base64::engine::general_purpose::STANDARD;
 use mixdog_browser_engine::actions::registry::is_action;
 use mixdog_browser_engine::reply::reply::ToolReply;
 use mixdog_browser_engine::runner::runner::BrowserEngine;
+use mixdog_browser_engine::runner::runner::CommandFailure;
+use mixdog_core_api::CoreError;
 use mixdog_core_api::HostCapability;
 use mixdog_core_api::HostChannel;
-use mixdog_core_api::domain::tool::ToolError;
+use mixdog_core_api::HostError;
 use mixdog_protocol::JsonValue;
 use mixdog_protocol::ThreadId;
 use mixdog_rt::CancellationToken;
 use serde_json::Map;
 use serde_json::Value;
 
+use super::host::BrowserCommandClock;
+use super::host::BrowserTimingLog;
 use super::host::ChannelHostCommands;
 use super::host::HOST_COMMAND_FAILED;
 use super::host::HostCommandError;
@@ -36,12 +40,19 @@ pub struct EngineHostCommands {
     forward: Arc<ChannelHostCommands>,
     engine: Arc<BrowserEngine>,
     channel: Arc<dyn HostChannel>,
+    timing: Option<BrowserTimingLog>,
 }
 
 impl EngineHostCommands {
     /// `forward` carries what the engine does not run, `channel` says whether the connected desktop serves the engine.
     pub fn new(forward: Arc<ChannelHostCommands>, engine: Arc<BrowserEngine>, channel: Arc<dyn HostChannel>) -> Arc<Self> {
-        Arc::new(Self { forward, engine, channel })
+        Arc::new(Self { forward, engine, channel, timing: None })
+    }
+
+    /// Also hands the `browser_timing` row of each command the engine runs to `timing`, as [`ChannelHostCommands::with_timing`] does
+    /// for the commands it sends: a command that failed carries the timing of the part that ran.
+    pub fn with_timing(forward: Arc<ChannelHostCommands>, engine: Arc<BrowserEngine>, channel: Arc<dyn HostChannel>, timing: BrowserTimingLog) -> Arc<Self> {
+        Arc::new(Self { forward, engine, channel, timing: Some(timing) })
     }
 
     fn runs_in_engine(&self, action: &str) -> bool {
@@ -65,13 +76,25 @@ fn reply_value(reply: ToolReply) -> Value {
     Value::Object(value)
 }
 
-/// A failed command as the host's refusal of it: the tool words it with `Error: ` as it did the host's own message. A command
-/// the caller's token ended is cancelled, whichever way the engine worded it.
-fn command_failure(error: ToolError, cancel: &CancellationToken) -> HostCommandError {
+/// A failed command as the host's refusal of it: the tool words it with `Error: ` as it did the host's own message, and the
+/// refusal carries the timing of the part that ran. A command the caller's token ended is cancelled, whichever way the engine
+/// worded it.
+fn command_failure(failure: CommandFailure, cancel: &CancellationToken) -> HostCommandError {
     if cancel.is_cancelled() {
         return HostCommandError::Cancelled;
     }
-    HostCommandError::Rpc { code: HOST_COMMAND_FAILED, message: error.message_for_model, timing: None }
+    let timing = failure.timing.and_then(|timing| serde_json::to_value(timing).ok());
+    HostCommandError::Rpc { code: HOST_COMMAND_FAILED, message: failure.error.message_for_model, timing }
+}
+
+/// What the `browser_timing` row reads of an answer, in the shape the host channel gives one: a result's `timing`, a refusal's
+/// `data.timing`, and a cancelled command with no body.
+fn row_answer(answer: &Result<JsonValue, HostCommandError>) -> Result<&JsonValue, HostError> {
+    match answer {
+        Ok(value) => Ok(value),
+        Err(HostCommandError::Rpc { code, message, timing }) => Err(HostError::Rpc { code: *code, message: message.clone(), data: timing.as_ref().map(|timing| serde_json::json!({ "timing": timing })) }),
+        Err(HostCommandError::Cancelled | HostCommandError::NoHost) => Err(HostError::Core(CoreError::CapabilityUnavailable { capability: "desktopHost".into(), detail: "cancelled".into() })),
+    }
 }
 
 #[async_trait]
@@ -82,10 +105,16 @@ impl HostCommands for EngineHostCommands {
         }
         let empty = Map::new();
         let fields = input.as_object().unwrap_or(&empty);
-        match self.engine.run(thread, action, fields, cancel).await {
+        let turn_id = self.timing.as_ref().and_then(|_| fields.get("turn_id").cloned());
+        let clock = BrowserCommandClock::start(self.timing.as_ref());
+        let answer = match self.engine.run(thread, action, fields, cancel).await {
             Ok(reply) => Ok(reply_value(reply)),
-            Err(error) => Err(command_failure(error, cancel)),
+            Err(failure) => Err(command_failure(failure, cancel)),
+        };
+        if let Some(clock) = clock {
+            clock.stop(thread, action, turn_id, row_answer(&answer));
         }
+        answer
     }
 
     async fn visualize(&self, thread: &ThreadId, cwd: &str, action: &str, input: JsonValue, cancel: &CancellationToken) -> Result<JsonValue, HostCommandError> {
@@ -103,6 +132,7 @@ mod tests {
     use mixdog_browser_engine::ApprovalPort;
     use mixdog_browser_engine::BlobPort;
     use mixdog_browser_engine::FilePort;
+    use mixdog_browser_engine::HostCallError;
     use mixdog_browser_engine::TakeoverPort;
     use mixdog_browser_engine::approval::classify::ActionPolicy;
     use mixdog_browser_engine::fake::Expect;
@@ -117,8 +147,7 @@ mod tests {
     use mixdog_browser_engine::types::FileFacts;
     use mixdog_browser_engine::types::TakeoverGuard;
     use mixdog_browser_policy::url_policy::UrlPolicy;
-    use mixdog_core_api::CoreError;
-    use mixdog_core_api::HostError;
+    use mixdog_core_api::domain::tool::ToolError;
     use mixdog_core_api::ids::Method;
     use serde_json::json;
 
@@ -285,6 +314,30 @@ mod tests {
         assert_eq!(error, HostCommandError::Rpc { code: HOST_COMMAND_FAILED, message: "a person has this session".to_owned(), timing: None });
         let text = crate::desktop::host::command_error(crate::desktop::host::BROWSER_UNAVAILABLE, error).message_for_model;
         assert_eq!(text, "Error: a person has this session");
+    }
+
+    #[tokio::test]
+    async fn a_command_that_failed_hands_its_row_the_timing_of_the_part_that_ran_and_the_refusal_carries_it() {
+        let channel = Channel::new(true);
+        let row = json!({"pageId": "p1", "tabId": "v1", "sessionId": "s1", "background": false, "facts": page_facts("p1", 1)});
+        let host = Arc::new(FakeHost::scripted(vec![
+            Expect::ok("host/browser/pages/resolve", json!({"page": row, "leaseId": "lease-1"})),
+            Expect::err("host/browser/snapshot", HostCallError::Failed { message: "page is unavailable".into() }),
+        ]));
+        let rows: Arc<Mutex<Vec<Map<String, Value>>>> = Arc::default();
+        let log: BrowserTimingLog = {
+            let rows = rows.clone();
+            Arc::new(move |args| rows.lock().unwrap().push(args))
+        };
+        let commands = EngineHostCommands::with_timing(ChannelHostCommands::new(channel.clone()), engine(&host, None), channel.clone(), log);
+        let error = commands.browser(&ThreadId::from("s1"), "snapshot", json!({}), &CancellationToken::new()).await.expect_err("the snapshot fails");
+        let HostCommandError::Rpc { message, timing: Some(timing), .. } = error else { panic!("a refusal with its timing: {error:?}") };
+        assert_eq!(message, "page is unavailable");
+        assert!(timing["commandMs"].is_number(), "{timing}");
+        let rows = rows.lock().unwrap();
+        assert_eq!(rows.len(), 1, "one row for the command");
+        assert_eq!((rows[0]["body"]["ok"].as_bool(), &rows[0]["body"]["timing"], rows[0]["status"].as_i64()), (Some(false), &timing, Some(200)));
+        assert_eq!(rows[0]["context"]["action"], "snapshot");
     }
 
     #[tokio::test]

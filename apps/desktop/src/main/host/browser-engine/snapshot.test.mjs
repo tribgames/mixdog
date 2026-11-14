@@ -107,6 +107,7 @@ function harness({ cdpFails = false, destroyed = false, answer = () => ({ ok: tr
       return true;
     },
   });
+  const liveRevision = { value: 'origin:4:800:600:0:0:7:0:0|origin:2:800:600:0:0:5:0:0' };
   const capture = createBrowserSnapshotCapture({
     evaluate,
     cdp,
@@ -115,7 +116,7 @@ function harness({ cdpFails = false, destroyed = false, answer = () => ({ ok: tr
     snapshotTextLimit,
     nextSnapshotId: () => `p1-s${++state.snapshotGeneration}`,
     documentGeneration: () => state.documentGeneration,
-    revision: async () => 'origin:4:800:600:0:0:7:0:0|origin:2:800:600:0:0:5:0:0',
+    revision: async () => liveRevision.value,
     accessibilityRefs: slot('accessibilityRefs'),
     refSets: slot('refSet'),
     maxElements: 160,
@@ -126,6 +127,7 @@ function harness({ cdpFails = false, destroyed = false, answer = () => ({ ok: tr
       commands.push(command);
       return capture.captureSnapshotPayload(target, command, signal);
     },
+    revision: async () => liveRevision.value,
     evaluate,
   };
   const ctx = {
@@ -139,7 +141,7 @@ function harness({ cdpFails = false, destroyed = false, answer = () => ({ ok: tr
   registerSnapshot(connection, ctx, host);
   registerRefCall(connection, ctx, host);
   const call = (method, params) => handlers.get(method)(params, new AbortController().signal);
-  return { call, state, cdpCalls, commands, evaluations };
+  return { call, state, cdpCalls, commands, evaluations, liveRevision };
 }
 
 test('the payload is the one the in-process builder gives for the recorded trees, with secrets masked and no tree sent', async () => {
@@ -367,4 +369,17 @@ test('a ref of a DOM-fallback snapshot is called through the page; a page-side f
   assert.deepEqual((await call()).exception, { text: 'x is not a function' });
   answer = { ok: false, text: 'stale ref' };
   await assert.rejects(call(), (error) => error.code === -32013);
+});
+
+test('the live revision is read without a capture and is the number a snapshot answers', async () => {
+  const h = harness();
+  const snapshot = await h.call('host/browser/snapshot', { pageId: 'p1', mode: 'full' });
+  const before = h.commands.length;
+  const live = await h.call('host/browser/revision', { pageId: 'p1' });
+  assert.equal(live.revision, snapshot.revision);
+  assert.equal(live.observation, 'origin:4:800:600:0:0:7:0:0|origin:2:800:600:0:0:5:0:0');
+  assert.equal(h.commands.length, before, 'no snapshot was taken, so no ref the agent holds was retired');
+  h.liveRevision.value = 'origin:5:800:600:0:0:9:0:0|origin:2:800:600:0:0:5:0:0';
+  assert.equal((await h.call('host/browser/revision', { pageId: 'p1' })).revision, 14);
+  assert.equal(live.facts.pageId, 'p1');
 });
