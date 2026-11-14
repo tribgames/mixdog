@@ -166,6 +166,14 @@ impl SessionHandle {
         self.deps.user_cwd.explicit_cwd(scoped).await
     }
 
+    /// Today's `captureOriginalUserCwd()` inside this session's scope: the explicit cwd, then
+    /// `MIXDOG_PROJECT_DIR`, then the process cwd. Relative paths and the prompt's env cwd resolve here.
+    pub async fn captured_cwd(&self) -> Result<Option<String>, CoreError> {
+        let header = self.cell.header.load_full();
+        let scoped = header.get("cwd").and_then(Value::as_str);
+        self.deps.user_cwd.captured_cwd(scoped).await
+    }
+
     /// Today's `readLastSessionCwd(keyPid)`.
     pub async fn last_cwd(&self, key_pid: Option<&str>) -> Result<Option<String>, CoreError> {
         self.deps.user_cwd.last_cwd(key_pid).await
