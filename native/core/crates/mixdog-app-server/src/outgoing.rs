@@ -24,6 +24,7 @@ use std::time::Instant;
 use async_trait::async_trait;
 use bytes::Bytes;
 use mixdog_app_protocol::RequestId;
+use mixdog_app_protocol::error::METHOD_NOT_FOUND;
 use mixdog_app_protocol::v1::HostCapabilities;
 use mixdog_core_api::ConnectionNotifier;
 use mixdog_core_api::CoreError;
@@ -430,7 +431,7 @@ const UNSUPPORTED_METHOD: &str = "unsupportedMethod";
 /// A claimant's method-not-found answer (-32601) is the same failure as a method it did not list.
 fn method_not_found(reply: Result<Value, HostError>) -> Result<Value, HostError> {
     match reply {
-        Err(HostError::Rpc { code: -32601, .. }) => Err(desktop_host_unavailable(UNSUPPORTED_METHOD).into()),
+        Err(HostError::Rpc { code: METHOD_NOT_FOUND, .. }) => Err(desktop_host_unavailable(UNSUPPORTED_METHOD).into()),
         other => other,
     }
 }

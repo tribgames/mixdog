@@ -3,6 +3,9 @@
 [notifications]
 [inventory]
 [free_text]
+# tests/it/free_text_fields.json: class refused (the core compares each entry with the method it routes), in the class
+# that holds "request host/claim /hostId":
+#   request host/claim /serves/*
 [type_edits]
 file: native/core/crates/mixdog-app-protocol/src/v2/host.rs
 struct: HostClaimParams
