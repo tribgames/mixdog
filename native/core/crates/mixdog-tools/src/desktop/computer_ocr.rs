@@ -116,7 +116,7 @@ pub(super) fn augment(frames: &FrameStore, capture: &Capture, result: &Map<Strin
     // Set-of-marks and state modes list the words as elements after the accessibility marks; the other modes owe the words themselves.
     let first_mark = matches!(capture.mode, "som" | "state").then_some(shown.max_mark + 1);
     if let Some(first) = first_mark {
-        let marks = words.iter().enumerate().map(|(index, word)| (first + index as i64, OcrMark { x: word.center_x, y: word.center_y })).collect();
+        let marks = words.iter().enumerate().map(|(index, word)| (first + index as i64, OcrMark { x: word.center_x, y: word.center_y, bounds: [word.x, word.y, word.width, word.height] })).collect();
         frames.remember_marks(frame, marks);
     }
     let count = |key: &str| reply.get(key).and_then(Value::as_f64).unwrap_or(0.0) as i64;

@@ -74,11 +74,9 @@ const OBSERVATION_ACTIONS: [&str; 5] = ["list", "diagnose", "capture", "verify",
 /// The refusals that happen before any input is dispatched and end in "capture the exact window again".
 const RECAPTURE_CODES: [&str; 2] = ["stale_target", "stale_frame"];
 
-/// The stored image bytes of a digest the host named in its reply (`imageBlob`), supplied by the core's blob store.
-#[async_trait]
-pub trait ComputerBlobs: Send + Sync {
-    async fn read(&self, digest: &str) -> Result<Vec<u8>, ComputerError>;
-}
+/// The stored image bytes of a digest the host named in its reply (`imageBlob`), supplied by the core's blob store: the one
+/// reading the display captures use.
+pub use super::computer_pixels::ComputerBlobs;
 
 /// One reply of the host, validated.
 struct HostReply {

@@ -19,6 +19,7 @@
 use std::sync::Arc;
 
 use mixdog_core_api::domain::approval::ApprovalAsk;
+use mixdog_core_api::domain::approval::ApprovalId;
 use mixdog_core_api::ids::ThreadId;
 use serde_json::Value;
 
@@ -33,18 +34,30 @@ pub struct TakeoverHold {
     pub held: bool,
     /// The screen is held: a `computer` takeover, named by the step it waits on (`takeoverStep`).
     pub screen: Option<String>,
+    /// What the held takeover waits on (`takeoverStep`), of either surface: the Browser Use refusal names it.
+    pub step: Option<String>,
+    /// The id of the held takeover's request (`takeover/ready` names the takeover it asks about by it).
+    pub id: Option<String>,
 }
 
 /// What the open requests of one session hold: only `handoff_user` takeover cards count, and a
-/// takeover whose surface is `computer` holds the screen.
-pub(crate) fn takeover_hold<'a>(asks: impl Iterator<Item = &'a ApprovalAsk>) -> TakeoverHold {
+/// takeover whose surface is `computer` holds the screen. The first takeover (by request id) is the one
+/// the hold is named and identified by.
+pub(crate) fn takeover_hold<'a>(asks: impl Iterator<Item = (ApprovalId, &'a ApprovalAsk)>) -> TakeoverHold {
     let mut hold = TakeoverHold::default();
-    for ask in asks {
+    // The oldest request names the hold, whatever order the book lists them in.
+    let mut asks: Vec<_> = asks.collect();
+    asks.sort_by_key(|(id, _)| id.0);
+    for (id, ask) in asks {
         if ask.payload.get("kind").and_then(|kind| kind.as_str()) != Some("takeover") {
             continue;
         }
         hold.held = true;
         let takeover = ask.payload.get("takeover");
+        if hold.step.is_none() {
+            hold.step = Some(takeover_step(takeover));
+            hold.id = Some(id.0.to_string());
+        }
         let surface = takeover.and_then(|takeover| takeover.get("surface")).and_then(|surface| surface.as_str());
         if surface == Some("computer") && hold.screen.is_none() {
             hold.screen = Some(takeover_step(takeover));
@@ -185,7 +198,7 @@ mod tests {
                 match step["do"].as_str().unwrap() {
                     // A copy shown in a parent chat is not in the parent's own book: `copyTo` adds nothing.
                     "takeover" => {
-                        let hold = takeover_hold(std::iter::once(&takeover(step["surface"].as_str().unwrap())));
+                        let hold = takeover_hold(std::iter::once((ApprovalId(1), &takeover(step["surface"].as_str().unwrap()))));
                         holds.0.lock().unwrap().insert(thread, hold);
                     }
                     "resolve" => {
@@ -218,18 +231,33 @@ mod tests {
     fn only_a_takeover_request_holds_and_only_a_screen_takeover_holds_the_screen() {
         let secret = ask(json!({ "kind": "secret", "secret": { "surface": "computer" } }));
         let command = ask(json!({ "command": "ls" }));
-        assert_eq!(takeover_hold([&secret, &command].into_iter()), TakeoverHold::default());
-        assert_eq!(takeover_hold([&secret, &takeover("browser")].into_iter()), TakeoverHold { held: true, screen: None });
-        let screen = Some("a step only the user can do".to_owned());
-        assert_eq!(takeover_hold([&takeover("browser"), &takeover("computer")].into_iter()), TakeoverHold { held: true, screen });
+        assert_eq!(takeover_hold([(ApprovalId(1), &secret), (ApprovalId(2), &command)].into_iter()), TakeoverHold::default());
+        let step = Some("a step only the user can do".to_owned());
+        assert_eq!(
+            takeover_hold([(ApprovalId(1), &secret), (ApprovalId(7), &takeover("browser"))].into_iter()),
+            TakeoverHold { held: true, screen: None, step: step.clone(), id: Some("7".to_owned()) }
+        );
+        // The oldest takeover names the hold, whatever order the book lists them in.
+        assert_eq!(
+            takeover_hold([(ApprovalId(9), &takeover("computer")), (ApprovalId(4), &takeover("browser"))].into_iter()),
+            TakeoverHold { held: true, screen: step.clone(), step, id: Some("4".to_owned()) }
+        );
         assert_eq!(takeover_hold(std::iter::empty()), TakeoverHold::default());
+    }
+
+    /// A browser takeover is named by its step too: the Browser Use refusal says what the person was asked to do.
+    #[test]
+    fn a_browser_takeover_is_named_by_its_step() {
+        let card = ask(json!({ "kind": "takeover", "takeover": { "surface": "browser", "target": "the captcha" } }));
+        let hold = takeover_hold(std::iter::once((ApprovalId(3), &card)));
+        assert_eq!((hold.screen, hold.step.as_deref(), hold.id.as_deref()), (None, Some("step \"the captcha\""), Some("3")));
     }
 
     /// A screen takeover is named as `takeoverStep` names it: a sign-in's site, else its target, else its
     /// instructions, on one line and cut to 160 characters.
     #[test]
     fn a_screen_takeover_is_named_by_its_step() {
-        let step = |takeover: Value| takeover_hold(std::iter::once(&ask(json!({ "kind": "takeover", "takeover": takeover })))).screen;
+        let step = |takeover: Value| takeover_hold(std::iter::once((ApprovalId(1), &ask(json!({ "kind": "takeover", "takeover": takeover }))))).screen;
         let named = |text: &str| Some(format!("step \"{text}\""));
         assert_eq!(step(json!({ "surface": "computer", "target": " \n ", "instructions": "  Confirm\n the\tdialog " })), named("Confirm the dialog"));
         assert_eq!(step(json!({ "surface": "computer", "target": "the dialog", "instructions": "x" })), named("the dialog"));
@@ -267,7 +295,7 @@ mod tests {
         book.insert(ApprovalBook::request(aid, &thread, &Lineage::top_level(&thread), card, 0), TurnId::from("r1".to_owned()), None);
         let observed = case["observed"].as_array().unwrap();
         let state = |book: &ApprovalBook| {
-            let holds = Arc::new(Holds(Mutex::new(HashMap::from([("T".to_owned(), takeover_hold(book.open_asks()))]))));
+            let holds = Arc::new(Holds(Mutex::new(HashMap::from([("T".to_owned(), takeover_hold(book.open_requests()))]))));
             let gates = TakeoverGates::new(holds.clone(), Arc::new(HumanOnlyLock::new(holds)));
             (gates.browser_free(&thread), gates.computer_free())
         };

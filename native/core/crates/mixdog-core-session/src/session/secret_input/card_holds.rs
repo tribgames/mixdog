@@ -1,5 +1,6 @@
 //! The holds the core takes on the one human-only lock ([`super::HumanOnlyLock`]) for the cards it raises that only the
-//! person may answer: a browser approval (`item/browser/requestApproval`), a screen takeover and a secret request. Until
+//! person may answer: a browser approval (`item/browser/requestApproval`) and a screen takeover. A secret request takes no hold:
+//! Node never held the lock for one, so Computer Use is never refused for it. Until
 //! the card is answered Computer Use refuses every new operation with the lock's text, exactly as the desktop's own
 //! `withHumanOnlyApproval` hold did (`host/humanOnly/begin`), and no connection can free it by naming its id.
 //!
@@ -28,8 +29,6 @@ pub enum HumanOnlyCard {
     BrowserApproval,
     /// A screen takeover the person was shown a card for.
     ScreenTakeover,
-    /// A human-gate `secret` request.
-    SecretRequest,
 }
 
 impl HumanOnlyCard {
@@ -39,7 +38,6 @@ impl HumanOnlyCard {
         match self {
             Self::BrowserApproval => "",
             Self::ScreenTakeover => "the user has the screen for a takeover and was shown a card for it; try again once it ends",
-            Self::SecretRequest => "a secret request card",
         }
     }
 }
