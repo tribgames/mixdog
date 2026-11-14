@@ -320,23 +320,19 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
                 "UPPER" => text(s.to_uppercase()),
                 "TRIM" => text(
                     mixdog_js::js_trim(
-                        &mixdog_js::regex::JsRegex::new_static(r"\s+", "g")
+                        &mixdog_js::JsRegex::new_static(r"\s+", "g")
                             .replace_all_with(&s, |_| " ".into()),
                     )
                     .into(),
                 ),
                 _ => text(
-                    mixdog_js::regex::JsRegex::new_static(r"\w\S*", "g").replace_all_with(
-                        &s,
-                        |c| {
-                            let t = c.get(0).unwrap_or("");
-                            let mut chars = t.chars();
-                            chars.next().map_or(String::new(), |f| {
-                                f.to_uppercase().collect::<String>()
-                                    + &chars.as_str().to_lowercase()
-                            })
-                        },
-                    ),
+                    mixdog_js::JsRegex::new_static(r"\w\S*", "g").replace_all_with(&s, |c| {
+                        let t = c.get(0).unwrap_or("");
+                        let mut chars = t.chars();
+                        chars.next().map_or(String::new(), |f| {
+                            f.to_uppercase().collect::<String>() + &chars.as_str().to_lowercase()
+                        })
+                    }),
                 ),
             }
         }
@@ -392,7 +388,35 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
             {
                 return Err(Failure::thrown("Invalid array length"));
             }
-            text(string(&x).unwrap().repeat(n.max(0.0) as usize))
+            let source = string(&x).map_err(|e| Failure::thrown(e.message()))?;
+            let repeats = n.max(0.0) as usize;
+            // new Array(n + 1).join(text) bounds the resulting UTF-16 length,
+            // not UTF-8 bytes, before creating the string. This is the original
+            // 64-bit Node/Electron V8 maximum, also recorded by the fixture.
+            const MAX_STRING_UNITS: usize = (1usize << 29) - 24;
+            let units = source
+                .encode_utf16()
+                .count()
+                .checked_mul(repeats)
+                .ok_or_else(|| Failure::thrown("Invalid string length"))?;
+            if units > MAX_STRING_UNITS {
+                return Err(Failure::thrown("Invalid string length"));
+            }
+            if source.is_empty() || repeats == 0 {
+                return text(String::new());
+            }
+            let bytes = source
+                .len()
+                .checked_mul(repeats)
+                .ok_or_else(|| Failure::thrown("Invalid string length"))?;
+            let mut output = String::new();
+            output
+                .try_reserve_exact(bytes)
+                .map_err(|_| Failure::thrown("Invalid string length"))?;
+            for _ in 0..repeats {
+                output.push_str(&source);
+            }
+            text(output)
         }
         "NUMBERVALUE" => {
             let x = if is_defined(&x) {
@@ -601,9 +625,9 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
                 return err(E::Value);
             };
             let percent = s.starts_with('%') || s.ends_with('%');
-            let first = mixdog_js::regex::JsRegex::new_static(r"^[^0-9-]{0,3}", "")
+            let first = mixdog_js::JsRegex::new_static(r"^[^0-9-]{0,3}", "")
                 .replace_all_with(&s, |_| String::new());
-            let last = mixdog_js::regex::JsRegex::new_static(r"[^0-9]{0,3}$", "")
+            let last = mixdog_js::JsRegex::new_static(r"[^0-9]{0,3}$", "")
                 .replace_all_with(&first, |_| String::new());
             let n = mixdog_js::string_to_number(&last.replace([' ', ','], ""));
             if n.is_nan() {

@@ -16,35 +16,60 @@ pub use exports::FUNCTIONS;
 fn column(v: &V) -> &[V] {
     if let V::Array(v) = v { v } else { &[] }
 }
+fn primitive(value: &V) -> V {
+    match value {
+        // JavaScript addition uses the default hint: arrays/errors stringify,
+        // and Date's default primitive is also a string (not its milliseconds).
+        V::Array(_) | V::Date(_) | V::Error(_) => V::Text(to_js_string(value)),
+        other => other.clone(),
+    }
+}
 fn add(a: V, b: &V) -> V {
+    let a = primitive(&a);
+    let b = primitive(b);
     if matches!(a, V::Text(_)) || matches!(b, V::Text(_)) {
-        V::Text(to_js_string(&a) + &to_js_string(b))
+        V::Text(to_js_string(&a) + &to_js_string(&b))
     } else {
-        V::Number(to_js_number(&a) + to_js_number(b))
+        V::Number(to_js_number(&a) + to_js_number(&b))
     }
 }
 fn less(a: &V, b: &V) -> bool {
-    match (a, b) {
-        (V::Text(x), V::Text(y)) => compare_utf16(x, y).is_lt(),
-        _ => to_js_number(a) < to_js_number(b),
+    let number_hint = |v: &V| match v {
+        V::Date(ms) => V::Number(*ms),
+        other => primitive(other),
+    };
+    match (number_hint(a), number_hint(b)) {
+        (V::Text(x), V::Text(y)) => compare_utf16(&x, &y).is_lt(),
+        (a, b) => to_js_number(&a) < to_js_number(&b),
     }
 }
 fn sum(a: &[V]) -> V {
-    let mut n = 0.0;
-    for v in flatten(a) {
-        match v {
-            V::Error(e) => return V::Error(e),
-            V::Number(x) => n += x,
-            V::Text(s) => {
-                let x = parse_float(&s);
-                if !x.is_nan() {
-                    n += x
+    // SUM recursively totals each nested array before adding that subtotal to
+    // its parent. Flattening changes IEEE-754 rounding and error traversal.
+    let mut stack = vec![(a.iter(), 0.0)];
+    loop {
+        let (items, subtotal) = stack.last_mut().expect("SUM frame");
+        match items.next() {
+            Some(V::Error(e)) => return V::Error(*e),
+            Some(V::Number(n)) => *subtotal += n,
+            Some(V::Text(s)) => {
+                let n = parse_float(s);
+                if !n.is_nan() {
+                    *subtotal += n;
                 }
             }
-            _ => {}
+            Some(V::Array(items)) => stack.push((items.iter(), 0.0)),
+            Some(_) => {}
+            None => {
+                let (_, subtotal) = stack.pop().expect("SUM frame");
+                if let Some((_, parent)) = stack.last_mut() {
+                    *parent += subtotal;
+                } else {
+                    return V::Number(subtotal);
+                }
+            }
         }
     }
-    V::Number(n)
 }
 fn run(name: &str, a: &[V]) -> Result<V, Failure> {
     let (database, field, criteria) = (arg(a, 0), arg(a, 1), arg(a, 2));
