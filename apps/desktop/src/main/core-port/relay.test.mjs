@@ -72,11 +72,14 @@ harness.refuse = false;
 test('open_pipes_both_ways', async () => {
   const { relay, sockets, ports, headers } = harness();
   const wc = webContents();
-  await relay.open(wc);
+  const { generation } = await relay.open(wc);
   assert.equal(wc.delivered[0].channel, CORE_PORT_CHANNEL);
+  assert.deepEqual(wc.delivered[0].message, { generation, slot: 'primary', role: 'main', target: 'local' });
   assert.equal(wc.delivered[0].transfer.length, 1);
   assert.equal(headers[0].Authorization, 'Bearer tok');
   assert.equal(headers[0]['Mixdog-Window'], windowIdFor(wc));
+  assert.match(windowIdFor(wc), /^[0-9a-f-]{36}$/);
+  assert.notEqual(windowIdFor(webContents(1)), windowIdFor(wc));
   sockets[0].emit('message', Buffer.from('from-core'), false);
   assert.deepEqual(ports[0].posted, ['from-core']);
   ports[0].emit('message', { data: 'from-window' });
@@ -88,8 +91,10 @@ test('open_pipes_both_ways', async () => {
 test('reopen_closes_previous_generation', async () => {
   const { relay, sockets, ports } = harness();
   const wc = webContents();
-  await relay.open(wc);
-  await relay.open(wc);
+  const first = await relay.open(wc);
+  const second = await relay.open(wc);
+  assert.ok(second.generation > first.generation);
+  assert.equal(wc.delivered[1].message.generation, second.generation);
   assert.equal(sockets[0].closed.reason, 'superseded');
   assert.equal(ports[0].isClosed, true);
   assert.equal(sockets[1].closed, null);
@@ -97,11 +102,24 @@ test('reopen_closes_previous_generation', async () => {
 });
 
 test('socket_close_posts_closed', async () => {
-  const { relay, sockets, ports } = harness();
+  const { relay, sockets, ports, logs } = harness();
   await relay.open(webContents());
   sockets[0].emit('close', 1006, Buffer.from('gone'));
   assert.deepEqual(ports[0].posted, [{ t: 'closed', code: 1006, reason: 'gone' }]);
   assert.equal(ports[0].isClosed, true);
+  assert.ok(logs.some((line) => line.includes('core socket closed') && line.includes('code=1006')));
+});
+
+test('an open superseded before its port is delivered rejects and delivers nothing', async () => {
+  const { relay, sockets, ports } = harness();
+  const wc = webContents();
+  const stale = relay.open(wc);
+  const fresh = relay.open(wc);
+  await assert.rejects(stale, /superseded/);
+  const { generation } = await fresh;
+  assert.deepEqual(wc.delivered.map((d) => d.message.generation), [generation]);
+  assert.equal(sockets.length, 1);
+  assert.equal(ports.length, 1);
 });
 
 test('port_close_closes_socket', async () => {
