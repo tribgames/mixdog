@@ -238,7 +238,6 @@ fn arg_line(args: &Value, key: &str) -> String {
 /// (under `phase`, default `Tasks`) or as named `phases` of `items`. `done` says how many of its leading steps are
 /// already finished, for a plan set again part-way through.
 fn set_list(args: &Value, now_ms: i64) -> Result<TodoList, String> {
-    let named: Vec<(String, &Vec<Value>)>;
     let source: Vec<(String, &Vec<Value>)> = match (args.get("phases"), args.get("items")) {
         (Some(Value::Array(phases)), _) if !phases.is_empty() => {
             let mut out = Vec::with_capacity(phases.len());
@@ -257,8 +256,7 @@ fn set_list(args: &Value, now_ms: i64) -> Result<TodoList, String> {
         }
         (_, Some(Value::Array(items))) if !items.is_empty() => {
             let phase = arg_line(args, "phase");
-            named = vec![(if phase.is_empty() { DEFAULT_TODO_PHASE.to_owned() } else { phase }, items)];
-            named
+            vec![(if phase.is_empty() { DEFAULT_TODO_PHASE.to_owned() } else { phase }, items)]
         }
         _ => return Err("todo: set requires items or phases".to_owned()),
     };
