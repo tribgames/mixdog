@@ -145,7 +145,13 @@ export function registerEngineMethod(
     const facts = () => ctx.events.facts(pageId);
     if (expect !== undefined && expect !== null) {
       if (!isPlainObject(expect)) throw new HostRpcError(HOST_INVALID_PARAMS, `${method} expect must be an object.`);
-      checkPrecondition(expect as unknown as Precondition, page, facts);
+      try {
+        checkPrecondition(expect as unknown as Precondition, page, facts);
+      } catch (error) {
+        // The refusal carries the facts: the events they count go out first.
+        ctx.events.flush(pageId);
+        throw error;
+      }
     }
     const call: EnginePageCall = {
       ...page,

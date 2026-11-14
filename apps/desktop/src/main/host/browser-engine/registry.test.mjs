@@ -72,6 +72,7 @@ test('a stale expect is -32010 with the facts, before the handler runs', async (
     (e) => e.code === -32010 && e.data.reason === 'document' && e.data.facts.pageId === 'p1'
   );
   assert.equal(ran, false);
+  assert.deepEqual(h.log, ['flush p1']);
   const fresh = await h.call('host/browser/x', { pageId: 'p1', expect: { documentId: 'p1:1' } });
   assert.deepEqual(Object.keys(fresh), ['facts']);
 });
