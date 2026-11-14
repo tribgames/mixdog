@@ -4,6 +4,10 @@ export interface CoreState {
   blocked?: unknown;
   /** The process the discovery names: one that no longer runs names no core. */
   pid?: number | null;
+  /** The control listener's port (`core.control.port`): what `pingCore` asks. */
+  controlPort?: number | null;
+  /** The session token (`endpoints.session.token`) the control listener takes. */
+  token?: string | null;
 }
 export interface EnsureCoreOptions {
   /** Whether a process still runs (the real check outside a test). */

@@ -92,7 +92,7 @@ test('a core that answers again before the bound is not killed, and a core this 
     readDiscovery: async () => ({ state: 'serving', rpcPort: 1, pid: 100, controlPort: 1, token: 't' }),
     ownedPid: () => owned,
     ping: async () => {
-      const ok = answers[step++];
+      const ok = answers[step++] ?? false;
       if (step === answers.length) watcher.stop();
       return ok;
     },
@@ -102,7 +102,7 @@ test('a core that answers again before the bound is not killed, and a core this 
     runs: () => true,
   });
   await watcher.done;
-  assert.deepEqual(killed, []);
+  assert.equal(killed.length, 0);
 
   owned = 999;
   let asked = 0;
