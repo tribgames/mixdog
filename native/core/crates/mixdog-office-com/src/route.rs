@@ -1,12 +1,18 @@
 //! Which host program serves a format: Windows PowerShell with the embedded scripts, or the Rust host, which is the
 //! service binary started as `<program> office-com-host` (one-shot) or `<program> office-com-host --session`, with the
 //! same stdio line protocol. The list of formats the Rust host serves is code, not configuration; a format that is
-//! not on it, and a payload with no format, go to PowerShell.
+//! not on it, and a payload with no format, go to PowerShell. A one-shot `detect`, whatever format it probes, goes
+//! where `docx` goes.
 
 use std::ffi::OsString;
 
-/// The formats served by the Rust host. Empty until the Rust host implements one; `detect` follows `docx`.
+use serde_json::Value;
+
+/// The formats served by the Rust host. Empty until the Rust host implements one.
 pub(crate) const RUST_HOST_FORMATS: &[&str] = &[];
+
+/// The format whose host serves `detect`.
+const DETECT_FOLLOWS: &str = "docx";
 
 /// The first argument of the Rust host, for both kinds of host.
 const HOST_ARG: &str = "office-com-host";
@@ -20,6 +26,15 @@ pub(crate) fn serves<'a>(list: impl IntoIterator<Item = &'a str>, format: Option
         return false;
     };
     list.into_iter().any(|served| served.eq_ignore_ascii_case(format))
+}
+
+/// The format a one-shot payload is routed by: its `format`, or [`DETECT_FOLLOWS`] for `detect` (the action compared
+/// as the host compares it, case-insensitive).
+pub(crate) fn one_shot_format(payload: &Value) -> Option<&str> {
+    if payload.get("action").and_then(Value::as_str).is_some_and(|action| action.eq_ignore_ascii_case("detect")) {
+        return Some(DETECT_FOLLOWS);
+    }
+    payload.get("format").and_then(Value::as_str)
 }
 
 /// The arguments the Rust host program is started with.
@@ -49,6 +64,14 @@ mod tests {
         for format in ["docx", "xlsx", "pptx"] {
             assert!(!serves(RUST_HOST_FORMATS.iter().copied(), Some(format)));
         }
+    }
+
+    #[test]
+    fn detect_is_routed_by_the_docx_entry() {
+        assert_eq!(one_shot_format(&serde_json::json!({"action": "detect", "format": "xlsx"})), Some("docx"));
+        assert_eq!(one_shot_format(&serde_json::json!({"action": "Detect", "format": "pptx"})), Some("docx"));
+        assert_eq!(one_shot_format(&serde_json::json!({"action": "snapshot", "format": "xlsx"})), Some("xlsx"));
+        assert_eq!(one_shot_format(&serde_json::json!({"action": "snapshot"})), None);
     }
 
     #[test]
