@@ -1,0 +1,39 @@
+# s3-screen-input -> CORE-WIRE-G7
+
+## native/core/crates/mixdog-tools/src/desktop/mod.rs
+
+Next to `pub mod computer_pixels;` (alphabetical, after `mod computer_screen;` and its `pub use computer_screen::pc_access_helper;`):
+
+    pub mod computer_screen_input;
+
+No Cargo.toml, Cargo.lock or workspace-hack change: the file uses only crates mixdog-tools already depends on (base64, async-trait via
+the tests, mixdog-protocol, mixdog-rt, mixdog-core-api, tokio with sync/time/rt/macros). No new edge between workspace crates.
+No protocol method, so nothing to remove from SERVICE_PENDING (compose_flip.rs).
+
+## Live-view hookup (compose_flip.rs / the compose function that builds the screen session)
+
+`computer_screen_input::ScreenInput` is the process behind the session's input host. Build one per screen session:
+
+    let input = ScreenInput::new(process_manager.clone(), ScreenInputConfig::new(computer_binary.clone(), cwd));
+
+(`computer_binary` is the `mixdog-computer` path the computer backend already resolves; `cwd` is `AbsPath` of the process's current dir, as
+`ProcessComputerBackend::request_for`.) Where the screen session needs its `create_input_host` (`computer_screen/session.rs`
+`SessionDeps::create_input_host`, a `Box<dyn Fn() -> Arc<dyn ScreenHost>>`), an adapter inside the `computer_screen` module (a new
+`impl ScreenHost for ...` there, owned by the task that edits computer_screen.rs; `ScreenHost` is `pub(super)` to that module) maps:
+
+    start()        -> ScreenInput::start()
+    command(Input(op)) -> ScreenInput::apply(&op)  (reply fields: none);  command(Cursor) -> ScreenInput::cursor()  (fields: x, y)
+    desktop()      -> *desktop_watch().borrow()   mapped to LocalDesktop { input_desktop: name, consent, logon_ui }
+    on_desktop     -> a task over desktop_watch().changed()
+    session()      -> ScreenInput::session()
+    on_exit        -> a task over exit_watch().changed()
+    stop()         -> ScreenInput::stop()
+    kill()         -> tokio::spawn(ScreenInput::kill())
+
+Errors: `ScreenInputError.code` is the host error code the session already reads (`host_unavailable`, `host_unresponsive`, ...).
+
+`ScreenGeometry { generation(), to_physical((x, y)) }` is implemented by the screen source of s3-screen-source over its locked pointer
+mapping (`PointerMapping`: `generation`, and the same clamp/round as `map_screen_pointer`); the live view passes that one object to
+`ScreenInput::apply_remote(input, &geometry, viewer_generation, live)` for a phone's input, so stale-geometry input is refused as before.
+When the helper binary is missing (`MIXDOG_COMPUTER_BIN` unset), `ScreenInput::start()` fails with `start_failed`: the wiring reports the
+reason once at error level and leaves phone screen control off; there is no other implementation.
