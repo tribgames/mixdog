@@ -81,11 +81,19 @@ pub struct HostManualCompaction {
     parts: ManualParts,
     /// Per thread and provider: the lowering whose store facts were read for the pressure being recorded.
     prepared: Mutex<HashMap<(String, String), Meters>>,
+    /// The cache warmer's record of when each thread's prompt cache was last used: the idle auto-clear measures idleness from it.
+    warm_uses: Option<Arc<mixdog_ai::warmer::stores::TouchStore>>,
 }
 
 impl HostManualCompaction {
     pub fn new(parts: ManualParts) -> Self {
-        Self { parts, prepared: Mutex::new(HashMap::new()) }
+        Self { parts, prepared: Mutex::new(HashMap::new()), warm_uses: None }
+    }
+
+    /// The warmer's touch store, for [`ManualCompaction::cache_warm_use_at`].
+    pub fn with_warm_uses(mut self, touches: Arc<mixdog_ai::warmer::stores::TouchStore>) -> Self {
+        self.warm_uses = Some(touches);
+        self
     }
 }
 
@@ -473,6 +481,11 @@ impl HostManualCompaction {
 
 #[async_trait]
 impl ManualCompaction for HostManualCompaction {
+    /// `lastCacheWarmUseAt(sessionId)`: the last successful warm that used the thread's prompt cache.
+    fn cache_warm_use_at(&self, thread: &ThreadId) -> f64 {
+        self.warm_uses.as_ref().and_then(|touches| touches.warm_use(thread.as_str())).map_or(0.0, |warm| warm.at as f64)
+    }
+
     async fn compact(&self, thread: &ThreadId, trigger: &str, require_reduction: bool, cancel: &Cancel) -> Result<Option<Value>, CoreError> {
         let Some(snapshot) = self.parts.world.snapshot(Some(thread)).await? else { return Ok(None) };
         let Some(directory) = self.parts.directory.directory() else { return Ok(None) };

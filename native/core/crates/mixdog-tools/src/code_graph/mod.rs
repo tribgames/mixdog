@@ -146,27 +146,23 @@ impl CodeGraphTool {
     /// whole profile is never warmed in the background). `true` when a project was found and its
     /// build ran; a failed build is only a cold first call, as in Node's best-effort warm.
     pub async fn prewarm_if_project(&self, cwd: &std::path::Path, io: mixdog_rt::MaintenanceIo, cancel: &mixdog_rt::CancellationToken) -> bool {
-        let (cwd, cache) = (cwd.to_path_buf(), self.cache.clone());
-        let built = mixdog_scm::repo::on_lane(io, cancel, move || {
-            let root = roots::find_dir_project_root(&cwd, true)?;
-            let _ = graph::Graph::build(&root, &[], &cache);
-            Some(root)
-        })
-        .await;
-        self.cache.schedule_flush(io);
-        matches!(built, Ok(Some(_)))
+        warm_project(self.cache.clone(), cwd.to_path_buf(), io, cancel).await
     }
 
-    /// `mode:'prewarm'` (`_schedulePrewarm`): builds the graph of the project the call's folder belongs to, so the next call
-    /// finds its files in the cache, and describes what was asked. The graph holds every file's symbols, so a symbol list
-    /// asks for the same build as none.
-    async fn prewarm(&self, session_cwd: &std::path::Path, args: &JsonValue, ctx: &ToolContext) -> String {
+    /// `mode:'prewarm'` (`_schedulePrewarm`): queues the build of the project the call's folder belongs to, so the next call
+    /// finds its files in the cache, and describes what was queued at once. The build is no part of the call (the call
+    /// can end, or be cancelled, before it is done), so it runs under a token of its own. The graph holds every file's
+    /// symbols and Rust keeps no separate symbol index to warm, so a symbol list asks for the same build as none.
+    fn prewarm(&self, session_cwd: &std::path::Path, args: &JsonValue, ctx: &ToolContext) -> String {
         let parsed = args::Args::parse(args);
         let cwd = match &parsed.cwd {
             Some(cwd) => roots::abs_from(session_cwd, cwd),
             None => session_cwd.to_path_buf(),
         };
-        self.prewarm_if_project(&cwd, ctx.io.maintenance, &ctx.cancel).await;
+        let (cache, warm_cwd, io) = (self.cache.clone(), cwd.clone(), ctx.io.maintenance);
+        tokio::spawn(async move {
+            warm_project(cache, warm_cwd, io, &mixdog_rt::CancellationToken::new()).await;
+        });
         let symbols = parsed.symbol_list();
         let overflow = if symbols.len() > 5 { format!(",+{}", symbols.len() - 5) } else { String::new() };
         let detail = if symbols.is_empty() { String::new() } else { format!(" ({}{overflow})", symbols[..symbols.len().min(5)].join(",")) };
@@ -207,6 +203,21 @@ impl CodeGraphTool {
     }
 }
 
+/// The build behind [`CodeGraphTool::prewarm_if_project`]: `true` when `cwd` belongs to a project and its build ran.
+async fn warm_project(cache: std::sync::Arc<GraphCache>, cwd: std::path::PathBuf, io: mixdog_rt::MaintenanceIo, cancel: &mixdog_rt::CancellationToken) -> bool {
+    let built = mixdog_scm::repo::on_lane(io, cancel, {
+        let cache = cache.clone();
+        move || {
+            let root = roots::find_dir_project_root(&cwd, true)?;
+            let _ = graph::Graph::build(&root, &[], &cache);
+            Some(root)
+        }
+    })
+    .await;
+    cache.schedule_flush(io);
+    matches!(built, Ok(Some(_)))
+}
+
 #[async_trait]
 impl Tool for CodeGraphTool {
     fn spec(&self) -> &ToolSpec {
@@ -217,7 +228,7 @@ impl Tool for CodeGraphTool {
         let args = guard_args(args).map_err(|message| invalid_args("arguments", message))?;
         let cwd = ctx.cwd.as_path().to_path_buf();
         if mixdog_js::js_trim(args.get("mode").and_then(JsonValue::as_str).unwrap_or_default()) == "prewarm" {
-            return Ok(text_output(self.prewarm(&cwd, &args, ctx).await));
+            return Ok(text_output(self.prewarm(&cwd, &args, ctx)));
         }
         match self.answer(cwd, &args, ctx.io.maintenance, &ctx.cancel).await {
             Ok(answer) => {
