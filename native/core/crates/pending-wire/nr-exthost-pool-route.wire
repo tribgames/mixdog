@@ -4,7 +4,7 @@
 # nr-exthost-worker-loop's `ext-worker` subcommand of mixdogd (the Rust pool's program is the running
 # executable with args ["ext-worker"]). The pool itself: `mixdog_exthost::RoutedExtPool`
 # (new(native_config, node_config, native_methods), with_pools, render_browser, browser_launches, close,
-# outstanding_window_bytes under test-support) and the constant NODE_WORKER_ID_OFFSET (1 << 16).
+# outstanding_window_bytes under test-support) and stable router-owned worker ids (no arithmetic offset).
 # No environment variable or setting chooses the route: the method list does.
 
 ## Cargo.toml (mixdog-app-server-daemon), [dependencies], next to `mixdog-exthost`

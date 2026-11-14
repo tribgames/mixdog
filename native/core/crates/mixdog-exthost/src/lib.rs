@@ -57,7 +57,6 @@ pub use pool::ExtHostConfig;
 pub use pool::ExtHostPool;
 pub use pool::GraceWait;
 pub use pool::worker_count;
-pub use routed::NODE_WORKER_ID_OFFSET;
 pub use routed::RoutedExtPool;
 pub use syntax::SyntaxCheck;
 pub use syntax::SyntaxKind;
