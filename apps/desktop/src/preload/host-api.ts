@@ -3,7 +3,6 @@
 import type { IpcRenderer, WebUtils } from 'electron';
 
 import { DESKTOP_IPC, type DesktopCapabilityReadRequest, type DesktopCapabilityRequest } from '../shared/contract';
-import { HOST_EXTRA_IPC } from '../shared/contract-ipc-host';
 import type { DesktopHostApi } from '../shared/desktop-api-split';
 import { DESKTOP_PET_IPC, desktopPetAppLayout } from '../shared/desktop-pet';
 import { type DesktopNotice, readDesktopNotice } from '../shared/desktop-notice';
@@ -307,12 +306,12 @@ export function createHostApi({ invokeIpc, subscribeIpc, ipcRenderer, webUtils, 
         }
       : {}),
     ...browserTexture,
-    enableAllowAllActions: () => invokeIpc(HOST_EXTRA_IPC.enableAllowAllActions),
+    enableAllowAllActions: () => invokeIpc(DESKTOP_IPC.enableAllowAllActions),
     observeSignIn: (capability, args, value) => {
-      void invokeIpc(HOST_EXTRA_IPC.observeSignIn, { capability, args }, value).catch(() => {});
+      void invokeIpc(DESKTOP_IPC.observeSignIn, { capability, args }, value).catch(() => {});
     },
-    invokePcQuotaCapability: (request: DesktopCapabilityRequest) => invokeIpc(HOST_EXTRA_IPC.pcQuotaInvoke, request),
+    invokePcQuotaCapability: (request: DesktopCapabilityRequest) => invokeIpc(DESKTOP_IPC.pcQuotaInvoke, request),
     readPcQuotaCapabilities: (requests: DesktopCapabilityReadRequest[]) =>
-      invokeIpc(HOST_EXTRA_IPC.pcQuotaRead, requests),
+      invokeIpc(DESKTOP_IPC.pcQuotaRead, requests),
   };
 }
