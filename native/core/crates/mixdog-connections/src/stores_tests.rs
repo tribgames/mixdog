@@ -386,6 +386,7 @@ fn a_pairing_link_names_a_host_by_its_route_and_never_carries_a_credential() {
     assert!(parse_remote_host_link(&format!("http://relay.example.com/d/{DEVICE}/")).is_none());
     assert!(parse_remote_host_link(&format!("https://user:pw@relay.example.com/d/{DEVICE}/")).is_none());
     assert!(parse_remote_host_link("https://relay.example.com/d/short/").is_none());
+    assert_eq!(parse_remote_host_link(&format!("https://relay.example.com/D/{DEVICE}")).unwrap().url, format!("https://relay.example.com/d/{DEVICE}/"));
     assert!(parse_remote_host_link("not a link").is_none());
 }
 
@@ -508,7 +509,7 @@ async fn redeem_parses_older_relay() {
 }
 
 #[tokio::test]
-async fn presence_lists_the_hosts_a_relay_reports_online_and_skips_an_unreachable_relay() {
+async fn presence_reports_online_and_offline_hosts_and_skips_an_unreachable_relay() {
     let other = "fedcba9876543210fedcba9876543210";
     let mut online = serde_json::Map::new();
     online.insert(DEVICE.to_string(), true.into());
@@ -521,7 +522,8 @@ async fn presence_lists_the_hosts_a_relay_reports_online_and_skips_an_unreachabl
         PresenceQuery { id: "d".into(), url: format!("http://127.0.0.1:1/d/{DEVICE}/") },
     ];
     let online = fetch_host_presence(&hosts).await;
-    assert_eq!(online, ["a".to_string()].into_iter().collect());
+    let expected: std::collections::HashMap<String, bool> = [("a".to_string(), true), ("b".to_string(), false)].into_iter().collect();
+    assert_eq!(online, expected, "an unreachable relay's host and a link that is not one are absent: unknown");
     let request = seen.recv().await.unwrap();
     assert!(request.starts_with("POST /pair-code/presence "));
     assert!(request.contains(&format!("\"ids\":[\"{DEVICE}\",\"{other}\"]")));

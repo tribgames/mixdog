@@ -165,13 +165,7 @@ struct TargetId {
 
 fn target_id(target: &str) -> Result<TargetId, StoreError> {
     let parsed = mixdog_ssh::command::parse_ssh_target(target).map_err(|error| StoreError::new(error.to_string()))?;
-    let destination = parsed.destination.to_string();
-    let (user, host) = match destination.rfind('@') {
-        Some(at) => (&destination[..at], &destination[at + 1..]),
-        None => ("", destination.as_str()),
-    };
-    let port = parsed.port.map(|port| port.to_string()).unwrap_or_default();
-    Ok(TargetId { display: parsed.display.to_string(), key: format!("{user}@{}:{port}", host.to_lowercase()), label: host.to_string() })
+    Ok(TargetId { key: parsed.key(), label: parsed.label().to_string(), display: parsed.display })
 }
 
 fn hosts_document(value: &Value) -> Result<(), Invalid> {

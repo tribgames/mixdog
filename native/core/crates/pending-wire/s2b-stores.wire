@@ -33,9 +33,13 @@ After `pub mod service;`:
 
 ## Calls into other tasks (names to reconcile, not edited here)
 
-host_store.rs calls `mixdog_ssh::command::parse_ssh_target(&str) -> Result<SshTarget, E>` where `E: Display`, reading the public fields
-`SshTarget.destination` (`Display`, the text ssh receives: `user@host` or the alias), `SshTarget.port` (`Option<integer>`) and
-`SshTarget.display` (`Display`). s2b-ssh-base owns that file; if its shape differs, only `target_id` in host_store.rs changes.
+host_store.rs calls `mixdog_ssh::command::parse_ssh_target(&str) -> Result<SshTarget, SshTargetError>` and reads
+`SshTarget.display` (String), `SshTarget::key()` and `SshTarget::label()` (as s2b-ssh-base defines them in command.rs).
+If that shape changes, only `target_id` in host_store.rs changes.
+
+remote_hosts.rs `fetch_host_presence` answers `HashMap<host id, bool>` (not the `HashSet<id>` the plan wrote): `false` is a
+host its relay reports offline, an absent id a relay that could not answer, as the desktop's `Map<string, boolean>` did
+(the remote window shows `online: null` for unknown).
 
 host_store.rs keeps its own `SshHostSettings` (the parse/validate of `parseHostSettings` and the file's field order live with the store
 that persists them). s2b-ssh-base lists `context::HostSettings`: the connection code should convert from `SshHostSettings` (or
