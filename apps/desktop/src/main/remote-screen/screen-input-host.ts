@@ -27,8 +27,8 @@ import type { ChildProcessWithoutNullStreams, spawn as spawnType } from 'node:ch
 import { readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { computerNativeBinary, computerNativeEnvironment } from '../computer/backend/native-host';
-import { COMMAND_TIMEOUT_MS } from '../computer/backend/worker-requests';
+import { computerNativeBinary, computerNativeEnvironment } from '../computer-helper-binary';
+import { SCREEN_COMMAND_TIMEOUT_MS } from './screen-timeouts';
 import type { ScreenDesktopIdentity } from './screen-input-router';
 import { createComputerLineDecoder } from '../../shared/core-src/runtime/computer-bridge/limits.mjs';
 
@@ -143,7 +143,7 @@ interface ScreenInputHostOptions {
    *  its takeover guard reads phone input as a person's. */
   marker?: number;
   /** Acknowledgment deadline per command. Default: Computer Use's per-command
-   *  ceiling (`COMMAND_TIMEOUT_MS`). */
+   *  ceiling (`SCREEN_COMMAND_TIMEOUT_MS`). */
   commandTimeoutMs?: number;
   /** The app-data folder the retired PowerShell host kept its scripts and DLL cache in;
    *  swept once at the first start (nothing uses them any more). */
@@ -181,7 +181,7 @@ export function createScreenInputHost(options: ScreenInputHostOptions): ScreenIn
   const retired = new WeakSet<object>();
   const cleanups = new Set<Promise<void>>();
   const cleanupTimeoutMs = options.abortCleanupTimeoutMs ?? ABORT_CLEANUP_TIMEOUT_MS;
-  const commandTimeoutMs = options.commandTimeoutMs ?? COMMAND_TIMEOUT_MS;
+  const commandTimeoutMs = options.commandTimeoutMs ?? SCREEN_COMMAND_TIMEOUT_MS;
   const pending = new Map<
     number,
     { resolve(fields: string[]): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }

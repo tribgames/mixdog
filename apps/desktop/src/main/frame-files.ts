@@ -9,7 +9,7 @@
 import { mkdir, readdir, stat, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { mixdogDataDirectory } from './computer/shared/common';
+import { mixdogDataDirectory } from './data-directory';
 
 /** Newest frames kept on disk per surface. */
 const FRAME_MAX_FILES = 40;
