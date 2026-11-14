@@ -156,6 +156,95 @@ impl SessionActor {
         });
     }
 
+    /// The idle auto-clear's gate on a turn about to start (`autoClearBeforeSubmit` for a user's turn, `autoClearBeforeWake` for a
+    /// completion wake): the auto-clear setting of the thread's route, and the activity stamp, when auto-clear is on and the thread
+    /// has sat idle for its window. `None` where the turn is none of the gate's: a runtime's own kickoff, a retry, a worker's or a
+    /// routine's turn, or a thread that is going. Reads nothing of the context meter: a start that fails this goes on at once.
+    pub(super) fn idle_gate(&self, input: &TurnInput, wake: bool) -> Option<(super::super::idle_auto_clear::IdleConfig, f64, f64)> {
+        use super::super::idle_auto_clear::idle_config_of;
+        use super::super::idle_auto_clear::idle_window_elapsed;
+        use super::super::idle_auto_clear::session_activity_timestamp;
+        let options = input.options.as_ref();
+        if options.is_some_and(|options| options.kickoff == Some(true) || options.retry_failed_turn == Some(true) || options.retry_turn_id.is_some()) || self.deleting || self.cell.closed.load(SeqCst) {
+            return None;
+        }
+        if !wake {
+            let submission = options.and_then(|options| options.client_submission_id.as_deref()).unwrap_or_default();
+            let worker = self.cell.agent_start.lock().unwrap_or_else(|p| p.into_inner()).is_some();
+            let routine = !submission.is_empty() && self.cell.routine_starts.lock().unwrap_or_else(|p| p.into_inner()).contains_key(submission);
+            if worker || routine {
+                return None;
+            }
+        }
+        let config = self.deps.compaction.route_config(&self.acked.header).auto_clear.as_ref().and_then(idle_config_of)?;
+        // A stamped turn is a conversation the model sees (the stamp is written when a turn settles); a thread with none has
+        // nothing to clear.
+        let header = &self.acked.header;
+        let stamped = header.get("lastUsedAt").is_some_and(|stamp| mixdog_js::to_number(stamp) > 0.0);
+        let session = json!({
+            "lastUsedAt": header.get("lastUsedAt"),
+            "updatedAt": header.get("updatedAt"),
+            "messages": if stamped { json!([{ "role": "assistant" }]) } else { json!([]) },
+        });
+        let activity = session_activity_timestamp(&session, 0.0, self.deps.compaction.cache_warm_use_at(&self.id), &|_| None);
+        let now = self.deps.clock.now_ms() as f64;
+        idle_window_elapsed(&config, activity, now).then_some((config, activity, now))
+    }
+
+    /// The start waiting in `deferred_start` is checked against the context meter (`idleAutoClearDue`): a context below the
+    /// minimum share of the compaction trigger is not worth a clear. No turn starts until the answer.
+    pub(super) fn check_idle_clear(&mut self, gate: (super::super::idle_auto_clear::IdleConfig, f64, f64)) {
+        use super::super::idle_auto_clear::context_status_of;
+        use super::super::idle_auto_clear::idle_auto_clear_due;
+        self.idle_clearing = true;
+        let (config, activity, now) = gate;
+        let (jobs, gauge, thread) = (self.jobs_tx.clone(), self.deps.context_status.clone(), self.id.clone());
+        tokio::spawn(async move {
+            let status = gauge.context_status(Some(thread), None).await.unwrap_or(Value::Null);
+            let _ = jobs.send(JobDone::IdleClearChecked(idle_auto_clear_due(&config, activity, now, &context_status_of(&status))));
+        });
+    }
+
+    /// The meter answered: a due thread is compacted before its turn starts, as `session.compact({ requireReduction: true })`
+    /// does (trigger `auto_clear`); otherwise the turn goes on.
+    pub(super) fn idle_clear_checked(&mut self, due: bool) {
+        if !due || self.compaction_blocked() {
+            self.idle_clearing = false;
+            self.idle_cleared = true;
+            return;
+        }
+        let (tx, rx) = oneshot::channel();
+        self.after_compaction = Some(AfterCompaction { waiting: Vec::new(), goal_active: false });
+        self.compact_start(None, tx, Some(json!({ "requireReduction": true })));
+        let jobs = self.jobs_tx.clone();
+        // `compactWithinTimeout`: the wait is bounded, not the compaction. One that outlasts it keeps running; its result is
+        // applied only if no turn has begun by then (`compaction_rows`), and the turn does not wait for it.
+        tokio::spawn(async move {
+            let bound = Duration::from_millis(super::super::idle_auto_clear::AUTO_CLEAR_COMPACT_TIMEOUT_MS);
+            let skipped = match mixdog_rt::time::timeout(bound, rx).await {
+                Ok(Ok(Ok(_))) => None,
+                Ok(Ok(Err(error))) => Some(error_text(&error)),
+                Ok(Err(_)) => Some("compaction ended without an answer".to_owned()),
+                Err(_) => Some(format!("compaction timed out after {}ms; auto-clear deferred to next idle", bound.as_millis())),
+            };
+            let _ = jobs.send(JobDone::IdleClearEnded(skipped));
+        });
+    }
+
+    /// The idle auto-clear's compaction ended or was given up: a skipped clear says why (`auto-clear skipped: ...`), and the
+    /// turn that waited goes on once what was asked meanwhile ran.
+    pub(super) fn idle_clear_ended(&mut self, skipped: Option<String>) {
+        self.idle_cleared = true;
+        if let Some(reason) = skipped {
+            let text = super::super::live_rows::polish_notice_text(&format!("auto-clear skipped: {reason}"));
+            if !text.is_empty() {
+                let item = super::super::transcript::idle_notice_item(&new_id(), &text, "error");
+                self.show_live(TurnId::from(""), item, None);
+            }
+        }
+        self.scheduled_compaction_ended();
+    }
+
     /// `settleTurn`'s `runPendingCompact` (`compaction-gate.mjs`): the scheduled compaction runs
     /// now, as `session.compact()` does, and what follows the turn waits on it: the queued work
     /// and the Goal continuation, and every turn, clear, rewind or compaction asked meanwhile
@@ -174,6 +263,7 @@ impl SessionActor {
     /// The scheduled compaction ended: what waited on it runs, in arrival order, then the work
     /// the settled turn left.
     pub(super) fn scheduled_compaction_ended(&mut self) {
+        self.idle_clearing = false;
         let Some(after) = self.after_compaction.take() else {
             return;
         };

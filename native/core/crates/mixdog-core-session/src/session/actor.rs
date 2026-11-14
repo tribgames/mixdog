@@ -438,6 +438,12 @@ pub(crate) enum JobDone {
     CompactionEnded,
     /// The compaction the session tool scheduled answered.
     ScheduledCompactionEnded,
+    /// The idle auto-clear's check of the thread's context meter answered: whether the turn waiting to start is to be
+    /// preceded by a compaction.
+    IdleClearChecked(bool),
+    /// The idle auto-clear's compaction ended (`None`) or was given up: the turn waiting to start goes on, and a skipped
+    /// clear says why.
+    IdleClearEnded(Option<String>),
     /// The claim window of the desktop request `id` ended.
     SetupUiExpired(String),
     /// `retainedRetryInput()` for a `turn/retryFailed` that passed its first gates.
@@ -791,6 +797,11 @@ pub(crate) struct SessionActor {
     /// A turn asked while records are unsaved (`awaitPreviousTurnDurable`): it starts once they land, and is refused
     /// if their retry fails.
     deferred_start: Option<DeferredStart>,
+    /// The idle auto-clear works on the start in `deferred_start`: its meter check or its compaction is under way, and no
+    /// turn starts meanwhile ([`Self::starts_gated`]).
+    idle_clearing: bool,
+    /// The idle auto-clear has run for the start about to be taken again: it is decided once, never twice for one start.
+    idle_cleared: bool,
     /// The core's hold on new turn starts ([`SessionDeps::start_hold`]), read once where a start is decided: a client's
     /// `turn/start` ([`Self::turn_start`]) and a queue drain ([`Self::drain_gated`]). An in-core start waited it out before it
     /// was admitted (`SessionHandle::turn_start`).
@@ -1282,6 +1293,8 @@ impl SessionActor {
             retry_due: false,
             save_failure: Arc::from(""),
             deferred_start: None,
+            idle_clearing: false,
+            idle_cleared: false,
             start_hold: deps.start_hold.clone(),
             core_busy_hold: None,
             coverage: None,
@@ -2509,6 +2522,8 @@ impl SessionActor {
                 self.try_unload();
             }
             JobDone::ScheduledCompactionEnded => self.scheduled_compaction_ended(),
+            JobDone::IdleClearChecked(due) => self.idle_clear_checked(due),
+            JobDone::IdleClearEnded(skipped) => self.idle_clear_ended(skipped),
             JobDone::SetupUiExpired(id) => self.setup_ui_settled(&id),
             JobDone::RetryChecked { op, tx, key, retained, provenance } => self.retry_checked(op, tx, key, retained, provenance),
             JobDone::QuotaFireChecked { generation, tx, retained, provenance } => self.quota_fire_checked(generation, tx, retained, provenance),
@@ -4558,7 +4573,7 @@ impl SessionActor {
     /// (`afterCompaction`, `compaction-gate.mjs`, wraps every ask; its end drains the queue). A held start waits and
     /// [`Self::pump`] resumes it.
     fn starts_gated(&self) -> bool {
-        self.turn_unsettled() || self.compaction_held()
+        self.turn_unsettled() || self.compaction_held() || self.idle_clearing
     }
 
     /// A queue drain may not dequeue now: starts are held ([`Self::starts_gated`]), or the core holds new turn starts (`hold{on}`:
@@ -7103,6 +7118,14 @@ impl SessionActor {
             let unsaved = self.outbox.has_unsaved();
             self.retry_due = unsaved;
             self.deferred_start = Some(DeferredStart { input, body, op_ref, reply, prompt, wake, retried: unsaved });
+            return;
+        }
+        // The idle auto-clear (`autoClearBeforeSubmit`, `autoClearBeforeWake`): a user's turn or a completion wake on a thread
+        // that sat idle past its window waits for the compaction that clears it. It is decided once for each start.
+        let cleared = std::mem::take(&mut self.idle_cleared);
+        if !cleared && let Some(gate) = self.idle_gate(&input, wake) {
+            self.deferred_start = Some(DeferredStart { input, body, op_ref, reply, prompt, wake, retried: false });
+            self.check_idle_clear(gate);
             return;
         }
         // A plain `turn/start` carrying the retry flags: the failed turn's provenance is read first

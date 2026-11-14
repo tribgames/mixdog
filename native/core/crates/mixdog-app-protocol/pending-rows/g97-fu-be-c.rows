@@ -1,0 +1,41 @@
+# g97-fu-be-c: `statusline/read`, the footer's route status and limits for every front end (the Node TUI's statusline, ported in
+# mixdog-core-session session/statusline_*). Types: the new module mixdog-app-protocol/src/v2/statusline.rs (written in this task, with
+# its unit test; its module line is in the type_edits section). Served by mixdog-app-server-daemon statusline_port.rs StatuslineService.
+
+[methods]
+Beside ThreadContextStatus (methods.rs):
+
+    /// What a front end's footer shows of a thread's route: the route with its cached quota windows and context share (`loadGatewayStatus`), and the limits of that route: quota windows, balance and the route's spend (`buildGatewayLimits`). Both are null when no route resolves. The front end lays them out.
+    StatuslineRead => "statusline/read" {
+        params: v2::statusline::StatuslineReadParams,
+        result: v2::statusline::StatuslineReadResult,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Local, Ssh, Relay],
+    },
+
+[server_requests]
+# none
+
+[notifications]
+# none
+
+[inventory]
+# none (the Node footer read its files in the TUI process; there was no daemon method)
+
+[free_text]
+# tests/it/free_text_fields.json, in its sorted place: the identifier "request statusline/read /sessionId" (a session id, refused with a lone
+# surrogate). The other request fields (`currentRoute`, `providerOut`, `usageSnapshot`) and the answer are opaque JSON values, which the file
+# does not list for any method (thread/contextStatus answers a JsonValue and has no answer entry). src/free_text.rs: none.
+
+[type_edits]
+# src/v2/mod.rs, beside `pub mod takeover_state;`:
+
+pub mod statusline;
+
+[remove]
+# none
+
+[window]
+# none (nothing in a window process calls statusline/read; the desktop's footer is not changed by this task)

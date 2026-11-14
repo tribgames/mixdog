@@ -116,11 +116,7 @@ impl Tool for EditTool {
         let replace_all = replace_all_arg(&args);
         // An empty target is no target (Node tests the argument's truthiness).
         let raw = arg_str(&args, "file_path").filter(|p| !p.is_empty()).or_else(|| arg_str(&args, "path").filter(|p| !p.is_empty())).ok_or_else(|| {
-            invalid(
-                "file_path",
-                "required",
-                "Error: unknown builtin tool \"edit\" — use `apply_patch` with a `*** Update File:` V4A section.",
-            )
+            invalid("file_path", "required", crate::foreign::refusal(ctx.options.called_as.as_deref().unwrap_or(&self.spec.name)))
         })?;
         let abs = resolve_write_target(ctx, raw).await?;
         let shown = display_path(abs.as_path(), &ctx.cwd);
@@ -300,13 +296,7 @@ impl Tool for WriteTool {
     }
 
     async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
-        let not_adapted = || {
-            invalid(
-                "path",
-                "required",
-                "Error: unknown builtin tool \"write\" — use `apply_patch` with an `*** Add File:` V4A section to create a file.",
-            )
-        };
+        let not_adapted = || invalid("path", "required", crate::foreign::refusal(ctx.options.called_as.as_deref().unwrap_or(&self.spec.name)));
         let contents = ["contents", "content", "file_text"]
             .iter()
             .find_map(|key| args.get(*key).filter(|v| !v.is_null()))
@@ -322,8 +312,11 @@ impl Tool for WriteTool {
         let abs = resolve_write_target(ctx, raw).await?;
         let full = abs.as_path().display().to_string();
         let _locked = lock_edit_target(ctx, &abs).await?;
+        let stat = ctx.files.stat(ctx.io.interactive, abs.clone()).await.ok();
+        // Node tests existence (existsSync), not readability: a target that cannot be read is still "Updated".
+        let existed = stat.is_some();
         let pre = match &self.state {
-            Some(_) => ctx.files.stat(ctx.io.interactive, abs.clone()).await.ok().and_then(|s| FileVersion::of(&s)),
+            Some(_) => stat.and_then(|s| FileVersion::of(&s)),
             None => None,
         };
         let before = ctx.files.read(ctx.io.interactive, abs.clone(), ReadRange::default()).await.ok().map(|read| read.bytes);
@@ -340,7 +333,7 @@ impl Tool for WriteTool {
         if let Some(state) = &self.state {
             note_edit(ctx, state, &abs, pre, contents.as_bytes()).await;
         }
-        let text = format!("{} {full} ({} bytes)", if before.is_some() { "Updated" } else { "Created" }, contents.len());
+        let text = format!("{} {full} ({} bytes)", if existed { "Updated" } else { "Created" }, contents.len());
         Ok(committed_edit(ctx, &abs, before, contents.as_bytes().to_vec(), text_output(text)).await)
     }
 }
