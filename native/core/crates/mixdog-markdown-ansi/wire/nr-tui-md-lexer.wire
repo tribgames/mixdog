@@ -1,0 +1,39 @@
+nr-tui-md-lexer: what the wiring applies (new crate crates/mixdog-markdown-ansi; nothing else in the tree consumes it yet)
+
+1. native/core/Cargo.toml, [workspace] members: after the line
+       "crates/mixdog-ledger",
+   add the line
+       "crates/mixdog-markdown-ansi",
+   (the list is in dependency-layer order, not sorted: any place after "crates/mixdog-js" works).
+
+2. native/core/Cargo.toml, [workspace.dependencies]: after the line
+       mixdog-ledger = { path = "crates/mixdog-ledger" }
+   add the line
+       mixdog-markdown-ansi = { path = "crates/mixdog-markdown-ansi" }
+   (the consumers, nr-tui-md-format and later, name it as `mixdog-markdown-ansi = { workspace = true }`).
+
+3. native/core/Cargo.lock: a new package entry between "mixdog-ledger" and "mixdog-mcp" (cargo writes it when the member is added; the --locked build needs it present):
+       [[package]]
+       name = "mixdog-markdown-ansi"
+       version = "1.5.0"
+       dependencies = [
+        "mixdog-js",
+        "mixdog-workspace-hack",
+        "regress",
+        "serde",
+        "serde_json",
+        "sha2 0.10.9",
+       ]
+   Every dependency is already in the lock: regress 0.10.5, serde, serde_json, sha2 0.10.9 (the workspace pin "0.10"), mixdog-js. serde_json and sha2 are dev-dependencies (tests/lexer_twin.rs).
+
+4. native/core/crates/mixdog-workspace-hack/Cargo.toml: the crate depends on mixdog-workspace-hack like its siblings; its features are all ones the hack already unifies for serde, serde_json and sha2, and regress is used with its default features (as mixdog-js uses it). If `cargo hakari verify` asks for a change, regenerate the section; nothing is added by hand.
+
+5. mixdog-app-server-daemon compose_flip.rs SERVICE_PENDING: nothing (no protocol method, no service).
+
+6. Nothing in index.ts or the desktop: the crate has no consumer yet. mixdog-termtext, mixdog-tui-style and mixdog-highlight are added to its Cargo.toml by nr-tui-md-format.
+
+Checks after the crate is a member:
+   cargo test --offline -p mixdog-markdown-ansi
+   cargo clippy --offline -p mixdog-markdown-ansi --all-targets -- -D warnings
+   node native/core/crates/mixdog-markdown-ansi/tests/recorders/record-lexer.mjs --tree C:/Project/mixdog --check native/core/crates/mixdog-markdown-ansi/tests/goldens/lexer.json
+There is no `live_lexer` test: the recorder's --check is the live comparison with the Node lexer, and a Rust test must not start node.

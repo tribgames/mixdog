@@ -1,0 +1,638 @@
+[
+ {
+  "id": "markdown-behavior.test.mjs#0",
+  "text": "node:assert/strict"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#1",
+  "text": "node:test"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#2",
+  "text": "strip-ansi"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#3",
+  "text": "./format-token.mjs"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#4",
+  "text": "./table-layout.mjs"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#5",
+  "text": "./streaming-markdown.mjs"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#6",
+  "text": "diff detection accepts hunk prefixes but still requires signed body lines"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#7",
+  "text": "@@ -1 +1 @@\n-old\n+new"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#8",
+  "text": "@@ incomplete\n+new"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#9",
+  "text": "@@\n+new"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#10",
+  "text": "@@ -1 +1 @@\n context"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#11",
+  "text": "+++ b/file\n+new"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#12",
+  "text": "-old\n+new"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#13",
+  "text": " file.mjs | 2 +-"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#14",
+  "text": " image.png | Bin 0 -> 10 bytes"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#15",
+  "text": " 1 file changed, 1 insertion(+)"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#16",
+  "text": "list items keep first-line markers, continuation indentation and empty items"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#17",
+  "text": "first\nsecond"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#18",
+  "text": "- first\n  second\n"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#19",
+  "text": "\nnext"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#20",
+  "text": "- \n  next\n"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#21",
+  "text": "-\n"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#22",
+  "text": "list_item"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#23",
+  "text": "text"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#24",
+  "text": "narrow vertical tables preserve empty cells and exact row counts"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#25",
+  "text": "A"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#26",
+  "text": "B"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#27",
+  "text": "ok"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#28",
+  "text": "x"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#29",
+  "text": "A:"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#30",
+  "text": "B: ok"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#31",
+  "text": "─────────"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#32",
+  "text": "A: x"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#33",
+  "text": "B:"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#34",
+  "text": "stream snapshots reuse normalized input and invalidate on regression and resets"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#35",
+  "text": "snapshot"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#36",
+  "text": "Settled paragraph.\n\n```js\nconst value = 1;"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#37",
+  "text": "Settled paragraph.\n\n"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#38",
+  "text": "```js\nconst value = 1;"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#39",
+  "text": "\n"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#40",
+  "text": "\n\n"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#41",
+  "text": "plain text"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#42",
+  "text": "stream snapshots evict the oldest write, not a recently read snapshot"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#43",
+  "text": "plain "
+ },
+ {
+  "id": "markdown-behavior.test.mjs#44",
+  "text": "stream-"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#45",
+  "text": "changed"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#46",
+  "text": "stream-1"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#47",
+  "text": "plain 0"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#48",
+  "text": "stream-0"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#49",
+  "text": "overflow"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#50",
+  "text": "stream-32"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#51",
+  "text": "plain 2"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#52",
+  "text": "stream-2"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#53",
+  "text": "empty and unkeyed snapshots retain their value without sharing unkeyed identity"
+ },
+ {
+  "id": "markdown-behavior.test.mjs#54",
+  "text": "0"
+ },
+ {
+  "id": "markdown-surface-test.mjs#55",
+  "text": "../src/tui/markdown/render-ansi.mjs"
+ },
+ {
+  "id": "markdown-surface-test.mjs#56",
+  "text": "../src/tui/markdown/streaming-markdown.mjs"
+ },
+ {
+  "id": "markdown-surface-test.mjs#57",
+  "text": "../src/ui/markdown.mjs"
+ },
+ {
+  "id": "markdown-surface-test.mjs#58",
+  "text": "../src/ui/ansi.mjs"
+ },
+ {
+  "id": "markdown-surface-test.mjs#59",
+  "text": "\u001b[1m"
+ },
+ {
+  "id": "markdown-surface-test.mjs#60",
+  "text": "\u001b[9m"
+ },
+ {
+  "id": "markdown-surface-test.mjs#61",
+  "text": "TUI: strong closes against a punctuation + letter boundary"
+ },
+ {
+  "id": "markdown-surface-test.mjs#62",
+  "text": "**0.118%**tail"
+ },
+ {
+  "id": "markdown-surface-test.mjs#63",
+  "text": "expected a bold SGR run"
+ },
+ {
+  "id": "markdown-surface-test.mjs#64",
+  "text": "0.118%tail"
+ },
+ {
+  "id": "markdown-surface-test.mjs#65",
+  "text": "TUI: strikethrough is pair-only"
+ },
+ {
+  "id": "markdown-surface-test.mjs#66",
+  "text": "~~gone~~ kept"
+ },
+ {
+  "id": "markdown-surface-test.mjs#67",
+  "text": "expected a strikethrough SGR run"
+ },
+ {
+  "id": "markdown-surface-test.mjs#68",
+  "text": "gone kept"
+ },
+ {
+  "id": "markdown-surface-test.mjs#69",
+  "text": "1~2 range"
+ },
+ {
+  "id": "markdown-surface-test.mjs#70",
+  "text": "TUI: task boxes keep their state"
+ },
+ {
+  "id": "markdown-surface-test.mjs#71",
+  "text": "- [ ] todo\n- [x] done"
+ },
+ {
+  "id": "markdown-surface-test.mjs#72",
+  "text": "TUI: raw HTML survives, comments do not"
+ },
+ {
+  "id": "markdown-surface-test.mjs#73",
+  "text": "text <b>x</b> end"
+ },
+ {
+  "id": "markdown-surface-test.mjs#74",
+  "text": "<!-- hidden -->"
+ },
+ {
+  "id": "markdown-surface-test.mjs#75",
+  "text": "TUI: images keep their alt text"
+ },
+ {
+  "id": "markdown-surface-test.mjs#76",
+  "text": "![alt text](https://x.dev/a.png)"
+ },
+ {
+  "id": "markdown-surface-test.mjs#77",
+  "text": "TUI: block syntax outside the inline marker class is detected"
+ },
+ {
+  "id": "markdown-surface-test.mjs#78",
+  "text": "+ a\n+ b"
+ },
+ {
+  "id": "markdown-surface-test.mjs#79",
+  "text": "1) a\n2) b"
+ },
+ {
+  "id": "markdown-surface-test.mjs#80",
+  "text": "Title\n====="
+ },
+ {
+  "id": "markdown-surface-test.mjs#81",
+  "text": "    indented"
+ },
+ {
+  "id": "markdown-surface-test.mjs#82",
+  "text": "expected markdown syntax in "
+ },
+ {
+  "id": "markdown-surface-test.mjs#83",
+  "text": "- a\n- b"
+ },
+ {
+  "id": "markdown-surface-test.mjs#84",
+  "text": "setext heading should render bold"
+ },
+ {
+  "id": "markdown-surface-test.mjs#85",
+  "text": "TUI: footnote definitions stay visible and are not linkified"
+ },
+ {
+  "id": "markdown-surface-test.mjs#86",
+  "text": "body[^1]\n\n[^1]: the note"
+ },
+ {
+  "id": "markdown-surface-test.mjs#87",
+  "text": "\u001b]8;;"
+ },
+ {
+  "id": "markdown-surface-test.mjs#88",
+  "text": "TUI streaming: unfinished emphasis, code and links are healed"
+ },
+ {
+  "id": "markdown-surface-test.mjs#89",
+  "text": "**plan"
+ },
+ {
+  "id": "markdown-surface-test.mjs#90",
+  "text": "**plan**"
+ },
+ {
+  "id": "markdown-surface-test.mjs#91",
+  "text": "*part"
+ },
+ {
+  "id": "markdown-surface-test.mjs#92",
+  "text": "*part*"
+ },
+ {
+  "id": "markdown-surface-test.mjs#93",
+  "text": "~~drop"
+ },
+ {
+  "id": "markdown-surface-test.mjs#94",
+  "text": "~~drop~~"
+ },
+ {
+  "id": "markdown-surface-test.mjs#95",
+  "text": "`co"
+ },
+ {
+  "id": "markdown-surface-test.mjs#96",
+  "text": "`co`"
+ },
+ {
+  "id": "markdown-surface-test.mjs#97",
+  "text": "see [docs](https://exa"
+ },
+ {
+  "id": "markdown-surface-test.mjs#98",
+  "text": "see [docs]()"
+ },
+ {
+  "id": "markdown-surface-test.mjs#99",
+  "text": "streaming links keep one inert caption through every incomplete boundary"
+ },
+ {
+  "id": "markdown-surface-test.mjs#100",
+  "text": "[docs"
+ },
+ {
+  "id": "markdown-surface-test.mjs#101",
+  "text": "[docs]"
+ },
+ {
+  "id": "markdown-surface-test.mjs#102",
+  "text": "[docs]("
+ },
+ {
+  "id": "markdown-surface-test.mjs#103",
+  "text": "[docs](https://exa"
+ },
+ {
+  "id": "markdown-surface-test.mjs#104",
+  "text": "[docs](https://x/a_(b)"
+ },
+ {
+  "id": "markdown-surface-test.mjs#105",
+  "text": "see "
+ },
+ {
+  "id": "markdown-surface-test.mjs#106",
+  "text": "see docs"
+ },
+ {
+  "id": "markdown-surface-test.mjs#107",
+  "text": "[**docs"
+ },
+ {
+  "id": "markdown-surface-test.mjs#108",
+  "text": "[**docs**]()"
+ },
+ {
+  "id": "markdown-surface-test.mjs#109",
+  "text": "[outer [inner"
+ },
+ {
+  "id": "markdown-surface-test.mjs#110",
+  "text": "[outer [inner]]()"
+ },
+ {
+  "id": "markdown-surface-test.mjs#111",
+  "text": "![alt](https://x/a"
+ },
+ {
+  "id": "markdown-surface-test.mjs#112",
+  "text": "alt"
+ },
+ {
+  "id": "markdown-surface-test.mjs#113",
+  "text": "streaming link healing respects escapes, code, destinations, footnotes and task boxes"
+ },
+ {
+  "id": "markdown-surface-test.mjs#114",
+  "text": "\\[literal"
+ },
+ {
+  "id": "markdown-surface-test.mjs#115",
+  "text": "\\[literal]"
+ },
+ {
+  "id": "markdown-surface-test.mjs#116",
+  "text": "`[literal`"
+ },
+ {
+  "id": "markdown-surface-test.mjs#117",
+  "text": "```\n[literal\n```"
+ },
+ {
+  "id": "markdown-surface-test.mjs#118",
+  "text": "[docs](https://x/a_(b))"
+ },
+ {
+  "id": "markdown-surface-test.mjs#119",
+  "text": "[docs](<https://x/a)b>)"
+ },
+ {
+  "id": "markdown-surface-test.mjs#120",
+  "text": "[docs](https://x \"a)b\")"
+ },
+ {
+  "id": "markdown-surface-test.mjs#121",
+  "text": "[docs](https://x/a\\))"
+ },
+ {
+  "id": "markdown-surface-test.mjs#122",
+  "text": "[docs][ref]\n\n[ref]: https://x"
+ },
+ {
+  "id": "markdown-surface-test.mjs#123",
+  "text": "body[^1]"
+ },
+ {
+  "id": "markdown-surface-test.mjs#124",
+  "text": "body[^1]\n\n[^1]: note"
+ },
+ {
+  "id": "markdown-surface-test.mjs#125",
+  "text": "- [ ]"
+ },
+ {
+  "id": "markdown-surface-test.mjs#126",
+  "text": "- [x]"
+ },
+ {
+  "id": "markdown-surface-test.mjs#127",
+  "text": "- [ ] todo"
+ },
+ {
+  "id": "markdown-surface-test.mjs#128",
+  "text": "TUI streaming: literal markers are not mistaken for emphasis"
+ },
+ {
+  "id": "markdown-surface-test.mjs#129",
+  "text": "2 * 3 = 6"
+ },
+ {
+  "id": "markdown-surface-test.mjs#130",
+  "text": "`a**b`"
+ },
+ {
+  "id": "markdown-surface-test.mjs#131",
+  "text": "snake_case_name"
+ },
+ {
+  "id": "markdown-surface-test.mjs#132",
+  "text": "REPL: backslash escapes render as literal characters"
+ },
+ {
+  "id": "markdown-surface-test.mjs#133",
+  "text": "a\\*x\\*b"
+ },
+ {
+  "id": "markdown-surface-test.mjs#134",
+  "text": "a*x*b"
+ },
+ {
+  "id": "markdown-surface-test.mjs#135",
+  "text": "REPL: images drop the bang and keep the alt text"
+ },
+ {
+  "id": "markdown-surface-test.mjs#136",
+  "text": "![alt](https://x.dev/a.png)"
+ },
+ {
+  "id": "markdown-surface-test.mjs#137",
+  "text": "!"
+ },
+ {
+  "id": "markdown-surface-test.mjs#138",
+  "text": "REPL: setext headings and task boxes render"
+ },
+ {
+  "id": "markdown-surface-test.mjs#139",
+  "text": "====="
+ },
+ {
+  "id": "markdown-surface-test.mjs#140",
+  "text": "- [x] done"
+ },
+ {
+  "id": "markdown-surface-test.mjs#141",
+  "text": "REPL: reference links and footnotes resolve"
+ },
+ {
+  "id": "markdown-surface-test.mjs#142",
+  "text": "see [docs][1]\n\n[1]: https://x.dev"
+ },
+ {
+  "id": "markdown-surface-test.mjs#143",
+  "text": "[1]:"
+ },
+ {
+  "id": "markdown-surface-test.mjs#144",
+  "text": "REPL: GFM tables render as aligned rows"
+ },
+ {
+  "id": "markdown-surface-test.mjs#145",
+  "text": "| a | b |\n| --- | --- |\n| 1 | 22 |"
+ },
+ {
+  "id": "markdown-surface-test.mjs#146",
+  "text": "---"
+ },
+ {
+  "id": "markdown.test.mjs#147",
+  "text": "node:child_process"
+ },
+ {
+  "id": "markdown.test.mjs#148",
+  "text": "wide tables strip header styles and label empty or missing headers with a dash"
+ },
+ {
+  "id": "markdown.test.mjs#149",
+  "text": "| \u001b[31mName\u001b[0m | |\n| --- | --- |\n| abcdefghijklmnopqrstuv | tail | extra |"
+ },
+ {
+  "id": "markdown.test.mjs#150",
+  "text": "1"
+ },
+ {
+  "id": "markdown.test.mjs#151",
+  "text": "./markdown.mjs"
+ },
+ {
+  "id": "markdown.test.mjs#152",
+  "text": "\n    import { renderMarkdown } from "
+ },
+ {
+  "id": "markdown.test.mjs#153",
+  "text": ";\n    process.stdout.write(renderMarkdown("
+ },
+ {
+  "id": "markdown.test.mjs#154",
+  "text": ", { width: 20 }));\n  "
+ },
+ {
+  "id": "markdown.test.mjs#155",
+  "text": "--input-type=module"
+ },
+ {
+  "id": "markdown.test.mjs#156",
+  "text": "-e"
+ },
+ {
+  "id": "markdown.test.mjs#157",
+  "text": "utf8"
+ },
+ {
+  "id": "markdown.test.mjs#158",
+  "text": "Name: abcdefghijklmnopqrstuv\n-: tail\n-: extra"
+ }
+]
