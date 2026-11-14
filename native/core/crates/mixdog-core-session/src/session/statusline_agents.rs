@@ -85,9 +85,9 @@ fn text(value: &Value, key: &str) -> String {
     }
 }
 
-/// `a || b || ...` as text, trimmed.
+/// `String(a || b || '').trim()`: the first truthy member as text, trimmed (a blank one is not passed over).
 fn first_text(value: &Value, keys: &[&str]) -> String {
-    keys.iter().map(|key| text(value, key)).find(|text| !text.is_empty()).unwrap_or_default()
+    keys.iter().find(|key| value.get(**key).is_some_and(|member| truthy(Some(member)))).map(|key| text(value, key)).unwrap_or_default()
 }
 
 /// `value[key] || null`.
