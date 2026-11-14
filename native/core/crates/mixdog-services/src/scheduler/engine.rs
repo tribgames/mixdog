@@ -59,8 +59,15 @@ struct State {
     /// Held while jobs are armed: an armed schedule keeps the core alive.
     keep_alive: Option<WorkGuard>,
     started: bool,
-    /// `<DATA_DIR>/prompts`: where a relative prompt reference (or the `<name>.md` default) is read from.
-    prompts_dir: Option<std::path::PathBuf>,
+    /// `<DATA_DIR>/prompts`, where a relative prompt reference (or the `<name>.md` default) is read from,
+    /// and the lane a prompt file is read on.
+    prompts: Option<(std::path::PathBuf, mixdog_rt::DurabilityIo)>,
+}
+
+/// `tryRead`: the file's text, trimmed; none when it cannot be read.
+#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
+fn read_prompt(path: &std::path::Path) -> Option<String> {
+    std::fs::read(path).ok().map(|bytes| mixdog_js::js_trim(&String::from_utf8_lossy(&bytes)).to_owned())
 }
 
 struct Inner {
@@ -140,9 +147,10 @@ impl Scheduler {
         self.inner.stop();
     }
 
-    /// Sets the folder a relative prompt reference is read from (`<DATA_DIR>/prompts`).
-    pub fn set_prompts_dir(&self, dir: std::path::PathBuf) {
-        self.inner.state.lock().unwrap().prompts_dir = Some(dir);
+    /// Sets the folder a relative prompt reference is read from (`<DATA_DIR>/prompts`) and the lane
+    /// prompt files are read on.
+    pub fn set_prompts_dir(&self, dir: std::path::PathBuf, lane: mixdog_rt::DurabilityIo) {
+        self.inner.state.lock().unwrap().prompts = Some((dir, lane));
     }
 
     /// Replaces the loaded schedules (enabled ones only) without touching what is armed: the config a
@@ -670,27 +678,26 @@ impl Inner {
             self.update(name, |s| s.last_skipped_at = Some(now));
             return Ok(false);
         }
-        let prompt = self.resolve_prompt(name, row.map(|r| r.prompt).unwrap_or_default());
+        // Node: `schedule.prompt = row.prompt` (the reference), then `resolvePrompt(schedule)`.
+        let row_prompt = row.map(|r| r.prompt).unwrap_or_default();
+        self.update(name, |s| s.prompt = row_prompt.clone());
+        let prompt = self.resolve_prompt(name, row_prompt).await;
         if prompt.is_empty() {
             self.notify_failure(name, "prompt not found — fire skipped");
             return Ok(false);
         }
-        self.update(name, |s| s.prompt = prompt.clone());
         self.fire_timed_prompt(armed, prompt, opts).await
     }
 
-    /// The prompt to run: the file the row's prompt names (a path, or a name under the prompts folder;
+    /// `resolvePrompt`: the file the row's prompt names (a path, or a name under the prompts folder;
     /// an empty prompt means `<name>.md`) when it reads to something, else the row's own text.
-    fn resolve_prompt(&self, name: &str, inline: String) -> String {
+    async fn resolve_prompt(&self, name: &str, inline: String) -> String {
         let reference = if inline.is_empty() { format!("{name}.md") } else { inline.clone() };
+        let prompts = { self.state.lock().unwrap().prompts.clone() };
+        let Some((dir, lane)) = prompts else { return inline };
         let path = std::path::Path::new(&reference);
-        let full = if path.is_absolute() {
-            Some(path.to_path_buf())
-        } else {
-            self.state.lock().unwrap().prompts_dir.as_ref().map(|dir| dir.join(path))
-        };
-        let from_file = full.and_then(|f| std::fs::read(f).ok()).map(|b| String::from_utf8_lossy(&b).trim().to_owned());
-        match from_file {
+        let full = if path.is_absolute() { path.to_path_buf() } else { dir.join(path) };
+        match crate::lane::on_lane(lane, move || read_prompt(&full)).await.ok().flatten() {
             Some(text) if !text.is_empty() => text,
             _ => inline,
         }
