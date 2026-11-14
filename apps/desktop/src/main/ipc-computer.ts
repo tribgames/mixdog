@@ -1,6 +1,6 @@
 // Computer Use readiness reads and the one-press fixes the detail dialog offers.
 import type { Shell } from 'electron';
-import type { PcAccessApproval, PcAccessReadiness } from '@mixdog/protocol';
+import type { PcAccessApproval, PcAccessReadiness } from '../../../../packages/protocol/src/index.ts';
 import {
   DESKTOP_IPC,
   type DesktopComputerPermissionPane,

@@ -36,7 +36,6 @@ import { captureTakeoverOrDecline } from './takeover-capture';
 import { createTakeoverFeed } from './takeover-feed';
 import { observeCoreForMain } from './core-observers';
 import { createTakeoverStateHandler } from './takeover-state';
-import type { NotificationTestResult } from './notification-center';
 import { secretInputs } from './secret-input';
 import { remoteSessionConfigFromEnv } from './ssh/remote-session';
 import { allowedProvidersForHost, loadSshHostStore } from './ssh/ssh-host-store';
@@ -143,7 +142,9 @@ import { createTerminalRunDispatch } from './terminal/run-dispatch';
 import { TerminalBridgeServer } from './terminal/bridge-server';
 import { VisualizeBridgeServer } from './visualize/bridge-server';
 import { createDesktopVisualize } from './visualize/host';
-import { localPageOrigin, localPageUrl } from './local-page-server';
+import { localPageOrigin } from './local-page-server';
+import { coreLocalPages, createCoreLocalPages, setCoreLocalPages } from './core-local-pages';
+import { windowIdFor } from './core-port/window-ids';
 import { createTerminalCommandExecutor, type TerminalBridgeCommand } from './terminal/commands';
 import { createTerminalRunRequests } from './terminal/run-requests';
 import { createTerminalBridgeBackend } from './terminal/bridge-backend';
@@ -186,8 +187,6 @@ import { createSecureDesktopClient, secureDesktopInstallerFor, type SecureDeskto
 import { createPcAccess, pendingRevokesFile, type PcAccess } from './pc-access';
 import { createAccountAdminCheck } from './secure-desktop/account-admin';
 import {
-  REMOTE_CONTROLLER_KEY_DELIVERED_EVENT,
-  REMOTE_CONTROLLER_KEYS_OWED_EVENT,
   type RemoteControllerKeyRecord,
   type RemoteControllerKeysOwed,
 } from '../shared/remote-controller-key';
@@ -646,6 +645,11 @@ connectionPool.add(localConnection);
  *  keep-awake). Window IPC never uses it directly: it resolves the sender's
  *  connection through the route registry. */
 const localService = localConnection.client;
+// File pages (project pages, granted files) and their owner revocations are served by the core page server; every
+// window's local page IPC and the visualize html panes ask it through this client.
+setCoreLocalPages(
+  createCoreLocalPages(<T,>(name: string, args: unknown[]) => localService.invokeDesktopOperation(name, args) as Promise<T>)
+);
 // MIXDOG_SSH_TARGET (development and tests): the main window stays on this PC
 // and a server window for that target opens beside it at startup.
 const ENV_SSH_CONNECTION_ID = 'ssh-env-target';
@@ -728,6 +732,7 @@ function startDaemonService(): void {
     .then(() => {
       terminalBridge.start();
       hostRole.claimNow();
+      refreshCorePageOrigin();
       diagnostics?.write('daemon-service-ready', {
         totalMs: Date.now() - desktopProcessStartedAt,
       });
@@ -868,6 +873,17 @@ void localPageOrigin()
     localPageFrameOrigin = origin;
   })
   .catch((error: unknown) => console.error('local page server failed to start:', error));
+// File pages come from the core page server: its origin is read once the core is up and again after each reconnect
+// (a restarted core listens on a new port). Visualize's virtual pages stay on the server above until they move too.
+let corePageFrameOrigin = '';
+function refreshCorePageOrigin(): void {
+  void coreLocalPages()
+    .refresh()
+    .then((origin) => {
+      corePageFrameOrigin = origin;
+    })
+    .catch((error: unknown) => console.error('core page server origin read failed:', error));
+}
 // Keep-awake spans the app lifetime, not one window: agents keep working
 // while the window is closed on macOS and through renderer reloads.
 const awakeService = new AgentAwakeService(powerSaveBlocker);
@@ -941,22 +957,6 @@ const approvalSources = { sessions: () => latestSessions, agentPool: () => lates
 /** A session's conversation for the notification decision, from the roster. */
 const notificationConversation = (sessionId: string): NotificationConversation =>
   notificationConversationOf(latestSessions.find((session) => session.id === sessionId) ?? { id: sessionId });
-/** One notification on this PC now, past every preference (Settings › Notifications). */
-const showTestNotification = (): NotificationTestResult => {
-  if (!Notification.isSupported()) {
-    return { ok: false, message: nativeT('This computer does not support notifications.') };
-  }
-  const notification = new Notification({
-    ...boundedNotification({ title: 'Mixdog', body: nativeT('Notifications from Mixdog appear like this.') }),
-    ...(process.platform === 'win32' ? {} : { icon: trayIconPath() ?? undefined }),
-    silent: process.platform === 'win32',
-  });
-  retainNotification(liveNotifications, notification);
-  notification.on('click', () => primaryActivation.activate());
-  notification.show();
-  if (process.platform === 'win32') void playNotificationSound().catch(() => undefined);
-  return { ok: true };
-};
 const browserApprovalGrants = createBrowserApprovalGrants(localService);
 setBrowserApprovalHooks({
   resolveRequester: createApprovalRequesterResolver({
@@ -1152,26 +1152,14 @@ unsubscribeServiceSettings = localService.subscribeDesktopEvents(({ name, value 
   if (name === 'desktop-settings-changed' && value && typeof value === 'object') {
     applyDesktopSettings(value as DesktopSettings);
   }
-  // A paired phone delivered its key: PC access enrolls it (delegated, no prompt).
-  if (name === REMOTE_CONTROLLER_KEY_DELIVERED_EVENT) {
-    const publicKey = (value as { publicKey?: unknown } | null)?.publicKey;
-    if (typeof publicKey === 'string') {
-      void windowsPcAccess()
-        ?.delivered(publicKey)
-        .catch((error: unknown) => console.error('[mixdog-pc-access] enroll after delivery failed:', error));
-    }
-  }
-  // A pairing removal in the service owed access revocations: take them over and revoke.
-  if (name === REMOTE_CONTROLLER_KEYS_OWED_EVENT) {
-    void windowsPcAccess()
-      ?.revokeOwed()
-      .catch((error: unknown) => console.error('[mixdog-pc-access] owed revoke failed (still pending):', error));
-  }
+  // A paired phone's delivered key and owed access revocations are the core's PcAccessService's (it enrolls on
+  // delivery and revokes owed keys).
 });
 // This PC's host role on its protocol connection: the in-app browser, OS toasts, the system proxy, power and
 // updater reports (DS §12). The computer pill follows the core's `computer` section.
 const localProtocol = localConnection.protocol;
 if (!localProtocol) throw new Error('This PC\'s connection has no protocol link.');
+onProtocolAttached(localProtocol, refreshCorePageOrigin);
 const hostRole = createLocalHostRole({
   protocol: localProtocol,
   hostId: readOrCreateHostId(desktopUserData),
@@ -1197,9 +1185,11 @@ const hostRole = createLocalHostRole({
     }),
   files: () => ({
     captureFileSnapshot: (root, rel, grant) => fileSnapshots.capture(root, rel, grant),
-    // The daemon already confined the path; the lease is owned by the window so it dies with it.
-    localPageUrl: (root, rel, scope) =>
-      localPageUrl(root, rel, { scope, owner: mainWindow?.webContents, authorize: async () => {} }),
+    // The daemon already confined the path; the core page server leases it to the window so it dies with it.
+    localPageUrl: (root, rel) => {
+      const owner = mainWindow?.webContents;
+      return coreLocalPages().url(root, rel, owner ? { owner, ownerId: windowIdFor(owner) } : {});
+    },
     trashItem: (path) => shell.trashItem(path),
   }),
   resolveProxy: (url) => session.defaultSession.resolveProxy(url),
@@ -1942,9 +1932,10 @@ function installRendererSessionPolicy(target: Electron.Session): void {
       return;
     }
     const development = Boolean(process.env.ELECTRON_RENDERER_URL);
-    // Visualize panes frame project pages from the local page server only
-    // (tokenized, loopback); no other http origin may be framed.
-    const frameSrc = `frame-src 'self' blob: ${MEDIA_SCHEME}:${localPageFrameOrigin ? ` ${localPageFrameOrigin}` : ''}`;
+    // Visualize panes frame pages from two loopback page servers only (tokenized): the core's (file and project
+    // pages) and this process's virtual page server (inline visualize pages); no other http origin may be framed.
+    const pageOrigins = [localPageFrameOrigin, corePageFrameOrigin].filter(Boolean).map((origin) => ` ${origin}`);
+    const frameSrc = `frame-src 'self' blob: ${MEDIA_SCHEME}:${pageOrigins.join('')}`;
     // GitHub avatar hosts are allowed in img-src for the onboarding /
     // settings account cards (github.com redirects to avatars host).
     // media-src mirrors img-src: Studio tiles load from the mixdog-media
@@ -2711,9 +2702,6 @@ function installWindowIpc(
     // gets neither (its channels are refused by the feature gates).
     ...(local && process.platform === 'win32' ? { previewNotificationSound: playNotificationSound } : {}),
     ...(local ? { updater: desktopUpdater } : {}),
-    ...(local
-      ? { notifications: { isSupported: () => Notification.isSupported(), sendTest: showTestNotification } }
-      : {}),
     // This PC's settings, Browser Use, Computer Use and phone access exist only
     // in this PC's window; a server window refuses them (feature gates).
     ...(windowBrowserHost
@@ -2724,7 +2712,6 @@ function installWindowIpc(
           computer: {
             readPermissions: readComputerPermissions,
             requestPermissions: requestComputerPermissions,
-            pcAccess: windowsPcAccess(),
           },
           remoteAccessInfo,
           rotateRemoteAccess,

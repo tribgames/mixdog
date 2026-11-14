@@ -364,6 +364,15 @@ const ROOTED = [
   ['localPageUrlIn', [R, 'p.html'], 'projectFs/localPageUrl', { root: R, rel: 'p.html' }],
   ['localPageRevokeOwner', ['owner1'], 'projectFs/localPage/revokeOwner', { ownerId: 'owner1' }],
   ['localPageOrigin', [], 'projectFs/localPage/origin', {}],
+  [
+    'localPageVirtualIn',
+    [[{ path: 'index.html', text: '<p>', type: 'text/html' }], 'owner1'],
+    'projectFs/localPage/virtual',
+    { files: [{ path: 'index.html', text: '<p>', type: 'text/html' }], ownerId: 'owner1' },
+  ],
+  // Like the rooted operations, added after the spec map (x-pcaccess-desktop): ipc-computer.ts's PC access row.
+  ['pcAccessReadiness', [], 'pcAccess/readiness', {}],
+  ['pcAccessApprove', [], 'pcAccess/approve', {}],
 ];
 const ROOTED_NAMES = new Set(ROOTED.map(([name]) => name).filter((name) => name !== 'termAttach'));
 

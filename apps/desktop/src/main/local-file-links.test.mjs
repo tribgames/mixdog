@@ -10,6 +10,7 @@ import { registerDesktopIpc } from './ipc';
 import * as projectFiles from './project-files';
 import { createCoreLocalPages, setCoreLocalPages } from './core-local-pages';
 import { localPageUrl } from './local-page-server';
+import { SelectedFileAccess } from './selected-file-access';
 
 // The core stands behind these two clients; here the in-process twins answer the same calls.
 setCoreLocalPages(
@@ -31,6 +32,8 @@ async function fixture(t) {
   const revealed = [];
   const trashed = [];
   let failure = '';
+  // The core's grant store (grantDescribe / grantRedeem), answered by the in-process twin.
+  const grants = new SelectedFileAccess({ storePath: '', listProjects: async () => [] });
   const remove = registerDesktopIpc(
     { webContents, isDestroyed: () => false },
     {
@@ -62,6 +65,8 @@ async function fixture(t) {
         // A folder outside every Project is a root of its own; the core claims a trashed path, then the OS trash takes it.
         if (method === 'standaloneRoot') return (await stat(args[0]).catch(() => null))?.isDirectory() ? args[0] : null;
         if (method === 'trashProjectEntryIn') return void trashed.push(projectFiles.projectEntryPathIn(...args));
+        if (method === 'grantDescribe') return grants.describe(args[0], args[1] !== false);
+        if (method === 'grantRedeem') return grants.requireGrant(...args);
         return projectFiles[method](...args);
       },
     },
