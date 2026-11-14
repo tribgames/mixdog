@@ -416,16 +416,29 @@ pub fn now_ms() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
 }
 
+/// Where the profile migration put the backups before it moved them under the user-data folder, relative to the data dir.
+const MIGRATED_BACKUPS: &str = "desktop/editor-backups";
+
 pub struct Backups {
     dir: PathBuf,
 }
 
 impl Backups {
+    /// The backups of `user_data` (`<data>/userdata`). Read, write and delete adopt
+    /// `<data>/desktop/editor-backups` first; construction and path lookup perform no I/O.
     pub fn new(user_data: &Path) -> Self {
-        Self { dir: user_data.join("editor-backups") }
+        let dir = user_data.join("editor-backups");
+        Self { dir }
     }
 
-    /// The backup file of a source path (for serializing operations on it).
+    fn adopt(&self) -> WsResult<()> {
+        if let Some(data) = self.dir.parent().and_then(Path::parent) {
+            crate::recovery::adopt_missing(&data.join(MIGRATED_BACKUPS), &self.dir)?;
+        }
+        Ok(())
+    }
+
+    /// The backup file of a source path (for serializing operations on it, without I/O).
     pub fn path_of(&self, source: &str) -> WsResult<PathBuf> {
         let source = Path::new(source);
         if !source.is_absolute() {
@@ -443,6 +456,7 @@ impl Backups {
 
     pub fn read(&self, source: &str) -> WsResult<Value> {
         let path = self.path_of(source)?;
+        self.adopt()?;
         let bytes = match std::fs::read(&path) {
             Ok(b) => b,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Value::Null),
@@ -483,6 +497,7 @@ impl Backups {
             return Err(WsError::invalid("Editor backup content is invalid."));
         }
         let path = self.path_of(source)?;
+        self.adopt()?;
         let backup = json!({ "content": content, "expectedContent": expected, "updatedAt": now_ms() });
         std::fs::create_dir_all(&self.dir)?;
         self.prune();
@@ -501,7 +516,9 @@ impl Backups {
     }
 
     pub fn delete(&self, source: &str) -> WsResult<()> {
-        match std::fs::remove_file(self.path_of(source)?) {
+        let path = self.path_of(source)?;
+        self.adopt()?;
+        match std::fs::remove_file(path) {
             Ok(()) => Ok(()),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(e) => Err(e.into()),
@@ -597,4 +614,74 @@ mod tests {
         let written: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
         assert_eq!(&written, after);
     }
+
+    /// A data dir the first migration pass already filled holds the old app's drafts under `desktop/editor-backups`: the backups
+    /// the core reads take them in, keep what is already there, and leave no copy behind.
+    #[test]
+    fn backups_an_earlier_migration_left_under_desktop_are_offered_from_the_user_data_folder() {
+        let data = tempfile::tempdir().unwrap();
+        let (mine, theirs) = (data.path().join("mine.txt").to_string_lossy().into_owned(), data.path().join("theirs.txt").to_string_lossy().into_owned());
+        let probe = Backups::new(&data.path().join("probe"));
+        let name_of = |source: &str| probe.path_of(source).unwrap().file_name().unwrap().to_owned();
+        let draft = |content: &str| json!({ "content": content, "expectedContent": "disk", "updatedAt": now_ms() }).to_string();
+        let left = data.path().join("desktop").join("editor-backups");
+        std::fs::create_dir_all(&left).unwrap();
+        std::fs::write(left.join(name_of(&mine)), draft("old draft")).unwrap();
+        std::fs::write(left.join(name_of(&theirs)), draft("stale copy")).unwrap();
+        let user_data = data.path().join("userdata");
+        std::fs::create_dir_all(user_data.join("editor-backups")).unwrap();
+        std::fs::write(user_data.join("editor-backups").join(name_of(&theirs)), draft("newer draft")).unwrap();
+
+        let backups = Backups::new(&user_data);
+        assert_eq!(backups.read(&mine).unwrap()["content"], "old draft");
+        assert_eq!(backups.read(&theirs).unwrap()["content"], "newer draft", "a draft written since stays");
+        backups.delete(&theirs).unwrap();
+        assert!(Backups::new(&user_data).read(&theirs).unwrap().is_null(), "deleted draft stays deleted");
+        let archives = data.path().join("desktop/editor-backups-superseded");
+        let slot = std::fs::read_dir(archives).unwrap().next().unwrap().unwrap().path();
+        let preserved: Value = serde_json::from_slice(&std::fs::read(slot.join(name_of(&theirs))).unwrap()).unwrap();
+        assert_eq!(preserved["content"], "stale copy", "the conflict is preserved outside adoption");
+        assert!(!data.path().join("desktop").join("editor-backups").join(name_of(&mine)).exists());
+    }
+
+    /// The user-level settings file is read where the migration puts it (`<data>/userdata/User/settings.json`).
+    #[test]
+    fn the_migrated_user_settings_file_applies_to_every_file() {
+        let data = tempfile::tempdir().unwrap();
+        let user_data = data.path().join("userdata");
+        std::fs::create_dir_all(user_data.join("User")).unwrap();
+        std::fs::write(user_data.join("User").join("settings.json"), "{
+  // mine
+  \"editor.tabSize\": 2,
+}
+").unwrap();
+        let folder = data.path().join("project");
+        std::fs::create_dir_all(&folder).unwrap();
+        let settings = read_editor_settings(&user_data, &folder, "a.ts", None, None).unwrap();
+        assert_eq!(settings["tabSize"], 2);
+    }
+    #[test]
+    fn archive_obstruction_blocks_backup_deletion_until_old_copy_is_preserved() {
+        let data = tempfile::tempdir().unwrap();
+        let source = data.path().join("a.txt").to_string_lossy().into_owned();
+        let backups = Backups::new(&data.path().join("userdata"));
+        backups.write(&source, "current", "disk").unwrap();
+        let name = backups.path_of(&source).unwrap().file_name().unwrap().to_owned();
+        let legacy = data.path().join("desktop/editor-backups");
+        std::fs::create_dir_all(&legacy).unwrap();
+        let stale = json!({"content":"stale", "expectedContent":"disk", "updatedAt":now_ms()}).to_string();
+        std::fs::write(legacy.join(&name), &stale).unwrap();
+        let archive = data.path().join("desktop/editor-backups-superseded");
+        std::fs::write(&archive, "obstruction").unwrap();
+        assert!(backups.delete(&source).is_err());
+        assert!(backups.read(&source).is_err());
+        assert!(legacy.join(&name).exists());
+        std::fs::remove_file(&archive).unwrap();
+        assert_eq!(backups.read(&source).unwrap()["content"], "current");
+        backups.delete(&source).unwrap();
+        assert!(Backups::new(&data.path().join("userdata")).read(&source).unwrap().is_null());
+        let slot = std::fs::read_dir(archive).unwrap().next().unwrap().unwrap().path();
+        assert_eq!(std::fs::read_to_string(slot.join(name)).unwrap(), stale);
+    }
+
 }

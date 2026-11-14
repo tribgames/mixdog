@@ -183,11 +183,24 @@ fn store_is_empty(scope: &Scope) -> bool {
     }
 }
 
+/// An old descriptor may still name Electron's profile after migration moved its journals.
+/// Keep the descriptor unchanged, but check both migration destinations before pruning it.
+fn store_is_clear(scope: &Scope, journals: &Path) -> bool {
+    let Some(digest) = scope.directory.file_name() else { return false };
+    let mut directories = vec![scope.directory.clone(), journals.join(digest)];
+    if let Some(data) = journals.parent() {
+        directories.push(data.join("desktop").join(EDITOR_RECOVERY).join(digest));
+    }
+    directories.sort();
+    directories.dedup();
+    directories.into_iter().all(|directory| store_is_empty(&Scope { root: scope.root.clone(), directory }))
+}
+
 /// The first retained store's root, `Err(path)` of the record when its descriptors are malformed.
 fn retained_store(record: &WorktreeRecord, journals: &Path) -> Option<String> {
     match recovery_scopes(record, journals) {
         None => Some(record.path.clone()),
-        Some(scopes) => scopes.iter().find(|scope| !store_is_empty(scope)).map(|scope| scope.root.to_string_lossy().into_owned()),
+        Some(scopes) => scopes.iter().find(|scope| !store_is_clear(scope, journals)).map(|scope| scope.root.to_string_lossy().into_owned()),
     }
 }
 
@@ -327,7 +340,7 @@ impl Worktrees {
                     recovery_scopes(&probe, &journals)
                         .unwrap_or_default()
                         .into_iter()
-                        .filter(|s| !store_is_empty(s))
+                        .filter(|s| !store_is_clear(s, &journals))
                         .map(|s| serde_json::json!({ "root": s.root, "directory": s.directory }))
                         .collect::<Vec<_>>()
                 })
@@ -435,6 +448,32 @@ mod tests {
         );
         assert!(unrecorded_links(&record).unwrap().is_empty());
         assert!(std::fs::read_dir(&target).unwrap().next().is_none());
+    }
+
+    #[test]
+    fn a_legacy_descriptor_retains_journals_before_and_after_runtime_adoption() {
+        let dir = tempfile::tempdir().unwrap();
+        let checkout = dir.path().join("co");
+        let root = checkout.join("proj");
+        let digest: String = Sha256::digest(resolved_text(&root).as_bytes()).iter().map(|b| format!("{b:02x}")).collect();
+        let old = dir.path().join("electron-profile").join(EDITOR_RECOVERY).join(&digest);
+        let data = dir.path().join("data");
+        let journals = data.join(mixdog_workspace::recovery::JOURNALS_DIR);
+        let staged = data.join("desktop").join(EDITOR_RECOVERY).join(&digest);
+        let current = journals.join(&digest);
+        let mut record = crate::worktree::retention::test_record(&checkout);
+        record.extra.insert("editorRecoveryStores".into(), serde_json::json!([{ "root": root, "directory": old }]));
+        let descriptor = record.extra.clone();
+        std::fs::create_dir_all(&staged).unwrap();
+        std::fs::write(staged.join("journal"), "pending recovery").unwrap();
+        assert!(!old.exists());
+        assert_eq!(retained_store(&record, &journals), Some(root.to_string_lossy().into_owned()));
+        std::fs::create_dir_all(&journals).unwrap();
+        std::fs::rename(&staged, &current).unwrap();
+        assert_eq!(retained_store(&record, &journals), Some(root.to_string_lossy().into_owned()));
+        std::fs::remove_file(current.join("journal")).unwrap();
+        assert_eq!(retained_store(&record, &journals), None);
+        assert_eq!(record.extra, descriptor, "probing must not expand persisted descriptors");
     }
 
     #[test]

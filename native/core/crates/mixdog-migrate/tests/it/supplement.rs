@@ -102,7 +102,7 @@ fn gen2_after_gen1_with_profile() {
     for name in ["ssh-hosts.json", "ssh-hosts.json.bak", "port-forwards.json", "remote-hosts.json", "server-windows.json"] {
         assert!(!exists(&dirs.profile().join(name)), "{name} still in the profile");
     }
-    assert_eq!(dirs.marker()["generation"], 2);
+    assert_eq!(dirs.marker()["generation"], supplement::GENERATION);
     assert!(!exists(&dirs.data().join("migration/profile-gen-stage")));
 }
 
@@ -118,7 +118,7 @@ fn gen2_in_same_start_as_first_run() {
     assert_eq!(dirs.moved("server-windows.json").as_deref(), Some(&b"{\"windows\":[1]}"[..]));
     assert!(!exists(&dirs.profile().join("ssh-hosts.json")));
     let marker = dirs.marker();
-    assert_eq!(marker["generation"], 2);
+    assert_eq!(marker["generation"], supplement::GENERATION);
     assert_eq!(marker["items"].as_array().expect("items").len(), 2);
 }
 
@@ -126,13 +126,13 @@ fn gen2_in_same_start_as_first_run() {
 fn gen2_skips_when_marker_current() {
     let dirs = Dirs::new();
     migrator(&dirs.roots(), None).run().expect("first run");
-    assert_eq!(dirs.marker()["generation"], 2);
+    assert_eq!(dirs.marker()["generation"], supplement::GENERATION);
     dirs.put("ssh-hosts.json", b"{\"hosts\":[3]}");
 
     migrator(&dirs.roots(), None).run().expect("a later start");
     let outcome = supplement::run(&dirs.roots()).expect("supplement");
 
-    assert_eq!(outcome.generation, 2);
+    assert_eq!(outcome.generation, supplement::GENERATION);
     assert!(outcome.moved.is_empty());
     assert!(exists(&dirs.profile().join("ssh-hosts.json")));
     assert_eq!(dirs.moved("ssh-hosts.json"), None);
@@ -157,7 +157,7 @@ fn gen2_crash_between_publish_and_delete_resumes() {
 
     assert!(!exists(&dirs.profile().join("remote-hosts.json")));
     assert_eq!(dirs.moved("remote-hosts.json").as_deref(), Some(&b"{\"hosts\":[\"x\"]}"[..]));
-    assert_eq!(dirs.marker()["generation"], 2);
+    assert_eq!(dirs.marker()["generation"], supplement::GENERATION);
 }
 
 #[test]
@@ -222,5 +222,89 @@ fn gen2_conflicting_target_kept() {
     );
     // The other file moved as usual.
     assert!(dirs.moved("port-forwards.json").is_some());
-    assert_eq!(dirs.marker()["generation"], 2);
+    assert_eq!(dirs.marker()["generation"], supplement::GENERATION);
+}
+
+
+// JSONC is the user-editable Electron settings format; preserve its comments and trailing comma.
+const EDITOR_SETTINGS: &[u8] = b"{\n // personal settings\n \"editor.tabSize\": 2,\n \"editor.insertSpaces\": false,\n}\n";
+
+fn gen2_settings_profile(dirs: &Dirs) {
+    std::fs::create_dir_all(dirs.profile().join("User")).unwrap();
+    dirs.put("User/settings.json", EDITOR_SETTINGS);
+    dirs.put("User/settings.json.bak", b"{\"editor.tabSize\": 8}");
+    std::fs::create_dir_all(dirs.data().join("migration")).unwrap();
+    let marker = serde_json::json!({ "generation": 2, "profile": dirs.profile(), "items": [] });
+    std::fs::write(dirs.data().join(PROFILE_GEN_PATH), serde_json::to_vec(&marker).unwrap()).unwrap();
+}
+
+#[test]
+fn gen3_completed_gen2_settings_apply_and_resume_at_each_step() {
+    for point in [
+        "supplement:extend:before",
+        "supplement:stage:User/settings.json:before",
+        "supplement:publish:User/settings.json:before",
+        "supplement:delete:User/settings.json:before",
+        "supplement:done:before",
+    ] {
+        let dirs = Dirs::new();
+        gen2_settings_profile(&dirs);
+        // A generation upgrade must not pick up an unrelated old-generation source again.
+        dirs.put("ssh-hosts.json", b"new source after gen2");
+        let fault = stop_at(point);
+        assert!(supplement::run_with(&dirs.roots(), &|at| fault(at)).is_err(), "{point}");
+        // Resume from the recorded profile even when the caller names another one.
+        let roots = MigrationRoots { profile: Some(dirs.root.path().join("other")), ..dirs.roots() };
+        supplement::run(&roots).unwrap();
+        assert_eq!(dirs.marker()["generation"], supplement::GENERATION);
+        assert_eq!(std::fs::read(dirs.data().join("userdata/User/settings.json")).unwrap(), EDITOR_SETTINGS);
+        assert_eq!(std::fs::read(dirs.data().join("userdata/User/settings.json.bak")).unwrap(), b"{\"editor.tabSize\": 8}");
+        let settings = mixdog_workspace::editorcfg::read_editor_settings(
+            &dirs.data().join("userdata"), dirs.root.path(), "a.ts", None, None,
+        ).unwrap();
+        assert_eq!(settings["tabSize"], 2);
+        assert_eq!(settings["insertSpaces"], false);
+        assert!(exists(&dirs.profile().join("ssh-hosts.json")));
+        let marker = std::fs::read(dirs.data().join(PROFILE_GEN_PATH)).unwrap();
+        assert!(supplement::run(&roots).unwrap().moved.is_empty());
+        assert_eq!(std::fs::read(dirs.data().join(PROFILE_GEN_PATH)).unwrap(), marker);
+    }
+}
+
+#[test]
+fn gen3_extends_interrupted_older_plan_without_resetting_staged_bytes() {
+    let dirs = Dirs::new();
+    dirs.put("remote-hosts.json", b"original remote hosts");
+    let fault = stop_at("supplement:publish:remote-hosts.json:before");
+    assert!(supplement::run_with(&dirs.roots(), &|at| fault(at)).is_err());
+    let old_item = dirs.marker()["items"][0].clone();
+    assert_eq!(old_item["state"], "staged");
+    std::fs::create_dir_all(dirs.profile().join("User")).unwrap();
+    dirs.put("User/settings.json", EDITOR_SETTINGS);
+    dirs.put("remote-hosts.json", b"changed source survives");
+    let fault = stop_at("supplement:publish:remote-hosts.json:before");
+    assert!(supplement::run_with(&dirs.roots(), &|at| fault(at)).is_err());
+    assert_eq!(dirs.marker()["items"][0], old_item);
+    supplement::run(&dirs.roots()).unwrap();
+    assert_eq!(dirs.moved("remote-hosts.json").unwrap(), b"original remote hosts");
+    assert_eq!(std::fs::read(dirs.profile().join("remote-hosts.json")).unwrap(), b"changed source survives");
+    assert_eq!(std::fs::read(dirs.data().join("userdata/User/settings.json")).unwrap(), EDITOR_SETTINGS);
+    assert_eq!(dirs.marker()["items"].as_array().unwrap().len(), 2);
+}
+
+#[test]
+fn gen3_existing_editor_settings_win_and_old_bytes_are_preserved() {
+    let dirs = Dirs::new();
+    gen2_settings_profile(&dirs);
+    let target = dirs.data().join("userdata/User/settings.json");
+    std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+    std::fs::write(&target, b"{\"editor.tabSize\": 4}").unwrap();
+    dirs.put("User/settings.json.superseded", b"previously preserved settings");
+    supplement::run(&dirs.roots()).unwrap();
+    assert_eq!(std::fs::read(&target).unwrap(), b"{\"editor.tabSize\": 4}");
+    assert_eq!(std::fs::read(dirs.profile().join("User/settings.json.superseded")).unwrap(), b"previously preserved settings");
+    assert_eq!(std::fs::read(dirs.profile().join("User/settings.json.superseded.1")).unwrap(), EDITOR_SETTINGS);
+    std::fs::remove_file(&target).unwrap();
+    supplement::run(&dirs.roots()).unwrap();
+    assert!(!target.exists(), "a deleted current setting is never re-imported");
 }
