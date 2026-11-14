@@ -1,0 +1,27 @@
+# nl-computer-2 -> the wave's desktop wiring
+
+Owner decision recorded here: the loopback computer bridge is KEPT (ownerDirection 9) and there is one path. It is apps/desktop/src/main/computer/bridge/
+(createBridgeServer, forwarding every command to the core's computer/bridge/run and a dropped caller or a stop to computer/bridge/abort, so the bridge and the
+agent tool share the core's helper pool, foreground lane and user-control hold; /owner carries owner_attach and owner_detach, /command refuses them with 400).
+It is tested (bridge-forward.test.mjs, bridge-exhaustion.test.mjs, bridge-startup.test.mjs) and nothing but those tests imports it yet.
+
+## apps/desktop/src/main/index.ts (and the TypeScript host it replaces)
+
+Apply apps/desktop/pending-wire/s3-bridge-forward.kept now: it is no longer gated on the real-screen check (ownerDirection.windowsComputerOnePath). Its
+step 4 (bridgeEnabled: false for createComputerHost) goes away with the TypeScript host's own deletion (s3-31): the host's bridge-server*.ts,
+bridge-command-dispatch.ts, request-policy.ts in computer/host/ and their tests are deleted there, never selectable.
+The core side of that file (computer/bridge/run and /abort registered while Computer Use is on) stays as written there.
+
+## Record for docs/internal/migration-intentional-removals (lead)
+
+- The Node runtime's computer tool client (computer-bridge/client.mjs, tool-defs.mjs, pending-continuation.mjs) has no TypeScript counterpart on purpose: the core's
+  own computer tool (mixdog-tools computer_backend, computer_act, computer_recovery, computer_reply) carries its discovery-free call, abort on timeout, pending
+  continuation, stale recapture and tool definitions.
+- scripts/computer-tool-schema-bench.mjs and scripts/computer-tool-sequence-bench.mjs are not restored: they measure live model providers through the Node
+  runtime's provider registry and tool-defs.mjs, which are removed (no Node runtime). scripts/computer-task-cost-report.mjs is restored (it only reads their JSON).
+
+## desktop.computerBackend = desktopHost
+
+Removed, not kept as a rollback (ownerDirection.windowsComputerOnePath): task s3-32 owns it (ComputerBackendChoice, choose_computer_backend and
+computer_backend in mixdog-core-config desktop.rs; chosen_backend, the host_blobs/DesktopHost branches in native_tools.rs; compose_computer.rs; the key tolerated
+when read from an old config). Nothing here edits those files.
