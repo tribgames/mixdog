@@ -220,6 +220,16 @@ impl ApprovalContext for BrowserApprovalContext {
             holds.release(&id);
         })
     }
+
+    /// The notice the session shows when an "always" allow could not be saved (the desktop's card toast `saveFailed`): a toast of the
+    /// asking session, as the one place a session's notices go.
+    async fn save_failed(&self, thread: &ThreadId) {
+        let Some(directory) = self.late.directory() else { return };
+        let Some(session) = mixdog_mcp::mcp_service::SessionToasts::incarnation(&*directory, thread.as_str()) else { return };
+        if let Err(error) = session.toast(mixdog_tools::desktop::browser_approval::SAVE_FAILED_NOTICE, "warn").await {
+            tracing::warn!(%error, "the notice that an always-allow was not saved could not be posted");
+        }
+    }
 }
 
 /// `test/browserEngine/run`'s runner: one `browser` or `browser_devtools` call over the same host commands the tools are built over.
