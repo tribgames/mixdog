@@ -172,7 +172,6 @@ fn the_generated_block_carries_every_resolved_option_except_forwarding_ones_with
     for gone in ["forward", "localcommand", "permitlocalcommand"] {
         assert!(!kept.iter().any(|line| line.contains(gone)), "{gone}");
     }
-    assert_eq!(forwards_of(&lines), FORWARDS);
     // A key file with spaces, printed bare by some builds, is quoted.
     let spaced = resolved_block_text("g", &parse_dump("identityfile C:/Users/John Doe/.ssh/id\n"), &host, "/k");
     assert!(spaced.contains("identityfile \"C:/Users/John Doe/.ssh/id\""));

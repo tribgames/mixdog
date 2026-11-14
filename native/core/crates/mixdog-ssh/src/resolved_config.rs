@@ -58,15 +58,6 @@ pub fn parse_dump(stdout: &str) -> Vec<DumpLine> {
         .collect()
 }
 
-/// The forwards of a dump, as `local <from> <to>` lines.
-pub fn forwards_of(lines: &[DumpLine]) -> Vec<String> {
-    lines
-        .iter()
-        .filter(|(key, _)| matches!(key.as_str(), "localforward" | "remoteforward" | "dynamicforward"))
-        .map(|(key, value)| format!("{} {value}", key.replace("forward", "")))
-        .collect()
-}
-
 fn is_forwarding(key: &str) -> bool {
     FORWARDING_KEYS.contains(&key)
 }
@@ -223,7 +214,7 @@ impl ResolvedConfigs {
         let own = self.config.known_hosts_file().to_string_lossy().into_owned();
         let Some(blocks) = resolve_chain(env, ctx, target).await else { return Err(Unresolved::default()) };
         let mut forwards: Vec<String> = Vec::new();
-        for forward in blocks.iter().flat_map(|block| forwards_of(&block.lines)) {
+        for forward in blocks.iter().flat_map(|block| block.host.forwards.iter().cloned()) {
             if !forwards.contains(&forward) {
                 forwards.push(forward);
             }
