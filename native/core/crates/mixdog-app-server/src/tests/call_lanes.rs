@@ -266,7 +266,7 @@ fn every_method_takes_the_lane_of_the_node_call_it_became() {
         table.push((*method, node, crate::server::lane_of(spec)));
     }
     table.sort_by_key(|row| row.0);
-    assert_eq!(table.len(), 536, "every method of the table");
+    assert_eq!(table.len(), 546, "every method of the table");
     let wrong: Vec<_> = table.iter().filter(|(_, node, core)| node != core).map(|(method, node, core)| format!("{method}: node {node:?}, core {core:?}")).collect();
     assert!(wrong.is_empty(), "{wrong:#?}");
 }
