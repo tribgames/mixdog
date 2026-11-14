@@ -19,7 +19,7 @@ import { dirname, join } from 'node:path';
 import test from 'node:test';
 
 import { createCoreLocalPages, setCoreLocalPages } from '../core-local-pages.ts';
-import { pageAssetType } from '../local-page-server.ts';
+import { pageAssetType } from './test-fixtures/page-server-stand-in.ts';
 
 import {
   createVisualizeVersionStore,
@@ -31,7 +31,7 @@ import {
   writeFileInside,
 } from './versions.ts';
 
-// The core page server's asset policy stands behind coreLocalPages(); here the shared policy answers the same call.
+// The core page server stands behind coreLocalPages(); here the visualize tests' stand-in answers the same calls.
 setCoreLocalPages(
   createCoreLocalPages(async (name, [root, file, dataRoot]) => {
     if (name === 'localPageAssetType') return pageAssetType(root, file, dataRoot);

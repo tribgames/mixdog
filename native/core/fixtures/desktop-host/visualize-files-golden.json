@@ -167,54 +167,6 @@
         "ok": false,
         "error": "ENOENT: no such file or directory, stat '<CWD>\\gone.html'"
       }
-    },
-    {
-      "name": "page-project",
-      "request": {
-        "root": "<CWD>",
-        "rel": "site/index.html",
-        "scope": "project"
-      },
-      "result": {
-        "ok": true,
-        "path": "/<TOKEN>/site/index.html"
-      }
-    },
-    {
-      "name": "page-file",
-      "request": {
-        "root": "<CWD>",
-        "rel": "site/index.html",
-        "scope": "file"
-      },
-      "result": {
-        "ok": true,
-        "path": "/<TOKEN>/site/index.html"
-      }
-    },
-    {
-      "name": "page-outside-root",
-      "request": {
-        "root": "<CWD>",
-        "rel": "../secret.html",
-        "scope": "project"
-      },
-      "result": {
-        "ok": false,
-        "error": "The page must be a visible HTML file inside its folder."
-      }
-    },
-    {
-      "name": "page-missing",
-      "request": {
-        "root": "<CWD>",
-        "rel": "site/none.html",
-        "scope": "project"
-      },
-      "result": {
-        "ok": false,
-        "error": "ENOENT: no such file or directory, realpath '<CWD>\\site\\none.html'"
-      }
     }
   ]
 }

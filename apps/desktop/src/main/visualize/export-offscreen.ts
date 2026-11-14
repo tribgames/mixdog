@@ -5,8 +5,7 @@
  */
 import type { VisualizeInlineContent } from '../../shared/visualize';
 import { INLINE_CHART_RENDERED } from '../../shared/visualize-inline-page';
-import type { VirtualPageFile } from '../local-page-server';
-import { inlinePageFiles } from './inline-page';
+import { inlinePageFiles, type VirtualPageFile } from './inline-page';
 
 /** An in-memory page (`index.html` plus siblings) and, when it draws after
  *  the load, the script that answers `true` once it has (an error text when
