@@ -3,7 +3,10 @@
 //! takes (`computer-bridge` `executeSerialized`; `ProcessComputerBackend` is the helper), each
 //! under the human-only lock as each command of the desktop's queue was (`command-attempt.ts`).
 
+use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::Mutex;
+use std::sync::PoisonError;
 
 use async_trait::async_trait;
 use mixdog_core_api::domain::computer::ComputerAction;
@@ -19,9 +22,9 @@ use mixdog_core_api::domain::computer::ScreenInput;
 use mixdog_core_api::domain::media::MediaFrameSource;
 use mixdog_core_api::domain::tool::ToolPart;
 use mixdog_core_api::ids::ThreadId;
+use mixdog_tools::desktop::computer_backend::semantic_payload;
 use mixdog_tools::desktop::host::HostCommands;
 use mixdog_tools::state::secrets::ComputerSecretHost;
-use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
@@ -33,6 +36,7 @@ use super::saved_login::FillContext;
 use super::saved_login::SavedLoginRegistry;
 use super::saved_login::SavedLoginTurn;
 use super::saved_login::fill_saved_login;
+use crate::session::turn_snapshots::TurnSnapshots;
 use super::saved_login::pixels_allowed;
 use super::saved_login_host::HelperWindowPids;
 use super::saved_login_host::HostSavedLogins;
@@ -82,6 +86,76 @@ impl ComputerCommands for HostComputerCommands {
 /// pixel guard live until that turn settles.
 pub trait SavedLoginTurns: Send + Sync {
     fn turn(&self, thread: &ThreadId) -> Option<u64>;
+}
+
+/// The agent turns of the sessions, counted as they settle, which is what a saved-login fill is scoped to: the running turn of
+/// a session is the one after the last that settled (Node's `turn_id`). A settled turn lifts its fills' password redaction and
+/// pixel guard (`settleSavedLoginTurn`), and a session that ends lifts all of its own (`forget`); [`SettlingSavedLogins`] makes
+/// those calls where the actor reports them.
+pub struct SavedLoginTurnClock {
+    registry: Arc<SavedLoginRegistry>,
+    /// Per session, how many turns have settled.
+    settled: Mutex<HashMap<String, u64>>,
+}
+
+impl SavedLoginTurnClock {
+    pub fn new(registry: Arc<SavedLoginRegistry>) -> Arc<Self> {
+        Arc::new(Self { registry, settled: Mutex::new(HashMap::new()) })
+    }
+
+    fn turn_settled(&self, thread: &ThreadId) {
+        let turn = {
+            let mut settled = self.settled.lock().unwrap_or_else(PoisonError::into_inner);
+            let count = settled.entry(thread.as_str().to_owned()).or_insert(0);
+            *count += 1;
+            SavedLoginTurn { session: thread.as_str().to_owned(), turn: *count }
+        };
+        let registry = self.registry.clone();
+        drop(tokio::spawn(async move { registry.settle(&turn).await }));
+    }
+
+    fn runtime_stopped(&self, thread: &ThreadId) {
+        // A turn the runtime stopped in is over: `forget` settles it, so the next runtime's first turn is a new number.
+        *self.settled.lock().unwrap_or_else(PoisonError::into_inner).entry(thread.as_str().to_owned()).or_insert(0) += 1;
+        let (registry, session) = (self.registry.clone(), thread.as_str().to_owned());
+        drop(tokio::spawn(async move { registry.forget(&session).await }));
+    }
+}
+
+impl SavedLoginTurns for SavedLoginTurnClock {
+    fn turn(&self, thread: &ThreadId) -> Option<u64> {
+        let settled = self.settled.lock().unwrap_or_else(PoisonError::into_inner);
+        Some(settled.get(thread.as_str()).copied().unwrap_or(0) + 1)
+    }
+}
+
+/// The session deps' `TurnSnapshots` (the call the actor makes where Node's `settleTurn` runs) with the saved logins' turn
+/// settlement beside it: pass it as `SessionDeps.snapshots` around the one the daemon builds.
+pub struct SettlingSavedLogins {
+    inner: Arc<dyn TurnSnapshots>,
+    clock: Arc<SavedLoginTurnClock>,
+}
+
+impl SettlingSavedLogins {
+    pub fn new(inner: Arc<dyn TurnSnapshots>, clock: Arc<SavedLoginTurnClock>) -> Self {
+        Self { inner, clock }
+    }
+}
+
+impl TurnSnapshots for SettlingSavedLogins {
+    fn turn_settled(&self, thread: &ThreadId) {
+        self.clock.turn_settled(thread);
+        self.inner.turn_settled(thread);
+    }
+
+    fn runtime_stopped(&self, thread: &ThreadId) {
+        self.clock.runtime_stopped(thread);
+        self.inner.runtime_stopped(thread);
+    }
+
+    fn dispose(&self) {
+        self.inner.dispose();
+    }
 }
 
 /// The runtime that names itself in a fill's command (`runtime_id`).
@@ -137,10 +211,11 @@ impl SavedLoginComputerBackend {
             return Err(self.failed("saved_login_unavailable: the request names no runtime and agent turn to scope its protection to; no input was sent"));
         };
         let given = |key: &str| input.get(key).cloned().unwrap_or(Value::Null);
+        let window_id = self.target_window(input).await?;
         let command = json!({
             "action": "fill_saved_login",
             "session_id": self.thread.as_str(),
-            "window_id": given("window_id"),
+            "window_id": window_id,
             "saved_account": given("savedAccount"),
             "field": given("field"),
             "turn_id": turn,
@@ -154,15 +229,31 @@ impl SavedLoginComputerBackend {
         logins.release().await;
         let reply = outcome.map_err(|message| self.failed(&message))?;
         let mut result = reply.get("result").and_then(Value::as_object).cloned().unwrap_or_default();
-        let message = result.shift_remove("text").unwrap_or(Value::Null);
-        let refused = result.get("code").and_then(Value::as_str).is_some_and(|code| !code.is_empty());
-        let mut shaped = Map::new();
-        shaped.insert("ok".to_owned(), json!(!refused));
-        shaped.insert("message".to_owned(), message);
-        shaped.extend(result);
-        // The reply names the tool's action, as `canonicalComputerResultText` rewrote it.
-        shaped.insert("action".to_owned(), json!(ComputerAction::SavedLogin.wire_name()));
+        // The reply names the tool's action, as `canonicalComputerResultText` rewrote it, and the window the fill was made in.
+        let action = ComputerAction::SavedLogin.wire_name();
+        result.insert("action".to_owned(), json!(action));
+        if !matches!(result.get("window_id"), Some(Value::String(id)) if !id.is_empty()) {
+            result.insert("window_id".to_owned(), command["window_id"].clone());
+        }
+        // The host's own reply of a semantic action: what it did, whether it was verified, how it was delivered, and the verdict.
+        let shaped = semantic_payload(action, &result);
         Ok(vec![ToolPart::Text(self.hide(&Value::Object(shaped).to_string()))])
+    }
+
+    /// The window a fill is made in: an `app` is resolved to its one visible window, and a refusal says why there is none or
+    /// which windows match (`resolveAppWindowId`, which the host ran before the fill for any app-named command); a command that
+    /// names its window goes as it is.
+    async fn target_window(&self, input: &Value) -> Result<Value, ComputerError> {
+        let named = |key: &str| input.get(key).and_then(Value::as_str).map(mixdog_js::js_trim).filter(|text| !text.is_empty());
+        if let Some(app) = named("app") {
+            let found = self
+                .commands
+                .execute(&self.thread, json!({ "action": "window_bounds", "session_id": self.thread.as_str(), "app": app }))
+                .await
+                .map_err(|message| self.failed(&message))?;
+            return Ok(found.get("window_id").cloned().unwrap_or(Value::Null));
+        }
+        Ok(input.get("window_id").cloned().unwrap_or(Value::Null))
     }
 
     async fn fill_admitted(&self, command: &Value, logins: &HostSavedLogins, turn: u64, cancel: &CancellationToken) -> Result<Value, String> {

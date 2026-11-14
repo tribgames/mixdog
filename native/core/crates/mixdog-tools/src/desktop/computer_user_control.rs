@@ -86,6 +86,9 @@ struct Takeover {
     /// The desktop may resume by itself once it has been idle: the release was confirmed (`isIdleResumePause`), which a Stop
     /// never is.
     idle_resumable: bool,
+    /// The sessions with an open execution when the hold began (`pausedSessionIds`): the hold ends with the last of them
+    /// (`releaseEndedPause`), unless it is one the person alone ends.
+    paused: BTreeSet<String>,
 }
 
 #[derive(Default)]
@@ -348,12 +351,26 @@ impl UserControlState {
     }
 
     /// The session's execution ended (`forgetSession`): its yield goes with it, and a Stop is done once no session is left
-    /// (`clearTakeoverReasonWhenIdle`), as is an environment takeover (`releaseEndedPause`). The pool publishes the section along with its own presence.
+    /// (`clearTakeoverReasonWhenIdle`), as is an environment takeover; any other hold, the person's pause among them, ends with the
+    /// last session it was taken for (`releaseEndedPause`). The pool publishes the section along with its own presence.
     pub fn session_ended(&self, session: &str) {
         {
             let mut inner = locked(&self.inner);
             inner.open.remove(session);
             inner.yielded.remove(session);
+            // `releaseEndedPause`: a turn that ended while held has nothing left to resume, so the hold ends with the last session
+            // it was taken for. A Stop confirms its own cleanup and resumes itself, and input that may still be held stays with
+            // the person (a latched cleanup, `input_cleanup_unconfirmed`).
+            let latched = !inner.latched.is_empty();
+            if let Some(takeover) = inner.takeover.as_mut()
+                && takeover.paused.remove(session)
+                && takeover.paused.is_empty()
+                && !latched
+                && takeover.reason != USER_STOP
+                && takeover.reason != TAKEOVER_CODES[0]
+            {
+                inner.takeover = None;
+            }
             if inner.open.is_empty() && inner.takeover.as_ref().is_some_and(|takeover| takeover.reason == USER_STOP || ENVIRONMENT_REASONS.contains(&takeover.reason.as_str())) {
                 inner.takeover = None;
             }
@@ -377,7 +394,12 @@ impl UserControlState {
             // The whole desktop is now held, which covers every yielded session.
             inner.yielded.clear();
             inner.takeovers += 1;
-            inner.takeover = Some(Takeover { reason: reason.to_owned(), idle_resumable });
+            // `pauseForUser`: the sessions an earlier hold waited for stay paused along with every open one.
+            let mut paused = inner.open.clone();
+            if let Some(earlier) = inner.takeover.take() {
+                paused.extend(earlier.paused);
+            }
+            inner.takeover = Some(Takeover { reason: reason.to_owned(), idle_resumable, paused });
         }
         self.changed();
         true
@@ -396,8 +418,8 @@ impl UserControlState {
     }
 
     /// The pause the pill takes when its control renderer dies (`takeOver('user_pause')`): the desktop is held like a Stop's, but
-    /// the reason is `user_pause`, so a waiting `wait_for_user` keeps waiting (the task is not cancelled) and the hold outlives
-    /// the sessions' executions until Resume. False when no session is using the computer.
+    /// the reason is `user_pause`, so a waiting `wait_for_user` keeps waiting (the task is not cancelled), and the hold lasts until
+    /// Resume or until the last session it waits for ends (`releaseEndedPause`). False when no session is using the computer.
     pub fn pause(&self) -> bool {
         self.take_over(USER_PAUSE, false)
     }
@@ -507,6 +529,31 @@ impl UserControlState {
     /// ends it. A hold whose person has been idle long enough is resumed here first, as the Node host's sampler would have. A
     /// held desktop refuses with an error; a yielded session is answered with the yield.
     pub(super) async fn admit(&self, backend: &ProcessComputerBackend, command: &Map<String, Value>, cancel: &CancellationToken) -> Result<Option<Vec<ToolPart>>, ComputerError> {
+        let action = text(command, "action");
+        match self.blocked_now(backend, command, cancel).await? {
+            None => Ok(None),
+            Some(Block::Takeover) if self.paused_by_user() => self.park(backend, command, cancel).await,
+            Some(Block::Takeover) => Err(takeover_refusal()),
+            Some(Block::Yielded) => Ok(Some(reply(yielded_payload(refusal_payload(action, text(command, "window_id"), false), self.manual())))),
+        }
+    }
+
+    /// A request meeting the person's pause parks before it takes the desktop's lane (`command-queue.ts` parks outside it), so
+    /// the other sessions' requests and a Release are not held behind it for the pause's budget. `None` leaves the request to go
+    /// on (to the lane and the gate); a reply ends it.
+    pub(super) async fn park_before_lane(&self, backend: &ProcessComputerBackend, command: &Map<String, Value>, cancel: &CancellationToken) -> Result<Option<Vec<ToolPart>>, ComputerError> {
+        // Any other hold is met at the gate in the lane, so its recovery and idle resume run once (`recoverBeforeCommand`).
+        if !self.paused_by_user() {
+            return Ok(None);
+        }
+        match self.blocked_now(backend, command, cancel).await? {
+            Some(Block::Takeover) if self.paused_by_user() => self.park(backend, command, cancel).await,
+            _ => Ok(None),
+        }
+    }
+
+    /// What holds the command back now, after the recovery and the idle resume that may lift the hold first.
+    async fn blocked_now(&self, backend: &ProcessComputerBackend, command: &Map<String, Value>, cancel: &CancellationToken) -> Result<Option<Block>, ComputerError> {
         let session = backend.config.session_id.as_str();
         let action = text(command, "action");
         // `recoverBeforeCommand`: a cleanup left latched with no other session open and nobody waiting (nobody to resume it) gets
@@ -527,12 +574,13 @@ impl UserControlState {
                 _ => {}
             }
         }
-        match blocked {
-            None => Ok(None),
-            Some(Block::Takeover) if self.paused_by_user() => self.park(backend, command, cancel).await,
-            Some(Block::Takeover) => Err(takeover_refusal()),
-            Some(Block::Yielded) => Ok(Some(reply(yielded_payload(refusal_payload(action, text(command, "window_id"), false), self.manual())))),
+        // `queueCommand`: a session that asks while the desktop is held is one of the sessions the hold waits for.
+        if matches!(blocked, Some(Block::Takeover))
+            && let Some(takeover) = locked(&self.inner).takeover.as_mut()
+        {
+            takeover.paused.insert(session.to_owned());
         }
+        Ok(blocked)
     }
 
     /// The person's own pause holds the desktop (`pausedForUserInput`): a request waits it out instead of being refused.
@@ -1271,25 +1319,51 @@ mod tests {
         assert!(control.resume(Some("a")), "Resume ends a takeover whatever session it names");
     }
 
-    /// The renderer-death pause holds like a Stop but is no cancellation: a wait keeps waiting, the hold outlives the sessions'
-    /// executions and only Resume ends it (`takeOver('user_pause')`).
+    /// The renderer-death pause holds like a Stop but is no cancellation: a wait keeps waiting, and the hold lasts until Resume or
+    /// until the last session it was taken for ends (`takeOver('user_pause')`, `releaseEndedPause`).
     #[tokio::test(start_paused = true)]
     async fn the_pause_holds_without_cancelling() {
         let manager = quiet_helper();
         let control = Arc::new(UserControlState::new(Duration::ZERO));
         assert!(!control.pause(), "no session is using the computer");
-        let a = session(&manager, &control, "a");
+        let _a = session(&manager, &control, "a");
         control.session_began("a");
+        let b = session(&manager, &control, "b");
         assert!(control.pause());
         assert_eq!(control.section().map(|section| section.reason), Some("user_pause".to_owned()));
         assert!(matches!(control.standing("a"), Standing::Held), "the model is not told it was cancelled");
         control.session_ended("a");
-        assert!(control.section().is_some(), "a pause outlives the executions");
+        assert!(control.section().is_some(), "the pause goes on while a session it was taken for is open");
         // A request meets the pause: it parks and, past the pause budget, answers `paused` (s3-07), never a takeover refusal.
-        let reply = control.admit(&a, &click_in_background(), &CancellationToken::new()).await.unwrap().expect("a paused reply");
+        let reply = control.admit(&b, &click_in_background(), &CancellationToken::new()).await.unwrap().expect("a paused reply");
         assert_eq!(payload_of(&reply)["status"], "paused");
-        assert!(control.resume(None));
-        assert_eq!(control.section(), None);
+        assert!(control.section().is_some(), "a paused reply does not end the pause");
+        control.session_ended("b");
+        assert_eq!(control.section(), None, "the pause ends with the last session it was taken for (`releaseEndedPause`)");
+        assert!(control.admit(&b, &click_in_background(), &CancellationToken::new()).await.unwrap().is_none());
+    }
+
+    /// A session that began after the pause is not one it was taken for, and a Stop or a latched cleanup is the person's alone.
+    #[tokio::test]
+    async fn only_the_sessions_a_pause_was_taken_for_end_it() {
+        let manager = quiet_helper();
+        let control = Arc::new(UserControlState::new(Duration::ZERO));
+        control.session_began("a");
+        assert!(control.pause());
+        control.session_began("late");
+        control.session_ended("a");
+        assert_eq!(control.section(), None, "the pause was taken for `a` alone");
+        control.session_ended("late");
+        control.session_began("a");
+        assert!(control.stop());
+        control.session_ended("a");
+        assert_eq!(control.section(), None, "a Stop with no session left is done");
+        let latched = session(&manager, &control, "c");
+        control.session_began("c");
+        control.cleanup_unconfirmed("c");
+        control.session_ended("c");
+        assert!(control.section().is_some(), "a cleanup that did not confirm stays until Resume");
+        drop(latched);
     }
 
     /// The listener hears each change of the section, so the pool publishes it.
@@ -1434,6 +1508,50 @@ mod tests {
         assert_eq!(cancelled.await.unwrap(), Err(ComputerError::Cancelled));
         assert!(control.stop());
         assert_eq!(stopped.await.unwrap(), Err(takeover_refusal()));
+    }
+
+    /// A session that asks while the pause holds is one the pause waits for (`queueCommand`), though it began after the pause.
+    #[tokio::test(start_paused = true)]
+    async fn a_session_that_asks_during_the_pause_keeps_it() {
+        let manager = quiet_helper();
+        let control = Arc::new(UserControlState::new(Duration::ZERO));
+        control.session_began("a");
+        assert!(control.pause());
+        let late = Arc::new(session(&manager, &control, "late"));
+        let parked = {
+            let (control, late) = (control.clone(), late.clone());
+            tokio::spawn(async move { control.park_before_lane(&late, &click_in_background(), &CancellationToken::new()).await })
+        };
+        sleep(Duration::from_secs(1)).await;
+        control.session_ended("a");
+        assert!(control.section().is_some(), "the late session's request still waits for the pause");
+        control.session_ended("late");
+        assert_eq!(control.section(), None, "the pause ends with the last session it waits for");
+        assert!(parked.await.unwrap().unwrap().is_some(), "the parked request is answered with the pending work");
+    }
+
+    /// A request meeting the pause parks before the desktop's lane, so another session's request takes the lane meanwhile.
+    #[tokio::test(start_paused = true)]
+    async fn a_request_parks_before_it_takes_the_lane() {
+        let manager = quiet_helper();
+        let control = Arc::new(UserControlState::new(Duration::ZERO));
+        let shared = ComputerShared { user_control: control.clone(), ..ComputerShared::default() };
+        control.session_began("a");
+        let a = Arc::new(ProcessComputerBackend::new(ComputerConfig::new("helper", "a"), manager.clone()).with_shared(shared.clone()));
+        assert!(control.pause());
+        let foreground = object(json!({"action": "click", "x": 1, "y": 2, "delivery": "foreground"}));
+        let parked = {
+            let (control, a) = (control.clone(), a.clone());
+            tokio::spawn(async move { control.park_before_lane(&a, &foreground, &CancellationToken::new()).await })
+        };
+        sleep(Duration::from_secs(1)).await;
+        assert!(!parked.is_finished(), "the request waits for Resume");
+        let entered = shared.lane.enter(computer_lane::Kind::Command, &CancellationToken::new()).await;
+        assert!(entered.is_ok(), "the lane is free while a request is parked");
+        drop(entered);
+        assert!(control.resume(None));
+        assert!(parked.await.unwrap().unwrap().is_some(), "the parked request is answered with the pending work");
+        assert!(control.park_before_lane(&a, &click_in_background(), &CancellationToken::new()).await.unwrap().is_none(), "nothing held: it goes on");
     }
 
     /// Only a person's pause parks: another takeover still refuses at once.

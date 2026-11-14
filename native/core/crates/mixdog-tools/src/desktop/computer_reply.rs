@@ -106,7 +106,7 @@ pub(super) fn row(step_index: usize, action: &str, result: &Map<String, Value>) 
 }
 
 /// `semanticVerdict` and `semanticActionReply`'s payload: `ok` is false exactly when the helper reported a code.
-fn payload(action: &str, result: &Map<String, Value>) -> Map<String, Value> {
+pub(super) fn payload(action: &str, result: &Map<String, Value>) -> Map<String, Value> {
     let text_field = |key: &str| result.get(key).and_then(Value::as_str).filter(|s| !s.is_empty());
     let flag = |key: &str| result.get(key) == Some(&Value::Bool(true));
     let verified = flag("verified");

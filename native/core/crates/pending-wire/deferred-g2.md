@@ -37,9 +37,9 @@ CORE-WIRE-G9 add them, deferred-g1.md), so none of this code or its tests has be
 
 ## Compose calls owned by later tasks (not CORE-WIRE lines)
 
-- s3-06 -> s3-19 (wave 3): the `SavedLoginComputerBackend` wrap in the `computer_pool` session closure. The fragment's provider
-  arguments are placeholders: no `SavedLoginTurns` implementation exists and nothing calls `SavedLoginRegistry::settle/forget`;
-  wired as written the redaction and pixel guard would never lift (review-s3-06). The two re-exports in secret_input.rs are applied.
+- s3-06: applied by G2.5-WIRE (g25-fu-cu-a gave the turn clock `SavedLoginTurnClock` and `SettlingSavedLogins`, which call
+  `SavedLoginRegistry::settle/forget`): the `SavedLoginComputerBackend` wrap, `FullRedactor` for the computer backends and the
+  browser channel, and `SettlingSavedLogins` around `SessionDeps.snapshots` are in compose_flip.rs.
 - s3-08 -> s3-19 (wave 3): `builder.register(ComputerPointerService::new(pointer_hold))` needs the pool's `PointerHost`;
   `computer/pointerReleased` stays in SERVICE_PENDING.
 - s3-13 -> s3-19 (wave 3): the `#[cfg(feature = "test-hooks")]` DevComputerRun registration. `dev/computer/run` stays in

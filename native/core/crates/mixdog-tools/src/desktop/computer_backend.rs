@@ -1099,6 +1099,12 @@ fn envelope(value: Value) -> Reply {
     Ok(result.unwrap_or_default())
 }
 
+/// The reply of a semantic action the core runs itself (a saved-login fill), shaped from the helper-style result as the host shapes
+/// an action's reply (`semanticActionReply`: `ok`, `message`, `effect`, `verified`, `goal_verified`, `delivery`, `verdict`, ...).
+pub fn semantic_payload(action: &str, result: &Map<String, Value>) -> Map<String, Value> {
+    computer_reply::payload(action, result)
+}
+
 /// What Node's client answers when no desktop publishes the bridge: an error result of its own, with no recovery.
 fn bridge_unavailable() -> ComputerError {
     ComputerError::Failed { code: REPORTED_CODE.into(), message: format!("Error: {BRIDGE_UNAVAILABLE_MESSAGE}") }
@@ -1160,12 +1166,41 @@ impl ComputerSecretHost for ProcessComputerBackend {
         if let Err(ComputerError::Failed { message, .. }) = computer_policy::admit(&command, self.observe_only(), &self.frames) {
             return Err(message);
         }
-        self.call(command, &CancellationToken::new()).await.map_err(|error| match error {
+        let message_of = |error: ComputerError| match error {
             ComputerError::Failed { message, .. } => message,
             ComputerError::Unavailable { reason } | ComputerError::InvalidInput { reason } => reason,
             ComputerError::Denied => "denied".to_owned(),
             ComputerError::Cancelled => "cancelled".to_owned(),
-        })
+        };
+        // A step of a handoff secret or a saved-login fill is a command of the session like a tool call's: it takes a slot of the
+        // session's budget, waits out the person's pause outside the lane, takes the desktop's lane and the person's hold, and what
+        // interrupts it yields the session (`runCommand`). A command the person's hold answers instead of running is a refusal here.
+        let held = |parts: Vec<ToolPart>| parts.into_iter().find_map(|part| if let ToolPart::Text(text) = part { Some(text) } else { None }).unwrap_or_else(|| "computer command was held".to_owned());
+        let cancel = CancellationToken::new();
+        let _slot = self.shared.budget.acquire(&self.config.session_id).map_err(message_of)?;
+        let control = &self.shared.user_control;
+        if let Some(parts) = control.park_before_lane(self, &command, &cancel).await.map_err(message_of)? {
+            return Err(held(parts));
+        }
+        let _lane = self.shared.lane.enter(computer_lane::Kind::of(&command), &cancel).await.map_err(message_of)?;
+        if let Some(parts) = control.admit(self, &command, &cancel).await.map_err(message_of)? {
+            return Err(held(parts));
+        }
+        let issued = command.clone();
+        let outcome = self.call(command, &cancel).await.map(|result| (result.clone(), vec![ToolPart::Text(Value::Object(result).to_string())]));
+        let (result, expected) = match outcome {
+            Ok((result, parts)) => (Some(result), Ok(parts)),
+            Err(error) => (None, Err(error)),
+        };
+        let expected_text = expected.as_ref().ok().map(|parts| held(parts.clone()));
+        match control.settle(self, &issued, expected).await {
+            Ok(parts) => match result {
+                Some(result) if Some(held(parts.clone())) == expected_text => Ok(result),
+                // The person's input interrupted the step: the reply that yields the session is no result of the step.
+                _ => Err(held(parts)),
+            },
+            Err(error) => Err(message_of(error)),
+        }
     }
 
     fn arm_focus(&self) {
@@ -1239,9 +1274,13 @@ impl ComputerBackend for ProcessComputerBackend {
         // Every command of the host starts with a look at the windows that opened since the session's last one.
         let arrived = computer_settle::arrived_before(self, &name, &cancel).await?;
         computer_targets::resolve(self, &mut command, &cancel).await?;
+        // The person's pause parks a request outside the lane (`command-queue.ts`), so the other sessions are not queued behind it.
+        let control = &self.shared.user_control;
+        if let Some(held) = control.park_before_lane(self, &command, &cancel).await? {
+            return Ok(held);
+        }
         let _lane = self.shared.lane.enter(computer_lane::Kind::of(&command), &cancel).await?;
         // The person's hold on the desktop: a takeover refuses the command, a yield answers it, before anything is dispatched.
-        let control = &self.shared.user_control;
         if let Some(held) = control.admit(self, &command, &cancel).await? {
             return Ok(held);
         }
