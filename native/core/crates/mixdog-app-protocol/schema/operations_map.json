@@ -1021,6 +1021,22 @@
     },
     {
       "list": "operations",
+      "name": "pcAccessReadiness",
+      "target": {
+        "kind": "method",
+        "target": "pcAccess/readiness"
+      }
+    },
+    {
+      "list": "operations",
+      "name": "pcAccessApprove",
+      "target": {
+        "kind": "method",
+        "target": "pcAccess/approve"
+      }
+    },
+    {
+      "list": "operations",
       "name": "remoteAccessListClaims",
       "target": {
         "kind": "section",
@@ -1121,14 +1137,6 @@
       "target": {
         "kind": "method",
         "target": "host/state/set"
-      }
-    },
-    {
-      "list": "operations",
-      "name": "browserRemoteOpen",
-      "target": {
-        "kind": "clientNotification",
-        "target": "host/browser/surface"
       }
     },
     {

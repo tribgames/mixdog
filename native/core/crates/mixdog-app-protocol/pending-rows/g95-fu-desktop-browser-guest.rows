@@ -1,0 +1,24 @@
+# g95-fu-desktop-browser-guest: inventory rows that make src/inventory.rs equal the schema/operations_map.json this task already edited
+# (operations_map.json is generated from INVENTORY by export.rs: the two must agree or the export test fails).
+
+[inventory]
+# Add after the row ( InventoryList::Operations, "remoteAccessRotate", Target::Method("remoteAccess/rotate") ), in this order:
+    (
+        InventoryList::Operations,
+        "pcAccessReadiness",
+        Target::Method("pcAccess/readiness"),
+    ),
+    (
+        InventoryList::Operations,
+        "pcAccessApprove",
+        Target::Method("pcAccess/approve"),
+    ),
+
+[remove]
+# inventory.rs: delete the row ( InventoryList::Operations, "browserRemoteOpen", Target::ClientNotification("host/browser/surface") ).
+# The desktop operation is gone (nothing called it: registerBrowserSurfaceReport sends host/browser/surface itself). The method
+# host/browser/surface stays.
+# tests/fixtures/parity-inventory.json line ~144: remove "browserRemoteOpen" from the list; add "pcAccessReadiness" and
+# "pcAccessApprove" in the position the fixture's order for operations requires (same relative order as inventory.rs).
+# Doc wording only (optional): v2/host.rs ~1072 and schema/client_notification.json description ("(`browserRemoteOpen`)") name the
+# removed operation; drop the parenthesis and regenerate the schema.

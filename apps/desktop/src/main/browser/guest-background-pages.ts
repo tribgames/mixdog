@@ -41,6 +41,7 @@ function backgroundEntryForPageId(
 /** Destroy one background page's window and forget its registry entry. */
 function closeBackgroundPage(
   sessions: BrowserSessionRegistry,
+  state: BrowserGuestStateStore,
   sessionId: string,
   name: string,
   entry: BackgroundPage
@@ -53,11 +54,12 @@ function closeBackgroundPage(
     }
   }
   sessions.deleteBackgroundPage(sessionId, name, entry);
+  state.changed(entry.guest, 'background');
 }
 
-function closeAllBackgroundPages(sessions: BrowserSessionRegistry): void {
+function closeAllBackgroundPages(sessions: BrowserSessionRegistry, state: BrowserGuestStateStore): void {
   for (const [sessionId, name, page] of sessions.allBackgroundEntries()) {
-    closeBackgroundPage(sessions, sessionId, name, page);
+    closeBackgroundPage(sessions, state, sessionId, name, page);
   }
   sessions.clearBackgroundPages();
 }
@@ -96,7 +98,7 @@ export function createBrowserBackgroundPages(
     },
     documentGeneration: (guest) => state.peek(guest)?.documentGeneration ?? 0,
     hasEditedFields: pageHasEditedFields,
-    close: (sessionId, name, entry) => closeBackgroundPage(sessions, sessionId, name, entry),
+    close: (sessionId, name, entry) => closeBackgroundPage(sessions, state, sessionId, name, entry),
   });
 
   function trackBackgroundPage(
@@ -108,17 +110,29 @@ export function createBrowserBackgroundPages(
     attach: GuestAttach = kind === 'popup' ? 'opened' : 'now'
   ): BackgroundPage {
     const win = page.window;
+    let pageKind = kind;
     const entry: BackgroundPage = {
       window: win,
       guest: page.guest,
       lastUsedAt: Date.now(),
-      kind,
+      // A page's `background` fact follows its kind (a person's own tab is
+      // not one), so every change of it is a change of the page's facts.
+      get kind() {
+        return pageKind;
+      },
+      set kind(next) {
+        if (next === pageKind) return;
+        pageKind = next;
+        state.changed(page.guest, 'background');
+      },
       ...(opener ? { openerPageId: state.pageId(opener), opener } : {}),
     };
     sessions.setBackgroundPage(sessionId, name, entry);
     pages.initialize(entry.guest, attach);
+    state.changed(entry.guest, 'background');
     win.once('closed', () => {
       sessions.deleteBackgroundPage(sessionId, name, entry);
+      state.changed(entry.guest, 'background');
     });
     return entry;
   }
@@ -181,7 +195,7 @@ export function createBrowserBackgroundPages(
   /** Close every background page of one session. */
   function closeSession(sessionId: string): void {
     for (const [name, entry] of [...sessions.backgroundPages(sessionId)]) {
-      closeBackgroundPage(sessions, sessionId, name, entry);
+      closeBackgroundPage(sessions, state, sessionId, name, entry);
     }
   }
 
@@ -193,9 +207,9 @@ export function createBrowserBackgroundPages(
     restorePage,
     entryByPageId: (sessionId: string, pageId: string) => backgroundEntryForPageId(sessions, state, sessionId, pageId),
     close: (sessionId: string, name: string, entry: BackgroundPage) =>
-      closeBackgroundPage(sessions, sessionId, name, entry),
+      closeBackgroundPage(sessions, state, sessionId, name, entry),
     closeSession,
-    closeAll: () => closeAllBackgroundPages(sessions),
+    closeAll: () => closeAllBackgroundPages(sessions, state),
     /** A released session numbers its next popups from the start. */
     forgetPopupNames: (sessionId: string) => nextPopupIdsBySession.delete(sessionId),
   };
