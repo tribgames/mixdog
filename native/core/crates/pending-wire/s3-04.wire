@@ -3,15 +3,15 @@
 ## native/core/crates/mixdog-tools/src/desktop/mod.rs, `mod computer_image_output;` after `mod computer_gnome;`, and `mod computer_marks_draw;` after `pub mod computer_linux;`
 (`pub mod` instead of `mod` for either when the compose call below sits outside mixdog-tools; the items are `ImageOutput` and `paint_marks`, `paint_marks_or_input`, `Mark`, `MarkSource`, `PaintedImage`, `Overlay`, `PaintError`.)
 
-## native/core/Cargo.toml `[workspace.dependencies]`, next to jpeg-decoder
-    jpeg-encoder = "0.6"      # owner direction 12 (set-of-marks JPEG re-encode); not yet in Cargo.lock
-    png = { version = "0.18", default-features = false }   # PNG decode/encode of the burn-in; png 0.18.x and its fdeflate/bitflags deps are in the local registry cache but not in Cargo.lock
-Then `cargo update --workspace --offline` and `cargo hakari generate` (mixdog-workspace-hack Cargo.toml and Cargo.lock change with them).
+## native/core/Cargo.toml
+No new workspace dependency: `flate2` and `jpeg-decoder` are already in `[workspace.dependencies]` and in Cargo.lock (g25-fu-cu-c replaced `png` and `jpeg-encoder`, which the offline lock does not have). Only the edge below; `cargo hakari generate` after it.
 
 ## native/core/crates/mixdog-tools/Cargo.toml `[dependencies]`
+    flate2 = { workspace = true }
     jpeg-decoder = { workspace = true }
-    jpeg-encoder = { workspace = true }
-    png = { workspace = true }
+
+## JPEG burn-in (open)
+PNG frames are burned in and re-encoded with flate2. A JPEG frame is decoded but cannot be re-encoded: `jpeg-encoder` 0.6 (and nothing else in the lock) would do it. It must be fetched into the registry cache and added to Cargo.lock; then `encode()` in computer_marks_draw.rs takes the one-line jpeg_encoder::Encoder call. Until then a JPEG frame is returned unmarked with `overlay_error` set to the reason.
 
 ## compose call
 None here: the two modules are used by the capture reply, which is s3-03's/s3-17's wiring of the SOM mode and `image_output: "file"`:
