@@ -1,0 +1,40 @@
+# s4-engine-actions-page: `evaluate` keeps the refs of a script that provably left the page alone (the old `settledRevision` before and after, "The script left
+# the page unchanged ..."). The old engine compared the document revision itself; the revision is the host's to read, so the host does the comparison and says
+# the result. Both fields are optional: an older host answers none and the engine then takes a fresh snapshot after every script (never wrong, only costlier).
+
+[methods]
+# none
+
+[server_requests]
+# none
+
+[notifications]
+# none
+
+[inventory]
+# none
+
+[free_text]
+# none (a flag and a boolean)
+
+[type_edits]
+# file: native/core/crates/mixdog-app-protocol/src/v2/browser_engine.rs
+# struct HostBrowserPageEvalParams: add after `expect`:
+    /// The caller holds refs it would keep if the script left the page alone: the host reads the page's observation revision (after a render checkpoint)
+    /// before and after the script and answers `unchanged`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub check_unchanged: Option<bool>,
+# struct HostBrowserPageEvalResult: add after `exception`:
+    /// With `checkUnchanged`: the script left the document, URL, DOM, scroll and input as they were, opened no popup and raised no dialog. Absent when it
+    /// was not asked, or the page could not be read before or after (a frame that never confirmed its render checkpoint is unknown, not unchanged).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unchanged: Option<bool>,
+# After the change the generated schema files and packages/protocol/src/index.ts carry `checkUnchanged?: boolean` on `HostBrowserPageEvalParams` and
+# `unchanged?: boolean` on `HostBrowserPageEvalResult`. The Rust engine reads them in mixdog-browser-engine actions/page.rs (`evaluate`), so this edit must
+# land with the engine crate (the struct literal there names `check_unchanged`).
+
+[remove]
+# none
+
+[window]
+# none

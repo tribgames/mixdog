@@ -19,31 +19,30 @@ therefore inferred from names and from the unit tests the Rust files carry. The 
 older than most of the Rust now in the tree; every line it called missing was searched again. Other sources:
 `wincu-reaudit.json`, `wincu-audit.json`, g25 wire.json, deferred-g3.md (the line naming `bindComputerEnvironmentGuard`).
 
-## Work the deletion tasks must do first (every NOT COVERED and UNVERIFIED line)
+## Work the deletion tasks must do first (items 1 to 9; none is NOT COVERED any more)
 
-1. **The elevated (UAC) route still runs PowerShell, so the host script is still published and run.** Old
-   `host/input-dispatch.ts` decides `usePrivilegedWorker` from `readForegroundIntegrity` and calls
-   `callPowerShellElevated` (worker-pool `createElevatedRequests`, `elevated-launcher.ts`, `elevated-program.ts`,
-   `elevated-requests.ts`, `session-jobs.ts`), which elevates `powershell.exe` over the hash-checked host script
-   (`hostScript.ensure`). The helper already routes a foreground request to a higher-integrity target itself
-   (H:host/elevated.rs `decide`/`route`, H:platform/windows/elevated.rs). Owner: s3-31. First: make
-   `input-dispatch.ts` send such a request to the helper unchanged (no `callPowerShellElevated`); then delete the
-   elevated TS files, `host-script.ts`, `program.ts`, `sources/*` and the `elevated`/`hostScript` wiring in
-   `worker-pool.ts`. Until then the PowerShell program is reachable for elevated targets only.
-2. **`target_integrity_unknown` refusal.** Old `readForegroundIntegrity` (input-dispatch.ts) refuses a foreground input
-   whose target integrity cannot be read ("target_integrity_unknown: foreground input was not sent because the target
-   integrity could not be verified"). Rust `decide()` in H:host/elevated.rs treats an unreadable level as a normal
-   dispatch. NOT COVERED. Owner: s3-31; place: H:host/elevated.rs (`decide`: a `Refuse` for a foreground delivery whose
-   level is None or not known), with a unit test.
-3. **Owner-window capture fallback.** Old `capture-pixels.ts` `captureThroughOwner`: a child window whose surface could
-   not be read is captured once through its owner, and the attempts carry scope `owner`. Rust `run_plan`
-   (H:host/windows.rs) and C:computer_capture.rs have no owner retry. NOT COVERED. Owner: s3-31; place:
-   H:host/windows.rs `window_capture` (one retry through `info.owner`, attempts tagged owner).
-4. **Reserved OCR budget in captures, zoom of a display frame, arrivals baseline.** `wincu-reaudit.json` lists them as
-   still open; the current tree has C:computer_zoom.rs, C:computer_settle.rs (`windows_opened_since_last_action`) and OCR
-   code in C:computer_capture.rs, written after that audit. UNVERIFIED: the s3-31 review reads
-   `observation/capture-ocr.ts`, `capture-zoom.ts` and `host/window-arrivals.ts` against those three files before the TS
-   observation folder goes.
+1. **The elevated (UAC) route.** COVERED in Rust: the helper routes a foreground request to a higher-integrity target itself
+   (H:host/elevated.rs `decide`/`route`, H:platform/windows/elevated.rs `elevated_run`, H:elevated.rs), with the policy and
+   ref refusals before any prompt and the `uac_elevated_<path>` annotation. The core sends such a request to the helper
+   unchanged; the TypeScript copy (`input-dispatch.ts` `callPowerShellElevated`, `worker-pool` `createElevatedRequests`,
+   `elevated-*.ts`, `host-script.ts`, `program.ts`, `sources/*`) is unreachable on Windows (item 9: every request to the
+   helper is `read_only`) and goes with the host. Owner of the deletion: s3-31.
+2. **`target_integrity_unknown` refusal.** COVERED: H:host/elevated.rs `decide` refuses a foreground delivery whose target
+   integrity cannot be read (a Windows level of 0 on either side) with the old text; a platform with no integrity boundary
+   (`integrity()` is None) dispatches normally. Test `a_target_whose_integrity_cannot_be_read_is_refused`.
+3. **Owner-window capture fallback.** COVERED: H:host/windows.rs `window_capture` retries a child window whose plan ended on
+   a recoverable failure once through `info.owner` (`capture_surface`, `Capture::terminal`); the owner's attempts are
+   appended tagged `scope: owner`, the reply text names the child and the owner, and a failure keeps every attempt. A
+   terminal failure (a minimized or cloaked window, unconfirmed release, a crop that cannot be made) never asks the owner.
+   Test `only_a_plan_that_ran_out_of_recoverable_sources_may_ask_the_owner`.
+4. **Reserved OCR budget in captures, zoom of a display frame, arrivals baseline.** READ AND COVERED. OCR: C:computer_ocr.rs
+   `augment` reserves min(words asked, max(1, budget / 2)) for the words, so accessibility elements cannot starve them
+   (`reservedOcrBudget`); the accessibility rows already rendered are not cut, the words are numbered after them. Display
+   zoom: C:computer_zoom.rs `zoom_display` (layout check, region at full resolution through the desktop, the crop is the
+   session's only frame, OCR of the crop). Arrivals: C:computer_settle.rs `Arrivals` now carries the watch after an action
+   (`watch`, 200 ms looks for 1 s, `seen` windows named even after they close), the restricted-session filter
+   (`narrow_rows`) and the baseline rules; not carried: a late first list seeding the baseline of a read-only command (the
+   read is cancelled at its 300 ms budget, so that session takes its baseline at its next command).
 5. **Held keys after a daemon crash.** The receipt lives in the helper and the daemon (reaudit stillOpen); the startup
    sweep (C:computer_backend.rs `sweep_leftover_ledgers`) clears ledgers only. The old worker lost them the same way, so
    this is not a regression; listed so nobody believes it is covered.
@@ -58,7 +57,7 @@ older than most of the Rust now in the tree; every line it called missing was se
    helper `read_only` except the four releases, so the input dispatch of `powershell-host.ts` cannot move the mouse on
    Windows; the core does all input. s3-31 deletes that dispatch with the host (dead on Windows today).
 
-No other line below is NOT COVERED.
+No line below is NOT COVERED.
 
 ## Parity lines
 
@@ -174,8 +173,8 @@ No other line below is NOT COVERED.
 | Frame quality judgement, fit to model budget, JPEG quality, frame ids | frame-quality.ts, capture-source-plan.ts | H:host/frame_quality.rs, frame.rs; C:computer_frames.rs, computer_capture.rs |
 | Backend memory (last winner first, 120 s, 64 entries) | capture-backend-memory.ts | H:host/windows.rs `remember_backend` |
 | Capture attempts log, pixel_unavailable, image_unchanged | capture-source-attempt.ts, capture-image-dedup.ts | C:computer_history.rs, computer_act.rs, computer_capture.rs |
-| Owner fallback for an unreadable child | capture-pixels.ts | NOT COVERED (item 3) |
-| Zoom of a frame region | capture-zoom.ts | C:computer_zoom.rs (display-frame case UNVERIFIED, item 4) |
+| Owner fallback for an unreadable child | capture-pixels.ts | H:host/windows.rs `window_capture`, `capture_surface`, `Capture::terminal` |
+| Zoom of a frame region | capture-zoom.ts | C:computer_zoom.rs `zoom`, `zoom_display` |
 | Screen (display) capture, per-monitor DPI | screenshot-target.ts | C:computer_pixels.rs, computer_screen.rs; H:platform/windows/mod.rs |
 | OCR (ocr_image, ocr_status), upscale rule, language | runtime-ocr-clipboard.ps1 | H:platform/windows/shell.rs `ocr`, `ocr_status`; C:computer_ocr.rs |
 | Clipboard read, write, clear with read-back | runtime-ocr-clipboard.ps1 | H:shell.rs `clipboard_read`, `clipboard_write` |
@@ -208,8 +207,8 @@ No other line below is NOT COVERED.
 | Release of held input from the elevated side | elevated-program.ts | H:elevated.rs supervisor, H:input/receipt.rs |
 | Reply annotation `uac_elevated_<path>` and privilege object | input-dispatch.ts | H:host/elevated.rs |
 | Session bookkeeping for elevated runs (pending, unconfirmed-stop latch) | session-jobs.ts | C:computer_recovery.rs, C:computer_user_control.rs |
-| Running the elevated route from the TS host | input-dispatch.ts, elevated-*.ts | NOT COVERED (item 1): still PowerShell |
-| `target_integrity_unknown` refusal | input-dispatch.ts | NOT COVERED (item 2) |
+| Running the elevated route from the TS host | input-dispatch.ts, elevated-*.ts | H:host/elevated.rs `route`, H:platform/windows/elevated.rs (the TS copy is dead on Windows, item 1) |
+| `target_integrity_unknown` refusal | input-dispatch.ts | H:host/elevated.rs `decide` |
 | Windows permission report (input `target_integrity_dependent`) | host/permission-reads.ts | C:computer_diagnose.rs; mixdog-app-protocol v2/computer_host.rs |
 
 ### The remote-screen input host (remote-screen/screen-input-host.ts and the former screen PowerShell program)

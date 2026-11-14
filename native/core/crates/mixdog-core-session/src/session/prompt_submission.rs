@@ -7,6 +7,7 @@
 //! through it over the session's [`AttachmentStore`] ([`LaneAttachments`]), a room's user message (`agent-room-delivery.mjs`
 //! `storedRow`) over the room host's staged store; each writes and measures through a [`PromptStore`].
 
+use mixdog_app_protocol::boundary::validate::prompt::canonical_prompt_file_mime;
 use mixdog_rt::InLane;
 use mixdog_rt::InteractiveIo;
 use serde_json::Map;
@@ -380,25 +381,10 @@ pub struct Submission {
 /// The longest file name a prompt part keeps (`requiredPromptContent`: `filename.slice(0, 160)`), in UTF-16 units.
 const MAX_PROMPT_FILENAME_UNITS: usize = 160;
 
-/// The office types a file part may name, in their canonical case (`OFFICE_MIME_TYPES`, `shared/prompt-limits.ts`).
-const OFFICE_MIME_TYPES: [&str; 7] = [
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    "application/vnd.ms-excel.sheet.macroEnabled.12",
-    "application/msword",
-    "application/vnd.ms-powerpoint",
-    "application/vnd.ms-excel",
-];
-
 /// `canonicalPromptFileMimeType` (`shared/prompt-limits.ts`): the canonical-case type of a PDF or office type, its
 /// parameters ignored. Any other type (a phone sends `text/plain`) is not refused here; it is the trimmed text.
 fn canonical_file_mime(mime: &str) -> String {
-    let base = mixdog_js::js_to_lowercase(mixdog_js::js_trim(mime.split(';').next().unwrap_or_default()));
-    if base == "application/pdf" {
-        return base;
-    }
-    match OFFICE_MIME_TYPES.into_iter().find(|candidate| mixdog_js::js_to_lowercase(candidate) == base) {
+    match canonical_prompt_file_mime(mime) {
         Some(canonical) => canonical.to_owned(),
         None => mixdog_js::js_trim(mime).to_owned(),
     }

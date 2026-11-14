@@ -104,16 +104,15 @@ impl std::error::Error for ReplyError {}
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct EffectBaseline {
     pub url: String,
-    /// The document revision of the observation (a DOM-change counter: it moves when a document or a control's value changes, not on
-    /// a scroll); `None` or `0` when the page could not be asked.
-    pub revision: Option<u32>,
-    pub scroll_y: Option<f64>,
+    /// The observation revision of the page (`observation` of the snapshot result): per frame the document's identity, the viewport,
+    /// the scroll position, the DOM-change counter and the scroller counters; `None` when the page could not be asked.
+    pub observation: Option<String>,
 }
 
 impl EffectBaseline {
-    /// The earlier observation as a baseline; the scroll position is not part of a ref set, so the caller supplies it.
-    pub fn of(set: &RefSet, scroll_y: Option<f64>) -> Self {
-        Self { url: set.url.clone(), revision: set.revision, scroll_y }
+    /// The earlier observation as a baseline.
+    pub fn of(set: &RefSet) -> Self {
+        Self { url: set.url.clone(), observation: set.observation.clone() }
     }
 }
 
@@ -193,8 +192,8 @@ pub struct ReplyPage<'a> {
 #[derive(Debug, Clone, Copy)]
 pub struct SnapshotCapture<'a> {
     pub payload: &'a BrowserSnapshotPayload,
-    /// The document revision the capture stamped on the page's ref set.
-    pub revision: Option<u32>,
+    /// The observation revision the capture stamped on the page's ref set.
+    pub observation: Option<&'a str>,
 }
 
 /// What the reply needs from the engine around it.
@@ -259,16 +258,34 @@ pub fn format_evaluation_value(ctx: &ReplyContext<'_>, value: Option<&Value>, ma
     format!("{}\n[truncated: {} more characters]", mixdog_js::slice_utf16(&redacted, max_chars), length - max_chars)
 }
 
-/// Whether the document the baseline described has been changed by something since: a mutation or a control value, or, when
-/// asked, the scroll position. `None` when a revision is missing or predates the counter (`browserDocumentChanged`).
-fn document_changed(baseline: &EffectBaseline, revision: Option<u32>, scroll_y: f64, include_scroll: bool) -> Option<bool> {
-    let before = baseline.revision.filter(|revision| *revision != 0)?;
-    let after = revision.filter(|revision| *revision != 0)?;
-    if before != after {
+/// Whether the documents behind two observation revisions differ (`browserDocumentChanged`): a new document, a different viewport,
+/// a DOM mutation or a control's value, or, when asked, the scroll position (the page's, a nested scroller's, an explicit scroll).
+/// Pointer and key activity alone does not count. A revision is one entry per frame, `|`-separated, each
+/// `timeOrigin:version:innerWidth:innerHeight:scrollX:scrollY:dom[:scroller[:explicit]]`. `None` when a revision is missing or
+/// predates the counter.
+fn document_changed(before: Option<&str>, after: Option<&str>, include_scroll: bool) -> Option<bool> {
+    let (before, after) = (before.filter(|text| !text.is_empty())?, after.filter(|text| !text.is_empty())?);
+    let (left, right): (Vec<&str>, Vec<&str>) = (before.split('|').collect(), after.split('|').collect());
+    if left.len() != right.len() {
         return Some(true);
     }
-    if include_scroll && baseline.scroll_y.is_some_and(|before| before != scroll_y) {
-        return Some(true);
+    for (earlier, later) in left.iter().zip(&right) {
+        let (a, b): (Vec<&str>, Vec<&str>) = (earlier.split(':').collect(), later.split(':').collect());
+        if a.len() < 7 || b.len() < 7 {
+            return None;
+        }
+        if a[0] != b[0] || a[6] != b[6] || a[2] != b[2] || a[3] != b[3] {
+            return Some(true);
+        }
+        if include_scroll && (a[4] != b[4] || a[5] != b[5]) {
+            return Some(true);
+        }
+        if include_scroll && a.len() >= 8 && b.len() >= 8 && a[7] != b[7] {
+            return Some(true);
+        }
+        if include_scroll && a.len() >= 9 && b.len() >= 9 && a[8] != b[8] {
+            return Some(true);
+        }
     }
     Some(false)
 }
@@ -281,7 +298,7 @@ fn effect_notes(request: &ReplyRequest<'_>, page: &mut ReplyPage<'_>, capture: &
     // different target might. Scroll is judged by position, everything else by the document.
     let reacted = match &effect.baseline {
         Some(baseline) if effect.settle_action && EFFECT_REPORT_ACTIONS.contains(&action) => {
-            document_changed(baseline, capture.revision, capture.payload.scroll_y, action == "scroll")
+            document_changed(baseline.observation.as_deref(), capture.observation, action == "scroll")
         }
         _ => None,
     };
@@ -392,8 +409,8 @@ mod tests {
             FileFacts::default()
         }
 
-        async fn write_frame(&self, run_dir: &Path, _bytes: Bytes) -> PathBuf {
-            run_dir.to_path_buf()
+        async fn write_frame(&self, run_dir: &Path, _bytes: Bytes, _mime_type: &str) -> std::io::Result<PathBuf> {
+            Ok(run_dir.to_path_buf())
         }
     }
 
@@ -449,23 +466,32 @@ mod tests {
         again
     }
 
-    fn baseline(revision: u32) -> EffectBaseline {
-        EffectBaseline { url: "https://fixture.example/app".into(), revision: Some(revision), scroll_y: Some(0.0) }
+    /// The observation of one frame whose DOM-change counter is `dom`, scrolled to `scroll_y`, its nested scrollers at `scroller`.
+    fn observed(dom: u32, scroll_y: u32, scroller: u32) -> String {
+        format!("1700000000000.5:{}:1280:720:0:{scroll_y}:{dom}:{scroller}", dom + 3)
     }
 
-    fn gesture(action: &str, revision: u32) -> ReplyRequest<'_> {
+    fn baseline(dom: u32) -> EffectBaseline {
+        EffectBaseline { url: "https://fixture.example/app".into(), observation: Some(observed(dom, 0, 0)) }
+    }
+
+    fn gesture(action: &str, dom: u32) -> ReplyRequest<'_> {
         ReplyRequest {
             action,
-            effect: ReplyEffect { settle_action: true, baseline: Some(baseline(revision)), ..ReplyEffect::default() },
+            effect: ReplyEffect { settle_action: true, baseline: Some(baseline(dom)), ..ReplyEffect::default() },
             ..ReplyRequest::default()
         }
     }
 
-    async fn run(f: &mut Fixture, request: &ReplyRequest<'_>, payload: &BrowserSnapshotPayload, revision: u32) -> Result<ToolReply, ReplyError> {
+    async fn run_observing(f: &mut Fixture, request: &ReplyRequest<'_>, payload: &BrowserSnapshotPayload, observation: &str) -> Result<ToolReply, ReplyError> {
         let files = NoFiles;
         let ctx = ReplyContext { redact: &keep, files: &files };
         let mut page = ReplyPage { facts: &f.facts, state: &mut f.state, downloads: &[], download_reports: &mut f.reports, now_ms: 0 };
-        build_reply(&ctx, request, &mut page, &mut f.ledgers, Some(SnapshotCapture { payload, revision: Some(revision) }), None).await
+        build_reply(&ctx, request, &mut page, &mut f.ledgers, Some(SnapshotCapture { payload, observation: Some(observation) }), None).await
+    }
+
+    async fn run(f: &mut Fixture, request: &ReplyRequest<'_>, payload: &BrowserSnapshotPayload, dom: u32) -> Result<ToolReply, ReplyError> {
+        run_observing(f, request, payload, &observed(dom, 0, 0)).await
     }
 
     #[tokio::test]
@@ -493,10 +519,17 @@ mod tests {
         assert_eq!(ignored.outcome, Some(ReplyOutcome::Completed));
         let reacted = run(&mut f, &gesture("click", 4), &same_as_before(), 5).await.unwrap();
         assert!(!reacted.text.contains("No observable change"));
-        let mut scrolled = same_as_before();
-        scrolled.scroll_y = 400.0;
-        assert!(!run(&mut f, &gesture("scroll", 4), &scrolled, 4).await.unwrap().text.contains("No observable change"));
+        let scrolled = run_observing(&mut f, &gesture("scroll", 4), &same_as_before(), &observed(4, 400, 0)).await.unwrap();
+        assert!(!scrolled.text.contains("No observable change"));
+        // A nested scroller moved while the window stayed at the top: the page reacted.
+        let nested = run_observing(&mut f, &gesture("scroll", 4), &same_as_before(), &observed(4, 0, 2)).await.unwrap();
+        assert!(!nested.text.contains("No observable change"), "{}", nested.text);
         assert!(run(&mut f, &gesture("scroll", 4), &same_as_before(), 4).await.unwrap().text.starts_with("No observable change"));
+        // A reload to an identical DOM is a new document, and the viewport is part of what was seen.
+        let reloaded = observed(4, 0, 0).replacen("1700000000000.5", "1700000009999.5", 1);
+        assert!(!run_observing(&mut f, &gesture("click", 4), &same_as_before(), &reloaded).await.unwrap().text.contains("No observable change"));
+        let resized = observed(4, 0, 0).replacen(":1280:720:", ":800:600:", 1);
+        assert!(!run_observing(&mut f, &gesture("click", 4), &same_as_before(), &resized).await.unwrap().text.contains("No observable change"));
         let observed = ReplyRequest {
             action: "snapshot",
             effect: ReplyEffect { settle_action: false, baseline: Some(baseline(4)), ..ReplyEffect::default() },
@@ -512,18 +545,16 @@ mod tests {
     #[tokio::test]
     async fn an_unknown_revision_or_a_changed_address_claims_no_lack_of_change() {
         let mut f = fixture();
-        let judged = |url: &str, revision: u32| ReplyRequest {
+        let judged = |url: &str, observation: Option<String>| ReplyRequest {
             action: "click",
-            effect: ReplyEffect {
-                settle_action: true,
-                baseline: Some(EffectBaseline { url: url.into(), revision: Some(revision), scroll_y: None }),
-                ..ReplyEffect::default()
-            },
+            effect: ReplyEffect { settle_action: true, baseline: Some(EffectBaseline { url: url.into(), observation }), ..ReplyEffect::default() },
             ..ReplyRequest::default()
         };
-        let unknown = judged("https://fixture.example/app", 0);
+        let unknown = judged("https://fixture.example/app", None);
         assert!(!run(&mut f, &unknown, &same_as_before(), 0).await.unwrap().text.contains("No observable change"));
-        let moved = judged("https://other.example/", 4);
+        let old_counter = judged("https://fixture.example/app", Some("1:2:3".into()));
+        assert!(!run(&mut f, &old_counter, &same_as_before(), 4).await.unwrap().text.contains("No observable change"), "a revision without the counters proves nothing");
+        let moved = judged("https://other.example/", Some(observed(4, 0, 0)));
         assert!(!run(&mut f, &moved, &same_as_before(), 4).await.unwrap().text.contains("No observable change"), "a changed URL is a change");
     }
 
@@ -644,11 +675,13 @@ mod tests {
     #[tokio::test]
     async fn the_effect_is_judged_against_the_gestures_baseline_while_the_brief_compares_the_last_report() {
         let earlier = RefSet::from_payload("p1-s1", &before());
-        let targeted = RefSet::from_payload("p1-s2", &payload("p1-s2", vec![element("p1-s2-e1", "button", "Save")])).with_document("d1", 6);
+        let targeted = RefSet::from_payload("p1-s2", &payload("p1-s2", vec![element("p1-s2-e1", "button", "Save")]))
+            .with_document("d1", 6)
+            .with_observation(Some(&observed(6, 0, 0)));
         let request = ReplyRequest {
             brief: true,
             brief_against: Some(&earlier),
-            effect: ReplyEffect { settle_action: true, baseline: Some(EffectBaseline::of(&targeted, None)), ..ReplyEffect::default() },
+            effect: ReplyEffect { settle_action: true, baseline: Some(EffectBaseline::of(&targeted)), ..ReplyEffect::default() },
             action: "click",
         };
         let mut f = fixture();
@@ -699,7 +732,8 @@ mod tests {
         let downloads = [started];
         let mut page = ReplyPage { facts: &f.facts, state: &mut f.state, downloads: &downloads, download_reports: &mut f.reports, now_ms: 10 };
         let capture = same_as_before();
-        let snapshot = Some(SnapshotCapture { payload: &capture, revision: Some(4) });
+        let observation = observed(4, 0, 0);
+        let snapshot = Some(SnapshotCapture { payload: &capture, observation: Some(&observation) });
         let reply = build_reply(&ctx, &gesture("click", 4), &mut page, &mut f.ledgers, snapshot, None).await.unwrap();
         assert!(reply.text.contains("Downloads since last report:"));
         assert!(!reply.text.contains("No observable change"));

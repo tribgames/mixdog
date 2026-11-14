@@ -17,6 +17,7 @@ use std::fmt;
 use mixdog_app_protocol::v2::browser_engine::BrowserSnapshotElement;
 use mixdog_app_protocol::v2::browser_engine::BrowserSnapshotMode;
 use mixdog_app_protocol::v2::browser_engine::HostBrowserPageEvalParams;
+use mixdog_app_protocol::v2::browser_engine::HostBrowserRefMintParams;
 use mixdog_app_protocol::v2::browser_engine::HostBrowserSnapshotParams;
 use mixdog_app_protocol::v2::browser_engine::HostBrowserSnapshotResult;
 use mixdog_app_protocol::v2::browser_engine::Precondition;
@@ -31,8 +32,6 @@ use serde_json::Value;
 
 use super::access::ActionabilityReason;
 use super::access::RefError;
-use super::access::RefTarget;
-use super::access::call_ref;
 use crate::error::HostCallError;
 use crate::limits::CDP_REQUEST_TIMEOUT;
 use crate::limits::SNAPSHOT_TOOL_MAX_ELEMENTS;
@@ -43,7 +42,8 @@ const MAX_SELECTOR_MATCHES: usize = 50;
 const MAX_LISTED_CANDIDATES: usize = 8;
 
 /// A selector query in the top document. Matches the page-side ref table lists keep their ref; with that table current, the
-/// others get one minted, and without it no ref is minted (`ref/call` then decides which snapshot elements match).
+/// others get one minted. Without it (a page whose refs come from the accessibility tree) the query only counts and validates:
+/// the host names and mints the refs (`host/browser/ref/mint`).
 const SELECTOR_QUERY: &str = r##"(() => {
   const snapshot = window.__mixdogAgentSnapshot;
   const table = Boolean(snapshot && snapshot.id === __SNAPSHOT_ID__);
@@ -72,10 +72,6 @@ const SELECTOR_QUERY: &str = r##"(() => {
   }
   return { count: nodes.length, table, matches };
 })()"##;
-
-/// Whether the element is a match of the selector in the top document (not in a frame, not in a shadow tree), as
-/// `querySelectorAll` of the top document sees it.
-const SELECTOR_MATCH: &str = "function(selector) { try { return this.isConnected && this.getRootNode() === window.top.document && this.matches(selector); } catch { return false; } }";
 
 /// What a target names: role, accessible name and/or a CSS selector, with how to pick among several matches.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -355,7 +351,7 @@ pub struct ResolvedTarget {
 
 /// `selectorCandidates`: the elements a selector names, with how many nodes the page matched. The count is final past the
 /// limit: a truncated list would hide a second match.
-async fn selector_candidates(cx: &TargetContext<'_>, spec: &TargetSpec, selector: &str, snapshot: &HostBrowserSnapshotResult) -> Result<(Vec<BrowserSnapshotElement>, usize), TargetError> {
+async fn selector_candidates(cx: &TargetContext<'_>, selector: &str, snapshot: &HostBrowserSnapshotResult) -> Result<(Vec<BrowserSnapshotElement>, usize), TargetError> {
     let expression = SELECTOR_QUERY
         .replace("__LIMIT__", &MAX_SELECTOR_MATCHES.to_string())
         .replace("__SNAPSHOT_ID__", &json_string(&snapshot.snapshot_id))
@@ -397,21 +393,35 @@ async fn selector_candidates(cx: &TargetContext<'_>, spec: &TargetSpec, selector
             .collect();
         return Ok((candidates, report.count));
     }
-    let mut candidates = Vec::new();
-    for element in listed.iter().filter(|element| spec.role_matches(element) && spec.name_matches(element)) {
-        if candidates.len() >= report.count {
-            break;
-        }
-        let target = RefTarget { page_id: cx.page_id, snapshot_id: &snapshot.snapshot_id, ref_id: &element.ref_id, expect: cx.expect };
-        let answer = call_ref(cx.host, &target, SELECTOR_MATCH, vec![Value::String(selector.to_string())], cx.cancel).await;
-        match answer {
-            Ok(Value::Bool(true)) => candidates.push(element.clone()),
-            Ok(_) => {}
-            Err(RefError::Host(HostCallError::StaleSnapshot)) => return Err(TargetError::Failed("the page changed while resolving the target; try again".to_string())),
-            Err(error) => return Err(error.into()),
-        }
+    // The refs of the nodes the selector names, in document order: a node the snapshot lists keeps its ref, any other gets one
+    // minted in the host's ref table, which `ref/call` and the pointer then resolve like a listed one.
+    let params = HostBrowserRefMintParams {
+        page_id: cx.page_id.to_string(),
+        snapshot_id: snapshot.snapshot_id.clone(),
+        selector: selector.to_string(),
+        limit: u32::try_from(MAX_SELECTOR_MATCHES).unwrap_or(u32::MAX),
+        expect: cx.expect.cloned(),
+    };
+    let minted = match cx.host.ref_mint(params, cx.cancel).await {
+        Ok(minted) => minted,
+        Err(HostCallError::StaleSnapshot) => return Err(TargetError::Failed("the page changed while resolving the target; try again".to_string())),
+        Err(error) => return Err(error.into()),
+    };
+    if let Some(reason) = minted.invalid {
+        return Err(TargetError::Invalid(format!("target.selector is not a valid CSS selector: {}", redact_browser_text(&reason))));
     }
-    Ok((candidates, report.count))
+    let count = minted.count as usize;
+    if count > MAX_SELECTOR_MATCHES {
+        return Err(TargetError::Failed(format!(
+            "target.selector matched {count} elements, exceeding the limit of {MAX_SELECTOR_MATCHES}; narrow target.selector before acting"
+        )));
+    }
+    let candidates = minted
+        .matches
+        .into_iter()
+        .map(|found| listed.iter().find(|element| element.ref_id == found.ref_id).cloned().unwrap_or_else(|| css_element(found.ref_id, found.role, found.name)))
+        .collect();
+    Ok((candidates, count))
 }
 
 /// `resolveTargetRefs`: every target resolved against ONE fresh observation. A lone name-only target narrows the observation
@@ -436,7 +446,7 @@ pub async fn resolve_targets(cx: &TargetContext<'_>, raw: &[Value]) -> Result<Ve
         let owned;
         let (pool, unfiltered): (&[BrowserSnapshotElement], Option<usize>) = match &spec.selector {
             Some(selector) => {
-                let (found, count) = selector_candidates(cx, spec, selector, &snapshot).await?;
+                let (found, count) = selector_candidates(cx, selector, &snapshot).await?;
                 owned = found;
                 (owned.as_slice(), Some(count))
             }
@@ -602,8 +612,8 @@ mod tests {
         Expect::ok("host/browser/page/eval", json!({"value": value, "facts": page_facts("p1", 3)}))
     }
 
-    fn ref_answer(value: bool) -> Expect {
-        Expect::ok("host/browser/ref/call", json!({"value": value, "facts": page_facts("p1", 3)}))
+    fn mint_answer(count: u32, matches: Value) -> Expect {
+        Expect::ok("host/browser/ref/mint", json!({"count": count, "matches": matches, "facts": page_facts("p1", 3)}))
     }
 
     fn cancel() -> CancellationToken {
@@ -665,8 +675,8 @@ mod tests {
         let host = FakeHost::scripted(vec![
             snapshot_answer(checkbox_page(), None),
             eval_answer(json!({"count": 1, "table": false, "matches": [{"ref": null, "role": "input", "name": "agree"}]})),
-            ref_answer(false),
-            ref_answer(true).with_params(json!({"ref": "p1-s2-e2", "args": ["input[name=agree]"]})),
+            mint_answer(1, json!([{"ref": "p1-s2-e2", "role": "checkbox", "name": "I agree"}]))
+                .with_params(json!({"pageId": "p1", "snapshotId": "p1-s2", "selector": "input[name=agree]", "limit": 50})),
         ]);
         let cx = TargetContext { host: &host, page_id: "p1", expect: None, cancel: &cancel };
         let resolved = resolve_target(&cx, &json!({"selector": "input[name=agree]"})).await.expect("resolved");
@@ -674,27 +684,29 @@ mod tests {
         let calls = host.calls();
         let expression = calls[1].params["expression"].as_str().expect("an expression");
         assert!(expression.contains("\"input[name=agree]\"") && expression.contains("\"p1-s2\"") && !expression.contains("__SELECTOR__") && !expression.contains("__LIMIT__") && !expression.contains("__SNAPSHOT_ID__"), "{expression}");
-        host.finish().expect("the walk stops at the last match");
+        host.finish().expect("one mint after the query");
     }
 
     #[tokio::test]
-    async fn a_selector_asks_only_the_elements_the_role_and_name_keep() {
+    async fn a_selector_target_the_snapshot_does_not_list_gets_a_ref_minted_by_the_host() {
         let cancel = cancel();
-        let host = FakeHost::scripted(vec![
-            snapshot_answer(checkbox_page(), None),
-            eval_answer(json!({"count": 2, "table": false, "matches": []})),
-            ref_answer(true).with_params(json!({"ref": "p1-s2-e2"})),
-        ]);
+        // A consent row the accessibility tree does not list: the host mints `p1-s2-t77` for it and the engine names it by that ref.
+        let both = json!([{"ref": "p1-s2-e1", "role": "button", "name": "Cancel"}, {"ref": "p1-s2-t77", "role": "div", "name": "Consent row"}]);
+        let host = FakeHost::scripted(vec![snapshot_answer(checkbox_page(), None), eval_answer(json!({"count": 2, "table": false, "matches": []})), mint_answer(2, both.clone())]);
         let cx = TargetContext { host: &host, page_id: "p1", expect: None, cancel: &cancel };
-        let resolved = resolve_target(&cx, &json!({"selector": "input", "role": "checkbox"})).await.expect("resolved");
-        assert_eq!(resolved.ref_id, "p1-s2-e2");
-        host.finish().expect("one element asked");
-        let none = FakeHost::scripted(vec![snapshot_answer(checkbox_page(), None), eval_answer(json!({"count": 0, "table": false, "matches": []}))]);
+        let error = resolve_target(&cx, &json!({"selector": "button, div"})).await.expect_err("ambiguous");
+        assert!(error.to_string().contains("[p1-s2-t77] div \"Consent row\""), "{error}");
+        let picked = FakeHost::scripted(vec![snapshot_answer(checkbox_page(), None), eval_answer(json!({"count": 2, "table": false, "matches": []})), mint_answer(2, both)]);
+        let cx = TargetContext { host: &picked, page_id: "p1", expect: None, cancel: &cancel };
+        let resolved = resolve_target(&cx, &json!({"selector": "button, div", "role": "div"})).await.expect("minted");
+        assert_eq!(resolved.ref_id, "p1-s2-t77");
+        let element = resolved.minted.expect("the minted element");
+        assert_eq!((element.role.as_str(), element.name.as_str(), element.tag.as_str()), ("div", "Consent row", "css"));
+        let none = FakeHost::scripted(vec![snapshot_answer(checkbox_page(), None), eval_answer(json!({"count": 0, "table": false, "matches": []})), mint_answer(0, json!([]))]);
         let cx = TargetContext { host: &none, page_id: "p1", expect: None, cancel: &cancel };
         let error = resolve_target(&cx, &json!({"selector": "#nope"})).await.expect_err("nothing");
         assert_eq!(error.reason(), Some(ActionabilityReason::Missing));
         assert!(error.to_string().contains("among 0 candidate element(s)"), "{error}");
-        none.finish().expect("no element asked when the page matched none");
     }
 
     #[tokio::test]
@@ -740,7 +752,7 @@ mod tests {
         let host = FakeHost::scripted(vec![
             snapshot_answer(checkbox_page(), None),
             eval_answer(json!({"count": 1, "table": false, "matches": []})),
-            Expect::err("host/browser/ref/call", HostCallError::StaleSnapshot),
+            Expect::err("host/browser/ref/mint", HostCallError::StaleSnapshot),
         ]);
         let cx = TargetContext { host: &host, page_id: "p1", expect: None, cancel: &cancel };
         let error = resolve_target(&cx, &json!({"selector": "input"})).await.expect_err("stale");

@@ -96,6 +96,11 @@ fn string(input: &JsonValue, key: &str) -> String {
     input.get(key).and_then(JsonValue::as_str).unwrap_or_default().to_owned()
 }
 
+/// The branch a draft's worktree names, trimmed as `requiredNewTaskDraft` kept it; empty when the draft names none.
+fn draft_branch(draft: &JsonValue) -> String {
+    mixdog_js::js_trim(&string(draft, "branch")).to_owned()
+}
+
 /// The `requestWorktree` input, validated in Node's order: the name, the revision, the choice.
 fn request_input(input: &JsonValue) -> Result<RequestWorktree, ScmFailure> {
     let name = match input.get("name") {
@@ -212,7 +217,7 @@ impl ThreadScmService {
         };
         let confirm = flag(draft, "confirmLarge");
         // `requiredNewTaskDraft` kept `branch` trimmed, the flags only when true, and `create` only beside a branch.
-        let branch = mixdog_js::js_trim(&string(draft, "branch")).to_owned();
+        let branch = draft_branch(draft);
         if !branch.is_empty() {
             let select = select_input(&json!({ "branch": branch, "create": flag(draft, "create"), "confirmLarge": confirm })).map_err(scm_error)?;
             let done = self.workspaces.select_branch(thread.as_str(), select, false, cancel).await.map_err(scm_error)?;
@@ -393,5 +398,24 @@ impl DomainService for ThreadScmService {
 
     fn notify(&self, _: Method, _: JsonValue, _: ConnectionId) -> Admit {
         Admit::Accepted
+    }
+}
+
+#[cfg(test)]
+mod draft_branch_tests {
+    use serde_json::json;
+
+    use super::draft_branch;
+
+    #[test]
+    fn a_draft_branch_is_trimmed_as_the_host_kept_it() {
+        assert_eq!(draft_branch(&json!({ "branch": "  feature/x \u{a0}\n" })), "feature/x");
+    }
+
+    #[test]
+    fn a_draft_without_a_branch_names_none() {
+        assert_eq!(draft_branch(&json!({})), "");
+        assert_eq!(draft_branch(&json!({ "branch": "   " })), "");
+        assert_eq!(draft_branch(&json!({ "branch": 3 })), "");
     }
 }

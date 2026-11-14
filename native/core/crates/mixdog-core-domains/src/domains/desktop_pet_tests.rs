@@ -455,6 +455,7 @@ fn the_placement_method_answers_each_rule_as_the_function_does() {
     assert_eq!(geometry["window"]["width"], json!(size(150).window.width));
     assert_eq!(geometry["sprite"]["size"], json!(size(150).sprite.size));
     assert_eq!(geometry["coreWidth"], json!(size(150).core_width));
+    assert_eq!(geometry["pinInset"], json!(PIN_INSET), "the window's island reserve counts the core's inset");
     let pinned = ask(json!({ "op": "pinned", "content": rect(CONTENT), "composer": { "rect": rect(CARD), "island": 580.0 }, "zoom": 1.25, "scale": 100 }));
     assert_eq!(pinned, point(pinned_pet_position(CONTENT, &composer(Some(580.0), None), 1.25, &size(100))));
     let at = PetPos { x: -40.0, y: 2000.0 };

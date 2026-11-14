@@ -18,6 +18,7 @@ import { documentIdOf } from './precondition.ts';
 import { registerPage } from './page.ts';
 import { registerPages } from './pages.ts';
 import { registerRefCall } from './ref-call.ts';
+import { registerRefMint } from './ref-mint.ts';
 import { registerScreenshot } from './screenshot.ts';
 import { createInterceptTable, registerSession } from './session.ts';
 import { registerSnapshot } from './snapshot.ts';
@@ -220,6 +221,7 @@ const PARAMS = {
   'host/browser/page/dialog/answer': { pageId: 'p1', accept: true },
   'host/browser/snapshot': { pageId: 'p1', mode: 'full', expect: { documentId: DOC } },
   'host/browser/ref/call': { pageId: 'p1', snapshotId: 's', ref: 'e1', functionDeclaration: 'function(){}', expect: { documentId: DOC } },
+  'host/browser/ref/mint': { pageId: 'p1', snapshotId: 's', selector: 'a', limit: 50, expect: { documentId: DOC } },
   'host/browser/input/batch': {
     pageId: 'p1',
     steps: [{ op: 'type', text: 'a' }, { op: 'press', key: 'Enter' }],
@@ -287,6 +289,7 @@ test('after a typed secret and a submit, no engine reply, error, event or transc
     registerCdpSend(connection, ctx);
     registerSnapshot(connection, ctx, leaky());
     registerRefCall(connection, ctx, leaky());
+    registerRefMint(connection, ctx);
     registerInputBatch(connection, ctx);
     registerScreenshot(connection, ctx, leaky());
     registerSession(connection, ctx, {

@@ -99,6 +99,8 @@ export function createSectionsApi(ctx: DirectContext): Pick<DesktopApi, 'section
     });
     // A replaced connection holds another client's store, already folded when it is announced.
     const offReplaced = connection.onReplaced(() => replaceWhole(listener));
+    // A reopen drops the client first: the window shows `reconnecting` from its start, not only once the new client reports.
+    const offReopening = connection.onReopening(() => listener({ kind: 'status', status: 'reconnecting' }));
     // The first open has no event of its own: its outcome is the status.
     const settled = (): void => {
       if (pushListeners.has(listener)) listener({ kind: 'status', status: connection.status });
@@ -109,6 +111,7 @@ export function createSectionsApi(ctx: DirectContext): Pick<DesktopApi, 'section
       offStore();
       offEvent();
       offReplaced();
+      offReopening();
     };
   };
 

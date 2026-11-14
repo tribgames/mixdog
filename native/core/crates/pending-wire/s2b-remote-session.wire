@@ -1,0 +1,17 @@
+# s2b-remote-session core wiring
+
+## 1. Modules
+lib.rs of mixdog-ssh already declares `pub mod session;` (it comes with this task); nothing to add. `session` declares its own test
+module (`session_tests.rs`).
+
+## 2. Cargo
+No new dependency: session.rs uses only tokio (rt, sync, net, io-util, time via mixdog_rt::time), serde_json, async-trait and
+thiserror, all already listed in mixdog-ssh/Cargo.toml. It does not use mixdog-app-server-client::ctl: the identity check is a plain
+token-less `GET /health` through the tunnel's companion port, made before any token is used (as the desktop's readDaemonHealth did).
+
+## 3. SERVICE_PENDING
+No protocol method is served by this module; nothing to remove. A task that connects a remote host (connections/ssh/openEphemeral)
+builds `RemoteSession::over_ssh(RemoteSessionConfig, SshEnv, AttemptContext, Arc<dyn ServerPayloads + Send>)` and dials
+`connect()`; `MIXDOG_SSH_TARGET` / `remoteSessionConfigFromEnv` is not ported (it moves to openEphemeral). Settings: `remote_cwd`
+and `grace_ms` come from the host's settings (`graceMinutes` via `mixdog_connections::link_machine::host_grace_ms`); the tunnel's
+auto-reconnect comes from `AttemptContext.settings.auto_reconnect`.

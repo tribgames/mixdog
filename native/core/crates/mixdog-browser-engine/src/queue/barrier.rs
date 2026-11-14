@@ -18,13 +18,14 @@ use std::task::Poll;
 use mixdog_rt::CancelView;
 use mixdog_rt::CancellationToken;
 
-pub(super) enum Either<A, B> {
+/// The first of two things to finish: the one `race` returns.
+pub(crate) enum Either<A, B> {
     Left(A),
     Right(B),
 }
 
 /// Whichever of the two is ready first (the left one when both are).
-pub(super) async fn race<A: Future, B: Future>(left: A, right: B) -> Either<A::Output, B::Output> {
+pub(crate) async fn race<A: Future, B: Future>(left: A, right: B) -> Either<A::Output, B::Output> {
     let mut left = pin!(left);
     let mut right = pin!(right);
     poll_fn(|cx| {

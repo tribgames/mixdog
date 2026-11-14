@@ -1,0 +1,17 @@
+# s2b-port-forwards core wiring
+
+## 1. Dependency edges
+None: mixdog-connections already depends on mixdog-ssh, mixdog-app-protocol, async-trait, tokio (rt, sync, macros, time), tracing.
+(The tunnel's own mixdog-ssh -> mixdog-workspace edge is in s2b-tunnel.wire.)
+
+## 2. Modules
+lib.rs of mixdog-connections already lists `pub mod port_forwards;`; the test module is declared inside port_forwards.rs.
+
+## 3. SERVICE_PENDING
+No protocol method is served by this module; nothing to remove.
+
+## 4. For the link / service task
+`ServerPortForwards::new(env, ctx_source, host_id, store)`: ctx_source is `ContextSource` = `Arc<dyn Fn() -> (SshTarget, Option<AttemptContext>)>`
+(the server's ssh target and settings, read at every forward start). A ServerLink implements `port_forwards::PortsSource` (a watch of the
+`ports` scoped feed list, created holding the first scan) and calls `forwards.follow(&link)`; on reattach it calls `restore()`; when the
+server window closes it calls `close_all()`. Panel errors are `PortError` (Display: `<code>: <message>`).

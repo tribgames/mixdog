@@ -82,9 +82,11 @@ export interface DesktopPetPrefs {
   hereAnchor: PetHereAnchor | null;
 }
 
-/** How far inside the composer card's right edge the pinned sprite box's
- *  right edge sits (the core's PIN_INSET): the island's reserve counts it. */
-const DESKTOP_PET_PIN_INSET = 2;
+/** The core's answer of the `geometry` rule: the window and sprite box, and how far inside the composer card's right edge the
+ *  pinned sprite box's right edge sits (`pinInset`, the core's PIN_INSET): the island's reserve counts it. */
+interface DesktopPetPlacedGeometry extends DesktopPetGeometry {
+  pinInset: number;
+}
 
 type Listener = (event: { sender?: unknown }, ...args: unknown[]) => void;
 type Handler = (event: { sender?: unknown }, ...args: unknown[]) => unknown;
@@ -245,7 +247,7 @@ interface PetContext {
   deps: DesktopPetDeps;
   prefs: DesktopPetPrefs;
   /** The window and sprite at the bot's scale (the core's answer); null until read. */
-  shape: DesktopPetGeometry | null;
+  shape: DesktopPetPlacedGeometry | null;
   /** The last step of the queue every change of the overlay runs through, one at a time. */
   tail: Promise<unknown>;
   /** The last settings write: they reach the core in the order they were made. */
@@ -346,7 +348,7 @@ async function loadPrefs(s: PetContext) {
 }
 
 async function loadShape(s: PetContext) {
-  s.shape = (await resolve(s, { op: 'geometry', scale: s.prefs.scale })) as DesktopPetGeometry;
+  s.shape = (await resolve(s, { op: 'geometry', scale: s.prefs.scale })) as DesktopPetPlacedGeometry;
 }
 
 function save(s: PetContext, next: Partial<DesktopPetPrefs>) {
@@ -373,7 +375,7 @@ function config(s: PetContext): DesktopPetConfig {
 
 /** The window and sprite box at the bot's scale: a live window was made at
  *  this scale (a new scale replaces the window, see setScale). */
-function geometry(s: PetContext): DesktopPetGeometry {
+function geometry(s: PetContext): DesktopPetPlacedGeometry {
   if (!s.shape) throw new Error('the desktop pet has no geometry: the core has not answered');
   return s.shape;
 }
@@ -733,10 +735,11 @@ function islandReserve(s: PetContext): number {
   const owner = appWindow(s);
   if (!owner || !s.prefs.enabled || !s.available || !s.prefs.pinned || !s.composer) return 0;
   const zoom = owner.webContents.getZoomFactor();
-  const { size } = geometry(s).sprite;
+  const { sprite, pinInset } = geometry(s);
+  const size = sprite.size;
   const columns = petMascotCells(s.state.face).map((cell) => cell.x);
   const art = columns.length ? size - (Math.min(...columns) * size) / 16 : size;
-  return Math.ceil((art + DESKTOP_PET_PIN_INSET) / zoom) + DESKTOP_PET_ISLAND_CLEARANCE;
+  return Math.ceil((art + pinInset) / zoom) + DESKTOP_PET_ISLAND_CLEARANCE;
 }
 
 /** The layout around the bot to the app window, only when it changes. */

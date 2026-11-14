@@ -7,6 +7,14 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 
 import type { DesktopPortForward, DesktopServerPort, DesktopServerPortsView } from '../shared/contract-server-ports';
 import { isConnectionDown, useConnectionLink } from './connection-link-store';
+import {
+  dismissServerPort,
+  forwardServerPort,
+  listServerPorts,
+  openServerPortInBrowser,
+  stopServerPortForward,
+  subscribeServerPorts,
+} from './connections-core-api';
 import { desktopConnection } from './desktop-connection';
 import { errorMessageText } from './ErrorNotice';
 import { t } from './i18n';
@@ -38,10 +46,9 @@ function forwardStatusText(forward: DesktopPortForward): string {
 function useServerPorts(active: boolean, down: boolean) {
   const [view, setView] = useState<DesktopServerPortsView>(EMPTY_VIEW);
   const [scanning, setScanning] = useState(false);
-  useEffect(() => window.mixdogDesktop?.subscribeServerPorts?.((next) => setView(next)) ?? undefined, []);
+  useEffect(() => subscribeServerPorts((next) => setView(next)), []);
   useEffect(() => {
-    void window.mixdogDesktop
-      ?.listServerPorts?.()
+    void listServerPorts()
       .then(setView)
       .catch(() => undefined);
   }, []);
@@ -71,7 +78,6 @@ function useServerPorts(active: boolean, down: boolean) {
 }
 
 function ForwardRow({ forward, onError }: { forward: DesktopPortForward; onError(message: string): void }) {
-  const api = window.mixdogDesktop;
   const act = (run: () => Promise<unknown> | undefined) => {
     void Promise.resolve(run()).catch((reason: unknown) => onError(serverPortErrorText(reason)));
   };
@@ -97,7 +103,7 @@ function ForwardRow({ forward, onError }: { forward: DesktopPortForward; onError
           aria-label={t('Open in browser')}
           data-tooltip={t('Open in browser')}
           disabled={forward.status !== 'active'}
-          onClick={() => act(() => api?.openServerPortInBrowser?.(forward.remotePort))}
+          onClick={() => act(() => openServerPortInBrowser(forward.remotePort))}
         >
           <ExternalLink size={14} aria-hidden="true" />
         </button>
@@ -106,7 +112,7 @@ function ForwardRow({ forward, onError }: { forward: DesktopPortForward; onError
           className="conn-btn conn-btn--sm conn-btn--icon"
           aria-label={t('Stop forwarding')}
           data-tooltip={t('Stop forwarding')}
-          onClick={() => act(() => api?.stopServerPortForward?.(forward.remotePort))}
+          onClick={() => act(() => stopServerPortForward(forward.remotePort))}
         >
           <Square size={12} aria-hidden="true" />
         </button>
@@ -218,7 +224,7 @@ function ManualForwardForm({ onDone }: { onDone(): void }) {
     const localPort = local.trim() ? Number(local) : null;
     setBusy(true);
     setError('');
-    void Promise.resolve(window.mixdogDesktop?.forwardServerPort?.(remotePort, localPort))
+    void Promise.resolve(forwardServerPort(remotePort, localPort))
       .then(() => onDone())
       .catch((reason: unknown) => setError(serverPortErrorText(reason)))
       .finally(() => setBusy(false));
@@ -270,12 +276,12 @@ export function ServerPortsPanel({ active }: { active: boolean }) {
   const forwarded = new Set(view.forwards.map((forward) => forward.remotePort));
   const forward = (port: number) => {
     setError('');
-    void Promise.resolve(window.mixdogDesktop?.forwardServerPort?.(port)).catch((reason: unknown) =>
+    void Promise.resolve(forwardServerPort(port)).catch((reason: unknown) =>
       setError(serverPortErrorText(reason))
     );
   };
   const dismiss = (port: number) => {
-    void Promise.resolve(window.mixdogDesktop?.dismissServerPort?.(port)).catch(() => undefined);
+    void Promise.resolve(dismissServerPort(port)).catch(() => undefined);
   };
   const detected = view.detected ?? [];
   return (

@@ -27,7 +27,7 @@ export function SshConnectDialog({
   onConnected?(host: DesktopSshHost): void;
   onClose(): void;
 }) {
-  const attempt = useSshConnectAttempt({ api, host, onConnected, onClose });
+  const attempt = useSshConnectAttempt({ host, onConnected, onClose });
   const field = useSshAddressField(attempt.configHosts, host?.target ?? '');
   const [logOpen, setLogOpen] = useState(false);
   const { view, shown, summary, question } = attempt;
@@ -43,7 +43,7 @@ export function SshConnectDialog({
   };
 
   if (logOpen)
-    return <SshLogDialog api={api} reference={shown.target} name={shown.name} onClose={() => setLogOpen(false)} />;
+    return <SshLogDialog reference={shown.target} name={shown.name} onClose={() => setLogOpen(false)} />;
   if (question && question.kind !== 'close' && view.kind === 'steps') {
     return (
       <SshAskpassPrompt question={{ ...question, kind: question.kind }} name={shown.name} onAnswer={attempt.answer} />
@@ -90,7 +90,7 @@ export function SshConnectDialog({
         <SshFailureDialog
           view={view}
           name={shown.name}
-          hasLog={Boolean(api.sshDiagnosticsLog)}
+          hasLog
           onEdit={editAddress}
           onViewLog={() => setLogOpen(true)}
           onClose={onClose}

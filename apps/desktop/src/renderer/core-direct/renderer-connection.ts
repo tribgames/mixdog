@@ -62,6 +62,8 @@ export type RendererConnection = Pick<
 > & {
   /** The same client with the library types: what the size-aware sender and the blob calls take. */
   protocolClient(): ProtocolClient<SessionFold> | null;
+  /** Called when a reopen drops the current client, before the new one is opened: the connection is `reconnecting`. */
+  onReopening(listener: () => void): () => void;
   /** Replaces how a request leaves (see Sender). */
   setSender(send: Sender): void;
 };
@@ -73,6 +75,7 @@ export function createRendererConnection({ open, send: initialSend }: RendererCo
   const eventListeners = new Set<(event: ConnectionClientEvent) => void>();
   const storeListeners = new Set<(change: ConnectionStoreChange) => void>();
   const replacedListeners = new Set<() => void>();
+  const reopeningListeners = new Set<() => void>();
   const fsWatches = new Map<string, { window: RendererWindow; params: { watchId: string } & Record<string, unknown> }>();
   const loginFeeds = new Map<string, LoginFeedState>();
   // Scoped feeds that carry sections (`media:<jobId>`), by feed id: who watches them and the sections each holds. The
@@ -327,6 +330,7 @@ export function createRendererConnection({ open, send: initialSend }: RendererCo
       const run = (async (): Promise<void> => {
         await release('reconnecting');
         if (mine !== epoch) return supersededBy();
+        for (const listener of [...reopeningListeners]) listener();
         try {
           await connect(mine);
         } catch (error) {
@@ -340,6 +344,10 @@ export function createRendererConnection({ open, send: initialSend }: RendererCo
       })();
       newest = run;
       return track(run);
+    },
+    onReopening(listener) {
+      reopeningListeners.add(listener);
+      return () => void reopeningListeners.delete(listener);
     },
     onReplaced(listener) {
       replacedListeners.add(listener);
@@ -443,6 +451,7 @@ export function createRendererConnection({ open, send: initialSend }: RendererCo
       feedWatches.clear();
       loginFeeds.clear();
       replacedListeners.clear();
+      reopeningListeners.clear();
       storeListeners.clear();
       closedByOwner = true;
       epoch += 1;

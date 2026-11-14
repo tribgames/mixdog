@@ -8,6 +8,12 @@ import type {
   DesktopConnectionNotice,
   DesktopServerRestoreProgress,
 } from '../shared/contract';
+import {
+  getConnectionLink,
+  subscribeConnectionLink,
+  subscribeConnectionNotice,
+  subscribeServerRestoreProgress,
+} from './connections-core-api';
 import { isSshConnectionWindow } from './desktop-connection';
 import { invalidateSidebarReferenceForMutation } from './sidebar-reference-cache';
 
@@ -47,10 +53,9 @@ function apply(next: DesktopConnectionLinkView | null): void {
 function start(): void {
   if (started) return;
   started = true;
-  const api = window.mixdogDesktop;
-  if (!isSshConnectionWindow() || !api) return;
-  api.subscribeConnectionLink?.((next) => apply(next));
-  api.subscribeConnectionNotice?.((notice) => {
+  if (!isSshConnectionWindow()) return;
+  subscribeConnectionLink((next) => apply(next));
+  subscribeConnectionNotice((notice) => {
     if (notice.kind === 'outcome-unknown') {
       for (const id of notice.toolIds) unknownTools.add(id);
       unknownVersion += 1;
@@ -58,8 +63,7 @@ function start(): void {
     }
     for (const listener of noticeListeners) listener(notice);
   });
-  void api
-    .getConnectionLink?.()
+  void getConnectionLink()
     .then((current) => {
       if (current && !view) apply(current);
     })
@@ -108,5 +112,5 @@ export function useToolOutcomeUnknown(): (toolId: unknown) => boolean {
 
 /** Startup reopening of server windows, as this PC's window hears it. */
 export function subscribeServerRestore(listener: (progress: DesktopServerRestoreProgress) => void): () => void {
-  return window.mixdogDesktop?.subscribeServerRestoreProgress?.(listener) ?? (() => {});
+  return subscribeServerRestoreProgress(listener);
 }

@@ -8,6 +8,9 @@ use std::time::Duration;
 use mixdog_rt::CancelView;
 use mixdog_rt::time;
 
+use crate::refs::access::ActionabilityReason;
+use crate::refs::access::RefError;
+
 use super::settle::Cancelled;
 use super::settle::pause;
 use super::settle::throw_if_cancelled;
@@ -21,13 +24,25 @@ const ACTIONABILITY_POLL: Duration = Duration::from_millis(100);
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ActionabilityError {
     pub message: String,
-    /// A short machine word for why (`disabled`, `covered`, `not-editable`).
-    pub reason: String,
+    /// Why (`disabled`, `covered`, `not-editable`, ...): the reason a ref refusal carries, one type for both.
+    pub reason: ActionabilityReason,
 }
 
 impl ActionabilityError {
-    pub fn new(message: impl Into<String>, reason: impl Into<String>) -> Self {
-        Self { message: message.into(), reason: reason.into() }
+    pub fn new(message: impl Into<String>, reason: ActionabilityReason) -> Self {
+        Self { message: message.into(), reason }
+    }
+}
+
+/// A ref's refusal as the not-ready-yet failure a preflight retries; any other [`RefError`] comes back unchanged.
+impl TryFrom<RefError> for ActionabilityError {
+    type Error = RefError;
+
+    fn try_from(error: RefError) -> Result<Self, RefError> {
+        match error {
+            RefError::Refused { reason, message } => Ok(Self { message, reason }),
+            other => Err(other),
+        }
     }
 }
 
@@ -102,7 +117,7 @@ mod tests {
         let result = wait_for_actionable(
             || async {
                 if probes.fetch_add(1, Ordering::SeqCst) + 1 < 3 {
-                    return Err(ProbeFailure::<String>::NotActionable(ActionabilityError::new("button is disabled", "disabled")));
+                    return Err(ProbeFailure::<String>::NotActionable(ActionabilityError::new("button is disabled", ActionabilityReason::Disabled)));
                 }
                 Ok("fresh")
             },
@@ -135,7 +150,7 @@ mod tests {
     #[tokio::test]
     async fn an_actionability_deadline_reports_the_last_blocker_without_another_probe() {
         let probes = AtomicUsize::new(0);
-        let blocker = ActionabilityError::new("button is covered", "covered");
+        let blocker = ActionabilityError::new("button is covered", ActionabilityReason::Covered);
         let result = wait_for_actionable(
             || async {
                 probes.fetch_add(1, Ordering::SeqCst);
@@ -158,7 +173,7 @@ mod tests {
             || async {
                 probes.fetch_add(1, Ordering::SeqCst);
                 source.cancel("user took control");
-                Err::<(), ProbeFailure<String>>(ProbeFailure::NotActionable(ActionabilityError::new("not yet editable", "not-editable")))
+                Err::<(), ProbeFailure<String>>(ProbeFailure::NotActionable(ActionabilityError::new("not yet editable", ActionabilityReason::NotEditable)))
             },
             &view,
             ACTIONABILITY_TIMEOUT,
@@ -177,5 +192,13 @@ mod tests {
         .await;
         assert!(matches!(result, Err(ActionableError::Cancelled(_))));
         assert_eq!(probes.load(Ordering::SeqCst), 1, "an already-cancelled wait must not probe");
+    }
+
+    #[test]
+    fn a_ref_refusal_is_the_not_ready_yet_failure_and_nothing_else_is() {
+        let refused = RefError::Refused { reason: ActionabilityReason::Covered, message: "ref r is covered".into() };
+        assert_eq!(ActionabilityError::try_from(refused), Ok(ActionabilityError::new("ref r is covered", ActionabilityReason::Covered)));
+        let failed = RefError::Failed("stale".into());
+        assert_eq!(ActionabilityError::try_from(failed.clone()), Err(failed));
     }
 }

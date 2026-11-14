@@ -27,7 +27,7 @@ use crate::context::{
     AttemptContext, ChildExit, ConfigFiles, ModelLogin, Platform, PreparedSpawn, SshChild, SshConfigFiles, SshEnv, SshSpawner, ToolOutput,
     ToolRunner,
 };
-use crate::diagnostics::Diagnostics;
+use crate::diagnostics::{DiagnosticKind, Diagnostics};
 use crate::install_wire::{RemoteBootstrapError, ServerPlatform};
 
 // ---- the fake remote ----
@@ -421,6 +421,27 @@ async fn upload_only_when_missing() {
     assert_eq!(ssh.call_count(), 3);
     assert_eq!(ssh.program_args(2)["upload"], json!(true));
     assert!(!ssh.input(2).is_empty());
+}
+
+#[tokio::test]
+async fn the_attempt_writes_what_it_found_and_did_into_the_servers_log() {
+    let release = all_platforms();
+    let (env, _ssh) = world(vec![
+        result(empty()),
+        result(json!({ "started": true, "replaced": { "pid": 4000, "version": "", "graceful": false }, "gcRemoved": ["1.4.4-aaa", "1.4.3-bbb"] })),
+    ]);
+    let context = AttemptContext { diagnostics_key: Some("log-ring".to_owned()), ..AttemptContext::default() };
+    run_bootstrap(&env, &context, "log-ring", None, &release, &Phases::default()).await.unwrap();
+    let lines: Vec<String> = env.diagnostics.entries("log-ring").into_iter().filter(|entry| entry.kind == DiagnosticKind::Log).map(|entry| entry.text).collect();
+    assert_eq!(
+        lines,
+        [
+            "remote probe platform=linux-x64 install=1.4.6-0123456789abcdef installed=false core=none current=false",
+            "uploading server runtime 1.4.6-0123456789abcdef platform=linux-x64 bytes=17",
+            "replaced remote core pid=4000 mixdog=unknown graceful=false",
+            "remote gc removed 1.4.4-aaa, 1.4.3-bbb",
+        ]
+    );
 }
 
 #[tokio::test]

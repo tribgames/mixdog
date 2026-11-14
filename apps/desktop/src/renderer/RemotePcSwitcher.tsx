@@ -12,6 +12,7 @@ import {
   requestConnectionDialog,
   type SshHostRequest,
 } from './settings/connection-intent';
+import { subscribeSshHostsChanged, sshListHosts } from './connections-core-api';
 import { openSshHost } from './settings/ssh-hosts';
 import { relativeWhen } from './settings/relative-when';
 import { useRemoteAccessSettings } from './settings/remote-access-settings';
@@ -153,24 +154,22 @@ function useMainWindowPcs(reloadOn: unknown, enabled: boolean) {
     };
   }, [listed, reloadOn]);
   const [sshHosts, setSshHosts] = useState<DesktopSshHost[]>([]);
-  const sshListed = enabled && Boolean(api?.sshListHosts);
   // biome-ignore lint/correctness/useExhaustiveDependencies: the list reloads when the menu opens, not on bridge identity.
   useEffect(() => {
-    if (!sshListed) return undefined;
+    if (!enabled) return undefined;
     let live = true;
     const load = () => {
-      void window.mixdogDesktop
-        ?.sshListHosts?.()
+      void sshListHosts()
         .then((next) => live && setSshHosts(next))
         .catch(() => undefined);
     };
     load();
-    const unsubscribe = window.mixdogDesktop?.subscribeHostListsChanged?.(load);
+    const unsubscribe = subscribeSshHostsChanged(load);
     return () => {
       live = false;
-      unsubscribe?.();
+      unsubscribe();
     };
-  }, [sshListed, reloadOn]);
+  }, [enabled, reloadOn]);
   const thisPc: SwitcherPc = {
     id: '',
     name: settings?.name || t('This PC'),
@@ -197,11 +196,11 @@ function useMainWindowPcs(reloadOn: unknown, enabled: boolean) {
     ssh: true,
   }));
   return {
-    main: (listed && saved.length > 0) || (sshListed && savedSsh.length > 0),
+    main: (listed && saved.length > 0) || (enabled && savedSsh.length > 0),
     pcs: [thisPc, ...saved, ...savedSsh],
     name: thisPc.name,
     sshHosts,
-    sshListed,
+    sshListed: enabled,
   };
 }
 
@@ -449,9 +448,8 @@ export function RemotePcSwitcher({ placement = 'titlebar' }: { placement?: 'titl
   // with the connect dialog on that server (progress and guidance live there).
   const openSavedSsh = (pc: SwitcherPc): void => {
     const host = mainPcs.sshHosts.find((entry) => entry.id === pc.id);
-    const api = window.mixdogDesktop;
-    if (!host || !api) return;
-    void openSshHost(api, host, () =>
+    if (!host) return;
+    void openSshHost(host, () =>
       openConnectionSettings('ssh-host', { id: host.id, name: host.name, target: host.target })
     );
   };
