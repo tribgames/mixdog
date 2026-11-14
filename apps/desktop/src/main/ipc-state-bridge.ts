@@ -7,9 +7,6 @@ import {
   type SessionSnapshot,
 } from '../shared/contract';
 import { isSessionId, requiredSessionId, requiredSessionIds } from './desktop-state';
-import { SETTINGS_CHANGED_EVENT } from '../shared/settings-changed';
-import { ORCHESTRATION_MODE_EVENT } from '../shared/orchestration-mode';
-import { TURN_REVIEW_CHANGED_EVENT } from '../shared/turn-review-changed';
 import { registerDesktopNoticeSink } from '../shared/core-src/runtime/shared/desktop-notice-host.mjs';
 import { reportTranscriptRead } from '../shared/transcript-read-diagnostics';
 import type { DesktopService } from './desktop-service-contract';
@@ -59,8 +56,6 @@ export class DesktopStateBridge {
   private readonly latestSessionStates = new Map<string, SessionSnapshot>();
   private readonly latestSessionProvenance = new Map<string, SessionProvenance>();
   private readonly unsubscribeState: () => void;
-  private readonly unsubscribeSessions: () => void;
-  private readonly unsubscribeAgentPool: () => void;
   private readonly unsubscribeSessionStates: () => void;
   private readonly unsubscribeUpdater: () => void;
   private readonly unsubscribeDesktopEvents: () => void;
@@ -96,36 +91,14 @@ export class DesktopStateBridge {
     handle(DESKTOP_IPC.showDesktopUpdate, (_event, confirmed) => this.installDesktopUpdate(confirmed === true));
 
     this.unsubscribeState = host.subscribe(this.sendEngineState);
-    this.unsubscribeSessions =
-      typeof host.subscribeSessions === 'function'
-        ? host.subscribeSessions((sessions) => this.send(DESKTOP_IPC.sessionsChanged, sessions))
-        : () => {};
-    this.unsubscribeAgentPool =
-      typeof host.subscribeAgentPool === 'function'
-        ? host.subscribeAgentPool((agents) => this.send(DESKTOP_IPC.agentPoolChanged, agents))
-        : () => {};
     this.unsubscribeSessionStates = host.subscribeSessionStates(this.sendSessionState);
     this.unsubscribeUpdater = updater?.subscribe((state) => this.send(DESKTOP_IPC.updaterState, state)) ?? (() => {});
+    // The window's live pushes only: the session list, agent pool, folder, LSP, settings, provider-model, rail-pin, turn-review,
+    // orchestration-mode, relay-refusal, remote-claim and remote-access feeds reach the renderer over its own core connection
+    // (renderer/core-direct subscribe* members), so main forwards none of them.
     this.unsubscribeDesktopEvents =
       host.subscribeDesktopEvents?.(({ name, value }) => {
-        if (name === 'folder-changed') this.send(DESKTOP_IPC.folderChanged, value);
-        else if (name === 'activity-rail-pins-changed') this.send(DESKTOP_IPC.activityRailPinsChanged, value);
-        else if (name === 'provider-models-changed') this.send(DESKTOP_IPC.providerModelsChanged, value);
-        else if (name === SETTINGS_CHANGED_EVENT) this.send(DESKTOP_IPC.settingsChanged, value);
-        else if (name === TURN_REVIEW_CHANGED_EVENT) this.send(DESKTOP_IPC.turnReviewChanged, null);
-        else if (name === ORCHESTRATION_MODE_EVENT) this.send(DESKTOP_IPC.orchestrationModeChanged, value);
-        else if (name === 'lsp-diagnostics') this.send(DESKTOP_IPC.lspDiagnostics, value);
-        else if (name === 'lsp-status') this.send(DESKTOP_IPC.lspStatus, value);
-        else if (name === 'relay-payload-refused') {
-          this.send(DESKTOP_IPC.relayPayloadRefused, value);
-        } else if (name === 'remote-client-claim') {
-          // Delivery stays global, but only Settings → Connection renders it.
-          this.send(DESKTOP_IPC.remoteClientClaim, value);
-        } else if (name === 'remote-access-settings-changed') {
-          this.send(DESKTOP_IPC.remoteAccessSettingsChanged, value);
-        } else if (name === CONVERSATION_IMPORT_PROGRESS_EVENT) {
-          this.send(DESKTOP_IPC.conversationImportProgress, value);
-        }
+        if (name === CONVERSATION_IMPORT_PROGRESS_EVENT) this.send(DESKTOP_IPC.conversationImportProgress, value);
       }) ?? (() => {});
     // The service's notices (held by its client until a window listens) and
     // this process's own (its secure storage).
@@ -318,8 +291,6 @@ export class DesktopStateBridge {
     this.disposed = true;
     const { ipcMain, powerMonitor } = this.options;
     this.unsubscribeState();
-    this.unsubscribeSessions();
-    this.unsubscribeAgentPool();
     this.unsubscribeSessionStates();
     this.unsubscribeUpdater();
     this.unsubscribeDesktopEvents();

@@ -53,8 +53,7 @@ const DIRECT = new Set(Object.values(DIRECT_KEYS).flat());
 
 /**
  * Channels the preload does not name that are not the name of a direct member: the events that the direct members
- * `subscribe*` to, which the renderer receives over its own core connection and main still publishes for the windows
- * that were not given a core connection of their own.
+ * `subscribe*` to, which the renderer receives over its own core connection.
  */
 const DIRECT_EVENT_CHANNELS = new Set([
   'folderChanged',
@@ -88,8 +87,10 @@ test('channel names are unique, and the core port channels are not a DesktopApi 
   assert.ok(KEYS.length > 300, 'DESKTOP_IPC is the table of the desktop channels');
 });
 
-test('main registers or sends every channel of DESKTOP_IPC', () => {
-  const unnamed = KEYS.filter((name) => !mainNames(name));
+test('main registers or sends every channel of DESKTOP_IPC the direct API does not serve', () => {
+  // A direct member (and the event channel of one) is answered by the renderer over its own core connection
+  // (renderer/core-direct), so main has no handler for it.
+  const unnamed = KEYS.filter((name) => !mainNames(name) && !DIRECT.has(name) && !DIRECT_EVENT_CHANNELS.has(name));
   assert.deepEqual(unnamed, [], 'a channel nothing in main handles, listens to or sends');
 });
 

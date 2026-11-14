@@ -13,7 +13,7 @@ import type {
   Shell,
 } from 'electron';
 
-import { DESKTOP_IPC, type DesktopRemoteAccessInfo, type DesktopSettings } from '../shared/contract';
+import { DESKTOP_IPC } from '../shared/contract';
 import { ipcErrorEnvelope } from '../shared/coded-error';
 import { translateNativeUi } from '../shared/native-ui';
 import type { DesktopService } from './desktop-service-contract';
@@ -22,7 +22,6 @@ import type { BrowserHost } from './browser/host-types';
 import type { BrowserLoginPopup } from './browser/login-popup';
 import { registerBrowserIpc } from './ipc-browser';
 import type { ProtocolConnection } from './protocol/connection';
-import { registerNoProtocolWindowIpc, registerProtocolWindowIpc } from './protocol/window-ipc';
 import { registerComputerIpc, type ComputerIpcHost } from './ipc-computer';
 import { registerFileDialogIpc } from './ipc-file-dialogs';
 import { registerPaneLayoutIpc } from './ipc-pane-layout';
@@ -32,11 +31,9 @@ import { coreErrorForWindow } from './protocol/core-error';
 import type { DesktopComputerInputAccess } from '../shared/contract-computer';
 import { registerProjectFileIpc } from './ipc-project-files';
 import { registerSessionIpc } from './ipc-sessions';
-import { registerNotificationIpc } from './ipc-notifications';
 import type { RemoteHostWindows } from './remote-host-windows';
 import { registerSourceControlIpc } from './ipc-source-control';
 import { DesktopStateBridge, type DesktopUpdater } from './ipc-state-bridge';
-import { registerTerminalIpc, type DesktopTerminalHost } from './ipc-terminal';
 import { registerWindowSettingsIpc } from './ipc-window-settings';
 import type { PcQuotaHost } from './ipc-host-extras';
 import { createAllowAllActionsConfirm } from './developer-risk-confirm';
@@ -71,72 +68,6 @@ export interface DesktopIpcMain {
 /** A sender-guarded `ipcMain.handle`, shared by every handler family. */
 export type IpcHandle = (channel: string, listener: (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown) => void;
 
-const SERVICE_OPERATION_NAMES = [
-  'githubStarStatus',
-  'starGithub',
-  'gitCliStatus',
-  'installGitCli',
-  'libreOfficeStatus',
-  'installLibreOffice',
-  'githubCliStatus',
-  'installGithubCli',
-  'githubCliLoginStart',
-  'githubCliLoginStatus',
-  'githubCliLoginOpenBrowser',
-  'cancelGithubCliLogin',
-  'githubCliLogout',
-  'githubCliAccount',
-  'gitGlobalConfig',
-  'setGitGlobalConfig',
-  'notifySettingsChanged',
-  'gitAbortOperation',
-  'gitAmend',
-  'gitApplyPatch',
-  'gitBranches',
-  'gitCherryPickCommit',
-  'gitCommit',
-  'gitCommitPaths',
-  'gitContinue',
-  'gitCreateTag',
-  'gitDeleteBranch',
-  'gitDeleteTag',
-  'gitDiff',
-  'gitFetch',
-  'gitIgnore',
-  'gitLog',
-  'gitPull',
-  'gitPush',
-  'gitRenameBranch',
-  'gitResetToCommit',
-  'gitRevertCommit',
-  'gitRevertFile',
-  'gitReview',
-  'gitReviewDiff',
-  'gitReviewDiffs',
-  'gitShow',
-  'gitShowDiff',
-  'gitShowFile',
-  'gitRequestContext',
-  'gitStage',
-  'gitStash',
-  'gitStashApply',
-  'gitStashDrop',
-  'gitStashList',
-  'gitStashPop',
-  'gitStatus',
-  'gitSync',
-  'gitUndoLastCommit',
-  'gitUnstage',
-  'ghPrCheckout',
-  'ghPrCreate',
-  'ghPrDefaultBranch',
-  'ghPrDiff',
-  'ghPrList',
-  'ghPrMerge',
-  'ghPrView',
-  'githubRequest',
-] as const;
-
 interface DesktopIpcDependencies {
   app: Pick<App, 'quit'> & Partial<Pick<App, 'getPath' | 'getLocale'>>;
   translateUi?: (key: string) => string;
@@ -144,18 +75,7 @@ interface DesktopIpcDependencies {
   dialog: Pick<Dialog, 'showOpenDialog' | 'showMessageBox'> & Partial<Pick<Dialog, 'showSaveDialog'>>;
   shell: Pick<Shell, 'openPath' | 'openExternal' | 'showItemInFolder' | 'trashItem'>;
   powerMonitor?: Pick<PowerMonitor, 'on' | 'removeListener'>;
-  settingsStore?: Pick<
-    DesktopSettingsStore,
-    | 'read'
-    | 'update'
-    | 'updateNotificationVolume'
-    | 'updateBrowserPermissions'
-    | 'updateSessionRetention'
-    | 'readZoom'
-    | 'updateZoom'
-  >;
-  /** Fires after a successful desktop-settings write (keep-awake wiring). */
-  onDesktopSettingsChanged?: (settings: DesktopSettings) => void;
+  settingsStore?: Pick<DesktopSettingsStore, 'readZoom' | 'updateZoom'>;
   /** Settings → Notifications: play the notification sound at the saved volume. */
   previewNotificationSound?: () => Promise<string>;
   /** Browser Use pane: local profile import without renderer-visible secrets. */
@@ -194,24 +114,14 @@ interface DesktopIpcDependencies {
   /** Agent `visualize` tabs (this PC's window only). */
   visualize?: Pick<VisualizeService, 'snapshot' | 'command' | 'paneText' | 'setPanelSize'> &
     Partial<Pick<DesktopVisualize, 'attachFeedback' | 'captureRect' | 'consumeChoiceGesture'>>;
-  /** Settings → Connection pairing card; resolves null while the bridge is off. */
-  remoteAccessInfo?: (options?: { activate?: boolean }) => Promise<DesktopRemoteAccessInfo | null>;
-  /** Settings → Connection: mint a new pairing token (revokes paired phones). */
-  rotateRemoteAccess?: () => Promise<DesktopRemoteAccessInfo | null>;
-  /** Settings → Connection: revoke one registered browser. */
-  revokeRemoteAccessClient?: (clientId: string) => Promise<DesktopRemoteAccessInfo | null>;
   /** Settings → Connection / command surface: connect to another PC. */
   remoteHosts?: RemoteHostWindows;
   updater?: DesktopUpdater;
-  terminals?: DesktopTerminalHost;
   /** The kind of daemon connection `host` is: a server (`ssh`) window refuses
    *  every feature that acts on this PC (see connections/feature-gates). */
   connectionKind?: ConnectionKind;
   /** The window's connection id (a server window's: the id of this PC's link to the server, which its downloads go through). */
   serverId?: string;
-  /** Where the connection's daemon keeps user data (editor backups, editor
-   *  settings); this PC's userData unless given. */
-  serviceUserDataPath?: () => string;
   /** This PC's own daemon, for a server window: the sign-ins a server's model
    *  calls run on are this PC's, so their quota reads are answered here. */
   pcHost?: PcQuotaHost;
@@ -236,21 +146,15 @@ export function registerDesktopIpc(
     shell,
     powerMonitor: powerMonitorRef,
     settingsStore,
-    onDesktopSettingsChanged,
     previewNotificationSound,
     browserHost,
     browserLogin,
     updater,
-    terminals,
     computer,
-    remoteAccessInfo,
-    rotateRemoteAccess,
-    revokeRemoteAccessClient,
     remoteHosts,
     visualize,
     connectionKind = 'local',
     serverId,
-    serviceUserDataPath,
     pcHost,
     paneLayoutFile,
     protocol,
@@ -288,21 +192,8 @@ export function registerDesktopIpc(
       }
     });
   };
-  // The daemon's own user-data directory for paths handed to the service.
-  const serviceGetPath = (name: Parameters<App['getPath']>[0]) =>
-    name === 'userData' ? serviceUserDataPath?.() : app.getPath?.(name);
-  const serviceApp: Partial<Pick<App, 'getPath'>> =
-    serviceUserDataPath && typeof app.getPath === 'function' ? { getPath: serviceGetPath as App['getPath'] } : app;
   const invokeDesktopOperation = <T>(method: string, args: unknown[]): Promise<T> =>
     host.invokeDesktopOperation(method, args) as Promise<T>;
-  type ServiceOperation = (...args: unknown[]) => Promise<unknown>;
-  const serviceOperation =
-    (name: string): ServiceOperation =>
-    (...args: unknown[]) =>
-      invokeDesktopOperation(name, args);
-  const serviceOperations = Object.fromEntries(
-    SERVICE_OPERATION_NAMES.map((name) => [name, serviceOperation(name)])
-  ) as Record<(typeof SERVICE_OPERATION_NAMES)[number], ServiceOperation>;
   // This PC's one-file grants (picked, dropped, linked files) are kept and redeemed by the core.
   const selectedFiles = createCoreFileGrants(invokeDesktopOperation);
   // A server window's files live on the server: its one-file grants name
@@ -345,7 +236,6 @@ export function registerDesktopIpc(
 
   registerFileDialogIpc({
     window,
-    app: serviceApp,
     connectionKind,
     dialog,
     host,
@@ -355,7 +245,7 @@ export function registerDesktopIpc(
     describeLocalPaths,
     core: localCore,
   });
-  registerProjectIpc({ handle, host, shell, invokeDesktopOperation, operations: serviceOperations, core: localCore });
+  registerProjectIpc({ handle, host, shell, core: localCore });
   handle(DESKTOP_IPC.requestLinuxInputAccess, async () => {
     if (!localCore) throw new Error('The core connection is not available.');
     try {
@@ -366,7 +256,6 @@ export function registerDesktopIpc(
     }
   });
   registerProjectFileIpc({
-    app: serviceApp,
     handle,
     host,
     invokeDesktopOperation,
@@ -374,18 +263,7 @@ export function registerDesktopIpc(
     grantedFile,
     server,
   });
-  registerSessionIpc({
-    handle,
-    host,
-    invokeDesktopOperation,
-    browserHost,
-    remoteAccessInfo,
-    rotateRemoteAccess,
-    revokeRemoteAccessClient,
-    remoteHosts,
-    core: protocol,
-  });
-  registerNotificationIpc({ handle, invokeDesktopOperation, core: protocol });
+  registerSessionIpc({ handle, remoteHosts, core: protocol });
   registerBrowserIpc({ handle, browserHost, browserLogin });
   registerComputerIpc({ handle, shell, computer, invokeDesktopOperation });
   handle(DESKTOP_IPC.visualizeState, () => visualize?.snapshot() ?? []);
@@ -413,23 +291,7 @@ export function registerDesktopIpc(
     async (_event, target) => (await visualize?.consumeChoiceGesture?.(requiredVisualizeGestureTarget(target))) === true
   );
   const confirmAllowAllActions = createAllowAllActionsConfirm({ dialog, window, nativeT });
-  registerWindowSettingsIpc({
-    window,
-    app,
-    host,
-    handle,
-    // A core connection answers `getOnboardingStatus` from the `config` section; only the Node-hosted one reads the file.
-    readsLocalOnboardingStatus: connectionKind === 'local' && !protocol,
-    raiseOnSignIn: connectionKind === 'local',
-    pcHost: connectionKind === 'local' ? undefined : pcHost,
-    invokeDesktopOperation,
-    settingsStore,
-    onDesktopSettingsChanged,
-    previewNotificationSound,
-    confirmAllowAllActions,
-    writesAnnounceThemselves: Boolean(protocol),
-    pcCore: pcCore ?? protocol,
-  });
+  registerWindowSettingsIpc({ window, app, handle, invokeDesktopOperation, settingsStore, previewNotificationSound });
   const disposeHostExtrasIpc = registerHostExtrasIpc({
     handle,
     removeHandler: (channel) => ipcMain.removeHandler(channel),
@@ -448,18 +310,6 @@ export function registerDesktopIpc(
     powerMonitor: powerMonitorRef,
     updater,
   });
-  const disposeProtocolIpc = protocol
-    ? registerProtocolWindowIpc({
-        connection: protocol,
-        handle,
-        send: (channel, value) => {
-          if (window.isDestroyed() || window.webContents.isDestroyed()) return false;
-          window.webContents.send(channel, value);
-          return true;
-        },
-        removeHandler: (channel) => ipcMain.removeHandler(channel),
-      })
-    : registerNoProtocolWindowIpc({ handle, removeHandler: (channel) => ipcMain.removeHandler(channel) });
   // The renderer's direct lane: `window.mixdogCorePort.open({slot})` (preload/core-port.ts) asks for the port.
   if (corePort) {
     handle(CORE_PORT_OPEN_CHANNEL, (event, options) => {
@@ -475,18 +325,9 @@ export function registerDesktopIpc(
   // What this window paints, for the completion-notification rule.
   const disposeScreenSessions = registerScreenSessions(window, ipcMain);
   const disposePaneLayoutIpc = registerPaneLayoutIpc({ window, ipcMain, file: paneLayoutFile });
-  const disposeTerminalIpc = registerTerminalIpc({
-    window,
-    ipcMain,
-    handle,
-    terminals,
-    ...(protocol ? { notify: (method, params) => protocol.notify(method, params) } : {}),
-    invokeDesktopOperation,
-  });
   registerSourceControlIpc({
     app,
     handle,
-    operations: serviceOperations,
     shell,
     grantedFile,
     describeLocalPaths,
@@ -526,9 +367,7 @@ export function registerDesktopIpc(
     if (removed) return;
     removed = true;
     stateBridge.dispose();
-    disposeProtocolIpc();
     void server?.dispose();
-    disposeTerminalIpc();
     disposeHostExtrasIpc();
     ipcMain.removeListener(DESKTOP_IPC.perfLog, onPerfLog);
     disposeScreenSessions();
