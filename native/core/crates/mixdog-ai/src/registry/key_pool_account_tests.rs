@@ -237,10 +237,13 @@ async fn entering_a_loop_reaches_the_roster_provider_once() {
     let dir = tempfile::tempdir().unwrap();
     let (_, rotation) = roster(&dir).await;
     let primary = engine("primary", None);
-    let engines = Arc::new(Engines { rotation: Some(rotation), by_account: HashMap::new(), handed: Mutex::default() });
+    rotation.mark_probed(PROVIDER, ID_A);
+    assert!(rotation.probe_paced(PROVIDER, ID_A));
+    let engines = Arc::new(Engines { rotation: Some(rotation.clone()), by_account: HashMap::new(), handed: Mutex::default() });
     let pool = KeyPoolAdapter::with_engines(PROVIDER, primary.clone(), engines);
 
     pool.begin_loop();
 
     assert_eq!(*primary.loops.lock().unwrap(), 1);
+    assert!(!rotation.probe_paced(PROVIDER, ID_A), "a new loop measures again");
 }

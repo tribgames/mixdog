@@ -268,6 +268,10 @@ async fn an_agents_profile_stamp_follows_its_files() {
         // A file holding only blanks reads as absent, as `readSafe` of a trimmed empty file does.
         fs::write(data.join("agents/helper/PERSONA.md"), "  \n").unwrap();
         let blank = stamp("helper", false);
+        // So does one a crash left as NUL bytes (`holdsNoData`).
+        fs::write(data.join("agents/helper/PERSONA.md"), [0u8, 0, 0]).unwrap();
+        let nul = stamp("helper", false);
+        assert_eq!(nul, blank);
         fs::remove_file(data.join("agents/helper/PERSONA.md")).unwrap();
         let absent = stamp("helper", false);
         (before, persona, manifest, (blank, absent), stamp("lead", false), stamp("..", false), stamp("lead", true))

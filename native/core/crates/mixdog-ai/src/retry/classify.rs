@@ -265,6 +265,11 @@ fn base_kind(facts: &Facts<'_>) -> ErrorKind {
     if let Some(kind) = kind {
         return kind;
     }
+    // `providerErrorKind` reads the wording of an error nothing typed decided before it falls back to transport
+    // evidence: a fault whose text names a context overflow is that overflow, not a transient.
+    if let Some(named) = facts.text.map(|text| wording_kind(ErrorKind::Unknown, text)).filter(|named| *named != ErrorKind::Unknown) {
+        return named;
+    }
     if facts.transport.is_some_and(transport_is_transient) || facts.wire_error_without_code {
         return ErrorKind::Transient;
     }
@@ -447,6 +452,17 @@ mod tests {
         assert_eq!(kind_of(&rate), ErrorKind::RateLimited);
         let tpm = Facts { status: Some(400), text: Some("tokens per minute limit"), ..Facts::default() };
         assert_eq!(kind_of(&tpm), ErrorKind::InvalidRequest);
+    }
+
+    #[test]
+    fn wording_is_read_before_the_transport_fallback() {
+        let fault = TransportFault::Reset;
+        let facts = Facts { transport: Some(&fault), text: Some("prompt is too long"), ..Facts::default() };
+        assert_eq!(kind_of(&facts), ErrorKind::ContextOverflow);
+        let wire = Facts { wire_error_without_code: true, text: Some("maximum context length"), ..Facts::default() };
+        assert_eq!(kind_of(&wire), ErrorKind::ContextOverflow);
+        let plain = Facts { wire_error_without_code: true, text: Some("something broke"), ..Facts::default() };
+        assert_eq!(kind_of(&plain), ErrorKind::Transient);
     }
 
     #[test]
