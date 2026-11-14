@@ -420,7 +420,7 @@ async fn host_only_file_calls_answer_the_missing_desktop_capability_without_a_wi
 async fn the_local_page_url_without_the_page_server_is_unsupported() {
     let env = env();
     let answered = call(&env, "projectFs/localPageUrl", json!({ "root": env.root.to_string_lossy(), "rel": "a.txt" })).await;
-    assert!(answered.is_err() && !matches!(&answered, Err(CoreError::CapabilityUnavailable { .. })), "{answered:?}");
+    assert!(matches!(&answered, Err(CoreError::DomainError { code, .. }) if code.as_deref() == Some("unsupported")), "{answered:?}");
 }
 
 #[tokio::test(flavor = "multi_thread")]

@@ -18,7 +18,7 @@ HostLocalPageUrl => "host/localPage/url" {
 #   "host/capture/fileSnapshot" | "host/localPage/url" => HostCapability::Files,
 # to
 #   "host/capture/fileSnapshot" => HostCapability::Files,
-# schema/{method_table,server_request,server_request_methods}.json, packages/protocol/src/index.ts: regenerate (codegen).
+# schema/{method_table,server_request,server_request_methods,client_request}.json (client_request.json carries the methods.rs doc comment below), packages/protocol/src/index.ts: regenerate (codegen).
 
 [type_edits]
 # src/methods.rs, ProjectFsLocalPageUrl doc comment: replace
