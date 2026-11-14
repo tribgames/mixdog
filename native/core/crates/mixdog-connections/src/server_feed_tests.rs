@@ -285,6 +285,33 @@ async fn server_feed_approval_observed_not_answered() {
 }
 
 #[tokio::test]
+async fn server_feed_marks_the_approvals_it_found_held_as_replays_and_the_ones_that_arrived_as_live() {
+    let client = stub(vec![("thread/list", vec![Reply::Value(json!({ "data": [] }))])]);
+    // Held before the feed attached: asked before, not news.
+    client.held.lock().unwrap().push(approval("old", "t1", "item/tool/requestApproval"));
+    let feed = ServerFeed::attach(client.clone());
+    let mut approvals = feed.pending_approvals();
+    approvals.wait_for(|rows| rows.len() == 1).await.unwrap();
+    assert!(approvals.borrow()[0].replay);
+
+    let live = approval("new", "t2", "item/tool/requestApproval");
+    client.held.lock().unwrap().push(live.clone());
+    client.events.send(ClientEvent::ServerRequest(live)).unwrap();
+    approvals.wait_for(|rows| rows.len() == 2).await.unwrap();
+    let rows = approvals.borrow().clone();
+    let replay_of = |id: &str| rows.iter().find(|row| row.request_id == RequestId::String(id.into())).map(|row| row.replay);
+    assert_eq!((replay_of("old"), replay_of("new")), (Some(true), Some(false)));
+
+    // A request the reconnected client holds that was not seen before is a replay; the live one keeps its mark.
+    client.held.lock().unwrap().push(approval("again", "t3", "item/tool/requestUserInput"));
+    client.events.send(ClientEvent::Status(ConnectionStatus::Ready { server_instance_id: "s2".into() })).unwrap();
+    approvals.wait_for(|rows| rows.len() == 3).await.unwrap();
+    let rows = approvals.borrow().clone();
+    let replay_of = |id: &str| rows.iter().find(|row| row.request_id == RequestId::String(id.into())).map(|row| row.replay);
+    assert_eq!((replay_of("old"), replay_of("new"), replay_of("again")), (Some(true), Some(false), Some(true)));
+}
+
+#[tokio::test]
 async fn server_feed_final_answer_read() {
     let client = stub(vec![
         ("thread/list", vec![Reply::Value(json!({ "data": [] }))]),
@@ -346,7 +373,7 @@ async fn server_feed_agent_pool_from_section_and_list() {
     assert_eq!(pool.borrow()[1].tag, "w3");
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn server_feed_edge_reaches_the_list_after_the_debounce() {
     let client = stub(vec![("thread/list", vec![Reply::Value(json!({ "data": [row("a", "old", 10)] }))])]);
     let feed = ServerFeed::attach(client.clone());
@@ -359,9 +386,15 @@ async fn server_feed_edge_reaches_the_list_after_the_debounce() {
     }
     // The edge is held, not yet heard.
     assert_eq!(ids(&feed), ["a"]);
-    let started = std::time::Instant::now();
+    // The clock is the test's: just before the debounce ends nothing is heard, and the list arrives with it.
+    tokio::time::advance(REFRESH_DEBOUNCE - Duration::from_millis(1)).await;
+    for _ in 0..50 {
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(ids(&feed), ["a"]);
+    let started = tokio::time::Instant::now();
     sessions.wait_for(|rows| rows.len() == 2).await.unwrap();
-    assert!(started.elapsed() >= REFRESH_DEBOUNCE / 2);
+    assert!(started.elapsed() <= Duration::from_millis(1));
     assert_eq!(ids(&feed), ["n", "a"]);
 }
 
@@ -404,6 +437,15 @@ async fn server_feed_state_carries_host_shell_jobs_and_remote_session() {
     client.store.changes.send(StoreChange::Section { section: SectionName::HostState, key: Some("remoteSession".into()) }).unwrap();
     let third = states.recv().await.unwrap();
     assert_eq!((third.snapshot["remoteEnabled"].clone(), third.snapshot["remoteSessionId"].clone()), (json!(true), json!("t1")));
+
+    // The host says it has no jobs any more: the null is laid over the state, as the desktop's window state carried it.
+    client.store.sections.lock().unwrap().insert(
+        "hostShellJobs".into(),
+        SectionEntry { section: SectionName::HostShellJobs, key: None, revision: 2, value: Json::Null },
+    );
+    client.store.changes.send(StoreChange::Section { section: SectionName::HostShellJobs, key: None }).unwrap();
+    let fourth = states.recv().await.unwrap();
+    assert_eq!(fourth.snapshot.get("hostShellJobs"), Some(&Json::Null));
 }
 
 #[test]

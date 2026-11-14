@@ -7,8 +7,9 @@
 //! - `link/<connectionId>`: the [`ConnectionLinkView`] of a server's link;
 //! - `ports/<connectionId>`: the [`ServerPortsView`] of its Ports panel.
 //!
-//! A subscriber of one connection gets that connection's two keys only (the feed of [`ConnectionsFeed::source`] for it), which is
-//! what keeps a server window from seeing another server. A key's value is published when it changes; a key that goes away (its
+//! A subscriber of one connection gets that connection's two keys and the two that belong to no connection (the feed of
+//! [`ConnectionsFeed::source`] for it): a server window hears its saved servers change as the main window does, and still sees
+//! no other server's link or ports. A key's value is published when it changes; a key that goes away (its
 //! link ended) is published as removed. The snapshot of a feed is `{sections: [..]}` of every key it carries.
 //!
 //! The link of a server comes and goes in the pool without a message the feed could hear (its attach is announced before the pool
@@ -16,6 +17,7 @@
 //! that attaches again (the pool replaced it) is followed from that attach.
 
 use std::collections::{BTreeMap, HashMap};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use mixdog_app_protocol::v2::connections::{
@@ -172,7 +174,7 @@ fn owner(key: &str) -> Option<&str> {
 impl State {
     fn scoped_entries(&self, id: &str) -> impl Iterator<Item = (&String, &Entry)> {
         let keys = [link_key(id), ports_key(id)];
-        self.entries.iter().filter(move |(key, _)| keys.contains(key))
+        self.entries.iter().filter(move |(key, _)| owner(key).is_none() || keys.contains(key))
     }
 
     /// Sets the key's value (`None` removes it) and tells the feeds that carry it; a value that did not change says nothing.
@@ -196,9 +198,16 @@ impl State {
             }
         }
         self.all.publish(UPDATED, params.clone(), snapshot(self.entries.iter()));
-        if let Some(id) = owner(key) {
-            if let Some(feed) = self.scoped.get(id) {
-                feed.publish(UPDATED, params, snapshot(self.scoped_entries(id)));
+        match owner(key) {
+            Some(id) => {
+                if let Some(feed) = self.scoped.get(id) {
+                    feed.publish(UPDATED, params, snapshot(self.scoped_entries(id)));
+                }
+            }
+            None => {
+                for (id, feed) in &self.scoped {
+                    feed.publish(UPDATED, params.clone(), snapshot(self.scoped_entries(id)));
+                }
             }
         }
     }
@@ -211,8 +220,10 @@ struct Inner {
     restore_store: Arc<WindowRestoreStore>,
     progress: watch::Receiver<Vec<ServerRestoreProgress>>,
     state: Mutex<State>,
-    /// The task that follows each link.
-    follows: Mutex<HashMap<String, AbortHandle>>,
+    /// The task that follows each link, with the number it was started under: a task publishes only while its own number is the
+    /// one held, so a follow that was replaced or ended by `reconcile` cannot publish after it.
+    follows: Mutex<HashMap<String, (u64, AbortHandle)>>,
+    follow_count: AtomicU64,
     stop: CancellationToken,
 }
 
@@ -228,7 +239,11 @@ impl Inner {
     }
 
     async fn publish_restore(&self) {
-        let progress = self.progress.borrow().clone();
+        // A reopening that failed with no text shows none, not an empty one.
+        let mut progress = self.progress.borrow().clone();
+        for row in &mut progress {
+            row.message = row.message.take().filter(|message| !message.is_empty());
+        }
         match self.restore_store.enabled().await {
             Ok(enabled) => self.publish(RESTORE_KEY, Some(json!({ "enabled": enabled, "progress": progress }))),
             Err(error) => tracing::warn!("[connections] the reopen setting could not be read: {error}"),
@@ -241,12 +256,18 @@ impl Inner {
         let (mut view, mut ports) = (link.link_view(), link.ports_view());
         drop(link);
         let (inner, key_id) = (self.clone(), id.to_owned());
+        // Held across the spawn and the insert: the task's first check of its number waits for it.
+        let mut follows = locked(&self.follows);
+        let number = self.follow_count.fetch_add(1, Ordering::Relaxed);
         let task = mixdog_rt::spawn("connections-feed-link", TaskClass::Control, async move {
             loop {
                 let link_value = serde_json::to_value(connection_link_view(&view.borrow_and_update())).ok();
                 let ports_value = serde_json::to_value(&*ports.borrow_and_update()).ok();
                 {
                     let mut state = locked(&inner.state);
+                    if !inner.follows_as(&key_id, number) {
+                        return;
+                    }
                     state.publish(&link_key(&key_id), link_value);
                     state.publish(&ports_key(&key_id), ports_value);
                 }
@@ -259,10 +280,15 @@ impl Inner {
             }
             // The link itself is gone (not replaced): the next reconcile removes what it published.
         });
-        let replaced = locked(&self.follows).insert(id.to_owned(), task.abort_handle());
-        if let Some(old) = replaced {
+        if let Some((_, old)) = follows.insert(id.to_owned(), (number, task.abort_handle())) {
             old.abort();
         }
+    }
+
+    /// Whether the follow numbered `number` is still the one of `id` (the state lock is held by the caller: a reconcile that
+    /// ends a follow publishes its removals after this check, never between the check and the publish).
+    fn follows_as(&self, id: &str, number: u64) -> bool {
+        locked(&self.follows).get(id).is_some_and(|(held, _)| *held == number)
     }
 
     /// Follows every link the pool lists and stops following the ones it no longer lists.
@@ -270,12 +296,18 @@ impl Inner {
         let ids = self.links.ids();
         let gone: Vec<String> = locked(&self.follows).keys().filter(|id| !ids.contains(id)).cloned().collect();
         for id in gone {
-            if let Some(task) = locked(&self.follows).remove(&id) {
+            let ended = locked(&self.follows).remove(&id);
+            if let Some((_, task)) = ended {
                 task.abort();
             }
+            let saved = self.hosts.list().iter().any(|record| record.id == id);
             let mut state = locked(&self.state);
             state.publish(&link_key(&id), None);
             state.publish(&ports_key(&id), None);
+            // A server that is no longer saved has no window to come back to: its scoped feed goes with its link.
+            if !saved {
+                state.scoped.remove(&id);
+            }
         }
         for id in ids {
             if !locked(&self.follows).contains_key(&id) {
@@ -314,6 +346,7 @@ impl ConnectionsFeed {
             progress: restore.progress(),
             state: Mutex::new(state),
             follows: Mutex::new(HashMap::new()),
+            follow_count: AtomicU64::new(0),
             stop: stop.clone(),
         });
         inner.publish_hosts();

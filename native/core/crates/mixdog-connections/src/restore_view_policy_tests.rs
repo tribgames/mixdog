@@ -492,19 +492,34 @@ async fn restore_view_policy_feed_publishes_a_link_state_change() {
 }
 
 #[tokio::test]
-async fn restore_view_policy_feed_for_one_connection_carries_only_its_keys() {
+async fn restore_view_policy_feed_for_one_connection_carries_its_keys_and_the_shared_ones() {
     let rig = rig(&["a", "b"]).await;
     let scoped = rig.feed.source(Some("a"));
     assert_eq!(scoped.feed_id(), FeedId("connections".to_owned()));
     let tap = FeedTap::attach(&rig.feeds.made(1));
-    let notes = tap.notifications_until(|notes| keys(notes).len() >= 2).await;
-    assert_eq!(keys(&notes), set(&["link/a", "ports/a"]), "no host list, no restore, no other server");
+    let notes = tap.notifications_until(|notes| keys(notes).len() >= 4).await;
+    assert_eq!(keys(&notes), set(&["hosts", "restore", "link/a", "ports/a"]), "the shared keys, and no other server");
 
     // What happens to another server does not reach it: the next thing it hears is its own change.
     rig.links.link("b").view.send_modify(|view| view.rtt_ms = Some(99));
     rig.links.link("a").view.send_modify(|view| view.rtt_ms = Some(7));
     let notes = tap.notifications_until(|notes| notes.iter().any(|note| note["params"]["value"]["rttMs"] == 7)).await;
-    assert_eq!(keys(&notes), set(&["link/a", "ports/a"]));
+    assert_eq!(keys(&notes), set(&["hosts", "restore", "link/a", "ports/a"]));
+}
+
+#[tokio::test]
+async fn restore_view_policy_feed_for_one_connection_hears_the_host_list_change() {
+    let rig = rig(&["a"]).await;
+    rig.feed.source(Some("a"));
+    let tap = FeedTap::attach(&rig.feeds.made(1));
+    tap.notifications_until(|notes| keys(notes).contains("hosts")).await;
+
+    rig.links.links.lock().unwrap().remove("a");
+    rig.feed.reconcile();
+    let notes = tap
+        .notifications_until(|notes| notes.iter().any(|note| note["params"]["key"] == "hosts" && note["params"]["value"][0]["open"] == false))
+        .await;
+    assert!(notes.iter().any(|note| note["params"]["key"] == "hosts"));
 }
 
 #[tokio::test]

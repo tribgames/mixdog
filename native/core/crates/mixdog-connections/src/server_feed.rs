@@ -15,7 +15,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use mixdog_app_server_client::api::{
     CallOptions, ClientError, ClientEvent, ConnectionStatus, FoldStore, Json, ProtocolClient, RequestId, RpcNotification,
@@ -156,6 +156,9 @@ pub struct PendingApproval {
     pub kind: ApprovalKind,
     pub requested_at: i64,
     pub order: u64,
+    /// The request was first seen in what the client held when it attached or reconnected, not as a request that arrived live: it
+    /// was asked before and is not news (`frameSource: 'replay'` of the desktop's session-state feed).
+    pub replay: bool,
 }
 
 fn approval_of(request: &ServerRequest) -> Option<PendingApproval> {
@@ -174,6 +177,7 @@ fn approval_of(request: &ServerRequest) -> Option<PendingApproval> {
         kind,
         requested_at: envelope.requested_at,
         order: envelope.order,
+        replay: false,
     })
 }
 
@@ -254,7 +258,7 @@ struct RunMark {
 #[derive(Default)]
 struct RefreshClock {
     pending: bool,
-    refreshed_at: Option<Instant>,
+    refreshed_at: Option<tokio::time::Instant>,
 }
 
 struct Shared {
@@ -443,7 +447,7 @@ impl Shared {
             {
                 let mut clock = shared.refresh.lock().unwrap();
                 clock.pending = false;
-                clock.refreshed_at = Some(Instant::now());
+                clock.refreshed_at = Some(tokio::time::Instant::now());
             }
             shared.publish_held();
         });
@@ -456,7 +460,8 @@ impl Shared {
     /// approval is not laid over it: approvals are their own watch.
     fn snapshot_of(&self, mut state: Json) -> Json {
         let Some(fields) = state.as_object_mut() else { return state };
-        if let Some(jobs) = self.store.section(SectionName::HostShellJobs, None).map(|entry| entry.value).filter(|v| !v.is_null()) {
+        // A null value is laid over too: the host says it has no jobs, and the state it carries must not keep the last ones.
+        if let Some(jobs) = self.store.section(SectionName::HostShellJobs, None).map(|entry| entry.value) {
             fields.insert("hostShellJobs".to_owned(), jobs);
         }
         // Every state says it (`withRemoteSession`): off, with a null id, while the host holds no remote channel.
@@ -536,8 +541,18 @@ impl Shared {
 
     /// The held requests that ask the user for something. `arriving` is a request the client has just delivered and `resolved` one
     /// it has just dropped: the event is ahead of what the client's own list shows by no more than that one.
-    fn refresh_approvals(&self, arriving: Option<&ServerRequest>, resolved: Option<&RequestId>) {
-        let mut rows: Vec<PendingApproval> = self.client.pending_server_requests().iter().filter_map(approval_of).collect();
+    ///
+    /// `held`: the list is what the client held (at attach, after a reconnect) and not a request that arrived: a request first seen
+    /// in it is marked a replay. A row keeps the mark it was first given.
+    fn refresh_approvals(&self, arriving: Option<&ServerRequest>, resolved: Option<&RequestId>, held: bool) {
+        let known = self.approvals.borrow().clone();
+        let mut rows: Vec<PendingApproval> = self
+            .client
+            .pending_server_requests()
+            .iter()
+            .filter_map(approval_of)
+            .map(|row| PendingApproval { replay: known.iter().find(|seen| seen.request_id == row.request_id).map_or(held, |seen| seen.replay), ..row })
+            .collect();
         if let Some(row) = arriving.and_then(approval_of) {
             if !rows.iter().any(|held| held.request_id == row.request_id) {
                 rows.push(row);
@@ -554,7 +569,7 @@ impl Shared {
     async fn resync(&self) {
         self.list().await;
         self.refresh_pool().await;
-        self.refresh_approvals(None, None);
+        self.refresh_approvals(None, None, true);
     }
 
     fn on_notification(self: &Arc<Self>, notification: &RpcNotification) {
@@ -586,8 +601,8 @@ async fn run(shared: Arc<Shared>, mut events: broadcast::Receiver<ClientEvent>, 
         tokio::select! {
             event = events.recv() => match event {
                 Ok(ClientEvent::Notification(notification)) => shared.on_notification(&notification),
-                Ok(ClientEvent::ServerRequest(request)) => shared.refresh_approvals(Some(&request), None),
-                Ok(ClientEvent::ServerRequestResolved(done)) => shared.refresh_approvals(None, Some(&done.request_id)),
+                Ok(ClientEvent::ServerRequest(request)) => shared.refresh_approvals(Some(&request), None, false),
+                Ok(ClientEvent::ServerRequestResolved(done)) => shared.refresh_approvals(None, Some(&done.request_id), false),
                 Ok(ClientEvent::SubscriptionLost { thread_id, .. }) => shared.on_thread_gone(&thread_id),
                 Ok(ClientEvent::Status(ConnectionStatus::Ready { .. })) => {
                     let shared = shared.clone();
@@ -595,7 +610,7 @@ async fn run(shared: Arc<Shared>, mut events: broadcast::Receiver<ClientEvent>, 
                 }
                 Ok(ClientEvent::Status(_)) => {
                     shared.roster.lock().unwrap().known = false;
-                    shared.refresh_approvals(None, None);
+                    shared.refresh_approvals(None, None, false);
                 }
                 Ok(_) => {}
                 // Events were missed: what they carried is read again.
@@ -650,7 +665,7 @@ impl ServerFeed {
             states: broadcast::channel(STATE_CHANNEL_CAPACITY).0,
         });
         // The requests a client that is already connected holds.
-        shared.refresh_approvals(None, None);
+        shared.refresh_approvals(None, None, true);
         let task = tokio::spawn(run(shared.clone(), events, changes));
         ServerFeed { shared, task }
     }

@@ -66,7 +66,7 @@ fn random_suffix() -> String {
 }
 
 /// A new folder `prefix` + random letters under `parent` (Node's `mkdtemp`), readable by this user only on Unix.
-fn make_temp_dir(parent: &Path, prefix: &str) -> io::Result<PathBuf> {
+pub(crate) fn make_temp_dir(parent: &Path, prefix: &str) -> io::Result<PathBuf> {
     for _ in 0..NAME_ATTEMPTS {
         let dir = parent.join(format!("{prefix}{}", random_suffix()));
         #[cfg_attr(not(unix), allow(unused_mut))]

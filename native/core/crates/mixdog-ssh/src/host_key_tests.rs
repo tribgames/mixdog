@@ -610,6 +610,19 @@ async fn the_jump_host_key_scan_runs_from_a_folder_without_spaces_a_windows_temp
     assert!(private_scan_dir(&refused).await.expect_err("locked out").to_string().contains("Access is denied"));
 }
 
+#[tokio::test]
+async fn the_jump_host_key_scan_in_a_temp_folder_without_spaces_makes_a_plain_subfolder_and_runs_no_lock() {
+    let folder = temp();
+    let tmp = folder.path().to_str().expect("a path").to_owned();
+    let tools = quiet();
+    let env = env_with(Platform::Windows, &[("TMP", tmp.as_str()), ("USERNAME", "jdoe")], MemFiles::with(&[]), tools.clone());
+    let dir = private_scan_dir(&env).await.expect("a folder");
+    assert_eq!(dir.parent(), Some(folder.path()));
+    assert!(dir.file_name().expect("a name").to_string_lossy().starts_with("mxk-"));
+    assert!(dir.is_dir());
+    assert_eq!(tools.calls(), Vec::<Vec<String>>::new(), "no icacls: the temp folder is already the user's");
+}
+
 // ---- Mixdog's own ssh config ----
 
 fn data_vars(folder: &Path) -> Vec<(String, String)> {
@@ -719,6 +732,19 @@ async fn legacy_import_once() {
     let fresh = MixdogSshConfig::configure(&env).await.expect("configured");
     assert_eq!(fresh.import_legacy_known_hosts(&env, &other.path().join("absent")).await.expect("imported"), 0);
     assert!(mixdog_fsio::exists(&mixdog_fsio::Unlaned, fresh.dir().join(".legacy-imported")).expect("a check"));
+}
+
+#[tokio::test]
+async fn legacy_import_does_not_create_the_old_folder_it_looks_for() {
+    let folder = temp();
+    let data = folder.path().join("data");
+    let vars = [("MIXDOG_DATA_DIR", data.to_str().expect("a path")), ("USERNAME", "jdoe")];
+    let env = env_with(Platform::Windows, &vars, Arc::new(LaneFiles(&mixdog_fsio::Unlaned)), quiet());
+    let configured = MixdogSshConfig::configure(&env).await.expect("configured");
+    // A path with a space is resolved through the 8.3 form, which needs the folder: it is not made for a read.
+    let absent = folder.path().join("old desktop data");
+    assert_eq!(configured.import_legacy_known_hosts(&env, &absent).await.expect("imported"), 0);
+    assert!(!absent.exists(), "the old folder was created");
 }
 
 #[tokio::test]

@@ -14,7 +14,7 @@ use mixdog_app_protocol::v2::connections::{
 use mixdog_rt::DurabilityIo;
 use mixdog_ssh::agent::{agent_status, AgentState};
 use mixdog_ssh::askpass::{AskpassPrompter, AskpassServer, AskpassSession};
-use mixdog_ssh::context::{AskpassEnv, AttemptContext, SshEnv};
+use mixdog_ssh::context::{AskpassEnv, AttemptContext, ClaimedResources, SshEnv};
 use mixdog_ssh::private_dir::resolve_plain_dir;
 
 /// What the login retry needs to know of an operation's result.
@@ -129,11 +129,14 @@ pub struct EnvLoginHelpers {
     io: DurabilityIo,
     /// Folder the askpass helper is copied under when its own path is not plain ASCII (Windows).
     user_data: PathBuf,
+    /// Where the desktop that claimed the host role keeps the helper: read when a login needs it, as the claim comes after this
+    /// was built.
+    resources: Arc<ClaimedResources>,
 }
 
 impl EnvLoginHelpers {
-    pub fn new(env: Arc<SshEnv>, io: DurabilityIo, user_data: PathBuf) -> Self {
-        Self { env, io, user_data }
+    pub fn new(env: Arc<SshEnv>, io: DurabilityIo, user_data: PathBuf, resources: Arc<ClaimedResources>) -> Self {
+        Self { env, io, user_data, resources }
     }
 }
 
@@ -151,13 +154,13 @@ fn agent_state(state: AgentState) -> SshAgentState {
 #[async_trait]
 impl LoginHelpers for EnvLoginHelpers {
     async fn start_askpass(&self, prompter: Arc<dyn AskpassPrompter>) -> io::Result<StartedAskpass> {
-        let helper = self
-            .env
+        let env = self.resources.applied(&self.env);
+        let helper = env
             .askpass_helper
             .clone()
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "the askpass helper is not installed"))?;
-        let base = resolve_plain_dir(&self.env, &self.user_data, "askpass").await;
-        let session = Arc::new(AskpassServer::new(prompter, self.io, self.env.platform).with_plain_base(base).start(&helper).await?);
+        let base = resolve_plain_dir(&env, &self.user_data, "askpass").await;
+        let session = Arc::new(AskpassServer::new(prompter, self.io, env.platform).with_plain_base(base).start(&helper).await?);
         Ok(StartedAskpass { env: session.clone(), control: session })
     }
 

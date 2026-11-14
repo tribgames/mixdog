@@ -19,7 +19,7 @@ use crate::context::{AttemptContext, SshEnv, ToolOutput};
 use crate::diagnostics::{describe_argv, DiagnosticKind};
 use crate::known_hosts::{host_field_matches, key_fingerprint, known_hosts_spec, parse, KnownHostEntry, KnownHostMarker};
 use crate::mixdog_config::{account, append_text, word, MixdogSshConfig};
-use crate::private_dir::{create_private_dir, join_name};
+use crate::private_dir::{create_private_dir, join_name, make_temp_dir};
 use crate::spawn::now_ms;
 
 const SCAN_TIMEOUT: Duration = Duration::from_millis(12_000);
@@ -273,20 +273,19 @@ fn safe_host(name: &str) -> bool {
 
 /// A folder only this user can use, for the throwaway ssh config. ssh starts the jump host's own ssh with
 /// `-F <that config>` as one unquoted word, so on Windows a temp folder under a profile like "John Doe" breaks it:
-/// such a PC gets a random folder under a per-user ProgramData folder. Both are locked to the user (Windows OpenSSH
-/// refuses a config that other accounts can write).
+/// such a PC gets a random folder under a per-user ProgramData folder, locked to the user (Windows OpenSSH refuses a
+/// config that other accounts can write). Any other temp folder gets a plain `mkdtemp`-style subfolder, with no
+/// second lock run: the temp folder is already the user's own.
 async fn private_scan_dir(env: &SshEnv) -> std::io::Result<PathBuf> {
     let tmp = ["TMPDIR", "TMP", "TEMP"].iter().find_map(|name| env.var(name).filter(|value| !value.is_empty())).map_or_else(std::env::temp_dir, PathBuf::from);
+    if !env.platform.is_windows() || !tmp.to_string_lossy().contains(char::is_whitespace) {
+        return make_temp_dir(&tmp, "mxk-");
+    }
     let user: String = account(env)
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() || "._-".contains(c) { c } else { '_' })
         .collect();
-    let name = format!("mixdog-ssh-scan-{user}");
-    let root = if env.platform.is_windows() && tmp.to_string_lossy().contains(char::is_whitespace) {
-        PathBuf::from(join_name(env.platform, env.var("ProgramData").unwrap_or(r"C:\ProgramData"), &name))
-    } else {
-        tmp.join(name)
-    };
+    let root = PathBuf::from(join_name(env.platform, env.var("ProgramData").unwrap_or(r"C:\ProgramData"), &format!("mixdog-ssh-scan-{user}")));
     create_private_dir(env, &root, "mxk-").await
 }
 

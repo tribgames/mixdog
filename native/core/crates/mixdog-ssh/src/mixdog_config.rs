@@ -12,7 +12,7 @@ use mixdog_fsio::{DirBuilder, OpenOptions, Unlaned};
 
 use crate::context::{ConfigFiles, SshConfigFiles, SshEnv};
 use crate::diagnostics::DiagnosticKind;
-use crate::private_dir::{lock_to_user, resolve_plain_dir};
+use crate::private_dir::{lock_to_user, resolve_plain_dir, resolve_plain_dir_with};
 
 const DEFAULT_USER_FILES: [&str; 2] = ["~/.ssh/known_hosts", "~/.ssh/known_hosts2"];
 const MAX_EXTRA_FILES: usize = 16;
@@ -174,7 +174,8 @@ impl MixdogSshConfig {
         if mixdog_fsio::exists(&Unlaned, &marker)? {
             return Ok(0);
         }
-        let legacy = resolve_plain_dir(env, legacy_user_data, "ssh").await.join("known_hosts");
+        // Only read: the old desktop's folder is not created here when it is not there (it would be an empty folder left behind).
+        let legacy = resolve_plain_dir_with(env, legacy_user_data, "ssh", |_| {}).await.join("known_hosts");
         let old = match mixdog_fsio::read(&Unlaned, &legacy) {
             Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
             Err(error) if error.kind() == io::ErrorKind::NotFound => String::new(),

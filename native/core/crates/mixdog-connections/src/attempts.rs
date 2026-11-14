@@ -5,7 +5,7 @@
 //! holds the inspection as the core saw it, never changed afterwards, so the key the user was shown is the key that is pinned.
 //! Attempts and questions die with their connection, and a connection holds a handful at most.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
@@ -148,6 +148,8 @@ struct State {
     /// Oldest first.
     attempts: Vec<Arc<Attempt>>,
     questions: HashMap<String, Question>,
+    /// Connections that closed: an attempt or a question put to one of them later would never be answered or cancelled.
+    closed: HashSet<ConnectionId>,
 }
 
 pub struct Attempts {
@@ -164,6 +166,9 @@ impl Attempts {
     /// Opens an attempt for the connection, making room by dropping an idle one of its own.
     pub fn register(&self, caller: ConnectionId, target: SshTarget, inspection: HostKeyInspection) -> Result<Arc<Attempt>, AttemptError> {
         let mut state = locked(&self.state);
+        if state.closed.contains(&caller) {
+            return Err(AttemptError::new("This connection is closed."));
+        }
         while state.attempts.iter().filter(|attempt| attempt.caller == caller).count() >= MAX_ATTEMPTS_PER_CALLER {
             let idle = state.attempts.iter().position(|attempt| attempt.caller == caller && attempt.run().state != AttemptState::Connecting);
             match idle {
@@ -229,6 +234,7 @@ impl Attempts {
     pub async fn caller_closed(&self, caller: ConnectionId) {
         let (attempts, questions) = {
             let mut state = locked(&self.state);
+            state.closed.insert(caller);
             let attempts: Vec<Arc<Attempt>> = state.attempts.iter().filter(|attempt| attempt.caller == caller).cloned().collect();
             let ids: Vec<String> = state.questions.iter().filter(|(_, question)| question.caller == caller).map(|(id, _)| id.clone()).collect();
             let questions: Vec<Question> = ids.iter().filter_map(|id| state.questions.remove(id)).collect();
@@ -347,9 +353,13 @@ impl AskpassPrompter for AttemptPrompter {
         }
         let request_id = uuid::Uuid::new_v4().to_string();
         let (answer, answered) = oneshot::channel();
-        locked(&self.attempts.state)
-            .questions
-            .insert(request_id.clone(), Question { caller: self.caller, attempt_id: self.id.clone(), answer });
+        {
+            let mut state = locked(&self.attempts.state);
+            if state.closed.contains(&self.caller) {
+                return None;
+            }
+            state.questions.insert(request_id.clone(), Question { caller: self.caller, attempt_id: self.id.clone(), answer });
+        }
         let _withdraw = Withdraw { prompter: self, request_id: request_id.clone() };
         self.tell(&request_id, kind_of(question.kind), question.prompt, question.retry);
         answered.await.ok().flatten()
