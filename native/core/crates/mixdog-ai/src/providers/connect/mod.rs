@@ -79,7 +79,7 @@ pub struct ConnectFailure {
 }
 
 /// The one classification of a Connect failure: kind from the typed code
-/// (and status) through the shared rules; message text is never read. A code
+/// (and status) through the shared rules; the message text is read only by the shared wording fallbacks. A code
 /// outside the Connect vocabulary is `unknown`, and a failure with neither
 /// code nor status keeps the vocabulary's `unknown` verdict.
 pub fn provider_error(failure: ConnectFailure, delivery: DeliveryState) -> ProviderError {
@@ -99,6 +99,7 @@ pub fn provider_error(failure: ConnectFailure, delivery: DeliveryState) -> Provi
         status,
         code: (!code.is_empty()).then_some(code.as_str()),
         retry_after: failure.retry_after,
+        text: Some(failure.message.as_str()),
         ..Facts::default()
     });
     let mut error = ProviderError::new(kind, delivery);

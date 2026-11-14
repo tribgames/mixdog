@@ -712,6 +712,9 @@ impl Run {
 
     /// The loop. Completion, cancellation and terminal failures end it.
     pub async fn run(mut self) -> Result<RunOutput, RunFailure> {
+        // An explicit request asks for a current answer: the account pool re-measures quota it recorded as exhausted
+        // instead of refusing from the old reading, once per loop entry and not per provider round.
+        self.provider.begin_loop();
         let seeded = self.config.effort.as_ref().and_then(|wiring| wiring.route.seed.as_ref()).map(|seed| seed.effort.clone());
         self.emit(RunEvent::TurnEffort(seeded));
         match self.drive().await {

@@ -2,9 +2,13 @@
 //! facts. An adapter gathers the facts from the status, headers and parsed
 //! body of a failed response, calls [`kind_of`] once and stores the kind in
 //! the [`ProviderError`](mixdog_core_api::domain::provider::ProviderError).
-//! Nothing reads message text.
+//! Message text is read only where `providerErrorKind` reads it: for an error no
+//! typed code decides (see [`wording_kind`] and [`Facts::text`]).
 
+use std::sync::LazyLock;
 use std::time::Duration;
+
+use regex::RegexSet;
 
 use mixdog_core_api::domain::provider::ErrorKind;
 use mixdog_core_api::domain::provider::QuotaScope;
@@ -37,6 +41,71 @@ pub struct Facts<'a> {
     pub transport: Option<&'a TransportFault>,
     /// An in-stream error event that carried no code.
     pub wire_error_without_code: bool,
+    /// The provider's message text, read only for an error no typed code
+    /// decides (`providerErrorKind`'s wording fallbacks).
+    pub text: Option<&'a str>,
+}
+
+/// Token-context refusals (`TOKEN_CONTEXT_OVERFLOW_PATTERNS`): each is tied to
+/// a context or input-length noun so a tokens-per-minute rate limit never
+/// matches.
+static CONTEXT_OVERFLOW_WORDING: LazyLock<RegexSet> = LazyLock::new(|| {
+    RegexSet::new([
+        r"(?i)input (?:length|tokens?) exceeds? the context window",
+        r"(?i)exceeds? the (?:maximum )?context (?:window|length)",
+        r"(?i)maximum context length",
+        r"(?i)context[_ ]length[_ ]exceeded",
+        r"(?i)prompt is too long",
+        r"(?i)reduce the length of (?:the )?(?:messages|input|prompt)",
+        r"(?i)prompt too long",
+        r"(?i)prompt exceeds max length",
+        r"(?i)input is too long for requested model",
+        r"(?i)input token count.*exceeds the maximum",
+        r"(?i)maximum prompt length is \d+",
+        r"(?i)exceeds (?:the )?maximum allowed input length",
+        r"(?i)is longer than the model'?s context length",
+        r"(?i)exceeds the available context size",
+        r"(?i)greater than the context length",
+        r"(?i)context window exceeds limit",
+        r"(?i)exceeded model token limit",
+        r"(?i)too large for model with \d+ maximum context length",
+        r"(?i)range of input length should be",
+        r"(?i)model_context_window_exceeded",
+    ])
+    .expect("static patterns")
+});
+
+/// Byte or media size refusals (`REQUEST_SIZE_PATTERNS`): the body itself is
+/// too large.
+static REQUEST_SIZE_WORDING: LazyLock<RegexSet> = LazyLock::new(|| {
+    RegexSet::new([
+        r"(?i)request payload size exceeds the limit",
+        r"(?i)request entity too large",
+        r"(?i)request exceeds the maximum size",
+    ])
+    .expect("static patterns")
+});
+
+/// Capacity wording on an untyped 429 (`CAPACITY_MESSAGE_RE`).
+static CAPACITY_WORDING: LazyLock<RegexSet> = LazyLock::new(|| {
+    RegexSet::new([r"(?i)\bat capacity\b|\boverloaded\b|\bserver is busy\b"]).expect("static patterns")
+});
+
+/// `providerErrorKind`'s wording fallback: an error read as `unknown` or
+/// `invalid_request` whose text names a token-context or request-size refusal
+/// is `context_overflow` or `request_too_large`. A typed code or any other
+/// kind always stands.
+pub fn wording_kind(kind: ErrorKind, text: &str) -> ErrorKind {
+    if !matches!(kind, ErrorKind::Unknown | ErrorKind::InvalidRequest) {
+        return kind;
+    }
+    if CONTEXT_OVERFLOW_WORDING.is_match(text) {
+        ErrorKind::ContextOverflow
+    } else if REQUEST_SIZE_WORDING.is_match(text) {
+        ErrorKind::RequestTooLarge
+    } else {
+        kind
+    }
 }
 
 /// The vocabulary of PW §3.3 (`CODE_KINDS`), matched case-insensitively.
@@ -159,6 +228,10 @@ pub fn kind_of(facts: &Facts<'_>) -> ErrorKind {
     } else {
         base_kind(facts)
     };
+    let kind = match facts.text {
+        Some(text) => wording_kind(kind, text),
+        None => kind,
+    };
     window_adjusted(kind, facts)
 }
 
@@ -180,6 +253,14 @@ fn base_kind(facts: &Facts<'_>) -> ErrorKind {
     let mut kind = typed.or(by_status);
     if facts.quota_header && matches!(kind, None | Some(ErrorKind::RateLimited)) {
         kind = Some(ErrorKind::QuotaExhausted);
+    } else if typed.is_none()
+        && facts.code.is_none()
+        && facts.status == Some(429)
+        && facts.text.is_some_and(|text| CAPACITY_WORDING.is_match(text))
+    {
+        // Capacity wording counts only on an untyped 429 ("... is at
+        // capacity"): it keeps such a 429 from reading as a rate limit.
+        kind = Some(ErrorKind::Overloaded);
     }
     if let Some(kind) = kind {
         return kind;
@@ -340,5 +421,53 @@ mod tests {
             ..Facts::default()
         };
         assert_eq!(kind_of(&facts), ErrorKind::Transient);
+    }
+
+    #[test]
+    fn wording_names_a_context_overflow_only_for_an_undecided_error() {
+        for text in [
+            "prompt is too long: 250000 tokens > 200000 maximum",
+            "This model's maximum context length is 8192 tokens",
+            "the request exceeds the available context size (8192 tokens)",
+            "Exceeded model token limit: 262144",
+        ] {
+            let facts = Facts { status: Some(400), text: Some(text), ..Facts::default() };
+            assert_eq!(kind_of(&facts), ErrorKind::ContextOverflow, "{text}");
+            let facts = Facts { text: Some(text), ..Facts::default() };
+            assert_eq!(kind_of(&facts), ErrorKind::ContextOverflow, "{text}");
+        }
+        let typed = Facts {
+            status: Some(400),
+            code: Some("content_filter"),
+            text: Some("prompt is too long"),
+            ..Facts::default()
+        };
+        assert_eq!(kind_of(&typed), ErrorKind::Policy);
+        let rate = Facts { status: Some(429), text: Some("prompt is too long"), ..Facts::default() };
+        assert_eq!(kind_of(&rate), ErrorKind::RateLimited);
+        let tpm = Facts { status: Some(400), text: Some("tokens per minute limit"), ..Facts::default() };
+        assert_eq!(kind_of(&tpm), ErrorKind::InvalidRequest);
+    }
+
+    #[test]
+    fn wording_names_a_request_size_refusal() {
+        let facts = Facts { status: Some(400), text: Some("Request Entity Too Large"), ..Facts::default() };
+        assert_eq!(kind_of(&facts), ErrorKind::RequestTooLarge);
+        assert_eq!(wording_kind(ErrorKind::Transient, "request entity too large"), ErrorKind::Transient);
+    }
+
+    #[test]
+    fn capacity_wording_counts_only_on_an_untyped_429() {
+        let facts = Facts { status: Some(429), text: Some("The server is busy"), ..Facts::default() };
+        assert_eq!(kind_of(&facts), ErrorKind::Overloaded);
+        let typed = Facts {
+            status: Some(429),
+            code: Some("rate_limit_exceeded"),
+            text: Some("model is at capacity"),
+            ..Facts::default()
+        };
+        assert_eq!(kind_of(&typed), ErrorKind::RateLimited);
+        let server = Facts { status: Some(500), text: Some("overloaded"), ..Facts::default() };
+        assert_eq!(kind_of(&server), ErrorKind::Transient);
     }
 }

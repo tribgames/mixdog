@@ -253,7 +253,7 @@ fn jwt_payload(token: &str) -> Option<serde_json::Map<String, Value>> {
 }
 
 /// `emailFromJwts(...tokens)`: the first token's non-blank `email` claim, trimmed.
-fn email_from_jwts(tokens: &[&str]) -> Option<String> {
+pub(super) fn email_from_jwts(tokens: &[&str]) -> Option<String> {
     tokens.iter().find_map(|token| {
         let email = jwt_payload(token)?.get("email")?.as_str()?.trim().to_owned();
         (!email.is_empty()).then_some(email)
@@ -262,13 +262,13 @@ fn email_from_jwts(tokens: &[&str]) -> Option<String> {
 
 /// `_identityFromAccessToken`: the account a token's claims name.
 #[derive(Default)]
-struct Identity {
-    user_id: String,
-    principal_type: String,
-    principal_id: String,
+pub(super) struct Identity {
+    pub(super) user_id: String,
+    pub(super) principal_type: String,
+    pub(super) principal_id: String,
 }
 
-fn identity_of(token: &str) -> Identity {
+pub(super) fn identity_of(token: &str) -> Identity {
     let Some(payload) = jwt_payload(token) else { return Identity::default() };
     // `a || b || ''`, then `String(...)`.
     let first = |keys: &[&str]| {
@@ -287,7 +287,7 @@ fn identity_of(token: &str) -> Identity {
 /// `saveTokens` (`grok-oauth-tokens.mjs:213`): the document the whole file becomes, with Node's fallbacks: no expiry is
 /// 0, no endpoint `null`, and an identity field or email that is empty (and absent from the access token's claims) is
 /// left out.
-fn saved_document(tokens: &StoredTokens) -> serde_json::Map<String, Value> {
+pub(super) fn saved_document(tokens: &StoredTokens) -> serde_json::Map<String, Value> {
     let identity = identity_of(&tokens.access_token);
     let mut doc = serde_json::Map::new();
     doc.insert("access_token".into(), Value::String(tokens.access_token.clone()));

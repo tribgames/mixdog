@@ -1,8 +1,8 @@
 //! The single classification point of a failed OpenAI-compatible response or
 //! in-band error event (PW §3, `openai-compat-error-contract.mjs`). The wire
 //! error's fields are gathered here and handed to the shared classifier
-//! ([`crate::retry::classify`]) once; message text is carried for logs and
-//! never read.
+//! ([`crate::retry::classify`]) once; the message text is read only by that
+//! classifier's wording fallbacks (an undecided 400 naming a context overflow).
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -135,9 +135,15 @@ pub fn classify_parts(
     } else {
         typed
     };
+    let message = detail
+        .and_then(|d| d.get("message"))
+        .and_then(JsonValue::as_str)
+        .or_else(|| body.get("error").and_then(JsonValue::as_str))
+        .unwrap_or_default();
     let kind = kind_of(&Facts {
         status,
         code: facts_code,
+        text: Some(message),
         gateway_error_type: gateway,
         retry_after,
         wire_error_without_code: status.is_none() && typed.is_none(),
@@ -158,11 +164,6 @@ pub fn classify_parts(
         );
     let signed_out = status == Some(401) && profile.chat.reauth == ReauthText::SignInExpired;
     err.reauth_required = rejected_key || signed_out;
-    let message = detail
-        .and_then(|d| d.get("message"))
-        .and_then(JsonValue::as_str)
-        .or_else(|| body.get("error").and_then(JsonValue::as_str))
-        .unwrap_or_default();
     let mut text = friendly_message(profile, detail, message);
     // The OpenAI SDK words an HTTP refusal `<status> <message>`.
     if profile.chat.status_in_message
