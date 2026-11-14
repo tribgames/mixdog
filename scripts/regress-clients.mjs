@@ -141,8 +141,8 @@ function mobileImportsDoc() {
 
 // ---- a real connection ------------------------------------------------------------------------------------------------
 
-/** A protocol-2 connection of `kind` to the core in `doc` (its discovery document), the handshake done. */
-async function open(doc, kind, version) {
+/** A protocol-2 connection of `kind` to the core in `doc` (its discovery document), the handshake done unless `handshake` is false. */
+async function open(doc, kind, version, { handshake = true } = {}) {
   const { default: WebSocket } = await import(pathToFileURL(need(ROOT, 'ws')).href);
   const socket = new WebSocket(`ws://127.0.0.1:${doc.core.rpc.port}/rpc`, {
     headers: { Authorization: `Bearer ${doc.endpoints.session.token}` },
@@ -188,9 +188,11 @@ async function open(doc, kind, version) {
       });
       socket.send(JSON.stringify({ id, method, params }));
     });
-  const hello = await request('initialize', { clientInfo: { name: `regress-${kind}`, version, kind }, capabilities: {} });
-  if (hello.error) throw new Error(`initialize as ${kind} was answered with ${JSON.stringify(hello.error).slice(0, 300)}`);
-  socket.send(JSON.stringify({ method: 'initialized' }));
+  if (handshake) {
+    const hello = await request('initialize', { clientInfo: { name: `regress-${kind}`, version, kind }, capabilities: {} });
+    if (hello.error) throw new Error(`initialize as ${kind} was answered with ${JSON.stringify(hello.error).slice(0, 300)}`);
+    socket.send(JSON.stringify({ method: 'initialized' }));
+  }
   return {
     request,
     notify: (method, params) => socket.send(JSON.stringify({ method, params })),
@@ -204,11 +206,11 @@ const refusalOf = (answer) => {
   return REFUSALS.has(reason) || answer.error?.code === -32601 ? `${reason ?? answer.error.code}: ${String(answer.error.message).slice(0, 160)}` : null;
 };
 
-/** The methods of the protocol's request table (any other method a client sends is a notification). */
+/** The methods of the protocol's request table (the client notifications, a table of their own after it, get no answer). */
 function requestMethods() {
   const text = readFileSync(join(ROOT, 'packages/protocol/src/index.ts'), 'utf8');
   const start = text.indexOf('"clientMethods": [');
-  const end = text.indexOf('"serverNotifications"', start);
+  const end = text.indexOf('"clientNotifications": [', start);
   return new Set([...text.slice(start, end < 0 ? undefined : end).matchAll(/^\s{6}"method": "([^"]+)"/gm)].map((m) => m[1]));
 }
 
@@ -225,8 +227,9 @@ async function sendCorpus(doc, version) {
       const where = `${client} ${row.method} [${row.case}] (${row.source})`;
       tally.sent += 1;
       if (row.method === 'initialize') {
-        // A handshake of its own on a fresh connection; the version gate (clientOutdated) is not a refusal of the row.
-        const fresh = await open(doc, KIND_OF[client], version);
+        // The row is the first message of a fresh connection (a second initialize is answered alreadyInitialized before its
+        // params are looked at); the version gate (clientOutdated) is not a refusal of the row.
+        const fresh = await open(doc, KIND_OF[client], version, { handshake: false });
         const answer = await fresh.request('initialize', row.params);
         fresh.close();
         const refusal = answer.error && refusalOf(answer);
