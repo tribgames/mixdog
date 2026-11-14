@@ -164,8 +164,12 @@ mod tests {
     }
 
     #[test]
-    fn webp_is_the_still_encoders_to_answer() {
-        let error = encode_in_format(&gradient(4, 4, false), Format::Webp).unwrap_err();
-        assert!(error.is_environment());
+    fn webp_is_written_lossy_with_the_alpha_it_had() {
+        for has_alpha in [false, true] {
+            let raster = gradient(32, 24, has_alpha);
+            let webp = encode_in_format(&raster, Format::Webp).unwrap();
+            let back = decode(&webp, DECODE_PIXEL_LIMIT).unwrap();
+            assert_eq!((back.format, back.width, back.height, back.raster.has_alpha), (Format::Webp, 32, 24, has_alpha));
+        }
     }
 }
