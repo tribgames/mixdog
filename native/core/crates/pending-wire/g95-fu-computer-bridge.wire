@@ -1,0 +1,40 @@
+# g95-fu-computer-bridge wiring
+
+Everything below is applied by the lead after the wave. The tree does not compile until sections 1, 2 and 3 are applied together
+(ComputerBridgeRun::new takes a blob store, BridgeSavedLogins has a new method, and ProcessComputerBackend::execute settles a step by
+its code).
+
+## 1. mixdog-app-server-daemon/src/compose_flip.rs (hot): the bridge's blob store
+Anchor: `builder.register(Arc::new(mixdog_tools::desktop::computer_bridge_run::ComputerBridgeRun::new(` (s3-bridge-core block).
+`ComputerBridgeRun::new` now takes `Arc<dyn ComputerBlobs>` (not an Option): an `ImageData::Blob` reply is read from the core's store instead of
+being answered "invalid or oversized image". Replace the fourth argument `None,` by
+
+    Arc::new(crate::compose_computer::CoreComputerBlobs::new(blobs.clone(), b.tokens.interactive_io)),
+
+(`blobs` is the BlobStore built near the top of compose; `CoreComputerBlobs` is the type compose_computer.rs already builds for the
+desktop host's replies.) SERVICE_PENDING: nothing changes.
+
+## 2. mixdog-app-server-daemon/src/compose_computer_bridge.rs (not in this task's files): the pixel-guard probe
+`BridgeSavedLogins` has a new required method `fn pixels_guarded(&self) -> bool`: whether any saved-login pixel guard is live. A detached
+owner's process is read (the helper's `process_fate`) only then, by every command that may leave pixels (before: on every capture, zoom and
+screenshot, guard or not). In `impl BridgeSavedLogins for RegistryBridgeSavedLogins` add, after `settle`:
+
+    fn pixels_guarded(&self) -> bool {
+        !self.0.pixel_guards().is_empty()
+    }
+
+## 3. mixdog-tools/src/desktop/computer_backend.rs (owned this wave by g95-fu-computer-helper; applied by the lead after it lands)
+`UserControlState::settle_step` (computer_user_control.rs, added here) settles one step of a handed-off secret or a saved-login fill by the
+code of its error or of its result. `ComputerSecretHost::execute` still decides the interruption by comparing the reply text with the text it
+expected. In `impl ComputerSecretHost for ProcessComputerBackend { async fn execute }` replace everything from `let issued = command.clone();`
+to the end of the function body by
+
+    let issued = command.clone();
+    let outcome = self.call(command, &cancel).await;
+    control.settle_step(self, &issued, outcome).await
+
+(`message_of` and `held` stay: the checks above it use them.) Until this is applied `settle_step` is only used by its test.
+
+## 4. Not wired here, reported in the result
+dev/computer/run (dev_computer.rs) needs nothing from a hot file: `DevComputerHost::defer_release` is implemented for `ComputerSessionPool`
+in the same file and called through the `Arc<dyn DevComputerHost>` that compose_computer.rs already passes.
