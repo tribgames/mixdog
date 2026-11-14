@@ -1,0 +1,1742 @@
+[
+  {
+    "case": "bare host gets https",
+    "input": {
+      "fn": "agent",
+      "url": "example.com",
+      "policy": {}
+    },
+    "expect": {
+      "ok": "https://example.com/"
+    }
+  },
+  {
+    "case": "loopback with port keeps http",
+    "input": {
+      "fn": "agent",
+      "url": "http://localhost:3000/app",
+      "policy": {}
+    },
+    "expect": {
+      "ok": "http://localhost:3000/app"
+    }
+  },
+  {
+    "case": "embedded credentials",
+    "input": {
+      "fn": "agent",
+      "url": "https://user:pass@example.com",
+      "policy": {}
+    },
+    "expect": {
+      "error": "URLs containing embedded credentials are not allowed"
+    }
+  },
+  {
+    "case": "embedded username only",
+    "input": {
+      "fn": "agent",
+      "url": "https://user@example.com",
+      "policy": {}
+    },
+    "expect": {
+      "error": "URLs containing embedded credentials are not allowed"
+    }
+  },
+  {
+    "case": "empty userinfo is no credentials",
+    "input": {
+      "fn": "agent",
+      "url": "https://@example.com/",
+      "policy": {}
+    },
+    "expect": {
+      "ok": "https://example.com/"
+    }
+  },
+  {
+    "case": "metadata endpoint",
+    "input": {
+      "fn": "agent",
+      "url": "http://169.254.169.254/latest/meta-data",
+      "policy": {}
+    },
+    "expect": {
+      "error": "navigation to cloud metadata endpoints is blocked"
+    }
+  },
+  {
+    "case": "private lan address",
+    "input": {
+      "fn": "agent",
+      "url": "http://192.168.1.1",
+      "policy": {}
+    },
+    "expect": {
+      "error": "navigation to private or internal address 192.168.1.1 is blocked"
+    }
+  },
+  {
+    "case": "query token",
+    "input": {
+      "fn": "agent",
+      "url": "https://example.com/collect?token=plain-secret",
+      "policy": {}
+    },
+    "expect": {
+      "error": "navigation URLs may not contain credential-like query values or secret tokens"
+    }
+  },
+  {
+    "case": "encoded token shape in path",
+    "input": {
+      "fn": "agent",
+      "url": "https://example.com/collect/sk%2Dproj%2Dabcdefghijklmnop",
+      "policy": {}
+    },
+    "expect": {
+      "error": "navigation URLs may not contain credential-like query values or secret tokens"
+    }
+  },
+  {
+    "case": "loopback may carry a token",
+    "input": {
+      "fn": "agent",
+      "url": "http://localhost:3000/callback?token=local-development",
+      "policy": {}
+    },
+    "expect": {
+      "ok": "http://localhost:3000/callback?token=local-development"
+    }
+  },
+  {
+    "case": "127.x loopback may carry a token",
+    "input": {
+      "fn": "agent",
+      "url": "http://127.0.0.1:3000/callback?token=local-development",
+      "policy": {}
+    },
+    "expect": {
+      "ok": "http://127.0.0.1:3000/callback?token=local-development"
+    }
+  },
+  {
+    "case": "private allowed by policy",
+    "input": {
+      "fn": "agent",
+      "url": "http://192.168.1.1",
+      "policy": {
+        "allowPrivateNetwork": true
+      }
+    },
+    "expect": {
+      "ok": "http://192.168.1.1/"
+    }
+  },
+  {
+    "case": "domain allow-list refuses another host",
+    "input": {
+      "fn": "agent",
+      "url": "https://example.net",
+      "policy": {
+        "allowedDomains": [
+          "example.com",
+          "*.trusted.test"
+        ]
+      }
+    },
+    "expect": {
+      "error": "navigation to example.net is blocked by the Browser Use domain policy"
+    }
+  },
+  {
+    "case": "domain allow-list exact",
+    "input": {
+      "fn": "agent",
+      "url": "https://example.com/x",
+      "policy": {
+        "allowedDomains": [
+          "example.com"
+        ]
+      }
+    },
+    "expect": {
+      "ok": "https://example.com/x"
+    }
+  },
+  {
+    "case": "domain allow-list wildcard subdomain",
+    "input": {
+      "fn": "agent",
+      "url": "https://a.b.trusted.test/x",
+      "policy": {
+        "allowedDomains": [
+          "*.trusted.test"
+        ]
+      }
+    },
+    "expect": {
+      "ok": "https://a.b.trusted.test/x"
+    }
+  },
+  {
+    "case": "wildcard does not match the bare domain",
+    "input": {
+      "fn": "agent",
+      "url": "https://trusted.test/x",
+      "policy": {
+        "allowedDomains": [
+          "*.trusted.test"
+        ]
+      }
+    },
+    "expect": {
+      "ok": "https://trusted.test/x"
+    }
+  },
+  {
+    "case": "allow-list entries are trimmed and blanks ignored",
+    "input": {
+      "fn": "agent",
+      "url": "https://example.com/",
+      "policy": {
+        "allowedDomains": [
+          "  ",
+          " Example.COM. "
+        ]
+      }
+    },
+    "expect": {
+      "ok": "https://example.com/"
+    }
+  },
+  {
+    "case": "only blank allow-list entries means no list",
+    "input": {
+      "fn": "agent",
+      "url": "https://example.org/",
+      "policy": {
+        "allowedDomains": [
+          "",
+          "  "
+        ]
+      }
+    },
+    "expect": {
+      "ok": "https://example.org/"
+    }
+  },
+  {
+    "case": "lookalike suffix is not allowed",
+    "input": {
+      "fn": "agent",
+      "url": "https://evilexample.com/",
+      "policy": {
+        "allowedDomains": [
+          "example.com"
+        ]
+      }
+    },
+    "expect": {
+      "error": "navigation to evilexample.com is blocked by the Browser Use domain policy"
+    }
+  },
+  {
+    "case": "metadata is refused even when private is allowed",
+    "input": {
+      "fn": "agent",
+      "url": "http://169.254.169.254/",
+      "policy": {
+        "allowPrivateNetwork": true
+      }
+    },
+    "expect": {
+      "error": "navigation to cloud metadata endpoints is blocked"
+    }
+  },
+  {
+    "case": "aws ecs metadata",
+    "input": {
+      "fn": "agent",
+      "url": "http://169.254.170.2/v2",
+      "policy": {
+        "allowPrivateNetwork": true
+      }
+    },
+    "expect": {
+      "error": "navigation to cloud metadata endpoints is blocked"
+    }
+  },
+  {
+    "case": "alibaba metadata",
+    "input": {
+      "fn": "agent",
+      "url": "http://100.100.100.200/",
+      "policy": {
+        "allowPrivateNetwork": true
+      }
+    },
+    "expect": {
+      "error": "navigation to cloud metadata endpoints is blocked"
+    }
+  },
+  {
+    "case": "gcp metadata host",
+    "input": {
+      "fn": "agent",
+      "url": "http://metadata.google.internal/computeMetadata",
+      "policy": {
+        "allowPrivateNetwork": true
+      }
+    },
+    "expect": {
+      "error": "navigation to cloud metadata endpoints is blocked"
+    }
+  },
+  {
+    "case": "gcp metadata host trailing dot",
+    "input": {
+      "fn": "agent",
+      "url": "http://metadata.google.internal./x",
+      "policy": {
+        "allowPrivateNetwork": true
+      }
+    },
+    "expect": {
+      "error": "navigation to cloud metadata endpoints is blocked"
+    }
+  },
+  {
+    "case": "metadata.goog",
+    "input": {
+      "fn": "agent",
+      "url": "https://metadata.goog/",
+      "policy": {
+        "allowPrivateNetwork": true
+      }
+    },
+    "expect": {
+      "error": "navigation to cloud metadata endpoints is blocked"
+    }
+  },
+  {
+    "case": "ipv6 metadata",
+    "input": {
+      "fn": "agent",
+      "url": "http://[fd00:ec2::254]/",
+      "policy": {
+        "allowPrivateNetwork": true
+      }
+    },
+    "expect": {
+      "error": "navigation to cloud metadata endpoints is blocked"
+    }
+  },
+  {
+    "case": "ipv4-mapped metadata",
+    "input": {
+      "fn": "agent",
+      "url": "http://[::ffff:169.254.169.254]/",
+      "policy": {
+        "allowPrivateNetwork": true
+      }
+    },
+    "expect": {
+      "error": "navigation to cloud metadata endpoints is blocked"
+    }
+  },
+  {
+    "case": "ipv4-mapped private",
+    "input": {
+      "fn": "agent",
+      "url": "http://[::ffff:10.0.0.1]/",
+      "policy": {}
+    },
+    "expect": {
+      "error": "navigation to private or internal address ::ffff:a00:1 is blocked"
+    }
+  },
+  {
+    "case": "ipv4-mapped public",
+    "input": {
+      "fn": "agent",
+      "url": "http://[::ffff:8.8.8.8]/",
+      "policy": {}
+    },
+    "expect": {
+      "ok": "http://[::ffff:808:808]/"
+    }
+  },
+  {
+    "case": "0.0.0.0",
+    "input": {
+      "fn": "agent",
+      "url": "http://0.0.0.0/",
+      "policy": {}
+    },
+    "expect": {
+      "error": "navigation to private or internal address 0.0.0.0 is blocked"
+    }
+  },
+  {
+    "case": "10/8",
+    "input": {
+      "fn": "agent",
+      "url": "http://10.1.2.3/",
+      "policy": {}
+    },
+    "expect": {
+      "error": "navigation to private or internal address 10.1.2.3 is blocked"
+    }
+  },
+  {
+    "case": "cgnat low edge",
+    "input": {
+      "fn": "agent",
+      "url": "http://100.64.0.1/",
+      "policy": {}
+    },
+    "expect": {
+      "error": "navigation to private or internal address 100.64.0.1 is blocked"
+    }
+  },
+  {
+    "case": "cgnat high edge",
+    "input": {
+      "fn": "agent",
+      "url": "http://100.127.255.255/",
+      "policy": {}
+    },
+    "expect": {
+      "error": "navigation to private or internal address 100.127.255.255 is blocked"
+    }
+  },
+  {
+    "case": "just past cgnat",
+    "input": {
+      "fn": "agent",
+      "url": "http://100.128.0.1/",
+      "policy": {}
+    },
+    "expect": {
+      "ok": "http://100.128.0.1/"
+    }
+  },
+  {
+    "case": "172.16",
+    "input": {
+      "fn": "agent",
+      "url": "http://172.16.0.1/",
+      "policy": {}
+    },
+    "expect": {
+      "error": "navigation to private or internal address 172.16.0.1 is blocked"
+    }
+  },
+  {
+    "case": "172.32 is public",
+    "input": {
+      "fn": "agent",
+      "url": "http://172.32.0.1/",
+      "policy": {}
+    },
+    "expect": {
+      "ok": "http://172.32.0.1/"
+    }
+  },
+  {
+    "case": "198.18 benchmark",
+    "input": {
+      "fn": "agent",
+      "url": "http://198.18.0.1/",
+      "policy": {}
+    },
+    "expect": {
+      "error": "navigation to private or internal address 198.18.0.1 is blocked"
+    }
+  },
+  {
+    "case": "198.20 is public",
+    "input": {
+      "fn": "agent",
+      "url": "http://198.20.0.1/",
+      "policy": {}
+    },
+    "expect": {
+      "ok": "http://198.20.0.1/"
+    }
+  },
+  {
+    "case": "multicast",
+    "input": {
+      "fn": "agent",
+      "url": "http://224.0.0.1/",
+      "policy": {}
+    },
+    "expect": {
+      "error": "navigation to private or internal address 224.0.0.1 is blocked"
+    }
+  },
+  {
+    "case": "reserved 255",
+    "input": {
+      "fn": "agent",
+      "url": "http://255.255.255.255/",
+      "policy": {}
+    },
+    "expect": {
+      "error": "navigation to private or internal address 255.255.255.255 is blocked"
+    }
+  },
+  {
+    "case": "169.254 link local",
+    "input": {
+      "fn": "agent",
+      "url": "http://169.254.1.1/",
+      "policy": {}
+    },
+    "expect": {
+      "error": "navigation to private or internal address 169.254.1.1 is blocked"
+    }
+  },
+  {
+    "case": "ipv6 loopback is allowed",
+    "input": {
+      "fn": "agent",
+      "url": "http://[::1]:8080/x",
+      "policy": {}
+    },
+    "expect": {
+      "ok": "http://[::1]:8080/x"
+    }
+  },
+  {
+    "case": "ipv6 unspecified",
+    "input": {
+      "fn": "agent",
+      "url": "http://[::]/",
+      "policy": {}
+    },
+    "expect": {
+      "error": "navigation to private or internal address :: is blocked"
+    }
+  },
+  {
+    "case": "ipv6 unique local fc",
+    "input": {
+      "fn": "agent",
+      "url": "http://[fc00::1]/",
+      "policy": {}
+    },
+    "expect": {
+      "error": "navigation to private or internal address fc00::1 is blocked"
+    }
+  },
+  {
+    "case": "ipv6 unique local fd",
+    "input": {
+      "fn": "agent",
+      "url": "http://[fd12:3456::1]/",
+      "policy": {}
+    },
+    "expect": {
+      "error": "navigation to private or internal address fd12:3456::1 is blocked"
+    }
+  },
+  {
+    "case": "ipv6 link local",
+    "input": {
+      "fn": "agent",
+      "url": "http://[fe80::1]/",
+      "policy": {}
+    },
+    "expect": {
+      "error": "navigation to private or internal address fe80::1 is blocked"
+    }
+  },
+  {
+    "case": "ipv6 link local febf",
+    "input": {
+      "fn": "agent",
+      "url": "http://[febf::1]/",
+      "policy": {}
+    },
+    "expect": {
+      "error": "navigation to private or internal address febf::1 is blocked"
+    }
+  },
+  {
+    "case": "ipv6 public",
+    "input": {
+      "fn": "agent",
+      "url": "http://[2001:4860:4860::8888]/",
+      "policy": {}
+    },
+    "expect": {
+      "ok": "http://[2001:4860:4860::8888]/"
+    }
+  },
+  {
+    "case": "hex ipv4 spelled host is normalised",
+    "input": {
+      "fn": "agent",
+      "url": "http://0x7f.1/",
+      "policy": {}
+    },
+    "expect": {
+      "ok": "http://127.0.0.1/"
+    }
+  },
+  {
+    "case": "decimal ipv4 spelled host",
+    "input": {
+      "fn": "agent",
+      "url": "http://2130706433/",
+      "policy": {}
+    },
+    "expect": {
+      "ok": "http://127.0.0.1/"
+    }
+  },
+  {
+    "case": "octal-ish ipv4 spelled host",
+    "input": {
+      "fn": "agent",
+      "url": "http://0177.0.0.1/",
+      "policy": {}
+    },
+    "expect": {
+      "ok": "http://127.0.0.1/"
+    }
+  },
+  {
+    "case": "decimal private",
+    "input": {
+      "fn": "agent",
+      "url": "http://3232235777/",
+      "policy": {}
+    },
+    "expect": {
+      "error": "navigation to private or internal address 192.168.1.1 is blocked"
+    }
+  },
+  {
+    "case": "127 subnet loopback",
+    "input": {
+      "fn": "agent",
+      "url": "http://127.1.2.3/",
+      "policy": {}
+    },
+    "expect": {
+      "ok": "http://127.1.2.3/"
+    }
+  },
+  {
+    "case": "localhost subdomain",
+    "input": {
+      "fn": "agent",
+      "url": "http://app.localhost:5173/",
+      "policy": {}
+    },
+    "expect": {
+      "ok": "http://app.localhost:5173/"
+    }
+  },
+  {
+    "case": "localhost trailing dot",
+    "input": {
+      "fn": "agent",
+      "url": "http://localhost./",
+      "policy": {}
+    },
+    "expect": {
+      "ok": "http://localhost./"
+    }
+  },
+  {
+    "case": "uppercase host",
+    "input": {
+      "fn": "agent",
+      "url": "HTTP://EXAMPLE.COM/Path?Q=1",
+      "policy": {}
+    },
+    "expect": {
+      "ok": "http://example.com/Path?Q=1"
+    }
+  },
+  {
+    "case": "trailing dot host",
+    "input": {
+      "fn": "agent",
+      "url": "https://example.com./",
+      "policy": {}
+    },
+    "expect": {
+      "ok": "https://example.com./"
+    }
+  },
+  {
+    "case": "whitespace around url",
+    "input": {
+      "fn": "agent",
+      "url": "   https://example.com/a b  ",
+      "policy": {}
+    },
+    "expect": {
+      "ok": "https://example.com/a%20b"
+    }
+  },
+  {
+    "case": "empty",
+    "input": {
+      "fn": "agent",
+      "url": "",
+      "policy": {}
+    },
+    "expect": {
+      "error": "navigate requires url"
+    }
+  },
+  {
+    "case": "blank",
+    "input": {
+      "fn": "agent",
+      "url": "   ",
+      "policy": {}
+    },
+    "expect": {
+      "error": "navigate requires url"
+    }
+  },
+  {
+    "case": "ftp",
+    "input": {
+      "fn": "agent",
+      "url": "ftp://example.com/file",
+      "policy": {}
+    },
+    "expect": {
+      "error": "only http(s) navigation is allowed (got ftp:)"
+    }
+  },
+  {
+    "case": "file",
+    "input": {
+      "fn": "agent",
+      "url": "file:///C:/Users/example/secrets.txt",
+      "policy": {}
+    },
+    "expect": {
+      "error": "only http(s) navigation is allowed (got file:)"
+    }
+  },
+  {
+    "case": "javascript",
+    "input": {
+      "fn": "agent",
+      "url": "javascript:alert(1)",
+      "policy": {}
+    },
+    "expect": {
+      "error": "only http(s) navigation is allowed (got javascript:)"
+    }
+  },
+  {
+    "case": "data",
+    "input": {
+      "fn": "agent",
+      "url": "data:text/html,test",
+      "policy": {}
+    },
+    "expect": {
+      "error": "only http(s) navigation is allowed (got data:)"
+    }
+  },
+  {
+    "case": "about",
+    "input": {
+      "fn": "agent",
+      "url": "about:blank",
+      "policy": {}
+    },
+    "expect": {
+      "error": "only http(s) navigation is allowed (got about:)"
+    }
+  },
+  {
+    "case": "host and port without scheme reads as a scheme",
+    "input": {
+      "fn": "agent",
+      "url": "localhost:3000/app",
+      "policy": {}
+    },
+    "expect": {
+      "error": "only http(s) navigation is allowed (got localhost:)"
+    }
+  },
+  {
+    "case": "host port path without scheme",
+    "input": {
+      "fn": "agent",
+      "url": "example.com:8080/path",
+      "policy": {}
+    },
+    "expect": {
+      "error": "only http(s) navigation is allowed (got example.com:)"
+    }
+  },
+  {
+    "case": "invalid url redacts the text",
+    "input": {
+      "fn": "agent",
+      "url": "https://exa mple.com/?token=abcdef",
+      "policy": {}
+    },
+    "expect": {
+      "error": "invalid url: https://exa mple.com/?token=[REDACTED]"
+    }
+  },
+  {
+    "case": "invalid url with token shape",
+    "input": {
+      "fn": "agent",
+      "url": "http://[bad ghp_abcdefghijklmnopqrstuvwxyz",
+      "policy": {}
+    },
+    "expect": {
+      "error": "invalid url: http://[bad [REDACTED_GITHUB_TOKEN]"
+    }
+  },
+  {
+    "case": "jwt in path",
+    "input": {
+      "fn": "agent",
+      "url": "https://example.com/a/eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl",
+      "policy": {}
+    },
+    "expect": {
+      "error": "navigation URLs may not contain credential-like query values or secret tokens"
+    }
+  },
+  {
+    "case": "code param short is fine",
+    "input": {
+      "fn": "agent",
+      "url": "https://example.com/cb?code=abc",
+      "policy": {}
+    },
+    "expect": {
+      "ok": "https://example.com/cb?code=abc"
+    }
+  },
+  {
+    "case": "code param long is a secret",
+    "input": {
+      "fn": "agent",
+      "url": "https://example.com/cb?code=abcdefgh",
+      "policy": {}
+    },
+    "expect": {
+      "error": "navigation URLs may not contain credential-like query values or secret tokens"
+    }
+  },
+  {
+    "case": "api_key param",
+    "input": {
+      "fn": "agent",
+      "url": "https://example.com/?api_key=value",
+      "policy": {}
+    },
+    "expect": {
+      "error": "navigation URLs may not contain credential-like query values or secret tokens"
+    }
+  },
+  {
+    "case": "empty token value is fine",
+    "input": {
+      "fn": "agent",
+      "url": "https://example.com/?token=",
+      "policy": {}
+    },
+    "expect": {
+      "ok": "https://example.com/?token="
+    }
+  },
+  {
+    "case": "ordinary key param",
+    "input": {
+      "fn": "agent",
+      "url": "https://example.com/docs?key=keyboard",
+      "policy": {}
+    },
+    "expect": {
+      "ok": "https://example.com/docs?key=keyboard"
+    }
+  },
+  {
+    "case": "encoded bearer",
+    "input": {
+      "fn": "agent",
+      "url": "https://example.test/Bearer+abcdefghijklmnop",
+      "policy": {}
+    },
+    "expect": {
+      "error": "navigation URLs may not contain credential-like query values or secret tokens"
+    }
+  },
+  {
+    "case": "secret in fragment is not a query",
+    "input": {
+      "fn": "agent",
+      "url": "https://example.com/#token=abc",
+      "policy": {}
+    },
+    "expect": {
+      "ok": "https://example.com/#token=abc"
+    }
+  },
+  {
+    "case": "idn host",
+    "input": {
+      "fn": "agent",
+      "url": "https://bücher.example/",
+      "policy": {}
+    },
+    "expect": {
+      "ok": "https://xn--bcher-kva.example/"
+    }
+  },
+  {
+    "case": "page token is kept",
+    "input": {
+      "fn": "page",
+      "url": "https://example.com/product?dib=eyJ2IjoiMSJ9.long.site.token",
+      "policy": {}
+    },
+    "expect": {
+      "ok": "https://example.com/product?dib=eyJ2IjoiMSJ9.long.site.token"
+    }
+  },
+  {
+    "case": "page query token is kept",
+    "input": {
+      "fn": "page",
+      "url": "https://example.com/cb?token=plain-secret&code=abcdefghijkl",
+      "policy": {}
+    },
+    "expect": {
+      "ok": "https://example.com/cb?token=plain-secret&code=abcdefghijkl"
+    }
+  },
+  {
+    "case": "page embedded credentials",
+    "input": {
+      "fn": "page",
+      "url": "https://user:pass@example.com",
+      "policy": {}
+    },
+    "expect": {
+      "error": "URLs containing embedded credentials are not allowed"
+    }
+  },
+  {
+    "case": "page metadata",
+    "input": {
+      "fn": "page",
+      "url": "http://169.254.169.254/latest/meta-data",
+      "policy": {}
+    },
+    "expect": {
+      "error": "navigation to cloud metadata endpoints is blocked"
+    }
+  },
+  {
+    "case": "page file scheme",
+    "input": {
+      "fn": "page",
+      "url": "file:///C:/Users/example/secrets.txt",
+      "policy": {}
+    },
+    "expect": {
+      "error": "only http(s) navigation is allowed (got file:)"
+    }
+  },
+  {
+    "case": "page about blank",
+    "input": {
+      "fn": "page",
+      "url": "about:blank",
+      "policy": {}
+    },
+    "expect": {
+      "error": "only http(s) navigation is allowed (got about:)"
+    }
+  },
+  {
+    "case": "page private remote",
+    "input": {
+      "fn": "page",
+      "url": "http://192.168.1.10/",
+      "policy": {
+        "allowPrivateNetwork": false
+      }
+    },
+    "expect": {
+      "error": "navigation to private or internal address 192.168.1.10 is blocked"
+    }
+  },
+  {
+    "case": "page private local",
+    "input": {
+      "fn": "page",
+      "url": "http://192.168.1.10/",
+      "policy": {
+        "allowPrivateNetwork": true
+      }
+    },
+    "expect": {
+      "ok": "http://192.168.1.10/"
+    }
+  },
+  {
+    "case": "page allow-list",
+    "input": {
+      "fn": "page",
+      "url": "https://outside.test/",
+      "policy": {
+        "allowedDomains": [
+          "gamerscroll.com"
+        ]
+      }
+    },
+    "expect": {
+      "error": "navigation to outside.test is blocked by the Browser Use domain policy"
+    }
+  },
+  {
+    "case": "page admitted by allow-list",
+    "input": {
+      "fn": "page",
+      "url": "https://gamerscroll.com/rankings/",
+      "policy": {
+        "allowedDomains": [
+          "gamerscroll.com"
+        ]
+      }
+    },
+    "expect": {
+      "ok": "https://gamerscroll.com/rankings/"
+    }
+  },
+  {
+    "case": "restore: javascript",
+    "input": {
+      "fn": "page",
+      "url": "javascript:alert(1)",
+      "policy": {
+        "allowedDomains": [
+          "gamerscroll.com"
+        ]
+      }
+    },
+    "expect": {
+      "error": "only http(s) navigation is allowed (got javascript:)"
+    }
+  },
+  {
+    "case": "restore: credentials on allowed host",
+    "input": {
+      "fn": "page",
+      "url": "https://user:pass@gamerscroll.com",
+      "policy": {
+        "allowedDomains": [
+          "gamerscroll.com"
+        ]
+      }
+    },
+    "expect": {
+      "error": "URLs containing embedded credentials are not allowed"
+    }
+  },
+  {
+    "case": "lan local session",
+    "input": {
+      "fn": "agent",
+      "url": "http://192.168.1.10/",
+      "policy": {
+        "allowPrivateNetwork": true
+      }
+    },
+    "expect": {
+      "ok": "http://192.168.1.10/"
+    }
+  },
+  {
+    "case": "lan remote session",
+    "input": {
+      "fn": "agent",
+      "url": "http://192.168.1.10/",
+      "policy": {
+        "allowPrivateNetwork": false
+      }
+    },
+    "expect": {
+      "error": "navigation to private or internal address 192.168.1.10 is blocked"
+    }
+  },
+  {
+    "case": "tailscale local session",
+    "input": {
+      "fn": "agent",
+      "url": "http://100.101.102.103/",
+      "policy": {
+        "allowPrivateNetwork": true
+      }
+    },
+    "expect": {
+      "ok": "http://100.101.102.103/"
+    }
+  },
+  {
+    "case": "tailscale remote session",
+    "input": {
+      "fn": "agent",
+      "url": "http://100.101.102.103/",
+      "policy": {
+        "allowPrivateNetwork": false
+      }
+    },
+    "expect": {
+      "error": "navigation to private or internal address 100.101.102.103 is blocked"
+    }
+  },
+  {
+    "case": "mail link: exact",
+    "input": {
+      "fn": "agent",
+      "url": "https://alternativeto.net/api/auth/verify-email?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+      "policy": {},
+      "mailLink": {
+        "url": "https://alternativeto.net/api/auth/verify-email?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+        "from_domain": "alternativeto.net",
+        "ageMs": 0
+      }
+    },
+    "expect": {
+      "ok": "https://alternativeto.net/api/auth/verify-email?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl&callbackURL=https%3A%2F%2Falternativeto.net%2F"
+    }
+  },
+  {
+    "case": "mail link: sender subdomain",
+    "input": {
+      "fn": "agent",
+      "url": "https://alternativeto.net/api/auth/verify-email?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+      "policy": {},
+      "mailLink": {
+        "url": "https://alternativeto.net/api/auth/verify-email?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+        "from_domain": "mail.alternativeto.net",
+        "ageMs": 0
+      }
+    },
+    "expect": {
+      "ok": "https://alternativeto.net/api/auth/verify-email?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl&callbackURL=https%3A%2F%2Falternativeto.net%2F"
+    }
+  },
+  {
+    "case": "mail link: typed without a mail read",
+    "input": {
+      "fn": "agent",
+      "url": "https://alternativeto.net/api/auth/verify-email?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+      "policy": {}
+    },
+    "expect": {
+      "error": "navigation URLs may not contain credential-like query values or secret tokens"
+    }
+  },
+  {
+    "case": "mail link: another sender domain",
+    "input": {
+      "fn": "agent",
+      "url": "https://alternativeto.net/api/auth/verify-email?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+      "policy": {},
+      "mailLink": {
+        "url": "https://alternativeto.net/api/auth/verify-email?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+        "from_domain": "evil.example",
+        "ageMs": 0
+      }
+    },
+    "expect": {
+      "error": "navigation URLs may not contain credential-like query values or secret tokens"
+    }
+  },
+  {
+    "case": "mail link: http",
+    "input": {
+      "fn": "agent",
+      "url": "http://alternativeto.net/api/auth/verify-email?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+      "policy": {},
+      "mailLink": {
+        "url": "http://alternativeto.net/api/auth/verify-email?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+        "from_domain": "alternativeto.net",
+        "ageMs": 0
+      }
+    },
+    "expect": {
+      "error": "navigation URLs may not contain credential-like query values or secret tokens"
+    }
+  },
+  {
+    "case": "mail link: past the window",
+    "input": {
+      "fn": "agent",
+      "url": "https://alternativeto.net/api/auth/verify-email?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+      "policy": {},
+      "mailLink": {
+        "url": "https://alternativeto.net/api/auth/verify-email?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+        "from_domain": "alternativeto.net",
+        "ageMs": 1801000
+      }
+    },
+    "expect": {
+      "error": "navigation URLs may not contain credential-like query values or secret tokens"
+    }
+  },
+  {
+    "case": "mail link: just inside the window",
+    "input": {
+      "fn": "agent",
+      "url": "https://alternativeto.net/api/auth/verify-email?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+      "policy": {},
+      "mailLink": {
+        "url": "https://alternativeto.net/api/auth/verify-email?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+        "from_domain": "alternativeto.net",
+        "ageMs": 1799000
+      }
+    },
+    "expect": {
+      "ok": "https://alternativeto.net/api/auth/verify-email?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl&callbackURL=https%3A%2F%2Falternativeto.net%2F"
+    }
+  },
+  {
+    "case": "mail link: read in the future",
+    "input": {
+      "fn": "agent",
+      "url": "https://alternativeto.net/api/auth/verify-email?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+      "policy": {},
+      "mailLink": {
+        "url": "https://alternativeto.net/api/auth/verify-email?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+        "from_domain": "alternativeto.net",
+        "ageMs": -5000
+      }
+    },
+    "expect": {
+      "error": "navigation URLs may not contain credential-like query values or secret tokens"
+    }
+  },
+  {
+    "case": "mail link: a URL other than the mail’s",
+    "input": {
+      "fn": "agent",
+      "url": "https://alternativeto.net/api/auth/verify-email?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl&callbackURL=https%3A%2F%2Falternativeto.net%2F&next=%2Fadmin",
+      "policy": {},
+      "mailLink": {
+        "url": "https://alternativeto.net/api/auth/verify-email?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+        "from_domain": "alternativeto.net",
+        "ageMs": 0
+      }
+    },
+    "expect": {
+      "error": "navigation URLs may not contain credential-like query values or secret tokens"
+    }
+  },
+  {
+    "case": "mail link: suffix lookalike host",
+    "input": {
+      "fn": "agent",
+      "url": "https://alternativeto.net.evil.com/api/auth/verify-email?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+      "policy": {},
+      "mailLink": {
+        "url": "https://alternativeto.net.evil.com/api/auth/verify-email?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+        "from_domain": "alternativeto.net",
+        "ageMs": 0
+      }
+    },
+    "expect": {
+      "error": "navigation URLs may not contain credential-like query values or secret tokens"
+    }
+  },
+  {
+    "case": "mail link: suffix lookalike sender",
+    "input": {
+      "fn": "agent",
+      "url": "https://alternativeto.net/api/auth/verify-email?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+      "policy": {},
+      "mailLink": {
+        "url": "https://alternativeto.net/api/auth/verify-email?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+        "from_domain": "alternativeto.net.evil.com",
+        "ageMs": 0
+      }
+    },
+    "expect": {
+      "error": "navigation URLs may not contain credential-like query values or secret tokens"
+    }
+  },
+  {
+    "case": "mail link: punycode lookalike host",
+    "input": {
+      "fn": "agent",
+      "url": "https://аlternativeto.net/api/auth/verify-email?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+      "policy": {},
+      "mailLink": {
+        "url": "https://аlternativeto.net/api/auth/verify-email?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+        "from_domain": "alternativeto.net",
+        "ageMs": 0
+      }
+    },
+    "expect": {
+      "error": "navigation URLs may not contain credential-like query values or secret tokens"
+    }
+  },
+  {
+    "case": "mail link: sender that is not a domain",
+    "input": {
+      "fn": "agent",
+      "url": "https://alternativeto.net/api/auth/verify-email?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+      "policy": {},
+      "mailLink": {
+        "url": "https://alternativeto.net/api/auth/verify-email?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+        "from_domain": "evil.example/alternativeto.net",
+        "ageMs": 0
+      }
+    },
+    "expect": {
+      "error": "navigation URLs may not contain credential-like query values or secret tokens"
+    }
+  },
+  {
+    "case": "mail link: no read time",
+    "input": {
+      "fn": "agent",
+      "url": "https://alternativeto.net/api/auth/verify-email?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+      "policy": {},
+      "mailLink": {
+        "url": "https://alternativeto.net/api/auth/verify-email?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+        "from_domain": "alternativeto.net",
+        "ageMs": null
+      }
+    },
+    "expect": {
+      "error": "navigation URLs may not contain credential-like query values or secret tokens"
+    }
+  },
+  {
+    "case": "mail link: allow-list still applies",
+    "input": {
+      "fn": "agent",
+      "url": "https://alternativeto.net/api/auth/verify-email?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+      "policy": {
+        "allowedDomains": [
+          "example.com"
+        ]
+      },
+      "mailLink": {
+        "url": "https://alternativeto.net/api/auth/verify-email?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+        "from_domain": "alternativeto.net",
+        "ageMs": 0
+      }
+    },
+    "expect": {
+      "error": "navigation to alternativeto.net is blocked by the Browser Use domain policy"
+    }
+  },
+  {
+    "case": "mail link: private-network rules still apply",
+    "input": {
+      "fn": "agent",
+      "url": "https://10.0.0.5/v?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl",
+      "policy": {},
+      "mailLink": {
+        "url": "https://10.0.0.5/v?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl",
+        "from_domain": "10.0.0.5",
+        "ageMs": 0
+      }
+    },
+    "expect": {
+      "error": "navigation URLs may not contain credential-like query values or secret tokens"
+    }
+  },
+  {
+    "case": "mail link: github.io private suffix, other tenant",
+    "input": {
+      "fn": "agent",
+      "url": "https://b.github.io/v?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl",
+      "policy": {},
+      "mailLink": {
+        "url": "https://b.github.io/v?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl",
+        "from_domain": "a.github.io",
+        "ageMs": 0
+      }
+    },
+    "expect": {
+      "error": "navigation URLs may not contain credential-like query values or secret tokens"
+    }
+  },
+  {
+    "case": "mail link: github.io same tenant",
+    "input": {
+      "fn": "agent",
+      "url": "https://a.github.io/v?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl",
+      "policy": {},
+      "mailLink": {
+        "url": "https://a.github.io/v?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl",
+        "from_domain": "www.a.github.io",
+        "ageMs": 0
+      }
+    },
+    "expect": {
+      "ok": "https://a.github.io/v?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl"
+    }
+  },
+  {
+    "case": "mail link: trailing dot host",
+    "input": {
+      "fn": "agent",
+      "url": "https://alternativeto.net./v?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl",
+      "policy": {},
+      "mailLink": {
+        "url": "https://alternativeto.net./v?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl",
+        "from_domain": "alternativeto.net",
+        "ageMs": 0
+      }
+    },
+    "expect": {
+      "ok": "https://alternativeto.net./v?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl"
+    }
+  },
+  {
+    "case": "mail link: padded typed url",
+    "input": {
+      "fn": "agent",
+      "url": "  https://alternativeto.net/api/auth/verify-email?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl&callbackURL=https%3A%2F%2Falternativeto.net%2F  ",
+      "policy": {},
+      "mailLink": {
+        "url": "https://alternativeto.net/api/auth/verify-email?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+        "from_domain": "alternativeto.net",
+        "ageMs": 0
+      }
+    },
+    "expect": {
+      "ok": "https://alternativeto.net/api/auth/verify-email?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl&callbackURL=https%3A%2F%2Falternativeto.net%2F"
+    }
+  },
+  {
+    "case": "mail link: sender with a no-break space",
+    "input": {
+      "fn": "agent",
+      "url": "https://alternativeto.net/api/auth/verify-email?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+      "policy": {},
+      "mailLink": {
+        "url": "https://alternativeto.net/api/auth/verify-email?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+        "from_domain": "alternativeto.net ",
+        "ageMs": 0
+      }
+    },
+    "expect": {
+      "error": "navigation URLs may not contain credential-like query values or secret tokens"
+    }
+  },
+  {
+    "case": "mail link: ip sender",
+    "input": {
+      "fn": "agent",
+      "url": "https://alternativeto.net/api/auth/verify-email?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+      "policy": {},
+      "mailLink": {
+        "url": "https://alternativeto.net/api/auth/verify-email?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl&callbackURL=https%3A%2F%2Falternativeto.net%2F",
+        "from_domain": "127.0.0.1",
+        "ageMs": 0
+      }
+    },
+    "expect": {
+      "error": "navigation URLs may not contain credential-like query values or secret tokens"
+    }
+  },
+  {
+    "case": "resolved: public",
+    "input": {
+      "fn": "resolved",
+      "address": "93.184.216.34",
+      "hostname": "example.test",
+      "policy": {}
+    },
+    "expect": {
+      "ok": true
+    }
+  },
+  {
+    "case": "resolved: lan remote",
+    "input": {
+      "fn": "resolved",
+      "address": "192.168.1.10",
+      "hostname": "nas.example.test",
+      "policy": {
+        "allowPrivateNetwork": false
+      }
+    },
+    "expect": {
+      "error": "navigation to nas.example.test resolved to blocked private or internal address 192.168.1.10"
+    }
+  },
+  {
+    "case": "resolved: lan local",
+    "input": {
+      "fn": "resolved",
+      "address": "192.168.1.10",
+      "hostname": "nas.example.test",
+      "policy": {
+        "allowPrivateNetwork": true
+      }
+    },
+    "expect": {
+      "ok": true
+    }
+  },
+  {
+    "case": "resolved: tailscale remote",
+    "input": {
+      "fn": "resolved",
+      "address": "100.101.102.103",
+      "hostname": "nas.example.test",
+      "policy": {
+        "allowPrivateNetwork": false
+      }
+    },
+    "expect": {
+      "error": "navigation to nas.example.test resolved to blocked private or internal address 100.101.102.103"
+    }
+  },
+  {
+    "case": "resolved: tailscale local",
+    "input": {
+      "fn": "resolved",
+      "address": "100.101.102.103",
+      "hostname": "nas.example.test",
+      "policy": {
+        "allowPrivateNetwork": true
+      }
+    },
+    "expect": {
+      "ok": true
+    }
+  },
+  {
+    "case": "resolved: metadata local",
+    "input": {
+      "fn": "resolved",
+      "address": "169.254.169.254",
+      "hostname": "rebind.example.test",
+      "policy": {
+        "allowPrivateNetwork": true
+      }
+    },
+    "expect": {
+      "error": "navigation to rebind.example.test resolved to a blocked cloud metadata endpoint"
+    }
+  },
+  {
+    "case": "resolved: metadata remote",
+    "input": {
+      "fn": "resolved",
+      "address": "169.254.169.254",
+      "hostname": "rebind.example.test",
+      "policy": {
+        "allowPrivateNetwork": false
+      }
+    },
+    "expect": {
+      "error": "navigation to rebind.example.test resolved to a blocked cloud metadata endpoint"
+    }
+  },
+  {
+    "case": "resolved: metadata mapped",
+    "input": {
+      "fn": "resolved",
+      "address": "::ffff:169.254.169.254",
+      "hostname": "rebind.example.test",
+      "policy": {
+        "allowPrivateNetwork": true
+      }
+    },
+    "expect": {
+      "error": "navigation to rebind.example.test resolved to a blocked cloud metadata endpoint"
+    }
+  },
+  {
+    "case": "resolved: mapped private",
+    "input": {
+      "fn": "resolved",
+      "address": "::ffff:192.168.0.9",
+      "hostname": "rebind.example.test",
+      "policy": {}
+    },
+    "expect": {
+      "error": "navigation to rebind.example.test resolved to blocked private or internal address ::ffff:192.168.0.9"
+    }
+  },
+  {
+    "case": "resolved: mapped hex private",
+    "input": {
+      "fn": "resolved",
+      "address": "::ffff:c0a8:9",
+      "hostname": "rebind.example.test",
+      "policy": {}
+    },
+    "expect": {
+      "error": "navigation to rebind.example.test resolved to blocked private or internal address ::ffff:c0a8:9"
+    }
+  },
+  {
+    "case": "resolved: ula",
+    "input": {
+      "fn": "resolved",
+      "address": "fd00::5",
+      "hostname": "rebind.example.test",
+      "policy": {}
+    },
+    "expect": {
+      "error": "navigation to rebind.example.test resolved to blocked private or internal address fd00::5"
+    }
+  },
+  {
+    "case": "resolved: link local",
+    "input": {
+      "fn": "resolved",
+      "address": "fe80::1",
+      "hostname": "rebind.example.test",
+      "policy": {}
+    },
+    "expect": {
+      "error": "navigation to rebind.example.test resolved to blocked private or internal address fe80::1"
+    }
+  },
+  {
+    "case": "resolved: loopback v6 canonical",
+    "input": {
+      "fn": "resolved",
+      "address": "::1",
+      "hostname": "rebind.example.test",
+      "policy": {}
+    },
+    "expect": {
+      "error": "navigation to rebind.example.test resolved to blocked private or internal address ::1"
+    }
+  },
+  {
+    "case": "resolved: loopback v6 long form is not recognised",
+    "input": {
+      "fn": "resolved",
+      "address": "0:0:0:0:0:0:0:1",
+      "hostname": "rebind.example.test",
+      "policy": {}
+    },
+    "expect": {
+      "ok": true
+    }
+  },
+  {
+    "case": "resolved: loopback name may resolve privately",
+    "input": {
+      "fn": "resolved",
+      "address": "10.0.0.1",
+      "hostname": "app.localhost",
+      "policy": {}
+    },
+    "expect": {
+      "ok": true
+    }
+  },
+  {
+    "case": "resolved: loopback name still cannot reach metadata",
+    "input": {
+      "fn": "resolved",
+      "address": "169.254.169.254",
+      "hostname": "app.localhost",
+      "policy": {}
+    },
+    "expect": {
+      "error": "navigation to app.localhost resolved to a blocked cloud metadata endpoint"
+    }
+  },
+  {
+    "case": "resolved: public v6",
+    "input": {
+      "fn": "resolved",
+      "address": "2606:4700::1111",
+      "hostname": "rebind.example.test",
+      "policy": {}
+    },
+    "expect": {
+      "ok": true
+    }
+  },
+  {
+    "case": "resolved: not an address",
+    "input": {
+      "fn": "resolved",
+      "address": "not-an-ip",
+      "hostname": "rebind.example.test",
+      "policy": {}
+    },
+    "expect": {
+      "ok": true
+    }
+  },
+  {
+    "case": "resolved: leading zero octet is not an address",
+    "input": {
+      "fn": "resolved",
+      "address": "010.0.0.1",
+      "hostname": "rebind.example.test",
+      "policy": {}
+    },
+    "expect": {
+      "ok": true
+    }
+  },
+  {
+    "case": "resolved: metadata name",
+    "input": {
+      "fn": "resolved",
+      "address": "metadata.google.internal",
+      "hostname": "x.example.test",
+      "policy": {}
+    },
+    "expect": {
+      "error": "navigation to x.example.test resolved to a blocked cloud metadata endpoint"
+    }
+  },
+  {
+    "case": "resolved: uppercase metadata name",
+    "input": {
+      "fn": "resolved",
+      "address": "METADATA.GOOG",
+      "hostname": "x.example.test",
+      "policy": {}
+    },
+    "expect": {
+      "error": "navigation to x.example.test resolved to a blocked cloud metadata endpoint"
+    }
+  },
+  {
+    "case": "resolved: bracketed address",
+    "input": {
+      "fn": "resolved",
+      "address": "[::1]",
+      "hostname": "x.example.test",
+      "policy": {}
+    },
+    "expect": {
+      "error": "navigation to x.example.test resolved to blocked private or internal address [::1]"
+    }
+  }
+]

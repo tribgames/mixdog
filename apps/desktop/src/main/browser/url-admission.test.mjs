@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import { createBrowserUrlAdmission } from './url-admission.ts';
@@ -98,4 +99,41 @@ test('browser URL admission rechecks completed DNS answers and coalesces only co
     socketAdmission.assertResolvedResourceUrlAllowed('ws://169.254.169.254/latest/meta-data'),
     /cloud metadata endpoints is blocked/
   );
+});
+
+/** The corpus the Rust crate mixdog-browser-policy replays as well (native/core/fixtures/browser-parity). */
+const corpus = JSON.parse(
+  readFileSync(new URL('../../../../../native/core/fixtures/browser-parity/url-admission.json', import.meta.url), 'utf8')
+);
+
+test('every case of the shared corpus gets the same verdict as the Rust twin', async () => {
+  assert.ok(corpus.length > 40);
+  for (const { case: name, input, expect } of corpus) {
+    const lookupAddresses = async (host) => {
+      const addresses = input.lookup[host];
+      if (!addresses) throw new Error('no such host');
+      return addresses.map((address) => ({ address }));
+    };
+    const admission = createBrowserUrlAdmission({ policy: input.policy, lookupAddresses });
+    let got;
+    try {
+      if (input.mode === 'url') {
+        await admission.assertResolvedUrlAllowed(input.url, Boolean(input.pageGenerated));
+        got = { ok: true };
+      } else if (input.mode === 'resource') {
+        await admission.assertResolvedResourceUrlAllowed(input.url);
+        got = { ok: true };
+      } else {
+        let link;
+        if (input.mailLink) {
+          const { ageMs, ...rest } = input.mailLink;
+          link = { ...rest, read_at: Date.now() - ageMs };
+        }
+        got = { ok: await admission.validatedAgentUrl(input.url, link) };
+      }
+    } catch (error) {
+      got = { error: error.message };
+    }
+    assert.deepEqual(got, expect, name);
+  }
 });

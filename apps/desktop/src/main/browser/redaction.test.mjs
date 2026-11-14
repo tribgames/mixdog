@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import {
@@ -61,4 +62,20 @@ test('auth assignments redact the entire opaque credential and repeated redactio
     redactBrowserText('Authorization: Bearer MIXDOG_SYNTHETIC_ONLY_0123456789'),
     'Authorization: [REDACTED]'
   );
+});
+
+/** The corpus the Rust crate mixdog-browser-policy replays as well (native/core/fixtures/browser-parity). */
+const corpus = JSON.parse(
+  readFileSync(new URL('../../../../../native/core/fixtures/browser-parity/redaction.json', import.meta.url), 'utf8')
+);
+
+test('every case of the shared corpus gets the same answer as the Rust twin', () => {
+  assert.ok(corpus.length > 80);
+  for (const { case: name, input, expect } of corpus) {
+    let got;
+    if (input.fn === 'containsSecret') got = browserUrlContainsSecret(input.value);
+    else if (input.fn === 'redactUrl') got = redactBrowserUrl(input.value);
+    else got = redactBrowserKnownSecrets(redactBrowserText(input.value), input.secrets || []);
+    assert.equal(got, expect, name);
+  }
 });
