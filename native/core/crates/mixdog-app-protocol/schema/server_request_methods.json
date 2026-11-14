@@ -447,12 +447,23 @@
       "type": "string"
     },
     "BrowserPageCloseReason": {
-      "enum": [
-        "agent",
-        "turnEnd",
-        "idle"
-      ],
-      "type": "string"
+      "oneOf": [
+        {
+          "enum": [
+            "agent",
+            "turnEnd",
+            "idle"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The page a failed command made, closed when it still holds no document (the host answers `closed: false` for any other page).",
+          "enum": [
+            "discard"
+          ],
+          "type": "string"
+        }
+      ]
     },
     "BrowserPageReadKind": {
       "enum": [
@@ -668,6 +679,24 @@
         }
       ],
       "description": "The region a screenshot is cut to: an element a snapshot ref names, or a rectangle in CSS pixels."
+    },
+    "BrowserSignInOp": {
+      "oneOf": [
+        {
+          "description": "Before a click, fill or type is sent.",
+          "enum": [
+            "beforeAction"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "After a command ran: the automatic sign-in, then the linked-identity line.",
+          "enum": [
+            "afterCommand"
+          ],
+          "type": "string"
+        }
+      ]
     },
     "BrowserSnapshotElement": {
       "properties": {
@@ -906,6 +935,24 @@
         }
       },
       "type": "object"
+    },
+    "BrowserTurnOp": {
+      "oneOf": [
+        {
+          "description": "The session's running turn ended.",
+          "enum": [
+            "end"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "The session was released.",
+          "enum": [
+            "forget"
+          ],
+          "type": "string"
+        }
+      ]
     },
     "BrowserUploadReceiver": {
       "properties": {
@@ -1305,6 +1352,58 @@
       },
       "required": [
         "facts"
+      ],
+      "type": "object"
+    },
+    "HostBrowserCredentialsFillParams": {
+      "description": "`host/browser/credentials/fill`: the page is held to `expect` while the password is written.",
+      "properties": {
+        "account": {
+          "type": "string"
+        },
+        "expect": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Precondition"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pageId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "account",
+        "pageId"
+      ],
+      "type": "object"
+    },
+    "HostBrowserCredentialsFillResult": {
+      "properties": {
+        "facts": {
+          "$ref": "#/definitions/PageFacts"
+        },
+        "passwordFilled": {
+          "type": "boolean"
+        },
+        "reason": {
+          "description": "`no-password-field` when the page has no visible password field of its own document.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "usernameFilled": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "facts",
+        "passwordFilled",
+        "usernameFilled"
       ],
       "type": "object"
     },
@@ -2466,6 +2565,75 @@
       ],
       "type": "object"
     },
+    "HostBrowserSignInParams": {
+      "description": "`host/browser/signIn`. `turn` is the session's running turn (what a sign-in remembers is per turn); `action` and `command` (its `ref`, `target`, `text` and `fields`) go with `beforeAction`; `explicitFill` marks a command that filled a saved account, which no automatic sign-in follows.",
+      "properties": {
+        "action": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "command": true,
+        "explicitFill": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "op": {
+          "$ref": "#/definitions/BrowserSignInOp"
+        },
+        "pageId": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "turn": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "op",
+        "pageId",
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "HostBrowserSignInResult": {
+      "description": "`note`: the saved-login line of a sign-in the host made on the page (or the line that hands it to the person); the engine puts a fresh observation behind it. `line`: the \"Linked sign-in:\" line of the identity a provider flow last used here.",
+      "properties": {
+        "facts": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/PageFacts"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The page facts the host answers every page request with (the sign-in may have moved the page)."
+        },
+        "line": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "note": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "HostBrowserSnapshotParams": {
       "description": "`host/browser/snapshot`.",
       "properties": {
@@ -2599,6 +2767,48 @@
       "required": [
         "facts"
       ],
+      "type": "object"
+    },
+    "HostBrowserTurnParams": {
+      "description": "`host/browser/turn`.",
+      "properties": {
+        "aborted": {
+          "description": "The turn ended badly (its pages were released by the engine).",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "op": {
+          "$ref": "#/definitions/BrowserTurnOp"
+        },
+        "sessionId": {
+          "type": "string"
+        },
+        "turn": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "op",
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "HostBrowserTurnResult": {
+      "properties": {
+        "closed": {
+          "default": 0,
+          "description": "How many pages the host's own turn bookkeeping closed (the engine closes the pages it owns itself).",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
       "type": "object"
     },
     "HostBrowserUploadParams": {
@@ -3247,6 +3457,13 @@
           "format": "uint32",
           "minimum": 0.0,
           "type": "integer"
+        },
+        "label": {
+          "description": "The OS's name for the display; absent from an older desktop's list.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "primary": {
           "type": "boolean"
@@ -4305,6 +4522,16 @@
     "PageDescriptor": {
       "properties": {
         "background": {
+          "type": "boolean"
+        },
+        "created": {
+          "default": false,
+          "description": "This call made the page: a command that fails on it closes it when it still holds no document.",
+          "type": "boolean"
+        },
+        "disposable": {
+          "default": false,
+          "description": "A turn that ends badly may close the page: an agent's hidden helper the person did not keep, or the page a session's first command made. A page the person can see, a user tab or a page kept alive is never disposable.",
           "type": "boolean"
         },
         "facts": {
@@ -7048,6 +7275,14 @@
         "$ref": "#/definitions/HostBrowserCookiesResult"
       }
     },
+    "host/browser/credentials/fill": {
+      "params": {
+        "$ref": "#/definitions/HostBrowserCredentialsFillParams"
+      },
+      "result": {
+        "$ref": "#/definitions/HostBrowserCredentialsFillResult"
+      }
+    },
     "host/browser/downloads": {
       "params": {
         "$ref": "#/definitions/HostBrowserDownloadsParams"
@@ -7222,6 +7457,14 @@
         "$ref": "#/definitions/HostBrowserScreenshotResult"
       }
     },
+    "host/browser/signIn": {
+      "params": {
+        "$ref": "#/definitions/HostBrowserSignInParams"
+      },
+      "result": {
+        "$ref": "#/definitions/HostBrowserSignInResult"
+      }
+    },
     "host/browser/snapshot": {
       "params": {
         "$ref": "#/definitions/HostBrowserSnapshotParams"
@@ -7236,6 +7479,14 @@
       },
       "result": {
         "$ref": "#/definitions/HostBrowserStorageResult"
+      }
+    },
+    "host/browser/turn": {
+      "params": {
+        "$ref": "#/definitions/HostBrowserTurnParams"
+      },
+      "result": {
+        "$ref": "#/definitions/HostBrowserTurnResult"
       }
     },
     "host/browser/upload": {

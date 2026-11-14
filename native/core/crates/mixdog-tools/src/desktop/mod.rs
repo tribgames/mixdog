@@ -3,6 +3,7 @@
 
 pub mod browser;
 pub mod browser_approval;
+pub mod browser_bridge_run;
 pub mod browser_engine;
 pub mod computer;
 mod computer_abort;

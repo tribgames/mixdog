@@ -1580,6 +1580,11 @@
         }
       ]
     },
+    "ScreenDisplaysParams": {
+      "additionalProperties": false,
+      "description": "Params of `browser/screenDisplays` (a granted phone's request, Node's `browserRemoteScreenDisplays`) and of `host/screen/displays` (core → host): none. Both answer `RemoteScreenDisplaySummary[]` (`apps/desktop/src/shared/remote-webrtc.ts`), unchanged.",
+      "type": "object"
+    },
     "TerminalInputParams": {
       "properties": {
         "data": {
@@ -1850,6 +1855,25 @@
         },
         "params": {
           "$ref": "#/definitions/HostBrowserSurfaceParams"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A display was added, removed or rescaled on the desktop: the core reads `host/computer/displays` again and every phone screen session renews its geometry.",
+      "properties": {
+        "method": {
+          "enum": [
+            "host/screen/displaysChanged"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ScreenDisplaysParams"
         }
       },
       "required": [

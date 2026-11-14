@@ -461,6 +461,9 @@ pub struct HostComputerDisplay {
     pub x: i32,
     #[serde(default)]
     pub y: i32,
+    /// The OS's name for the display; absent from an older desktop's list.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
 }
 
 /// What a `host/computer/foregroundLease` request does (`foreground-lock-host.ts` `LeaseThreadRequest`): `acquire` and
@@ -682,6 +685,102 @@ pub struct ComputerBridgeAbortResult {
     /// False when a session abort's cleanup was not confirmed.
     pub ok: bool,
     /// How many running or queued calls were cancelled.
+    pub cancelled: u32,
+}
+
+/// Params of `browser/bridge/run` (desktop -> core): one command of the loopback browser bridge.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct BrowserBridgeRunParams {
+    /// The bridge's wire command: an object with `action`, the action's fields, `session_id` (`browser` when absent), `turn_id` and the runtime-set `unattended_run`, `unattended_agent`, `session_life` and `mail_link`.
+    pub command: JsonValue,
+    /// Names this call for `browser/bridge/abort`.
+    pub signal_id: String,
+}
+
+/// A bridge reply: what the browser command answered.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct BrowserBridgeValue {
+    pub text: String,
+    /// The image of the reply (the same shape as a computer bridge reply's).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<ComputerBridgeImage>,
+    /// `blocked` when the command ended inconclusively.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outcome: Option<String>,
+    /// The command's `BrowserCommandTiming`: diagnostics, never model text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timing: Option<JsonValue>,
+}
+
+/// Result of `browser/bridge/run` and `browser/bridge/turn`: the bridge's own answer.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct BrowserBridgeRunResult {
+    pub ok: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<BrowserBridgeValue>,
+    /// The redacted message of why the command failed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    /// The failed command's `BrowserCommandTiming`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timing: Option<JsonValue>,
+    /// The HTTP status the bridge answers when it is not 200: 400 (invalid request) or 429 (the allowance of concurrent commands is spent).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<u16>,
+}
+
+/// Which end of a turn `browser/bridge/turn` marks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub enum BrowserBridgeTurnPhase {
+    Begin,
+    Finish,
+}
+
+/// Params of `browser/bridge/turn` (desktop -> core).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct BrowserBridgeTurnParams {
+    pub phase: BrowserBridgeTurnPhase,
+    /// The session; `browser` when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    /// The runtime's turn number: a positive safe integer.
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
+    pub turn_id: u64,
+    /// A turn that ended badly: its temporary pages are closed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub aborted: Option<bool>,
+}
+
+/// Params of `browser/bridge/abort` (desktop -> core).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct BrowserBridgeAbortParams {
+    pub signal_id: String,
+}
+
+/// Result of `browser/bridge/abort`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct BrowserBridgeAbortResult {
+    /// How many running commands were stopped.
     pub cancelled: u32,
 }
 

@@ -725,7 +725,7 @@ mod tests {
     }
 
     fn display(id: &str, x: i32, y: i32, width: u32, height: u32, scale_factor: f64) -> HostComputerDisplay {
-        HostComputerDisplay { index: 0, id: id.into(), primary: true, scale_factor, width, height, x, y }
+        HostComputerDisplay { index: 0, id: id.into(), primary: true, scale_factor, width, height, x, y, label: None }
     }
 
     /// A display frame of a 3000x1500 physical display at (-3000, 0) shown at 1500x750, with the display it was cut from.

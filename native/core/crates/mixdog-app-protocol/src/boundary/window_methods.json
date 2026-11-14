@@ -1,6 +1,9 @@
 {
   "version": 2,
   "methods": [
+    "browser/bridge/abort",
+    "browser/bridge/run",
+    "browser/bridge/turn",
     "computer/bridge/abort",
     "computer/bridge/run",
     "computer/userControl",
@@ -25,6 +28,11 @@
     "process/writeStdin",
     "projectFs/localPage/revokeOwner",
     "projectFs/localPage/virtual",
-    "test/browserEngine/run"
+    "test/browserEngine/run",
+    "transfer/serverDownload/abort",
+    "transfer/serverDownload/begin",
+    "transfer/serverDownload/check",
+    "transfer/serverDownload/finish",
+    "transfer/serverDownload/step"
   ]
 }

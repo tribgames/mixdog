@@ -1751,6 +1751,13 @@
   },
   {
     "client": "desktop",
+    "method": "host/screen/displaysChanged",
+    "params": {},
+    "source": "apps/desktop/src/main/host/screen-displays.ts:host/screen/displaysChanged",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
     "method": "remoteAccess/state",
     "params": {},
     "source": "apps/desktop/src/main/ipc-notifications.ts:remoteAccess/state",
@@ -3442,6 +3449,54 @@
       "path": "path-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:transfer/trash/info",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "transfer/serverDownload/begin",
+    "params": {
+      "downloadsDir": "downloadsDir-1",
+      "rel": "rel-1",
+      "root": "root-1",
+      "serverId": "serverId-1"
+    },
+    "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:transfer/serverDownload/begin",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "transfer/serverDownload/step",
+    "params": {
+      "downloadId": "downloadId-1"
+    },
+    "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:transfer/serverDownload/step",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "transfer/serverDownload/finish",
+    "params": {
+      "downloadId": "downloadId-1"
+    },
+    "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:transfer/serverDownload/finish",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "transfer/serverDownload/abort",
+    "params": {
+      "downloadId": "downloadId-1"
+    },
+    "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:transfer/serverDownload/abort",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "transfer/serverDownload/check",
+    "params": {
+      "path": "path-1"
+    },
+    "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:transfer/serverDownload/check",
     "case": "required fields"
   },
   {
@@ -5671,6 +5726,13 @@
   },
   {
     "client": "desktop",
+    "method": "host/screen/displaysChanged",
+    "params": {},
+    "source": "apps/desktop/src/main/host/screen-displays.ts:host/screen/displaysChanged",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
     "method": "desktop/attachment/resolve",
     "params": {
       "attachmentId": "attachmentId-1",
@@ -6507,6 +6569,54 @@
       "path": "path-1"
     },
     "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:transfer/trash/info",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
+    "method": "transfer/serverDownload/begin",
+    "params": {
+      "downloadsDir": "downloadsDir-1",
+      "rel": "rel-1",
+      "root": "root-1",
+      "serverId": "serverId-1"
+    },
+    "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:transfer/serverDownload/begin",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
+    "method": "transfer/serverDownload/step",
+    "params": {
+      "downloadId": "downloadId-1"
+    },
+    "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:transfer/serverDownload/step",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
+    "method": "transfer/serverDownload/finish",
+    "params": {
+      "downloadId": "downloadId-1"
+    },
+    "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:transfer/serverDownload/finish",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
+    "method": "transfer/serverDownload/abort",
+    "params": {
+      "downloadId": "downloadId-1"
+    },
+    "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:transfer/serverDownload/abort",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
+    "method": "transfer/serverDownload/check",
+    "params": {
+      "path": "path-1"
+    },
+    "source": "apps/desktop/src/shared/core-lanes/desktop-operation-route.ts:transfer/serverDownload/check",
     "case": "every optional field"
   },
   {

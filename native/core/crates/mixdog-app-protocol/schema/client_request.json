@@ -1228,6 +1228,76 @@
       ],
       "type": "object"
     },
+    "BrowserBridgeAbortParams": {
+      "description": "Params of `browser/bridge/abort` (desktop -> core).",
+      "properties": {
+        "signalId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "signalId"
+      ],
+      "type": "object"
+    },
+    "BrowserBridgeRunParams": {
+      "description": "Params of `browser/bridge/run` (desktop -> core): one command of the loopback browser bridge.",
+      "properties": {
+        "command": {
+          "description": "The bridge's wire command: an object with `action`, the action's fields, `session_id` (`browser` when absent), `turn_id` and the runtime-set `unattended_run`, `unattended_agent`, `session_life` and `mail_link`."
+        },
+        "signalId": {
+          "description": "Names this call for `browser/bridge/abort`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command",
+        "signalId"
+      ],
+      "type": "object"
+    },
+    "BrowserBridgeTurnParams": {
+      "description": "Params of `browser/bridge/turn` (desktop -> core).",
+      "properties": {
+        "aborted": {
+          "description": "A turn that ended badly: its temporary pages are closed.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "phase": {
+          "$ref": "#/definitions/BrowserBridgeTurnPhase"
+        },
+        "sessionId": {
+          "description": "The session; `browser` when absent.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "turnId": {
+          "description": "The runtime's turn number: a positive safe integer.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "phase",
+        "turnId"
+      ],
+      "type": "object"
+    },
+    "BrowserBridgeTurnPhase": {
+      "description": "Which end of a turn `browser/bridge/turn` marks.",
+      "enum": [
+        "begin",
+        "finish"
+      ],
+      "type": "string"
+    },
     "BrowserCommandParams": {
       "description": "Params of `browser/command`.",
       "properties": {
@@ -12834,6 +12904,59 @@
       ],
       "type": "object"
     },
+    "TransferServerDownloadBeginParams": {
+      "additionalProperties": false,
+      "description": "Params of `transfer/serverDownload/begin`: the file `rel` of the server's folder `root`, copied into `downloads_dir` of this PC.",
+      "properties": {
+        "downloadsDir": {
+          "description": "This PC's download folder (created when missing).",
+          "type": "string"
+        },
+        "rel": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        },
+        "serverId": {
+          "description": "The server window's connection id (the id of the link this PC holds to the server).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "downloadsDir",
+        "rel",
+        "root",
+        "serverId"
+      ],
+      "type": "object"
+    },
+    "TransferServerDownloadCheckParams": {
+      "additionalProperties": false,
+      "description": "Params of `transfer/serverDownload/check`: a path on this PC.",
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
+    "TransferServerDownloadIdParams": {
+      "additionalProperties": false,
+      "description": "Params of `transfer/serverDownload/step`, `/finish` and `/abort`: the download `begin` answered.",
+      "properties": {
+        "downloadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "downloadId"
+      ],
+      "type": "object"
+    },
     "TransferSource": {
       "description": "What a read transfer opens; the real path is verified after open.",
       "oneOf": [
@@ -22396,6 +22519,121 @@
       "type": "object"
     },
     {
+      "description": "\"Download to this PC\", begin: stat the file `rel` of the server folder `root` through this PC's link to server `serverId`, refuse it when it is over the 2 GiB limit, and open a part file in `downloadsDir`. Answers the download, the plain name it will take and its size.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "transfer/serverDownload/begin"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/TransferServerDownloadBeginParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Moves one ranged read (at most 4 MiB) of a download into its part file; a download nobody steps for two minutes is discarded.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "transfer/serverDownload/step"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/TransferServerDownloadIdParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Publishes a complete download under the first free \"name\", \"name (2)\", ... in the download folder and answers its path; only a file fetched here may then be opened (`/check`).",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "transfer/serverDownload/finish"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/TransferServerDownloadIdParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Cancels a download and removes its part file; answers `true` when there was one, `false` otherwise.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "transfer/serverDownload/abort"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/TransferServerDownloadIdParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Whether `path` is a file this core finished downloading (a boolean): only such a file may be handed to the OS.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "transfer/serverDownload/check"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/TransferServerDownloadCheckParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
       "description": "One page of an open read.",
       "properties": {
         "id": {
@@ -26480,6 +26718,75 @@
         },
         "params": {
           "$ref": "#/definitions/ComputerBridgeAbortParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "One command the desktop's loopback browser bridge accepted (the bridge's wire shape: the `browser` tool's fields beside `action`, `session_id`, `turn_id` and the runtime-set `unattended_run`, `unattended_agent`, `session_life` and `mail_link`), run through the core's browser command path with the bridge's own semantics: the tool's validation, the allowance of 32 concurrent commands, the runtime-only secret, saved-login and handoff actions, `begin_turn` and `finish_turn`, a card raised through the session's approval gate, redaction of the secrets of the session. `signalId` names the call for `browser/bridge/abort`.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "browser/bridge/run"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/BrowserBridgeRunParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A turn of a bridge session starts or ends (what `begin_turn` and `finish_turn` commands do): an end waits for the session's commands still running, then closes the temporary pages the turn opened for itself.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "browser/bridge/turn"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/BrowserBridgeTurnParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Ends the work of one bridge call (`signalId`: its caller's connection dropped).",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "browser/bridge/abort"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/BrowserBridgeAbortParams"
         }
       },
       "required": [

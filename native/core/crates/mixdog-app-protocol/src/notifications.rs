@@ -331,6 +331,10 @@ pub enum ClientNotification {
     #[serde(rename = "host/browser/surface")]
     #[cfg_attr(feature = "codegen", ts(rename = "host/browser/surface"))]
     HostBrowserSurface(crate::v2::host::HostBrowserSurfaceParams),
+    /// A display was added, removed or rescaled on the desktop: the core reads `host/computer/displays` again and every phone screen session renews its geometry.
+    #[serde(rename = "host/screen/displaysChanged")]
+    #[cfg_attr(feature = "codegen", ts(rename = "host/screen/displaysChanged"))]
+    HostScreenDisplaysChanged(crate::v2::host::ScreenDisplaysParams),
     /// What a viewed browser page shows now: its document and locked geometry (`null` = ended).
     #[serde(rename = "host/browser/page")]
     #[cfg_attr(feature = "codegen", ts(rename = "host/browser/page"))]
@@ -440,6 +444,11 @@ pub static CLIENT_NOTIFICATIONS: &[crate::common::NotificationSpec] = &[
     crate::common::NotificationSpec {
         method: "host/browser/surface",
         params: "HostBrowserSurfaceParams",
+        delivery: None,
+    },
+    crate::common::NotificationSpec {
+        method: "host/screen/displaysChanged",
+        params: "ScreenDisplaysParams",
         delivery: None,
     },
     crate::common::NotificationSpec {

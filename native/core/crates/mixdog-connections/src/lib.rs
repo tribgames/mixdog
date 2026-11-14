@@ -26,3 +26,5 @@ pub mod policy;
 pub mod service;
 #[cfg(test)]
 mod stores_tests;
+#[cfg(test)]
+mod ops_tests;

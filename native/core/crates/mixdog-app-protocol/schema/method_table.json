@@ -8160,6 +8160,96 @@
     },
     {
       "class": "C1",
+      "method": "transfer/serverDownload/begin",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "v2::server_download::TransferServerDownloadBeginParams",
+      "result": "v2::server_download::TransferServerDownloadBeginResponse",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C1",
+      "method": "transfer/serverDownload/step",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "v2::server_download::TransferServerDownloadIdParams",
+      "result": "v2::server_download::TransferServerDownloadStepResponse",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C1",
+      "method": "transfer/serverDownload/finish",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "v2::server_download::TransferServerDownloadIdParams",
+      "result": "v2::server_download::TransferServerDownloadFinishResponse",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C1",
+      "method": "transfer/serverDownload/abort",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "v2::server_download::TransferServerDownloadIdParams",
+      "result": "JsonValue",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C1",
+      "method": "transfer/serverDownload/check",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "v2::server_download::TransferServerDownloadCheckParams",
+      "result": "JsonValue",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C1",
       "method": "transfer/readRange",
       "mutation": {
         "kind": "none"
@@ -11744,6 +11834,60 @@
     },
     {
       "class": "C2",
+      "method": "browser/bridge/run",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "v2::host::BrowserBridgeRunParams",
+      "result": "v2::host::BrowserBridgeRunResult",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "browser/bridge/turn",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "v2::host::BrowserBridgeTurnParams",
+      "result": "v2::host::BrowserBridgeRunResult",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "browser/bridge/abort",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "v2::host::BrowserBridgeAbortParams",
+      "result": "v2::host::BrowserBridgeAbortResult",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
       "method": "dev/computer/run",
       "mutation": {
         "kind": "none"
@@ -12095,6 +12239,11 @@
       "delivery": null,
       "method": "host/browser/surface",
       "params": "HostBrowserSurfaceParams"
+    },
+    {
+      "delivery": null,
+      "method": "host/screen/displaysChanged",
+      "params": "ScreenDisplaysParams"
     },
     {
       "delivery": null,
@@ -12927,6 +13076,24 @@
       "params": "HostBrowserUploadReceiverParams",
       "requires": "host.browserEngine",
       "result": "HostBrowserUploadReceiverResult"
+    },
+    {
+      "method": "host/browser/signIn",
+      "params": "HostBrowserSignInParams",
+      "requires": "host.browserEngine",
+      "result": "HostBrowserSignInResult"
+    },
+    {
+      "method": "host/browser/credentials/fill",
+      "params": "HostBrowserCredentialsFillParams",
+      "requires": "host.browserEngine",
+      "result": "HostBrowserCredentialsFillResult"
+    },
+    {
+      "method": "host/browser/turn",
+      "params": "HostBrowserTurnParams",
+      "requires": "host.browserEngine",
+      "result": "HostBrowserTurnResult"
     },
     {
       "method": "host/screen/displays",

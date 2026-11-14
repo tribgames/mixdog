@@ -1597,7 +1597,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         mixdog_browser_engine::runner::runner::EnginePorts {
             mirror: engine_lane.mirror().clone(),
             hold: engine_lane.hold().clone(),
-            approvals: mixdog_tools::desktop::browser_approval::BrowserApprovals::new(
+            approvals: mixdog_tools::desktop::browser_bridge_run::BridgeApprovals::new(
+                mixdog_tools::desktop::browser_approval::BrowserApprovals::new(
                 grants.clone(),
                 Arc::new(crate::compose_browser_engine::BrowserApprovalContext {
                     late: late.clone(),
@@ -1608,6 +1609,9 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                     catalog: engine_catalog.clone(),
                 }),
                 engine_files.clone(),
+            ),
+                grants.clone(),
+                session_grants.clone(),
             ),
             takeover: takeover.clone(),
             blobs: engine_blobs,
@@ -1627,6 +1631,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         )),
         fill.clone(),
     ));
+    let (bridge_host, bridge_engine) = (pool_host.clone(), engine.clone()); // `browser/bridge/run` runs over the same host commands and engine
     #[cfg(feature = "test-hooks")]
     let engine_tool_host = pool_host.clone(); // `test/browserEngine/run` runs over the same host commands the `browser` tools are built over
     // The explorer (flip-agent-worlds-15): `AgentExplorer::standalone` over the shared lanes; the host is bound to the finished pool below.
@@ -2463,7 +2468,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 empty_surface: surface_host.clone(), // `thread/clear` with `rebuildPrompt` rebuilds the emptied thread's surface and prompt through it
                 new_route: late_new_route.clone(), // `thread/start` settles its route first (the draft's pick, else the default) and seats it once created
                 draft_settings: late_draft_settings.clone(), // the new task's draft workflow and mode, through `thread/setWorkflow` / `thread/setOrchestrationMode` (bound below)
-        snapshots: Arc::new(mixdog_core_session::session::secret_input::SettlingSavedLogins::new({ let worktree_snapshots: Arc<dyn mixdog_core_session::session::turn_snapshots::TurnSnapshots> = Arc::new(mixdog_core_session::session::turn_snapshots::WorktreeTurnSnapshots::new(snapshot_cleanups.clone(), worktrees.clone())); match &computer_pool { Some(pool) => Arc::new(mixdog_core::run_host::native_tools::SettlingSnapshots::new(worktree_snapshots, pool.clone())), None => worktree_snapshots } }, saved_login_turns.clone())), // wp-session-30; `directory.shutdown()` ends with `snapshots.dispose()`
+        snapshots: Arc::new(mixdog_core_session::session::secret_input::SettlingSavedLogins::new(Arc::new(crate::compose_browser_engine::EngineTurnSnapshots::new({ let worktree_snapshots: Arc<dyn mixdog_core_session::session::turn_snapshots::TurnSnapshots> = Arc::new(mixdog_core_session::session::turn_snapshots::WorktreeTurnSnapshots::new(snapshot_cleanups.clone(), worktrees.clone())); match &computer_pool { Some(pool) => Arc::new(mixdog_core::run_host::native_tools::SettlingSnapshots::new(worktree_snapshots, pool.clone())), None => worktree_snapshots } }, engine.clone())), saved_login_turns.clone())), // wp-session-30; `directory.shutdown()` ends with `snapshots.dispose()`
                 lanes: mixdog_core_session::session::SessionLanes { cpu: tokens.cpu_interactive, io: tokens.interactive_io, durability: tokens.durability_io },
                 limits: Default::default(),
                 gateway_usage,
@@ -3646,6 +3651,13 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let browser_engine = browser_engine.with_test_hook(&*b.env, Arc::new(crate::compose_browser_engine::EngineToolRunner(engine_tool_host.clone())));
     let browser_engine = Arc::new(browser_engine);
     builder.register(browser_engine.clone())?;
+    // The desktop's loopback browser bridge runs each command it accepts through the same engine and host commands (browser/bridge/*).
+    builder.register(Arc::new(mixdog_tools::desktop::browser_bridge_run::BrowserBridgeRun::new(
+        bridge_host,
+        bridge_engine,
+        b.host.clone(),
+        Arc::new(crate::compose_browser_engine::FillSecretGuard { fill: fill.clone(), redactor: redactor.clone() }),
+    )))?;
     // host/claim is answered by the server itself (it owns the connection registry, ClientRequest::HostClaim), so no domain service claims it.
     let mut unclaimed = builder.unclaimed();
     unclaimed.retain(|method| *method != "host/claim");

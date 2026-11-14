@@ -3302,6 +3302,51 @@ crate::client_request_definitions! {
         mutation: none,
         origins: [Local, Ssh],
     },
+    /// "Download to this PC", begin: stat the file `rel` of the server folder `root` through this PC's link to server `serverId`, refuse it when it is over the 2 GiB limit, and open a part file in `downloadsDir`. Answers the download, the plain name it will take and its size.
+    TransferServerDownloadBegin => "transfer/serverDownload/begin" {
+        params: v2::server_download::TransferServerDownloadBeginParams,
+        result: v2::server_download::TransferServerDownloadBeginResponse,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Moves one ranged read (at most 4 MiB) of a download into its part file; a download nobody steps for two minutes is discarded.
+    TransferServerDownloadStep => "transfer/serverDownload/step" {
+        params: v2::server_download::TransferServerDownloadIdParams,
+        result: v2::server_download::TransferServerDownloadStepResponse,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Publishes a complete download under the first free "name", "name (2)", ... in the download folder and answers its path; only a file fetched here may then be opened (`/check`).
+    TransferServerDownloadFinish => "transfer/serverDownload/finish" {
+        params: v2::server_download::TransferServerDownloadIdParams,
+        result: v2::server_download::TransferServerDownloadFinishResponse,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Cancels a download and removes its part file; answers `true` when there was one, `false` otherwise.
+    TransferServerDownloadAbort => "transfer/serverDownload/abort" {
+        params: v2::server_download::TransferServerDownloadIdParams,
+        result: JsonValue,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Whether `path` is a file this core finished downloading (a boolean): only such a file may be handed to the OS.
+    TransferServerDownloadCheck => "transfer/serverDownload/check" {
+        params: v2::server_download::TransferServerDownloadCheckParams,
+        result: JsonValue,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Local],
+    },
     /// One page of an open read.
     TransferReadRange => "transfer/readRange" {
         params: TransferReadRangeParams,
@@ -4900,6 +4945,33 @@ crate::client_request_definitions! {
     ComputerBridgeAbort => "computer/bridge/abort" {
         params: v2::host::ComputerBridgeAbortParams,
         result: v2::host::ComputerBridgeAbortResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// One command the desktop's loopback browser bridge accepted (the bridge's wire shape: the `browser` tool's fields beside `action`, `session_id`, `turn_id` and the runtime-set `unattended_run`, `unattended_agent`, `session_life` and `mail_link`), run through the core's browser command path with the bridge's own semantics: the tool's validation, the allowance of 32 concurrent commands, the runtime-only secret, saved-login and handoff actions, `begin_turn` and `finish_turn`, a card raised through the session's approval gate, redaction of the secrets of the session. `signalId` names the call for `browser/bridge/abort`.
+    BrowserBridgeRun => "browser/bridge/run" {
+        params: v2::host::BrowserBridgeRunParams,
+        result: v2::host::BrowserBridgeRunResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// A turn of a bridge session starts or ends (what `begin_turn` and `finish_turn` commands do): an end waits for the session's commands still running, then closes the temporary pages the turn opened for itself.
+    BrowserBridgeTurn => "browser/bridge/turn" {
+        params: v2::host::BrowserBridgeTurnParams,
+        result: v2::host::BrowserBridgeRunResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Ends the work of one bridge call (`signalId`: its caller's connection dropped).
+    BrowserBridgeAbort => "browser/bridge/abort" {
+        params: v2::host::BrowserBridgeAbortParams,
+        result: v2::host::BrowserBridgeAbortResult,
         scope: none,
         class: C2,
         mutation: none,

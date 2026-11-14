@@ -187,6 +187,7 @@ pub static FREE_TEXT: &[(Kind, &str, &[&str])] = &[
     (Kind::Notification, "host/update/report", &["/state/message"]),
     (Kind::Answer, "host/update/command", &["/message"]),
     (Kind::Answer, "host/screen/displays", &["/*/label"]),
+    (Kind::Answer, "host/computer/displays", &["/*/label"]),
     // The text of a Computer Use screen capture reply: the model reads it as the tool's result.
     (Kind::Answer, "host/computer/capture", &["/text"]),
     // A window's title as the desktop reports it, a bridge reply's text and error: the model reads them as the tool's result.
@@ -198,6 +199,8 @@ pub static FREE_TEXT: &[(Kind, &str, &[&str])] = &[
     (Kind::Request, "dev/computer/run", &["/command/**"]),
     // The Computer Use command the desktop's bridge forwards (computer/bridge/run): its text and keys are what the model typed.
     (Kind::Request, "computer/bridge/run", &["/command/**"]),
+    // The browser command the desktop's bridge forwards (browser/bridge/run): its text, selectors and scripts are what the model typed.
+    (Kind::Request, "browser/bridge/run", &["/command/**"]),
     // What a human-only hold is for: the model reads it in Computer Use's refusal.
     (Kind::Request, "host/humanOnly/begin", &["/label"]),
     // Language-server params, per field (tests/it/free_text_fields.json `payloads` lsp/request): document text, messages,
@@ -428,6 +431,16 @@ pub static FREE_TEXT: &[(Kind, &str, &[&str])] = &[
         Kind::Answer,
         "host/browser/upload/receiver",
         &["/key", "/url", "/facts/title", "/facts/fault", "/facts/pendingDialog/message", "/facts/pendingDialog/defaultPrompt", "/facts/dismissedDialog/message"],
+    ),
+    (
+        Kind::Answer,
+        "host/browser/signIn",
+        &["/note", "/line", "/facts/title", "/facts/fault", "/facts/pendingDialog/message", "/facts/pendingDialog/defaultPrompt", "/facts/dismissedDialog/message"],
+    ),
+    (
+        Kind::Answer,
+        "host/browser/credentials/fill",
+        &["/reason", "/facts/title", "/facts/fault", "/facts/pendingDialog/message", "/facts/pendingDialog/defaultPrompt", "/facts/dismissedDialog/message"],
     ),
     (
         Kind::Notification,

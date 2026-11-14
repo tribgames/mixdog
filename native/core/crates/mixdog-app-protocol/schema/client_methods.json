@@ -1421,6 +1421,165 @@
       ],
       "type": "object"
     },
+    "BrowserBridgeAbortParams": {
+      "description": "Params of `browser/bridge/abort` (desktop -> core).",
+      "properties": {
+        "signalId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "signalId"
+      ],
+      "type": "object"
+    },
+    "BrowserBridgeAbortResult": {
+      "description": "Result of `browser/bridge/abort`.",
+      "properties": {
+        "cancelled": {
+          "description": "How many running commands were stopped.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "cancelled"
+      ],
+      "type": "object"
+    },
+    "BrowserBridgeRunParams": {
+      "description": "Params of `browser/bridge/run` (desktop -> core): one command of the loopback browser bridge.",
+      "properties": {
+        "command": {
+          "description": "The bridge's wire command: an object with `action`, the action's fields, `session_id` (`browser` when absent), `turn_id` and the runtime-set `unattended_run`, `unattended_agent`, `session_life` and `mail_link`."
+        },
+        "signalId": {
+          "description": "Names this call for `browser/bridge/abort`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command",
+        "signalId"
+      ],
+      "type": "object"
+    },
+    "BrowserBridgeRunResult": {
+      "description": "Result of `browser/bridge/run` and `browser/bridge/turn`: the bridge's own answer.",
+      "properties": {
+        "error": {
+          "description": "The redacted message of why the command failed.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "status": {
+          "description": "The HTTP status the bridge answers when it is not 200: 400 (invalid request) or 429 (the allowance of concurrent commands is spent).",
+          "format": "uint16",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "timing": {
+          "description": "The failed command's `BrowserCommandTiming`."
+        },
+        "value": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/BrowserBridgeValue"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "ok"
+      ],
+      "type": "object"
+    },
+    "BrowserBridgeTurnParams": {
+      "description": "Params of `browser/bridge/turn` (desktop -> core).",
+      "properties": {
+        "aborted": {
+          "description": "A turn that ended badly: its temporary pages are closed.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "phase": {
+          "$ref": "#/definitions/BrowserBridgeTurnPhase"
+        },
+        "sessionId": {
+          "description": "The session; `browser` when absent.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "turnId": {
+          "description": "The runtime's turn number: a positive safe integer.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "phase",
+        "turnId"
+      ],
+      "type": "object"
+    },
+    "BrowserBridgeTurnPhase": {
+      "description": "Which end of a turn `browser/bridge/turn` marks.",
+      "enum": [
+        "begin",
+        "finish"
+      ],
+      "type": "string"
+    },
+    "BrowserBridgeValue": {
+      "description": "A bridge reply: what the browser command answered.",
+      "properties": {
+        "image": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ComputerBridgeImage"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The image of the reply (the same shape as a computer bridge reply's)."
+        },
+        "outcome": {
+          "description": "`blocked` when the command ended inconclusively.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "text": {
+          "type": "string"
+        },
+        "timing": {
+          "description": "The command's `BrowserCommandTiming`: diagnostics, never model text."
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "type": "object"
+    },
     "BrowserCommandParams": {
       "description": "Params of `browser/command`.",
       "properties": {
@@ -20795,6 +20954,117 @@
       ],
       "type": "object"
     },
+    "TransferServerDownloadBeginParams": {
+      "additionalProperties": false,
+      "description": "Params of `transfer/serverDownload/begin`: the file `rel` of the server's folder `root`, copied into `downloads_dir` of this PC.",
+      "properties": {
+        "downloadsDir": {
+          "description": "This PC's download folder (created when missing).",
+          "type": "string"
+        },
+        "rel": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        },
+        "serverId": {
+          "description": "The server window's connection id (the id of the link this PC holds to the server).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "downloadsDir",
+        "rel",
+        "root",
+        "serverId"
+      ],
+      "type": "object"
+    },
+    "TransferServerDownloadBeginResponse": {
+      "description": "The answer of `transfer/serverDownload/begin`: the download, the plain name it will take and the file's size in bytes.",
+      "properties": {
+        "downloadId": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "size": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "downloadId",
+        "name",
+        "size"
+      ],
+      "type": "object"
+    },
+    "TransferServerDownloadCheckParams": {
+      "additionalProperties": false,
+      "description": "Params of `transfer/serverDownload/check`: a path on this PC.",
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
+    "TransferServerDownloadFinishResponse": {
+      "description": "The answer of `transfer/serverDownload/finish`: where the file now is, under the first free name in the folder.",
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
+    "TransferServerDownloadIdParams": {
+      "additionalProperties": false,
+      "description": "Params of `transfer/serverDownload/step`, `/finish` and `/abort`: the download `begin` answered.",
+      "properties": {
+        "downloadId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "downloadId"
+      ],
+      "type": "object"
+    },
+    "TransferServerDownloadStepResponse": {
+      "description": "The answer of `transfer/serverDownload/step`: the bytes written so far, the file's size, and whether it is all here.",
+      "properties": {
+        "done": {
+          "type": "boolean"
+        },
+        "received": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "size": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "done",
+        "received",
+        "size"
+      ],
+      "type": "object"
+    },
     "TransferSource": {
       "description": "What a read transfer opens; the real path is verified after open.",
       "oneOf": [
@@ -22746,6 +23016,30 @@
       },
       "result": {
         "$ref": "#/definitions/BlobReadResponse"
+      }
+    },
+    "browser/bridge/abort": {
+      "params": {
+        "$ref": "#/definitions/BrowserBridgeAbortParams"
+      },
+      "result": {
+        "$ref": "#/definitions/BrowserBridgeAbortResult"
+      }
+    },
+    "browser/bridge/run": {
+      "params": {
+        "$ref": "#/definitions/BrowserBridgeRunParams"
+      },
+      "result": {
+        "$ref": "#/definitions/BrowserBridgeRunResult"
+      }
+    },
+    "browser/bridge/turn": {
+      "params": {
+        "$ref": "#/definitions/BrowserBridgeTurnParams"
+      },
+      "result": {
+        "$ref": "#/definitions/BrowserBridgeRunResult"
       }
     },
     "browser/command": {
@@ -25864,6 +26158,42 @@
         "$ref": "#/definitions/TransferRedeemGrantParams"
       },
       "result": true
+    },
+    "transfer/serverDownload/abort": {
+      "params": {
+        "$ref": "#/definitions/TransferServerDownloadIdParams"
+      },
+      "result": true
+    },
+    "transfer/serverDownload/begin": {
+      "params": {
+        "$ref": "#/definitions/TransferServerDownloadBeginParams"
+      },
+      "result": {
+        "$ref": "#/definitions/TransferServerDownloadBeginResponse"
+      }
+    },
+    "transfer/serverDownload/check": {
+      "params": {
+        "$ref": "#/definitions/TransferServerDownloadCheckParams"
+      },
+      "result": true
+    },
+    "transfer/serverDownload/finish": {
+      "params": {
+        "$ref": "#/definitions/TransferServerDownloadIdParams"
+      },
+      "result": {
+        "$ref": "#/definitions/TransferServerDownloadFinishResponse"
+      }
+    },
+    "transfer/serverDownload/step": {
+      "params": {
+        "$ref": "#/definitions/TransferServerDownloadIdParams"
+      },
+      "result": {
+        "$ref": "#/definitions/TransferServerDownloadStepResponse"
+      }
     },
     "transfer/trash/entry": {
       "params": {
