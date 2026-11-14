@@ -8,8 +8,9 @@ pub use computer_screen::pc_access_helper;
 ## 2. mixdog-core-domains/src/domains/mod.rs (hot): one line after `pub mod pc_access;`
 pub mod pc_access_installer;
 
-## 3. mixdog-app-server-daemon/src/compose_flip.rs (hot), fn real_core, directly after the RemoteAccessService registration
-## (the deferred-g1.md text names `remote_runtime`; in this tree the variable is `built_remote.runtime`):
+## 3. mixdog-app-server-daemon/src/compose_flip.rs (hot), fn real_core: REPLACE the RemoteAccessService registration with the block below
+## (PC access is built first, because an unpair runs in its queue and the runtime's events reach it; g25-fu-x).
+## The deferred-g1.md text names `remote_runtime`; in this tree the variable is `built_remote.runtime`.
     // PC access: the one secure-desktop installer over the bridge executable (Node: `secureDesktopExePath`: `native-tools/` of the package, else the crate's release build).
     let secure_desktop_exe = {
         let exists = mixdog_core::run_host::native_tools::FileServiceExists { files: b.files.clone(), lane: b.tokens.interactive_io };
@@ -20,10 +21,18 @@ pub mod pc_access_installer;
             b.package_root.join("native").join("mixdog-secure-desktop").join("target").join("release").join("mixdog-secure-desktop.exe")
         }
     };
-    builder.register(Arc::new(mixdog_core_domains::domains::pc_access::PcAccessService::new(
+    let pc_access = Arc::new(mixdog_core_domains::domains::pc_access::PcAccessService::new(
         mixdog_core_domains::domains::pc_access_installer::production_installer(secure_desktop_exe),
         Arc::new(mixdog_core_domains::domains::pc_access::RuntimeRoster(built_remote.runtime.clone())),
-    )))?;
+    ));
+    // A delivered controller key is enrolled (delegated, no prompt) and an owed revocation is revoked: REMOTE_CONTROLLER_KEY_DELIVERED_EVENT / REMOTE_CONTROLLER_KEYS_OWED_EVENT of the desktop.
+    built_remote.events.bind_pc_access(pc_access.clone()).map_err(|_| ComposeError::AlreadyBound("PC access events"))?;
+    builder.register(Arc::new(mixdog_core_domains::domains::remote_access::RemoteAccessService::new(
+        built_remote.runtime.clone(),
+        built_remote.registry.clone(),
+        domain_inputs.scopes.scopes("remoteAccess").map_err(ComposeError::ComposeDomains)?,
+    ).with_pc_access(pc_access.clone())))?;
+    builder.register(pc_access)?;
 
 ## 4. compose_flip.rs SERVICE_PENDING: remove these three lines (the comment line pair above them and both names)
     // pcAccess: the domain is built; its registration waits for the production secure-desktop installer
@@ -34,3 +43,9 @@ pub mod pc_access_installer;
 ## 5. The legacy revoke file: no migration line is needed. mixdog-migrate desktop_profile/plan.rs FILE_KINDS already
 ## carries `pc-access-revokes.json` -> `ItemKind::PcAccessRevokes` -> `Destination::Data("desktop/pc-access-revokes.json")`
 ## (first pass, source kept), which is the path legacy_revokes::fold reads. The review remark that no task moves it is outdated.
+
+## 6. g25-fu-x: what the protocol and the other crates need from this task
+## - mixdog-app-protocol (rows/pending-rows/g25-fu-x.rows): PcAccessReadiness.needsEnroll (the Rust type is edited; regenerate schema/client_methods.json and packages/protocol/src/index.ts).
+## - The phone's screen control (s3-screen-source, G7) consumes PcAccessService::approve_with_credential(CredentialRequest{client_id, public_key, credential, cancelled}) -> CredentialAnswer{outcome: Busy | Ran(KeyOutcome), state, detail}
+##   through its ScreenPcAccess port (mixdog-tools computer_screen/session.rs): `cancelled` is the session's AbortSignal::aborted, `outcome` maps by KeyOutcome::name() (the port's CredentialResult.outcome is the kebab name, `busy` for Busy),
+##   and `state` is HelperState (the port's InstallState). The same PcAccessInstaller instance (production_installer) is the one the lease's InstallPort must use, so the one in-flight latch covers both.

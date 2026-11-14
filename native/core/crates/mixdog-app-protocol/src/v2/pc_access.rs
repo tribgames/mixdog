@@ -45,6 +45,9 @@ pub struct PcAccessReadiness {
     pub supported: bool,
     /// Another Windows account owns the service (informational: Approve changes nothing).
     pub other_user: bool,
+    /// A paired phone's delegated enroll was refused in a way only elevation fixes (delegation off or denied)
+    /// and no delegated enroll of it is running: the row offers Approve for the new phone.
+    pub needs_enroll: bool,
 }
 
 /// How an Approve ended.

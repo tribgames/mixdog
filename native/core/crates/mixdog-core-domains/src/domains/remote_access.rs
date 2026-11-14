@@ -39,6 +39,8 @@ pub struct RemoteAccessService {
     runtime: Arc<RemoteRuntime>,
     registry: Arc<DeviceRegistry>,
     ops: OpScopes,
+    /// PC access, where it exists: an unpair is one transaction in its queue (`unpairWithPcAccess`).
+    pc_access: Option<Arc<super::pc_access::PcAccessService>>,
 }
 
 fn refused(error: RemoteError) -> CoreError {
@@ -61,7 +63,14 @@ fn arguments(input: &Value) -> &[Value] {
 
 impl RemoteAccessService {
     pub fn new(runtime: Arc<RemoteRuntime>, registry: Arc<DeviceRegistry>, ops: OpScopes) -> Self {
-        Self { runtime, registry, ops }
+        Self { runtime, registry, ops, pc_access: None }
+    }
+
+    /// An unpair runs inside PC access's queue, which then tries the revoke of the removed phone's key before
+    /// any delivery runs.
+    pub fn with_pc_access(mut self, pc_access: Arc<super::pc_access::PcAccessService>) -> Self {
+        self.pc_access = Some(pc_access);
+        self
     }
 
     /// The credential id of the paired device behind the caller's connection; empty for a
@@ -195,7 +204,14 @@ impl RemoteAccessService {
             .run(
                 req,
                 None,
-                || async { self.runtime.revoke_client(&params.client_id).await.map_err(refused) },
+                || async {
+                    let unpair = self.runtime.revoke_client(&params.client_id);
+                    let answer = match &self.pc_access {
+                        Some(pc_access) => pc_access.unpair(unpair).await,
+                        None => unpair.await,
+                    };
+                    answer.map_err(refused)
+                },
                 || self.descriptor(),
             )
             .await
