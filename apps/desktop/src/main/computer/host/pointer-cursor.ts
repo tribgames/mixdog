@@ -1,45 +1,23 @@
 /** Publishes a worker's pointer progress as the shared cursor overlay. */
 import type { createWorkerPool } from '../backend/worker-pool';
-import { recordCursorDiagnostic } from '../overlay/cursor-diagnostics';
-import { computerUseCoordinator, type ComputerUseCursorEffect } from '../session/coordinator';
+import { type ComputerPresence, legacyPointerProgress } from '../presence/mirror';
+import { computerUseCoordinator } from '../session/coordinator';
 
 type PointerProgressListener = NonNullable<Parameters<typeof createWorkerPool>[0]['onPointerProgress']>;
 
-/** The cursor effect each pointer-progress phase paints; a bare move
- *  depends on whether a button is held. */
-const PHASE_CURSOR_EFFECTS: Record<string, ComputerUseCursorEffect> = {
-  release: 'click',
-  prepare: 'prepare',
-  press: 'press',
-  scroll: 'scroll',
-  type: 'type',
-};
+let bound: Pick<ComputerPresence, 'pointerProgress'> | undefined;
 
-/** Paints only while the session is actively driving the desktop: a user
- *  takeover, pending cleanup, or a session without activity drops the update. */
+/** Routes pointer progress through the presence mirror, which drops it on its own state (a user takeover, a pending
+ *  cleanup, a session without activity); until one is bound the in-process coordinator takes it. */
+export function bindPointerPresence(presence: Pick<ComputerPresence, 'pointerProgress'>): () => void {
+  bound = presence;
+  return () => {
+    if (bound === presence) bound = undefined;
+  };
+}
+
 export const publishPointerProgress: PointerProgressListener = (sessionId, x, y, held, mode, phase, windowId) => {
-  const state = computerUseCoordinator.snapshot();
-  if (state.userControlActive) {
-    recordCursorDiagnostic('ignored_user_control');
-    return;
-  }
-  if (state.cleanupState !== 'ready') {
-    recordCursorDiagnostic('ignored_cleanup');
-    return;
-  }
-  if (!state.activities.some((activity) => activity.sessionId === sessionId)) {
-    recordCursorDiagnostic('ignored_no_activity');
-    return;
-  }
-  recordCursorDiagnostic('published');
-  computerUseCoordinator.showCursor({
-    sessionId,
-    windowId,
-    x,
-    y,
-    tracking: true,
-    action: phase,
-    effect: PHASE_CURSOR_EFFECTS[phase] ?? (held ? 'drag' : 'move'),
-    mode,
-  });
+  const event = { x, y, held, mode, phase, windowId };
+  if (bound) bound.pointerProgress(sessionId, event);
+  else legacyPointerProgress(computerUseCoordinator, sessionId, event);
 };

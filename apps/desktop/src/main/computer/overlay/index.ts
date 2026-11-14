@@ -8,6 +8,7 @@ import { globalShortcut, screen } from 'electron';
 
 import { getLinuxComputerReadiness } from '../../../shared/core-src/runtime/computer-bridge/linux-readiness.mjs';
 import { usesGnomeHelper, watchGnomeStopSignal } from '../host/gnome-helper';
+import type { ComputerPresenceSource } from '../presence/mirror';
 import { computerUseCoordinator, type ComputerUseSnapshot } from '../session/coordinator';
 import { createComputerOverlayController, type ComputerUseOverlayControls } from './controls';
 import { createComputerUseCursorOverlay } from './cursor-overlay';
@@ -32,12 +33,9 @@ export interface ComputerUseOverlaySeams {
   helperReady?: () => Promise<boolean>;
 }
 
-/** Where the pill's snapshots come from: the in-process coordinator, or the
- *  core-driven pill source (`host/computer-pill.ts`). */
-export interface ComputerUseSnapshotSource {
-  snapshot(): ComputerUseSnapshot;
-  subscribe(listener: (snapshot: ComputerUseSnapshot) => void): () => void;
-}
+/** Where the pill's and the arrows' snapshots come from: the in-process coordinator, or the core-driven presence
+ *  mirror (`computer/presence/mirror.ts`, through `host/computer-pill.ts`). */
+export type ComputerUseSnapshotSource = ComputerPresenceSource;
 
 export function createComputerUseOverlay(
   controls: ComputerUseOverlayControls,
@@ -51,7 +49,7 @@ export function createComputerUseOverlay(
   // is skipped (the real pointer is moved, and is visible).
   const gnome = Boolean(seams.indicator) || usesGnomeHelper();
   const indicator = seams.indicator ?? (gnome ? createGnomeIndicator(locale) : null);
-  const cursorOverlay = gnome ? { dispose(): void {} } : createComputerUseCursorOverlay();
+  const cursorOverlay = gnome ? { dispose(): void {} } : createComputerUseCursorOverlay(source);
   let disposed = false;
   let latestSnapshot: ComputerUseSnapshot = source.snapshot();
   let latestPresentation = computerUseOverlayPresentation(latestSnapshot, locale);
