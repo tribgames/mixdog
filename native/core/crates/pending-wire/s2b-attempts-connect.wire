@@ -1,0 +1,37 @@
+# s2b-attempts-connect core wiring
+
+## 1. Modules
+lib.rs of mixdog-connections already lists `pub mod attempts; pub mod connect; pub mod login;`. The test module is declared inside connect.rs
+(`connect_tests.rs`). Nothing to add.
+
+## 2. Cargo
+No new dependency edge: attempts.rs, connect.rs and login.rs use mixdog-ssh, mixdog-core-api (`ids::ConnectionId`), mixdog-app-protocol,
+mixdog-rt, async-trait, serde_json, tokio (sync) and uuid, all already in mixdog-connections/Cargo.toml.
+
+## 3. SERVICE_PENDING (mixdog-app-server-daemon compose_flip.rs)
+This task serves no protocol method by itself. The task that registers the connections service (s2b-service) serves these with the
+functions below, and removes them from SERVICE_PENDING: `connections/ssh/inspect`, `connections/ssh/connect`, `connections/ssh/cancel`,
+`connections/ssh/askpassReply`, `connections/ssh/open`, `connections/ssh/openEphemeral`.
+
+## 4. For the service wiring (s2b-service)
+- Build `Connect::new(ConnectDeps { attempts: Attempts::new(link_pool as Arc<dyn ServerLinks>, push), machine: Arc::new(EnvMachine { env: ssh_env, configs }),
+  login: Arc::new(EnvLoginHelpers::new(ssh_env, io, user_data_dir)), hosts, windows, view, clock })` once.
+  `configs: Arc<ResolvedConfigs>` is the instance the ssh environment's `config_files` holds: the inspection builds the target's own
+  config there and lists the user's forwards in the summary when it cannot (the TS inspectWithForwards).
+  `LinkPool` implements `ServerLinks` (attempts.rs). `view` is the connection feed's `SshHost` of a record (its `open` flag is `link_pool.get(id)` attached).
+- `windows: Arc<dyn ServerWindows>` is the callback that calls `WindowHost::open(id, name)` of the desktop host; `Err(message)` becomes a `failed` result.
+- `push: Arc<dyn ConnectionsPush>` sends `connections/ssh/askpass` (SshAskpass) and `connections/ssh/progress` (SshProgress) notifications to the
+  protocol connection `to` (both are `@connection` notifications; a connection that is gone is ignored).
+- Methods (`caller` is the protocol connection the request came from; role checks are the dispatcher's):
+  - `connections/ssh/inspect {target}` -> `connect.inspect(caller, &target)`
+  - `connections/ssh/connect {attemptId, ...}` -> `connect.connect(caller, &req.attempt_id, req)`
+  - `connections/ssh/cancel {attemptId}` -> `connect.cancel(caller, &attempt_id)` (empty result)
+  - `connections/ssh/askpassReply {attemptId, requestId, secret}` -> `connect.askpass_reply(caller, ..)` (empty result)
+  - `connections/ssh/open {id}` -> `connect.open(&id)`; `connections/ssh/openEphemeral {target, name}` -> `connect.open_ephemeral(&target, &name)`
+  - `AttemptError` is the request error (its Display text is the message the dialog shows).
+- When a protocol connection closes (the dispatcher's connection-closed hook), call `connect.caller_closed(connection_id).await`: its attempts are
+  cancelled and pending questions answered with null.
+- `login::with_login_retry(helpers, prompter, base, run, is_cancelled)` is generic over `LoginOutcome` (implemented for `SshConnectResult` and
+  `SshCleanupResult`): the cleanup task (s2b-ops) calls it with `Attempts::operation_prompter(caller, operation_id, host)`,
+  whose questions the caller answers with `connections/ssh/askpassReply {attemptId: operationId, ...}`.
+- `connect::host_settings(&SshHostSettings) -> HostSettings` converts a saved server's settings for an `AttemptContext` (pub(crate)).
