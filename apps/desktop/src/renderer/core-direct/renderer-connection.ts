@@ -3,8 +3,9 @@
 // window prefix, the section mirror is the client's own store, and nothing is relayed. Every call is mapped by
 // withDirectErrors. Nothing polls: state arrives as sections, liveness is the client library's own ticker.
 import type { ProtocolClient, SessionFold } from '../../../../../packages/protocol-client/src/index.ts';
-import type { DesktopProtocolStatus, DesktopSectionsSnapshot } from '../../shared/contract-sections.ts';
-import { SECTION_NAMES } from '../../shared/contract-sections.ts';
+import type { DesktopProtocolStatus, DesktopSectionChange, DesktopSectionsSnapshot } from '../../shared/contract-sections.ts';
+import { isScopedSectionFeed, SECTION_NAMES } from '../../shared/contract-sections.ts';
+import { scopedSectionChanges, type ScopedFeedRoute } from '../../shared/core-lanes/scoped-sections.ts';
 import { LOGIN_CANCEL_METHODS, LOGIN_START_METHODS, loginFeedId, loginUpdateOf } from '../../shared/core-lanes/login-feed.ts';
 import type {
   ConnectionClient,
@@ -15,7 +16,7 @@ import type {
   ProtocolWindow,
   ServerRequestAnswer,
 } from '../../main/protocol/connection';
-import { withDirectErrors } from './errors.ts';
+import { directError, withDirectErrors } from './errors.ts';
 
 /** `client/activity` is sent at most once per this long (desktop-services.md section 12.3: the rate limit is client-side). */
 export const CLIENT_ACTIVITY_MIN_GAP_MS = 60_000;
@@ -26,12 +27,19 @@ const isFinalLoginState = (state: unknown): boolean => {
   const name = (state as { state?: unknown } | null)?.state;
   return typeof name === 'string' && name !== 'pending';
 };
+/** The core answers `invalidParams` for a feed it does not hold; every other failure is the request's own. */
+const isAbsentFeed = (error: unknown): boolean => {
+  const detail = (error as { detail?: { kind?: unknown; data?: { reason?: unknown } } } | null)?.detail;
+  return detail?.kind === 'rpc' && detail.data?.reason === 'invalidParams';
+};
+const removalsOf = (route: ScopedFeedRoute): DesktopSectionChange[] =>
+  [...route.held.values()].map(({ section, key }) => ({ section, key, entry: null }));
 const toStatus = (state: string): DesktopProtocolStatus =>
   state === 'ready' ? 'ready' : state === 'closed' ? 'closed' : 'reconnecting';
 
 /** What a window of this connection hears: the scoped-feed notifications (`fs/changed`, `system/ports/updated`, login
- *  updates) and the loss of a sign-in feed. */
-export type RendererWindow = Pick<ProtocolWindow, 'notification' | 'loginFeedLost'>;
+ *  updates), the loss of a sign-in feed, and the section changes of the scoped feeds it watches (`push`). */
+export type RendererWindow = Pick<ProtocolWindow, 'notification' | 'loginFeedLost' | 'push'>;
 
 /** How one request leaves for the core. The default is the client call; the size-aware sender plugs in here. */
 export type Sender = (client: ProtocolClient<SessionFold>, method: string, params: unknown) => Promise<unknown>;
@@ -48,7 +56,8 @@ export interface RendererConnectionOptions {
 export type RendererConnection = Pick<
   ProtocolConnection,
   | 'start' | 'reopen' | 'ensureOpen' | 'onReplaced' | 'status' | 'snapshot' | 'whenSynced' | 'attach' | 'call' | 'client'
-  | 'resumeThread' | 'unsubscribeThread' | 'onStoreChange' | 'viewPorts' | 'watchFiles' | 'unwatchFiles' | 'loginFeed'
+  | 'resumeThread' | 'unsubscribeThread' | 'onStoreChange' | 'viewPorts' | 'watchFiles' | 'unwatchFiles' | 'watchFeed'
+  | 'unwatchFeed' | 'loginFeed'
   | 'onEvent' | 'notify' | 'respond' | 'pendingServerRequests' | 'noteUserInput' | 'close'
 > & {
   /** The same client with the library types: what the size-aware sender and the blob calls take. */
@@ -66,6 +75,9 @@ export function createRendererConnection({ open, send: initialSend }: RendererCo
   const replacedListeners = new Set<() => void>();
   const fsWatches = new Map<string, { window: RendererWindow; params: { watchId: string } & Record<string, unknown> }>();
   const loginFeeds = new Map<string, LoginFeedState>();
+  // Scoped feeds that carry sections (`media:<jobId>`), by feed id: who watches them and the sections each holds. The
+  // client's store folds no scoped feed, so this connection folds them (scopedSectionChanges) and pushes the changes.
+  const feedWatches = new Map<string, ScopedFeedRoute>();
   let raw: ProtocolClient<SessionFold> | null = null;
   let client: ConnectionClient | null = null;
   let status: DesktopProtocolStatus = 'reconnecting';
@@ -156,6 +168,50 @@ export function createRendererConnection({ open, send: initialSend }: RendererCo
       void restored.call('fs/watch', params).catch(() => void fsWatches.delete(watchId));
     }
     if (portViewers.size > 0) void restored.call('system/ports/subscribe', {}).catch(() => undefined);
+    for (const feedId of [...feedWatches.keys()]) {
+      void restored.call('feed/subscribe', { feedId }).catch((error: unknown) => {
+        // Only a feed the core does not hold is gone; any other failure keeps what the windows hold and tells them.
+        if (isAbsentFeed(error)) return dropFeed(feedId);
+        const message = error instanceof Error ? error.message : String(error);
+        for (const window of [...(feedWatches.get(feedId)?.windows ?? [])]) window.push({ kind: 'feedError', feedId, message });
+      });
+    }
+  };
+  /** Forgets a feed the core no longer has and removes the sections it held from its watchers. */
+  const dropFeed = (feedId: string): void => {
+    const route = feedWatches.get(feedId);
+    feedWatches.delete(feedId);
+    if (!route) return;
+    const changes = removalsOf(route);
+    if (changes.length) for (const window of [...route.windows]) window.push({ kind: 'sections', changes });
+  };
+  const watchFeed = async (window: RendererWindow, feedId: string): Promise<{ absent: boolean }> => {
+    const live = await connectedAfterFirstOpen();
+    const known = feedWatches.get(feedId);
+    if (known) {
+      known.windows.add(window);
+      const changes = [...known.held.values()].map((entry) => ({ section: entry.section, key: entry.key, entry }));
+      if (changes.length) window.push({ kind: 'sections', changes });
+      return { absent: false };
+    }
+    feedWatches.set(feedId, { windows: new Set([window]), held: new Map() });
+    try {
+      await live.call('feed/subscribe', { feedId });
+      return { absent: false };
+    } catch (error) {
+      feedWatches.delete(feedId);
+      if (isAbsentFeed(error)) return { absent: true };
+      throw directError(error);
+    }
+  };
+  const leaveFeed = (window: RendererWindow, feedId: string): ScopedFeedRoute | undefined => {
+    const route = feedWatches.get(feedId);
+    if (!route || !route.windows.delete(window)) return undefined;
+    if (route.windows.size === 0) {
+      feedWatches.delete(feedId);
+      if (client) void client.call('feed/unsubscribe', { feedId }).catch(() => undefined);
+    }
+    return route;
   };
   const viewPorts = async (window: RendererWindow, viewing: boolean): Promise<void> => {
     const wasViewed = portViewers.size > 0;
@@ -213,6 +269,12 @@ export function createRendererConnection({ open, send: initialSend }: RendererCo
         const followed = login ? loginFeeds.get(login.flowId) : undefined;
         if (login && followed) followed.state = login.state;
         for (const window of [...windows]) window.notification(method, params);
+        const feedId = (event as { notification: { feed?: { id: string } } }).notification.feed?.id;
+        const route = feedId === undefined ? undefined : feedWatches.get(feedId);
+        if (route) {
+          const changes = scopedSectionChanges(route, method, params);
+          if (changes.length) for (const window of [...route.windows]) window.push({ kind: 'sections', changes });
+        }
       }
     });
     await loose.subscribeApp();
@@ -294,6 +356,7 @@ export function createRendererConnection({ open, send: initialSend }: RendererCo
         windows.delete(window);
         for (const [watchId, owner] of [...fsWatches]) if (owner.window === window) unwatchQuietly(watchId);
         if (portViewers.has(window)) void viewPorts(window, false).catch(() => undefined);
+        for (const feedId of [...feedWatches.keys()]) leaveFeed(window, feedId);
       };
     },
     async watchFiles(window, params) {
@@ -312,7 +375,21 @@ export function createRendererConnection({ open, send: initialSend }: RendererCo
       return withDirectErrors(connected().call('fs/unwatch', { watchId }));
     },
     viewPorts,
+    watchFeed,
+    async unwatchFeed(window, feedId) {
+      const route = leaveFeed(window, feedId);
+      const changes = route ? removalsOf(route) : [];
+      if (changes.length) window.push({ kind: 'sections', changes });
+    },
     async call(method, params) {
+      if (method === 'feed/subscribe' || method === 'feed/unsubscribe') {
+        // The window's own feed methods (the window IPC branch): a feed that carries sections is this connection's to
+        // follow so the window gets its sections; no other feed is the window's to open.
+        const feedId = (params as { feedId?: unknown } | null)?.feedId;
+        const [window] = windows;
+        if (!isScopedSectionFeed(feedId) || !window) throw new Error('This feed is not available to the window.');
+        return method === 'feed/subscribe' ? connection.watchFeed(window, feedId) : connection.unwatchFeed(window, feedId);
+      }
       const live = await connectedAfterFirstOpen();
       const reply = await withDirectErrors(request(method, params));
       const flow = (LOGIN_START_METHODS.has(method) ? reply : params) as { flowId?: unknown } | null;
@@ -360,6 +437,7 @@ export function createRendererConnection({ open, send: initialSend }: RendererCo
       windows.clear();
       portViewers.clear();
       fsWatches.clear();
+      feedWatches.clear();
       loginFeeds.clear();
       replacedListeners.clear();
       storeListeners.clear();
