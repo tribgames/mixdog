@@ -77,7 +77,8 @@ mod tests {
             assert!(method.starts_with("host/") || ["modelProxy/run", "process/kill", "process/resizePty", "process/spawn", "process/writeStdin",
                 "connections/endpoint", "projectFs/localPage/revokeOwner", "test/browserEngine/run", "migrate/profile/adopt", "dev/computer/run",
                 "connections/ssh/openEphemeral", "computer/userControl", "desktop/workflowConfig/read", "migrate/profile/status",
-                "projectFs/localPage/virtual"].contains(&method), "{method} is not a host-role method");
+                "projectFs/localPage/virtual", "computer/bridge/run", "computer/bridge/abort", "desktop/launchVersion/record",
+                "desktop/modelBootstrap/read", "desktop/nativeToolCache/gc"].contains(&method), "{method} is not a host-role method");
         }
         assert!(allows_initialize(&params(r#"{"clientInfo":{"name":"w","version":"1","kind":"desktop"},"capabilities":{"host":{}}}"#)).is_err());
         assert!(allows_initialize(&params(r#"{"clientInfo":{"name":"w","version":"1","kind":"desktop"},"capabilities":{"modelProxy":true}}"#)).is_err());
@@ -101,7 +102,10 @@ mod tests {
             "connections/ssh/open", "connections/link/get", "connections/ports/forward", "remoteHosts/list", "remoteHosts/redeemCode",
             "remoteHosts/rename", "remoteHosts/forget", "remoteHosts/presence", "pcAccess/readiness", "pcAccess/approve", "takeover/ready",
             "desktop/link/resolve", "desktop/attachment/resolve", "desktop/attachment/stage", "desktop/fonts/list", "projectFs/grant/describe",
-            "projectFs/grant/redeem"] {
+            "projectFs/grant/redeem",
+            // x-residual-moves-b: the link, thumbnail, attachment, save-as, what's-new and Linux input-access lanes reach these through main.
+            "desktop/localLink/open", "desktop/attachment/thumbnail", "desktop/attachment/write", "desktop/userFile/write",
+            "desktop/launchVersion/acknowledge", "desktop/computer/inputAccess/request"] {
             assert!(allows(method).is_ok(), "{method}");
         }
     }

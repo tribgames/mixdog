@@ -2355,16 +2355,6 @@
   },
   {
     "client": "desktop",
-    "method": "projectFs/previewFile",
-    "params": {
-      "rel": "rel-1",
-      "root": "root-1"
-    },
-    "source": "apps/desktop/src/renderer/core-direct/api-files.ts:projectFs/previewFile",
-    "case": "required fields"
-  },
-  {
-    "client": "desktop",
     "method": "projectFs/captureSnapshot",
     "params": {
       "rel": "rel-1",
@@ -2408,6 +2398,27 @@
   },
   {
     "client": "desktop",
+    "method": "approval/provideSecret",
+    "params": {
+      "opId": "0190f3c2-7a31-7c00-8000-000000000239",
+      "requestId": "requestId-1",
+      "secret": "secret-1"
+    },
+    "source": "apps/desktop/src/renderer/core-direct/api-takeover.ts:approval/provideSecret",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "takeover/ready",
+    "params": {
+      "sessionId": "sessionId-1",
+      "takeoverId": "takeoverId-1"
+    },
+    "source": "apps/desktop/src/renderer/core-direct/api-takeover.ts:takeover/ready",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
     "method": "turn/steer",
     "params": {
       "queuedId": "queuedId-1",
@@ -2421,20 +2432,9 @@
     "method": "thread/start",
     "params": {
       "kind": "project",
-      "opId": "0190f3c2-7a31-7c00-8000-000000000239"
+      "opId": "0190f3c2-7a31-7c00-8000-000000000240"
     },
     "source": "apps/desktop/src/renderer/remote-capability-lane.ts:thread/start",
-    "case": "required fields"
-  },
-  {
-    "client": "desktop",
-    "method": "approval/provideSecret",
-    "params": {
-      "opId": "0190f3c2-7a31-7c00-8000-000000000240",
-      "requestId": "requestId-1",
-      "secret": "secret-1"
-    },
-    "source": "apps/desktop/src/renderer/remote-chat-host.ts:approval/provideSecret",
     "case": "required fields"
   },
   {
@@ -2785,6 +2785,16 @@
       "root": "root-1"
     },
     "source": "apps/desktop/src/renderer/remote-protocol-files.ts:projectFs/writeTextBatch",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "projectFs/previewFile",
+    "params": {
+      "rel": "rel-1",
+      "root": "root-1"
+    },
+    "source": "apps/desktop/src/renderer/remote-protocol-files.ts:projectFs/previewFile",
     "case": "required fields"
   },
   {
@@ -6142,6 +6152,16 @@
       "scope": "desktop"
     },
     "source": "apps/desktop/src/renderer/core-direct/api-capabilities.ts:ui/settings/announce",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
+    "method": "takeover/ready",
+    "params": {
+      "sessionId": "sessionId-1",
+      "takeoverId": "takeoverId-1"
+    },
+    "source": "apps/desktop/src/renderer/core-direct/api-takeover.ts:takeover/ready",
     "case": "every optional field"
   },
   {

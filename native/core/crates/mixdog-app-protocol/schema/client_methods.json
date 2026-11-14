@@ -1932,6 +1932,145 @@
       ],
       "type": "string"
     },
+    "ComputerBridgeAbortParams": {
+      "description": "Params of `computer/bridge/abort` (desktop -> core).",
+      "properties": {
+        "sessionKey": {
+          "type": "string"
+        },
+        "signalId": {
+          "description": "The call to end; absent: the whole session is aborted.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "sessionKey"
+      ],
+      "type": "object"
+    },
+    "ComputerBridgeAbortResult": {
+      "description": "Result of `computer/bridge/abort`.",
+      "properties": {
+        "cancelled": {
+          "description": "How many running or queued calls were cancelled.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "ok": {
+          "description": "False when a session abort's cleanup was not confirmed.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "cancelled",
+        "ok"
+      ],
+      "type": "object"
+    },
+    "ComputerBridgeImage": {
+      "description": "The image of a bridge reply.",
+      "properties": {
+        "data": {
+          "description": "Base64.",
+          "type": "string"
+        },
+        "mimeType": {
+          "description": "`image/png` or `image/jpeg`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "data",
+        "mimeType"
+      ],
+      "type": "object"
+    },
+    "ComputerBridgeRunParams": {
+      "description": "Params of `computer/bridge/run` (desktop -> core): one command of the loopback computer bridge, for the session it names.",
+      "properties": {
+        "command": {
+          "description": "The bridge's wire command (`ComputerCommand`): an object with `action` and the action's fields; `session_id`, `turn_id` and `runtime_id` ride in it."
+        },
+        "sessionKey": {
+          "description": "The session the command runs in (the bridge's `session_id`, `default` when it names none).",
+          "type": "string"
+        },
+        "signalId": {
+          "description": "Names this call for `computer/bridge/abort`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command",
+        "sessionKey",
+        "signalId"
+      ],
+      "type": "object"
+    },
+    "ComputerBridgeRunResult": {
+      "description": "Result of `computer/bridge/run`: the bridge's own answer.",
+      "properties": {
+        "error": {
+          "description": "The redacted message of why the command failed.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "status": {
+          "description": "The HTTP status the bridge answers when it is not 200: 400 (invalid request) or 429 (the allowance of concurrent requests is spent).",
+          "format": "uint16",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "value": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ComputerBridgeValue"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "ok"
+      ],
+      "type": "object"
+    },
+    "ComputerBridgeValue": {
+      "description": "A bridge reply (`ComputerCommandResult`).",
+      "properties": {
+        "image": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ComputerBridgeImage"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "type": "object"
+    },
     "ComputerTakeoverReason": {
       "description": "Why a `takeover` of the user's hold is raised (`computer/userControl`).",
       "enum": [
@@ -3608,9 +3747,86 @@
       ],
       "type": "object"
     },
+    "DesktopAttachmentThumbnailParams": {
+      "additionalProperties": false,
+      "description": "Params of `desktop/attachment/thumbnail`: the attachment's content hash (anything else answers `dataUrl: null`).",
+      "properties": {
+        "attachmentRef": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "attachmentRef"
+      ],
+      "type": "object"
+    },
+    "DesktopAttachmentWriteParams": {
+      "additionalProperties": false,
+      "description": "Params of `desktop/attachment/write`: a `data:` URL and the attachment's name (any text; its extension is checked against an allowlist).",
+      "properties": {
+        "dataUrl": {
+          "type": "string"
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "dataUrl"
+      ],
+      "type": "object"
+    },
+    "DesktopComputerInputAccessRequestParams": {
+      "additionalProperties": false,
+      "description": "Params of `desktop/computer/inputAccess/request`: none.",
+      "type": "object"
+    },
     "DesktopFontsListParams": {
       "additionalProperties": false,
       "description": "Params of `desktop/fonts/list`: none. Answers `{families: string[]}`.",
+      "type": "object"
+    },
+    "DesktopLaunchVersionAcknowledgeParams": {
+      "additionalProperties": false,
+      "description": "Params of `desktop/launchVersion/acknowledge`: the record file and the version whose notice was shown.",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "version"
+      ],
+      "type": "object"
+    },
+    "DesktopLaunchVersionRecordParams": {
+      "additionalProperties": false,
+      "description": "Params of `desktop/launchVersion/record`: the record file, the launched version and the process arguments (`--updated` marks a relaunch after an update).",
+      "properties": {
+        "argv": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "path": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "version"
+      ],
       "type": "object"
     },
     "DesktopLinkResolveParams": {
@@ -3648,6 +3864,50 @@
       },
       "required": [
         "path"
+      ],
+      "type": "object"
+    },
+    "DesktopLocalLinkOpenParams": {
+      "additionalProperties": false,
+      "description": "Params of `desktop/localLink/open`: the project folder (absolute), the link's href, and the path the user confirmed (an executable target).",
+      "properties": {
+        "confirmedPath": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "href": {
+          "type": "string"
+        },
+        "projectPath": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "href",
+        "projectPath"
+      ],
+      "type": "object"
+    },
+    "DesktopModelBootstrapReadParams": {
+      "additionalProperties": false,
+      "description": "Params of `desktop/modelBootstrap/read`: none.",
+      "type": "object"
+    },
+    "DesktopNativeToolCacheGcParams": {
+      "additionalProperties": false,
+      "description": "Params of `desktop/nativeToolCache/gc`: the kinds of native tool a bundled copy now serves (`graph`, `patch`, `spawn`, `supervisor`; others are ignored).",
+      "properties": {
+        "bundledKinds": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "bundledKinds"
       ],
       "type": "object"
     },
@@ -3946,6 +4206,31 @@
       },
       "required": [
         "prefs"
+      ],
+      "type": "object"
+    },
+    "DesktopUserFileWriteParams": {
+      "additionalProperties": false,
+      "description": "Params of `desktop/userFile/write`: the file and exactly one of `text` (UTF-8) and `dataBase64`.",
+      "properties": {
+        "dataBase64": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "type": "string"
+        },
+        "text": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "path"
       ],
       "type": "object"
     },
@@ -22581,6 +22866,22 @@
       },
       "result": true
     },
+    "computer/bridge/abort": {
+      "params": {
+        "$ref": "#/definitions/ComputerBridgeAbortParams"
+      },
+      "result": {
+        "$ref": "#/definitions/ComputerBridgeAbortResult"
+      }
+    },
+    "computer/bridge/run": {
+      "params": {
+        "$ref": "#/definitions/ComputerBridgeRunParams"
+      },
+      "result": {
+        "$ref": "#/definitions/ComputerBridgeRunResult"
+      }
+    },
     "computer/userControl": {
       "params": {
         "$ref": "#/definitions/ComputerUserControlParams"
@@ -23285,9 +23586,39 @@
       },
       "result": true
     },
+    "desktop/attachment/thumbnail": {
+      "params": {
+        "$ref": "#/definitions/DesktopAttachmentThumbnailParams"
+      },
+      "result": true
+    },
+    "desktop/attachment/write": {
+      "params": {
+        "$ref": "#/definitions/DesktopAttachmentWriteParams"
+      },
+      "result": true
+    },
+    "desktop/computer/inputAccess/request": {
+      "params": {
+        "$ref": "#/definitions/DesktopComputerInputAccessRequestParams"
+      },
+      "result": true
+    },
     "desktop/fonts/list": {
       "params": {
         "$ref": "#/definitions/DesktopFontsListParams"
+      },
+      "result": true
+    },
+    "desktop/launchVersion/acknowledge": {
+      "params": {
+        "$ref": "#/definitions/DesktopLaunchVersionAcknowledgeParams"
+      },
+      "result": true
+    },
+    "desktop/launchVersion/record": {
+      "params": {
+        "$ref": "#/definitions/DesktopLaunchVersionRecordParams"
       },
       "result": true
     },
@@ -23300,6 +23631,30 @@
     "desktop/link/resolvePath": {
       "params": {
         "$ref": "#/definitions/DesktopLinkResolvePathParams"
+      },
+      "result": true
+    },
+    "desktop/localLink/open": {
+      "params": {
+        "$ref": "#/definitions/DesktopLocalLinkOpenParams"
+      },
+      "result": true
+    },
+    "desktop/modelBootstrap/read": {
+      "params": {
+        "$ref": "#/definitions/DesktopModelBootstrapReadParams"
+      },
+      "result": true
+    },
+    "desktop/nativeToolCache/gc": {
+      "params": {
+        "$ref": "#/definitions/DesktopNativeToolCacheGcParams"
+      },
+      "result": true
+    },
+    "desktop/userFile/write": {
+      "params": {
+        "$ref": "#/definitions/DesktopUserFileWriteParams"
       },
       "result": true
     },

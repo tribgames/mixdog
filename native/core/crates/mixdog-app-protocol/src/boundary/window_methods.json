@@ -1,9 +1,14 @@
 {
   "version": 2,
   "methods": [
+    "computer/bridge/abort",
+    "computer/bridge/run",
     "computer/userControl",
     "connections/endpoint",
     "connections/ssh/openEphemeral",
+    "desktop/launchVersion/record",
+    "desktop/modelBootstrap/read",
+    "desktop/nativeToolCache/gc",
     "desktop/workflowConfig/read",
     "dev/computer/run",
     "host/claim",

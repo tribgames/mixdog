@@ -837,6 +837,12 @@ pub struct BrowserPageReadOptions {
     /// Where a text read starts, in UTF-16 units: a text longer than one read returns is read in parts.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub offset: Option<u32>,
+    /// With a `selector`: the attributes of each match to bring back (at most 12; the host's own six when none is named).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attributes: Option<Vec<String>>,
+    /// With a `selector`: how many matches to take rows of (the count of all of them is still answered).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
 }
 
 /// `host/browser/page/read`.
@@ -1531,6 +1537,10 @@ pub struct HostBrowserEmulationResult {
     #[serde(default)]
     #[cfg_attr(feature = "codegen", ts(optional = false))]
     pub applied: Option<EmulationSpec>,
+    /// What the host configured, in the command's words (`userAgent`, `locale=ko-KR`, `media`, ...), the siblings of a group the page kept included.
+    /// Absent when overrides were cleared.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub labels: Option<Vec<String>>,
     pub facts: PageFacts,
 }
 
@@ -1617,6 +1627,37 @@ pub struct HostBrowserUploadResult {
     pub verified: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub receiver: Option<BrowserUploadReceiver>,
+    pub facts: PageFacts,
+}
+
+/// `host/browser/upload/receiver`: the frame document that would receive an upload now. With a `ref`, the document the element lives in, read from the
+/// element itself (the same frame of the same origin and a cross-origin one are told apart; a reload to the same URL is a new document); without one,
+/// the document of the picker the page already opened. `key` is what an approval binds and `host/browser/upload` compares again before it dispatches;
+/// `url` is what the approval card shows. A document that cannot be identified is a -32000 failure.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct HostBrowserUploadReceiverParams {
+    pub page_id: String,
+    /// The snapshot the ref belongs to; read only with a ref.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snapshot_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "ref")]
+    #[cfg_attr(feature = "codegen", ts(rename = "ref"))]
+    pub ref_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expect: Option<Precondition>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct HostBrowserUploadReceiverResult {
+    pub key: String,
+    pub url: String,
     pub facts: PageFacts,
 }
 

@@ -607,6 +607,84 @@ pub struct ComputerUserControlResult {
     pub ok: bool,
 }
 
+/// Params of `computer/bridge/run` (desktop -> core): one command of the loopback computer bridge, for the session it names.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct ComputerBridgeRunParams {
+    /// The bridge's wire command (`ComputerCommand`): an object with `action` and the action's fields; `session_id`, `turn_id` and `runtime_id` ride in it.
+    pub command: JsonValue,
+    /// The session the command runs in (the bridge's `session_id`, `default` when it names none).
+    pub session_key: String,
+    /// Names this call for `computer/bridge/abort`.
+    pub signal_id: String,
+}
+
+/// The image of a bridge reply.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct ComputerBridgeImage {
+    /// Base64.
+    pub data: String,
+    /// `image/png` or `image/jpeg`.
+    pub mime_type: String,
+}
+
+/// A bridge reply (`ComputerCommandResult`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct ComputerBridgeValue {
+    pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image: Option<ComputerBridgeImage>,
+}
+
+/// Result of `computer/bridge/run`: the bridge's own answer.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct ComputerBridgeRunResult {
+    pub ok: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<ComputerBridgeValue>,
+    /// The redacted message of why the command failed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    /// The HTTP status the bridge answers when it is not 200: 400 (invalid request) or 429 (the allowance of concurrent requests is spent).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<u16>,
+}
+
+/// Params of `computer/bridge/abort` (desktop -> core).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct ComputerBridgeAbortParams {
+    pub session_key: String,
+    /// The call to end; absent: the whole session is aborted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signal_id: Option<String>,
+}
+
+/// Result of `computer/bridge/abort`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct ComputerBridgeAbortResult {
+    /// False when a session abort's cleanup was not confirmed.
+    pub ok: bool,
+    /// How many running or queued calls were cancelled.
+    pub cancelled: u32,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 pub struct HostSystemProxyResolveParams {
