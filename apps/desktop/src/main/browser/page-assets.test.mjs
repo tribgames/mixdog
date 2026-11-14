@@ -53,9 +53,11 @@ function refPointProbeSource() {
   );
 }
 
-test('editability and stable-rect assets equal the TypeScript sources', () => {
+test('editability, stable-rect, frame-transform and document-roots assets equal the TypeScript sources', () => {
   assert.equal(asset('editability.js'), BROWSER_EDITABILITY_CHECK);
   assert.equal(asset('stable-rect.js'), BROWSER_STABLE_RECT);
+  assert.equal(asset('frame-transform.js'), BROWSER_FRAME_HAS_TRANSFORM);
+  assert.equal(asset('document-roots.js'), BROWSER_DOCUMENT_ROOTS);
 });
 
 test('file-drop asset equals every drop guard source', () => {
@@ -131,7 +133,7 @@ test('ref-point-probe asset equals the probe function of ref-point-probe.ts', ()
 test('every asset parses as page JavaScript once its placeholders are filled', () => {
   const filled = (text) => text.replace(/__MIXDOG_[A-Z_]+__/g, '(function() {})');
   const files = fs.readdirSync(ASSETS).filter((name) => name.endsWith('.js'));
-  assert.equal(files.length, 8);
+  assert.equal(files.length, 10);
   for (const name of files) {
     const bodies = asset(name).includes('//@@ ') ? Object.values(sections(name)) : [asset(name)];
     for (const body of bodies) {
