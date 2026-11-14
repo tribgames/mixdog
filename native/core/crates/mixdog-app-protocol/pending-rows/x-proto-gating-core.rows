@@ -1,0 +1,14 @@
+[methods]
+[server_requests]
+[notifications]
+[inventory]
+[free_text]
+[type_edits]
+file: native/core/crates/mixdog-app-protocol/src/v2/host.rs
+struct: HostClaimParams
+add after the `resources` field:
+    /// The `host/*` methods this claimant serves. Absent: every method of the capabilities declared in `capabilities.host`
+    /// (the boolean routing); present: a request for a method not listed is not sent to this claimant (`unsupportedMethod`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub serves: Option<Vec<String>>,
+[window]

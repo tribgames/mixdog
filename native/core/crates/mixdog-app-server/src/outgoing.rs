@@ -128,6 +128,8 @@ struct Claim {
     generation: u64,
     conn: Arc<Connection>,
     serves: Vec<HostCapability>,
+    /// The `host/*` methods the claimant listed in `host/claim` (`serves`); `None` serves every method of its capabilities.
+    methods: Option<HashSet<String>>,
     /// What the [`ClaimHook`] attached; dropped with the claim.
     _attached: Option<Box<dyn Any + Send>>,
 }
@@ -149,6 +151,17 @@ fn serves(declared: &HostCapabilities) -> Vec<HostCapability> {
     .into_iter()
     .filter_map(|(on, capability)| on.then_some(capability))
     .collect()
+}
+
+impl Claim {
+    /// Whether this claim serves `method` of `capability`: the capability was declared, and the method is listed or no list was given.
+    fn takes(&self, capability: HostCapability, method: Option<Method>) -> bool {
+        self.serves.contains(&capability)
+            && match (&self.methods, method) {
+                (Some(listed), Some(method)) => listed.contains(method.as_str()),
+                _ => true,
+            }
+    }
 }
 
 impl Outgoing {
@@ -288,8 +301,9 @@ impl Outgoing {
 
     /// Records `conn` as the newest host claimant for what it declared at `initialize`. A
     /// connection holds one claim, and a `hostId` is held by one connection (a reconnecting
-    /// desktop replaces its stale claim).
-    pub(crate) fn claim(&self, host: HostId, conn: &Arc<Connection>) {
+    /// desktop replaces its stale claim). `methods` is the `serves` list of `host/claim`: when given, the claimant is
+    /// chosen only for the methods in it.
+    pub(crate) fn claim(&self, host: HostId, conn: &Arc<Connection>, methods: Option<HashSet<String>>) {
         // The claim is queued work: its connection may have closed (and been unregistered) before
         // it runs, and a claim recorded after that would never be forgotten.
         let mut hosts = lock(&self.hosts);
@@ -310,6 +324,7 @@ impl Outgoing {
             generation: self.next_claim.fetch_add(1, Ordering::Relaxed),
             conn: Arc::clone(conn),
             serves,
+            methods,
             _attached: attached,
         });
     }
@@ -321,19 +336,20 @@ impl Outgoing {
         ))
     }
 
-    fn claimant(&self, capability: HostCapability) -> Result<Arc<Connection>, CoreError> {
+    /// The connection serving `capability`: the latest claim that declared it and, for a `method`, listed it or gave no list.
+    /// `unsupportedMethod` when a claim serves the capability but none takes the method.
+    fn claimant(&self, capability: HostCapability, method: Option<Method>) -> Result<Arc<Connection>, CoreError> {
         if capability == HostCapability::ModelProxy {
             return lock(&self.model_proxies)
                 .last()
                 .cloned()
                 .ok_or_else(|| desktop_host_unavailable("noClaimant"));
         }
-        lock(&self.hosts)
-            .iter()
-            .rev()
-            .find(|claim| claim.serves.contains(&capability))
-            .map(|claim| Arc::clone(&claim.conn))
-            .ok_or_else(|| desktop_host_unavailable("noClaimant"))
+        let hosts = lock(&self.hosts);
+        match hosts.iter().rev().find(|claim| claim.takes(capability, method)) {
+            Some(claim) => Ok(Arc::clone(&claim.conn)),
+            None => Err(no_claim(&hosts, capability)),
+        }
     }
 
     /// One request to `claimant`, answered or failed as its connection ends. The wait ends at
@@ -374,7 +390,7 @@ impl Outgoing {
         match scope.deadline(capability.deadline().map(|limit| Instant::now() + limit)).run(reply).await {
             Scoped::Done(Ok(reply)) => {
                 abandon.answered = true;
-                reply
+                method_not_found(reply)
             }
             // A closed claimant needs no word.
             Scoped::Done(Err(_)) => {
@@ -387,20 +403,35 @@ impl Outgoing {
     }
 
     /// The claim now serving `capability`, with its connection.
-    fn current_claim(&self, capability: HostCapability) -> Result<(mixdog_core_api::HostClaim, Arc<Connection>), CoreError> {
-        lock(&self.hosts)
-            .iter()
-            .rev()
-            .find(|claim| claim.serves.contains(&capability))
-            .map(|claim| {
+    fn current_claim(&self, capability: HostCapability, method: Method) -> Result<(mixdog_core_api::HostClaim, Arc<Connection>), CoreError> {
+        let hosts = lock(&self.hosts);
+        match hosts.iter().rev().find(|claim| claim.takes(capability, Some(method))) {
+            Some(claim) => {
                 let identity = mixdog_core_api::HostClaim {
                     host: claim.host.clone(),
                     connection: claim.conn.id,
                     generation: claim.generation,
                 };
-                (identity, Arc::clone(&claim.conn))
-            })
-            .ok_or_else(|| desktop_host_unavailable("noClaimant"))
+                Ok((identity, Arc::clone(&claim.conn)))
+            }
+            None => Err(no_claim(&hosts, capability)),
+        }
+    }
+}
+
+/// Why no claim takes a request: none serves the capability (`noClaimant`), or some do and none lists the method.
+fn no_claim(hosts: &[Claim], capability: HostCapability) -> CoreError {
+    desktop_host_unavailable(if hosts.iter().any(|claim| claim.serves.contains(&capability)) { UNSUPPORTED_METHOD } else { "noClaimant" })
+}
+
+/// The detail of a method the serving claimant did not list, or answered as JSON-RPC method-not-found.
+const UNSUPPORTED_METHOD: &str = "unsupportedMethod";
+
+/// A claimant's method-not-found answer (-32601) is the same failure as a method it did not list.
+fn method_not_found(reply: Result<Value, HostError>) -> Result<Value, HostError> {
+    match reply {
+        Err(HostError::Rpc { code: -32601, .. }) => Err(desktop_host_unavailable(UNSUPPORTED_METHOD).into()),
+        other => other,
     }
 }
 fn desktop_host_unavailable(detail: &str) -> CoreError {
@@ -495,14 +526,14 @@ impl Drop for AbandonOnDrop {
 #[async_trait]
 impl mixdog_core_api::ClaimedHostChannel for Outgoing {
     async fn request_claimed(&self, capability: HostCapability, method: Method, params: Value) -> Result<(mixdog_core_api::HostClaim, Value), HostError> {
-        let (claim, claimant) = self.current_claim(capability)?;
+        let (claim, claimant) = self.current_claim(capability, method)?;
         let answer = self.ask(claimant, capability, method, params, None).await?;
         Ok((claim, answer))
     }
 
     async fn request_to(&self, claim: &mixdog_core_api::HostClaim, capability: HostCapability, method: Method, params: Value) -> Result<Value, HostError> {
         // Checked as the request is sent: the claim must still be the one serving the capability.
-        let (current, claimant) = self.current_claim(capability)?;
+        let (current, claimant) = self.current_claim(capability, method)?;
         if &current != claim {
             return Err(desktop_host_unavailable("claimantChanged").into());
         }
@@ -513,7 +544,7 @@ impl mixdog_core_api::ClaimedHostChannel for Outgoing {
 #[async_trait]
 impl HostChannel for Outgoing {
     fn serves(&self, capability: HostCapability) -> bool {
-        self.claimant(capability).is_ok()
+        self.claimant(capability, None).is_ok()
     }
 
     async fn request(
@@ -522,7 +553,7 @@ impl HostChannel for Outgoing {
         method: Method,
         params: Value,
     ) -> Result<Value, HostError> {
-        let claimant = self.claimant(capability)?;
+        let claimant = self.claimant(capability, Some(method))?;
         self.ask(claimant, capability, method, params, None).await
     }
 
@@ -533,7 +564,7 @@ impl HostChannel for Outgoing {
         params: Value,
         cancel: &CancellationToken,
     ) -> Result<Value, HostError> {
-        let claimant = self.claimant(capability)?;
+        let claimant = self.claimant(capability, Some(method))?;
         self.ask(claimant, capability, method, params, Some(cancel)).await
     }
 
@@ -543,7 +574,7 @@ impl HostChannel for Outgoing {
         method: Method,
         params: Value,
     ) -> Result<(), CoreError> {
-        self.claimant(capability)?
+        self.claimant(capability, Some(method))?
             .sink
             .send_control(notification_frame(method.as_str(), params))
             .map_err(|_| desktop_host_unavailable("claimantClosed"))
@@ -556,7 +587,7 @@ impl HostChannel for Outgoing {
         params: Value,
         on_event: &mut (dyn FnMut(Value) + Send),
     ) -> Result<Value, HostError> {
-        let claimant = self.claimant(capability)?;
+        let claimant = self.claimant(capability, Some(method))?;
         let id = self.next_host_id();
         let mut stream = claimant
             .register_host_stream(id.clone(), method)
@@ -588,7 +619,7 @@ impl HostChannel for Outgoing {
                 Scoped::Done(Some(Streamed::Alive)) => claimed = true,
                 Scoped::Done(Some(Streamed::Done(reply))) => {
                     cancel.answered = true;
-                    return reply;
+                    return method_not_found(reply);
                 }
                 Scoped::Done(None) => {
                     cancel.answered = true;
