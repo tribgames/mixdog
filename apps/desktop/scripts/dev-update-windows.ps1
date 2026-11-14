@@ -27,7 +27,7 @@
                   this script did not deploy last, fall back to win-unpacked.
 
   The core is built with cargo in the `release` profile, the published
-  build's (`cargo build --release -p mixdog-cli --bin mixdogd`, in the checkout
+  build's (`cargo build --release -p mixdog-cli --bin mixdogd -p mixdog-askpass --bin mixdog-askpass`, in the checkout
   that holds native\core, through this PC's build gate when it is there, so
   the build lands in the gate's folder and no second one is made beside it),
   and staged by `stage-core.mjs --binary`; a local deploy ships no
@@ -118,6 +118,7 @@ function Assert-DesktopCoreArtifact {
     # What the app starts (local-core.ts) and what the core reads (core-layout.mjs).
     foreach ($relative in @(
             'resources\core\mixdogd.exe',
+            'resources\core\mixdog-askpass.exe',
             'resources\core\js-runtime.json',
             'resources\runtime.asar.unpacked\node_modules\mixdog\package.json',
             'resources\runtime.asar.unpacked\node_modules\mixdog\src\ext-host\worker.mjs'
@@ -563,12 +564,12 @@ function Build-LocalCore {
     }
     # The published build's profile: the app on this PC is the one its user works in, so it runs what a release
     # runs. A change is checked before this, by its tests and in an isolated instance on a `dev` build.
-    Write-Step 'building mixdogd (cargo build --release -p mixdog-cli --bin mixdogd)'
+    Write-Step 'building mixdogd and mixdog-askpass (cargo build --release -p mixdog-cli --bin mixdogd -p mixdog-askpass --bin mixdog-askpass)'
     if ($FastDirect -and $fastPlan) {
         & node $fastDirectHelper --action=assert-core-source "--plan=$FastPlanPath" "--source-root=$coreBuildRoot" | Out-Host
         if ($LASTEXITCODE -ne 0) { throw 'FastDirect core sources changed after planning.' }
     }
-    $cargoArguments = @('build', '--release', '--locked', '-p', 'mixdog-cli', '--bin', 'mixdogd')
+    $cargoArguments = @('build', '--release', '--locked', '-p', 'mixdog-cli', '--bin', 'mixdogd', '-p', 'mixdog-askpass', '--bin', 'mixdog-askpass')
     Push-Location (Join-Path $coreBuildRoot 'native\core')
     try {
         if (Test-Path -LiteralPath $cargoGate -PathType Leaf) {
@@ -592,6 +593,8 @@ function Build-LocalCore {
     }
     $built = Get-BuiltCorePath
     if (-not (Test-Path -LiteralPath $built -PathType Leaf)) { throw "cargo did not produce $built" }
+    $builtAskpass = Join-Path (Split-Path -Parent $built) 'mixdog-askpass.exe'
+    if (-not (Test-Path -LiteralPath $builtAskpass -PathType Leaf)) { throw "cargo did not produce $builtAskpass" }
     return $built
 }
 
@@ -1076,8 +1079,14 @@ function Install-IncrementalBuild {
             $builtCore = Get-BuiltCorePath
             if (-not (Test-Path -LiteralPath $builtCore -PathType Leaf)) { throw "Built core is missing: $builtCore" }
             $installedCore = Join-Path $installedResources 'core\mixdogd.exe'
+            # The ssh askpass helper is built with the core and sits beside it.
+            $builtAskpass = Join-Path (Split-Path -Parent $builtCore) 'mixdog-askpass.exe'
+            if (-not (Test-Path -LiteralPath $builtAskpass -PathType Leaf)) { throw "Built askpass helper is missing: $builtAskpass" }
+            $installedAskpass = Join-Path $installedResources 'core\mixdog-askpass.exe'
             Backup-InstalledArtifact $installedCore 'mixdogd.exe'
             Copy-Item -LiteralPath $builtCore -Destination $installedCore
+            if (Test-Path -LiteralPath $installedAskpass -PathType Leaf) { Backup-InstalledArtifact $installedAskpass 'mixdog-askpass.exe' }
+            Copy-Item -LiteralPath $builtAskpass -Destination $installedAskpass -Force
         }
 
         if (-not $NoLaunch) {

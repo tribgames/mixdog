@@ -20,6 +20,7 @@ function resources() {
   const desktop = install('desktop', 'linux', 'x64');
   const { root, top } = desktop;
   put(join(root, 'core', 'mixdogd'));
+  put(join(root, 'core', 'mixdog-askpass'));
   const tree = { ...desktop, bundleDirs: {}, binaries: {} };
   tree.pack = (key) => {
     const bundle = join(root, 'server-cores', key, 'bundle.tgz');
