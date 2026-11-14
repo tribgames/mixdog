@@ -345,3 +345,83 @@ async fn server_feed_agent_pool_from_section_and_list() {
     pool.wait_for(|rows| rows.len() == 2).await.unwrap();
     assert_eq!(pool.borrow()[1].tag, "w3");
 }
+
+#[tokio::test]
+async fn server_feed_edge_reaches_the_list_after_the_debounce() {
+    let client = stub(vec![("thread/list", vec![Reply::Value(json!({ "data": [row("a", "old", 10)] }))])]);
+    let feed = ServerFeed::attach(client.clone());
+    let mut sessions = feed.sessions();
+    sessions.wait_for(|rows| rows.len() == 1).await.unwrap();
+    drop(sessions.borrow_and_update());
+    client.events.send(notification("thread/started", json!({ "thread": row("n", "new", 50) }))).unwrap();
+    for _ in 0..50 {
+        tokio::task::yield_now().await;
+    }
+    // The edge is held, not yet heard.
+    assert_eq!(ids(&feed), ["a"]);
+    let started = std::time::Instant::now();
+    sessions.wait_for(|rows| rows.len() == 2).await.unwrap();
+    assert!(started.elapsed() >= REFRESH_DEBOUNCE / 2);
+    assert_eq!(ids(&feed), ["n", "a"]);
+}
+
+#[tokio::test]
+async fn server_feed_flush_publishes_the_held_rows_at_once() {
+    let client = stub(vec![("thread/list", vec![Reply::Value(json!({ "data": [row("a", "old", 10)] }))])]);
+    let feed = ServerFeed::attach(client.clone());
+    let mut sessions = feed.sessions();
+    sessions.wait_for(|rows| rows.len() == 1).await.unwrap();
+    client.events.send(notification("thread/started", json!({ "thread": row("n", "new", 50) }))).unwrap();
+    for _ in 0..50 {
+        tokio::task::yield_now().await;
+    }
+    feed.flush();
+    assert_eq!(ids(&feed), ["n", "a"]);
+}
+
+#[tokio::test]
+async fn server_feed_state_carries_host_shell_jobs_and_remote_session() {
+    let client = stub(vec![("thread/list", vec![Reply::Value(json!({ "data": [] }))])]);
+    let feed = ServerFeed::attach(client.clone());
+    let mut states = feed.session_states();
+    client.store.threads.lock().unwrap().insert(
+        "t1".into(),
+        ThreadFold {
+            feed: serde_json::from_value(json!({ "id": "thread:t1", "epoch": "e", "seq": 1 })).unwrap(),
+            state: json!({ "busy": false }),
+        },
+    );
+    client.store.changes.send(StoreChange::Thread { thread_id: "t1".into() }).unwrap();
+    let first = states.recv().await.unwrap();
+    assert!(first.snapshot.get("hostShellJobs").is_none());
+
+    let jobs = json!({ "count": 1, "elapsedLabel": "1s", "jobs": [{}], "finished": [] });
+    client.store.sections.lock().unwrap().insert(
+        "hostShellJobs".into(),
+        SectionEntry { section: SectionName::HostShellJobs, key: None, revision: 1, value: jobs.clone() },
+    );
+    client.store.changes.send(StoreChange::Section { section: SectionName::HostShellJobs, key: None }).unwrap();
+    let second = states.recv().await.unwrap();
+    assert_eq!((second.session_id.as_str(), &second.snapshot["hostShellJobs"]), ("t1", &jobs));
+
+    client.store.sections.lock().unwrap().insert(
+        "hostState".into(),
+        SectionEntry {
+            section: SectionName::HostState,
+            key: Some("remoteSession".into()),
+            revision: 1,
+            value: json!({ "enabled": true, "sessionId": "t1", "cwd": "/w" }),
+        },
+    );
+    client.store.changes.send(StoreChange::Section { section: SectionName::HostState, key: Some("remoteSession".into()) }).unwrap();
+    let third = states.recv().await.unwrap();
+    assert_eq!((third.snapshot["remoteEnabled"].clone(), third.snapshot["remoteSessionId"].clone()), (json!(true), json!("t1")));
+}
+
+#[test]
+fn server_feed_remote_session_id_is_a_session_id() {
+    assert_eq!(remote_session_id(&json!({ "sessionId": "a-b_1" })), Some("a-b_1".to_owned()));
+    assert_eq!(remote_session_id(&json!({ "sessionId": "a b" })), None);
+    assert_eq!(remote_session_id(&json!({ "sessionId": null })), None);
+    assert_eq!(remote_session_id(&json!({ "sessionId": "x".repeat(257) })), None);
+}
