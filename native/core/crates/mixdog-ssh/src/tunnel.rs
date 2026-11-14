@@ -126,6 +126,7 @@ pub struct SshTunnel {
     commands: mpsc::UnboundedSender<Command>,
     state: watch::Receiver<TunnelState>,
     local_port: Arc<AtomicU16>,
+    companion_port: Arc<AtomicU16>,
 }
 
 impl SshTunnel {
@@ -138,6 +139,7 @@ impl SshTunnel {
     pub(crate) fn start_with(env: SshEnv, ctx: Option<AttemptContext>, spec: TunnelSpec, timing: Timing) -> Arc<Self> {
         let (commands, receiver) = mpsc::unbounded_channel();
         let local_port = Arc::new(AtomicU16::new(0));
+        let companion_port = Arc::new(AtomicU16::new(0));
         let invalid = invalid_spec(&spec);
         let (state, state_rx) = watch::channel(match &invalid {
             Some(error) => TunnelState::Stopped { failure: Some(error.clone()) },
@@ -162,17 +164,24 @@ impl SshTunnel {
                 attempt: 0,
                 state,
                 primary: local_port.clone(),
+                companion: companion_port.clone(),
                 commands: receiver,
             };
             tokio::spawn(supervisor.run());
         }
-        Arc::new(Self { commands, state: state_rx, local_port })
+        Arc::new(Self { commands, state: state_rx, local_port, companion_port })
     }
 
     /// The local end of the primary forward (0 before the first is chosen); it changes only when a restart finds it
     /// taken.
     pub fn local_port(&self) -> u16 {
         self.local_port.load(Ordering::Acquire)
+    }
+
+    /// The local end of the second forward (the companion riding the same child; 0 without one or before it is
+    /// chosen); like [`SshTunnel::local_port`] it changes only when a restart finds it taken.
+    pub fn companion_port(&self) -> u16 {
+        self.companion_port.load(Ordering::Acquire)
     }
 
     pub fn state(&self) -> watch::Receiver<TunnelState> {
@@ -238,6 +247,7 @@ struct Supervisor {
     attempt: u32,
     state: watch::Sender<TunnelState>,
     primary: Arc<AtomicU16>,
+    companion: Arc<AtomicU16>,
     commands: mpsc::UnboundedReceiver<Command>,
 }
 
@@ -256,6 +266,7 @@ impl Supervisor {
             }
         }
         self.primary.store(self.locals[0], Ordering::Release);
+        self.companion.store(self.locals.get(1).copied().unwrap_or(0), Ordering::Release);
         Ok(())
     }
 
