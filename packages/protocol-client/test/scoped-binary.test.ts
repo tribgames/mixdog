@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import type { ClientEvent } from '../src/api.ts';
 import { connect } from '../src/client.ts';
-import { MockNetwork } from '../src/mock.ts';
+import { MockNetwork, type MockConn } from '../src/mock.ts';
 
 const options = JSON.parse(readFileSync(new URL('../conformance/options.json', import.meta.url), 'utf8'));
 
@@ -72,5 +72,5 @@ test('a frame standing for a run of positions (feed.from) continues the feed; on
   assert.equal(conn.clientClose, undefined, 'a range that starts right after the last position is no gap');
   send(7, 6);
   for (let i = 0; i < 30; i++) await new Promise((r) => setImmediate(r));
-  assert.equal(conn.clientClose?.code, 1002, 'a range that starts past the next position is a gap');
+  assert.equal((conn.clientClose as MockConn['clientClose'])?.code, 1002, 'a range that starts past the next position is a gap');
 });
