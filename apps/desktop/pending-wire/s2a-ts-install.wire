@@ -1,0 +1,5 @@
+# s2a-ts-install
+apps/desktop/src/renderer/main.tsx: at the top, after `import './process-shim';` and before any import that reads window.mixdogDesktop (the bootstrap import), add
+  import { installDirectDesktopApi } from './core-direct/install';
+  and, in the Electron branch (not remoteBrowser), `await installDirectDesktopApi();` (a no-op when a preload already supplied window.mixdogDesktop).
+apps/desktop/src/preload/index.ts: expose window.mixdogDesktopHost = createHostApi(...) plus the optional `bootContext` and `connection` values (read from the launch arguments as today), and window.mixdogCorePort (installCorePort); stop building the direct members there (the preload-host-api task owns this).
