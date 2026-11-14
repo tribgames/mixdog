@@ -11,7 +11,69 @@ import { request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { parseRemoteDiscovery, type RemoteDiscovery } from './ssh/remote-bootstrap';
+export interface DaemonDiscovery {
+  /** The WebSocket listener; null while the core does not serve (no `rpc`). */
+  rpcPort: number | null;
+  /** The control listener (`/mgmt/*`, `/health`). */
+  controlPort: number;
+  /** The one token that opens both listeners. */
+  token: string;
+  pid: number;
+  instanceId: string;
+  /** The OS start time of `pid`: with the pid it names this process, not a later one that reused the pid. */
+  processStartTime: string;
+  state: string;
+  version: string;
+  build: string;
+}
+
+const text = (value: unknown): string | null => (typeof value === 'string' && value ? value : null);
+const port = (value: unknown): number | null =>
+  Number.isInteger(value) && (value as number) >= 1 && (value as number) <= 65535 ? (value as number) : null;
+
+/** daemon.json as the core writes it (LR §4): `pid`, `endpoints.session.token`
+ *  and the `core` block with the control port and, while serving, the RPC port. */
+export function parseDaemonDiscovery(raw: unknown): DaemonDiscovery | null {
+  let parsed: unknown = raw;
+  if (typeof raw === 'string') {
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+  if (!parsed || typeof parsed !== 'object') return null;
+  const record = parsed as {
+    pid?: unknown;
+    endpoints?: { session?: { token?: unknown } };
+    core?: {
+      version?: unknown;
+      build?: unknown;
+      instanceId?: unknown;
+      processStartTime?: unknown;
+      state?: unknown;
+      rpc?: { port?: unknown };
+      control?: { port?: unknown };
+    };
+  };
+  const pid = record.pid;
+  const token = record.endpoints?.session?.token;
+  const core = record.core;
+  const controlPort = port(core?.control?.port);
+  if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 0) return null;
+  if (typeof token !== 'string' || !token || !core || controlPort === null) return null;
+  return {
+    rpcPort: port(core.rpc?.port),
+    controlPort,
+    token,
+    pid,
+    instanceId: text(core.instanceId) ?? '',
+    processStartTime: text(core.processStartTime) ?? '',
+    state: text(core.state) ?? '',
+    version: text(core.version) ?? '',
+    build: text(core.build) ?? '',
+  };
+}
 
 /** The runtime root 1.4.5 clients resolve and the core publishes its discovery in. */
 export function localRuntimeRoot(env: NodeJS.ProcessEnv = process.env): string {
@@ -53,7 +115,7 @@ type StopMode = 'whenIdle' | 'abortConfirmed';
  *  token and the port change with every core. */
 export interface CoreControl {
   /** Null when no core runs (no discovery file, or nothing accepts on its control port). */
-  status(): Promise<{ status: CoreStatus; discovery: RemoteDiscovery } | null>;
+  status(): Promise<{ status: CoreStatus; discovery: DaemonDiscovery } | null>;
   hold(on: boolean): Promise<void>;
   stop(mode: StopMode, confirmToken?: string): Promise<void>;
   cancelDrain(drainId: string): Promise<void>;
@@ -65,7 +127,7 @@ export interface CoreControlDeps {
 
 const REFUSED_CONNECTION = new Set(['ECONNREFUSED', 'ECONNRESET', 'EHOSTUNREACH', 'ETIMEDOUT']);
 
-function call(discovery: RemoteDiscovery, method: 'GET' | 'POST', path: string, body?: unknown): Promise<unknown> {
+function call(discovery: DaemonDiscovery, method: 'GET' | 'POST', path: string, body?: unknown): Promise<unknown> {
   const payload = body === undefined ? null : Buffer.from(JSON.stringify(body));
   return new Promise((resolve, reject) => {
     const req = request(
@@ -124,16 +186,16 @@ function statusOf(value: unknown): CoreStatus {
 
 export function createCoreControl(deps: CoreControlDeps = {}): CoreControl {
   const discoveryPath = deps.discoveryPath ?? join(localRuntimeRoot(), 'daemon.json');
-  const discover = async (): Promise<RemoteDiscovery | null> => {
+  const discover = async (): Promise<DaemonDiscovery | null> => {
     try {
-      return parseRemoteDiscovery(await readFile(discoveryPath, 'utf8'));
+      return parseDaemonDiscovery(await readFile(discoveryPath, 'utf8'));
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
       throw error;
     }
   };
   /** The discovery of the running core, or null; a refused connection is no core. */
-  const running = async <T>(use: (discovery: RemoteDiscovery) => Promise<T>): Promise<T | null> => {
+  const running = async <T>(use: (discovery: DaemonDiscovery) => Promise<T>): Promise<T | null> => {
     const discovery = await discover();
     if (!discovery) return null;
     try {

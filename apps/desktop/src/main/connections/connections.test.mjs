@@ -7,16 +7,12 @@ import { DESKTOP_IPC } from '../../shared/contract.ts';
 import { waitUntil } from '../bounded-wait.mjs';
 import { ipcErrorFromEnvelope } from '../../shared/coded-error.ts';
 import { registerDesktopIpc } from '../ipc.ts';
-import { RemoteBootstrapError } from '../ssh/remote-bootstrap.ts';
-import { SshTargetError } from '../ssh/ssh-command.ts';
 import { fakeProtocol } from './fake-core-protocol.mjs';
 import {
   ConnectionPool,
-  REMOTE_TUNNEL_READY_TIMEOUT_MS,
   SSH_UNSUPPORTED_CHANNELS,
   WindowRouteRegistry,
   createConnectionIpcRouter,
-  createConnectionManager,
   createConnectionWindowOpener,
   createDesktopConnection,
   createServiceTerminalHost,
@@ -286,128 +282,6 @@ test("the server folder listing reaches only the window's own connection", async
   assert.deepEqual(f.local.service.calls, []);
 });
 
-function fakeConnection(spec, start) {
-  const connection = {
-    id: spec.id,
-    kind: 'ssh',
-    started: 0,
-    disposed: 0,
-    async start() {
-      connection.started += 1;
-      await start();
-    },
-    async dispose() {
-      connection.disposed += 1;
-    },
-  };
-  return connection;
-}
-
-function managerFixture(start = async () => {}, showWindow = null) {
-  const pool = new ConnectionPool();
-  const created = [];
-  const shown = [];
-  const closedWindows = [];
-  const manager = createConnectionManager({
-    pool,
-    createConnection: (spec, onProgress) => {
-      const connection = fakeConnection(spec, start);
-      connection.onProgress = onProgress;
-      created.push(connection);
-      return connection;
-    },
-    showWindow: (connection) => {
-      shown.push(connection.id);
-      return showWindow?.(connection);
-    },
-    closeWindows: (id) => closedWindows.push(id),
-  });
-  return { pool, created, shown, closedWindows, manager };
-}
-
-test('the manager attaches once, focuses on reopen and detaches on close', async () => {
-  const f = managerFixture();
-  const spec = { id: 'srv-1', name: 'Build box', target: 'root@127.0.0.1:2223' };
-  const progress = () => {};
-  await Promise.all([f.manager.open(spec, progress), f.manager.open(spec)]);
-  assert.equal(f.created.length, 1, 'concurrent opens share one attachment');
-  assert.equal(f.created[0].onProgress, progress);
-  assert.equal(f.manager.isOpen('srv-1'), true);
-  await f.manager.open(spec);
-  assert.equal(f.created.length, 1);
-  assert.deepEqual(f.shown, ['srv-1', 'srv-1', 'srv-1']);
-  await f.manager.close('srv-1');
-  assert.equal(f.manager.isOpen('srv-1'), false);
-  assert.deepEqual(f.closedWindows, ['srv-1']);
-  assert.equal(f.created[0].disposed, 1);
-  assert.equal(f.manager.isOpen('local'), false);
-  await assert.rejects(f.manager.close('local'), /cannot be disconnected/);
-  await assert.rejects(f.manager.open({ id: 'local', name: 'x', target: 'host' }), /this PC/);
-});
-
-test('a close cancels an open that has not attached or shown yet, and a reopen works', async () => {
-  const f = managerFixture(
-    async () => delay(15),
-    async () => delay(15)
-  );
-  const spec = { id: 'srv-9', name: 'Box', target: 'root@127.0.0.1:2223' };
-
-  // Closed before the queued open even started: it never dials.
-  const queued = f.manager.open(spec);
-  await f.manager.close('srv-9');
-  await assert.rejects(queued, /connection-closed/);
-  assert.equal(f.created.length, 0);
-
-  // Closed while attaching: the attachment is disposed, no window is shown.
-  const attaching = f.manager.open(spec);
-  await waitUntil(() => f.created.length > 0, 'the open to start attaching');
-  assert.equal(f.created.length, 1);
-  await f.manager.close('srv-9');
-  await assert.rejects(attaching, /connection-closed/);
-  assert.ok(f.created[0].disposed > 0);
-  assert.deepEqual(f.shown, []);
-  assert.equal(f.manager.isOpen('srv-9'), false);
-
-  // Closed while its window was being built: that window is closed again.
-  const showing = f.manager.open(spec);
-  await waitUntil(() => f.shown.length > 0, 'the window to be shown');
-  await f.manager.close('srv-9');
-  await assert.rejects(showing, /connection-closed/);
-  assert.equal(f.created[1].disposed, 1);
-  assert.deepEqual(f.closedWindows, ['srv-9', 'srv-9'], "close's sweep, then the late window");
-  assert.equal(f.manager.isOpen('srv-9'), false);
-  assert.equal(f.pool.has('srv-9'), false);
-
-  // A fresh open after the close attaches and shows normally.
-  await f.manager.open(spec);
-  assert.equal(f.manager.isOpen('srv-9'), true);
-  assert.equal(f.created.length, 3);
-  assert.equal(f.created[2].disposed, 0);
-  assert.deepEqual(f.shown, ['srv-9', 'srv-9']);
-});
-
-test('closeAll cancels queued and attaching opens', async () => {
-  const f = managerFixture(async () => delay(15));
-  const a = { id: 'srv-10', name: 'A', target: 'root@127.0.0.1:2223' };
-  const b = { id: 'srv-11', name: 'B', target: 'root@127.0.0.1:2224' };
-  const attaching = f.manager.open(a);
-  await waitUntil(() => f.created.length > 0, 'the first open to start attaching');
-  const queued = f.manager.open(b);
-  await f.manager.closeAll();
-  const results = await Promise.allSettled([attaching, queued]);
-  assert.deepEqual(
-    results.map((result) => result.status === 'rejected' && /connection-closed/.test(result.reason.message)),
-    [true, true]
-  );
-  assert.equal(f.created.length, 1, 'the queued open never dialed');
-  assert.ok(f.created[0].disposed > 0);
-  assert.deepEqual(f.shown, []);
-  assert.deepEqual(f.pool.list(), []);
-  await f.manager.open(b);
-  assert.equal(f.manager.isOpen('srv-11'), true);
-  assert.equal(f.manager.isOpen('srv-10'), false);
-});
-
 /** Windows as main keeps them: one per connection id, registered only after
  *  the creation's own await (saved bounds, renderer session). */
 function windowFixture(initial = []) {
@@ -427,23 +301,8 @@ function windowFixture(initial = []) {
   return { windows, built, deps };
 }
 
-test('concurrent opens of one server attach once and build one window', async () => {
-  // A check-then-create window step, as main's was: the manager alone must
-  // keep a second open from passing the check while the first still builds.
-  const naive = windowFixture();
-  const naiveShow = async (connection) => {
-    const existing = naive.deps.find(connection.id);
-    if (existing) return naive.deps.focus(existing);
-    await naive.deps.create(connection);
-  };
-  const f = managerFixture(async () => delay(5), naiveShow);
-  const spec = { id: 'srv-5', name: 'Box', target: 'root@127.0.0.1:2223' };
-  await Promise.all([f.manager.open(spec), f.manager.open(spec), f.manager.open(spec)]);
-  assert.equal(f.created.length, 1, 'one attachment');
-  assert.deepEqual(naive.built, ['srv-5'], 'one window');
-  assert.equal(naive.windows.get('srv-5').focused, 2, 'later opens focus it');
-
-  // The window opener holds the same line for callers outside the manager.
+test('concurrent opens of one server build one window', async () => {
+  // The window opener keeps a second open from passing the check while the first still builds.
   const w = windowFixture();
   const show = createConnectionWindowOpener(w.deps);
   await Promise.all([show({ id: 'srv-6' }), show({ id: 'srv-6' }), show({ id: 'srv-6' })]);
@@ -481,7 +340,7 @@ test("this PC's window comes back while a server window stays open", async () =>
 test('every connection is served by its core connection alone', async () => {
   const deps = {
     sessionOptions: () => ({
-      userDataPath: 'C:\\profile',
+      userDataPath: 'profile',
       packaged: false,
       resourcesPath: '',
       appPath: '',
@@ -490,62 +349,16 @@ test('every connection is served by its core connection alone', async () => {
     }),
     appVersion: '0.0.0',
     createProtocol: () => fakeProtocol(),
-    localProtocol: () => fakeProtocol(),
   };
-  const server = createDesktopConnection(
-    { id: 'srv-8', kind: 'ssh', name: 'Box', target: 'root@127.0.0.1:2223' },
-    deps
-  );
+  const server = createDesktopConnection({ id: 'srv-8', kind: 'ssh', name: 'Box' }, deps);
   const local = createDesktopConnection({ id: 'local', kind: 'local', name: 'PC' }, deps);
   try {
     assert.equal(typeof server.client.options.serviceLane?.call, 'function');
     assert.equal(typeof local.client.options.serviceLane?.call, 'function');
-    assert.equal(server.remote.config.tunnelReadyTimeoutMs, REMOTE_TUNNEL_READY_TIMEOUT_MS);
-    assert.equal(local.remote, null);
+    assert.equal(local.serviceUserDataPath(), 'profile');
+    assert.throws(() => server.serviceUserDataPath(), /not attached/);
   } finally {
     await Promise.all([server.dispose(), local.dispose()]);
   }
-});
-
-test('a terminal ssh failure rejects with its own error and leaves nothing attached', async () => {
-  const refusal = new RemoteBootstrapError('node-missing', 'node is not installed on the server');
-  const f = managerFixture(async () => {
-    throw Object.assign(new Error('transport exited'), { cause: refusal });
-  });
-  const spec = { id: 'srv-2', name: 'Box', target: 'root@127.0.0.1:2223' };
-  await assert.rejects(f.manager.open(spec), (error) => error === refusal);
-  assert.equal(f.created.length, 1);
-  assert.equal(f.created[0].started, 1, 'no retry after a terminal failure');
-  assert.equal(f.created[0].disposed, 1);
-  assert.equal(f.manager.isOpen('srv-2'), false);
-  assert.deepEqual(f.shown, []);
-  await assert.rejects(f.manager.open({ id: 'srv-3', name: 'Bad', target: 'bad host;rm' }), SshTargetError);
-  assert.equal(f.created.length, 1, 'a malformed target never dials');
-});
-
-test('a server connection hands onProgress to its RemoteSession and detaches cleanly', async () => {
-  const onProgress = () => {};
-  const connection = createDesktopConnection(
-    { id: 'srv-4', kind: 'ssh', name: 'Box', target: 'root@127.0.0.1:2223' },
-    {
-      sessionOptions: () => ({
-        userDataPath: 'C:\\profile',
-        packaged: false,
-        resourcesPath: '',
-        appPath: '',
-        appVersion: '0.0.0',
-        rendererDir: '',
-      }),
-      appVersion: '0.0.0',
-      createProtocol: () => fakeProtocol(),
-      localProtocol: () => fakeProtocol(),
-    },
-    { onProgress }
-  );
-  assert.equal(connection.kind, 'ssh');
-  assert.equal(connection.target, 'root@127.0.0.1:2223');
-  assert.equal(connection.remote.config.onProgress, onProgress);
-  assert.throws(() => connection.serviceUserDataPath(), /not attached/);
-  await connection.dispose();
-  await assert.rejects(connection.start(), /disposed/);
+  await assert.rejects(server.start(), /disposed/);
 });
