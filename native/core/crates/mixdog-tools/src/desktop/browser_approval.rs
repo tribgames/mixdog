@@ -654,7 +654,7 @@ mod tests {
         *rig.ctx.life.lock().unwrap() = Some(LIFE.to_owned());
         assert!(!allowed(&rig.ask(step(MARKETER, &[Submit]), decided(false, None, Some("no"))).await.1));
         assert!(rig.ask(step(MARKETER, &[Submit]), decided(false, None, None)).await.0, "a denial stored no allowance");
-        rig.ask(step(MARKETER, &[Submit]), decided(true, Some(ApprovalRemember::Session), None)).await;
+        let _ = rig.ask(step(MARKETER, &[Submit]), decided(true, Some(ApprovalRemember::Session), None)).await;
         rig.allow("marketer", ActionKind::BrowserSubmit, PermissionMode::Block);
         assert!(rig.ask(step(MARKETER, &[Submit]), decided(false, None, None)).await.0, "a block wins over the session's allowance");
     }
@@ -679,7 +679,7 @@ mod tests {
         // Answering "session" on it stores nothing for an ordinary submit either.
         rig.ctx.allow_all.store(false, Ordering::SeqCst);
         rig.allow("payer", ActionKind::BrowserSubmit, PermissionMode::Ask);
-        rig.ask(pay, decided(true, Some(ApprovalRemember::Session), None)).await;
+        let _ = rig.ask(pay, decided(true, Some(ApprovalRemember::Session), None)).await;
         assert!(rig.ask(step("sess_home_payer", &[Submit]), decided(false, None, None)).await.0);
         assert!(!rig.decisions().iter().any(|decision| ["blocked", "dev-allow-all", "granted", "session-granted", "remembered"].contains(&decision.as_str())), "a payment is judged by no allowance: {:?}", rig.decisions());
     }
@@ -735,7 +735,7 @@ mod tests {
         assert!(shown);
         // A session allowance, known to the core, may remove a repeat ask.
         *rig.ctx.life.lock().unwrap() = Some(LIFE.to_owned());
-        rig.ask(step(MARKETER, &[Post]), decided(true, Some(ApprovalRemember::Session), None)).await;
+        let _ = rig.ask(step(MARKETER, &[Post]), decided(true, Some(ApprovalRemember::Session), None)).await;
         let (shown, outcome) = rig.ask(step(MARKETER, &[Post]), decided(false, None, None)).await;
         assert!(!shown && allowed(&outcome));
     }
@@ -778,7 +778,7 @@ mod tests {
         upload.files = ["/proj/a.txt", "/etc/b.txt"]
             .map(|path| BrowserApprovalFile { name: path.rsplit('/').next().unwrap().to_owned(), path: path.to_owned(), size: 3, outside: false })
             .to_vec();
-        rig.ask(upload, decided(false, None, None)).await;
+        let _ = rig.ask(upload, decided(false, None, None)).await;
         let card = &rig.ctx.gate.asked()[0].payload["request"];
         assert_eq!((card["origin"].as_str(), card["receiverOrigin"].as_str()), (Some("https://a.example"), Some("https://cdn.example")));
         let outside: Vec<bool> = card["files"].as_array().unwrap().iter().map(|file| file["outside"].as_bool().unwrap()).collect();

@@ -35,29 +35,18 @@ const ROOM_RECOVERY_REPUBLISH: std::time::Duration = std::time::Duration::from_s
 /// runs ahead of the domain services). Until then a call is answered as any unclaimed method is (`CapabilityUnavailable`),
 /// and none of them is used by a client today. Each wiring task that registers the service removes its names here.
 const SERVICE_PENDING: &[&str] = &[
-    // s4-core-events-service (wave 5) / CORE-WIRE-G7: the browser engine composed into mixdogd.
+    // The browser engine composed into mixdogd; the test hook only with MIXDOGD_TEST_HOOKS=1 (a `test-hooks` build), so an ordinary
+    // start leaves it unclaimed.
     "test/browserEngine/run",
-    "host/browser/events",
-    "host/browser/page/facts",
-    "host/browser/userInput",
     // s2b-service (wave 9): the connections service (window host notification included).
     "host/window/closed",
     // s3-13 (registered by G2.5-WIRE): DevComputerRun, served only by a `test-hooks` build started with MIXDOGD_TEST_HOOKS=1,
     // so an ordinary start leaves the name unclaimed.
     "dev/computer/run",
-    // s3-bridge-core / CORE-WIRE-G7 (pending-wire/s3-bridge-core.wire): mixdog-tools ComputerBridgeRun.
+    // s3-bridge-core: the desktop bridge's commands (mixdog-tools ComputerBridgeRun), served only where a computer pool exists, so a start
+    // without a helper leaves them unclaimed.
     "computer/bridge/run",
     "computer/bridge/abort",
-    // x-residual-moves-b / CORE-WIRE-G7 (pending-wire/x-residual-moves-b.wire): DesktopResidualBService.
-    "desktop/localLink/open",
-    "desktop/attachment/write",
-    "desktop/attachment/thumbnail",
-    "desktop/launchVersion/record",
-    "desktop/launchVersion/acknowledge",
-    "desktop/modelBootstrap/read",
-    "desktop/nativeToolCache/gc",
-    "desktop/userFile/write",
-    "desktop/computer/inputAccess/request",
 ];
 
 /// Namespaces whose every method the connections service (s2b-service, wave 9) answers.
@@ -80,6 +69,8 @@ pub struct Built {
     pub app_feed: Arc<mixdog_core_base::feed::CoreFeed>,
     pub scoped_feeds: Arc<dyn mixdog_core_api::feed::ScopedFeeds>,
     pub host: Arc<dyn mixdog_core_api::HostChannel>,
+    /// The connection table itself (`Outgoing`): which connection the browser engine lane is served by.
+    pub outgoing: Arc<mixdog_app_server::Outgoing>,
     /// The same desktop channel with the claim query the secret fill asks (Outgoing is both): the fill's channel.
     pub claimed_host: Arc<dyn mixdog_core_api::ClaimedHostChannel>,
     /// The connection table's desktop presence (`Outgoing` again): the terminal tool's `ui/openRequested` feed.
@@ -1486,6 +1477,9 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let human_only = Arc::new(mixdog_core_session::session::secret_input::HumanOnlyLock::new(takeover_holds.clone()));
     // The core's takeover owner (the engine's `TakeoverPort`, `takeover/ready`): the takeover card and the sign-in window ask it whether the person may act.
     let takeover = Arc::new(crate::takeover_port::CoreTakeover::new(takeover_holds.clone()).with_computer_drain(human_only.clone()));
+    // The human-only holds of the core's own cards (review-SINGLETONS-CORE: the Browser Use approval only); the browser engine's
+    // approval port takes one for a card's life.
+    let card_holds = Arc::new(mixdog_core_session::session::secret_input::CardHolds::new(human_only.clone()));
     let tool_io = mixdog_core_api::domain::tool::ToolIo { interactive: b.tokens.interactive_io, durability: b.tokens.durability_io, maintenance: b.tokens.maintenance_io };
     // The agent trace and tool-failure log of this data directory: one buffer and file per kind, shared with every run's tool log.
     let agent_trace = mixdog_core_run::run_host::failure_log::FailureWriter::for_data_dir(&b.data_dir, tool_io, clock_agent.clone());
@@ -1513,6 +1507,9 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // secrets from every computer reply, and the turn clock that settles them (`SettlingSavedLogins` in `SessionDeps.snapshots`).
     let saved_logins = mixdog_core_session::session::secret_input::SavedLoginRegistry::new();
     let saved_login_turns = mixdog_core_session::session::secret_input::SavedLoginTurnClock::new(saved_logins.clone());
+    // s3-bridge-core: the backend's saved-login fill takes the bridge's fill turn (the runtime's own turn number) before the core's clock.
+    let bridge_fill_turns = Arc::new(mixdog_tools::desktop::computer_bridge_run::FillTurns::default());
+    let bridge_saved_login_turns: Arc<dyn mixdog_core_session::session::secret_input::SavedLoginTurns> = Arc::new(crate::compose_computer_bridge::BridgeFillTurns { fills: bridge_fill_turns.clone(), clock: saved_login_turns.clone() });
     let redactor: Arc<dyn mixdog_core_session::session::secret_input::Redact> = Arc::new(mixdog_core_session::session::secret_input::FullRedactor { saved: saved_logins.clone(), sessions: fill.clone() });
     // The helper binary (`MIXDOG_COMPUTER_BIN`, else bundled `native-tools/`, else the local build); `cached` is `None`: nothing in this core downloads a native tool (the Computer places do not include the download).
     let native_paths = Arc::new(mixdog_core::run_host::native_tools::NativeToolPaths::new(
@@ -1529,7 +1526,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         manager: b.process_manager.clone(),
         wrap: Arc::new({
             let (human_only, redactor, saved_logins, saved_login_turns, late_computer_hosts, host) =
-                (human_only.clone(), redactor.clone(), saved_logins.clone(), saved_login_turns.clone(), late_computer_hosts.clone(), b.host.clone());
+                (human_only.clone(), redactor.clone(), saved_logins.clone(), bridge_saved_login_turns.clone(), late_computer_hosts.clone(), b.host.clone());
             move |session: &str, inner: Arc<dyn mixdog_core_api::domain::computer::ComputerBackend>| {
                 let redacted = Arc::new(mixdog_core_session::session::secret_input::RedactingComputerBackend::new(inner, mixdog_core_api::ids::ThreadId::from(session), redactor.clone()));
                 let gated = Arc::new(mixdog_core_session::session::secret_input::GatedComputerBackend::new(redacted, human_only.clone()));
@@ -1586,10 +1583,52 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         Some(timing) => mixdog_tools::desktop::host::ChannelHostCommands::with_timing(b.host.clone(), timing),
         None => mixdog_tools::desktop::host::ChannelHostCommands::new(b.host.clone()),
     };
+    // The browser engine (s4-engine-runner, s4-tool-adapter, s4-core-events-service): its host lane over the desktop channel, the one blob
+    // store, the frame files, the one secret fill, the core takeover and the one approval path. It runs a Browser Use action only when the
+    // connected desktop serves `browserEngine` (`EngineHostCommands`); any other desktop is sent `host/browser/command` as before.
+    let session_grants = mixdog_tools::policy::SessionGrantRegistry::new(); // the one "allow for this session" registry: the sessions' gates and the browser cards
+    let definition_names = Arc::new(mixdog_core::run_host::member_names::DefinitionNames::new(agents.clone())); // the room labels, the thread list's room rows and the browser card's requester share it
+    let engine_catalog: Arc<std::sync::OnceLock<Arc<mixdog_store::sqlite::SqliteStore>>> = Arc::default(); // bound once the session catalog is opened (below)
+    let engine_blobs: Arc<dyn mixdog_browser_engine::BlobPort> = Arc::new(crate::compose_browser_engine::StoreBlobPort { blobs: blobs.clone(), lane: b.tokens.interactive_io });
+    let engine_files: Arc<dyn mixdog_browser_engine::FilePort> = Arc::new(crate::compose_browser_engine::EngineFiles { lane: b.tokens.interactive_io });
+    let engine_lane = Arc::new(mixdog_browser_engine::lane::host_lane::HostLane::new(b.host.clone(), engine_blobs.clone()));
+    let engine = Arc::new(mixdog_browser_engine::runner::runner::BrowserEngine::new(
+        engine_lane.clone(),
+        mixdog_browser_engine::runner::runner::EnginePorts {
+            mirror: engine_lane.mirror().clone(),
+            hold: engine_lane.hold().clone(),
+            approvals: mixdog_tools::desktop::browser_approval::BrowserApprovals::new(
+                grants.clone(),
+                Arc::new(crate::compose_browser_engine::BrowserApprovalContext {
+                    late: late.clone(),
+                    allow_all: Arc::new(mixdog_core::run_host::mcp_seams::ConfigAllowAll(config.clone())),
+                    session_grants: session_grants.clone(),
+                    card_holds: card_holds.clone(),
+                    names: definition_names.clone(),
+                    catalog: engine_catalog.clone(),
+                }),
+                engine_files.clone(),
+            ),
+            takeover: takeover.clone(),
+            blobs: engine_blobs,
+            files: engine_files,
+            secrets: Arc::new(crate::compose_browser_engine::FillSecretGuard { fill: fill.clone(), redactor: redactor.clone() }),
+            approval_policy: crate::compose_browser_engine::action_policy(&*b.env),
+            urls: crate::compose_browser_engine::url_policy(&*b.env),
+            frame_dir: crate::compose_browser_engine::frame_dir(&b.data_dir),
+        },
+    ));
+    // What the desktop pushes reaches the engine's facts memory first, then the lane's sink (`host/browser/events`, `page/facts`, `userInput`, host gone).
+    let engine_sink = engine.sink(Arc::new(mixdog_browser_engine::lane::sink::EngineSinkImpl::new(engine_lane.mirror().clone(), engine_lane.hold().clone())));
     let pool_host: Arc<dyn mixdog_tools::desktop::host::HostCommands> = Arc::new(mixdog_core_session::session::secret_input::SecretHostCommands::new(
-        Arc::new(mixdog_core_session::session::secret_input::RedactingHostCommands::new(browser_channel, redactor.clone())),
+        Arc::new(mixdog_core_session::session::secret_input::RedactingHostCommands::new(
+            mixdog_tools::desktop::browser_engine::EngineHostCommands::new(browser_channel, engine.clone(), b.host.clone()),
+            redactor.clone(),
+        )),
         fill.clone(),
     ));
+    #[cfg(feature = "test-hooks")]
+    let engine_tool_host = pool_host.clone(); // `test/browserEngine/run` runs over the same host commands the `browser` tools are built over
     // The explorer (flip-agent-worlds-15): `AgentExplorer::standalone` over the shared lanes; the host is bound to the finished pool below.
     let explorer_host = Arc::new(mixdog_core::run_host::explorer_host::ConfigExplorerHost::new(config_snapshot.clone(), registry.clone()));
     let explorer = Arc::new(
@@ -1730,6 +1769,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             .map_err(|_| ComposeError::CatalogIndex("the open job was dropped".to_owned()))?
             .map_err(|e| ComposeError::CatalogIndex(e.to_string()))?
     };
+    let _ = engine_catalog.set(Arc::new(catalog_index.clone())); // the browser card's requester reads the asking session's listed row
     // The bundled PostgreSQL runtime (downloaded first when the active one is missing or damaged, `ensureRuntime`), then the memory stack.
     // Node installs the runtime inside the memory start (`supervisor.mjs:484`), which runs at the first memory use and never at daemon boot: so the install is handed to the
     // stack as what it runs when the database is first opened, not awaited here (a fresh profile downloads about 22 MB and runs `initdb`).
@@ -2366,7 +2406,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 user_cwd: mixdog_core_session::session::UserCwd::new(data_dir.to_path_buf(), tokens.interactive_io),
                 // Over the ONE `blobs`: the session's attachments share its layout and its in-memory pins.
                 attachments: mixdog_core_session::session::user_facts::AttachmentStore(blobs),
-                session_grants: mixdog_tools::policy::SessionGrantRegistry::new(),
+                session_grants: session_grants.clone(),
                 staged_originals: Arc::new(mixdog_core_session::session::staged_originals::StagedOriginals::new(&data_dir)),
                 prompt_intake,
                 feeds: Arc::new(mixdog_core_session::session::CoreThreadFeeds::new(&Default::default(), tokens.cpu_interactive)),
@@ -2829,6 +2869,11 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         Arc::new(mixdog_core_session::session::attachments::DesktopAttachmentHost::new(directory.clone(), blobs.clone(), &b.tokens)),
         &b.tokens,
     )))?; // `desktop/link/*`, `desktop/attachment/*`, `desktop/workflowConfig/read`, `desktop/fonts/list`
+    builder.register(Arc::new(mixdog_core_domains::domains::desktop_residual_b::DesktopResidualBService::new(
+        Arc::new(mixdog_core_session::session::attachments::DesktopAttachmentHost::new(directory.clone(), blobs.clone(), &b.tokens)),
+        &b.tokens,
+        b.data_dir.clone(),
+    )))?; // `desktop/localLink/open`, `desktop/attachment/write|thumbnail`, `desktop/launchVersion/*`, `desktop/modelBootstrap/read`, `desktop/nativeToolCache/gc`, `desktop/userFile/write`, `desktop/computer/inputAccess/request`
     // `desktopPet/state/*`: the pet's stored settings at `<D>/desktop/desktop-pet.json`; the first read copies the recorded Electron
     // profile's file there (create-only, the old file kept); a write is announced as `desktopPet/state/changed` on the app feed.
     builder.register(Arc::new(mixdog_core_domains::domains::desktop_pet::DesktopPetService::new(
@@ -2895,6 +2940,16 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // build started with MIXDOGD_TEST_HOOKS=1 serves the harness over the pool; the name stays in SERVICE_PENDING: an ordinary start
     // registers nothing for it).
     computer.register(&mut builder)?;
+    // s3-bridge-core: `computer/bridge/run|abort`, only where a computer pool exists (the names stay in SERVICE_PENDING for a start without one).
+    if let Some(pool) = &computer_pool {
+        builder.register(Arc::new(mixdog_tools::desktop::computer_bridge_run::ComputerBridgeRun::new(
+            Arc::new(crate::compose_computer_bridge::PoolBridgeHost(pool.clone())),
+            Arc::new(crate::compose_computer_bridge::FillBridgeSecrets { fill: fill.clone(), redactor: redactor.clone() }),
+            Arc::new(crate::compose_computer_bridge::RegistryBridgeSavedLogins(saved_logins.clone())),
+            None,
+            bridge_fill_turns.clone(),
+        )))?;
+    }
     builder.register(screen.clone())?;
     builder.register(Arc::new(mixdog_core_domains::notify::timeline::ConnectionTimeline::new(built_remote.registry.clone(), {
         let log = b.log.clone();
@@ -2935,7 +2990,6 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         let warn = b.log.console_warn_sink();
         Arc::new(move |line| warn(&format!("[mixdog-rooms] {line}")))
     };
-    let definition_names = Arc::new(mixdog_core::run_host::member_names::DefinitionNames::new(agents.clone())); // the room labels and the thread list's room rows share it
     let room_approvals = Arc::new(mixdog_core::run_host::room_approvals::SessionRoomApprovals::new(directory.clone(), handoff_hub.clone())); // its room summaries are bound below, once they exist
     let live_rooms = mixdog_core_rooms::rooms::live::LiveRooms::new(
         rooms.clone(),
@@ -3586,6 +3640,12 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let live_view = Arc::new(crate::live_view::LiveViewService::new(b.host.clone(), b.notifier.clone(), b.host_media.clone(), built_remote.runtime.clone(), b.tokens.media_thread, Arc::new(crate::live_view::PairedScreenAccess::new(crate::domain_seams::remote::phone_credential(built_remote.registry.clone()), crate::domain_seams::remote::screen_revoked(built_remote.registry.clone()), crate::domain_seams::remote::peer_attached(built_remote.registry.clone())))));
     let _ = live_view_slot.set(Arc::downgrade(&live_view));
     builder.register(live_view.clone())?;
+    // The browser engine's host lane: what the claimed desktop pushes, and the end of its claim (s4-core-events-service).
+    let browser_engine = crate::browser_engine_service::BrowserEngineService::new(engine_sink.clone(), Arc::new(crate::compose_browser_engine::OutgoingClaimants(b.outgoing.clone())));
+    #[cfg(feature = "test-hooks")]
+    let browser_engine = browser_engine.with_test_hook(&*b.env, Arc::new(crate::compose_browser_engine::EngineToolRunner(engine_tool_host.clone())));
+    let browser_engine = Arc::new(browser_engine);
+    builder.register(browser_engine.clone())?;
     // host/claim is answered by the server itself (it owns the connection registry, ClientRequest::HostClaim), so no domain service claims it.
     let mut unclaimed = builder.unclaimed();
     unclaimed.retain(|method| *method != "host/claim");
@@ -3601,7 +3661,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // The five owners of per-connection state (run-host-36); `compose()` binds them into `ComposedCore::connection_owners()`, which `verify_bound` checks.
     let connection_owners = crate::connection_close::ConnectionOwnersCell::default();
     connection_owners
-        .bind(crate::connection_close::ConnectionOwners::new(terminal.clone(), screen.clone(), workspace.clone(), composed.system.clone(), built_remote.registry.clone(), live_view, scm_service.clone()))
+        .bind(crate::connection_close::ConnectionOwners::new(terminal.clone(), screen.clone(), workspace.clone(), composed.system.clone(), built_remote.registry.clone(), live_view, scm_service.clone(), browser_engine))
         .map_err(|_| ComposeError::AlreadyBound("connection owners"))?;
     crate::compose::verify_bound(&[&*late_requests, &*bot_world, &*late_new_place, &*late_draft_settings,&connection_owners, &*late_agent_status, &*late_turn_admission, &*late_live_workspace,&*room_approvals, &*late, &crate::late_session::LateReadinessHook(readiness.clone()), &*late_room_summaries, &*late_computer_hosts, &*late_dispatcher, &*late_catalog, &*late_list_catalog, &*late_listing, &*late_send, &*late_attachments, &*late_bot_sources, &*late_skills, &*project_workspaces, &*bot_summaries, &*late_reactions, &*late_agent_port,&*late_cycle_llm, &*route_positions, &*live_route, &*agent_channels, &*chat_routes, &*routine_sessions, &mixdog_core::run_host::late_chats::LateAgentChats(late.clone()), &*late_setup_ui, &*late_workspaces, &*path.turn_settings, &*late_new_route, &*late_pending_route, &*late_route_session, &*extension_host, &crate::late_session::LateCallerSessions(late.clone()), &mixdog_core::run_host::compose_parts::LateHeaders(late.clone()), &mixdog_core::run_host::compose_parts::HookCommonCell(late.clone()), &crate::late_session::LateMediaProbe(provider_layer.clone()), &*setup_warmup, &crate::setup_host::ModelWarmupCell(model_warmup.clone()), &crate::setup_host::StatuslineWarmupCell(statusline_warmup.clone()), &*b.thread_gates, &*agent_evidence, &*session_facts, &*held_home, &*live_route, &*tool_surface])?;
     Ok(Real { defaults_separation, control_route_sync, late_lifecycle, connection_owners, local_dialer: late_dialer.clone(), remote: built_remote, directory, agent_dispatch, agent_host, code_graph_cache, exec: b.exec.clone(), maintenance_io: b.tokens.maintenance_io, domains, config, close_requested, resume_timer, goal_recovery, worktree_stop, maintenance_stop, worktree_task, maintenance_loop: std::sync::Mutex::new(maintenance_loop), ledgers: ledger_source, computer: computer_pool, terminal, room_host: room_host_registration, channels: channel_runtime, channel_calls, channel_config_follow, config_watch: composed.watcher, memory, log: b.log.clone(), publisher: state.publisher.clone(), gateway_routes: gateway_settle, model_proxy, event_pipeline, catalog_index: catalog_handle, heartbeat, heartbeat_run: Arc::default(), sub_agent_retention: Arc::default(), archive_stamps, core_state: b.core_state.clone(), skip_memory, gateway_usage, workers: workers.clone(), #[cfg(feature = "replay-controls")] replay_writers: crate::replay_stores_settled::WriteBehind { workers, read_state: read_state.clone() }, #[cfg(test)] turn_review, #[cfg(test)] tool_pool: kept_tool_pool, #[cfg(test)] mcp_glue: kept_mcp_glue })

@@ -112,7 +112,7 @@ fn number_text(value: Option<&Value>) -> String {
 }
 
 /// `sessionLifeMark`: `createdAt:lastClearAt`, `None` once the session is closed.
-fn life_mark(header: &Header) -> Option<String> {
+pub fn life_mark(header: &Header) -> Option<String> {
     if header.get("closed") == Some(&Value::Bool(true)) {
         return None;
     }
