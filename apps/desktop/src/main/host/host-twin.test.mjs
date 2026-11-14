@@ -35,6 +35,7 @@ function handlers() {
     sendBinary() {},
     handleRequest: (method, handler) => table.set(method, handler),
     handleNotification() {},
+    servedMethods: () => [],
     onClose() {},
   };
   return { connection, sent, call: (method, params) => table.get(method)(params, new AbortController().signal) };
