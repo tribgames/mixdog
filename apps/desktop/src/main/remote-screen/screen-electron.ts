@@ -74,9 +74,9 @@ export function createElectronScreenDisplays(): ElectronScreenDisplays {
   };
 }
 
-/** The input host in the owner-only app-data folder Computer Use's host uses. */
+/** The input host: the packaged mixdog-computer helper (MIXDOG_COMPUTER_BIN) in its screen-input mode. */
 export function createElectronScreenInputHost(): ScreenInputHost {
-  return createScreenInputHost({ directory: mixdogDataDirectory(), spawn });
+  return createScreenInputHost({ spawn, legacyDirectory: mixdogDataDirectory() });
 }
 
 /** One session's place on the remote-control pill (see the header). */

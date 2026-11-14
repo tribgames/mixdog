@@ -64,6 +64,7 @@ ${mark}
 
 export function overlayScript(locale = 'en', kind: OverlayKind = 'computer'): string {
   const labels = overlayLabels(locale, kind);
+  const stopTitle = kind === 'remote' ? labels.stop : `${labels.stop} (Ctrl+Alt+Esc)`;
   return `(() => {
     let state = { paused:false, resumable:false, generation:0 };
     let renderedRevision = -1, requestSequence = 0, pending = '', failed = false;
@@ -84,8 +85,12 @@ export function overlayScript(locale = 'en', kind: OverlayKind = 'computer'): st
       else if (pending === 'stop') title.textContent = ${JSON.stringify(labels.stopping)};
       else title.textContent = state.title || ${JSON.stringify(labels.title)};
       resumeControl.hidden = !state.resumable;
-      // The remote pill names the phones here and nowhere else.
+      // The emergency chord is named only while it is registered.
+      stopControl.title = state.shortcutUnavailable ? ${JSON.stringify(labels.stop)} : ${JSON.stringify(stopTitle)};
+      // The remote pill names the phones here and nowhere else; the computer pill
+      // says the shortcut is unavailable, and stops once it is registered.
       if (state.tooltip !== undefined) document.getElementById('pill').title = state.tooltip;
+      else document.getElementById('pill').title = state.shortcutUnavailable || '';
       // Never disabled: a running or failed request reports itself through the
       // wording and aria-busy only, so every press reaches the host.
       stopControl.setAttribute('aria-busy', String(pending === 'stop'));

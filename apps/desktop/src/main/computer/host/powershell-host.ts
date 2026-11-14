@@ -35,8 +35,9 @@ import { nativeDisplayGeometry } from '../shared/native-coordinates';
 import { createWorkerPool } from '../backend/worker-pool';
 import {
   createHostForegroundLock,
+  disposeProcessForegroundLock,
   type ForegroundLeaseRuntime,
-  koffiForegroundLease,
+  processForegroundLock,
 } from '../backend/foreground-lock-host';
 import { createCaptureEngine } from '../observation/capture';
 import { electronWindowForNativeId } from '../observation/window-handles';
@@ -261,9 +262,12 @@ export function createPowerShellComputerHost(
   const diagnose = advisoryDiagnostics(options.onDiagnostic);
 
   // Windows only: the lock the foreground process leases to a refused worker.
+  // The process's one owner, shared with the core's helpers (host/computer-lease.ts); a harness's own runtime gets its own.
   const foregroundLock =
     process.platform === 'win32'
-      ? createHostForegroundLock(options.foregroundLease ?? koffiForegroundLease())
+      ? options.foregroundLease
+        ? createHostForegroundLock(options.foregroundLease)
+        : processForegroundLock()
       : undefined;
   // Agent-scoped resident PowerShell workers + their shared pending-request table.
   const workerPool = createWorkerPool({
@@ -435,7 +439,8 @@ export function createPowerShellComputerHost(
       bridgeWanted = false;
       await bridge.stopBridge();
       killSessionWorkers(powerShellBySession);
-      await foregroundLock?.dispose();
+      if (options.foregroundLease) await foregroundLock?.dispose();
+      else if (foregroundLock) await disposeProcessForegroundLock();
       computerUseCoordinator.reset();
       workerPool.removeHostScript();
     },

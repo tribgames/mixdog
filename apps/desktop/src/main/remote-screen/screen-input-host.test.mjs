@@ -2,56 +2,24 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { EventEmitter } from 'node:events';
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
-  SCREEN_HOST_CACHE_DIRECTORY,
+  SCREEN_INPUT_MODE,
   createScreenInputHost,
   formatScreenHostCommand,
   screenHostIdentity,
   parseScreenDesktopLine,
-  screenInputHostProgram,
-  sweepScreenHostFiles,
 } from './screen-input-host.ts';
 
-test('orphaned host scripts, other builds and dead staging files are swept', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'mixdog-screen-host-'));
-  try {
-    const cache = join(dir, SCREEN_HOST_CACHE_DIRECTORY);
-    mkdirSync(cache);
-    const build = 'a'.repeat(16);
-    const files = {
-      [join(dir, 'remote-screen-host-100-abcd.ps1')]: 'dead process',
-      [join(dir, 'remote-screen-host-200-abcd.ps1')]: 'live process',
-      [join(dir, 'unrelated.txt')]: 'kept',
-      [join(cache, `remote-screen-host-${build}.dll`)]: 'this build',
-      [join(cache, `remote-screen-host-${'b'.repeat(16)}.dll`)]: 'old build',
-      [join(cache, `remote-screen-host-${build}.dll.300.tmp`)]: 'dead staging',
-      [join(cache, `remote-screen-host-${build}.dll.200.tmp`)]: 'live staging',
-    };
-    for (const [path, text] of Object.entries(files)) writeFileSync(path, text);
-    sweepScreenHostFiles(dir, build, (pid) => pid === 200);
-    assert.deepEqual(readdirSync(dir).sort(), [
-      'remote-screen-cache',
-      'remote-screen-host-200-abcd.ps1',
-      'unrelated.txt',
-    ]);
-    assert.deepEqual(readdirSync(cache).sort(), [
-      `remote-screen-host-${build}.dll`,
-      `remote-screen-host-${build}.dll.200.tmp`,
-    ]);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-/** A PowerShell stand-in: says `ready`, then answers only when told to. */
+/** A mixdog-computer --screen-input stand-in: says `ready`, then answers only when told to. */
 function fakeSpawn(greeting = ['ready']) {
   const children = [];
-  const spawn = () => {
+  const spawn = (command, args, options) => {
     const child = new EventEmitter();
+    child.spawned = { command, args, options };
     child.writes = [];
     child.killed = false;
     child.stdout = new EventEmitter();
@@ -78,7 +46,7 @@ test('a command the helper never acknowledges fails at the deadline and the help
   const dir = mkdtempSync(join(tmpdir(), 'mixdog-screen-host-'));
   try {
     const fake = fakeSpawn();
-    const host = createScreenInputHost({ directory: dir, spawn: fake.spawn, commandTimeoutMs: 20 });
+    const host = createScreenInputHost({ binary: () => 'C:/mixdog/mixdog-computer.exe', spawn: fake.spawn, commandTimeoutMs: 20 });
     const exits = [];
     host.onExit(() => exits.push('exit'));
     await host.start();
@@ -105,7 +73,7 @@ test('an acknowledged command clears its deadline', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mixdog-screen-host-'));
   try {
     const fake = fakeSpawn();
-    const host = createScreenInputHost({ directory: dir, spawn: fake.spawn, commandTimeoutMs: 20 });
+    const host = createScreenInputHost({ binary: () => 'C:/mixdog/mixdog-computer.exe', spawn: fake.spawn, commandTimeoutMs: 20 });
     await host.start();
     const done = host.command({ op: 'move', x: 1, y: 1 });
     fake.children[0].say('ok 1');
@@ -122,7 +90,7 @@ test('the first desktop and the Windows session are known when start resolves', 
   const dir = mkdtempSync(join(tmpdir(), 'mixdog-screen-host-'));
   try {
     const fake = fakeSpawn(['desktop Default 0 0', 'ready 3']);
-    const host = createScreenInputHost({ directory: dir, spawn: fake.spawn });
+    const host = createScreenInputHost({ binary: () => 'C:/mixdog/mixdog-computer.exe', spawn: fake.spawn });
     assert.equal(screenHostIdentity(host), null);
     await host.start();
     assert.equal(host.session(), 3);
@@ -138,19 +106,11 @@ test('the first desktop and the Windows session are known when start resolves', 
   }
 });
 
-test('the helper reports its first desktop before ready and its session in ready', () => {
-  const program = screenInputHostProgram();
-  assert.match(
-    program,
-    /Write\("desktop " \+ lastState\);[\s\S]*Write\("ready " \+ Process\.GetCurrentProcess\(\)\.SessionId/
-  );
-});
-
 test('kill fails pending commands at once and skips the release-on-quit', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mixdog-screen-host-'));
   try {
     const fake = fakeSpawn();
-    const host = createScreenInputHost({ directory: dir, spawn: fake.spawn, commandTimeoutMs: 60_000 });
+    const host = createScreenInputHost({ binary: () => 'C:/mixdog/mixdog-computer.exe', spawn: fake.spawn, commandTimeoutMs: 60_000 });
     await host.start();
     const pending = host.command({ op: 'move', x: 1, y: 1 });
     host.kill();
@@ -160,12 +120,6 @@ test('kill fails pending commands at once and skips the release-on-quit', async 
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
-});
-
-test('tabs and line breaks are typed as keys, not Unicode packets', () => {
-  const program = screenInputHostProgram();
-  assert.match(program, /ch == '\\t'[\s\S]*Key\(0x09, 0x0F/);
-  assert.match(program, /ch == '\\n'[\s\S]*Key\(0x0D, 0x1C/);
 });
 
 test('commands serialize to the one-line wire form', () => {
@@ -201,13 +155,144 @@ test('desktop watcher line parses name and the consent / logon flags', () => {
   assert.equal(parseScreenDesktopLine('bad line'), null);
 });
 
-test('the bootstrap program embeds the injector and never breaks the here-string', () => {
-  const program = screenInputHostProgram();
-  assert.match(program, /MixdogScreenHost/);
-  assert.match(program, /class MixNativeInput/);
-  assert.match(program, /Serve\(\$env:MIXDOG_SCREEN_INPUT_MARKER\)/);
-  // Exactly one here-string close: a stray `'@` line inside the source would
-  // terminate it early and add a second. The generator guards against it.
-  const closes = program.split('\n').filter((line) => line === "'@").length;
-  assert.equal(closes, 1);
+test('the input host is the native helper in its screen-input mode, with its own marker', async () => {
+  const fake = fakeSpawn();
+  const host = createScreenInputHost({ binary: () => 'C:/mixdog/mixdog-computer.exe', spawn: fake.spawn, marker: 77 });
+  await host.start();
+  const { command, args, options } = fake.children[0].spawned;
+  assert.equal(command, 'C:/mixdog/mixdog-computer.exe');
+  assert.deepEqual(args, [SCREEN_INPUT_MODE]);
+  assert.equal(args[0], '--screen-input');
+  assert.equal(options.windowsHide, true);
+  assert.equal(options.env.MIXDOG_SCREEN_INPUT_MARKER, '77');
+  assert.ok(!/powershell/iu.test(command));
+  host.kill();
+});
+
+test('without a helper binary the start fails instead of falling back', async () => {
+  const fake = fakeSpawn();
+  const host = createScreenInputHost({
+    binary: () => {
+      throw new Error('computer_backend_unavailable');
+    },
+    spawn: fake.spawn,
+  });
+  await assert.rejects(host.start(), (error) => error.code === 'start_failed');
+  assert.equal(fake.children.length, 0);
+});
+
+/** A fake spawn that tells the helper's children from the abort cleanup's. */
+function cleanupSpawn() {
+  const fake = fakeSpawn();
+  const cleanups = [];
+  const spawn = (command, args, options) => {
+    if (args[0] !== '--abort-cleanup') return fake.spawn(command, args, options);
+    const child = new EventEmitter();
+    child.spawned = { command, args, options };
+    child.kill = () => {
+      child.killed = true;
+    };
+    cleanups.push(child);
+    return child;
+  };
+  return { spawn, children: fake.children, cleanups };
+}
+
+test('a killed helper is followed by --abort-cleanup with the same marker, and stop waits for it', async () => {
+  const fake = cleanupSpawn();
+  const host = createScreenInputHost({ binary: () => 'C:/m/mixdog-computer.exe', spawn: fake.spawn, marker: 91 });
+  await host.start();
+  host.kill();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(fake.cleanups.length, 1);
+  assert.deepEqual(fake.cleanups[0].spawned.args, ['--abort-cleanup']);
+  assert.equal(fake.cleanups[0].spawned.options.env.MIXDOG_COMPUTER_INPUT_MARKER, '91');
+  let stopped = false;
+  const stopping = host.stop().then(() => (stopped = true));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(stopped, false);
+  fake.cleanups[0].emit('exit', 0);
+  await stopping;
+});
+
+test('a second kill of the same helper shares its one cleanup, and kill resolves only after it', async () => {
+  const fake = cleanupSpawn();
+  const host = createScreenInputHost({ binary: () => 'C:/m/mixdog-computer.exe', spawn: fake.spawn, marker: 5 });
+  await host.start();
+  void host.kill();
+  let done = false;
+  const second = host.kill().then(() => (done = true));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(fake.cleanups.length, 1);
+  assert.equal(done, false);
+  fake.cleanups[0].emit('exit', 0);
+  await second;
+});
+
+test('an unresponsive helper is cleaned up after its kill, and a hung cleanup is cut at its bound', async () => {
+  const fake = cleanupSpawn();
+  const host = createScreenInputHost({
+    binary: () => 'C:/m/mixdog-computer.exe',
+    spawn: fake.spawn,
+    commandTimeoutMs: 20,
+    abortCleanupTimeoutMs: 30,
+  });
+  await host.start();
+  await assert.rejects(host.command({ op: 'cursor' }), (error) => error.code === 'host_unresponsive');
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(fake.cleanups.length, 1);
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  assert.equal(fake.cleanups[0].killed, true);
+});
+
+test('the retired PowerShell host files are swept once at the first start', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-screen-legacy-'));
+  try {
+    const { writeFileSync, mkdirSync, existsSync } = await import('node:fs');
+    writeFileSync(join(dir, 'remote-screen-host-1-abcd.ps1'), 'x');
+    writeFileSync(join(dir, 'keep.txt'), 'x');
+    mkdirSync(join(dir, 'remote-screen-cache'));
+    writeFileSync(join(dir, 'remote-screen-cache', 'remote-screen-host-0123456789abcdef.dll'), 'x');
+    const fake = fakeSpawn();
+    const host = createScreenInputHost({ binary: () => 'b', spawn: fake.spawn, legacyDirectory: dir });
+    await host.start();
+    assert.equal(existsSync(join(dir, 'remote-screen-host-1-abcd.ps1')), false);
+    assert.equal(existsSync(join(dir, 'remote-screen-cache')), false);
+    assert.equal(existsSync(join(dir, 'keep.txt')), true);
+    host.kill();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a helper that exits without saying it released is cleaned up; one that released is not', async () => {
+  const fake = cleanupSpawn();
+  const host = createScreenInputHost({ binary: () => 'C:/m/mixdog-computer.exe', spawn: fake.spawn, marker: 7 });
+  await host.start();
+  fake.children[0].emit('exit', 3, null);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(fake.cleanups.length, 1, 'a crashed helper gets the abort cleanup');
+  assert.equal(fake.cleanups[0].spawned.options.env.MIXDOG_COMPUTER_INPUT_MARKER, '7');
+  fake.cleanups[0].emit('exit', 0);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  await host.start();
+  fake.children[1].say('released');
+  fake.children[1].emit('exit', 0, null);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(fake.cleanups.length, 1, 'a helper that released needs no cleanup');
+});
+
+test('a restart waits for the cleanup of the helper before it', async () => {
+  const fake = cleanupSpawn();
+  const host = createScreenInputHost({ binary: () => 'C:/m/mixdog-computer.exe', spawn: fake.spawn, marker: 8 });
+  await host.start();
+  void host.kill();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(fake.cleanups.length, 1);
+  const restarted = host.start();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(fake.children.length, 1, 'no new helper while the cleanup runs');
+  fake.cleanups[0].emit('exit', 0);
+  await restarted;
+  assert.equal(fake.children.length, 2);
 });

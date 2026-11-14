@@ -404,3 +404,30 @@ export function koffiFallbackUnlock(resolveFrom: string = import.meta.url): () =
 export function koffiForegroundLease(resolveFrom: string = import.meta.url): ForegroundLeaseRuntime {
   return { startThread: koffiLeaseThread(resolveFrom), fallbackUnlock: koffiFallbackUnlock(resolveFrom) };
 }
+
+// One lease owner per process: LSFW_LOCK belongs to the process, so two owners
+// could not see each other's leases (one could lock while the other holds a
+// lease, and its deadline unlock would end the other's protection early).
+let processLock: HostForegroundLock | undefined;
+let leaseInstances = 0;
+
+/** This process's number for a worker or helper on the lease channel, shared
+ *  by every user of the process's owner and never reused. */
+export function nextLeaseInstance(): number {
+  return ++leaseInstances;
+}
+
+/** The process's lease owner, created on first use. */
+export function processForegroundLock(
+  runtime: () => ForegroundLeaseRuntime = () => koffiForegroundLease()
+): HostForegroundLock {
+  processLock ??= createHostForegroundLock(runtime());
+  return processLock;
+}
+
+/** Ends the process's lease owner (app shutdown); a later use starts a new one. */
+export async function disposeProcessForegroundLock(): Promise<LeaseFacts | undefined> {
+  const lock = processLock;
+  processLock = undefined;
+  return lock?.dispose();
+}

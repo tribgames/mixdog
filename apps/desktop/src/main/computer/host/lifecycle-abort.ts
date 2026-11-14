@@ -8,7 +8,6 @@
 import { spawn } from 'node:child_process';
 
 import { computerNativeBinary, computerNativeEnvironment } from '../backend/native-host';
-import { ABORT_CLEANUP_PROGRAM } from '../backend/program';
 import { waitForComputerWorkerExit } from '../backend/worker-capacity';
 import { assertSafeComputerSessionId } from '../input/guards';
 import type { ComputerUseCoordinator } from '../session/coordinator';
@@ -51,21 +50,12 @@ export async function cleanupAbortedInput(
       MIXDOG_ABORT_CURSOR_X: String(recovery?.cursorX ?? 0),
       MIXDOG_ABORT_CURSOR_Y: String(recovery?.cursorY ?? 0),
     };
-    const child =
-      process.platform === 'win32'
-        ? spawn(
-            'powershell.exe',
-            ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', ABORT_CLEANUP_PROGRAM],
-            {
-              windowsHide: true,
-              stdio: 'ignore',
-              env: { ...process.env, MIXDOG_COMPUTER_INPUT_MARKER: host.inputMarker, ...abortEnvironment },
-            }
-          )
-        : spawn(computerNativeBinary(), ['--abort-cleanup'], {
-            stdio: 'ignore',
-            env: computerNativeEnvironment(host.inputMarker, abortEnvironment),
-          });
+    // Every platform's workers are mixdog-computer now, so the release runs from a fresh one of it.
+    const child = spawn(computerNativeBinary(), ['--abort-cleanup'], {
+      windowsHide: true,
+      stdio: 'ignore',
+      env: computerNativeEnvironment(host.inputMarker, abortEnvironment),
+    });
     let settled = false;
     const finish = (confirmed: boolean) => {
       if (settled) return;

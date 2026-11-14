@@ -12,6 +12,8 @@ export interface ComputerUseOverlayPresentation {
   resumable: boolean;
   generation: number;
   attention: boolean;
+  /** Set only while the emergency shortcut is not registered: the pill's tooltip says so, and Stop stops naming the chord. */
+  shortcutUnavailable?: string;
 }
 
 export interface ComputerUseCursorPresentation extends ComputerUseCursor {
@@ -58,6 +60,7 @@ function visibleTarget(target: string): string {
 export function overlayTitles(locale: string) {
   const ko = locale.toLowerCase().startsWith('ko');
   return {
+    shortcutUnavailable: ko ? 'Ctrl+Alt+Esc 단축키를 사용할 수 없습니다. 중단 버튼을 누르세요' : 'The Ctrl+Alt+Esc shortcut is unavailable; use the Stop button',
     working: ko ? '컴퓨터 사용 중' : 'Computer in use',
     attention: ko ? '확인 필요' : 'Check',
     paused: ko ? '대기 중' : 'Waiting',
@@ -69,7 +72,7 @@ export function overlayTitles(locale: string) {
 export function computerUseOverlayPresentation(
   snapshot: ComputerUseSnapshot,
   locale = 'en',
-  control: { error?: ComputerOverlayControlError | string } = {}
+  control: { error?: ComputerOverlayControlError | string; shortcutUnavailable?: boolean } = {}
 ): ComputerUseOverlayPresentation {
   const activity = primaryActivity(snapshot.activities);
   // Stop ends every session still in a turn that used the computer, including
@@ -128,6 +131,7 @@ export function computerUseOverlayPresentation(
     resumable: paused || awaitingResume,
     generation: snapshot.takeoverGeneration ?? 0,
     attention,
+    ...(control.shortcutUnavailable ? { shortcutUnavailable: titles.shortcutUnavailable } : {}),
   };
 }
 

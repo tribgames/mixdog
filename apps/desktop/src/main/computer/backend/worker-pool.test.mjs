@@ -305,22 +305,15 @@ test('resident workers stay listed until their exit is observed', async (t) => {
   assert.deepEqual(pool.residentWorkerPids(), []);
 });
 
-test('a Windows worker launches the published script with its own ledger', windowsOnly, async (t) => {
-  const { pool, directory, workers, spawns } = await fakePool(t);
+test('a Windows worker launches the native helper with its own ledger, never PowerShell', windowsOnly, async (t) => {
+  const { pool, directory, workers, spawns } = await fakePool(t, { foregroundLock: { handle() {}, workerGone() {}, takeFacts: () => null } });
   pool.ensurePowerShell('a');
   const [{ command, args, options }] = spawns;
-  assert.equal(command, 'powershell.exe');
-  assert.deepEqual(args, [
-    '-NoProfile',
-    '-NonInteractive',
-    '-ExecutionPolicy',
-    'Bypass',
-    '-File',
-    pool.ensureHostScript(),
-  ]);
+  assert.equal(command, process.env.MIXDOG_COMPUTER_BIN);
+  assert.deepEqual(args, []);
   assert.equal(options.windowsHide, true);
-  assert.equal(options.env.MIXDOG_COMPUTER_HOST_CACHE, join(directory, 'host-cache'));
-  assert.match(options.env.MIXDOG_COMPUTER_HOST_BUILD, /^[0-9a-f]{16}$/);
+  assert.equal(options.env.MIXDOG_COMPUTER_HOST_FOREGROUND_LOCK, '1');
+  assert.equal(options.env.MIXDOG_COMPUTER_HOST_CACHE, undefined);
   assert.equal(options.env.MIXDOG_COMPUTER_INPUT_MARKER, pool.inputMarker);
   const ledger = options.env.MIXDOG_COMPUTER_INACTIVE_LEDGER;
   assert.match(ledger, /computer-inactive-[0-9a-f]{24}\.ledger$/);
@@ -328,9 +321,32 @@ test('a Windows worker launches the published script with its own ledger', windo
   writeFileSync(ledger, '');
   workers[0].exitCode = 0;
   workers[0].emit('exit', 0);
+  // The ledger is undone by the helper's --abort-cleanup (through the pool's spawn), never PowerShell.
+  const recovery = spawns.at(-1);
+  assert.equal(recovery.command, process.env.MIXDOG_COMPUTER_BIN);
+  assert.deepEqual(recovery.args, ['--abort-cleanup']);
+  assert.equal(recovery.options.env.MIXDOG_ABORT_LEDGERS, ledger);
   assert.deepEqual(pool.pendingInactiveLedgers(), [ledger]);
   pool.inactiveLedgersRecovered([ledger]);
   assert.deepEqual(pool.pendingInactiveLedgers(), []);
+});
+
+test('a Windows host request is read-only unless it releases what the helper holds', windowsOnly, async (t) => {
+  const { pool, workers } = await fakePool(t);
+  const read = pool.callPowerShell({ action: 'window_bounds', session_id: 'a' });
+  const mutation = pool.callPowerShell({ action: 'release_held_input', read_only: false, session_id: 'a' });
+  const input = pool.callPowerShell({ action: 'restore_input_state', read_only: false, session_id: 'a' });
+  assert.deepEqual(
+    workers[0].stdin
+      .read()
+      .toString()
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line).read_only),
+    [true, false, true]
+  );
+  pool.retirePowerShell(workers[0], new Error('fixture cleanup'));
+  await Promise.allSettled([read, mutation, input]);
 });
 
 function exitLauncher(code, stdout) {
