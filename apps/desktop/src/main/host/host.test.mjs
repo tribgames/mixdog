@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { registerHooks } from 'node:module';
 import { test } from 'node:test';
 
 import {
@@ -10,9 +11,22 @@ import {
 import { normalizeRemoteTabUrl } from '../remote-browser-methods.ts';
 import { withHumanOnlyApproval } from '../human-only-approval.ts';
 import { createComputerPillSource } from './computer-pill.ts';
-import { createDesktopHost } from './index.ts';
 import { toBrowserCommand } from './browser-command.ts';
 import { encodeMediaFrame } from './media-frame.ts';
+
+// The core computer host's modules (computer-app-windows.ts, computer-command.ts) read Electron's screen and windows
+// at import; outside Electron these stand-ins answer (nothing here drives a window).
+registerHooks({
+  resolve(specifier, context, next) {
+    return specifier === 'electron'
+      ? {
+          url: 'data:text/javascript,export default "";export const screen = {};export const BrowserWindow = { getAllWindows: () => [] };',
+          shortCircuit: true,
+        }
+      : next(specifier, context);
+  },
+});
+const { createDesktopHost } = await import('./index.ts');
 
 function pair() {
   const requests = new Map();
@@ -328,6 +342,28 @@ test('the computer host answers the internal-window and pointer requests it does
   assert.deepEqual(await wire.call('host/computer/internalWindows', {}), { windowIds: [] });
   const events = [{ x: 1, y: 2, held: false, phase: 'move', mode: 'background', windowId: 'hwnd:0x3' }];
   assert.equal(await wire.call('host/computer/pointerFeedback', { sessionId: 's1', events }), null);
+});
+
+test('the core computer host handlers are served only with computerHostV2 (MIXDOG_COMPUTER_HOST_V2=1 until G4)', async () => {
+  const v2Methods = [
+    'host/computer/cursorPrepare',
+    'host/computer/appWindows',
+    'host/computer/appInput',
+    'host/computer/pixels',
+    'host/computer/permissions',
+    'host/computer/command',
+  ];
+  const off = build({ computerHostV2: false });
+  assert.deepEqual(off.wire.connection.servedMethods().filter((method) => v2Methods.includes(method)), []);
+  const on = build({
+    computerHostV2: true,
+    computerAppInput: { showCursor: () => undefined },
+    computerPermissions: { read: () => ({}), request: () => undefined },
+    computerCommand: () => null,
+  });
+  assert.deepEqual(on.wire.connection.servedMethods().filter((method) => v2Methods.includes(method)), [...v2Methods].sort());
+  // No overlay is bound here, so the arrow cannot be prepared.
+  assert.deepEqual(await on.wire.call('host/computer/cursorPrepare', { sessionThreadId: 's1', x: 1, y: 2 }), { state: 'unavailable' });
 });
 
 test('a shown notification plays its sound and a click reports the thread', () => {

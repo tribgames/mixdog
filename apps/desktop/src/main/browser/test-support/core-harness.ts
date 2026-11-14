@@ -113,6 +113,16 @@ export async function startCoreHarness({ engine }: { engine: CoreHarnessEngine }
       onBrowserViewFailed: (error) => progress(`browser view failed: ${String((error as Error)?.message ?? error)}`),
       resolveProxy: async () => 'DIRECT',
       computer: () => null,
+      computerAppInput: { showCursor: () => undefined },
+      computerPermissions: {
+        read: () => ({
+          screen_capture: 'not_required_on_windows',
+          accessibility: 'not_required_on_windows',
+          input: 'target_integrity_dependent',
+        }),
+        request: () => undefined,
+      },
+      computerCommand: () => null,
       notifications: {
         createNotification: () => {
           throw new Error('The browser harness shows no notifications.');

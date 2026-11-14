@@ -102,7 +102,7 @@ import { scheduleDeferredDesktopServices as scheduleAfterServiceQuiet } from './
 import { installViewportGuard } from './viewport-guard';
 import { computerUseOperates, createUserInputReporter, type UserInputReporter } from './user-input-report';
 import { agentInputInFlight } from './browser/agent-input';
-import { computerUseCoordinator } from './computer/session/coordinator';
+import { computerUseCoordinator, type ComputerUseCursorEffect } from './computer/session/coordinator';
 import { electronWindowForNativeId } from './computer/observation/window-handles';
 import {
   gpuFallbackDecision,
@@ -111,7 +111,8 @@ import {
   type GpuFallbackEnvironment,
 } from './gpu-recovery';
 import { registerDesktopIpc } from './ipc';
-import { HOST_CAPABILITIES } from './host/connection';
+import { COMPUTER_HOST_V2, HOST_CAPABILITIES } from './host/connection';
+import { bindComputerEnvironment } from './host/computer-environment';
 import { notifyHostListsChanged } from './host-lists-changed';
 import { createProtocolConnection } from './protocol/connection';
 import { loginUpdateOf } from './protocol/login-feed';
@@ -1160,6 +1161,19 @@ unsubscribeServiceSettings = localService.subscribeDesktopEvents(({ name, value 
 const localProtocol = localConnection.protocol;
 if (!localProtocol) throw new Error('This PC\'s connection has no protocol link.');
 onProtocolAttached(localProtocol, refreshCorePageOrigin);
+// Lock screen, suspend and display changes take the desktop from a core computer execution (computer/userControl
+// takeover), bound once the app is ready (powerMonitor and screen need it). Only with the core computer host
+// (MIXDOG_COMPUTER_HOST_V2=1) until G4; the in-process guard of the old path reports them meanwhile.
+let unbindComputerEnvironment: () => void = () => {};
+function bindCoreComputerEnvironment(protocol: NonNullable<typeof localProtocol>): void {
+  if (!COMPUTER_HOST_V2) return;
+  unbindComputerEnvironment = bindComputerEnvironment(
+    powerMonitor,
+    screen,
+    (method, params) => protocol.call(method, params),
+    (error) => console.warn('[mixdog-computer] environment takeover report failed:', error)
+  );
+}
 const hostRole = createLocalHostRole({
   protocol: localProtocol,
   hostId: readOrCreateHostId(desktopUserData),
@@ -1200,6 +1214,28 @@ const hostRole = createLocalHostRole({
       assertPublic: assertPublicComputerRequest,
       answer: (command, signal) => host.answerBridgeCommand(command as ComputerCommand, signal),
       displays: readDisplays,
+    };
+  },
+  // Served with the core computer host (MIXDOG_COMPUTER_HOST_V2=1) until G4. The arrow follows the session (x, y are
+  // native physical pixels); the presence overlay's own showCursor replaces the coordinator's with s3-26.
+  computerAppInput: {
+    showCursor: (sessionId, x, y, action) =>
+      computerUseCoordinator.showCursor({
+        sessionId,
+        x,
+        y,
+        action,
+        effect: action as ComputerUseCursorEffect,
+        mode: 'background',
+      }),
+  },
+  computerPermissions: { read: readComputerPermissions, request: requestComputerPermissions },
+  computerCommand: () => {
+    const host = computerControlEnabled ? computerHost : null;
+    if (!host) return null;
+    return {
+      assertPublic: assertPublicComputerRequest,
+      answerBridgeCommand: (command, signal) => host.answerBridgeCommand(command as ComputerCommand, signal),
     };
   },
   notifications: {
@@ -2999,6 +3035,7 @@ if (!app.requestSingleInstanceLock()) {
     .whenReady()
     .then(async () => {
       const appReadyAt = Date.now();
+      bindCoreComputerEnvironment(localProtocol);
       // Separate shell registrations keep dev/test Electron shortcuts from
       // replacing the installed Mixdog name and icon.
       if (process.platform === 'win32') {
@@ -3128,6 +3165,7 @@ app.on('before-quit', (event) => {
   userInputReporters.clear();
   desktopTray?.dispose();
   desktopTray = null;
+  unbindComputerEnvironment();
   if (quitAfterDispose) return;
   event.preventDefault();
   void quitSequence.begin();

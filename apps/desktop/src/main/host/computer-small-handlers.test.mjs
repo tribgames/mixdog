@@ -1,11 +1,24 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
+import { registerHooks } from 'node:module';
 import { test } from 'node:test';
 
 import { registerComputerPermissions } from './computer-permissions.ts';
 import { bindComputerEnvironment } from './computer-environment.ts';
-import { registerComputerCommand } from './computer-command.ts';
 import { COMPUTER_USER_CONTROL } from './computer-user-control.ts';
+
+// computer-command.ts reaches Electron's screen and windows at import; outside Electron a stand-in answers.
+registerHooks({
+  resolve(specifier, context, next) {
+    return specifier === 'electron'
+      ? {
+          url: 'data:text/javascript,export default "";export const screen = {};export const BrowserWindow = { getAllWindows: () => [] };',
+          shortCircuit: true,
+        }
+      : next(specifier, context);
+  },
+});
+const { registerComputerCommand } = await import('./computer-command.ts');
 
 function fakeConnection() {
   const handlers = new Map();
