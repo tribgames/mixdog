@@ -1,0 +1,56 @@
+# nr-exthost-pdf-codec wiring (core): the new crate `mixdog-pdf-codec` (PDF stream filters and the standard security handler, ported from pdf.js 6.4.299).
+
+The crate is in `native/core/crates/mixdog-pdf-codec` (Cargo.toml, NOTICE, src/, tests/vectors.rs). It has no protocol rows, no registration and
+no SERVICE_PENDING entry: nothing in the daemon calls it yet (nr-exthost-pdf-document in wave 2 does).
+
+## 1. native/core/Cargo.toml
+
+(a) `[workspace] members`: after `"crates/mixdog-exthost",` (or beside the other leaf crates) add
+
+    "crates/mixdog-pdf-codec",
+
+(b) `[workspace.dependencies]`, in the internal crates block after `mixdog-exthost = { path = "crates/mixdog-exthost" }`:
+
+    mixdog-pdf-codec = { path = "crates/mixdog-pdf-codec" }
+
+(c) `[workspace.dependencies]`, in the registry crates (alphabetical; `sha2 = "0.10"` and `unicode-normalization = "0.1"` are already there:
+do not add them again, a duplicate key breaks the manifest). Both are already in Cargo.lock and in the local cargo cache at these versions
+(aes 0.8.4, md-5 0.10.6); nothing new is downloaded:
+
+    aes = "0.8"
+    md-5 = "0.10"
+
+`weezl` and `cbc` are not used: the LZW decoder is a port (weezl does not give pdf.js's output on a stream with no end-of-data code or on an EarlyChange
+other than 0 and 1), and the AES-CBC chaining is a loop over the `aes` block cipher because pdf.js's framing (IV prefix, a partial block dropped per
+call, padding removed only when it agrees with its count) is not what `cbc` does.
+
+## 2. native/core/Cargo.lock
+
+Add the package entry (cargo writes it; `--locked` needs it present):
+
+    [[package]]
+    name = "mixdog-pdf-codec"
+    version = "1.5.0"
+    dependencies = [
+     "aes",
+     "md-5 0.10.6",
+     "mixdog-workspace-hack",
+     "sha2 0.10.9",
+     "unicode-normalization",
+    ]
+
+(`md-5` and `sha2` have two versions in the lock, so those two are written with their version.)
+
+## 3. native/core/crates/mixdog-workspace-hack/Cargo.toml
+
+The crate depends on `mixdog-workspace-hack` like its siblings. Regenerate the hack (hakari) after (1) so the feature set of aes, md-5, sha2 and
+unicode-normalization is the unified one; if hakari adds nothing, nothing changes.
+
+## 4. mixdog-testkit tests/cfg_test_guard.rs
+
+Nothing: the crate is not in `LIBRARIES` (no replays move out of it) and has no `cfg(test)` item besides `tests/vectors.rs`.
+
+## 5. Verify (after 1 and 2)
+
+    cargo nextest run -p mixdog-pdf-codec --offline
+    cargo clippy -p mixdog-pdf-codec --all-targets --offline -- -D warnings
