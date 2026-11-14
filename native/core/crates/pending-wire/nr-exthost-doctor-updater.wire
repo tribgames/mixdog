@@ -1,0 +1,43 @@
+# nr-exthost-doctor-updater: the doctor runtime row and the npm updater no longer take the bundled interpreter
+
+All paths are under native/core/crates/mixdog-app-server-daemon/src. The daemon crate gains no dependency
+(the engine name and version are handed in as plain strings).
+
+## compose_flip.rs, the doctor (DoctorInputs, near `doctor: crate::domain_seams::doctor::DaemonDoctorHost::new(`)
+
+Remove the three fields `package_root: b.package_root.clone(),`, `interpreter: ... JsInterpreter { ... },` and
+`processes: b.tidy_processes.clone(),` of that `DoctorInputs { ... }` and put, after `data_dir: b.data_dir.clone(),`:
+
+    runtime: crate::domain_seams::doctor::EmbeddedRuntime { name: mixdog_jsrt::ENGINE_NAME.to_owned(), version: mixdog_jsrt::ENGINE_VERSION.to_owned() },
+
+(`mixdog_jsrt` is the crate of nr-exthost-jsrt-engine; the daemon already depends on it by that task's own wire, or this line
+adds `mixdog-jsrt = { workspace = true }` to mixdog-app-server-daemon/Cargo.toml.) If those two consts are not `&str`,
+convert with `.to_string()`.
+
+## compose_flip.rs, DomainPaths (near `paths: DomainPaths {`)
+
+Delete the two lines `node: b.js_runtime.program.clone(),` and `electron: b.js_runtime.electron,`.
+
+## compose_domains.rs, `pub struct DomainPaths`
+
+Delete the doc comment "The JS interpreter of the install (`JsRuntime::program`) ..." and the fields `pub node: PathBuf,` and
+`pub electron: bool,`.
+
+## compose_domains/rows.rs, the `StagedConfig { ... }` built for `StagedInstaller::new`
+
+Delete `node: inputs.paths.node.clone(),` and `electron: inputs.paths.electron,`.
+
+## compose_domains/tests.rs (the DomainPaths literal, near `package_root: js.package_root.clone(),`)
+
+Delete `node: js.program.clone(),` and `electron: js.electron,` of that `DomainPaths { ... }` (the `ExtHostConfig` above it keeps
+its own `electron: js.electron`, which belongs to the ext-host tasks).
+
+## What the doctor now shows
+
+The `nodeRuntime` row is `{name, version, engines: null}` (no process is started). The renderer in
+mixdog-core-domains diagnostics.rs `report_node` turns `engines: null` into a Warn "v<version> . engine requirement
+unavailable"; whoever owns diagnostics.rs decides whether a null `engines` should read as Ok for the embedded engine.
+
+## SERVICE_PENDING
+
+Nothing is removed from it by this task.
