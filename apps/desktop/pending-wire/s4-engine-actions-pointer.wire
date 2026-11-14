@@ -1,0 +1,22 @@
+# s4-engine-actions-pointer desktop wiring
+
+## host/browser/input/batch: the `swipe` pointer kind (apps/desktop/src/main/host/browser-engine/input-batch.ts)
+The core engine runs `drag` with pointer=touch as one `{op: 'pointer', kind: 'swipe', x, y, toX, toY}` step (pending-rows/s4-engine-actions-pointer.rows adds
+`swipe` to `BrowserPointerKind`; packages/protocol/src/index.ts is regenerated from it). In input-batch.ts:
+
+1. parseSteps: the destination must be numbers for `swipe` as for `dragTo`:
+
+       if (step.kind === 'dragTo' || step.kind === 'swipe') {
+         finite(step.toX, `${at}.toX`);
+         finite(step.toY, `${at}.toY`);
+       }
+
+2. pointer(): add, next to `case 'dragTo'`:
+
+       case 'swipe':
+         return driver.swipeAt(guest, at, { x: step.toX as number, y: step.toY as number }, work);
+
+   `swipeAt` is the touch driver's own (browser/input-touch.ts), the one the page's old input path called for a touch drag. `swipe` is not added to
+   PRESSING_KINDS (`dragTo` is in it, but the engine sends no hit guard on a drag step: the old drag was never hit-guarded).
+
+3. input-batch.test.mjs: a `swipe` step dispatches the touch events of swipeAt and counts them as mouse events (`mouseEvents`), and a swipe without `toX`/`toY` is -32602.
