@@ -31,6 +31,7 @@ use serde_json::{Value, json};
 use super::compactors::CompactionWorld;
 use super::message_row::message_of;
 use super::next_request_source::NextRequestSource;
+use super::thinking_binding::rebind_to_changed_prefix;
 use super::run_seams::ConfigRunSeams;
 
 /// The windows a model starts a session with (`resolveSessionContextMeta`).
@@ -136,6 +137,13 @@ impl InheritanceFit for HostInheritanceFit {
     async fn compaction_budget(&self, target: &InheritTarget) -> Option<u64> {
         let policy = CompactPolicy::resolve(&self.route_settings(target).await?)?;
         (policy.boundary_tokens > 0).then(|| policy.target_budget().max(MIN_COMPACT_BUDGET_TOKENS))
+    }
+
+    async fn bind_to_heir_prefix(&self, source: &ThreadId, heir: &ThreadId, system_differs: bool, rows: Vec<Value>) -> Vec<Value> {
+        // The tools a request of each session sends; a session that is not loaded sends none that can be compared.
+        let (source_tools, heir_tools) = (self.threads.tools(source).await, self.threads.tools(heir).await);
+        let tools_differ = !source_tools.is_empty() && !heir_tools.is_empty() && source_tools != heir_tools;
+        if system_differs || tools_differ { rebind_to_changed_prefix(&rows).0 } else { rows }
     }
 
     async fn basis(&self, target: &InheritTarget, messages: &[Value]) -> Option<FitBasis> {

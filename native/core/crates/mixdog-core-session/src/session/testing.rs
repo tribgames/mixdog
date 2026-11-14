@@ -260,6 +260,9 @@ impl super::inheritance::InheritanceFit for TestInherit {
     async fn compaction_budget(&self, _: &super::inheritance::InheritTarget) -> Option<u64> {
         *lock(&self.budget)
     }
+    async fn bind_to_heir_prefix(&self, _: &ThreadId, _: &ThreadId, _: bool, rows: Vec<Value>) -> Vec<Value> {
+        rows
+    }
 }
 
 /// A side-question store: a session has a request once `request` is set; `send` answers `reply`

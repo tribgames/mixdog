@@ -942,7 +942,12 @@ impl Run {
             }
             self.push(message).await?;
         }
+        // `flushNewMessages` (`tool-batch/flush.mjs`): an injected Skill body the batch's live messages already hold (two
+        // equivalent Skill calls finishing in one batch) is dropped, not added twice.
         for message in follow_ups {
+            if message.source == Some(Source::Skill) && self.messages.iter().any(|m| m.source == Some(Source::Skill) && m.text() == message.text()) {
+                continue;
+            }
             self.push(message).await?;
         }
         // PostToolBatch: the whole batch resolved; a blocking decision injects
@@ -986,9 +991,13 @@ impl Run {
         // the cache write and the transcript (`finalize.mjs:174-177,238,292`). Only a text return is read: a structured one
         // (parts, an image among them) is normal (`classifyResultKind` of a non-string, result-classification.mjs:75).
         for i in &indices {
+            // `classifyToolReturn` (`execute-call.mjs`): the tool's own `explicitSuccess` decides before the wording does (a
+            // failure a tool declares is its `Err`, already an error call).
+            let explicit_success = outputs[*i].as_ref().is_some_and(|o| o.explicit_success);
             if let Some(m) = staged[*i].as_mut()
                 && m.tool_kind == Some(ToolKind::Normal)
                 && let Content::Text(text) = &m.message.content
+                && !explicit_success
                 && crate::result_kind::classify_result_kind(text, &calls[*i].name) == crate::result_kind::ResultKind::Error
             {
                 m.tool_kind = Some(ToolKind::Error);
