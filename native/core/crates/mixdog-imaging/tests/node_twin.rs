@@ -23,6 +23,7 @@ use mixdog_imaging::ResizeOptions;
 use mixdog_imaging::compact_tool_result_image;
 use mixdog_imaging::decode;
 use mixdog_imaging::encode_tool_image_jpeg;
+use mixdog_imaging::image_profile_for_provider;
 use mixdog_imaging::probe;
 use mixdog_imaging::resize_image_buffer;
 use mixdog_imaging::validate;
@@ -377,6 +378,11 @@ fn golden(path: &str) -> Value {
 #[test]
 fn the_composer_resize_goldens_are_met_under_the_providers_profile() {
     let doc = golden("turn-ops/composer-image.json");
+    // Every recorded provider maps to the profile Node's `imageProfileForProvider` gave it.
+    for recorded in doc["profiles"].as_array().expect("profiles") {
+        let provider = recorded["provider"].as_str();
+        assert_eq!(image_profile_for_provider(provider), Profile::from_name(text(recorded, "profile")), "{provider:?}");
+    }
     let profile_of = |provider: &str| {
         let recorded = doc["profiles"].as_array().expect("profiles").iter().find(|p| text(p, "provider") == provider).expect("a recorded provider");
         Profile::from_name(text(recorded, "profile"))

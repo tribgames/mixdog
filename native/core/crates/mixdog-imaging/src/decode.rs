@@ -16,6 +16,7 @@ use std::io::Cursor;
 use image::ColorType;
 use image::ImageDecoder;
 use image::ImageError;
+use image::Limits;
 use image::codecs::gif::GifDecoder;
 use image::codecs::png::PngDecoder;
 use image::codecs::tiff::TiffDecoder;
@@ -207,6 +208,9 @@ fn decode_with<D: ImageDecoder>(opened: Result<D, ImageError>, format: Format, p
         return Err(corrupt(format, Stage::Header));
     }
     check_pixels(width, height, pixel_limit)?;
+    // The pixel limit above is the only bound, as for libvips: the TIFF reader's own default caps its buffers at
+    // 256 MiB, which a 16-bit image under the limit can exceed.
+    decoder.set_limits(Limits::no_limits()).map_err(|error| image_error(format, Stage::Header, &error))?;
     let color = decoder.color_type();
     let icc = decoder.icc_profile().ok().flatten();
     let orientation = decoder.orientation().map(Orientation::to_exif).unwrap_or(1);

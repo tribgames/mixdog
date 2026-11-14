@@ -4,6 +4,10 @@
 //! preparation resizes to, so that pass finds nothing left to change and the cached prefix keeps its bytes.
 
 use base64::Engine;
+use base64::alphabet;
+use base64::engine::DecodePaddingMode;
+use base64::engine::GeneralPurpose;
+use base64::engine::GeneralPurposeConfig;
 use base64::engine::general_purpose::STANDARD;
 
 use crate::decode::DECODE_PIXEL_LIMIT;
@@ -64,6 +68,29 @@ pub struct CompactedImage {
     pub dimensions: Dimensions,
 }
 
+/// Node's `Buffer.from(data, 'base64')`, which the compaction decodes with: characters outside the alphabet are
+/// skipped, both alphabets are read and padding may be missing.
+fn node_base64(data: &str) -> Vec<u8> {
+    const LENIENT: GeneralPurpose = GeneralPurpose::new(
+        &alphabet::STANDARD,
+        GeneralPurposeConfig::new().with_decode_allow_trailing_bits(true).with_decode_padding_mode(DecodePaddingMode::Indifferent),
+    );
+    let mut cleaned: String = data
+        .chars()
+        .take_while(|c| *c != '=')
+        .filter_map(|c| match c {
+            'A'..='Z' | 'a'..='z' | '0'..='9' | '+' | '/' => Some(c),
+            '-' => Some('+'),
+            '_' => Some('/'),
+            _ => None,
+        })
+        .collect();
+    if cleaned.len() % 4 == 1 {
+        cleaned.pop();
+    }
+    LENIENT.decode(&cleaned).unwrap_or_default()
+}
+
 /// `compactToolResultImage`: the compacted image, or `None` when the image is already within budget, not a
 /// re-encodable still, undecodable, or would not shrink (the original stays; per-send preparation still validates
 /// it).
@@ -75,8 +102,7 @@ pub fn compact_tool_result_image(base64: &str, mime_type: &str) -> Option<Compac
     if !TOOL_IMAGE_SOURCE_FORMATS.contains(&format.as_str()) {
         return None;
     }
-    let bytes = STANDARD.decode(base64).ok()?;
-    let decoded = decode(&bytes, DECODE_PIXEL_LIMIT).ok()?;
+    let decoded = decode(&node_base64(base64), DECODE_PIXEL_LIMIT).ok()?;
     let target = target_dimensions(decoded.width, decoded.height, Profile::Anthropic);
     let mut encoded = None;
     for quality in TOOL_IMAGE_JPEG_QUALITIES {
@@ -171,5 +197,16 @@ mod tests {
         );
         let jpeg = STANDARD.decode(&compacted.data).unwrap();
         assert_eq!(&jpeg[..2], &[0xFF, 0xD8]);
+        // Base64 as Buffer.from reads it: line breaks skipped, the URL-safe alphabet taken, padding optional.
+        let wrapped: String = base64.trim_end_matches('=').replace('+', "-").replace('/', "_").as_bytes().chunks(76).map(|line| format!("{}\r\n", String::from_utf8_lossy(line))).collect();
+        assert_eq!(compact_tool_result_image(&wrapped, "image/png").map(|image| image.dimensions), Some(compacted.dimensions));
+    }
+
+    #[test]
+    fn base64_is_read_as_buffer_from_reads_it() {
+        assert_eq!(node_base64("aGVsbG8="), b"hello");
+        assert_eq!(node_base64("aGVs\nbG8"), b"hello");
+        assert_eq!(node_base64("-_8"), [0xFB, 0xFF]);
+        assert_eq!(node_base64(""), b"");
     }
 }
