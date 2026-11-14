@@ -11,7 +11,9 @@
 //! runtime that is missing ([`ExtError::Unavailable`]) is the Node pool's answer to Node-routed
 //! methods only.
 
+use std::collections::HashMap;
 use std::collections::HashSet;
+use std::sync::Mutex;
 
 use mixdog_core_api::domain::common::EventSource;
 use mixdog_core_api::domain::ext::ExtCall;
@@ -26,14 +28,43 @@ use crate::exits::ExtHostError;
 use crate::pool::ExtHostConfig;
 use crate::pool::ExtHostPool;
 
-/// The Node pool's worker ids are shown to the operator offset by this, so they never meet a Rust
-/// worker's (`stop_worker` routes a call back by it).
-pub const NODE_WORKER_ID_OFFSET: u32 = 1 << 16;
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum WorkerPool {
+    Native,
+    Node,
+}
+
+/// Public ids belong to this routing pool, never to either child. Dead workers
+/// are pruned on status refresh, but their public ids are never reused, so stale
+/// stop requests cannot address replacements. Arc owners share the same map.
+#[derive(Default)]
+struct WorkerIds {
+    public: HashMap<(WorkerPool, ExtWorkerId), ExtWorkerId>,
+    actual: HashMap<ExtWorkerId, (WorkerPool, ExtWorkerId)>,
+    next: u64,
+}
+
+impl WorkerIds {
+    fn publish(&mut self, pool: WorkerPool, actual: ExtWorkerId) -> ExtWorkerId {
+        let key = (pool, actual);
+        if let Some(id) = self.public.get(&key) {
+            return *id;
+        }
+        // The unchanged API has a finite u32 id space. Never wrap or alias an
+        // earlier id, even if a router outlives all 2^32 distinct public ids.
+        let id = ExtWorkerId(u32::try_from(self.next).expect("routed worker id space exhausted"));
+        self.next += 1;
+        self.actual.insert(id, key);
+        self.public.insert(key, id);
+        id
+    }
+}
 
 pub struct RoutedExtPool<P = ExtHostPool> {
     native: P,
     node: P,
     native_methods: HashSet<String>,
+    worker_ids: Mutex<WorkerIds>,
 }
 
 impl RoutedExtPool<ExtHostPool> {
@@ -88,6 +119,7 @@ impl<P: ExtPool> RoutedExtPool<P> {
             native,
             node,
             native_methods: native_methods.into_iter().map(Into::into).collect(),
+            worker_ids: Mutex::new(WorkerIds::default()),
         }
     }
 }
@@ -102,18 +134,31 @@ impl<P: ExtPool> ExtPool for RoutedExtPool<P> {
     }
 
     fn status(&self) -> Vec<ExtWorkerStatus> {
+        let mut ids = self.worker_ids.lock().expect("routed worker ids");
         let mut rows = self.native.status();
-        rows.extend(self.node.status().into_iter().map(|row| ExtWorkerStatus {
-            id: ExtWorkerId(row.id.0 + NODE_WORKER_ID_OFFSET),
-            state: row.state,
+        let node_rows = self.node.status();
+        let live: HashSet<_> = rows.iter().map(|row| (WorkerPool::Native, row.id))
+            .chain(node_rows.iter().map(|row| (WorkerPool::Node, row.id))).collect();
+        ids.public.retain(|key, _| live.contains(key));
+        ids.actual.retain(|_, key| live.contains(key));
+        for row in &mut rows {
+            row.id = ids.publish(WorkerPool::Native, row.id);
+        }
+        rows.extend(node_rows.into_iter().map(|mut row| {
+            row.id = ids.publish(WorkerPool::Node, row.id);
+            row
         }));
         rows
     }
 
     fn stop_worker(&self, worker: ExtWorkerId) -> Result<(), ExtError> {
-        match worker.0.checked_sub(NODE_WORKER_ID_OFFSET) {
-            Some(id) => self.node.stop_worker(ExtWorkerId(id)),
-            None => self.native.stop_worker(worker),
+        let route = self.worker_ids.lock().expect("routed worker ids").actual.get(&worker).copied();
+        // Release the map lock before calling the child; it alone knows whether
+        // the worker still exists and returns UnknownWorker after a restart.
+        match route {
+            Some((WorkerPool::Native, id)) => self.native.stop_worker(id),
+            Some((WorkerPool::Node, id)) => self.node.stop_worker(id),
+            None => Err(ExtError::UnknownWorker),
         }
     }
 }
@@ -147,7 +192,7 @@ mod tests {
         name: &'static str,
         log: Arc<Mutex<Vec<String>>>,
         refuse: Option<ExtError>,
-        workers: Vec<u32>,
+        workers: Mutex<Vec<u32>>,
     }
 
     impl Stub {
@@ -156,7 +201,7 @@ mod tests {
                 name,
                 log: log.clone(),
                 refuse: None,
-                workers: vec![0, 1],
+                workers: Mutex::new(vec![0, 1]),
             }
         }
     }
@@ -181,6 +226,7 @@ mod tests {
 
         fn status(&self) -> Vec<ExtWorkerStatus> {
             self.workers
+                .lock().unwrap()
                 .iter()
                 .map(|&id| ExtWorkerStatus {
                     id: ExtWorkerId(id),
@@ -191,7 +237,7 @@ mod tests {
 
         fn stop_worker(&self, worker: ExtWorkerId) -> Result<(), ExtError> {
             self.log.lock().unwrap().push(format!("{}:stop:{}", self.name, worker.0));
-            if self.workers.contains(&worker.0) {
+            if self.workers.lock().unwrap().contains(&worker.0) {
                 Ok(())
             } else {
                 Err(ExtError::UnknownWorker)
@@ -248,16 +294,111 @@ mod tests {
     }
 
     #[test]
-    fn status_offsets_the_node_pools_ids_and_stop_routes_back() {
+    fn status_maps_full_width_child_ids_and_stop_routes_back() {
+        let log = Arc::default();
+        let native = Stub::new("rust", &log);
+        *native.workers.lock().unwrap() = vec![0, 65536, u32::MAX];
+        let node = Stub::new("node", &log);
+        *node.workers.lock().unwrap() = vec![0, 65536, u32::MAX];
+        let pool = routed(native, node);
+        let ids: Vec<_> = pool.status().iter().map(|row| row.id).collect();
+        assert_eq!(ids.iter().collect::<HashSet<_>>().len(), 6);
+        assert_eq!(pool.status().iter().map(|row| row.id).collect::<Vec<_>>(), ids);
+        for id in ids {
+            pool.stop_worker(id).unwrap();
+        }
+        assert_eq!(*log.lock().unwrap(), [
+            "rust:stop:0", "rust:stop:65536", "rust:stop:4294967295",
+            "node:stop:0", "node:stop:65536", "node:stop:4294967295",
+        ]);
+        let before = log.lock().unwrap().len();
+        assert_eq!(pool.stop_worker(ExtWorkerId(9)), Err(ExtError::UnknownWorker));
+        assert_eq!(pool.stop_worker(ExtWorkerId(u32::MAX)), Err(ExtError::UnknownWorker));
+        assert_eq!(log.lock().unwrap().len(), before, "unknown public ids never reach either child");
+    }
+
+    #[test]
+    fn restarted_workers_get_new_ids_and_stale_ids_keep_their_source_pool() {
         let log = Arc::default();
         let pool = routed(Stub::new("rust", &log), Stub::new("node", &log));
-        let ids: Vec<u32> = pool.status().iter().map(|row| row.id.0).collect();
-        assert_eq!(ids, [0, 1, NODE_WORKER_ID_OFFSET, NODE_WORKER_ID_OFFSET + 1]);
-        pool.stop_worker(ExtWorkerId(1)).unwrap();
-        pool.stop_worker(ExtWorkerId(NODE_WORKER_ID_OFFSET + 1)).unwrap();
-        assert_eq!(*log.lock().unwrap(), ["rust:stop:1", "node:stop:1"]);
-        assert_eq!(pool.stop_worker(ExtWorkerId(NODE_WORKER_ID_OFFSET + 7)), Err(ExtError::UnknownWorker));
-        assert_eq!(pool.stop_worker(ExtWorkerId(9)), Err(ExtError::UnknownWorker));
+        let old: Vec<_> = pool.status().iter().map(|row| row.id).collect();
+        *pool.native.workers.lock().unwrap() = vec![65536, 65537];
+        *pool.node.workers.lock().unwrap() = vec![65536, 65537];
+        // Before a status refresh, the child still receives only its original id.
+        assert_eq!(pool.stop_worker(old[0]), Err(ExtError::UnknownWorker));
+        assert_eq!(pool.stop_worker(old[2]), Err(ExtError::UnknownWorker));
+        assert_eq!(*log.lock().unwrap(), ["rust:stop:0", "node:stop:0"]);
+        log.lock().unwrap().clear();
+        let current: Vec<_> = pool.status().iter().map(|row| row.id).collect();
+        assert!(current.iter().all(|id| !old.contains(id)));
+        for id in old {
+            assert_eq!(pool.stop_worker(id), Err(ExtError::UnknownWorker));
+        }
+        for id in current {
+            pool.stop_worker(id).unwrap();
+        }
+        assert_eq!(pool.worker_ids.lock().unwrap().actual.len(), 4, "dead routes were pruned");
+        assert_eq!(pool.worker_ids.lock().unwrap().public.len(), 4);
+        assert_eq!(*log.lock().unwrap(), [
+            "rust:stop:65536", "rust:stop:65537", "node:stop:65536", "node:stop:65537",
+        ]);
+    }
+
+    #[test]
+    fn surviving_worker_ids_stay_stable_when_status_order_changes() {
+        let log = Arc::default();
+        let pool = routed(Stub::new("rust", &log), Stub::new("node", &log));
+        let before = pool.status();
+        *pool.native.workers.lock().unwrap() = vec![65536, 0];
+        *pool.node.workers.lock().unwrap() = vec![1, 0];
+        let after = pool.status();
+        assert_ne!(after[0].id, before[1].id, "a replacement never reuses the departed worker's id");
+        assert_eq!(after[1].id, before[0].id);
+        assert_eq!(after[2].id, before[3].id);
+        assert_eq!(after[3].id, before[2].id);
+        assert_eq!(pool.stop_worker(before[1].id), Err(ExtError::UnknownWorker));
+        pool.native.workers.lock().unwrap().clear();
+        pool.node.workers.lock().unwrap().clear();
+        assert!(pool.status().is_empty());
+        assert!(pool.worker_ids.lock().unwrap().actual.is_empty());
+        assert!(pool.worker_ids.lock().unwrap().public.is_empty());
+    }
+
+    #[test]
+    fn public_id_exhaustion_never_wraps_or_aliases() {
+        let mut ids = WorkerIds { next: u64::from(u32::MAX), ..WorkerIds::default() };
+        let last = ids.publish(WorkerPool::Native, ExtWorkerId(65536));
+        assert_eq!(last, ExtWorkerId(u32::MAX));
+        assert_eq!(ids.publish(WorkerPool::Native, ExtWorkerId(65536)), last);
+        let exhausted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            ids.publish(WorkerPool::Node, ExtWorkerId(65536));
+        }));
+        assert!(exhausted.is_err());
+        assert_eq!(ids.actual.len(), 1);
+        assert_eq!(ids.public.len(), 1);
+        assert_eq!(ids.actual[&last].1, ExtWorkerId(65536));
+    }
+
+    #[test]
+    fn concurrent_arc_owners_share_one_stable_id_map() {
+        let log = Arc::default();
+        let pool = Arc::new(routed(Stub::new("rust", &log), Stub::new("node", &log)));
+        assert_eq!(pool.stop_worker(ExtWorkerId(0)), Err(ExtError::UnknownWorker));
+        let threads: Vec<_> = (0..8).map(|_| {
+            let pool = Arc::clone(&pool);
+            std::thread::spawn(move || {
+                let ids: Vec<_> = pool.status().iter().map(|row| row.id).collect();
+                pool.stop_worker(ids[0]).unwrap();
+                pool.stop_worker(ids[2]).unwrap();
+                ids
+            })
+        }).collect();
+        let expected: Vec<_> = pool.status().iter().map(|row| row.id).collect();
+        for thread in threads {
+            assert_eq!(thread.join().unwrap(), expected);
+        }
+        assert_eq!(log.lock().unwrap().iter().filter(|line| *line == "rust:stop:0").count(), 8);
+        assert_eq!(log.lock().unwrap().iter().filter(|line| *line == "node:stop:0").count(), 8);
     }
 
     #[tokio::test]
