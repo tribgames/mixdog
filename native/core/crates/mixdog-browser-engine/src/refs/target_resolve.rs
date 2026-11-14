@@ -21,6 +21,10 @@ use mixdog_app_protocol::v2::browser_engine::HostBrowserSnapshotParams;
 use mixdog_app_protocol::v2::browser_engine::HostBrowserSnapshotResult;
 use mixdog_app_protocol::v2::browser_engine::Precondition;
 use mixdog_browser_policy::redaction::redact_browser_text;
+use mixdog_js::is_js_space;
+use mixdog_js::js_to_lowercase;
+use mixdog_js::js_words;
+use mixdog_js::utf16_len;
 use mixdog_rt::CancellationToken;
 use serde::Deserialize;
 use serde_json::Value;
@@ -134,18 +138,9 @@ impl From<RefError> for TargetError {
     }
 }
 
-/// JavaScript's `\s`: Unicode white space with the byte order mark, without the next-line control.
-fn is_js_space(c: char) -> bool {
-    (c.is_whitespace() && c != '\u{85}') || c == '\u{feff}'
-}
-
 /// `compact`: runs of white space become one space and the ends are trimmed.
 fn compact(value: &str) -> String {
-    value.split(is_js_space).filter(|part| !part.is_empty()).collect::<Vec<_>>().join(" ")
-}
-
-fn utf16_len(value: &str) -> usize {
-    value.encode_utf16().count()
+    js_words(value).collect::<Vec<_>>().join(" ")
 }
 
 /// `/^\/.+\/[a-z]*$/s`: a name written as a regular expression is not a plain name to narrow the observation with.
@@ -178,7 +173,7 @@ impl TargetSpec {
             return Err(format!("target does not accept field(s): {}", unknown.join(", ")));
         }
         let mut spec = Self::default();
-        let role = compact(text_field(input, "role", 60)?).to_lowercase();
+        let role = js_to_lowercase(&compact(text_field(input, "role", 60)?));
         if !role.is_empty() {
             spec.role = Some(role);
         }
@@ -226,13 +221,13 @@ impl TargetSpec {
     }
 
     fn role_matches(&self, element: &BrowserSnapshotElement) -> bool {
-        self.role.as_deref().is_none_or(|role| compact(&element.role).to_lowercase() == role)
+        self.role.as_deref().is_none_or(|role| js_to_lowercase(&compact(&element.role)) == role)
     }
 
     fn name_matches(&self, element: &BrowserSnapshotElement) -> bool {
         let Some(wanted) = &self.name else { return true };
         let name = compact(&element.name);
-        if self.exact { &name == wanted } else { name.to_lowercase().contains(&wanted.to_lowercase()) }
+        if self.exact { &name == wanted } else { js_to_lowercase(&name).contains(&js_to_lowercase(wanted)) }
     }
 }
 
@@ -292,9 +287,9 @@ pub fn select_target<'a>(spec: &TargetSpec, elements: &'a [BrowserSnapshotElemen
     if let [only] = matches.as_slice() {
         return Ok(*only);
     }
-    let wanted = spec.name.as_deref().map(str::to_lowercase);
+    let wanted = spec.name.as_deref().map(js_to_lowercase);
     if let Some(wanted) = &wanted {
-        let mut verbatim = matches.iter().copied().filter(|element| &compact(&element.name).to_lowercase() == wanted);
+        let mut verbatim = matches.iter().copied().filter(|element| &js_to_lowercase(&compact(&element.name)) == wanted);
         if let (Some(only), None) = (verbatim.next(), verbatim.next()) {
             return Ok(only);
         }
