@@ -31,6 +31,8 @@ export interface HostConnection {
   handleRequest(method: string, handler: (params: unknown, signal: AbortSignal) => Promise<unknown>): void;
   /** Serve one core→host notification. */
   handleNotification(method: string, handler: (params: unknown) => void): void;
+  /** The method names registered through handleRequest and handleNotification, sorted. */
+  servedMethods(): string[];
   /** Runs `listener` once when the connection closes. */
   onClose(listener: () => void): void;
 }
@@ -64,8 +66,11 @@ export const HOST_CAPABILITIES = {
   media: true,
   updater: true,
   files: true,
-  // `host/computer/capture` and `host/computer/displays` (computer.ts).
+  // `host/computer/*`: capture and displays (computer.ts), foregroundLease, internalWindows and pointerFeedback
+  // (computer-lease.ts, computer-internal-windows.ts, computer-pointer.ts).
   computer: true,
+  // `host/window/open|close|focus` (s2b): not served by this desktop until the connections host handlers land.
+  windows: false,
 } as const satisfies HostCapabilities;
 
 /** The fields of a generated protocol params type, each still to be checked (a wire value is unknown). */

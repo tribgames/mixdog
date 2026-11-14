@@ -29,6 +29,7 @@ function pair() {
     sendBinary: (frame) => sent.binary.push(frame),
     handleRequest: (method, handler) => requests.set(method, handler),
     handleNotification: (method, handler) => notifications.set(method, handler),
+    servedMethods: () => [],
     onClose: (listener) => closers.push(listener),
   };
   return {

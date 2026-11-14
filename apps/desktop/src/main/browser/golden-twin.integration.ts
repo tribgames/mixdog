@@ -222,6 +222,7 @@ async function run(): Promise<void> {
           if (method === 'host/browser/command') hostHandler = handler;
         },
         handleNotification: () => undefined,
+        servedMethods: () => [],
         onClose: () => undefined,
       } as never,
       host.commandRunner,
