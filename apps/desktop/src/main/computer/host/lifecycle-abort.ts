@@ -7,9 +7,7 @@
  */
 import { spawn } from 'node:child_process';
 
-import type { WindowsWorker } from '../backend/host-worker-process';
 import { computerNativeBinary, computerNativeEnvironment } from '../backend/native-host';
-import { ABORT_CLEANUP_PROGRAM } from '../backend/program';
 import { waitForComputerWorkerExit } from '../backend/worker-capacity';
 import { assertSafeComputerSessionId } from '../input/guards';
 import type { ComputerUseCoordinator } from '../session/coordinator';
@@ -34,10 +32,7 @@ export async function cleanupAbortedInput(
   host: Pick<
     SessionLifecycleHost,
     'cleanupInput' | 'inputMarker' | 'pendingInactiveLedgers' | 'inactiveLedgersRecovered'
-  > & {
-    /** The pool's Windows worker kind (spread into the lifecycle host from the worker pool). */
-    windowsWorker?: WindowsWorker;
-  },
+  >,
   recovery?: InputRecoveryState,
   restoreDesktop = true,
   sweep = false
@@ -55,24 +50,12 @@ export async function cleanupAbortedInput(
       MIXDOG_ABORT_CURSOR_X: String(recovery?.cursorX ?? 0),
       MIXDOG_ABORT_CURSOR_Y: String(recovery?.cursorY ?? 0),
     };
-    // The release runs from a fresh process of the program the workers run:
-    // the PowerShell cleanup program with the PowerShell host, mixdog-computer otherwise.
-    const child =
-      process.platform === 'win32' && host.windowsWorker === 'powershell'
-        ? spawn(
-            'powershell.exe',
-            ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', ABORT_CLEANUP_PROGRAM],
-            {
-              windowsHide: true,
-              stdio: 'ignore',
-              env: { ...process.env, MIXDOG_COMPUTER_INPUT_MARKER: host.inputMarker, ...abortEnvironment },
-            }
-          )
-        : spawn(computerNativeBinary(), ['--abort-cleanup'], {
-            windowsHide: true,
-            stdio: 'ignore',
-            env: computerNativeEnvironment(host.inputMarker, abortEnvironment),
-          });
+    // The release runs from a fresh mixdog-computer process.
+    const child = spawn(computerNativeBinary(), ['--abort-cleanup'], {
+      windowsHide: true,
+      stdio: 'ignore',
+      env: computerNativeEnvironment(host.inputMarker, abortEnvironment),
+    });
     let settled = false;
     const finish = (confirmed: boolean) => {
       if (settled) return;
