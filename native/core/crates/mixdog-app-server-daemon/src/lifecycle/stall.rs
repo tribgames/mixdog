@@ -2,7 +2,9 @@
 //! thread posts a probe task onto the async runtime and measures how long the previous probe
 //! has been waiting; with [`StallReporter::watching_lanes`] it also reports pooled lanes whose
 //! workers are stuck past their lease. It does not kill, restart or fence; the user terminates
-//! through the control listener.
+//! through the control listener. What ends a core that stays stalled is its launcher: it asks the control
+//! status (`stalledMs`, answered by a thread of its own) and kills the core after a bounded number of
+//! unanswered asks (`watchCore` in `packages/protocol-client/src/launch/ensure-core.mjs`).
 
 #![allow(
     clippy::disallowed_methods,

@@ -1,0 +1,14 @@
+# nl-startup-2: hung-core detection in the desktop (apply in apps/desktop/src/main/protocol/local-core.ts and the host that calls resolveLocalCore)
+1. local-core.ts, function readCoreState: add to the returned object (and to its return type)
+     controlPort: Number.isInteger(discovery.core?.control?.port) ? discovery.core.control.port : null,
+     token: typeof discovery.endpoints?.session?.token === 'string' ? discovery.endpoints.session.token : null,
+   (the parsed type gains core.control{port} and endpoints.session{token}).
+2. After the app's core is launched (resolveLocalCore's onLaunched callback gives the child), start once per app run:
+     const watcher = watchCore({
+       readDiscovery: () => readCoreState(runtimeRoot),
+       ownedPid: () => ownedCore?.pid ?? null,   // the child onLaunched last reported, null when it has exited
+       log: (line) => logger.error(line),
+     });
+   import { watchCore } from '../../../../../packages/protocol-client/src/launch/ensure-core.mjs'; call watcher.stop() at quit
+   (before coreExit). No onKilled is needed: the connection's reconnect ladder calls resolveLocalCore, whose ensureCore
+   starts a replacement because the killed pid names no core.
