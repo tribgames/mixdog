@@ -118,7 +118,8 @@ async fn authenticate(wire: &mut Wire, method: &str, email: &str, password: &str
     if answer.starts_with('2') { Ok(()) } else { Err(invalid_login(&answer)) }
 }
 
-pub async fn verify(leg: &Leg<'_>, name: &str, email: &str, password: &str) -> Result<(), Failure> {
+/// The connection up to and including the login: what `transport.verify()` and a send both start with.
+async fn open(leg: &Leg<'_>, name: &str, email: &str, password: &str) -> Result<Wire, Failure> {
     let deadline = Instant::now() + leg.timeouts.connection;
     let io = connect(leg.target, leg.tls, deadline, "ETIMEDOUT", "Connection timeout").await.map_err(socket_failure)?;
     let mut wire = Wire::new(io, leg.timeouts.socket, ("ETIMEDOUT", "Timeout"), Some("ESOCKET"), MAX_RESPONSE);
@@ -154,7 +155,72 @@ pub async fn verify(leg: &Leg<'_>, name: &str, email: &str, password: &str) -> R
         }
         authenticate(&mut wire, method, email, password).await?;
     }
-    // The check is over once QUIT is sent; the 221 is not waited for.
-    wire.send(b"QUIT\r\n").await?;
-    Ok(())
+    Ok(wire)
+}
+
+/// `transport.verify()`: the check is over once QUIT is sent; the 221 is not waited for.
+pub async fn verify(leg: &Leg<'_>, name: &str, email: &str, password: &str) -> Result<(), Failure> {
+    let mut wire = open(leg, name, email, password).await?;
+    wire.send(b"QUIT\r\n").await
+}
+
+/// Who a message goes from and to on the wire.
+pub(crate) struct Envelope<'a> {
+    pub from: &'a str,
+    pub recipients: &'a [String],
+}
+
+/// `transport.sendMail()` after the login: MAIL FROM, one RCPT TO per recipient, DATA, the message with its dots
+/// stuffed, QUIT. A recipient the server refuses is skipped; the send fails when none is accepted.
+pub(crate) async fn send(leg: &Leg<'_>, name: &str, email: &str, password: &str, envelope: &Envelope<'_>, message: &[u8]) -> Result<(), Failure> {
+    let mut wire = open(leg, name, email, password).await?;
+    wire.send(format!("MAIL FROM:<{}>\r\n", envelope.from).as_bytes()).await?;
+    let from = reply(&mut wire).await?;
+    if !from.starts_with('2') {
+        return Err(Failure::smtp("Mail command failed", "EENVELOPE", Some(&from)));
+    }
+    let mut accepted = 0usize;
+    let mut refused = String::new();
+    for recipient in envelope.recipients {
+        wire.send(format!("RCPT TO:<{recipient}>\r\n").as_bytes()).await?;
+        let answer = reply(&mut wire).await?;
+        if answer.starts_with('2') {
+            accepted += 1;
+        } else {
+            refused = answer;
+        }
+    }
+    if accepted == 0 {
+        let message = if refused.is_empty() { "No recipients defined" } else { "Can't send mail - all recipients were rejected" };
+        return Err(Failure::smtp(message, "EENVELOPE", Some(&refused)));
+    }
+    wire.send(b"DATA\r\n").await?;
+    let data = reply(&mut wire).await?;
+    if !data.starts_with("354") {
+        return Err(Failure::smtp("Data command failed", "EPROTOCOL", Some(&data)));
+    }
+    wire.send(&stuffed(message)).await?;
+    let done = reply(&mut wire).await?;
+    if !done.starts_with('2') {
+        return Err(Failure::smtp("Message failed", "EMESSAGE", Some(&done)));
+    }
+    wire.send(b"QUIT\r\n").await
+}
+
+/// The message as DATA carries it: a dot starting a line doubled, the terminating line added.
+fn stuffed(message: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(message.len() + 16);
+    let mut line_start = true;
+    for &byte in message {
+        if line_start && byte == b'.' {
+            out.push(b'.');
+        }
+        out.push(byte);
+        line_start = byte == b'\n';
+    }
+    if !out.ends_with(b"\r\n") {
+        out.extend_from_slice(b"\r\n");
+    }
+    out.extend_from_slice(b".\r\n");
+    out
 }

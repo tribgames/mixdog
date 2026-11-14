@@ -1,0 +1,95 @@
+# nl-connectors-1: the Gmail app-password MCP server (crates/mixdog-mcp/src/gmail_app_password/), answering the reserved address
+# https://gmail-imap.mixdog.invalid/mcp in this process. Nothing below is compiled until the lead applies it: the module is not in
+# lib.rs yet and its charset decoding needs one dependency edge.
+
+## native/core/crates/mixdog-mcp/src/lib.rs
+
+After `pub mod gmail_verify;` add:
+
+    pub mod gmail_app_password;
+
+## native/core/crates/mixdog-mcp/Cargo.toml (and Cargo.lock)
+
+[dependencies]: add, next to `base64 = { workspace = true }`:
+
+    encoding_rs = { workspace = true }
+
+Cargo.lock: the package `mixdog-mcp` gains the dependency "encoding_rs" (already in the lock, 0.8.44, and a workspace dependency:
+`encoding_rs = "0.8"` in native/core/Cargo.toml). Regenerate with `cargo update -w` offline. It reads the charset of an RFC 2047
+encoded word and of an RFC 2231 parameter (euc-kr, iso-8859-x, windows-125x, ...), as imapflow's libmime does. mixdog-workspace-hack:
+nothing to add by hand (take what the hakari check asks for).
+
+## native/core/crates/mixdog-mcp/src/http.rs (HttpTransport)
+
+1. Struct HttpTransport gets a field next to `google`:
+
+       /// The server a Gmail app-password connector's reserved address is answered by (in this process).
+       gmail: Option<Arc<crate::gmail_app_password::GmailMcp>>,
+
+   initialised `gmail: None` in `new`.
+
+2. Next to `with_google_fetch`:
+
+       /// Sends the requests of a Gmail app-password connector's reserved address to `server`.
+       pub fn with_gmail(mut self, server: Arc<crate::gmail_app_password::GmailMcp>) -> Self {
+           if crate::gmail_app_password::is_service(&self.url) {
+               self.gmail = Some(server);
+           }
+           self
+       }
+
+3. `initialized()`: the reserved address answers a GET `405`, so the condition `if self.google.is_some()` becomes
+   `if self.google.is_some() || self.gmail.is_some()`.
+
+4. `post_message`: after the `if let Some(google) = &self.google { ... }` block add
+
+       if let Some(gmail) = &self.gmail {
+           return self.post_gmail(gmail, &message).await;
+       }
+
+   and in the `impl HttpTransport` that holds `post_reserved` add (no sign-in: the server has no authorizer, the password is in the keychain):
+
+       /// `post_message` to a Gmail app-password connector: the answer is made in this process
+       /// ([`crate::gmail_app_password::GmailMcp::answer`]) from the account header of the server's config.
+       async fn post_gmail(&self, gmail: &crate::gmail_app_password::GmailMcp, message: &Value) -> Result<(), TransportError> {
+           let account = self.headers.get(crate::connector_model::GMAIL_ACCOUNT_HEADER).and_then(|value| value.to_str().ok());
+           let text = message.to_string();
+           let answer = gmail.answer(&self.url, "POST", account, text.as_bytes()).await.map_err(TransportError::Request)?;
+           if !(200..300).contains(&answer.status) {
+               let body: String = answer.body.map(|b| b.to_string()).unwrap_or_default().chars().take(ERROR_BODY_CHARS).collect();
+               return Err(TransportError::Http { status: answer.status, body });
+           }
+           if let Some(value) = answer.body.filter(|_| answer.status != 202 && answer.status != 204) {
+               self.deliver(value);
+           }
+           Ok(())
+       }
+
+## native/core/crates/mixdog-mcp/src/server.rs (McpServer, the TransportConfig::Http arm)
+
+`HttpTransport::new(url.clone(), headers, self.authorizer.clone())?` becomes the same call followed by
+`.with_gmail(gmail.clone())` when the server holds a `gmail: Option<Arc<GmailMcp>>` (a field the server receives the way it receives
+`authorizer`, from the hub that builds it). Without one, a server whose url is the reserved address must fail to start with
+"the Gmail app-password server is not available in this build" reported once at error level (no network attempt: the name never resolves).
+
+## native/core/crates/mixdog-app-server-daemon/src/compose_flip.rs (the McpGlue / hub construction near `verifier:`)
+
+Build the check once and share it:
+
+    let gmail_mail = Arc::new(mixdog_mcp::gmail_verify::GmailAppPassword::default());
+    verifier: gmail_mail.clone(),            // Arc<GmailAppPassword> coerces to Arc<dyn GmailVerifier>
+    // and hand `Arc::new(mixdog_mcp::gmail_app_password::GmailMcp::new(gmail_mail, <the keychain store the secret_store field wraps>))`
+    // to the hub as the `gmail` of every McpServer it builds.
+
+The store must be the keychain the app-password save/forget write to (`secret_store`, the AnnouncingStore over `keychain_store`), because
+the server reads the password under `mcp_secrets::gmail_app_password_secret_account(<address>)` on each request.
+
+## SERVICE_PENDING (compose_flip.rs)
+
+No name to remove: this task registers no protocol method.
+
+## Later tasks
+
+None needed for this package. The tool names (`send_email`, `search_emails`, `read_email`, `describe_emails` and the eight management tools)
+are the ones `permissions.rs`, `outbound.rs`, `policy.rs` (GmailCardEnricher, `describe_emails` through `call_tool_unlisted`) and
+`mail_reads.rs` already name.
