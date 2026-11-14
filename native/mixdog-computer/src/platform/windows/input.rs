@@ -169,6 +169,9 @@ struct Section {
     lock: NamedMutex,
     /// This call created the mapping; no other process held it yet.
     fresh: bool,
+    /// The file the section is backed by, kept open while the section lives so the core's startup
+    /// sweep sees the receipt as claimed.
+    _file: Option<std::fs::File>,
 }
 
 // SAFETY: the view is shared memory read and written only as atomic bytes,
@@ -235,6 +238,7 @@ impl Section {
                 view,
                 lock,
                 fresh,
+                _file: file,
             })
         }
     }
