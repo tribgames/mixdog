@@ -1,0 +1,58 @@
+# nr-exthost-skill-scripts-core wiring (core): the new crate `mixdog-skill-scripts` (the shipped skill scripts validate-skill and inventory in Rust, the launcher's argument carrier, the table of shipped scripts).
+
+The crate is in `native/core/crates/mixdog-skill-scripts` (Cargo.toml, src/{lib,argv,parse_args,validate_skill,inventory,shipped}.rs, tests/node_twin.rs). It has no protocol rows, no registration and no SERVICE_PENDING
+entry: nothing in the daemon calls it yet. The consumer is the task that runs a skill script natively (nr-exthost-skill-scripts-office and the launcher wiring after it), which calls
+`mixdog_skill_scripts::shipped::shipped_script(proof, path, skills_root)` and, for a `native` entry, `shipped::run_native(proof, native, args, &inventory::utc_today())`; the entry contract is
+`argv::run_entry(command_line, std::env::var(argv::SKILL_ARGV_ENV).ok().as_deref(), runner)`. The caller removes `MIXDOG_SKILL_ARGV` from the environment before it starts anything else (the Node entry deletes it before
+importing the script).
+
+## 1. native/core/Cargo.toml
+
+(a) `[workspace] members`: after `"crates/mixdog-exthost",` add
+
+    "crates/mixdog-skill-scripts",
+
+(b) `[workspace.dependencies]`, in the internal crates block after `mixdog-exthost = { path = "crates/mixdog-exthost" }`:
+
+    mixdog-skill-scripts = { path = "crates/mixdog-skill-scripts" }
+
+No registry crate is added: base64, serde_json, sha2, tempfile and every workspace crate the new crate names are already workspace dependencies.
+
+The crate depends on these workspace crates (edges, all downward: nothing depends on `mixdog-skill-scripts` yet): `mixdog-fsio`, `mixdog-js`, `mixdog-mcp` (its skill document parser, dependency normaliser and trigger budget),
+`mixdog-workspace-hack`; dev: `mixdog-testkit`.
+
+## 2. native/core/Cargo.lock
+
+Add the package entry (cargo writes it; `--locked` needs it present). The workspace has two versions of base64 and of sha2, so they are named with their versions:
+
+    [[package]]
+    name = "mixdog-skill-scripts"
+    version = "1.5.0"
+    dependencies = [
+     "base64 0.22.1",
+     "mixdog-fsio",
+     "mixdog-js",
+     "mixdog-mcp",
+     "mixdog-testkit",
+     "mixdog-workspace-hack",
+     "serde_json",
+     "sha2 0.10.9",
+     "tempfile",
+    ]
+
+(`version` is the workspace version `version.workspace = true` resolves to: copy the value the other new crates got.)
+
+## 3. native/core/crates/mixdog-workspace-hack/Cargo.toml
+
+Run `cargo hakari generate` (the new crate adds no registry crate, so the file is expected not to change; `cargo hakari verify` is the check).
+
+## 4. The recording
+
+`native/core/fixtures/skill-scripts/golden.json` and `MANIFEST.json` are committed (recorded with Node v22.20.0 on Windows by `node benchmarks/rust-core/recorders/record-skill-scripts.mjs --tree C:\Project\mixdog`;
+it builds its inputs in a temporary folder, among them 20001 files and 50000 folders for the two bounds). tests/node_twin.rs reads it. The case "names that sort differently by case and by byte" holds the
+order NTFS lists entries in; a Unix runner lists them by byte, as Node there would, so that one case is Windows-recorded. Optional: give `inventory_refuses_what_node_refuses_at_its_bounds` a longer
+slow-timeout in `.config/nextest.toml` (it makes 70000 files and folders).
+
+## 5. Nothing else
+
+No `compose_flip.rs` change (no protocol method), no `pending-rows`.
