@@ -1,8 +1,10 @@
 /**
- * The resident Windows helper process of a screen session: desktop input
- * through Computer Use's own checked SendInput transport (InputTransport.cs,
- * `MixNativeInput`), and a watcher that reports which desktop takes input and
- * whether an elevation prompt or the sign-in screen is up.
+ * The resident Windows helper process of a screen session: `mixdog-computer
+ * --screen-input` (native/mixdog-computer/src/screen_input.rs), which injects
+ * desktop input through Computer Use's own checked SendInput transport and
+ * ownership receipt, and watches which desktop takes input and whether an
+ * elevation prompt or the sign-in screen is up. No PowerShell or C# source is
+ * involved.
  *
  * Line protocol, ASCII, one command per line on stdin:
  *   m <id> <x> <y>                       absolute move, desktop pixels
@@ -21,287 +23,22 @@
  * stdin/stdout pipes, and it opens no named pipe, socket or window.
  */
 import type { ChildProcessWithoutNullStreams, spawn as spawnType } from 'node:child_process';
-import { createHash, randomBytes } from 'node:crypto';
-import { mkdirSync, readdirSync, unlinkSync, writeFileSync } from 'node:fs';
+
+import { readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { MAX_REMOTE_SCREEN_TEXT } from '../../shared/remote-webrtc';
-import { MIXDOG_INPUT_TRANSPORT_CSHARP } from '../computer/backend/native-source';
+import { computerNativeBinary, computerNativeEnvironment } from '../computer/backend/native-host';
 import { COMMAND_TIMEOUT_MS } from '../computer/backend/worker-requests';
 import type { ScreenDesktopIdentity } from './screen-input-router';
 import { createComputerLineDecoder } from '../../shared/core-src/runtime/computer-bridge/limits.mjs';
 
 const START_TIMEOUT_MS = 30_000;
 const STOP_TIMEOUT_MS = 4_000;
+const ABORT_CLEANUP_TIMEOUT_MS = 5_000;
 const MAX_LINE_BYTES = 64 * 1024;
-const WATCH_INTERVAL_MS = 400;
 
-const SCREEN_HOST_CSHARP = `
-public static class MixdogScreenHost
-{
-    [DllImport("user32.dll")] static extern bool SetProcessDpiAwarenessContext(IntPtr value);
-    [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
-    [DllImport("user32.dll")] static extern int GetSystemMetrics(int index);
-    [StructLayout(LayoutKind.Sequential)] struct POINT { public int x, y; }
-    [DllImport("user32.dll")] static extern bool GetCursorPos(out POINT point);
-    [DllImport("user32.dll", SetLastError = true)] static extern IntPtr OpenInputDesktop(uint flags, bool inherit, uint access);
-    [DllImport("user32.dll")] static extern bool CloseDesktop(IntPtr desktop);
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-    static extern bool GetUserObjectInformationW(IntPtr handle, int index, StringBuilder info, int length, out int needed);
-
-    static readonly object output = new object();
-    static IntPtr marker;
-
-    static void Write(string line)
-    {
-        lock (output) { Console.Out.Write(line + "\\n"); Console.Out.Flush(); }
-    }
-
-    public static void Serve(string markerText)
-    {
-        uint value;
-        if (!UInt32.TryParse(markerText, out value) || value == 0 || value > Int32.MaxValue)
-            throw new InvalidOperationException("input_marker_unavailable");
-        marker = new IntPtr((int)value);
-        // Physical pixels everywhere: the virtual-screen metrics below and the
-        // cursor read-back must agree with the capture's native pixels.
-        if (!SetProcessDpiAwarenessContext(new IntPtr(-4))) SetProcessDPIAware();
-        MixNativeInput.InitializeOwnership(marker);
-        // The first desktop state and this process's Windows session go out
-        // before ready, so every press can be tagged with where it lands.
-        try { lastState = State(); Write("desktop " + lastState); } catch { }
-        Write("ready " + Process.GetCurrentProcess().SessionId.ToString(CultureInfo.InvariantCulture));
-        Thread watcher = new Thread(Watch);
-        watcher.IsBackground = true;
-        watcher.Start();
-        string line;
-        while ((line = Console.In.ReadLine()) != null)
-        {
-            if (line == "q") break;
-            Handle(line);
-        }
-        try { MixNativeInput.ReleaseOwned(marker); Write("released"); }
-        catch (Exception error) { Write("err 0 " + Code(error)); }
-    }
-
-    static string Code(Exception error)
-    {
-        string message = error.Message ?? "";
-        int colon = message.IndexOf(':');
-        string code = colon > 0 ? message.Substring(0, colon) : "input_failed";
-        foreach (char ch in code) if (!(ch == '_' || (ch >= 'a' && ch <= 'z'))) return "input_failed";
-        return code;
-    }
-
-    static int Int(string text)
-    {
-        int value;
-        if (!Int32.TryParse(text, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out value))
-            throw new FormatException("protocol_error: bad number");
-        return value;
-    }
-
-    static MixNativeInput.INPUT Move(int x, int y)
-    {
-        int left = GetSystemMetrics(76), top = GetSystemMetrics(77), width = GetSystemMetrics(78), height = GetSystemMetrics(79);
-        if (width < 2 || height < 2) throw new InvalidOperationException("display_unavailable: no virtual screen");
-        if (x < left || y < top || x >= left + width || y >= top + height)
-            throw new InvalidOperationException("out_of_bounds: point is outside the desktop");
-        // MOVE | VIRTUALDESK | ABSOLUTE, normalized over the whole virtual screen.
-        MixNativeInput.INPUT input = MixNativeInput.Mouse(0xC001, marker);
-        input.U.mi.dx = (int)Math.Round((x - left) * 65535.0 / (width - 1));
-        input.U.mi.dy = (int)Math.Round((y - top) * 65535.0 / (height - 1));
-        return input;
-    }
-
-    static MixNativeInput.INPUT Mouse(uint flags, int data)
-    {
-        MixNativeInput.INPUT input = MixNativeInput.Mouse(flags, marker);
-        input.U.mi.mouseData = unchecked((uint)data);
-        return input;
-    }
-
-    static uint ButtonFlag(string name, bool down)
-    {
-        if (name == "l") return down ? 0x02u : 0x04u;
-        if (name == "r") return down ? 0x08u : 0x10u;
-        if (name == "m") return down ? 0x20u : 0x40u;
-        throw new FormatException("protocol_error: bad button");
-    }
-
-    static void Handle(string line)
-    {
-        string[] f = line.Split(' ');
-        string id = f.Length > 1 ? f[1] : "0";
-        try
-        {
-            var inputs = new List<MixNativeInput.INPUT>();
-            switch (f[0])
-            {
-                case "m":
-                    inputs.Add(Move(Int(f[2]), Int(f[3])));
-                    break;
-                case "b":
-                    if (f.Length >= 6) inputs.Add(Move(Int(f[4]), Int(f[5])));
-                    inputs.Add(Mouse(ButtonFlag(f[2], f[3] == "1"), 0));
-                    break;
-                case "w":
-                    inputs.Add(Move(Int(f[2]), Int(f[3])));
-                    int dx = Int(f[4]), dy = Int(f[5]);
-                    if (dy != 0) inputs.Add(Mouse(0x0800, -dy));
-                    if (dx != 0) inputs.Add(Mouse(0x1000, dx));
-                    break;
-                case "k":
-                {
-                    int vk = Int(f[2]), scan = Int(f[3]);
-                    if (vk < 0 || vk > 254 || scan < 0 || scan > 255 || (vk == 0 && scan == 0))
-                        throw new FormatException("protocol_error: bad key");
-                    // A virtual key goes as such (the scan code rides along for
-                    // apps that read it); a scan-only key goes as a scan code.
-                    uint flags = (f[4] == "1" ? 0x1u : 0u) | (f[5] == "1" ? 0u : 0x2u) | (vk == 0 ? 0x8u : 0u);
-                    inputs.Add(MixNativeInput.Key((ushort)vk, (ushort)scan, flags, marker));
-                    break;
-                }
-                case "t":
-                    Text(Encoding.UTF8.GetString(Convert.FromBase64String(f[2])));
-                    break;
-                case "c":
-                {
-                    POINT point;
-                    if (!GetCursorPos(out point)) throw new InvalidOperationException("cursor_unavailable: no cursor");
-                    Write("ok " + id + " " + point.x.ToString(CultureInfo.InvariantCulture) + " " + point.y.ToString(CultureInfo.InvariantCulture));
-                    return;
-                }
-                default:
-                    throw new FormatException("protocol_error: unknown command");
-            }
-            if (inputs.Count > 0) MixNativeInput.Deliver(inputs.ToArray());
-            Write("ok " + id);
-        }
-        catch (Exception error)
-        {
-            Write("err " + id + " " + Code(error));
-        }
-    }
-
-    static void Text(string text)
-    {
-        if (text.Length > ${MAX_REMOTE_SCREEN_TEXT}) throw new FormatException("protocol_error: text too long");
-        foreach (char ch in text)
-        {
-            if (ch == '\\r') continue;
-            // Line breaks and tabs go as their keys: a Unicode packet for a
-            // control character is dropped or misread by many apps.
-            MixNativeInput.INPUT[] glyph = ch == '\\n'
-                ? new MixNativeInput.INPUT[] {
-                    MixNativeInput.Key(0x0D, 0x1C, 0, marker), MixNativeInput.Key(0x0D, 0x1C, 0x2, marker) }
-                : ch == '\\t'
-                ? new MixNativeInput.INPUT[] {
-                    MixNativeInput.Key(0x09, 0x0F, 0, marker), MixNativeInput.Key(0x09, 0x0F, 0x2, marker) }
-                : new MixNativeInput.INPUT[] {
-                    MixNativeInput.Key(0, (ushort)ch, 0x4, marker), MixNativeInput.Key(0, (ushort)ch, 0x4 | 0x2, marker) };
-            MixNativeInput.Deliver(glyph);
-            // Chromium and WinUI drop a tight Unicode burst; pacing keeps order.
-            Thread.Sleep(4);
-        }
-    }
-
-    static string DesktopName()
-    {
-        // Without access (the secure desktop) the input desktop cannot be opened.
-        IntPtr desktop = OpenInputDesktop(0, false, 0x0001);
-        if (desktop == IntPtr.Zero) return "-";
-        try
-        {
-            var name = new StringBuilder(256);
-            int needed;
-            if (!GetUserObjectInformationW(desktop, 2, name, name.Capacity * 2, out needed)) return "-";
-            string text = name.ToString();
-            var clean = new StringBuilder();
-            foreach (char ch in text) if (ch > ' ' && ch < 127) clean.Append(ch);
-            return clean.Length == 0 ? "-" : clean.ToString();
-        }
-        finally { CloseDesktop(desktop); }
-    }
-
-    static string ProcessFlags()
-    {
-        int session = Process.GetCurrentProcess().SessionId;
-        bool consent = false, logon = false;
-        foreach (Process process in Process.GetProcesses())
-        {
-            try
-            {
-                if (process.SessionId != session) continue;
-                string name = process.ProcessName;
-                if (String.Equals(name, "consent", StringComparison.OrdinalIgnoreCase)) consent = true;
-                else if (String.Equals(name, "LogonUI", StringComparison.OrdinalIgnoreCase)) logon = true;
-            }
-            catch { }
-            finally { process.Dispose(); }
-        }
-        return (consent ? "1" : "0") + " " + (logon ? "1" : "0");
-    }
-
-    static string lastState;
-
-    static string State() { return DesktopName() + " " + ProcessFlags(); }
-
-    static void Watch()
-    {
-        for (;;)
-        {
-            try
-            {
-                string state = State();
-                if (state != lastState) { lastState = state; Write("desktop " + state); }
-            }
-            catch { }
-            Thread.Sleep(${WATCH_INTERVAL_MS});
-        }
-    }
-}
-`;
-
-const SCREEN_HOST_SOURCE = [
-  'using System;',
-  'using System.Collections.Generic;',
-  'using System.Diagnostics;',
-  'using System.Globalization;',
-  'using System.Runtime.InteropServices;',
-  'using System.Text;',
-  'using System.Threading;',
-  MIXDOG_INPUT_TRANSPORT_CSHARP,
-  SCREEN_HOST_CSHARP.trim(),
-].join('\n');
-
-/** The bootstrap: load the cached assembly of this build, else compile and
- *  publish it, then serve. The here-string holds no `'@` line. */
-export function screenInputHostProgram(): string {
-  if (/^'@/mu.test(SCREEN_HOST_SOURCE)) throw new Error('screen host source cannot be embedded');
-  return `$ErrorActionPreference = 'Stop'
-$source = @'
-${SCREEN_HOST_SOURCE}
-'@
-$refs = @('System.dll', 'System.Core.dll')
-$assembly = [string]$env:MIXDOG_SCREEN_HOST_ASSEMBLY
-$loaded = $false
-if ($assembly -and (Test-Path -LiteralPath $assembly)) {
-    try { Add-Type -Path $assembly; $loaded = $true } catch { $loaded = $false }
-}
-if (-not $loaded -and $assembly) {
-    try {
-        $staging = $assembly + '.' + [string]$PID + '.tmp'
-        Add-Type -ReferencedAssemblies $refs -TypeDefinition $source -OutputAssembly $staging
-        Move-Item -LiteralPath $staging -Destination $assembly -Force -ErrorAction SilentlyContinue
-        if (Test-Path -LiteralPath $staging) { Remove-Item -LiteralPath $staging -Force -ErrorAction SilentlyContinue }
-        if (Test-Path -LiteralPath $assembly) { Add-Type -Path $assembly; $loaded = $true }
-    } catch { $loaded = $false }
-}
-if (-not $loaded) { Add-Type -ReferencedAssemblies $refs -TypeDefinition $source }
-[MixdogScreenHost]::Serve($env:MIXDOG_SCREEN_INPUT_MARKER)
-`;
-}
+/** The helper's mode for the remote screen's input. */
+export const SCREEN_INPUT_MODE = '--screen-input';
 
 // ---------------------------------------------------------------------------
 // Commands
@@ -373,7 +110,7 @@ export class ScreenHostError extends Error {
 }
 
 export interface ScreenInputHost {
-  /** Resolves once the process serves (first start compiles, later starts load the cache). */
+  /** Resolves once the process serves. */
   start(): Promise<void>;
   /** Resolves with the `ok` fields; rejects with ScreenHostError. */
   command(command: ScreenHostCommand): Promise<string[]>;
@@ -391,90 +128,44 @@ export interface ScreenInputHost {
    * Ends the process at once, without its release-on-quit. Windows does not
    * lift input a killed process injected: a key or button it pressed stays
    * down until a matching up is injected (or the user presses it again). The
-   * session drops those releases and logs their count.
+   * session drops those releases and logs their count. A killed helper is
+   * followed by mixdog-computer --abort-cleanup with its marker; the returned
+   * promise settles once every such cleanup has (bounded, never rejects).
    */
-  kill(): void;
+  kill(): Promise<void>;
 }
 
 interface ScreenInputHostOptions {
-  /** Where the bootstrap script and the compiled assembly live. */
-  directory: string;
   spawn: typeof spawnType;
+  /** The mixdog-computer executable; default MIXDOG_COMPUTER_BIN (`computerNativeBinary`). */
+  binary?: () => string;
   /** dwExtraInfo of every injected event: distinct from Computer Use's, so
    *  its takeover guard reads phone input as a person's. */
   marker?: number;
   /** Acknowledgment deadline per command. Default: Computer Use's per-command
-   *  ceiling for the same PowerShell host round trip through the same
-   *  `MixNativeInput` transport (`COMMAND_TIMEOUT_MS`). */
+   *  ceiling (`COMMAND_TIMEOUT_MS`). */
   commandTimeoutMs?: number;
+  /** The app-data folder the retired PowerShell host kept its scripts and DLL cache in;
+   *  swept once at the first start (nothing uses them any more). */
+  legacyDirectory?: string;
+  /** Bound for one abort cleanup. Default 5 s. */
+  abortCleanupTimeoutMs?: number;
 }
 
-/** The compiled-assembly cache, a subdirectory of the host directory. */
-export const SCREEN_HOST_CACHE_DIRECTORY = 'remote-screen-cache';
-
-function processAlive(pid: number): boolean {
+/** Removes what the retired PowerShell host left: its per-process scripts and compiled-assembly cache. */
+export function sweepLegacyScreenHostFiles(directory: string): void {
   try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    // EPERM: the process exists but belongs to someone else.
-    return (error as NodeJS.ErrnoException).code === 'EPERM';
-  }
-}
-
-function removeQuietly(path: string): void {
-  try {
-    unlinkSync(path);
-  } catch {
-    /* held by a live host, or removed concurrently */
-  }
-}
-
-/**
- * Sweeps what crashed hosts left: a per-process script whose process is gone,
- * an assembly of another build, and a compile staging file whose PowerShell
- * is gone. Files of live processes and of this build are kept.
- */
-export function sweepScreenHostFiles(
-  directory: string,
-  build: string,
-  alive: (pid: number) => boolean = processAlive
-): void {
-  const list = (folder: string): string[] => {
-    try {
-      return readdirSync(folder);
-    } catch {
-      return [];
+    for (const name of readdirSync(directory)) {
+      if (/^remote-screen-host-\d+-[0-9a-f]+\.ps1$/u.test(name)) rmSync(join(directory, name), { force: true });
     }
-  };
-  for (const name of list(directory)) {
-    const script = /^remote-screen-host-(\d+)-[0-9a-f]+\.ps1$/u.exec(name);
-    if (script && !alive(Number(script[1]))) removeQuietly(join(directory, name));
+  } catch {
+    /* absent or held: nothing to sweep */
   }
-  const cache = join(directory, SCREEN_HOST_CACHE_DIRECTORY);
-  for (const name of list(cache)) {
-    const assembly = /^remote-screen-host-([0-9a-f]{16})\.dll$/u.exec(name);
-    if (assembly && assembly[1] !== build) removeQuietly(join(cache, name));
-    const staging = /^remote-screen-host-[0-9a-f]{16}\.dll\.(\d+)\.tmp$/u.exec(name);
-    if (staging && !alive(Number(staging[1]))) removeQuietly(join(cache, name));
+  try {
+    rmSync(join(directory, 'remote-screen-cache'), { recursive: true, force: true });
+  } catch {
+    /* held by something else */
   }
-}
-
-/**
- * Publishes this process's bootstrap script (unique per host, removed when the
- * host exits) and names the per-build assembly. `directory` must be an
- * owner-only app-data folder (the agent host uses the same model): the
- * assembly there is loaded without further checks, so a folder writable by
- * another account would let it plant code into the injector.
- */
-function publishProgram(directory: string): { script: string; assembly: string } {
-  const program = screenInputHostProgram();
-  const build = createHash('sha256').update(program).digest('hex').slice(0, 16);
-  mkdirSync(join(directory, SCREEN_HOST_CACHE_DIRECTORY), { recursive: true });
-  sweepScreenHostFiles(directory, build);
-  const script = join(directory, `remote-screen-host-${process.pid}-${randomBytes(12).toString('hex')}.ps1`);
-  writeFileSync(script, program, { mode: 0o600 });
-  return { script, assembly: join(directory, SCREEN_HOST_CACHE_DIRECTORY, `remote-screen-host-${build}.dll`) };
 }
 
 export function createScreenInputHost(options: ScreenInputHostOptions): ScreenInputHost {
@@ -485,6 +176,11 @@ export function createScreenInputHost(options: ScreenInputHostOptions): ScreenIn
   let nextId = 1;
   let current: ScreenLocalDesktop | null = null;
   let session: number | null = null;
+  let swept = false;
+  const exited = new WeakSet<object>();
+  const retired = new WeakSet<object>();
+  const cleanups = new Set<Promise<void>>();
+  const cleanupTimeoutMs = options.abortCleanupTimeoutMs ?? ABORT_CLEANUP_TIMEOUT_MS;
   const commandTimeoutMs = options.commandTimeoutMs ?? COMMAND_TIMEOUT_MS;
   const pending = new Map<
     number,
@@ -501,32 +197,106 @@ export function createScreenInputHost(options: ScreenInputHostOptions): ScreenIn
     pending.clear();
   };
 
+  /** mixdog-computer --abort-cleanup with this host's marker: lifts the keys and buttons a
+   *  killed helper left down (the ownership receipt outlives it). Bounded; never rejects. */
+  const abortCleanup = (): Promise<void> =>
+    new Promise<void>((resolve) => {
+      let settled = false;
+      let cleaner: ReturnType<typeof spawnType> | null = null;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve();
+      };
+      const timer = setTimeout(() => {
+        try {
+          cleaner?.kill();
+        } catch {
+          /* already gone */
+        }
+        finish();
+      }, cleanupTimeoutMs);
+      timer.unref?.();
+      try {
+        cleaner = options.spawn((options.binary ?? computerNativeBinary)(), ['--abort-cleanup'], {
+          windowsHide: true,
+          stdio: 'ignore',
+          env: computerNativeEnvironment(String(marker)),
+        });
+        cleaner.once('error', finish);
+        cleaner.once('exit', finish);
+      } catch {
+        finish();
+      }
+    });
+
+  /** Kills the helper, and once it is gone runs the abort cleanup for what it held. */
+  const retire = (process_: ChildProcessWithoutNullStreams): void => {
+    try {
+      process_.kill();
+    } catch {
+      /* already gone */
+    }
+    // One cleanup per helper: a second kill (the stop deadline after a missed
+    // acknowledgment) shares the first one's.
+    if (retired.has(process_)) return;
+    retired.add(process_);
+    const run = new Promise<void>((resolve) => {
+      let done = false;
+      const go = () => {
+        if (done) return;
+        done = true;
+        clearTimeout(wait);
+        void abortCleanup().then(resolve);
+      };
+      const wait = setTimeout(go, STOP_TIMEOUT_MS);
+      wait.unref?.();
+      if (exited.has(process_)) go();
+      else process_.once('exit', go);
+    });
+    cleanups.add(run);
+    void run.then(() => cleanups.delete(run));
+  };
+
   const start = (): Promise<void> => {
     if (starting) return starting;
     stopping = false;
-    starting = new Promise<void>((resolve, reject) => {
-      const { script, assembly } = publishProgram(options.directory);
-      const process_ = options.spawn(
-        'powershell.exe',
-        ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script],
-        {
-          windowsHide: true,
-          env: {
-            ...process.env,
-            MIXDOG_SCREEN_INPUT_MARKER: String(marker),
-            MIXDOG_SCREEN_HOST_ASSEMBLY: assembly,
-          },
-        }
-      ) as ChildProcessWithoutNullStreams;
+    if (!swept && options.legacyDirectory) {
+      swept = true;
+      sweepLegacyScreenHostFiles(options.legacyDirectory);
+    }
+    const launch = (): Promise<void> => new Promise<void>((resolve, reject) => {
+      if (stopping) {
+        reject(new ScreenHostError('start_failed'));
+        return;
+      }
+      let binary: string;
+      try {
+        binary = (options.binary ?? computerNativeBinary)();
+      } catch {
+        reject(new ScreenHostError('start_failed'));
+        return;
+      }
+      const process_ = options.spawn(binary, [SCREEN_INPUT_MODE], {
+        windowsHide: true,
+        env: { ...process.env, MIXDOG_SCREEN_INPUT_MARKER: String(marker) },
+      }) as ChildProcessWithoutNullStreams;
       child = process_;
       let ready = false;
+      // The helper says `released` once it let go of what it held on `q` or end of stdin.
+      let released = false;
       const timer = setTimeout(() => {
         if (ready) return;
         reject(new ScreenHostError('start_timeout'));
-        process_.kill();
+        retire(process_);
       }, START_TIMEOUT_MS);
       timer.unref?.();
       const receive = createComputerLineDecoder((line: string) => {
+        if (line === 'released') {
+          released = true;
+          return;
+        }
         const readyLine = /^ready(?: (\d+))?$/u.exec(line);
         if (readyLine) {
           session = readyLine[1] === undefined ? null : Number(readyLine[1]);
@@ -556,11 +326,11 @@ export function createScreenInputHost(options: ScreenInputHostOptions): ScreenIn
         try {
           receive(chunk);
         } catch {
-          process_.kill();
+          retire(process_);
         }
       });
       process_.stderr.on('data', () => {
-        /* compile and runtime errors surface as a missing `ready` or `err` lines */
+        /* start and runtime errors surface as a missing `ready` or `err` lines */
       });
       process_.stdin.on('error', () => {
         /* the exit below settles everything */
@@ -570,8 +340,8 @@ export function createScreenInputHost(options: ScreenInputHostOptions): ScreenIn
         if (!ready) reject(new ScreenHostError('start_failed'));
       });
       process_.once('exit', () => {
+        exited.add(process_);
         clearTimeout(timer);
-        removeQuietly(script);
         if (child === process_) child = null;
         starting = null;
         current = null;
@@ -581,9 +351,15 @@ export function createScreenInputHost(options: ScreenInputHostOptions): ScreenIn
           reject(new ScreenHostError('start_failed'));
           return;
         }
+        // Gone without saying it released (a crash, or killed from outside): the
+        // abort cleanup lifts what it held, as after a kill.
+        if (!released && !retired.has(process_)) retire(process_);
         if (!stopping) for (const listener of exitListeners) listener();
       });
     });
+    // A new helper runs under the same marker and receipt: the cleanups of the
+    // one before it finish first, so they cannot lift what the new one holds.
+    starting = cleanups.size ? Promise.all([...cleanups]).then(launch) : launch();
     starting.catch(() => {
       starting = null;
     });
@@ -604,34 +380,54 @@ export function createScreenInputHost(options: ScreenInputHostOptions): ScreenIn
         if (!pending.has(id)) return;
         pending.delete(id);
         reject(new ScreenHostError('host_unresponsive'));
-        process_.kill();
+        retire(process_);
       }, commandTimeoutMs);
       pending.set(id, { resolve, reject, timer });
       process_.stdin.write(`${line}\n`);
     });
   };
 
-  const kill = (): void => {
+  const kill = (): Promise<void> => {
     const process_ = child;
-    if (!process_) return;
-    failPending('host_killed');
-    process_.kill();
+    if (process_) {
+      failPending('host_killed');
+      retire(process_);
+    }
+    return Promise.all([...cleanups]).then(() => undefined);
   };
 
   const stop = async (): Promise<void> => {
     const process_ = child;
     stopping = true;
-    if (!process_) return;
-    const exited = new Promise<void>((resolve) => process_.once('exit', () => resolve()));
+    if (!process_) {
+      await Promise.all([...cleanups]);
+      return;
+    }
+    const gone = new Promise<void>((resolve) => process_.once('exit', () => resolve()));
     try {
       process_.stdin.write('q\n');
       process_.stdin.end();
     } catch {
       /* already closed: end of stdin releases the same way */
     }
-    const timer = setTimeout(() => process_.kill(), STOP_TIMEOUT_MS);
-    await exited;
+    let forced = false;
+    const timer = setTimeout(() => {
+      forced = true;
+      retire(process_);
+    }, STOP_TIMEOUT_MS);
+    // A helper that never reports its exit does not hold the stop: its cleanup
+    // still runs once retire's own wait ends.
+    let bounded: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      gone,
+      new Promise<void>((resolve) => {
+        bounded = setTimeout(resolve, STOP_TIMEOUT_MS * 2);
+        bounded.unref?.();
+      }),
+    ]);
+    clearTimeout(bounded);
     clearTimeout(timer);
+    if (forced || cleanups.size) await Promise.all([...cleanups]);
   };
 
   return {

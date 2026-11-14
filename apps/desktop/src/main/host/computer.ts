@@ -4,12 +4,19 @@
  * computer host (`createComputerHost`): a capture is the command the loopback bridge would have been posted,
  * run through the bridge's own answer (`answerPublicCommand`: policy, dispatch, sealed reply), so the frame is
  * fitted and encoded by the host's capture engine and not again here.
+ *
+ * The rest of what a Computer Use helper needs from this process has a module of its own: the foreground-lock lease
+ * (`computer-lease.ts`), the desktop's own windows every window list leaves out (`computer-internal-windows.ts`) and
+ * the pointer progress the overlay draws (`computer-pointer.ts`).
  */
 import type {
   HostComputerCaptureParams,
   HostComputerCaptureResult,
   HostComputerDisplay,
 } from '../../../../../packages/protocol/src/index.ts';
+import { registerComputerInternalWindows } from './computer-internal-windows';
+import { registerComputerLease } from './computer-lease';
+import { registerComputerPointer } from './computer-pointer';
 import { HOST_COMMAND_FAILED, HOST_INVALID_PARAMS, HostRpcError, type HostConnection, objectParams } from './connection';
 
 export const HOST_COMPUTER_CAPTURE = 'host/computer/capture';
@@ -54,4 +61,7 @@ export function registerComputerHost(connection: HostConnection, source: Compute
     return answer.value as HostComputerCaptureResult;
   });
   connection.handleRequest(HOST_COMPUTER_DISPLAYS, async (): Promise<HostComputerDisplay[]> => running().displays());
+  registerComputerLease(connection);
+  registerComputerInternalWindows(connection);
+  registerComputerPointer(connection);
 }

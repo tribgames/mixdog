@@ -320,6 +320,13 @@ test('a dialog still open when the connection closes holds the core again at the
   assert.equal(holds().length, 3);
 });
 
+test('the computer host answers the internal-window and pointer requests it does not serve yet (the lease is computer-lease.test.mjs)', async () => {
+  const { wire } = build();
+  assert.deepEqual(await wire.call('host/computer/internalWindows', {}), { windowIds: [] });
+  const events = [{ x: 1, y: 2, held: false, phase: 'move', mode: 'background', windowId: 'hwnd:0x3' }];
+  assert.equal(await wire.call('host/computer/pointerFeedback', { sessionId: 's1', events }), null);
+});
+
 test('a shown notification plays its sound and a click reports the thread', () => {
   const { wire, calls, clicks } = build();
   wire.push('host/notification/show', { title: 'T', body: 'B', threadId: 'th9', sound: 'default', volume: 50 });
