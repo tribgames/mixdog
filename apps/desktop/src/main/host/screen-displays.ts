@@ -21,3 +21,25 @@ export function registerScreenDisplaysHost(connection: HostConnection, displays:
     return displays().list();
   });
 }
+
+export const HOST_SCREEN_DISPLAYS_CHANGED = 'host/screen/displaysChanged';
+
+/** The screen events that change what the picker lists or what a session maps its pointer through. */
+const DISPLAY_EVENTS = ['display-added', 'display-removed', 'display-metrics-changed'] as const;
+
+interface DisplayEvents {
+  on(event: (typeof DISPLAY_EVENTS)[number], listener: () => void): unknown;
+  removeListener(event: (typeof DISPLAY_EVENTS)[number], listener: () => void): unknown;
+}
+
+/**
+ * Tells the core that a display was added, removed or rescaled, so it reads `host/computer/displays` again and every
+ * phone screen session renews its geometry. Returns the function that stops reporting.
+ */
+export function reportScreenDisplayChanges(connection: Pick<HostConnection, 'notify'>, screen: DisplayEvents): () => void {
+  const report = () => connection.notify(HOST_SCREEN_DISPLAYS_CHANGED, {});
+  for (const event of DISPLAY_EVENTS) screen.on(event, report);
+  return () => {
+    for (const event of DISPLAY_EVENTS) screen.removeListener(event, report);
+  };
+}

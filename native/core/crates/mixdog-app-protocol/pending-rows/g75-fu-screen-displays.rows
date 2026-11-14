@@ -1,0 +1,45 @@
+# g75-fu-screen-displays: the desktop tells the core a display was added, removed or rescaled (Electron `screen` display-added /
+# display-removed / display-metrics-changed), and the display list names the monitor by its OS label.
+
+[methods]
+# none
+
+[server_requests]
+# none
+
+[notifications]
+Beside HostBrowserSurface (notifications.rs, the client notification enum and its NotificationSpec list; params reuse the empty
+`crate::v2::host::ScreenDisplaysParams`):
+
+    /// A display was added, removed or rescaled on the desktop: the core reads `host/computer/displays` again and every phone screen session renews its geometry.
+    #[serde(rename = "host/screen/displaysChanged")]
+    #[cfg_attr(feature = "codegen", ts(rename = "host/screen/displaysChanged"))]
+    HostScreenDisplaysChanged(crate::v2::host::ScreenDisplaysParams),
+
+    crate::common::NotificationSpec {
+        method: "host/screen/displaysChanged",
+        params: "ScreenDisplaysParams",
+        delivery: None,
+    },
+
+[inventory]
+# none (a new host -> core notification; Node had no name for it: the Electron `screen` events were handled in the same process)
+
+[free_text]
+# none
+
+[type_edits]
+# native/core/crates/mixdog-app-protocol/src/v2/host.rs, `HostComputerDisplay`: the OS's name for the monitor (Electron `display.label`),
+# after `y`, so the phone's picker lists the monitor by it (the screen sources' `ReportedDisplay` already reads it; an older desktop's list has none):
+
+    /// The OS's name for the display; absent from an older desktop's list.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+
+# (and every literal of HostComputerDisplay in the tree gets `label: None`, found by `cargo check --tests`).
+
+[remove]
+# none
+
+[window]
+# none
