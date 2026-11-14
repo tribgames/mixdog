@@ -43,6 +43,7 @@ struct Engine {
     /// Whether each request it was sent carried the session's provider state.
     states: Mutex<Vec<bool>>,
     released: Mutex<Vec<String>>,
+    loops: Mutex<u32>,
     policy: RetryPolicy,
     keepalive: KeepaliveSchedule,
 }
@@ -54,6 +55,7 @@ fn engine(text: &'static str, refusal: Option<ProviderError>) -> Arc<Engine> {
         text,
         states: Mutex::default(),
         released: Mutex::default(),
+        loops: Mutex::default(),
         policy: CompatProfile::plain("custom", "http://127.0.0.1/v1", CredentialKind::Keyless).retry_policy(),
         keepalive: KeepaliveSchedule::SPEC,
     })
@@ -75,6 +77,9 @@ impl ModelStream for Events {
 #[async_trait]
 impl ProviderAdapter for Engine {
     fn release_send(&self, _group: &str) {}
+    fn begin_loop(&self) {
+        *self.loops.lock().unwrap() += 1;
+    }
     fn release_session(&self, session_id: &str) {
         self.released.lock().unwrap().push(session_id.to_owned());
     }
@@ -225,4 +230,17 @@ fn the_pool_forwards_every_provider_method() {
         .filter(|name| !forwarded.contains(&format!("fn {name}(")))
         .collect();
     assert!(missing.is_empty(), "not forwarded: {missing:?}");
+}
+
+#[tokio::test]
+async fn entering_a_loop_reaches_the_roster_provider_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_, rotation) = roster(&dir).await;
+    let primary = engine("primary", None);
+    let engines = Arc::new(Engines { rotation: Some(rotation), by_account: HashMap::new(), handed: Mutex::default() });
+    let pool = KeyPoolAdapter::with_engines(PROVIDER, primary.clone(), engines);
+
+    pool.begin_loop();
+
+    assert_eq!(*primary.loops.lock().unwrap(), 1);
 }

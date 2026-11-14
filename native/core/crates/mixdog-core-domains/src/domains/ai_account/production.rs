@@ -32,6 +32,8 @@ use mixdog_ai::providers::cursor::login::CursorLogin;
 use mixdog_ai::providers::devin::login::DevinLogin;
 use mixdog_ai::providers::google::auth::antigravity::{AntigravityLogin, FileTokenStore, Pause};
 use mixdog_ai::providers::grok::auth::{DISCOVERY_URL, GrokLogin};
+use mixdog_ai::providers::grok::device_login::GrokDeviceLogin;
+use mixdog_ai::providers::openai::device_login::OpenAiDeviceLogin;
 use mixdog_ai::providers::openai::login::OpenAiLogin;
 use mixdog_ai::registry::builder::DefaultProviderBuilder;
 use mixdog_ai::registry::keys::{Environment, SecretVault};
@@ -119,6 +121,8 @@ struct GrokFlow {
     http: Arc<dyn HttpSend>,
     file: CredentialFile,
     target: LoginTarget,
+    /// Set for a host with no browser: the sign-in is the device-code one, whose pace this is.
+    device: Option<Arc<dyn Pace>>,
 }
 
 fn failed(code: &str, message: impl Into<String>) -> LoginError {
@@ -163,13 +167,61 @@ impl LoginFlow for GrokFlow {
         let (authorization, token) = self.endpoints().await?;
         let login = GrokLogin::new(Arc::clone(&self.http), self.file.clone(), &authorization, &token)
             .map_err(|error| failed("grok_discovery_failed", error.message))?;
-        PkceLoginFlow::new(self.target.clone(), Arc::new(login)).start().await
+        let browser = PkceLoginFlow::new(self.target.clone(), Arc::new(login));
+        let Some(pace) = &self.device else { return browser.start().await };
+        let device = GrokDeviceLogin::new(Arc::clone(&self.http), self.file.clone(), Arc::clone(pace), &token, Arc::new(browser))
+            .map_err(|error| failed("grok_discovery_failed", error.message))?;
+        device.start().await
     }
 }
 
 impl FileOAuth {
     fn file(&self, account: &str) -> Result<CredentialFile, String> {
         (self.wiring.file)(self.id, account)
+    }
+
+    /// The provider's login; `with_browser` false asks for the device-code sign-in where the provider has one.
+    fn flow(&self, account: &str, with_browser: bool) -> Option<Arc<dyn LoginFlow>> {
+        let wiring = &self.wiring;
+        let file = self.file(account).ok()?;
+        let (http, pace, io) = (Arc::clone(&wiring.http), Arc::clone(&wiring.pace), wiring.io);
+        Some(match self.id {
+            "openai-oauth" => {
+                let login = Arc::new(OpenAiLogin::new(file, Arc::clone(&http)));
+                let browser = pkce(self.id, login.clone());
+                if with_browser {
+                    browser
+                } else {
+                    Arc::new(OpenAiDeviceLogin::new(login, http, pace, browser)) as Arc<dyn LoginFlow>
+                }
+            }
+            "anthropic-oauth" => pkce(self.id, Arc::new(AnthropicLogin::new(file, http))),
+            "grok-oauth" => Arc::new(GrokFlow { http, file, target: target(self.id), device: (!with_browser).then_some(pace) }),
+            "antigravity-oauth" => {
+                let now = Arc::clone(&wiring.now_ms);
+                let login = AntigravityLogin {
+                    http,
+                    store: Arc::new(FileTokenStore(file)),
+                    client_version: wiring.versions.antigravity(),
+                    pause: Arc::new(PaceAsPause(pace)),
+                    now_ms: Box::new(move || u64::try_from(now()).unwrap_or(0)),
+                };
+                pkce(self.id, Arc::new(login))
+            }
+            "cursor-oauth" => Arc::new(CursorLogin::new(http, file, pace)),
+            "devin-oauth" => pkce(self.id, Arc::new(DevinLogin::new(file, http))),
+            "muse-code-oauth" => Arc::new(MuseCodeLogin::new(http, pace, file)),
+            "opencode-go-oauth" => Arc::new(OpenCodeGoLogin::new(http, pace, file)),
+            "mimo-oauth" => {
+                let key_name = CredentialFile::new(key_name_path(&wiring.plugin_data), io);
+                Arc::new(MimoLogin::new(http, file, key_name))
+            }
+            "command-code-oauth" => {
+                let cli = CredentialFile::new(wiring.cli_auth.clone(), io);
+                Arc::new(CommandCodeLogin::new(http, file, cli, wiring.accounts.clone()))
+            }
+            _ => return None,
+        })
     }
 }
 
@@ -212,38 +264,10 @@ impl OAuthProvider for FileOAuth {
         session.ensure_lease(minimum_validity_ms).await.map(drop).map_err(|error| error.message)
     }
     fn login_flow(&self, account: &str) -> Option<Arc<dyn LoginFlow>> {
-        let wiring = &self.wiring;
-        let file = self.file(account).ok()?;
-        let (http, pace, io) = (Arc::clone(&wiring.http), Arc::clone(&wiring.pace), wiring.io);
-        Some(match self.id {
-            "openai-oauth" => pkce(self.id, Arc::new(OpenAiLogin::new(file, http))),
-            "anthropic-oauth" => pkce(self.id, Arc::new(AnthropicLogin::new(file, http))),
-            "grok-oauth" => Arc::new(GrokFlow { http, file, target: target(self.id) }),
-            "antigravity-oauth" => {
-                let now = Arc::clone(&wiring.now_ms);
-                let login = AntigravityLogin {
-                    http,
-                    store: Arc::new(FileTokenStore(file)),
-                    client_version: wiring.versions.antigravity(),
-                    pause: Arc::new(PaceAsPause(pace)),
-                    now_ms: Box::new(move || u64::try_from(now()).unwrap_or(0)),
-                };
-                pkce(self.id, Arc::new(login))
-            }
-            "cursor-oauth" => Arc::new(CursorLogin::new(http, file, pace)),
-            "devin-oauth" => pkce(self.id, Arc::new(DevinLogin::new(file, http))),
-            "muse-code-oauth" => Arc::new(MuseCodeLogin::new(http, pace, file)),
-            "opencode-go-oauth" => Arc::new(OpenCodeGoLogin::new(http, pace, file)),
-            "mimo-oauth" => {
-                let key_name = CredentialFile::new(key_name_path(&wiring.plugin_data), io);
-                Arc::new(MimoLogin::new(http, file, key_name))
-            }
-            "command-code-oauth" => {
-                let cli = CredentialFile::new(wiring.cli_auth.clone(), io);
-                Arc::new(CommandCodeLogin::new(http, file, cli, wiring.accounts.clone()))
-            }
-            _ => return None,
-        })
+        self.flow(account, true)
+    }
+    fn login_flow_without_browser(&self, account: &str) -> Option<Arc<dyn LoginFlow>> {
+        self.flow(account, false)
     }
 }
 

@@ -4,10 +4,10 @@
 //!
 //! Node reads a thrown object's fields; Rust reads an [`ErrorView`] of the same fields. A
 //! [`ProviderError`] converts with `ErrorView::from`, any other failure (a watchdog, a bare
-//! string) is built with [`ErrorView::message`] and its fields. The one thing not ported is
-//! `providerErrorKind`'s wording classifier (`provider-error-kind.mjs`, 800 lines of status,
-//! header and wording rules): Rust providers stamp [`ErrorKind`] at the adapter boundary, so
-//! the view carries that verdict as its [`Descriptor`]. A failure with no descriptor reads as
+//! string) is built with [`ErrorView::message`] and its fields. `providerErrorKind` is
+//! `retry::classify` (typed facts plus its wording fallbacks): Rust providers stamp
+//! [`ErrorKind`] at the adapter boundary, so the view carries that verdict as its
+//! [`Descriptor`]. A failure with no descriptor reads as
 //! `unknown`, and then only the wording rules of `presentErrorText` itself apply.
 
 use std::sync::LazyLock;

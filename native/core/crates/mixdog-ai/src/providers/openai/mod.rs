@@ -8,6 +8,7 @@ pub mod codec;
 pub mod config;
 pub mod continuation;
 pub mod decoder;
+pub mod device_login;
 pub mod delta;
 pub mod effort;
 pub mod effort_retry;
