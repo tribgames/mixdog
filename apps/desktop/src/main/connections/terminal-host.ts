@@ -1,11 +1,11 @@
 import type { TerminalSizeOwner, TerminalSizeOwnerEvent } from '../../shared/terminal-size-owner';
 import { readTerminalActivityEvent, type TerminalActivityEvent } from '../../shared/terminal-activity';
+import { attachNeedsRedraw, TerminalFeedPositions, type TerminalFeedPosition } from '../../shared/terminal-feed-reader';
 import { createTerminalOutputDecoder, terminalActivityChanges, terminalSizeOwnerChanges } from '../../shared/terminal-protocol';
 import type { DesktopService } from '../desktop-service-contract';
 import type { DesktopTerminalHost } from '../ipc-terminal';
 import type { ProtocolConnection } from '../protocol/connection';
 import { onProtocolAttached } from '../protocol/screen-sessions-publish';
-import type { TerminalSpawnProfile } from '../terminal-contract';
 
 type TerminalService = Pick<DesktopService, 'invokeDesktopOperation'> & {
   notifyDesktopOperation(method: string, args?: unknown[]): void;
@@ -33,6 +33,7 @@ type TerminalSession = ReturnType<typeof terminalSessionOf>;
  *  connection attached, and the activity and size-owner events of the core's terminal sections. */
 export function createServiceTerminalHost(service: TerminalService, protocol: TerminalProtocol): DesktopTerminalHost {
   const outputListeners = new Set<(event: { id: string; data: string }) => void>();
+  const resetListeners = new Set<(event: { id: string; replay: string }) => void>();
   const activityListeners = new Set<(event: TerminalActivityEvent) => void>();
   const sizeOwnerListeners = new Set<(event: TerminalSizeOwnerEvent) => void>();
   const listen = <T>(listeners: Set<T>, listener: T): (() => void) => {
@@ -40,6 +41,11 @@ export function createServiceTerminalHost(service: TerminalService, protocol: Te
     return () => void listeners.delete(listener);
   };
   const output = createTerminalOutputDecoder();
+  // Where each tab's feed was read to: a new link's attach resumes from there.
+  const positions = new TerminalFeedPositions();
+  // The windows holding each tab's output (a window's buffer is full): the core pauses the tab's pty for this connection while any
+  // holds it, and a window's release leaves the others' holds.
+  const holders = new Map<string, Set<string>>();
   // The tabs whose feed this connection reads, or subscribes again on its next link (a feed does not survive the socket): a tab is
   // held from its attach until the attach answers that it is not running, its shell exits or the window disposes it. The core
   // answers an attach of a tab that is not running with null, never an error (terminal/attach), so a rejected attach is a lost
@@ -49,8 +55,10 @@ export function createServiceTerminalHost(service: TerminalService, protocol: Te
   // core keeps one subscription per feed and connection, and a second attach would replace the first and drop what was still
   // queued on it.
   const attaching = new Map<string, Promise<TerminalSession | null>>();
-  const subscribeFeed = (id: string): Promise<TerminalSession | null> => {
-    const request: Promise<TerminalSession | null> = service.invokeDesktopOperation('termAttach', [id]).then(
+  // `resumed` is the position a new link resumes the tab's feed from; the reply says whether the missed output follows as frames
+  // (replay) or the screen is given as it is (snapshot), which the windows draw anew.
+  const subscribeFeed = (id: string, resumed?: TerminalFeedPosition): Promise<TerminalSession | null> => {
+    const request: Promise<TerminalSession | null> = service.invokeDesktopOperation('termAttach', resumed ? [id, resumed] : [id]).then(
       (value) => {
         const session = value && typeof value === 'object' ? terminalSessionOf(value) : null;
         // A newer attach has the say over the tab: a new link's, or a new tab's under a disposed id.
@@ -58,7 +66,16 @@ export function createServiceTerminalHost(service: TerminalService, protocol: Te
         attaching.delete(id);
         if (!session) {
           attached.delete(id);
+          positions.forget(id);
           output.end(id);
+        } else if (resumed && attachNeedsRedraw(value, resumed)) {
+          // What the window shows is not this screen's past: a half character left from the old link is dropped, the feed's
+          // position is the snapshot's (frames follow from startSeq), and the window draws the screen anew.
+          output.end(id);
+          const subscription = (value as { subscription?: { epoch?: unknown; startSeq?: unknown } }).subscription;
+          if (typeof subscription?.startSeq === 'number') positions.note(id, { epoch: subscription.epoch, seq: subscription.startSeq - 1 });
+          else positions.forget(id);
+          for (const listener of [...resetListeners]) listener({ id, replay: session.replay });
         }
         return session;
       },
@@ -74,7 +91,11 @@ export function createServiceTerminalHost(service: TerminalService, protocol: Te
   const attach = (id: string): Promise<TerminalSession | null> => attaching.get(id) ?? subscribeFeed(id);
   // A new link holds none of the old one's feeds: each tab is attached again, and an attach still in flight was the old link's.
   const reattach = (): void => {
-    for (const id of [...attached]) void subscribeFeed(id).catch(() => undefined);
+    for (const id of [...attached]) {
+      void subscribeFeed(id, positions.resumeFrom(id)).catch(() => undefined);
+      // The pause was this connection's on the old link.
+      if (holders.has(id)) void service.invokeDesktopOperation('termPause', [id]).catch(() => {});
+    }
   };
   onProtocolAttached(protocol, reattach);
   protocol.onReplaced(reattach);
@@ -85,11 +106,14 @@ export function createServiceTerminalHost(service: TerminalService, protocol: Te
     const tab = String((params as { processHandle?: unknown } | undefined)?.processHandle ?? '');
     // A tab's own feed only: the phones' terminal lane (`process:relay`), should this connection read it, repeats every tab's output.
     if (feed?.id !== `process:${tab}`) return;
+    positions.note(tab, feed);
     if (method === 'process/outputDelta') {
       const { id, data } = output.text(params);
       if (data) for (const listener of [...outputListeners]) listener({ id, data });
     } else if (method === 'process/exited') {
       attached.delete(tab);
+      positions.forget(tab);
+      holders.delete(tab);
       output.end(tab);
     }
   });
@@ -105,8 +129,14 @@ export function createServiceTerminalHost(service: TerminalService, protocol: Te
       for (const listener of [...sizeOwnerListeners]) listener(event);
     }
   });
+  const leave = (id: string, holder: string): void => {
+    const held = holders.get(id);
+    if (!held?.delete(holder) || held.size > 0) return;
+    holders.delete(id);
+    void service.invokeDesktopOperation('termResume', [id]).catch(() => {});
+  };
   return {
-    async ensure(id: string | null, cwd: string | null, profile?: TerminalSpawnProfile | string | null) {
+    async ensure(id: string | null, cwd: string | null, profile?: string | null) {
       const value = await service.invokeDesktopOperation('termEnsure', [id, cwd, profile ?? null]);
       if (!value || typeof value !== 'object') {
         throw new Error('The service terminal did not return a session.');
@@ -129,19 +159,29 @@ export function createServiceTerminalHost(service: TerminalService, protocol: Te
     resize(id: string, cols: number, rows: number): void {
       service.notifyDesktopOperation('termResize', [id, cols, rows]);
     },
-    pauseOutput(id: string): void {
-      void service.invokeDesktopOperation('termPause', [id]).catch(() => {});
+    pauseOutput(id: string, holder: string): void {
+      const held = holders.get(id) ?? new Set<string>();
+      holders.set(id, held);
+      if (held.has(holder)) return;
+      held.add(holder);
+      if (held.size === 1) void service.invokeDesktopOperation('termPause', [id]).catch(() => {});
     },
-    resumeOutput(id: string): void {
-      void service.invokeDesktopOperation('termResume', [id]).catch(() => {});
+    resumeOutput(id: string, holder: string): void {
+      leave(id, holder);
+    },
+    releaseHolder(holder: string): void {
+      for (const id of [...holders.keys()]) leave(id, holder);
     },
     dispose(id: string): void {
       // A new tab under this id has a feed of its own, which its ensure attaches; an attach in flight is the old tab's.
       attached.delete(id);
       attaching.delete(id);
+      positions.forget(id);
+      holders.delete(id);
       void service.invokeDesktopOperation('termDispose', [id]).catch(() => {});
     },
     subscribe: (listener) => listen(outputListeners, listener),
+    subscribeReset: (listener) => listen(resetListeners, listener),
     focus(id: string, focused: boolean): void {
       service.notifyDesktopOperation('termFocus', [id, focused, 'desktop']);
     },
