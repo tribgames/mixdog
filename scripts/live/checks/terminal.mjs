@@ -15,9 +15,8 @@ export async function run({ env, outputMs = 30_000 }) {
   let wake = () => {};
   const stop = core.client.on((event) => {
     if (event.type !== 'notification' || event.notification.method !== 'process/outputDelta') return;
-    const params = event.notification.params;
-    if (!String(params?.processHandle ?? '').endsWith(id)) return;
-    received += decode(params);
+    if (event.notification.feed?.id !== `process:${id}`) return;
+    received += decode(event.notification.params);
     wake();
   });
   try {

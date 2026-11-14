@@ -46,7 +46,7 @@ const out = paths.out ?? join(paths.isoRoot, 'smoke-out');
 mkdirSync(out, { recursive: true });
 let results = [];
 let failure = null;
-const env = await openEnvironment({ ...paths, inspector: true });
+const env = await openEnvironment(paths);
 try {
   results = await runChecks({ env });
   writeFileSync(join(out, 'summary.json'), `${JSON.stringify({ conditions: conditions(env), checks: results }, null, 2)}\n`);
