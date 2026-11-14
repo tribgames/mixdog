@@ -83,7 +83,10 @@ impl UserWait {
             if state.version != seen {
                 return Poll::Ready(());
             }
-            state.wakers.push(cx.waker().clone());
+            // Polled again on every wake of the command: keep one waker per task, not one per poll.
+            if !state.wakers.iter().any(|waker| waker.will_wake(cx.waker())) {
+                state.wakers.push(cx.waker().clone());
+            }
             Poll::Pending
         })
     }
@@ -135,13 +138,15 @@ pub async fn bounded<T>(
     cancel: &CancelView,
     wait: Option<&UserWait>,
 ) -> Result<T, QueueError> {
+    // A cancellation without a reason reads `<label> cancelled`, as `cdp-bounded.ts` reports it.
+    let cancelled = || QueueError::from_reason(Some(cancel.reason().unwrap_or_else(|| format!("{label} cancelled").into())));
     if cancel.is_cancelled() {
-        return Err(QueueError::from_reason(cancel.reason()));
+        return Err(cancelled());
     }
     let work = pin!(work);
     match race(work, race(cancel.cancelled(), ceiling(timeout, wait))).await {
         Either::Left(done) => Ok(done),
-        Either::Right(Either::Left(())) => Err(QueueError::from_reason(cancel.reason())),
+        Either::Right(Either::Left(())) => Err(cancelled()),
         Either::Right(Either::Right(())) => Err(QueueError::TimedOut { label: label.to_string(), millis: timeout.as_millis() }),
     }
 }
@@ -213,5 +218,13 @@ mod tests {
         source.cancel("fixture cancelled");
         let error = bounded(std::future::pending::<()>(), Duration::from_secs(60), "browser click", &source.view(), Some(&wait)).await;
         assert_eq!(error, Err(QueueError::Cancelled { reason: Some("fixture cancelled".into()) }));
+    }
+
+    #[tokio::test]
+    async fn a_cancellation_without_a_reason_names_the_label() {
+        let token = mixdog_rt::CancellationToken::new();
+        token.cancel();
+        let error = bounded(std::future::pending::<()>(), Duration::from_secs(60), "browser click", &CancelView::from(token), None).await;
+        assert_eq!(error.unwrap_err().to_string(), "browser click cancelled");
     }
 }
