@@ -41,13 +41,22 @@ const defaults = (method, params) => {
   return {};
 };
 
-async function world(answer = defaults, role) {
+async function world(answer = defaults) {
   const client = fakeClient(answer);
   const connection = createRendererConnection({ open: async () => client });
   await connection.start();
   const ctx = createDirectContext(connection);
-  if (role) ctx.window = () => ({ role });
   return { client, api: createFilesApi(ctx), sent: () => client.calls.map((c) => [c.method, c.params]) };
+}
+
+/** Runs `body` as a server (ssh) window: the preload's connection identity says so. */
+async function inServerWindow(body) {
+  globalThis.window = { mixdogDesktop: { connection: { id: 's1', kind: 'ssh', name: 'server' } } };
+  try {
+    await body();
+  } finally {
+    delete globalThis.window;
+  }
 }
 
 test('every key of the group is implemented', async () => {
@@ -138,8 +147,10 @@ test('a relative path or a server window gets no standalone folder', async () =>
   const local = await world(refuse);
   await assert.rejects(local.api.listProjectDir('relative', ''));
   assert.equal(local.sent().length, 1);
-  const server = await world(refuse, 'server:s1');
-  await assert.rejects(server.api.listProjectDir('C:/loose', ''));
+  const server = await world(refuse);
+  await inServerWindow(async () => {
+    await assert.rejects(server.api.listProjectDir('C:/loose', ''));
+  });
   assert.equal(server.sent().length, 1);
 });
 
@@ -147,10 +158,12 @@ test('trash: this PC through the window, a server window by its own trash', asyn
   const local = await world();
   await local.api.trashProjectEntry('proj', 'a');
   assert.deepEqual(local.sent().at(-1), ['projectFs/trash', { root: 'F:/proj', rel: 'a', viaHost: true }]);
-  const server = await world(defaults, 'server:s1');
-  await server.api.trashProjectEntry('proj', 'a', { permanent: true });
-  assert.deepEqual(server.sent().at(-1), ['transfer/trash/entry', { path: 'F:/proj', rel: 'a', permanent: true }]);
-  await assert.rejects(server.api.captureFileSnapshot('proj', 'a'), /not available for server files/);
+  const server = await world();
+  await inServerWindow(async () => {
+    await server.api.trashProjectEntry('proj', 'a', { permanent: true });
+    assert.deepEqual(server.sent().at(-1), ['transfer/trash/entry', { path: 'F:/proj', rel: 'a', permanent: true }]);
+    await assert.rejects(server.api.captureFileSnapshot('proj', 'a'), /not available for server files/);
+  });
 });
 
 test('workspace search, replace, editor settings and recovery', async () => {
@@ -184,18 +197,27 @@ test('editor backups name the entry path', async () => {
   ]);
 });
 
-test('search keeps one session per window for the @ palette', async () => {
-  const { api, sent } = await world((method, _params, client) => {
+test('each window keeps its own search sessions, the @ palette apart', async () => {
+  const completing = (method, params, client) => {
     if (method === 'search/update') {
       queueMicrotask(() =>
-        client.emit({ type: 'notification', notification: { method: 'search/completed', params: { sessionId: 'search:mention', query: 'q' } } })
+        client.emit({ type: 'notification', notification: { method: 'search/completed', params: { sessionId: params.sessionId, query: params.query } } })
       );
     }
     return {};
-  });
-  assert.deepEqual(await api.searchProjectFiles('proj', 'q', undefined, false, true), []);
-  assert.equal(sent()[0][0], 'search/start');
-  assert.deepEqual(sent()[0][1], { sessionId: 'search:mention', roots: ['proj'], limit: 50, includeIgnored: false, includeDirectories: true, consumer: 'mention' });
+  };
+  const one = await world(completing);
+  const two = await world(completing);
+  assert.deepEqual(await one.api.searchProjectFiles('proj', 'q', undefined, false, true), []);
+  assert.deepEqual(await one.api.searchProjectFiles('proj', 'q', 200), []);
+  assert.deepEqual(await two.api.searchProjectFiles('proj', 'q', undefined, false, true), []);
+  const starts = (w) => w.sent().filter(([m]) => m === 'search/start').map(([, p]) => p);
+  const [mention, files] = starts(one);
+  assert.match(mention.consumer, /^mention:[0-9a-f]{16}$/);
+  assert.deepEqual(mention, { sessionId: `search:${mention.consumer}`, roots: ['proj'], limit: 50, includeIgnored: false, includeDirectories: true, consumer: mention.consumer });
+  assert.equal(files.consumer, `files:${mention.consumer.slice('mention:'.length)}`);
+  assert.deepEqual(files, { sessionId: `search:${files.consumer}`, roots: ['proj'], limit: 200, includeIgnored: false, includeDirectories: false, consumer: files.consumer });
+  assert.notEqual(starts(two)[0].sessionId, mention.sessionId);
 });
 
 test('lsp, local file, star, office and feedback', async () => {
