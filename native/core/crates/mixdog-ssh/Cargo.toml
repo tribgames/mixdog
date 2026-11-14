@@ -16,6 +16,7 @@ mixdog-core-api = { workspace = true }
 mixdog-protocol = { workspace = true }
 mixdog-app-protocol = { workspace = true }
 mixdog-app-server-client = { workspace = true }
+mixdog-workspace = { workspace = true }
 async-trait = { workspace = true }
 base64 = { workspace = true }
 serde = { workspace = true }

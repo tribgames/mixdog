@@ -919,6 +919,13 @@ impl WorkspaceService {
                 value(json!({}))
             }
             "projectFs/localPage/origin" => value(Value::String(self.page_server()?.origin().await?)),
+            "projectFs/localPage/assetType" => {
+                let root = PathBuf::from(s(params, "root")?);
+                let file = PathBuf::from(s(params, "file")?);
+                let data_root = params.get("dataRoot").and_then(Value::as_str).map(PathBuf::from);
+                let found = crate::pageserver::policy::page_asset_type(&root, &file, data_root.as_deref());
+                value(json!({ "type": found.unwrap_or("") }))
+            }
             "projectFs/localPage/virtual" => {
                 #[derive(serde::Deserialize)]
                 #[serde(rename_all = "camelCase")]
@@ -1819,6 +1826,7 @@ impl DomainService for WorkspaceService {
             "projectFs/grant/redeem",
             "projectFs/localPage/revokeOwner",
             "projectFs/localPage/origin",
+            "projectFs/localPage/assetType",
             "projectFs/localPage/virtual",
             "projectFs/writeText",
             "projectFs/writeTextBatch",
