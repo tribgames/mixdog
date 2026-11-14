@@ -1,22 +1,13 @@
 import type { App, Shell } from 'electron';
-import { stat } from 'node:fs/promises';
-import { isAbsolute, posix, resolve } from 'node:path';
+import { isAbsolute, posix } from 'node:path';
 import { DESKTOP_IPC } from '../shared/contract';
 import { requiredProjectRecoveryRequest } from '../shared/project-recovery';
 import type { DesktopService } from './desktop-service-contract';
 import { registerFilePreview } from './file-preview';
 import { fileSnapshots } from './file-snapshot';
-import { localPageUrl, revokeLocalPagesFor } from './local-page-server';
-import { LocalAccessDeniedError } from './local-access-denied';
-import {
-  copyProjectEntryIn,
-  createProjectEntryIn,
-  listProjectDirIn,
-  moveProjectEntryIn,
-  projectEntryPathIn,
-  renameProjectEntryIn,
-} from './project-files';
-import { normalizedProjectKey } from './desktop-support';
+import { coreLocalPages } from './core-local-pages';
+import { windowIdFor } from './core-port/window-ids';
+import { projectEntryPathIn } from './project-entry-path';
 import {
   requiredLspDocumentInput,
   requiredLspRequestInput,
@@ -61,22 +52,13 @@ export function registerProjectFileIpc({
   // like a Project's, and the path alone re-establishes that root (a restored
   // dock tree, a reopened tab). Nothing is remembered or granted. A registered
   // Project always keeps the host's route: the host is tried first, and only
-  // when it refuses is the path classified, from the registered-Project list
-  // (never from the refusal's code, which an older runtime leaves off). A
-  // failing registry lookup is an error, not "no Projects". A server window
-  // never gets this: its folders are the server's.
+  // when it refuses does the core classify the path (standaloneRoot: null for
+  // a registered Project, a missing path or a file). A failing core call is an
+  // error, not "no Projects". A server window never gets this: its folders
+  // are the server's.
   const standaloneFolder = async (projectPath: string): Promise<string | null> => {
     if (server || !isAbsolute(projectPath)) return null;
-    const folder = resolve(projectPath);
-    const key = normalizedProjectKey(folder);
-    const registered = await host.listProjects();
-    if (registered.some((entry) => normalizedProjectKey(entry.path) === key)) return null;
-    return (await stat(folder).then(
-      (info) => info.isDirectory(),
-      () => false
-    ))
-      ? folder
-      : null;
+    return invokeDesktopOperation<string | null>('standaloneRoot', [projectPath]);
   };
   const onRoot = async <T>(
     projectPath: string,
@@ -139,7 +121,7 @@ export function registerProjectFileIpc({
     return onRoot(
       project,
       () => host.listProjectDir(project, rel),
-      (folder) => listProjectDirIn(folder, rel)
+      (folder) => invokeDesktopOperation('listProjectDirIn', [folder, rel])
     );
   });
   handle(DESKTOP_IPC.readProjectFile, async (_event, projectPath, relPath, accessToken) => {
@@ -193,46 +175,21 @@ type ProjectFileContext = Pick<
   editorBackupRoot: string;
 };
 
-function registerLocalPageIpc({ handle, grantedFile, projectRoot }: ProjectFileContext): void {
-  const previewOwners = new WeakSet<object>();
+function registerLocalPageIpc({ handle, projectRoot }: ProjectFileContext): void {
   handle(DESKTOP_IPC.localPageUrl, async (event, projectPath, relPath, accessToken) => {
     const project = requiredString(projectPath, 'projectPath');
     const rel = requiredString(relPath, 'relPath', 4_096);
     const owner = event.sender;
-    const requireOwner = (): void => {
-      if (owner.isDestroyed()) throw new LocalAccessDeniedError('The preview owner is closed.');
-    };
-    requireOwner();
-    if (!previewOwners.has(owner)) {
-      previewOwners.add(owner);
-      owner.once('destroyed', () => revokeLocalPagesFor(owner));
-    }
-    // A supplied grant remains file-only even when its parent is also a
-    // registered project. Invalid/expired tokens never fall back to project.
+    // The window's core id, never its webContents id (Electron reuses those).
+    const ownerId = windowIdFor(owner);
+    // A supplied grant stays file-only: the core redeems it (an invalid or
+    // expired token never falls back to the project). Without one, the page
+    // is served from the folder it was opened in, Project or not.
     if (accessToken !== undefined && accessToken !== '') {
       const token = requiredString(accessToken, 'file access token', 128);
-      const granted = await grantedFile(token, project, rel);
-      return localPageUrl(granted.root, granted.rel, {
-        scope: 'file',
-        owner,
-        async authorize() {
-          requireOwner();
-          const current = await grantedFile(token, project, rel);
-          requireOwner();
-          if (current.absolute !== granted.absolute)
-            throw new LocalAccessDeniedError('The selected-file permission changed.');
-        },
-      });
+      return coreLocalPages().url(project, rel, { accessToken: token, owner, ownerId });
     }
-    // Any page is served from the folder it was opened in, Project or not; the
-    // lease pins that folder and rechecks the page inside it on every request.
-    return localPageUrl(await projectRoot(project), rel, {
-      scope: 'project',
-      owner,
-      async authorize() {
-        requireOwner();
-      },
-    });
+    return coreLocalPages().url(await projectRoot(project), rel, { owner, ownerId });
   });
 }
 
@@ -382,7 +339,7 @@ function registerEditorFileIpc({
   });
 }
 
-function registerEntryIpc({ handle, host, invokeDesktopOperation, shell, server, onRoot }: ProjectFileContext): void {
+function registerEntryIpc({ handle, host, invokeDesktopOperation, server, onRoot }: ProjectFileContext): void {
   handle(DESKTOP_IPC.createProjectEntry, (_event, projectPath, relDir, name, dir) => {
     const project = requiredString(projectPath, 'projectPath');
     const dirRel = typeof relDir === 'string' ? relDir : '';
@@ -390,7 +347,7 @@ function registerEntryIpc({ handle, host, invokeDesktopOperation, shell, server,
     return onRoot(
       project,
       () => host.createProjectEntry(project, dirRel, entry, dir === true),
-      (folder) => createProjectEntryIn(folder, dirRel, entry, dir === true)
+      (folder) => invokeDesktopOperation('createProjectEntryIn', [folder, dirRel, entry, dir === true])
     );
   });
   handle(DESKTOP_IPC.renameProjectEntry, (_event, projectPath, relPath, newName) => {
@@ -400,7 +357,7 @@ function registerEntryIpc({ handle, host, invokeDesktopOperation, shell, server,
     return onRoot(
       project,
       () => host.renameProjectEntry(project, rel, name),
-      (folder) => renameProjectEntryIn(folder, rel, name)
+      (folder) => invokeDesktopOperation('renameProjectEntryIn', [folder, rel, name])
     );
   });
   handle(DESKTOP_IPC.moveProjectEntry, (_event, projectPath, relPath, targetDirRel) => {
@@ -410,7 +367,7 @@ function registerEntryIpc({ handle, host, invokeDesktopOperation, shell, server,
     return onRoot(
       project,
       () => host.moveProjectEntry(project, rel, target),
-      (folder) => moveProjectEntryIn(folder, rel, target)
+      (folder) => invokeDesktopOperation('moveProjectEntryIn', [folder, rel, target])
     );
   });
   handle(DESKTOP_IPC.copyProjectEntry, (_event, projectPath, relPath, targetDirRel) => {
@@ -420,7 +377,7 @@ function registerEntryIpc({ handle, host, invokeDesktopOperation, shell, server,
     return onRoot(
       project,
       () => host.copyProjectEntry(project, rel, target),
-      (folder) => copyProjectEntryIn(folder, rel, target)
+      (folder) => invokeDesktopOperation('copyProjectEntryIn', [folder, rel, target])
     );
   });
   handle(DESKTOP_IPC.trashProjectEntry, async (_event, projectPath, relPath, options) => {
@@ -434,12 +391,13 @@ function registerEntryIpc({ handle, host, invokeDesktopOperation, shell, server,
     }
     const project = requiredString(projectPath, 'projectPath');
     const rel = requiredString(relPath, 'relPath');
-    const target = await onRoot(
+    const root = await onRoot(
       project,
-      () => host.projectEntryPath(project, rel),
-      async (folder) => projectEntryPathIn(folder, rel)
+      () => host.projectDirectory(project),
+      async (folder) => folder
     );
-    await shell.trashItem(target);
+    // The core confines the path and claims it, then asks this process to move it to the OS trash.
+    await invokeDesktopOperation('trashProjectEntryIn', [root, rel]);
   });
 }
 
