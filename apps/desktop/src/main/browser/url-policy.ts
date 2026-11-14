@@ -2,8 +2,8 @@
  * URL admission rules: scheme, embedded credentials, agent-input secret
  * tokens (but in a link the runtime read in a mail for the session), cloud
  * metadata endpoints, private networks, and the optional domain allowlist.
- * The rules are Rust (native/core/crates/mixdog-browser-policy), served
- * synchronously through mixdog_window.node (redaction.ts loads it); this file
+ * The rules are Rust (native/core/crates/mixdog-browser-rules), served
+ * synchronously through mixdog_main_native.node (redaction.ts names it); this file
  * holds the types and the exports, no rule. url-admission wraps these with
  * DNS resolution; navigation and request filtering both call through here.
  */
@@ -13,10 +13,12 @@ export type { BrowserMailLink, BrowserUrlPolicy };
 
 /** How long after the runtime read the mail its link may still be opened:
  *  the lifetime of a sign-in flow, a 2-step check included. */
-export const MAIL_LINK_WINDOW_MS: number = browserPolicy.mailLinkWindowMs();
+export function mailLinkWindowMs(): number {
+  return browserPolicy().mailLinkWindowMs();
+}
 
 export function isLoopbackHostname(hostname: string): boolean {
-  return browserPolicy.isLoopbackHostname(String(hostname));
+  return browserPolicy().isLoopbackHostname(String(hostname));
 }
 
 /** `mailLink` lifts only the secret-token refusal, and only for the exact link
@@ -28,16 +30,16 @@ export function normalizeAgentUrl(raw: string, policy: BrowserUrlPolicy = {}, ma
     mailLink && typeof mailLink === 'object'
       ? { url: String(mailLink.url), from_domain: String(mailLink.from_domain), read_at: Number(mailLink.read_at) }
       : undefined;
-  return browserPolicy.normalizeAgentUrl(String(raw || ''), policy, link);
+  return browserPolicy().normalizeAgentUrl(String(raw || ''), policy, link);
 }
 
 /** Page-generated requests may contain OAuth or tracking tokens that are
  * required for the site to work: only the agent-input secret rejection is
  * skipped. */
 export function normalizePageUrl(raw: string, policy: BrowserUrlPolicy = {}): string {
-  return browserPolicy.normalizePageUrl(String(raw || ''), policy);
+  return browserPolicy().normalizePageUrl(String(raw || ''), policy);
 }
 
 export function assertResolvedAddressAllowed(address: string, hostname: string, policy: BrowserUrlPolicy = {}): void {
-  browserPolicy.assertResolvedAddressAllowed(String(address), String(hostname), policy);
+  browserPolicy().assertResolvedAddressAllowed(String(address), String(hostname), policy);
 }

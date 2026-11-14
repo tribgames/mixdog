@@ -18,8 +18,6 @@ crate-type = ["cdylib"]
 [dependencies]
 napi = { version = "=3.12.2", default-features = false, features = ["napi6", "dyn-symbols"] }
 napi-derive = "=3.6.3"
-# The Browser Use URL and redaction rules (src/browser_policy.rs).
-mixdog-browser-policy = { path = "../core/crates/mixdog-browser-policy" }
 
 [build-dependencies]
 napi-build = "=2.4.1"

@@ -1,4 +1,4 @@
-//! The Browser Use URL and redaction rules (crate mixdog-browser-policy) as synchronous Node-API functions, for the Electron main
+//! The Browser Use URL and redaction rules (crate mixdog-browser-rules) as synchronous Node-API functions, for the Electron main
 //! process, which filters every navigation and every outgoing string and cannot await.
 //! One export per function `apps/desktop/src/main/browser/{url-policy,redaction}.ts` offered, named in camelCase; a URL the rules
 //! refuse throws an Error whose message is the refusal's reason.
@@ -8,8 +8,8 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use mixdog_browser_policy::redaction;
-use mixdog_browser_policy::url_policy::{self, MailLink, UrlPolicy};
+use mixdog_browser_rules::redaction;
+use mixdog_browser_rules::url_policy::{self, MailLink, UrlPolicy};
 use napi::bindgen_prelude::{Error, Result};
 use napi_derive::napi;
 

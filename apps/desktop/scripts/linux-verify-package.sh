@@ -2,7 +2,7 @@
 # Verifies the BUILT Linux packages, not the build directory:
 #   linux-verify-package.sh <distDir> <nativeOutDir> <x64|arm64> <maxGlibc> [workDir]
 # 1. extracts the payload of the .deb (dpkg-deb -x) and of the AppImage (--appimage-extract),
-# 2. proves mixdog-computer/-graph/-patch inside BOTH are byte-identical to the
+# 2. proves mixdog-computer/-graph/-patch and mixdog_main_native.node inside BOTH are byte-identical to the
 #    manylinux_2_28 build outputs in <nativeOutDir> (so the pinned-release
 #    download path was not used) and that both packages carry the same tools,
 # 3. records the glibc floor of every ELF in both payloads (fail closed, see
@@ -43,10 +43,17 @@ for root in "$deb_root" "$ai_root"; do
 			exit 1
 		}
 	done
+	want=$(sha256sum "$native/mixdog_main_native.node" | cut -d' ' -f1)
+	got=$(sha256sum "$root/resources/native-tools/mixdog_main_native.node" | cut -d' ' -f1)
+	echo "mixdog_main_native.node  build=$want  packaged=$got  ($root)"
+	[ "$want" = "$got" ] || {
+		echo "::error::packaged mixdog_main_native.node is not the manylinux_2_28 build output"
+		exit 1
+	}
 done
 diff -r "$deb_root/resources/native-tools" "$ai_root/resources/native-tools"
 sha256sum "$deb_root"/resources/native-tools/*
-required="mixdog-desktop,resources/native-tools/mixdog-computer,resources/native-tools/mixdog-graph,resources/native-tools/mixdog-patch,resources/native-tools/mixdog-spawn,resources/core/mixdogd,resources/core/mixdog-askpass,resources/app.asar.unpacked/node_modules/@homebridge/node-pty-prebuilt-multiarch/build/Release/pty.node"
+required="mixdog-desktop,resources/native-tools/mixdog-computer,resources/native-tools/mixdog-graph,resources/native-tools/mixdog-patch,resources/native-tools/mixdog-spawn,resources/native-tools/mixdog_main_native.node,resources/core/mixdogd,resources/core/mixdog-askpass,resources/app.asar.unpacked/node_modules/@homebridge/node-pty-prebuilt-multiarch/build/Release/pty.node"
 for root in "$deb_root" "$ai_root"; do
 	echo "== glibc floor: $root"
 	node "$here/linux-glibc-floor.mjs" "$root" "$max" --arch "$arch" --require "$required"

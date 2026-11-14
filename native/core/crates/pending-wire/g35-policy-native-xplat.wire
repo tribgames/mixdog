@@ -1,0 +1,21 @@
+# g35-policy-native-xplat -> lead (core side of native/mixdog-main-native; hot files are not edited by this task)
+The rule modules url_policy, redaction and suffix (with public_suffix.txt) moved, with git mv, from mixdog-browser-policy into the new
+crate crates/mixdog-browser-rules, which depends on mixdog-js and url only (no tokio, no hyper, no mixdog-workspace-hack).
+mixdog-browser-policy re-exports them (`pub use mixdog_browser_rules::{redaction, suffix, url_policy}`), so every existing path
+(mixdog_browser_policy::url_policy::..., tests/parity.rs, mixdog-browser-engine, mixdog-tools) is unchanged. mixdog-js lost its
+mixdog-workspace-hack line (its manifest is edited in this commit), because the cdylib links mixdog-js and a hack-free graph is the point.
+
+1. native/core/Cargo.toml
+   [workspace] members: add "crates/mixdog-browser-rules" after "crates/mixdog-browser-policy".
+   (mixdog-browser-policy names the crate by path, so no [workspace.dependencies] line is needed.)
+2. native/core/.config/hakari.toml, [final-excludes] workspace-members: ["mixdog-askpass", "mixdog-browser-rules", "mixdog-js"] (same reason as
+   mixdog-askpass: a package a separate workspace links by path must not take the unified graph). Then `cargo hakari generate` (and
+   `cargo hakari manage-deps`) to rewrite crates/mixdog-workspace-hack/Cargo.toml; `cargo hakari verify` must pass.
+3. native/core/Cargo.lock: `cargo update -w --offline` (new package mixdog-browser-rules with dependencies mixdog-js and url;
+   mixdog-browser-policy gains mixdog-browser-rules and keeps mixdog-js only as a dev-dependency; mixdog-js loses mixdog-workspace-hack).
+4. native/mixdog-main-native/Cargo.lock was composed without cargo (the package closure of native/core/Cargo.lock for mixdog-js and url,
+   merged with the napi closure of native/mixdog-window/Cargo.lock; syn 3.0.9 folded into 3.0.10). Run once, offline, in native/mixdog-main-native:
+   `cargo generate-lockfile --offline` is NOT wanted (it would re-resolve); run `cargo build --release --locked` and, if cargo reports the lock
+   needs an update, `cargo update -w --offline` and commit the result. Features there are the crate's own (not the hack's), so a few
+   entries the core lock carried for hack-unified features (e.g. serde under chrono) may be added by cargo.
+5. No SERVICE_PENDING change, no protocol rows.
