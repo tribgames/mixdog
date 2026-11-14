@@ -22,6 +22,9 @@ pub const MANIFEST_PATH: &str = "migration/manifest.json";
 pub const JOURNAL_PATH: &str = "migration/journal.000000";
 pub const STAGE_DIR: &str = "migration/stage";
 pub const COMPLETE_PATH: &str = "migration/complete.json";
+/// The generation marker of the profile files a completed migration moves later (`supplement` of the desktop profile group):
+/// `{generation, profile, items:[{file, kind, target, sha256, size, secret, state}]}`. Absent = generation 1 (the first pass only).
+pub const PROFILE_GEN_PATH: &str = "migration/profile-gen.json";
 /// The manifest and journal of the late desktop-profile pass: a migration that completed with
 /// no profile named, run again with one. `complete.json` names the manifest it completed
 /// (this one once the pass is done), so the profile it records is the manifest's `roots.profile`.
@@ -201,6 +204,15 @@ pub enum ItemKind {
     SelectedFileGrants,
     EditorBackups,
     EditorRecovery,
+    // ── group `desktopProfile`, moved by generation 2 (`migration/profile-gen.json`) ──
+    /// `ssh-hosts.json` (+ `.bak`) → `<D>/desktop/ssh-hosts.json`.
+    SshHosts,
+    /// `port-forwards.json` (+ `.bak`) → `<D>/desktop/port-forwards.json`.
+    PortForwards,
+    /// `remote-hosts.json` (+ `.bak`) → `<D>/desktop/remote-hosts.json` (paired-PC credentials: owner-only).
+    RemoteHosts,
+    /// `server-windows.json` (+ `.bak`) → `<D>/desktop/server-windows.json`: the core restores the windows from it.
+    ServerWindows,
     /// `new-task-receipts/` (one receipt per client submission id): the tree moves to `<D>/userdata/new-task-receipts/` at the same names, so a
     /// request retried after the upgrade is answered by the receipt Node wrote (a file that is no receipt binds nothing and is retired).
     NewTaskReceipts,
