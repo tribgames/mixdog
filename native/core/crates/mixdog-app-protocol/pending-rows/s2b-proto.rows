@@ -527,6 +527,15 @@
 #   request remoteHosts/rename /id
 #   request remoteHosts/forget /id
 #   request remoteHosts/presence /ids/*
+#   request host/state/set /value/windows/*/connectionId
+#   request host/state/set /value/windows/*/sessionId
+#   notification host/notification/clicked /connectionId
+# The fields [type_edits] adds to existing client-sent params (host/claim `resources`, host/state/set `windowFocus`,
+# host/notification/clicked `connectionId`) are strings of the schema too: the three id lines above, and
+# class "a path, or a file, command or record name compared with what is on disk or in a store ...":
+#   request host/claim /resources/serverCoresDir
+# class "an executable path run as a process: a path, not text":
+#   request host/claim /resources/askpassHelper
 # The answers of host/window/open, close and focus hold no string (`{opened}` and `{}`): no answer entry.
 # The contract test that reads the schema goldens (every_string_field_is_classed_once_and_free_text_is_listed_free) sees
 # these fields only after schema/*.json is regenerated (MIXDOG_UPDATE_PROTOCOL_GOLDEN=1); the lines above must then be in.
