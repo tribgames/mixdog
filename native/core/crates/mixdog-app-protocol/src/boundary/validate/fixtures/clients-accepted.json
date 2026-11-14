@@ -6130,7 +6130,7 @@
     "method": "instructions/setInstructionFiles",
     "params": {
       "threadId": "thread-1",
-      "mode": "mode-1",
+      "mode": "all",
       "opId": "0190f3c2-7a31-7c00-8000-000000000063"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:setInstructionFiles",
@@ -6465,7 +6465,7 @@
     "method": "config/setHeartbeatInterval",
     "params": {
       "threadId": "thread-1",
-      "minutes": 1,
+      "minutes": 30,
       "opId": "0190f3c2-7a31-7c00-8000-000000000074"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:setHeartbeatInterval",
@@ -6532,7 +6532,7 @@
     "method": "config/setAutoEffortBase",
     "params": {
       "threadId": "thread-1",
-      "level": "level-1",
+      "level": "medium",
       "opId": "0190f3c2-7a31-7c00-8000-000000000080"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:setAutoEffortBase",
@@ -6554,7 +6554,7 @@
     "method": "config/setBuiltinToolEnabled",
     "params": {
       "threadId": "thread-1",
-      "name": "name-1",
+      "name": "git",
       "enabled": true,
       "opId": "0190f3c2-7a31-7c00-8000-000000000082"
     },
@@ -6566,8 +6566,12 @@
     "method": "config/installBuiltinFeature",
     "params": {
       "threadId": "thread-1",
-      "name": "name-1",
-      "options": {},
+      "name": "tidy",
+      "options": {
+        "engines": [
+          "ruff"
+        ]
+      },
       "opId": "0190f3c2-7a31-7c00-8000-000000000083"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:installBuiltinFeature",
@@ -6589,7 +6593,9 @@
     "method": "config/setNetworkProxy",
     "params": {
       "threadId": "thread-1",
-      "patch": {},
+      "patch": {
+        "mode": "system"
+      },
       "options": {},
       "opId": "0190f3c2-7a31-7c00-8000-000000000085"
     },
@@ -7084,7 +7090,7 @@
       "ids": [
         "ids-1"
       ],
-      "boardId": {},
+      "boardId": "board-1",
       "opId": "0190f3c2-7a31-7c00-8000-000000000117"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:setMediaAssetBoard",
@@ -7426,9 +7432,11 @@
     "method": "account/saveProviderApiKey",
     "params": {
       "threadId": "thread-1",
-      "providerId": "providerId-1",
+      "providerId": "vertex-ai",
       "secret": "secret-1",
-      "options": {},
+      "options": {
+        "authMode": "api-key"
+      },
       "opId": "0190f3c2-7a31-7c00-8000-000000000141"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:saveProviderApiKey",
@@ -7450,7 +7458,7 @@
     "method": "account/saveCustomProviderKey",
     "params": {
       "threadId": "thread-1",
-      "providerId": "providerId-1",
+      "providerId": "custom-0190f3c2-7a31-7c00-8000-000000000001",
       "secret": "secret-1",
       "opId": "0190f3c2-7a31-7c00-8000-000000000143"
     },
@@ -7582,7 +7590,7 @@
     "method": "localProvider/startLocalProviderInstallation",
     "params": {
       "threadId": "thread-1",
-      "phase": "phase-1",
+      "phase": "model",
       "modelId": "modelId-1",
       "opId": "0190f3c2-7a31-7c00-8000-000000000152"
     },
@@ -7605,7 +7613,7 @@
     "method": "localProvider/discardLocalProviderInstallation",
     "params": {
       "threadId": "thread-1",
-      "phase": "phase-1",
+      "phase": "model",
       "modelId": "modelId-1",
       "opId": "0190f3c2-7a31-7c00-8000-000000000154"
     },
@@ -7629,7 +7637,7 @@
     "params": {
       "threadId": "thread-1",
       "modelId": "modelId-1",
-      "tokens": 1,
+      "tokens": 16384,
       "opId": "0190f3c2-7a31-7c00-8000-000000000156"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:setLocalProviderContext",
@@ -7653,7 +7661,7 @@
     "params": {
       "threadId": "thread-1",
       "modelId": "modelId-1",
-      "operation": "operation-1",
+      "operation": "verify",
       "opId": "0190f3c2-7a31-7c00-8000-000000000158"
     },
     "source": "packages/protocol-client/src/actions/action-namespaces.mjs:startLocalProviderModelMaintenance",

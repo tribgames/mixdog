@@ -160,7 +160,10 @@ async fn a_one_file_grant_leases_that_file_alone() {
     let (folder, rel, token) = granted_file(&env, "granted.html", "<p>granted page</p>").await;
     std::fs::write(folder.join("sibling.html"), "<p>sibling</p>").unwrap();
     let url = local(&env, "projectFs/localPageUrl", json!({ "root": folder.to_string_lossy(), "rel": rel, "accessToken": token })).await.unwrap();
-    assert_eq!(get(url.as_str().unwrap()).await, (200, "<p>granted page</p>".to_owned()));
+    // A one-file grant is a sandboxed lease: its HTML document carries the storage shim first (local-page-server.ts withShim).
+    let (status, body) = get(url.as_str().unwrap()).await;
+    assert_eq!(status, 200);
+    assert!(body.contains("<script") && body.ends_with("<p>granted page</p>"), "{body}");
     // The token names one file: asking for its sibling under it is refused.
     let sibling = local(&env, "projectFs/localPageUrl", json!({ "root": folder.to_string_lossy(), "rel": "sibling.html", "accessToken": token })).await;
     assert!(sibling.is_err(), "{sibling:?}");
@@ -189,7 +192,10 @@ async fn a_paired_device_one_file_grant_leases_that_file_alone() {
     let minted = call_as(&env, Origin::Relay, "transfer/grant/mint", json!({ "path": folder.join("phone.html").to_string_lossy() })).await.unwrap();
     let (root, rel, token) = (minted["projectPath"].clone(), minted["relPath"].clone(), minted["accessToken"].clone());
     let url = call_as(&env, Origin::Relay, "projectFs/localPageUrl", json!({ "root": root, "rel": rel, "accessToken": token })).await.unwrap();
-    assert_eq!(get(url.as_str().unwrap()).await, (200, "<p>phone page</p>".to_owned()));
+    // A one-file grant is a sandboxed lease: its HTML document carries the storage shim first (local-page-server.ts withShim).
+    let (status, body) = get(url.as_str().unwrap()).await;
+    assert_eq!(status, 200);
+    assert!(body.contains("<script") && body.ends_with("<p>phone page</p>"), "{body}");
     let sibling = call_as(&env, Origin::Relay, "projectFs/localPageUrl", json!({ "root": root, "rel": "sibling.html", "accessToken": token })).await;
     assert!(sibling.is_err(), "{sibling:?}");
 }

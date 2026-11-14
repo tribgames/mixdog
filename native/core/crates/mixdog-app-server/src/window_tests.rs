@@ -181,10 +181,12 @@ fn clients_accepted_corpus_passes() {
     let corpus: Vec<Value> = serde_json::from_str(include_str!("../../mixdog-app-protocol/src/boundary/validate/fixtures/clients-accepted.json"))
         .expect("the corpus is a JSON array");
     assert!(!corpus.is_empty());
-    for row in &corpus {
-        let (method, params) = (row["method"].as_str().expect("method"), row.get("params"));
-        if let Err(refused) = validate::check(method, params) {
-            panic!("{} {}: refused with {refused:?}", row["client"], method);
-        }
-    }
+    let refused: Vec<String> = corpus
+        .iter()
+        .filter_map(|row| {
+            let (method, params) = (row["method"].as_str().expect("method"), row.get("params"));
+            validate::check(method, params).err().map(|refused| format!("{} {}: refused with {refused:?}", row["client"], method))
+        })
+        .collect();
+    assert!(refused.is_empty(), "{} corpus rows refused:\n{}", refused.len(), refused.join("\n"));
 }
