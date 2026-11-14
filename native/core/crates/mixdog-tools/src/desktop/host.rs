@@ -24,6 +24,8 @@ use mixdog_protocol::ThreadId;
 use serde_json::Value;
 
 use mixdog_rt::CancellationToken;
+use mixdog_rt::Scope;
+use mixdog_rt::Scoped;
 
 use crate::orch::util::action_failed;
 use crate::orch::util::cancelled;
@@ -33,6 +35,10 @@ use crate::orch::util::unavailable;
 pub const HOST_COMMAND_FAILED: i64 = -32000;
 pub const MAX_TEXT_CHARS: usize = 250_000;
 const MAX_IMAGE_BYTES: usize = 20 * 1024 * 1024;
+/// How long a `visualize` command may take: 30 s, and 60 s for the export and act actions that render or drive a page.
+const VISUALIZE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+const VISUALIZE_LONG_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+const VISUALIZE_TIMED_OUT: &str = "visualize bridge timed out";
 pub const BROWSER_UNAVAILABLE: &str = "browser use is unavailable; open the Mixdog desktop app and enable Browser Use";
 
 /// Why a host command produced no result.
@@ -105,16 +111,6 @@ impl ChannelHostCommands {
     pub fn with_timing(channel: Arc<dyn HostChannel>, timing: BrowserTimingLog) -> Arc<Self> {
         Arc::new(Self { channel, timing: Some(timing) })
     }
-
-    async fn command(
-        &self,
-        capability: HostCapability,
-        method: Method,
-        params: Value,
-        cancel: &CancellationToken,
-    ) -> Result<JsonValue, HostCommandError> {
-        host_answer(self.channel.request_scoped(capability, method, params, cancel).await, cancel)
-    }
 }
 
 /// The host's answer to a command as the tools read it.
@@ -153,9 +149,21 @@ impl HostCommands for ChannelHostCommands {
         host_answer(answer, cancel)
     }
 
-    async fn visualize(&self, thread: &ThreadId, cwd: &str, action: &str, input: JsonValue, cancel: &CancellationToken) -> Result<JsonValue, HostCommandError> {
-        let params = serde_json::json!({ "sessionId": thread, "cwd": cwd, "action": action, "input": input });
-        self.command(HostCapability::Visualize, Method("host/visualize/command"), params, cancel).await
+    async fn visualize(&self, thread: &ThreadId, cwd: &str, action: &str, mut input: JsonValue, cancel: &CancellationToken) -> Result<JsonValue, HostCommandError> {
+        // An open's tool call id (`input.callId`, set by the tool) is a field of the request, beside `sessionId`, not of the input.
+        let call_id = if action == "open" { input.as_object_mut().and_then(|input| input.remove("callId")) } else { None };
+        let mut params = serde_json::json!({ "sessionId": thread, "cwd": cwd, "action": action, "input": input });
+        if let (Some(call_id), Some(params)) = (call_id, params.as_object_mut()) {
+            params.insert("callId".to_owned(), call_id);
+        }
+        let budget = if action == "export" || action == "act" { VISUALIZE_LONG_TIMEOUT } else { VISUALIZE_TIMEOUT };
+        let request = self.channel.request(HostCapability::Visualize, Method("host/visualize/command"), params);
+        // The command is abandoned when the time is up, as when the caller cancels.
+        match Scope::new().cancel(cancel).within(budget).run(request).await {
+            Scoped::Done(answer) => host_answer(answer, cancel),
+            Scoped::DeadlineExceeded => Err(HostCommandError::Rpc { code: HOST_COMMAND_FAILED, message: VISUALIZE_TIMED_OUT.to_owned(), timing: None }),
+            Scoped::Cancelled => Err(HostCommandError::Cancelled),
+        }
     }
 }
 
@@ -323,6 +331,53 @@ mod tests {
             commands.visualize(&thread, "/w", "open", json!({}), &CancellationToken::new()).await,
             Err(HostCommandError::NoHost)
         );
+    }
+
+    /// A host that took the request and never answers; it keeps what it was sent.
+    #[derive(Default)]
+    struct Silent {
+        sent: std::sync::Mutex<Vec<Value>>,
+    }
+
+    #[async_trait]
+    impl HostChannel for Silent {
+        async fn request(&self, _: HostCapability, _: Method, params: Value) -> Result<Value, HostError> {
+            self.sent.lock().unwrap().push(params);
+            std::future::pending().await
+        }
+        fn notify(&self, _: HostCapability, _: Method, _: Value) -> Result<(), CoreError> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_visualize_command_that_is_not_answered_times_out_after_30_seconds_and_60_for_export_and_act() {
+        use std::time::Duration;
+
+        let silent = Arc::new(Silent::default());
+        let commands = ChannelHostCommands::new(silent.clone());
+        let thread = ThreadId::from("t1");
+        let live = CancellationToken::new();
+        for (action, seconds) in [("check", 30), ("export", 60), ("act", 60)] {
+            let started = tokio::time::Instant::now();
+            let answer = commands.visualize(&thread, "/w", action, json!({}), &live).await;
+            assert_eq!(started.elapsed(), Duration::from_secs(seconds), "{action}");
+            let error = command_error("unavailable", answer.unwrap_err());
+            assert_eq!(error.message_for_model, "Error: visualize bridge timed out", "{action}");
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn an_open_sends_its_call_id_beside_the_session_and_no_other_action_does() {
+        let silent = Arc::new(Silent::default());
+        let commands = ChannelHostCommands::new(silent.clone());
+        let thread = ThreadId::from("t1");
+        let cancel = CancellationToken::new();
+        let _ = commands.visualize(&thread, "/w", "open", json!({"targets": ["a.md"], "callId": "call_9"}), &cancel).await;
+        let _ = commands.visualize(&thread, "/w", "close", json!({"callId": "call_9"}), &cancel).await;
+        let sent = silent.sent.lock().unwrap().clone();
+        assert_eq!(sent[0], json!({"sessionId": "t1", "cwd": "/w", "action": "open", "input": {"targets": ["a.md"]}, "callId": "call_9"}));
+        assert!(sent[1].get("callId").is_none());
     }
 
     #[tokio::test]
