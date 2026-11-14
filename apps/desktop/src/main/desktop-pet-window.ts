@@ -14,33 +14,18 @@ import { DESKTOP_PET_WINDOW_IPC } from '../shared/desktop-pet-bridge';
 import {
   DESKTOP_PET_IPC as DESKTOP_PET_APP_IPC,
   DESKTOP_PET_ISLAND_CLEARANCE,
-  desktopPetGeometry,
   type DesktopPetAppLayout,
   type DesktopPetCommand,
   type DesktopPetComposer,
   type DesktopPetConfig,
   type DesktopPetDrag,
+  type DesktopPetGeometry,
   type DesktopPetRect,
   type DesktopPetState,
   type DesktopPetTheme,
   type DesktopPetView,
 } from '../shared/desktop-pet';
 import { petMascotCells } from '../shared/desktop-pet-art';
-import {
-  clampFreePetPosition,
-  clampPetPosition,
-  clampToRange,
-  DESKTOP_PET_PIN_INSET,
-  type DesktopPetPrefs,
-  displayForPetPosition,
-  type PetDisplay,
-  petHereAnchor,
-  petHerePosition,
-  petPositionOn,
-  pinnedPetPosition,
-  readDesktopPetPrefs,
-  writeDesktopPetPrefs,
-} from './desktop-pet-store';
 import {
   requiredDesktopPetCommand,
   requiredDesktopPetComposer,
@@ -54,6 +39,51 @@ import {
   requiredDesktopPetText,
   requiredDesktopPetTheme,
 } from './ipc-validation';
+
+type Point = { x: number; y: number };
+
+export interface PetRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface PetDisplay {
+  id: number;
+  workArea: PetRect;
+}
+
+/** Where a pinned-here window stands against the app window (the core's
+ *  document: see PetHereAnchor in desktopPet/state/read). */
+export interface PetHereAnchor {
+  right: boolean;
+  bottom: boolean;
+  dx: number;
+  dy: number;
+  composer?: true;
+}
+
+/** The pet's per-device settings, as the core stores and answers them
+ *  (desktopPet/state/read): main only holds them and asks the core to store a
+ *  change. */
+export interface DesktopPetPrefs {
+  enabled: boolean;
+  keepAbove: boolean;
+  collapsed: boolean;
+  autoAdvance: boolean;
+  autoClose: boolean;
+  pinned: boolean;
+  pinnedHere: boolean;
+  onScreen: boolean;
+  scale: number;
+  positions: Record<string, Point>;
+  hereAnchor: PetHereAnchor | null;
+}
+
+/** How far inside the composer card's right edge the pinned sprite box's
+ *  right edge sits (the core's PIN_INSET): the island's reserve counts it. */
+const DESKTOP_PET_PIN_INSET = 2;
 
 type Listener = (event: { sender?: unknown }, ...args: unknown[]) => void;
 type Handler = (event: { sender?: unknown }, ...args: unknown[]) => unknown;
@@ -137,8 +167,14 @@ export interface PetAppWindow {
 }
 
 export interface DesktopPetDeps {
-  prefsPath: string;
   screen: PetScreen;
+  /** One request to the core (the local connection's `call`): the pet's
+   *  settings (`desktopPet/state/*`) and every placement rule
+   *  (`desktopPet/placement/resolve`) are the core's. */
+  call(method: string, params: unknown): Promise<unknown>;
+  /** A request to the core that failed (the overlay carries on without
+   *  what it could not get or store). */
+  reportError?(what: string, error: unknown): void;
   /** A new, hidden, unfocusable pet window at `bounds` (BrowserWindow with
    *  the pet preload) on its layer: owned by `parent` (follow the app
    *  window), or with no owner and always on top. The layer is set only
@@ -164,8 +200,6 @@ export interface DesktopPetDeps {
   /** An agent's custom picture (getAgentAvatarImage: data URLs by state),
    *  for the pet window, which has no capability bridge of its own. */
   avatarImage?(agentId: string): Promise<unknown>;
-  readPrefs?: (path: string) => DesktopPetPrefs;
-  writePrefs?: (path: string, prefs: DesktopPetPrefs) => void;
 }
 
 const DESKTOP_PET_IPC = { ...DESKTOP_PET_APP_IPC, ...DESKTOP_PET_WINDOW_IPC };
@@ -174,6 +208,22 @@ const IDLE_STATE: DesktopPetState = {
   bubble: { kind: 'idle' },
   face: { room: false, members: [] },
   quiet: false,
+};
+
+/** What the overlay holds until the core has answered the first read: off, so
+ *  nothing shows. The core's document replaces it whole. */
+const PREFS_UNREAD: DesktopPetPrefs = {
+  enabled: false,
+  keepAbove: false,
+  collapsed: false,
+  autoAdvance: true,
+  autoClose: true,
+  pinned: true,
+  pinnedHere: false,
+  onScreen: false,
+  scale: 100,
+  positions: {},
+  hereAnchor: null,
 };
 
 /** `parse` then `apply`; a malformed value is dropped. */
@@ -192,8 +242,17 @@ function applyValid<T>(parse: (value: unknown) => T, apply: (parsed: T) => void)
 /** Everything the overlay shares across its parts: one object, read and written by the module-level functions below. */
 interface PetContext {
   deps: DesktopPetDeps;
-  writePrefs: (path: string, prefs: DesktopPetPrefs) => void;
   prefs: DesktopPetPrefs;
+  /** The window and sprite at the bot's scale (the core's answer); null until read. */
+  shape: DesktopPetGeometry | null;
+  /** The last step of the queue every change of the overlay runs through, one at a time. */
+  tail: Promise<unknown>;
+  /** The last settings write: they reach the core in the order they were made. */
+  writing: Promise<unknown>;
+  /** A layout step waits in the queue (a burst of window moves asks for one). */
+  layoutQueued: boolean;
+  /** The newest drag move not yet applied (moves arrive faster than placements resolve). */
+  dragMove: DesktopPetDrag | null;
   state: DesktopPetState;
   pet: PetWindow | null;
   app: PetAppWindow | null;
@@ -235,9 +294,66 @@ interface PetContext {
 
 const live = (window: PetWindow | null): window is PetWindow => Boolean(window && !window.isDestroyed());
 
+// ---- The queue and the core ---------------------------------------------------
+
+function fail(s: PetContext, what: string, error: unknown) {
+  s.deps.reportError?.(what, error);
+}
+
+/** `run` after every step queued before it has finished: a step reads and
+ *  changes the overlay across its core calls, so two never overlap. */
+function enqueue<T>(s: PetContext, run: () => Promise<T> | T): Promise<T> {
+  const result = s.tail.then(run, run);
+  s.tail = result.catch(() => undefined);
+  return result;
+}
+
+/** A step nobody waits for: a failure is reported, never thrown. */
+function later(s: PetContext, run: () => Promise<unknown> | unknown) {
+  void enqueue(s, run).catch((error: unknown) => fail(s, 'desktop pet', error));
+}
+
+/** A layout pass, once for any number of asks made before it runs. */
+function relayout(s: PetContext) {
+  if (s.layoutQueued) return;
+  s.layoutQueued = true;
+  later(s, async () => {
+    s.layoutQueued = false;
+    await layout(s);
+  });
+}
+
+async function resolve(s: PetContext, params: Record<string, unknown>): Promise<unknown> {
+  return s.deps.call('desktopPet/placement/resolve', params);
+}
+
+async function resolvePoint(s: PetContext, params: Record<string, unknown>): Promise<Point> {
+  const answer = (await resolve(s, params)) as Partial<Point> | null;
+  if (!answer || !Number.isFinite(answer.x) || !Number.isFinite(answer.y)) {
+    throw new Error('desktopPet/placement/resolve answered no point');
+  }
+  return { x: answer.x as number, y: answer.y as number };
+}
+
+async function loadPrefs(s: PetContext) {
+  try {
+    s.prefs = (await s.deps.call('desktopPet/state/read', {})) as DesktopPetPrefs;
+    await loadShape(s);
+  } catch (error) {
+    fail(s, 'desktopPet/state/read', error);
+  }
+}
+
+async function loadShape(s: PetContext) {
+  s.shape = (await resolve(s, { op: 'geometry', scale: s.prefs.scale })) as DesktopPetGeometry;
+}
+
 function save(s: PetContext, next: Partial<DesktopPetPrefs>) {
   s.prefs = { ...s.prefs, ...next };
-  s.writePrefs(s.deps.prefsPath, s.prefs);
+  const prefs = s.prefs;
+  s.writing = s.writing
+    .then(() => s.deps.call('desktopPet/state/write', { prefs }))
+    .then(undefined, (error: unknown) => fail(s, 'desktopPet/state/write', error));
 }
 
 function config(s: PetContext): DesktopPetConfig {
@@ -256,8 +372,9 @@ function config(s: PetContext): DesktopPetConfig {
 
 /** The window and sprite box at the bot's scale: a live window was made at
  *  this scale (a new scale replaces the window, see setScale). */
-function geometry(s: PetContext) {
-  return desktopPetGeometry(s.prefs.scale);
+function geometry(s: PetContext): DesktopPetGeometry {
+  if (!s.shape) throw new Error('the desktop pet has no geometry: the core has not answered');
+  return s.shape;
 }
 
 function windowSize(s: PetContext) {
@@ -289,14 +406,31 @@ function homeDisplay(s: PetContext): PetDisplay {
   return owner ? s.deps.screen.getDisplayMatching(owner.getBounds()) : s.deps.screen.getPrimaryDisplay();
 }
 
-function displayFor(s: PetContext, point: { x: number; y: number }): PetDisplay {
-  return (
-    displayForPetPosition(point, windowSize(s), s.deps.screen.getAllDisplays()) ?? s.deps.screen.getPrimaryDisplay()
-  );
+const placementDisplay = (display: PetDisplay) => ({ id: display.id, workArea: display.workArea });
+
+async function displayFor(s: PetContext, point: Point): Promise<PetDisplay> {
+  const displays = s.deps.screen.getAllDisplays();
+  const id = await resolve(s, {
+    op: 'displayFor',
+    point,
+    size: windowSize(s),
+    displays: displays.map(placementDisplay),
+  });
+  return displays.find((display) => display.id === id) ?? s.deps.screen.getPrimaryDisplay();
+}
+
+/** A free window's spot on `workArea`: the whole bot inside it. */
+function clampFree(s: PetContext, point: Point, workArea: PetRect): Promise<Point> {
+  return resolvePoint(s, { op: 'clampFree', point, scale: s.prefs.scale, workArea });
+}
+
+/** Where the window opens on `display`: its saved spot there, else the default corner. */
+function positionOn(s: PetContext, display: PetDisplay): Promise<Point> {
+  return resolvePoint(s, { op: 'positionOn', display: placementDisplay(display), prefs: s.prefs, scale: s.prefs.scale });
 }
 
 /** The window's real top-left on screen. */
-function windowPosition(s: PetContext): { x: number; y: number } {
+function windowPosition(s: PetContext): Point {
   const [x = 0, y = 0] = live(s.pet) ? s.pet.getPosition() : [];
   return { x, y };
 }
@@ -312,7 +446,7 @@ function flipShift(s: PetContext): number {
 /** The window's spot: its top-left as laid out unflipped (above the work
  *  area's top while flipped). Spots are saved, dragged and anchored as this;
  *  the sprite box is at the same place on screen either way (spriteBox). */
-function currentPosition(s: PetContext): { x: number; y: number } {
+function currentPosition(s: PetContext): Point {
   const at = windowPosition(s);
   return s.flipped ? { x: at.x, y: at.y - flipShift(s) } : at;
 }
@@ -320,26 +454,26 @@ function currentPosition(s: PetContext): { x: number; y: number } {
 /** The window for `spot`: flipped (its bubble, quick message and menu below
  *  the bot) when the unflipped window's top would be above its work area,
  *  which only a free or pinned-here bot at the screen's top reaches. */
-function windowAt(s: PetContext, spot: { x: number; y: number }) {
-  const flipped = spot.y < displayFor(s, spot).workArea.y;
+async function windowAt(s: PetContext, spot: Point) {
+  const flipped = spot.y < (await displayFor(s, spot)).workArea.y;
   return { flipped, x: spot.x, y: spot.y + (flipped ? flipShift(s) : 0) };
 }
 
-function screenRight(s: PetContext): number {
+async function screenRight(s: PetContext): Promise<number> {
   if (!live(s.pet)) return windowSize(s).width;
   const at = windowPosition(s);
-  const area = displayFor(s, at).workArea;
+  const area = (await displayFor(s, at)).workArea;
   return Math.max(0, Math.min(windowSize(s).width, area.x + area.width - at.x));
 }
 
 /** The span (window px, from its left) the bubble lies in: the app window's
  *  content while the bot stands on it (pinned, or its sprite's centre over
  *  it), else the work area; within the window either way. */
-function bubbleSpan(s: PetContext): { left: number; right: number } {
+async function bubbleSpan(s: PetContext): Promise<{ left: number; right: number }> {
   const { width } = windowSize(s);
   if (!live(s.pet)) return { left: 0, right: width };
   const at = currentPosition(s);
-  const area = displayFor(s, at).workArea;
+  const area = (await displayFor(s, at)).workArea;
   let left = area.x;
   let right = area.x + area.width;
   const owner = appWindow(s);
@@ -384,13 +518,16 @@ function cutouts(s: PetContext): DesktopPetRect[] {
 /** What of the view follows the window's spot and the app's layers (its
  *  on-screen extent, the bubble's span, the cut-outs), to resend only when
  *  it changed. */
-function edgesKey(s: PetContext): string {
-  const span = bubbleSpan(s);
-  return `${s.flipped} ${screenRight(s)} ${span.left} ${span.right} ${JSON.stringify(cutouts(s))}`;
+async function edges(s: PetContext) {
+  const right = await screenRight(s);
+  const span = await bubbleSpan(s);
+  const cuts = cutouts(s);
+  return { right, span, cuts, key: `${s.flipped} ${right} ${span.left} ${span.right} ${JSON.stringify(cuts)}` };
 }
 
-function view(s: PetContext): DesktopPetView {
-  s.sentEdges = edgesKey(s);
+async function view(s: PetContext): Promise<DesktopPetView> {
+  const extent = await edges(s);
+  s.sentEdges = extent.key;
   return {
     ...s.state,
     collapsed: s.prefs.collapsed,
@@ -404,14 +541,16 @@ function view(s: PetContext): DesktopPetView {
     flipped: s.flipped,
     theme: s.theme,
     visible: live(s.pet) && s.pet.isVisible(),
-    screenRight: screenRight(s),
-    bubbleSpan: bubbleSpan(s),
-    cutouts: cutouts(s),
+    screenRight: extent.right,
+    bubbleSpan: extent.span,
+    cutouts: extent.cuts,
   };
 }
 
-function pushView(s: PetContext) {
-  if (live(s.pet) && !s.pet.webContents.isDestroyed()) s.pet.webContents.send(DESKTOP_PET_IPC.view, view(s));
+async function pushView(s: PetContext) {
+  if (!live(s.pet) || s.pet.webContents.isDestroyed()) return;
+  const next = await view(s);
+  if (live(s.pet) && !s.pet.webContents.isDestroyed()) s.pet.webContents.send(DESKTOP_PET_IPC.view, next);
 }
 
 function pushConfig(s: PetContext) {
@@ -423,40 +562,58 @@ function pushConfig(s: PetContext) {
  *  (windowAt). Its size never changes (the menu fits beside the pet):
  *  resizing a transparent window flashes its old frame at the new bounds on
  *  Windows. */
-function place(s: PetContext, spot: { x: number; y: number }) {
+async function place(s: PetContext, spot: Point) {
   if (!live(s.pet)) return;
-  const { flipped, x, y } = windowAt(s, spot);
+  const { flipped, x, y } = await windowAt(s, spot);
+  if (!live(s.pet)) return;
   s.flipped = flipped;
   s.pet.setBounds({ x, y, width: windowSize(s).width, height: windowSize(s).height });
   // Moved on or off a screen or app edge (or flipped): the menu's side, the
   // bubble's span and the layout follow.
-  if (edgesKey(s) !== s.sentEdges) pushView(s);
+  if ((await edges(s)).key !== s.sentEdges) await pushView(s);
 }
 
 /** Move inside the work area of the display the spot belongs to (the bot
- *  itself reaches its side edges: clampFreePetPosition). */
-function moveTo(s: PetContext, point: { x: number; y: number }, persist: boolean) {
+ *  itself reaches its side edges: the core's clampFree). */
+async function moveTo(s: PetContext, point: Point, persist: boolean) {
   if (!live(s.pet)) return;
-  const display = displayFor(s, point);
-  const next = clampFreePetPosition(point, geometry(s), display.workArea);
-  place(s, next);
+  const display = await displayFor(s, point);
+  const next = await clampFree(s, point, display.workArea);
+  await place(s, next);
   if (persist) save(s, { positions: { ...s.prefs.positions, [String(display.id)]: next } });
 }
+
+const placementComposer = (composer: DesktopPetComposer) => ({
+  rect: { x: composer.x, y: composer.y, width: composer.width, height: composer.height },
+  island: composer.island,
+  islandSpan: composer.islandSpan,
+});
 
 /** The pinned spot on the app window's composer, clamped to its display
  *  (the pet and its quick message stay on screen); null while the app
  *  window is gone, hidden or minimised. */
-function pinnedSpot(s: PetContext): { x: number; y: number } | null {
+async function pinnedSpot(s: PetContext): Promise<Point | null> {
   const owner = appWindow(s);
   if (!owner || !s.composer || !appShowing(s)) return null;
   const shape = geometry(s);
-  const target = pinnedPetPosition(owner.getContentBounds(), s.composer, owner.webContents.getZoomFactor(), shape);
+  const target = await resolvePoint(s, {
+    op: 'pinned',
+    content: owner.getContentBounds(),
+    composer: placementComposer(s.composer),
+    zoom: owner.webContents.getZoomFactor(),
+    scale: s.prefs.scale,
+  });
   const core = { width: shape.coreWidth, height: shape.window.height };
-  return clampPetPosition(target, core, displayFor(s, target).workArea);
+  return resolvePoint(s, {
+    op: 'clamp',
+    point: target,
+    size: core,
+    workArea: (await displayFor(s, target)).workArea,
+  });
 }
 
 /** The sprite box (screen px) of a window whose top-left is `point`. */
-function spriteBox(s: PetContext, point: { x: number; y: number }): DesktopPetRect {
+function spriteBox(s: PetContext, point: Point): DesktopPetRect {
   const { sprite, window } = geometry(s);
   return {
     x: point.x + sprite.left,
@@ -469,11 +626,16 @@ function spriteBox(s: PetContext, point: { x: number; y: number }): DesktopPetRe
 /** "Pin here" against the app window: the anchor for the window at `point`
  *  saved (null without an app window: kept as an absolute spot until one
  *  attaches). */
-function anchorHere(s: PetContext, point: { x: number; y: number }) {
+async function anchorHere(s: PetContext, point: Point) {
   const owner = appWindow(s);
   if (!owner) return;
   const box = composerBox(s, owner);
-  const hereAnchor = petHereAnchor(point, spriteBox(s, point), box ?? owner.getContentBounds());
+  const hereAnchor = (await resolve(s, {
+    op: 'hereAnchor',
+    point,
+    sprite: spriteBox(s, point),
+    content: box ?? owner.getContentBounds(),
+  })) as PetHereAnchor;
   save(s, { hereAnchor: box ? { ...hereAnchor, composer: true } : hereAnchor });
 }
 
@@ -496,42 +658,46 @@ function composerBox(s: PetContext, owner: PetAppWindow): DesktopPetRect | null 
  *  bounds, the sprite kept inside them and the window on its display; null
  *  while the app window is gone, hidden or minimised. An older absolute
  *  spot becomes an anchor against the window it first meets. */
-function hereSpot(s: PetContext): { x: number; y: number } | null {
+async function hereSpot(s: PetContext): Promise<Point | null> {
   const owner = appWindow(s);
   if (!owner || !appShowing(s)) return null;
-  if (!s.prefs.hereAnchor)
-    anchorHere(s, live(s.pet) ? currentPosition(s) : petPositionOn(homeDisplay(s), s.prefs, geometry(s)));
+  if (!s.prefs.hereAnchor) {
+    await anchorHere(s, live(s.pet) ? currentPosition(s) : await positionOn(s, homeDisplay(s)));
+  }
   const content = owner.getContentBounds();
   // An anchor against the window (an older one, or made before the card
   // showed) moves onto the card as soon as there is one, where it stands.
   const older = s.prefs.hereAnchor;
-  if (older && !older.composer && s.composer) anchorHere(s, petHerePosition(older, content));
+  if (older && !older.composer && s.composer) {
+    await anchorHere(s, await resolvePoint(s, { op: 'herePosition', anchor: older, content }));
+  }
   const anchor = s.prefs.hereAnchor;
   if (!anchor) return null;
   // Held against the card: none showing, nothing to follow.
   const box = anchor.composer ? composerBox(s, owner) : content;
   if (!box) return null;
   const shape = geometry(s);
-  const target = petHerePosition(anchor, box);
+  const target = await resolvePoint(s, { op: 'herePosition', anchor, content: box });
+  // The sprite kept inside the app window's content: the clamp rule over the
+  // window spots that put the sprite box within it.
   const above = shape.window.height - shape.sprite.bottom - shape.sprite.size;
-  const inside = {
-    x: clampToRange(
-      target.x,
-      content.x - shape.sprite.left,
-      content.x + content.width - shape.sprite.left - shape.sprite.size
-    ),
-    y: clampToRange(
-      target.y,
-      content.y - above,
-      content.y + content.height - (shape.window.height - shape.sprite.bottom)
-    ),
-  };
-  return clampFreePetPosition(inside, shape, displayFor(s, inside).workArea);
+  const inside = await resolvePoint(s, {
+    op: 'clamp',
+    point: target,
+    size: { width: shape.sprite.size, height: shape.sprite.size },
+    workArea: {
+      x: content.x - shape.sprite.left,
+      y: content.y - above,
+      width: content.width,
+      height: content.height,
+    },
+  });
+  return clampFree(s, inside, (await displayFor(s, inside)).workArea);
 }
 
 /** The spot the pet follows on the app window, per its pin preference; null
  *  when it is not pinned or the window gives none. */
-function followedSpot(s: PetContext): { x: number; y: number } | null {
+async function followedSpot(s: PetContext): Promise<Point | null> {
   if (s.prefs.pinned) return pinnedSpot(s);
   return s.prefs.pinnedHere ? hereSpot(s) : null;
 }
@@ -606,13 +772,17 @@ function occluded(s: PetContext): boolean {
  *  onboarding or a reload) — pinned already at its spot from the first
  *  frame; following the app window, only while that window is on screen;
  *  and never over the app's backdrop modals (its menus and popovers cut it). */
-function layout(s: PetContext) {
+async function layout(s: PetContext) {
   if (!live(s.pet)) {
     pushAppLayout(s);
     return;
   }
-  const spot = followedSpot(s);
-  if (spot) place(s, spot);
+  const spot = await followedSpot(s);
+  if (!live(s.pet)) {
+    pushAppLayout(s);
+    return;
+  }
+  if (spot) await place(s, spot);
   const show =
     s.loaded &&
     s.painted &&
@@ -622,25 +792,29 @@ function layout(s: PetContext) {
     (s.prefs.onScreen || s.composer !== null) &&
     (locked(s) ? Boolean(spot) : s.prefs.keepAbove || s.prefs.onScreen || appShowing(s)) &&
     !occluded(s);
+  if (!live(s.pet)) {
+    pushAppLayout(s);
+    return;
+  }
   if (show !== s.pet.isVisible()) {
     if (show) s.pet.showInactive();
     else s.pet.hide();
     // The pet pauses its idle animation while off screen.
-    pushView(s);
-  } else if (edgesKey(s) !== s.sentEdges) {
+    await pushView(s);
+  } else if ((await edges(s)).key !== s.sentEdges) {
     // The app window moved under a free pet, or its layers changed: the
     // bubble's span and the cut-outs follow.
-    pushView(s);
+    await pushView(s);
   }
   pushAppLayout(s);
 }
 
 /** A display went away or changed: keep the pet on a live work area, on
  *  the primary display when its own is gone. */
-function onDisplaysChanged(s: PetContext) {
+async function onDisplaysChanged(s: PetContext) {
   if (!live(s.pet)) return;
   if (locked(s)) {
-    layout(s);
+    await layout(s);
     return;
   }
   const point = currentPosition(s);
@@ -650,10 +824,10 @@ function onDisplaysChanged(s: PetContext) {
     .getAllDisplays()
     .some(({ workArea: a }) => cx >= a.x && cx < a.x + a.width && cy >= a.y && cy < a.y + a.height);
   if (onScreen) {
-    moveTo(s, point, false);
+    await moveTo(s, point, false);
     return;
   }
-  place(s, petPositionOn(s.deps.screen.getPrimaryDisplay(), s.prefs, geometry(s)));
+  await place(s, await positionOn(s, s.deps.screen.getPrimaryDisplay()));
 }
 
 /** Pinned (above the message box or here): it cannot be moved by hand. */
@@ -662,7 +836,7 @@ function locked(s: PetContext): boolean {
 }
 
 /** A pinned pet does not move: unpin it first (menu or Settings). */
-function dragPet(s: PetContext, input: DesktopPetDrag) {
+async function dragPet(s: PetContext, input: DesktopPetDrag) {
   if (locked(s)) {
     s.drag = null;
     return;
@@ -673,50 +847,68 @@ function dragPet(s: PetContext, input: DesktopPetDrag) {
   }
   if (!s.drag) return;
   const point = { x: s.drag.x + input.screenX - s.drag.screenX, y: s.drag.y + input.screenY - s.drag.screenY };
-  moveTo(s, point, input.phase === 'end');
+  await moveTo(s, point, input.phase === 'end');
   if (input.phase === 'end') s.drag = null;
 }
 
+/** A drag input from the pet window: moves are applied newest-first-only
+ *  (a move that a later one overtook is dropped), start and end in order. */
+function queueDrag(s: PetContext, input: DesktopPetDrag) {
+  if (input.phase !== 'move') {
+    s.dragMove = null;
+    later(s, () => dragPet(s, input));
+    return;
+  }
+  const idle = s.dragMove === null;
+  s.dragMove = input;
+  if (!idle) return;
+  later(s, async () => {
+    const next = s.dragMove;
+    s.dragMove = null;
+    if (next) await dragPet(s, next);
+  });
+}
+
 /** A live window on the wrong layer is replaced, never re-layered in place. */
-function applyLayer(s: PetContext) {
+async function applyLayer(s: PetContext) {
   if (!live(s.pet) || s.petOwner === wantedOwner(s)) return;
   destroyPetWindow(s);
-  syncPetWindow(s);
+  await syncPetWindow(s);
 }
 
 /** A preference changed from the menu or Settings: both show it. */
-function changed(s: PetContext): DesktopPetConfig {
-  pushView(s);
+async function changed(s: PetContext): Promise<DesktopPetConfig> {
+  await pushView(s);
   pushConfig(s);
   return config(s);
 }
 
-function setKeepAbove(s: PetContext, on: boolean) {
+async function setKeepAbove(s: PetContext, on: boolean) {
   if (s.prefs.keepAbove !== on) save(s, { keepAbove: on });
-  applyLayer(s);
-  layout(s);
+  await applyLayer(s);
+  await layout(s);
   return changed(s);
 }
 
-function setCollapsed(s: PetContext, on: boolean) {
+async function setCollapsed(s: PetContext, on: boolean) {
   if (s.prefs.collapsed !== on) save(s, { collapsed: on });
   return changed(s);
 }
 
 /** Pinned: stands on the message box and cannot be moved. Unpinned: where
  *  it stands now becomes its free spot, and it can be dragged. */
-function setPinned(s: PetContext, on: boolean) {
+async function setPinned(s: PetContext, on: boolean) {
   if (s.prefs.pinned !== on) save(s, { pinned: on });
   if (on && s.prefs.pinnedHere) save(s, { pinnedHere: false });
   if (on && s.prefs.onScreen) {
     save(s, { onScreen: false });
-    applyLayer(s);
+    await applyLayer(s);
   }
   s.drag = null;
-  if (on) layout(s);
+  if (on) await layout(s);
   else {
-    moveTo(s, currentPosition(s), true);
-    layout(s);
+    await moveTo(s, currentPosition(s), true);
+    await layout(s);
   }
   return changed(s);
 }
@@ -726,26 +918,27 @@ function setPinned(s: PetContext, on: boolean) {
  *  with one made for that scale; a free bot keeps its feet where they stood
  *  (the sprite stands at the window's bottom-left part, the window grows up
  *  and right). */
-function setScale(s: PetContext, scale: number): DesktopPetConfig {
+async function setScale(s: PetContext, scale: number): Promise<DesktopPetConfig> {
   if (s.prefs.scale === scale) return config(s);
   const before = windowSize(s);
   const at = currentPosition(s);
   const wasLive = live(s.pet);
   save(s, { scale });
+  await loadShape(s);
   if (wasLive) {
     if (!s.prefs.pinned) {
-      const display = displayFor(s, at);
-      const spot = clampFreePetPosition(
+      const display = await displayFor(s, at);
+      const spot = await clampFree(
+        s,
         { x: at.x, y: at.y + before.height - windowSize(s).height },
-        geometry(s),
         display.workArea
       );
       save(s, { positions: { ...s.prefs.positions, [String(display.id)]: spot } });
       // Pinned here: the same feet, against the app window.
-      if (s.prefs.pinnedHere) anchorHere(s, spot);
+      if (s.prefs.pinnedHere) await anchorHere(s, spot);
     }
     destroyPetWindow(s);
-    syncPetWindow(s);
+    await syncPetWindow(s);
   }
   return changed(s);
 }
@@ -754,22 +947,22 @@ function setScale(s: PetContext, scale: number): DesktopPetConfig {
  *  distance from the nearest corner of the window's content kept as the
  *  window moves or resizes, and across restarts); turns "Pin above the
  *  message box" off. Off: free and draggable again, where it stands. */
-function setPinnedHere(s: PetContext, on: boolean) {
-  if (on && s.prefs.pinned) setPinned(s, false);
+async function setPinnedHere(s: PetContext, on: boolean) {
+  if (on && s.prefs.pinned) await setPinned(s, false);
   if (on && s.prefs.onScreen) {
     save(s, { onScreen: false });
-    applyLayer(s);
+    await applyLayer(s);
   }
   if (s.prefs.pinnedHere !== on) save(s, { pinnedHere: on });
   s.drag = null;
   if (on) {
-    moveTo(s, currentPosition(s), true);
-    if (live(s.pet)) anchorHere(s, currentPosition(s));
+    await moveTo(s, currentPosition(s), true);
+    if (live(s.pet)) await anchorHere(s, currentPosition(s));
   } else {
     if (s.prefs.hereAnchor) save(s, { hereAnchor: null });
-    if (live(s.pet)) moveTo(s, currentPosition(s), true);
+    if (live(s.pet)) await moveTo(s, currentPosition(s), true);
   }
-  layout(s);
+  await layout(s);
   return changed(s);
 }
 
@@ -778,19 +971,19 @@ function setPinnedHere(s: PetContext, on: boolean) {
  *  to, moved with or hidden with the app window, its bubble kept to the
  *  screen; turns both pins off. "Keep above other windows" stays its own
  *  choice (the layer only). Off: free as before, following the app window. */
-function setOnScreen(s: PetContext, on: boolean) {
-  if (on && s.prefs.pinned) setPinned(s, false);
-  if (on && s.prefs.pinnedHere) setPinnedHere(s, false);
+async function setOnScreen(s: PetContext, on: boolean) {
+  if (on && s.prefs.pinned) await setPinned(s, false);
+  if (on && s.prefs.pinnedHere) await setPinnedHere(s, false);
   if (s.prefs.onScreen !== on) save(s, { onScreen: on });
   s.drag = null;
-  applyLayer(s);
-  if (live(s.pet)) moveTo(s, currentPosition(s), true);
-  layout(s);
+  await applyLayer(s);
+  if (live(s.pet)) await moveTo(s, currentPosition(s), true);
+  await layout(s);
   return changed(s);
 }
 
 /** One option by name (the app window's Settings). */
-function setOption(s: PetContext, rawName: unknown, rawValue: unknown): DesktopPetConfig {
+async function setOption(s: PetContext, rawName: unknown, rawValue: unknown): Promise<DesktopPetConfig> {
   const { name, value } = requiredDesktopPetOption(rawName, rawValue);
   if (name === 'pinned') return setPinned(s, value);
   if (name === 'pinnedHere') return setPinnedHere(s, value);
@@ -803,10 +996,9 @@ function setOption(s: PetContext, rawName: unknown, rawValue: unknown): DesktopP
 }
 
 /** Back above the message box: re-pinned, this display's free spot forgotten. */
-function reset(s: PetContext): DesktopPetConfig {
+async function reset(s: PetContext): Promise<DesktopPetConfig> {
   if (live(s.pet)) {
-    const display =
-      displayForPetPosition(currentPosition(s), windowSize(s), s.deps.screen.getAllDisplays()) ?? homeDisplay(s);
+    const display = await displayFor(s, currentPosition(s));
     const positions = { ...s.prefs.positions };
     delete positions[String(display.id)];
     save(s, { positions });
@@ -815,20 +1007,20 @@ function reset(s: PetContext): DesktopPetConfig {
     save(s, { pinned: true, pinnedHere: false, hereAnchor: null, onScreen: false });
   }
   s.drag = null;
-  applyLayer(s);
-  layout(s);
+  await applyLayer(s);
+  await layout(s);
   return changed(s);
 }
 
-function setEnabled(s: PetContext, on: boolean): DesktopPetConfig {
+async function setEnabled(s: PetContext, on: boolean): Promise<DesktopPetConfig> {
   if (s.prefs.enabled !== on) save(s, { enabled: on });
-  syncPetWindow(s);
+  await syncPetWindow(s);
   pushConfig(s);
   return config(s);
 }
 
 /** The pet's own menu (drawn in its window). */
-function runCommand(s: PetContext, command: DesktopPetCommand) {
+async function runCommand(s: PetContext, command: DesktopPetCommand) {
   switch (command) {
     case 'open':
       s.deps.openApp(s.state.sessionId);
@@ -841,25 +1033,25 @@ function runCommand(s: PetContext, command: DesktopPetCommand) {
       return;
     }
     case 'pin-here':
-      setPinnedHere(s, !s.prefs.pinnedHere);
+      await setPinnedHere(s, !s.prefs.pinnedHere);
       return;
     case 'on-screen':
-      setOnScreen(s, !s.prefs.onScreen);
+      await setOnScreen(s, !s.prefs.onScreen);
       return;
     case 'collapse':
-      setCollapsed(s, !s.prefs.collapsed);
+      await setCollapsed(s, !s.prefs.collapsed);
       return;
     case 'keep-above':
-      setKeepAbove(s, !s.prefs.keepAbove);
+      await setKeepAbove(s, !s.prefs.keepAbove);
       return;
     case 'pin':
-      setPinned(s, !s.prefs.pinned);
+      await setPinned(s, !s.prefs.pinned);
       return;
     case 'reset':
-      reset(s);
+      await reset(s);
       return;
     case 'off':
-      setEnabled(s, false);
+      await setEnabled(s, false);
       return;
   }
 }
@@ -878,7 +1070,7 @@ function listenPetWindow(s: PetContext, window: PetWindow) {
     };
   ipc.on(
     DESKTOP_PET_IPC.ready,
-    guard(() => pushView(s))
+    guard(() => later(s, () => pushView(s)))
   );
   // Shown only once the pet has drawn its first frame: a transparent window
   // shown before then flashes an empty box on Windows.
@@ -887,7 +1079,7 @@ function listenPetWindow(s: PetContext, window: PetWindow) {
     guard(() => {
       if (s.painted) return;
       s.painted = true;
-      if (s.loaded) layout(s);
+      if (s.loaded) relayout(s);
     })
   );
   ipc.on(
@@ -924,35 +1116,43 @@ function listenPetWindow(s: PetContext, window: PetWindow) {
   });
   ipc.on(
     DESKTOP_PET_IPC.command,
-    guard((value) => runCommand(s, requiredDesktopPetCommand(value)))
+    guard((value) => {
+      const command = requiredDesktopPetCommand(value);
+      later(s, () => runCommand(s, command));
+    })
   );
   ipc.on(
     DESKTOP_PET_IPC.area,
     guard((value) => {
       s.area = requiredDesktopPetComposerRect(value);
-      layout(s);
+      relayout(s);
     })
   );
   ipc.on(
     DESKTOP_PET_IPC.drag,
-    guard((value) => dragPet(s, requiredDesktopPetDrag(value)))
+    guard((value) => queueDrag(s, requiredDesktopPetDrag(value)))
   );
   ipc.on(
     DESKTOP_PET_IPC.nudge,
     guard((dx, dy) => {
       const delta = requiredDesktopPetNudge(dx, dy);
-      if (locked(s)) return;
-      const point = currentPosition(s);
-      moveTo(s, { x: point.x + delta.dx, y: point.y + delta.dy }, true);
+      later(s, async () => {
+        if (locked(s)) return;
+        const point = currentPosition(s);
+        await moveTo(s, { x: point.x + delta.dx, y: point.y + delta.dy }, true);
+      });
     })
   );
   ipc.on(
     DESKTOP_PET_IPC.reset,
-    guard(() => reset(s))
+    guard(() => later(s, () => reset(s)))
   );
   ipc.on(
     DESKTOP_PET_IPC.scale,
-    guard((scale) => setScale(s, requiredDesktopPetScale(scale)))
+    guard((scale) => {
+      const next = requiredDesktopPetScale(scale);
+      later(s, () => setScale(s, next));
+    })
   );
   ipc.on(
     DESKTOP_PET_IPC.interactive,
@@ -991,9 +1191,12 @@ function listenPetWindow(s: PetContext, window: PetWindow) {
 
 async function createPetWindow(s: PetContext) {
   if (live(s.pet) || s.disposed) return;
-  const at = followedSpot(s) ?? petPositionOn(homeDisplay(s), s.prefs, geometry(s));
+  const at = (await followedSpot(s)) ?? (await positionOn(s, homeDisplay(s)));
+  // The window is made after the placement answered: another step may have made it meanwhile.
+  if (live(s.pet) || s.disposed) return;
   s.petOwner = wantedOwner(s);
-  const { flipped, x, y } = windowAt(s, at);
+  const { flipped, x, y } = await windowAt(s, at);
+  if (live(s.pet) || s.disposed) return;
   s.flipped = flipped;
   const window = s.deps.createWindow(
     { x, y, ...windowSize(s) },
@@ -1014,6 +1217,11 @@ async function createPetWindow(s: PetContext) {
   window.on('closed', () => {
     if (s.pet === window) s.pet = null;
   });
+  // The page loads outside the queue: a slow load holds nothing else up.
+  void finishLoad(s, window).catch((error: unknown) => fail(s, 'desktop pet window', error));
+}
+
+async function finishLoad(s: PetContext, window: PetWindow) {
   try {
     await s.deps.load(window);
   } catch (error) {
@@ -1032,7 +1240,7 @@ async function createPetWindow(s: PetContext) {
   // lands on the app below).
   window.setIgnoreMouseEvents(true, { forward: true });
   s.loaded = true;
-  layout(s);
+  relayout(s);
 }
 
 function destroyPetWindow(s: PetContext) {
@@ -1047,10 +1255,16 @@ function destroyPetWindow(s: PetContext) {
 }
 
 /** The window exists while the setting is on and the representative bot does. */
-function syncPetWindow(s: PetContext) {
+async function syncPetWindow(s: PetContext) {
   // Following the app window needs one to belong to.
-  if (s.started && s.prefs.enabled && s.available && (s.prefs.keepAbove || s.prefs.onScreen || appWindow(s))) {
-    void createPetWindow(s).catch(() => {});
+  if (
+    s.started &&
+    s.shape &&
+    s.prefs.enabled &&
+    s.available &&
+    (s.prefs.keepAbove || s.prefs.onScreen || appWindow(s))
+  ) {
+    await createPetWindow(s);
   } else {
     destroyPetWindow(s);
   }
@@ -1072,50 +1286,58 @@ function listenAppWindow(s: PetContext, window: PetAppWindow): () => void {
     s.backdrop = false;
     // The new page holds no layout: the next one goes out again.
     s.sentAppLayout = '';
-    layout(s);
+    relayout(s);
   };
   contents.on('did-navigate', onReload);
   contents.on('render-process-gone', onReload);
   const publish = applyValid(requiredDesktopPetState, (next) => {
     s.state = next;
-    pushView(s);
-    // Another look: another art width for the island to clear.
-    pushAppLayout(s);
-    if (s.published) return;
+    const first = !s.published;
     s.published = true;
-    layout(s);
+    later(s, async () => {
+      await pushView(s);
+      // Another look: another art width for the island to clear.
+      pushAppLayout(s);
+      if (first) await layout(s);
+    });
   });
   const onComposer = applyValid(requiredDesktopPetComposer, (next) => {
     s.composer = next;
-    layout(s);
+    relayout(s);
   });
   const onTheme = applyValid(requiredDesktopPetTheme, (next) => {
     s.theme = next;
-    pushView(s);
+    later(s, () => pushView(s));
   });
   const onLayers = applyValid(requiredDesktopPetLayers, (next) => {
     s.layers = next.rects;
     s.backdrop = next.backdrop;
-    layout(s);
+    relayout(s);
   });
   const onAvailable: Listener = (_event, value) => {
-    if (typeof value !== 'boolean' || s.available === value) return;
-    s.available = value;
-    syncPetWindow(s);
+    if (typeof value !== 'boolean') return;
+    later(s, () => {
+      if (s.available === value) return;
+      s.available = value;
+      return syncPetWindow(s);
+    });
   };
   ipc.on(DESKTOP_PET_IPC.publish, publish);
   ipc.on(DESKTOP_PET_IPC.composer, onComposer);
   ipc.on(DESKTOP_PET_IPC.theme, onTheme);
   ipc.on(DESKTOP_PET_IPC.layers, onLayers);
   ipc.on(DESKTOP_PET_IPC.available, onAvailable);
-  ipc.handle(DESKTOP_PET_IPC.getConfig, () => config(s));
+  ipc.handle(DESKTOP_PET_IPC.getConfig, () => enqueue(s, () => config(s)));
   ipc.handle(DESKTOP_PET_IPC.setEnabled, (_event, on) => {
     if (typeof on !== 'boolean') throw new TypeError('enabled must be a boolean.');
-    return setEnabled(s, on);
+    return enqueue(s, () => setEnabled(s, on));
   });
-  ipc.handle(DESKTOP_PET_IPC.setOption, (_event, name, value) => setOption(s, name, value));
-  ipc.handle(DESKTOP_PET_IPC.setScale, (_event, scale) => setScale(s, requiredDesktopPetScale(scale)));
-  ipc.handle(DESKTOP_PET_IPC.resetPosition, () => reset(s));
+  ipc.handle(DESKTOP_PET_IPC.setOption, (_event, name, value) => enqueue(s, () => setOption(s, name, value)));
+  ipc.handle(DESKTOP_PET_IPC.setScale, (_event, scale) => {
+    const next = requiredDesktopPetScale(scale);
+    return enqueue(s, () => setScale(s, next));
+  });
+  ipc.handle(DESKTOP_PET_IPC.resetPosition, () => enqueue(s, () => reset(s)));
   return () => {
     if (contents.isDestroyed()) return;
     contents.removeListener('did-navigate', onReload);
@@ -1141,8 +1363,8 @@ function attachAppWindow(s: PetContext, window: PetAppWindow) {
   s.sentAppLayout = '';
   const stopListening = listenAppWindow(s, window);
   // The pet follows the window: moved, resized, minimised, hidden.
-  const relayout = () => layout(s);
-  for (const event of APP_WINDOW_EVENTS) window.on(event, relayout);
+  const follow = () => relayout(s);
+  for (const event of APP_WINDOW_EVENTS) window.on(event, follow);
   const detach = () => {
     if (s.detachApp !== detach) return;
     s.detachApp = null;
@@ -1152,26 +1374,33 @@ function attachAppWindow(s: PetContext, window: PetAppWindow) {
       s.layers = [];
       s.backdrop = false;
     }
-    for (const event of APP_WINDOW_EVENTS) window.removeListener(event, relayout);
+    for (const event of APP_WINDOW_EVENTS) window.removeListener(event, follow);
     window.removeListener('closed', detach);
     stopListening();
-    applyLayer(s);
-    layout(s);
+    later(s, async () => {
+      await applyLayer(s);
+      await layout(s);
+    });
   };
   s.detachApp = detach;
   window.on('closed', detach);
   // An owned pet goes with a closed owner: a new app window brings it back.
-  syncPetWindow(s);
-  applyLayer(s);
-  layout(s);
+  later(s, async () => {
+    await syncPetWindow(s);
+    await applyLayer(s);
+    await layout(s);
+  });
 }
 
 export function createDesktopPet(deps: DesktopPetDeps) {
-  const readPrefs = deps.readPrefs ?? readDesktopPetPrefs;
   const s: PetContext = {
     deps,
-    writePrefs: deps.writePrefs ?? writeDesktopPetPrefs,
-    prefs: readPrefs(deps.prefsPath),
+    prefs: PREFS_UNREAD,
+    shape: null,
+    tail: Promise.resolve(),
+    writing: Promise.resolve(),
+    layoutQueued: false,
+    dragMove: null,
     state: IDLE_STATE,
     pet: null,
     app: null,
@@ -1193,8 +1422,10 @@ export function createDesktopPet(deps: DesktopPetDeps) {
     sentAppLayout: '',
     flipped: false,
   };
+  // The settings come from the core before any other step runs.
+  later(s, () => loadPrefs(s));
 
-  const onScreenChange = () => onDisplaysChanged(s);
+  const onScreenChange = () => later(s, () => onDisplaysChanged(s));
   deps.screen.on('display-removed', onScreenChange);
   deps.screen.on('display-metrics-changed', onScreenChange);
 
@@ -1203,18 +1434,23 @@ export function createDesktopPet(deps: DesktopPetDeps) {
      *  representative bot exists. */
     start() {
       s.started = true;
-      syncPetWindow(s);
+      later(s, () => syncPetWindow(s));
     },
     /** Whether the representative bot exists (tests; the app window reports it). */
     setAvailable(on: boolean) {
-      if (s.available === on) return;
-      s.available = on;
-      syncPetWindow(s);
+      later(s, () => {
+        if (s.available === on) return;
+        s.available = on;
+        return syncPetWindow(s);
+      });
     },
     config: () => config(s),
-    setEnabled: (on: boolean) => setEnabled(s, on),
-    setOption: (name: unknown, value: unknown) => setOption(s, name, value),
-    setScale: (scale: unknown) => setScale(s, requiredDesktopPetScale(scale)),
+    setEnabled: (on: boolean) => enqueue(s, () => setEnabled(s, on)),
+    setOption: (name: unknown, value: unknown) => enqueue(s, () => setOption(s, name, value)),
+    setScale: (scale: unknown) => {
+      const next = requiredDesktopPetScale(scale);
+      return enqueue(s, () => setScale(s, next));
+    },
     /** The overlay shows `sessionId`'s replies right now (its window on
      *  screen, its bubble not collapsed, following that session): the OS
      *  "turn finished" notice for it is redundant. */
