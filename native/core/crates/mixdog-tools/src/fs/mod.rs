@@ -34,6 +34,7 @@ mod tests;
 mod node_cases;
 
 pub use edit::EditTool;
+pub use edit::WriteTool;
 pub use list::ListTool;
 pub use patch::ApplyPatchTool;
 pub use read::READ_PDF_MAX_PAGES_PER_CALL;

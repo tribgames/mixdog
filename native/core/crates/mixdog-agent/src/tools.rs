@@ -84,6 +84,9 @@ pub const REPEAT_FAIL_LIMIT: u32 = 3;
 pub struct ToolSet {
     tools: Arc<Vec<Arc<dyn Tool>>>,
     index: Arc<HashMap<String, usize>>,
+    /// The declared aliases by their lower-case spelling: the names of other agent CLIs are answered in any case
+    /// (`isExternalAdapterTool` lower-cases the name it is given).
+    folded: Arc<HashMap<String, usize>>,
     /// Names typo aliases, case variants and did-you-mean suggestions are
     /// drawn from (the builtin tools; other tools match exactly only).
     builtin: Arc<Vec<String>>,
@@ -107,16 +110,19 @@ impl ToolSet {
 
     pub fn with_builtins(tools: Vec<Arc<dyn Tool>>, builtin: Vec<String>) -> Self {
         let mut index = HashMap::new();
+        let mut folded = HashMap::new();
         for (i, tool) in tools.iter().enumerate() {
             let spec = tool.spec();
             index.insert(spec.name.clone(), i);
             for alias in &spec.aliases {
                 index.entry(alias.clone()).or_insert(i);
+                folded.entry(alias.to_lowercase()).or_insert(i);
             }
         }
         Self {
             tools: Arc::new(tools),
             index: Arc::new(index),
+            folded: Arc::new(folded),
             builtin: Arc::new(builtin),
             agent: false,
             registry: None,
@@ -142,7 +148,7 @@ impl ToolSet {
 
     /// A tool of the surface.
     pub fn get(&self, name: &str) -> Option<&Arc<dyn Tool>> {
-        self.index.get(name).map(|i| &self.tools[*i])
+        self.index.get(name).or_else(|| self.folded.get(&name.to_lowercase())).map(|i| &self.tools[*i])
     }
 
     /// The tool a call runs: one of the surface, else the registry's.
@@ -1128,6 +1134,7 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>, cwd: &AbsPath, edit_
             }),
             pdf_native_document: env.native_pdf,
             pdf_page_images: env.sees_images,
+            pdf_page_ocr: !env.sees_images,
         },
         review: env.tool_env.review.clone(),
     };

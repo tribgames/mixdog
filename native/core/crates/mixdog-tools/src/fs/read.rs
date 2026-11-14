@@ -1758,6 +1758,7 @@ impl ReadTool {
                     blocks.push(image);
                 }
                 Some(Scanned::Note(shown)) => text.push_str(&format!("{gap}--- Page {page} ---\n{shown}")),
+                Some(Scanned::Ocr(read)) => text.push_str(&format!("{gap}--- Page {page} (OCR of a scanned page) ---\n{read}")),
                 None => text.push_str(&format!("{gap}--- Page {page} ---\n{page_text}")),
             }
         }
@@ -1769,10 +1770,9 @@ impl ReadTool {
         Ok(Body { parts: blocks, rich: true, ..Body::default() })
     }
 
-    /// `scannedPageBodies` for a model that reads images (`pageMode: 'image'`) or a batch (`textOnly`): each page
-    /// without a text layer as its page image, or as a note; a render that fails leaves every such page a note. The
-    /// OCR text Node gives a model that sees no images (`pageMode: 'ocr'`) is not offered: that model gets the page
-    /// image too.
+    /// `scannedPageBodies`: each page without a text layer as its page image for a model that reads images
+    /// (`pageMode: 'image'`), as the OCR engine's text for one that does not (`'ocr'`), or as a note in a batch
+    /// (`textOnly`); a render or a recognition that fails leaves every such page a note.
     async fn scanned_page_bodies(&self, ctx: &ToolContext, abs: &AbsPath, scanned: &[u64], text_only: bool) -> Result<HashMap<u64, Scanned>, ToolError> {
         let mut bodies = HashMap::new();
         if scanned.is_empty() {
@@ -1782,6 +1782,25 @@ impl ReadTool {
             for &page in scanned {
                 let note = format!("(no text layer: a scanned page. Read this PDF on its own with pages=\"{page}\" to see it as an image or OCR text.)");
                 bodies.insert(page, Scanned::Note(note));
+            }
+            return Ok(bodies);
+        }
+        if ctx.options.pdf_page_ocr {
+            let params = serde_json::json!({ "path": fwd(abs.as_path()), "pages": scanned });
+            match self.ext_call(ctx, "pdf.ocr", params, abs).await? {
+                Ok((value, _)) => {
+                    for entry in value.as_array().map(Vec::as_slice).unwrap_or_default() {
+                        let read = entry["text"].as_str().filter(|text| !text.is_empty()).unwrap_or("(OCR found no text on this page)");
+                        bodies.insert(entry["page"].as_u64().unwrap_or(0), Scanned::Ocr(read.to_owned()));
+                    }
+                }
+                Err(e) => {
+                    let note = format!(
+                        "(no text layer, and OCR is unavailable here: {}. OCR language data downloads on first use, so this needs a network connection once; after that it works offline. A model that accepts images can read these pages as page images instead.)",
+                        ext_error_message(&e)
+                    );
+                    bodies.extend(scanned.iter().map(|&page| (page, Scanned::Note(note.clone()))));
+                }
             }
             return Ok(bodies);
         }
@@ -2252,6 +2271,8 @@ fn cap_pdf_text(text: &str, max: usize) -> String {
 enum Scanned {
     Image(ToolPart),
     Note(String),
+    /// What the OCR engine read off the page.
+    Ocr(String),
 }
 
 /// UNC and raw-device namespaces are refused before any path resolution.

@@ -150,9 +150,12 @@ async function pdfRender(ctx) {
 
 async function pdfOcr(ctx) {
   const { path, pages, dataDir, languages } = ctx.params;
-  const { recognizePdfPageTexts } = await import('../runtime/office/pdf/pdf-ocr.mjs');
+  const [{ recognizePdfPageTexts }, { defaultOfficeDataDir }] = await Promise.all([
+    import('../runtime/office/pdf/pdf-ocr.mjs'),
+    import('../runtime/office/core/journal.mjs'),
+  ]);
   const texts = await recognizePdfPageTexts(approvedPath(ctx, path), pages, {
-    dataDir,
+    dataDir: dataDir || defaultOfficeDataDir(),
     languages,
     signal: ctx.signal,
   });
