@@ -394,6 +394,8 @@ async fn server_feed_state_carries_host_shell_jobs_and_remote_session() {
     client.store.changes.send(StoreChange::Thread { thread_id: "t1".into() }).unwrap();
     let first = states.recv().await.unwrap();
     assert!(first.snapshot.get("hostShellJobs").is_none());
+    // No remote channel held: the state still says it is off.
+    assert_eq!((first.snapshot["remoteEnabled"].clone(), first.snapshot["remoteSessionId"].clone()), (json!(false), Json::Null));
 
     let jobs = json!({ "count": 1, "elapsedLabel": "1s", "jobs": [{}], "finished": [] });
     client.store.sections.lock().unwrap().insert(
