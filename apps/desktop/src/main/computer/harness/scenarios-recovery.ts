@@ -412,7 +412,7 @@ export const recoveryScenarios: ScenarioGroup = {
     });
   },
   S35: async (ctx) => {
-    const { command } = ctx;
+    const { command, core } = ctx;
     await runScenario('S35', 'a killed helper is respawned by the next command and its cleanup runs', 'lifecycle', async () => {
       const alive = (pid: number) => {
         try {
@@ -428,18 +428,19 @@ export const recoveryScenarios: ScenarioGroup = {
         try {
           const warm = await command({ action: 'wait', duration: 0 }, sessionId);
           assert.equal(warm.text, 'waited 0s');
-          const killed = warm.helperPid;
+          const killed = core.helperPid(sessionId);
           assert.ok(typeof killed === 'number' && alive(killed), `no live helper after a command: ${String(killed)}`);
           process.kill(killed);
           await eventually(async () => alive(killed), (running) => !running, 10_000);
           progress(`S35 cycle ${cycle} helper ${killed} killed`);
           const next = await command({ action: 'wait', duration: 0 }, sessionId);
           assert.equal(next.text, 'waited 0s');
+          const respawned = core.helperPid(sessionId);
           assert.ok(
-            typeof next.helperPid === 'number' && next.helperPid !== killed && alive(next.helperPid),
-            `the command after the kill did not run on a new helper: ${String(next.helperPid)}`
+            typeof respawned === 'number' && respawned !== killed && alive(respawned),
+            `the command after the kill did not run on a new helper: ${String(respawned)}`
           );
-          progress(`S35 cycle ${cycle} helper respawned as ${next.helperPid}`);
+          progress(`S35 cycle ${cycle} helper respawned as ${respawned}`);
           // The abort cleans up from a fresh process and says whether it did.
           const aborted = actionPayload(await command({ action: 'session_abort' }, sessionId));
           assert.equal(aborted.confirmed, true, JSON.stringify(aborted));

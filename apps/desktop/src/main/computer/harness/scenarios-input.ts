@@ -644,7 +644,9 @@ export const inputScenarios: ScenarioGroup = {
     });
   },
   S38: async (ctx) => {
-    const { fixture, fixtureWindowId, command, setObserveOnly } = ctx;
+    const { fixture, fixtureWindowId, command, core } = ctx;
+    const setObserveOnly = (enabled: boolean) =>
+      core.call('config/value/write', { path: 'desktop.computerObserveOnly', value: enabled });
     await runScenario('S38', 'observation-only allows capture and blocks input before dispatch', 'safety', async () => {
       const clickCountBefore = Number(
         await fixture.webContents.executeJavaScript('globalThis.mixdogMotorState().clickCount')
