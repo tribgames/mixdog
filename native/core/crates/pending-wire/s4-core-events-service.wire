@@ -1,0 +1,57 @@
+# s4-core-events-service core wiring (applied by the wiring task that composes the browser engine, s4-wire-core / CORE-WIRE-G7)
+
+## 1. Module line
+File: native/core/crates/mixdog-app-server-daemon/src/lib.rs, with the other `pub mod` lines (next to `pub mod connection_close;`):
+
+    pub mod browser_engine_service;
+
+(public: `ClaimantProbe` and `BrowserToolRunner` are implemented by the composition and by the engine adapter.)
+
+## 2. Cargo
+No new dependency edge: the daemon already depends on mixdog-browser-engine, mixdog-app-protocol, mixdog-protocol, mixdog-core-base, async-trait,
+tokio-util and serde_json, and its dev-dependency line already enables its own `test-hooks` feature for the tests.
+
+## 3. The claim table's answer (one addition to a file this task does not own)
+File: native/core/crates/mixdog-app-server/src/outgoing.rs, `impl Outgoing`, next to `is_host_claimant`: add
+
+    /// Whether `id` is the connection `capability` is served by now (the latest claim that declared it), as `claimant` picks it.
+    pub fn serves_capability(&self, id: ConnectionId, capability: HostCapability) -> bool {
+        self.claimant(capability, None).is_ok_and(|conn| conn.id == id)
+    }
+
+and implement the probe for it where the composition has the `Arc<Outgoing>` (b.outgoing), in compose_flip.rs:
+
+    struct OutgoingClaimants(Arc<mixdog_app_server::Outgoing>);
+    impl crate::browser_engine_service::ClaimantProbe for OutgoingClaimants {
+        fn is_claimant(&self, connection: mixdog_core_api::ids::ConnectionId) -> bool {
+            self.0.serves_capability(connection, mixdog_core_api::HostCapability::BrowserEngine)
+        }
+    }
+
+(Not `is_host_claimant`: that is true for every connection holding any claim, so an earlier desktop that is still connected
+under another hostId would keep feeding the sink after a newer one took the browser engine, and each switch would end the
+newer one's pages. The engine's commands go to the latest claimant serving `BrowserEngine`; its pushes are the ones believed.)
+
+## 4. The one compose call, in compose_flip.rs next to `builder.register(live_view.clone())?;`
+Needs the engine's sink (`EngineSinkImpl::new(lane.mirror().clone(), hold)` of s4-engine-lane, the same Arc the engine's HostLane reads):
+
+    let browser_engine = crate::browser_engine_service::BrowserEngineService::new(engine_sink.clone(), Arc::new(OutgoingClaimants(b.outgoing.clone())));
+    #[cfg(feature = "test-hooks")]
+    let browser_engine = browser_engine.with_test_hook(&*env, tool_runner);
+    let browser_engine = Arc::new(browser_engine);
+    builder.register(browser_engine.clone())?;
+
+`tool_runner` is an `Arc<dyn BrowserToolRunner>` that the engine adapter (s4-tool-adapter / s4-wire-core) implements over
+`BrowserEngine::run` with a turn-less caller; `env` is the daemon's env reader that `compose_computer` already passes to
+`DevComputerRun::if_enabled`.
+
+## 5. Connection close
+File: native/core/crates/mixdog-app-server-daemon/src/connection_close.rs, `ConnectionOwners::new`: add an eighth parameter
+`browser_engine: Arc<crate::browser_engine_service::BrowserEngineService>` and append it to the `owners` vec (it implements `ConnectionOwner`);
+the call in compose_flip.rs (`ConnectionOwners::new(terminal.clone(), ... scm_service.clone())`) passes `browser_engine` last. (The doc comment
+"the five owners" stays as it is.)
+
+## 6. SERVICE_PENDING (compose_flip.rs)
+Remove "host/browser/events", "host/browser/page/facts", "host/browser/userInput" (the service registers them).
+Keep "test/browserEngine/run" in it, as "dev/computer/run" is kept: an ordinary start (no test-hooks build, or MIXDOGD_TEST_HOOKS unset) registers
+nothing for it. Reword the comment above the group to "the browser engine composed into mixdogd; the test hook only with MIXDOGD_TEST_HOOKS=1".
