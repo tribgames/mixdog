@@ -1,0 +1,13 @@
+# g95-fu-renderer-direct: apply with the rows of the same id (the notification ui/relayPayloadRefused).
+# mixdog-remote's RemoteEvents has a new default method `relay_payload_refused(&self, bytes: Option<u64>, limit: Option<u64>)`
+# (access/runtime.rs). Only the daemon's implementation needs to act on it.
+
+[mixdog-app-server-daemon/src/domain_seams/remote.rs]
+In `impl RemoteEvents for SectionEvents`, after `fn status`, add a method that publishes the app-feed notification
+`ui/relayPayloadRefused` with params `UiRelayPayloadRefusedParams { bytes, limit }` the way the browser surface request is published as
+`ui/openRequested` (domain_seams/browser_surfaces.rs: the feed handle that broadcasts an app-feed notification; SectionEvents::new() takes
+it as a bound OnceLock like `cleanup` and `pc_access`, bound where the feed exists in compose). With no client attached nobody is told
+(not queued), as for a browser surface request. The runtime calls it from its leg task, so it must not block.
+
+[mixdog-app-server-daemon/src/compose_flip.rs]
+SERVICE_PENDING: nothing to remove (a notification, not a method).

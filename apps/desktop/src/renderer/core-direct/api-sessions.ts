@@ -12,7 +12,15 @@ import { createCapabilityLane, type CapabilityLane } from '../../shared/core-lan
 import { createServiceLane, type ServiceLane } from '../../shared/core-lanes/service-route.ts';
 import { createSessionLane, type SessionLane } from '../../shared/core-lanes/session-lane.ts';
 import { filterSessionIds, isSessionId, requiredSessionIds } from '../../shared/desktop-state';
-import { createSessionReadWindow, releaseHiddenSessionStateEntries, shouldPublishSessionState } from '../../main/state-delta';
+import {
+  createSessionReadWindow,
+  createSnapshotDeltaEncoder,
+  isNoDelta,
+  releaseHiddenSessionStateEntries,
+  shouldPublishSessionState,
+  type SnapshotDeltaEncoder,
+} from '../../main/state-delta';
+import { reportTranscriptRead } from '../../shared/transcript-read-diagnostics';
 import type { DirectContext } from './context.ts';
 import { withDirectErrors } from './errors.ts';
 
@@ -101,6 +109,9 @@ export function createSessionsApi(ctx: DirectContext): SessionsApi {
   const recoveries = new Map<string, ReturnType<typeof setTimeout>>();
   const latest = new Map<string, Pick<DesktopSessionStateUpdate, 'snapshot' | 'frameSource' | 'contentRevision'>>();
   const stateListeners = new Set<(update: DesktopSessionStateUpdate) => void>();
+  // What each shown session last published, held as the delta encoder's baseline: a frame that leaves it unchanged is not
+  // delivered (ipc-state-bridge.ts `sendSessionState`, whose encoder answered isNoDelta).
+  const sessionEncoders = new Map<string, SnapshotDeltaEncoder>();
   let visibleVersion = 0;
 
   const takeRecovery = (sessionId: string): boolean => {
@@ -138,16 +149,28 @@ export function createSessionsApi(ctx: DirectContext): SessionsApi {
     const sessionId = String(update.sessionId || '');
     const answersRecovery = sessionId ? takeRecovery(sessionId) : false;
     const answersRead = takeReadTrace(sessionId, update.readTraceId) || answersRecovery;
-    if (!sessionId || (!answersRead && !shouldPublishSessionState(sessionId, update.snapshot, visible, reads))) return;
-    if (update.snapshot === null) latest.delete(sessionId);
-    else {
-      latest.set(sessionId, {
-        snapshot: update.snapshot,
-        frameSource: update.frameSource,
-        ...(typeof update.contentRevision === 'number' ? { contentRevision: update.contentRevision } : {}),
-      });
+    if (!sessionId || (!answersRead && !shouldPublishSessionState(sessionId, update.snapshot, visible, reads))) {
+      reportTranscriptRead(sessionId, update.readTraceId, 'ipc-hidden');
+      return;
     }
-    emit(update);
+    if (update.snapshot === null) {
+      latest.delete(sessionId);
+      sessionEncoders.delete(sessionId);
+      emit(update);
+      return;
+    }
+    let encoder = sessionEncoders.get(sessionId);
+    if (!encoder) encoder = createSnapshotDeltaEncoder({ prepend: true, partialAppend: true });
+    else if (answersRecovery) encoder.reset();
+    sessionEncoders.set(sessionId, encoder);
+    latest.set(sessionId, {
+      snapshot: update.snapshot,
+      frameSource: update.frameSource,
+      ...(typeof update.contentRevision === 'number' ? { contentRevision: update.contentRevision } : {}),
+    });
+    const unchanged = isNoDelta(encoder.encode(update.snapshot));
+    reportTranscriptRead(sessionId, update.readTraceId, unchanged ? 'ipc-unchanged' : 'ipc-send');
+    if (!unchanged) emit(update);
   };
   session.subscribeSessionStates(receive);
 
@@ -201,8 +224,16 @@ export function createSessionsApi(ctx: DirectContext): SessionsApi {
     listProviderModels: async (options = {}) => withDirectErrors((await session.chat()).listProviderModels(options)),
     setModelRoute: (selection, sessionId) => svc('setModelRoute', [selection, optionalId(sessionId)]),
     setFast: (enabled, sessionId) => svc('setFast', [enabled, optionalId(sessionId)]),
-    // Nothing raises this on a core connection: the relay's own refusal reaches the page as the failed call's error.
-    subscribeRelayPayloadRefused: () => () => undefined,
+    // The core announces a frame the relay refused as `ui/relayPayloadRefused` on the app feed (the size and the ceiling, each null
+    // when the relay reported none); the window shows the toast.
+    subscribeRelayPayloadRefused: (listener) =>
+      connection.onEvent((event) => {
+        if (event.type !== 'notification') return;
+        const { method, params } = (event as { notification: { method: string; params?: { bytes?: unknown; limit?: unknown } } }).notification;
+        if (method !== 'ui/relayPayloadRefused') return;
+        const size = (value: unknown): number | null => (typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null);
+        listener({ bytes: size(params?.bytes), limit: size(params?.limit) });
+      }),
 
     // ── chat ──
     submitNewTask: async (prompt, options = {}, draft = {}) => withDirectErrors((await session.chat()).submitNewTask(prompt, options, draft)),
@@ -244,13 +275,29 @@ export function createSessionsApi(ctx: DirectContext): SessionsApi {
       const ids = requiredSessionIds(sessionIds);
       visible.clear();
       for (const id of ids) visible.add(id);
-      releaseHiddenSessionStateEntries(visible, [latest], (sessionId) => emit({ sessionId, snapshot: null } as unknown as DesktopSessionStateUpdate));
+      const released = releaseHiddenSessionStateEntries(visible, [sessionEncoders, latest], (sessionId) =>
+        emit({ sessionId, snapshot: null } as unknown as DesktopSessionStateUpdate)
+      );
+      if (released.length > 0) {
+        console.error(
+          `[mixdog-lane] baseline released count=${released.length} visible=${ids.length} ids=${released
+            .slice(0, 6)
+            .map((sessionId) => sessionId.slice(-8))
+            .join(',')}`
+        );
+      }
       return (await svc<unknown>('setVisibleSessions', [filterSessionIds(ids), ++visibleVersion])) === true;
     },
 
     // ── the states ──
     getSnapshot: async () => shell.get(),
-    subscribeState: (listener) => shell.subscribe(listener),
+    // Each listener holds its own baseline: the engine state that leaves it unchanged is not delivered again (`sendEngineState`).
+    subscribeState(listener) {
+      const encoder = createSnapshotDeltaEncoder();
+      return shell.subscribe((snapshot) => {
+        if (!isNoDelta(encoder.encode(snapshot))) listener(snapshot);
+      });
+    },
     subscribeSessionState(listener) {
       stateListeners.add(listener);
       return () => void stateListeners.delete(listener);
@@ -259,7 +306,10 @@ export function createSessionsApi(ctx: DirectContext): SessionsApi {
       const id = String(sessionId || '');
       if (!isSessionId(id)) return;
       const held = latest.get(id);
-      if (held) receive({ sessionId: id, ...held });
+      if (held) {
+        sessionEncoders.get(id)?.reset();
+        receive({ sessionId: id, ...held });
+      }
       else requestRecovery(id);
     },
   };

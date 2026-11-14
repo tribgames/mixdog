@@ -155,6 +155,9 @@ pub trait RemoteEvents: Send + Sync {
     fn device_forgotten<'a>(&'a self, _credential_id: &'a str) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>> {
         Box::pin(async {})
     }
+    /// The relay refused an oversize frame of this core's leg and named no client (`relay-payload-refused`,
+    /// `remote-relay-inbound.ts`): the windows show a toast with the size and the ceiling, when the relay reported them.
+    fn relay_payload_refused(&self, _bytes: Option<u64>, _limit: Option<u64>) {}
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -1545,8 +1548,23 @@ impl RemoteRuntime {
             }
             Inbound::Frame { client_id, payload } => self.on_frame(live, &client_id, payload).await,
             Inbound::FrameTooLarge(envelope) => {
-                if let Some(limit) = envelope.get("limit").and_then(Value::as_u64) {
+                let (bytes, limit) = (positive_size(envelope.get("bytes")), positive_size(envelope.get("limit")));
+                if let Some(limit) = limit {
                     self.inner.state().caps.learn_refused_limit(limit);
+                }
+                // Named: only the phone whose reply was refused is told, as an event of its own channel (it fails what waits for that
+                // reply). Unattributed: no phone is told (a sibling would see another client's refusal); it is logged and the windows
+                // show it (`remote-relay-inbound.ts`).
+                if let Some(peer_id) = envelope.get("clientId").and_then(Value::as_str).filter(|id| !id.is_empty()) {
+                    let frame = Frame::Text(relay_payload_rejected_frame(bytes, limit).to_string());
+                    RuntimeSink { inner: self.inner.clone() }.deliver(ToPhone::Frame { peer_id: peer_id.to_owned(), frame }).await;
+                } else {
+                    tracing::error!(
+                        "[mixdog-remote] relay refused an oversize frame bytes={} limit={} (no client attributed)",
+                        bytes.map_or_else(|| "unknown".to_owned(), |b| b.to_string()),
+                        limit.map_or_else(|| "unknown".to_owned(), |l| l.to_string()),
+                    );
+                    self.inner.cfg.events.relay_payload_refused(bytes, limit);
                 }
             }
             Inbound::NativePushResult(result) => {
@@ -1720,9 +1738,51 @@ fn phone_text(bytes: Vec<u8>) -> Option<String> {
     Some(text)
 }
 
+/// A size the relay reported (`positiveSize`, `remote-payload-limit.ts`): a positive number, a numeric string read as one.
+fn positive_size(value: Option<&Value>) -> Option<u64> {
+    let number = match value? {
+        Value::Number(number) => number.as_f64()?,
+        Value::String(text) => text.trim().parse::<f64>().ok()?,
+        _ => return None,
+    };
+    (number.is_finite() && number > 0.0).then(|| number.floor() as u64)
+}
+
+/// The authenticated event a phone is told of a refusal of its reply with (`relayPayloadRejectedFrame`): no call is named, since
+/// the relay's notice says whose frame it was only by the client.
+fn relay_payload_rejected_frame(bytes: Option<u64>, limit: Option<u64>) -> Value {
+    json!({ "event": "relayPayloadRejected", "payload": { "bytes": bytes, "limit": limit } })
+}
+
 #[cfg(test)]
 mod tests {
-    use super::phone_text;
+    use super::{phone_text, positive_size, relay_payload_rejected_frame};
+    use serde_json::json;
+
+    /// `positiveSize`: a positive number or numeric string is floored; zero, negative, non-numeric and absent read as unknown.
+    #[test]
+    fn a_reported_size_is_a_positive_number_or_none() {
+        assert_eq!(positive_size(Some(&json!(1234))), Some(1234));
+        assert_eq!(positive_size(Some(&json!(12.9))), Some(12));
+        assert_eq!(positive_size(Some(&json!("4096"))), Some(4096));
+        for refused in [json!(0), json!(-5), json!("abc"), json!(null), json!(true), json!([])] {
+            assert_eq!(positive_size(Some(&refused)), None);
+        }
+        assert_eq!(positive_size(None), None);
+    }
+
+    /// The phone's event carries the size and the ceiling, null where the relay did not report them, and no call id or scope.
+    #[test]
+    fn the_phone_is_told_of_a_refusal_by_an_event_without_a_call() {
+        assert_eq!(
+            relay_payload_rejected_frame(Some(70_000_000), Some(67_108_864)),
+            json!({ "event": "relayPayloadRejected", "payload": { "bytes": 70_000_000, "limit": 67_108_864 } })
+        );
+        assert_eq!(
+            relay_payload_rejected_frame(None, None),
+            json!({ "event": "relayPayloadRejected", "payload": { "bytes": null, "limit": null } })
+        );
+    }
 
     /// The decode of the recorded cases (native/core/fixtures/inbound-lone-surrogate: alias-invalid-byte,
     /// alias-truncated-sequence, alias-bom-frame, refused-*): invalid bytes read as U+FFFD, a leading BOM dropped, a

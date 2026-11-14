@@ -22,6 +22,8 @@ const PREVIEW_CHUNK_BYTES = 2 * 1024 * 1024;
 const PREVIEW_BLOB_LIMIT = 48;
 /** Node's `path.isAbsolute` on the PC (a Windows host also takes the POSIX form). */
 const isAbsolutePath = (path: string): boolean => /^([\\/]|[A-Za-z]:[\\/])/.test(path);
+/** Code points one window of a file read answers (the window the paired devices read with). */
+const READ_WINDOW_CHARS = 60_000;
 const hasToken = (token: unknown): token is string => typeof token === 'string' && token !== '';
 
 function bytesFromBase64(data: string): Uint8Array {
@@ -99,6 +101,24 @@ export function createFilesApi(ctx: DirectContext): FilesApi {
       async (folder) => folder
     );
   const projectFolder = (project: string): Promise<string> => svc<string>('projectDirectory', [project]);
+  /** One answer of `projectFs/readText` carries at most 512 KiB while a file may be up to 10 MiB: the text comes a window at a time and is
+   *  joined. The first window reads the file once and names that read (`readId`); the windows after it come from the same read, so the
+   *  join is one version of the file. */
+  const readWindows = async (target: FileTarget): Promise<Record<string, unknown>> => {
+    let answer = (await ctx.call('projectFs/readText', { ...target, maxChars: READ_WINDOW_CHARS })) as Record<string, unknown>;
+    let content = String(answer.content);
+    while (typeof answer.nextChar === 'number') {
+      answer = (await ctx.call('projectFs/readText', {
+        ...target,
+        readId: answer.readId,
+        fromChar: answer.nextChar,
+        maxChars: READ_WINDOW_CHARS,
+      })) as Record<string, unknown>;
+      content += String(answer.content);
+    }
+    const { nextChar: _end, readId: _read, ...whole } = answer;
+    return { ...whole, content };
+  };
   /** A Project and a path in it as the core takes them: a token names the file (the core redeems it), else the folder. */
   const fileTarget = async (project: string, rel: string, accessToken: unknown): Promise<FileTarget> =>
     hasToken(accessToken) ? { root: project, rel, accessToken } : { root: await projectRoot(project), rel };
@@ -354,11 +374,11 @@ export function createFilesApi(ctx: DirectContext): FilesApi {
     readProjectFile: (projectPath, relPath, accessToken) =>
       direct(() =>
         hasToken(accessToken)
-          ? (ctx.call('projectFs/readText', { root: projectPath, rel: relPath, accessToken }) as Promise<never>)
+          ? (readWindows({ root: projectPath, rel: relPath, accessToken }) as Promise<never>)
           : onRoot(
               projectPath,
-              () => svc('readProjectTextFile', [projectPath, relPath]),
-              (folder) => op('readProjectTextFileIn', [folder, relPath])
+              async () => readWindows({ root: await projectFolder(projectPath), rel: relPath }) as Promise<never>,
+              async (folder) => readWindows({ root: folder, rel: relPath }) as Promise<never>
             )
       ),
     writeProjectFile: (projectPath, relPath, content, expectedContent, accessToken, encoding) =>
