@@ -1,0 +1,44 @@
+# nr-exthost-worker-loop: the crate mixdog-exthost-worker (native/core/crates/mixdog-exthost-worker)
+
+## native/core/Cargo.toml
+
+1. [workspace] members: add after the line `    "crates/mixdog-exthost",`
+       "crates/mixdog-exthost-worker",
+
+2. [workspace.dependencies]: add after the line `mixdog-exthost = { path = "crates/mixdog-exthost" }`
+       mixdog-exthost-worker = { path = "crates/mixdog-exthost-worker" }
+   and, in the alphabetical block of the registry crates (before `libc`/after `crossbeam-*`, wherever `dunce` sorts)
+       dunce = "1.0.5"
+   (dunce 1.0.5 is already in Cargo.lock as a transitive dependency; the crate uses it for `realpathSync.native`'s path form.)
+
+## native/core/Cargo.lock
+
+Regenerate offline (`cargo metadata --offline --locked` will refuse; use `cargo update -w --offline`): a new package
+`mixdog-exthost-worker` with dependencies bytes, dunce, libc, mixdog-workspace-hack, serde, serde_json, tokio, tokio-util,
+windows-sys, and dev-dependencies mixdog-core-api, mixdog-exthost, mixdog-protocol, mixdog-rt, tempfile. No new external crate.
+
+## native/core/crates/mixdog-workspace-hack/Cargo.toml
+
+`cargo hakari generate` (the new crate has the hack line already). Nothing else.
+
+## Dependency edges
+
+None from an existing crate to the new one yet: the binary the pool starts in production is wired by the task that adds the
+document methods (it replaces `node src/ext-host/worker.mjs` in ExtHostConfig.program/args). The new crate depends on no
+workspace crate except mixdog-workspace-hack (dev-dependencies: mixdog-exthost, mixdog-core-api, mixdog-protocol, mixdog-rt).
+
+## unify-test-features (D:\mixdog-build\tools\unify-test-features.py)
+
+The new crate's dev-dependencies name no test-only feature except `mixdog-rt/test-support`; run the tool so the other crates' test
+builds carry the same feature set.
+
+## SERVICE_PENDING (compose_flip.rs)
+
+Nothing to remove: the crate registers no protocol service.
+
+## Registration in the worker binaries
+
+`mixdog_exthost_worker::methods::register_document_methods(&mut Registry)` is empty; the tasks that port the document, office, pdf,
+image and syntax methods fill it. The production worker's `main` (a bin of this crate, added by the first of those tasks) calls
+`mixdog_exthost_worker::run::stdio()` first, then `serve(registry, input, output)` on a multi-thread runtime, and leaves through
+`Runtime::shutdown_background` (see src/bin/ext_worker_dev.rs for the shape).
