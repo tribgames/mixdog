@@ -31,8 +31,7 @@ use mixdog_rt::InteractiveIo;
 use mixdog_rt::LaneTokens;
 use mixdog_store::blobs::BlobError;
 use mixdog_store::blobs::BlobStore;
-use mixdog_tools::desktop::computer_desktop_host::ComputerBlobs as HostBlobs;
-use mixdog_tools::desktop::computer_pixels::ComputerBlobs as PixelBlobs;
+use mixdog_tools::desktop::computer_pixels::ComputerBlobs;
 use tokio_util::sync::CancellationToken;
 
 use crate::compose_domains::EnvReader;
@@ -51,8 +50,12 @@ impl CoreComputerBlobs {
     pub fn new(store: BlobStore, lane: InteractiveIo) -> Self {
         Self { store, lane }
     }
+}
 
-    async fn read_digest(&self, digest: &str) -> Result<Vec<u8>, ComputerError> {
+/// One reading serves the desktop host's replies and the display captures alike.
+#[async_trait]
+impl ComputerBlobs for CoreComputerBlobs {
+    async fn read(&self, digest: &str) -> Result<Vec<u8>, ComputerError> {
         let missing = |message: String| ComputerError::Failed { code: "blob_missing".into(), message };
         let parsed = BlobDigest::try_from(digest.to_owned()).map_err(|error| missing(format!("{digest}: {error}")))?;
         let store = self.store.clone();
@@ -64,20 +67,6 @@ impl CoreComputerBlobs {
             BlobError::Missing { .. } => missing(format!("no blob {digest}")),
             other => ComputerError::Failed { code: "blob_unreadable".into(), message: format!("{digest}: {other}") },
         })
-    }
-}
-
-#[async_trait]
-impl HostBlobs for CoreComputerBlobs {
-    async fn read(&self, digest: &str) -> Result<Vec<u8>, ComputerError> {
-        self.read_digest(digest).await
-    }
-}
-
-#[async_trait]
-impl PixelBlobs for CoreComputerBlobs {
-    async fn read(&self, digest: &str) -> Result<Vec<u8>, ComputerError> {
-        self.read_digest(digest).await
     }
 }
 
@@ -140,7 +129,7 @@ pub struct Composed {
 pub async fn compose_computer(inputs: ComputerInputs<'_>) -> Composed {
     let ComputerInputs { env, paths, manager, wrap, publisher, data_dir, config, presence, blobs, tokens, cancel } = inputs;
     presence.helper_resolvable.store(paths.resolve(NativeTool::Computer).await.is_some(), Ordering::SeqCst);
-    let host_blobs: Arc<dyn HostBlobs> = Arc::new(CoreComputerBlobs::new(blobs.clone(), tokens.interactive_io));
+    let host_blobs: Arc<dyn ComputerBlobs> = Arc::new(CoreComputerBlobs::new(blobs.clone(), tokens.interactive_io));
     let settings = ComputerSettings::from_config(data_dir, config.clone(), Some(host_blobs));
     let pool = paths.computer_sessions(manager.clone(), wrap, publisher, settings).await;
     if let Some(pool) = &pool {
@@ -202,7 +191,7 @@ mod tests {
         (BlobStore::new(dir), mixdog_rt::testing::tokens())
     }
 
-    /// The desktop host's reply names a stored image by digest: the bytes come back as stored, for both readers.
+    /// The desktop host's reply names a stored image by digest: the bytes come back as stored.
     #[tokio::test]
     async fn a_stored_image_is_read_by_its_digest() {
         let dir = tempfile::tempdir().unwrap();
@@ -214,8 +203,7 @@ mod tests {
             .unwrap()
             .unwrap();
         let blobs = CoreComputerBlobs::new(store, tokens.interactive_io);
-        assert_eq!(HostBlobs::read(&blobs, &digest).await.unwrap(), bytes);
-        assert_eq!(PixelBlobs::read(&blobs, &digest).await.unwrap(), bytes);
+        assert_eq!(blobs.read(&digest).await.unwrap(), bytes);
     }
 
     /// A digest the store does not hold, and text that is no digest, are the helper's `blob_missing`.
@@ -226,7 +214,7 @@ mod tests {
         let blobs = CoreComputerBlobs::new(store, tokens.interactive_io);
         let absent = format!("sha256:{}", "0".repeat(64));
         for digest in [absent.as_str(), "sha256:aaaa", ""] {
-            let refused = HostBlobs::read(&blobs, digest).await;
+            let refused = blobs.read(digest).await;
             assert!(matches!(&refused, Err(ComputerError::Failed { code, .. }) if code == "blob_missing"), "{digest}: {refused:?}");
         }
     }
