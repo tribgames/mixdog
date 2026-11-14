@@ -55,9 +55,22 @@ export function createServiceTerminalHost(service: TerminalService, protocol: Te
   // core keeps one subscription per feed and connection, and a second attach would replace the first and drop what was still
   // queued on it.
   const attaching = new Map<string, Promise<TerminalSession | null>>();
-  // `resumed` is the position a new link resumes the tab's feed from; the reply says whether the missed output follows as frames
-  // (replay) or the screen is given as it is (snapshot), which the windows draw anew.
-  const subscribeFeed = (id: string, resumed?: TerminalFeedPosition): Promise<TerminalSession | null> => {
+  // The feed's position an attach answered (frames follow from `startSeq`), unless frames read since are already past it. Noted on
+  // every attach, so a tab that printed nothing on a link still resumes on the next one.
+  const noteAttached = (id: string, value: unknown): boolean => {
+    const subscription = (value as { subscription?: { epoch?: unknown; startSeq?: unknown } }).subscription;
+    if (typeof subscription?.startSeq !== 'number') return false;
+    const read = positions.resumeFrom(id);
+    if (!read || read.epoch !== subscription.epoch || read.seq < subscription.startSeq - 1) {
+      positions.note(id, { epoch: subscription.epoch, seq: subscription.startSeq - 1 });
+    }
+    return true;
+  };
+  // `relink`: a new link attaches the tab again from the position its feed was read to; the reply says whether the missed output
+  // follows as frames (replay) or the screen is given as it is (snapshot, a new epoch, nothing to resume from), which the windows
+  // draw anew.
+  const subscribeFeed = (id: string, relink = false): Promise<TerminalSession | null> => {
+    const resumed: TerminalFeedPosition | undefined = relink ? positions.resumeFrom(id) : undefined;
     const request: Promise<TerminalSession | null> = service.invokeDesktopOperation('termAttach', resumed ? [id, resumed] : [id]).then(
       (value) => {
         const session = value && typeof value === 'object' ? terminalSessionOf(value) : null;
@@ -68,14 +81,14 @@ export function createServiceTerminalHost(service: TerminalService, protocol: Te
           attached.delete(id);
           positions.forget(id);
           output.end(id);
-        } else if (resumed && attachNeedsRedraw(value, resumed)) {
+        } else if (relink && attachNeedsRedraw(value, resumed)) {
           // What the window shows is not this screen's past: a half character left from the old link is dropped, the feed's
           // position is the snapshot's (frames follow from startSeq), and the window draws the screen anew.
           output.end(id);
-          const subscription = (value as { subscription?: { epoch?: unknown; startSeq?: unknown } }).subscription;
-          if (typeof subscription?.startSeq === 'number') positions.note(id, { epoch: subscription.epoch, seq: subscription.startSeq - 1 });
-          else positions.forget(id);
+          if (!noteAttached(id, value)) positions.forget(id);
           for (const listener of [...resetListeners]) listener({ id, replay: session.replay });
+        } else {
+          noteAttached(id, value);
         }
         return session;
       },
@@ -92,7 +105,7 @@ export function createServiceTerminalHost(service: TerminalService, protocol: Te
   // A new link holds none of the old one's feeds: each tab is attached again, and an attach still in flight was the old link's.
   const reattach = (): void => {
     for (const id of [...attached]) {
-      void subscribeFeed(id, positions.resumeFrom(id)).catch(() => undefined);
+      void subscribeFeed(id, true).catch(() => undefined);
       // The pause was this connection's on the old link.
       if (holders.has(id)) void service.invokeDesktopOperation('termPause', [id]).catch(() => {});
     }
