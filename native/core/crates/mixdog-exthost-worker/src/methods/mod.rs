@@ -1,6 +1,99 @@
 //! The methods the worker serves. Each family registers itself here as its task lands.
 
+mod image;
+mod media_office;
+mod ooxml;
+
+use base64::Engine as _;
+use base64::alphabet;
+use base64::engine::DecodePaddingMode;
+use base64::engine::GeneralPurpose;
+use base64::engine::GeneralPurposeConfig;
+use serde_json::Value;
+
+use crate::error::CodedError;
 use crate::registry::Registry;
 
-/// Registers the document methods (office, pdf, image, syntax). None are ported yet: the tasks that port them fill this in.
-pub fn register_document_methods(_: &mut Registry) {}
+/// Registers the document methods: `ooxml.text`, `media.officeText`, and the image probe, jpeg and validate calls. The office,
+/// pdf, syntax and still-image families register themselves as their tasks land.
+pub fn register_document_methods(registry: &mut Registry) {
+    ooxml::register(registry);
+    media_office::register(registry);
+    image::register(registry);
+}
+
+/// The error a call with a malformed parameter answers.
+fn invalid_params(message: impl Into<String>) -> CodedError {
+    CodedError::new("invalid_params", message)
+}
+
+/// The call's `data` parameter, a base64 string (`data must be a base64 string` otherwise).
+fn base64_param(params: &Value) -> Result<&str, CodedError> {
+    params
+        .get("data")
+        .and_then(Value::as_str)
+        .ok_or_else(|| invalid_params("data must be a base64 string"))
+}
+
+/// JavaScript's `String(value)` for the values a parameter can hold.
+fn js_string(value: Option<&Value>) -> String {
+    match value {
+        None => "undefined".to_owned(),
+        Some(Value::String(text)) => text.clone(),
+        Some(other) => other.to_string(),
+    }
+}
+
+/// `Buffer.from(data, 'base64')`: characters outside the two alphabets are skipped, padding may be missing, and a dangling
+/// single character carries no byte.
+fn node_base64(data: &str) -> Vec<u8> {
+    const LENIENT: GeneralPurpose = GeneralPurpose::new(
+        &alphabet::STANDARD,
+        GeneralPurposeConfig::new()
+            .with_decode_allow_trailing_bits(true)
+            .with_decode_padding_mode(DecodePaddingMode::Indifferent),
+    );
+    let mut cleaned: String = data
+        .chars()
+        .take_while(|c| *c != '=')
+        .filter_map(|c| match c {
+            'A'..='Z' | 'a'..='z' | '0'..='9' | '+' | '/' => Some(c),
+            '-' => Some('+'),
+            '_' => Some('/'),
+            _ => None,
+        })
+        .collect();
+    if cleaned.len() % 4 == 1 {
+        cleaned.pop();
+    }
+    LENIENT.decode(&cleaned).unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn base64_is_read_as_buffer_from_reads_it() {
+        assert_eq!(node_base64("aGVsbG8="), b"hello");
+        assert_eq!(node_base64("aGVs\nbG8"), b"hello");
+        assert_eq!(node_base64("aGVsbG8_-w"), node_base64("aGVsbG8/+w"));
+        assert_eq!(node_base64("aGVsb"), b"hel");
+        assert!(node_base64("").is_empty());
+    }
+
+    #[test]
+    fn a_missing_data_parameter_is_refused_with_its_message() {
+        let error = base64_param(&serde_json::json!({"data": 3})).unwrap_err();
+        assert_eq!((error.code.as_str(), error.message.as_str()), ("invalid_params", "data must be a base64 string"));
+        assert_eq!(base64_param(&serde_json::json!({"data": "QQ=="})).unwrap(), "QQ==");
+    }
+
+    #[test]
+    fn a_value_is_spelled_as_javascript_spells_it() {
+        assert_eq!(js_string(None), "undefined");
+        assert_eq!(js_string(Some(&serde_json::json!("a b"))), "a b");
+        assert_eq!(js_string(Some(&serde_json::json!(5))), "5");
+        assert_eq!(js_string(Some(&Value::Null)), "null");
+    }
+}

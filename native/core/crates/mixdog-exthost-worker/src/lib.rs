@@ -6,11 +6,13 @@
 //!   the call's token, BYE or the end of the pipe to leave.
 //! - [`registry::Registry`] holds the methods; [`ctx::CallCtx`] is what a handler gets; [`pathguard`] is the approved-path check
 //!   every handler that touches a file goes through.
+//! - [`main_entry`] is the process: `ext_worker_main` serves the registry this build assembles, `native_methods` names what it serves.
 //! - Frames leave on a private duplicate of standard output ([`run::stdio`]); a handler never writes to the frame stream, and a
 //!   child it starts gets its standard output piped or null.
 
 pub mod ctx;
 pub mod error;
+pub mod main_entry;
 pub mod methods;
 pub mod pathguard;
 pub mod registry;
@@ -20,6 +22,9 @@ pub mod wire;
 pub use ctx::CallCtx;
 pub use error::CodedError;
 pub use error::is_environment_error;
+pub use main_entry::Extension;
+pub use main_entry::ext_worker_main;
+pub use main_entry::native_methods;
 pub use registry::Outcome;
 pub use registry::Registry;
 pub use run::serve;

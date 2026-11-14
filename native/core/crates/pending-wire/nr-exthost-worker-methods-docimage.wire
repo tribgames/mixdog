@@ -1,0 +1,60 @@
+nr-exthost-worker-methods-docimage: what the lead applies (core only). Apply before nr-exthost-pool-route's wire, which names
+mixdog_exthost_worker::native_methods().
+
+1. native/core/crates/mixdog-cli/src/main.rs  (the file contains a non-ASCII byte: edit it by bytes, not through a tool that re-encodes)
+
+   a. In `enum Command`, directly after the `EffortJudgeHost { dir, ort_library, explicit }` variant (its closing `},` is the last
+      line before the enum's closing brace), add:
+
+        /// The extension-host worker: the process `mixdog_exthost::ExtHostPool` starts; it prints READY on its frame pipe and
+        /// serves document calls until the pool says bye. Started by the core, never by a user.
+        #[command(name = "ext-worker", hide = true)]
+        ExtWorker,
+
+   b. In the `match` on the command (function main), directly after the `Command::EffortJudgeHost { .. } => { .. }` arm, add:
+
+        Command::ExtWorker => mixdog_exthost_worker::ext_worker_main(),
+
+2. native/core/crates/mixdog-cli/Cargo.toml, [dependencies], after `mixdog-exthost = { workspace = true }`:
+
+        mixdog-exthost-worker = { workspace = true }
+
+   (`mixdog-exthost-worker` is already a workspace member and a workspace dependency; nothing to add in native/core/Cargo.toml.)
+
+3. native/core/Cargo.lock: the package `mixdog-exthost-worker` now depends on more crates (all already in the lock). Its
+   `dependencies = [...]` list becomes, in this order:
+
+        "base64",
+        "bytes",
+        "dunce",
+        "libc",
+        "mixdog-core-api",
+        "mixdog-exthost",
+        "mixdog-fsio",
+        "mixdog-imaging",
+        "mixdog-ooxml-text",
+        "mixdog-protocol",
+        "mixdog-rt",
+        "mixdog-testkit",
+        "mixdog-workspace-hack",
+        "serde",
+        "serde_json",
+        "sha2",
+        "tempfile",
+        "tokio",
+        "tokio-util",
+        "windows-sys 0.61.2",
+
+   and the `mixdog-cli` package's list gains "mixdog-exthost-worker" (after "mixdog-exthost"). `cargo metadata --offline` writes both;
+   if mixdog-workspace-hack's feature unification changes for base64, image or the decoders, let the lock and the hack follow.
+
+4. compose_flip.rs SERVICE_PENDING: nothing to remove here. These are worker-side methods of the pool, not protocol methods; the
+   protocol rows that call them belong to the tasks that register their services.
+
+5. After the wire: `cargo build -p mixdog-cli --offline`, then `mixdogd ext-worker` answers READY on stdout (the frame pipe is a
+   private duplicate of stdout; READY is the first frame).
+
+Left to later tasks (recorded so they are not lost): `image.resize` and `image.still` stay on Node until nr-exthost-worker-methods-still
+(the WebP encoder lands in nr-exthost-imaging-still); `media.pdfText`, `media.pdfCounts`, pdf.*, office.run and syntax.check are not
+registered here. A composition that adds other crates' methods calls `mixdog_exthost_worker::main_entry::ext_worker_main_with(&[register_fn])`
+and `native_methods_with(&[register_fn])`.
