@@ -520,6 +520,24 @@ mod tests {
     }
 
     #[test]
+    fn old_computer_section_still_decodes() {
+        let section: mixdog_protocol::ComputerSection = serde_json::from_value(json!({
+            "active": true,
+            "observeOnly": false,
+            "controller": null,
+            "sessions": [{ "sessionThreadId": "t1", "observeOnly": false }],
+            "sessionThreadId": "t1"
+        }))
+        .expect("section");
+        assert_eq!(section.backend, mixdog_protocol::ComputerBackendSection::Helper);
+        assert_eq!(section.cleanup_state, mixdog_protocol::ComputerCleanupState::Ready);
+        assert_eq!(section.idle_resume_seconds, 5);
+        assert!(section.sessions[0].window_ids.is_empty());
+        assert_eq!(section.sessions[0].mode, None);
+        assert_eq!(section.sessions[0].phase, None);
+    }
+
+    #[test]
     fn dev_run_timeout_is_bounded() {
         let run = |ms: u32| -> DevComputerRunParams {
             serde_json::from_value(json!({ "sessionThreadId": "t1", "command": {}, "timeoutMs": ms })).expect("params")
