@@ -6,6 +6,7 @@
 
 use std::fmt::Debug;
 use std::path::Path;
+#[allow(clippy::disallowed_types, reason = "test: the ignored live check runs the Node recorder as a child process")]
 use std::process::Command;
 
 use mixdog_termtext::ansi::{StyledToken, styled_chars_from_tokens, styled_chars_to_string, tokenize_styled};
@@ -230,6 +231,7 @@ fn every_recorded_answer_is_the_same() {
 /// Node tree, which this crate otherwise never reads: run it by hand.
 #[test]
 #[ignore = "runs node over the reference checkout C:/Project/mixdog (read only)"]
+#[allow(clippy::disallowed_types, reason = "test: runs the Node recorder as a child process")]
 fn live_wrap_golden_matches_the_node_packages() {
     let crate_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let status = Command::new("node")

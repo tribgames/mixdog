@@ -630,15 +630,18 @@ fn exec(text: &str, columns: usize, options: WrapOptions) -> String {
         }
         // In hard wrap mode no line is allowed to extend past `columns`.
         if options.hard && options.word_wrap && word.width > columns {
-            let remaining = signed(columns) - signed(row_length);
-            let width = signed(word.width);
-            // Zero columns: the Node code divides by zero (Infinity); one column keeps the arithmetic finite.
-            let per_row = signed(columns).max(1);
-            let breaks_starting_this_line = 1 + (width - remaining - 1).div_euclid(per_row);
-            let breaks_starting_next_line = (width - 1).div_euclid(per_row);
-            if breaks_starting_next_line < breaks_starting_this_line {
-                rows.push(String::new());
-                row_length = 0;
+            // Zero columns: the Node code divides by zero, both counts are Infinity or NaN and the comparison is
+            // false, so no row is started here.
+            if columns > 0 {
+                let remaining = signed(columns) - signed(row_length);
+                let width = signed(word.width);
+                let per_row = signed(columns);
+                let breaks_starting_this_line = 1 + (width - remaining - 1).div_euclid(per_row);
+                let breaks_starting_next_line = (width - 1).div_euclid(per_row);
+                if breaks_starting_next_line < breaks_starting_this_line {
+                    rows.push(String::new());
+                    row_length = 0;
+                }
             }
             row_length = wrap_word(&mut rows, &word.value, columns, row_length);
             continue;
@@ -1243,6 +1246,15 @@ mod tests {
         assert_eq!(wrap_lines(" \n\t", 80, false), [""]);
         assert_eq!(wrap_lines("abcdef", 3, false), ["abcdef"]);
         assert_eq!(wrap_lines("abcdef", 3, true), ["abc", "def"]);
+    }
+
+    #[test]
+    fn hard_wrap_at_zero_columns_starts_no_empty_row() {
+        // Recorded from wrap-ansi 10.0.2: one cell per row, no leading empty row.
+        let hard = WrapOptions { hard: true, ..WrapOptions::default() };
+        assert_eq!(wrap_ansi("abc", 0, hard), "a\nb\nc");
+        assert_eq!(wrap_ansi("ab cd", 0, WrapOptions { trim: false, ..hard }), "a\nb\n \nc\nd");
+        assert_eq!(wrap_ansi("a", 0, hard), "a");
     }
 
     #[test]
