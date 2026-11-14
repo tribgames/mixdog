@@ -7958,6 +7958,24 @@
     },
     {
       "class": "C1",
+      "method": "projectFs/localPage/assetType",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "v2::desktop_files::ProjectFsLocalPageAssetTypeParams",
+      "result": "JsonValue",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C1",
       "method": "projectFs/previewFile",
       "mutation": {
         "kind": "none"

@@ -10361,6 +10361,28 @@
       ],
       "type": "object"
     },
+    "ProjectFsLocalPageAssetTypeParams": {
+      "description": "Params of `projectFs/localPage/assetType` (Node's `pageAssetType`): `root` and `file` are absolute; `dataRoot` (inside root, default root) is where data and document types are served.",
+      "properties": {
+        "dataRoot": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "file": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "file",
+        "root"
+      ],
+      "type": "object"
+    },
     "ProjectFsLocalPageOriginParams": {
       "description": "Params of `projectFs/localPage/origin` (local-page-server.ts `localPageOrigin`): none; answers the page server's origin.",
       "type": "object"
@@ -24522,6 +24544,12 @@
     "projectFs/listDir": {
       "params": {
         "$ref": "#/definitions/ProjectFsListDirParams"
+      },
+      "result": true
+    },
+    "projectFs/localPage/assetType": {
+      "params": {
+        "$ref": "#/definitions/ProjectFsLocalPageAssetTypeParams"
       },
       "result": true
     },

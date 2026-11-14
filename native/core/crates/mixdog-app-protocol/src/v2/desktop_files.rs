@@ -47,6 +47,18 @@ pub struct ProjectFsLocalPageRevokeOwnerParams {
 #[serde(rename_all = "camelCase")]
 pub struct ProjectFsLocalPageOriginParams {}
 
+/// Params of `projectFs/localPage/assetType` (Node's `pageAssetType`): `root` and `file` are absolute; `dataRoot` (inside root, default root) is where data and document types are served.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
+pub struct ProjectFsLocalPageAssetTypeParams {
+    pub root: String,
+    pub file: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data_root: Option<String>,
+}
+
 /// Params of `projectFs/localPage/virtual` (Node's `localVirtualPageUrl`, local-page-server.ts): the files of an in-memory page; `index.html` is required.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
