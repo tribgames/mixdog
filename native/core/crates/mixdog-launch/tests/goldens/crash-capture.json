@@ -1,0 +1,3761 @@
+{
+  "note": "what the launcher crash capture (spawn-capture.mjs, retention.mjs, paths.mjs, daemon-exit-record.mjs describeExit) does with scripted inputs; mixdog-launch tests/crash_capture_twin.rs replays it",
+  "paths": [
+    {
+      "given": {
+        "dataDir": "data"
+      },
+      "captureDir": "data/daemon-crash",
+      "dataDir": null
+    },
+    {
+      "given": {
+        "dataDir": "a/b"
+      },
+      "captureDir": "a/b/daemon-crash",
+      "dataDir": null
+    },
+    {
+      "given": {
+        "env": {
+          "MIXDOG_DATA_DIR": "x"
+        }
+      },
+      "captureDir": "x/daemon-crash",
+      "dataDir": "x"
+    },
+    {
+      "given": {
+        "env": {
+          "MIXDOG_HOME": "h"
+        }
+      },
+      "captureDir": "h/data/daemon-crash",
+      "dataDir": "h/data"
+    },
+    {
+      "given": {
+        "env": {
+          "MIXDOG_DATA_DIR": "",
+          "MIXDOG_HOME": "h"
+        }
+      },
+      "captureDir": "h/data/daemon-crash",
+      "dataDir": "h/data"
+    },
+    {
+      "given": {
+        "env": {
+          "MIXDOG_DATA_DIR": "x",
+          "MIXDOG_HOME": "h"
+        }
+      },
+      "captureDir": "x/daemon-crash",
+      "dataDir": "x"
+    }
+  ],
+  "sidecars": [
+    {
+      "name": "ready-then-crash",
+      "steps": [
+        {
+          "op": "begin",
+          "stem": "daemon-20261114-030405-4242-c0de",
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": null,
+            "detached": null,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "stderr",
+          "text": "boot line\nTypeError: boom\ntail line\n",
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": null,
+            "detached": null,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "track",
+          "pid": 100,
+          "detached": true,
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 100,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "clock",
+          "ms": 1794625445728,
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 100,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "ready",
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 100,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": "2026-11-14T03:04:05.728Z",
+            "exitedAt": null,
+            "ready": true,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "clock",
+          "ms": 1794625446628,
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 100,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": "2026-11-14T03:04:05.728Z",
+            "exitedAt": null,
+            "ready": true,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "exit",
+          "code": 1,
+          "signal": null,
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 100,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": "2026-11-14T03:04:05.728Z",
+            "exitedAt": "2026-11-14T03:04:06.628Z",
+            "ready": true,
+            "exitCode": 1,
+            "exitSignal": null,
+            "uptimeMs": 950,
+            "stderrBytes": 36,
+            "error": null,
+            "exitReason": "exited with code 1"
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "summary",
+          "summary": {
+            "pid": 100,
+            "ready": true,
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "exitedAt": "2026-11-14T03:04:06.628Z",
+            "exitCode": 1,
+            "exitSignal": null,
+            "exitReason": "exited with code 1",
+            "uptimeMs": 950,
+            "error": null,
+            "stderrErrorLine": "TypeError: boom",
+            "stderrLastLine": "tail line",
+            "stderrPath": "daemon-20261114-030405-4242-c0de.err.log"
+          },
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 100,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": "2026-11-14T03:04:05.728Z",
+            "exitedAt": "2026-11-14T03:04:06.628Z",
+            "ready": true,
+            "exitCode": 1,
+            "exitSignal": null,
+            "uptimeMs": 950,
+            "stderrBytes": 36,
+            "error": null,
+            "exitReason": "exited with code 1"
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        }
+      ],
+      "log": [
+        "daemon crash capture pid=100 file=<dir>/daemon-20261114-030405-4242-c0de.err.log",
+        "boot line",
+        "TypeError: boom",
+        "tail line",
+        "daemon exit pid=100 code=1 signal=- ready=1 uptimeMs=950 stderrBytes=36 capture=<dir>/daemon-20261114-030405-4242-c0de.err.log"
+      ]
+    },
+    {
+      "name": "contender-that-lost-the-claim",
+      "steps": [
+        {
+          "op": "begin",
+          "stem": "daemon-20261114-030405-4242-c0de",
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": null,
+            "detached": null,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "track",
+          "pid": 101,
+          "detached": true,
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 101,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "clock",
+          "ms": 1794625445698,
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 101,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "exit",
+          "code": 0,
+          "signal": null,
+          "record": null,
+          "files": []
+        },
+        {
+          "op": "summary",
+          "summary": {
+            "pid": 101,
+            "ready": false,
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "exitedAt": "2026-11-14T03:04:05.698Z",
+            "exitCode": 0,
+            "exitSignal": null,
+            "exitReason": "exited normally (code 0)",
+            "uptimeMs": 20,
+            "error": null,
+            "stderrErrorLine": null,
+            "stderrLastLine": null,
+            "stderrPath": null
+          },
+          "record": null,
+          "files": []
+        }
+      ],
+      "log": [
+        "daemon crash capture pid=101 file=<dir>/daemon-20261114-030405-4242-c0de.err.log",
+        "daemon exit pid=101 code=0 signal=- ready=0 uptimeMs=20 stderrBytes=0"
+      ]
+    },
+    {
+      "name": "clean-exit-of-a-core-that-served",
+      "steps": [
+        {
+          "op": "begin",
+          "stem": "daemon-20261114-030405-4242-c0de",
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": null,
+            "detached": null,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "track",
+          "pid": 102,
+          "detached": false,
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 102,
+            "detached": false,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "clock",
+          "ms": 1794625445688,
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 102,
+            "detached": false,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "ready",
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 102,
+            "detached": false,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": "2026-11-14T03:04:05.688Z",
+            "exitedAt": null,
+            "ready": true,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "clock",
+          "ms": 1794625450678,
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 102,
+            "detached": false,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": "2026-11-14T03:04:05.688Z",
+            "exitedAt": null,
+            "ready": true,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "exit",
+          "code": 0,
+          "signal": null,
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 102,
+            "detached": false,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": "2026-11-14T03:04:05.688Z",
+            "exitedAt": "2026-11-14T03:04:10.678Z",
+            "ready": true,
+            "exitCode": 0,
+            "exitSignal": null,
+            "uptimeMs": 5000,
+            "stderrBytes": 0,
+            "error": null,
+            "exitReason": "exited normally (code 0)"
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        }
+      ],
+      "log": [
+        "daemon crash capture pid=102 file=<dir>/daemon-20261114-030405-4242-c0de.err.log",
+        "daemon exit pid=102 code=0 signal=- ready=1 uptimeMs=5000 stderrBytes=0 capture=<dir>/daemon-20261114-030405-4242-c0de.err.log"
+      ]
+    },
+    {
+      "name": "exit-with-bytes-on-fd-2",
+      "steps": [
+        {
+          "op": "begin",
+          "stem": "daemon-20261114-030405-4242-c0de",
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": null,
+            "detached": null,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "track",
+          "pid": 103,
+          "detached": true,
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 103,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "stderr",
+          "text": "something was said\n",
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 103,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "clock",
+          "ms": 1794625445708,
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 103,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "exit",
+          "code": 0,
+          "signal": null,
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 103,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": "2026-11-14T03:04:05.708Z",
+            "ready": false,
+            "exitCode": 0,
+            "exitSignal": null,
+            "uptimeMs": 30,
+            "stderrBytes": 19,
+            "error": null,
+            "exitReason": "exited normally (code 0)"
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        }
+      ],
+      "log": [
+        "daemon crash capture pid=103 file=<dir>/daemon-20261114-030405-4242-c0de.err.log",
+        "something was said",
+        "daemon exit pid=103 code=0 signal=- ready=0 uptimeMs=30 stderrBytes=19 capture=<dir>/daemon-20261114-030405-4242-c0de.err.log"
+      ]
+    },
+    {
+      "name": "killed-by-a-signal",
+      "steps": [
+        {
+          "op": "begin",
+          "stem": "daemon-20261114-030405-4242-c0de",
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": null,
+            "detached": null,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "track",
+          "pid": 104,
+          "detached": true,
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 104,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "clock",
+          "ms": 1794625446378,
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 104,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "exit",
+          "code": null,
+          "signal": "SIGKILL",
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 104,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": "2026-11-14T03:04:06.378Z",
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": "SIGKILL",
+            "uptimeMs": 700,
+            "stderrBytes": 0,
+            "error": null,
+            "exitReason": "killed by signal SIGKILL"
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "summary",
+          "summary": {
+            "pid": 104,
+            "ready": false,
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "exitedAt": "2026-11-14T03:04:06.378Z",
+            "exitCode": null,
+            "exitSignal": "SIGKILL",
+            "exitReason": "killed by signal SIGKILL",
+            "uptimeMs": 700,
+            "error": null,
+            "stderrErrorLine": null,
+            "stderrLastLine": null,
+            "stderrPath": "daemon-20261114-030405-4242-c0de.err.log"
+          },
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 104,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": "2026-11-14T03:04:06.378Z",
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": "SIGKILL",
+            "uptimeMs": 700,
+            "stderrBytes": 0,
+            "error": null,
+            "exitReason": "killed by signal SIGKILL"
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        }
+      ],
+      "log": [
+        "daemon crash capture pid=104 file=<dir>/daemon-20261114-030405-4242-c0de.err.log",
+        "daemon exit pid=104 code=- signal=SIGKILL ready=0 uptimeMs=700 stderrBytes=0 capture=<dir>/daemon-20261114-030405-4242-c0de.err.log"
+      ]
+    },
+    {
+      "name": "terminated-by-its-parent",
+      "steps": [
+        {
+          "op": "begin",
+          "stem": "daemon-20261114-030405-4242-c0de",
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": null,
+            "detached": null,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "track",
+          "pid": 105,
+          "detached": true,
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 105,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "clock",
+          "ms": 1794625446378,
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 105,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "exit",
+          "code": 1073807364,
+          "signal": null,
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 105,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": "2026-11-14T03:04:06.378Z",
+            "ready": false,
+            "exitCode": 1073807364,
+            "exitSignal": null,
+            "uptimeMs": 700,
+            "stderrBytes": 0,
+            "error": null,
+            "exitReason": "terminated externally (DBG_TERMINATE_PROCESS 0x40010004: process-tree/job termination by its parent)"
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        }
+      ],
+      "log": [
+        "daemon crash capture pid=105 file=<dir>/daemon-20261114-030405-4242-c0de.err.log",
+        "daemon exit pid=105 code=1073807364 signal=- ready=0 uptimeMs=700 stderrBytes=0 capture=<dir>/daemon-20261114-030405-4242-c0de.err.log"
+      ]
+    },
+    {
+      "name": "console-close",
+      "steps": [
+        {
+          "op": "begin",
+          "stem": "daemon-20261114-030405-4242-c0de",
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": null,
+            "detached": null,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "track",
+          "pid": 106,
+          "detached": true,
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 106,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "clock",
+          "ms": 1794625446378,
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 106,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "exit",
+          "code": 3221225786,
+          "signal": null,
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 106,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": "2026-11-14T03:04:06.378Z",
+            "ready": false,
+            "exitCode": 3221225786,
+            "exitSignal": null,
+            "uptimeMs": 700,
+            "stderrBytes": 0,
+            "error": null,
+            "exitReason": "terminated by Ctrl+C / console close (STATUS_CONTROL_C_EXIT 0xC000013A)"
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        }
+      ],
+      "log": [
+        "daemon crash capture pid=106 file=<dir>/daemon-20261114-030405-4242-c0de.err.log",
+        "daemon exit pid=106 code=3221225786 signal=- ready=0 uptimeMs=700 stderrBytes=0 capture=<dir>/daemon-20261114-030405-4242-c0de.err.log"
+      ]
+    },
+    {
+      "name": "spawn-error-nothing-written",
+      "steps": [
+        {
+          "op": "begin",
+          "stem": "daemon-20261114-030405-4242-c0de",
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": null,
+            "detached": null,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "clock",
+          "ms": 1794625445683,
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": null,
+            "detached": null,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "spawnError",
+          "message": "spawn mixdogd ENOENT",
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": null,
+            "detached": null,
+            "heapFlags": [],
+            "stderrFile": null,
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": "2026-11-14T03:04:05.683Z",
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": "spawn mixdogd ENOENT"
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "summary",
+          "summary": {
+            "pid": null,
+            "ready": false,
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "exitedAt": "2026-11-14T03:04:05.683Z",
+            "exitCode": null,
+            "exitSignal": null,
+            "exitReason": null,
+            "uptimeMs": null,
+            "error": "spawn mixdogd ENOENT",
+            "stderrErrorLine": null,
+            "stderrLastLine": null,
+            "stderrPath": null
+          },
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": null,
+            "detached": null,
+            "heapFlags": [],
+            "stderrFile": null,
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": "2026-11-14T03:04:05.683Z",
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": "spawn mixdogd ENOENT"
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        }
+      ],
+      "log": []
+    },
+    {
+      "name": "spawn-error-after-bytes",
+      "steps": [
+        {
+          "op": "begin",
+          "stem": "daemon-20261114-030405-4242-c0de",
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": null,
+            "detached": null,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "stderr",
+          "text": "the loader said this\n",
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": null,
+            "detached": null,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "clock",
+          "ms": 1794625445683,
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": null,
+            "detached": null,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "spawnError",
+          "message": "  spawn   mixdogd\n EACCES ",
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": null,
+            "detached": null,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": "2026-11-14T03:04:05.683Z",
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 21,
+            "error": "spawn mixdogd EACCES"
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        }
+      ],
+      "log": []
+    },
+    {
+      "name": "core-wrote-its-own-exit",
+      "steps": [
+        {
+          "op": "begin",
+          "stem": "daemon-20261114-030405-4242-c0de",
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": null,
+            "detached": null,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "track",
+          "pid": 107,
+          "detached": true,
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 107,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "clock",
+          "ms": 1794625445718,
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 107,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "ready",
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 107,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": "2026-11-14T03:04:05.718Z",
+            "exitedAt": null,
+            "ready": true,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "coreWrites",
+          "patch": {
+            "daemonExit": {
+              "reason": "shutdown: fatal boot error (exited with code 2)",
+              "code": 2,
+              "signal": null,
+              "error": null,
+              "at": "2026-11-14T03:04:06.000Z",
+              "uptimeMs": 1000,
+              "rssBytes": 1,
+              "heapUsedBytes": 2
+            },
+            "exitReason": "shutdown: fatal boot error (exited with code 2)"
+          },
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 107,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": "2026-11-14T03:04:05.718Z",
+            "exitedAt": null,
+            "ready": true,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null,
+            "daemonExit": {
+              "reason": "shutdown: fatal boot error (exited with code 2)",
+              "code": 2,
+              "signal": null,
+              "error": null,
+              "at": "2026-11-14T03:04:06.000Z",
+              "uptimeMs": 1000,
+              "rssBytes": 1,
+              "heapUsedBytes": 2
+            },
+            "exitReason": "shutdown: fatal boot error (exited with code 2)"
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "clock",
+          "ms": 1794625446678,
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 107,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": "2026-11-14T03:04:05.718Z",
+            "exitedAt": null,
+            "ready": true,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null,
+            "daemonExit": {
+              "reason": "shutdown: fatal boot error (exited with code 2)",
+              "code": 2,
+              "signal": null,
+              "error": null,
+              "at": "2026-11-14T03:04:06.000Z",
+              "uptimeMs": 1000,
+              "rssBytes": 1,
+              "heapUsedBytes": 2
+            },
+            "exitReason": "shutdown: fatal boot error (exited with code 2)"
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "exit",
+          "code": 2,
+          "signal": null,
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 107,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": "2026-11-14T03:04:05.718Z",
+            "exitedAt": "2026-11-14T03:04:06.678Z",
+            "ready": true,
+            "exitCode": 2,
+            "exitSignal": null,
+            "uptimeMs": 1000,
+            "stderrBytes": 0,
+            "error": null,
+            "daemonExit": {
+              "reason": "shutdown: fatal boot error (exited with code 2)",
+              "code": 2,
+              "signal": null,
+              "error": null,
+              "at": "2026-11-14T03:04:06.000Z",
+              "uptimeMs": 1000,
+              "rssBytes": 1,
+              "heapUsedBytes": 2
+            },
+            "exitReason": "shutdown: fatal boot error (exited with code 2)"
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        }
+      ],
+      "log": [
+        "daemon crash capture pid=107 file=<dir>/daemon-20261114-030405-4242-c0de.err.log",
+        "daemon exit pid=107 code=2 signal=- ready=1 uptimeMs=1000 stderrBytes=0 capture=<dir>/daemon-20261114-030405-4242-c0de.err.log"
+      ]
+    },
+    {
+      "name": "ready-twice-and-exit-twice",
+      "steps": [
+        {
+          "op": "begin",
+          "stem": "daemon-20261114-030405-4242-c0de",
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": null,
+            "detached": null,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "track",
+          "pid": 108,
+          "detached": true,
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 108,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "clock",
+          "ms": 1794625445718,
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 108,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "ready",
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 108,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": "2026-11-14T03:04:05.718Z",
+            "exitedAt": null,
+            "ready": true,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "clock",
+          "ms": 1794625445758,
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 108,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": "2026-11-14T03:04:05.718Z",
+            "exitedAt": null,
+            "ready": true,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "ready",
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 108,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": "2026-11-14T03:04:05.718Z",
+            "exitedAt": null,
+            "ready": true,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "clock",
+          "ms": 1794625445768,
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 108,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": "2026-11-14T03:04:05.718Z",
+            "exitedAt": null,
+            "ready": true,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "exit",
+          "code": 3,
+          "signal": null,
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 108,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": "2026-11-14T03:04:05.718Z",
+            "exitedAt": "2026-11-14T03:04:05.768Z",
+            "ready": true,
+            "exitCode": 3,
+            "exitSignal": null,
+            "uptimeMs": 90,
+            "stderrBytes": 0,
+            "error": null,
+            "exitReason": "exited with code 3"
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "clock",
+          "ms": 1794625445777,
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 108,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": "2026-11-14T03:04:05.718Z",
+            "exitedAt": "2026-11-14T03:04:05.768Z",
+            "ready": true,
+            "exitCode": 3,
+            "exitSignal": null,
+            "uptimeMs": 90,
+            "stderrBytes": 0,
+            "error": null,
+            "exitReason": "exited with code 3"
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "exit",
+          "code": 4,
+          "signal": null,
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 108,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": "2026-11-14T03:04:05.718Z",
+            "exitedAt": "2026-11-14T03:04:05.768Z",
+            "ready": true,
+            "exitCode": 3,
+            "exitSignal": null,
+            "uptimeMs": 90,
+            "stderrBytes": 0,
+            "error": null,
+            "exitReason": "exited with code 3"
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        }
+      ],
+      "log": [
+        "daemon crash capture pid=108 file=<dir>/daemon-20261114-030405-4242-c0de.err.log",
+        "daemon exit pid=108 code=3 signal=- ready=1 uptimeMs=90 stderrBytes=0 capture=<dir>/daemon-20261114-030405-4242-c0de.err.log"
+      ]
+    },
+    {
+      "name": "a-mirror-longer-than-its-bound",
+      "steps": [
+        {
+          "op": "begin",
+          "stem": "daemon-20261114-030405-4242-c0de",
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": null,
+            "detached": null,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "track",
+          "pid": 109,
+          "detached": true,
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 109,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "stderr",
+          "text": "line-0000\n",
+          "repeat": 2000,
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 109,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "clock",
+          "ms": 1794625445718,
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 109,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "ready",
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 109,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": "2026-11-14T03:04:05.718Z",
+            "exitedAt": null,
+            "ready": true,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "stderr",
+          "text": "after ready\n",
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 109,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": "2026-11-14T03:04:05.718Z",
+            "exitedAt": null,
+            "ready": true,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "clock",
+          "ms": 1794625445738,
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 109,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": "2026-11-14T03:04:05.718Z",
+            "exitedAt": null,
+            "ready": true,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "exit",
+          "code": 9,
+          "signal": null,
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 109,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": "2026-11-14T03:04:05.718Z",
+            "exitedAt": "2026-11-14T03:04:05.738Z",
+            "ready": true,
+            "exitCode": 9,
+            "exitSignal": null,
+            "uptimeMs": 60,
+            "stderrBytes": 20012,
+            "error": null,
+            "exitReason": "exited with code 9"
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        }
+      ],
+      "log": {
+        "count": 1643,
+        "head": [
+          "daemon crash capture pid=109 file=<dir>/daemon-20261114-030405-4242-c0de.err.log",
+          "daemon stderr: skipped 3616 earlier byte(s), full text in <dir>/daemon-20261114-030405-4242-c0de.err.log",
+          "000"
+        ],
+        "tail": [
+          "after ready",
+          "daemon exit pid=109 code=9 signal=- ready=1 uptimeMs=60 stderrBytes=20012 capture=<dir>/daemon-20261114-030405-4242-c0de.err.log"
+        ]
+      }
+    },
+    {
+      "name": "summary-without-an-error-line",
+      "steps": [
+        {
+          "op": "begin",
+          "stem": "daemon-20261114-030405-4242-c0de",
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": null,
+            "detached": null,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "track",
+          "pid": 110,
+          "detached": true,
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 110,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "stderr",
+          "text": "starting\nnon-fatal: ignored\nstill going\n",
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 110,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "summary",
+          "summary": {
+            "pid": 110,
+            "ready": false,
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "exitedAt": null,
+            "exitCode": null,
+            "exitSignal": null,
+            "exitReason": null,
+            "uptimeMs": null,
+            "error": null,
+            "stderrErrorLine": null,
+            "stderrLastLine": "still going",
+            "stderrPath": "daemon-20261114-030405-4242-c0de.err.log"
+          },
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 110,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        }
+      ],
+      "log": [
+        "daemon crash capture pid=110 file=<dir>/daemon-20261114-030405-4242-c0de.err.log"
+      ]
+    },
+    {
+      "name": "summary-error-class-line",
+      "steps": [
+        {
+          "op": "begin",
+          "stem": "daemon-20261114-030405-4242-c0de",
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": null,
+            "detached": null,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "track",
+          "pid": 110,
+          "detached": true,
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 110,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "stderr",
+          "text": "starting\n  RangeError [ERR_OUT_OF_RANGE]: too far  \nlater\n",
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 110,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "summary",
+          "summary": {
+            "pid": 110,
+            "ready": false,
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "exitedAt": null,
+            "exitCode": null,
+            "exitSignal": null,
+            "exitReason": null,
+            "uptimeMs": null,
+            "error": null,
+            "stderrErrorLine": "RangeError [ERR_OUT_OF_RANGE]: too far",
+            "stderrLastLine": "later",
+            "stderrPath": "daemon-20261114-030405-4242-c0de.err.log"
+          },
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 110,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        }
+      ],
+      "log": [
+        "daemon crash capture pid=110 file=<dir>/daemon-20261114-030405-4242-c0de.err.log"
+      ]
+    },
+    {
+      "name": "summary-bare-error-line",
+      "steps": [
+        {
+          "op": "begin",
+          "stem": "daemon-20261114-030405-4242-c0de",
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": null,
+            "detached": null,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "track",
+          "pid": 110,
+          "detached": true,
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 110,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "stderr",
+          "text": "Error\nlater\n",
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 110,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "summary",
+          "summary": {
+            "pid": 110,
+            "ready": false,
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "exitedAt": null,
+            "exitCode": null,
+            "exitSignal": null,
+            "exitReason": null,
+            "uptimeMs": null,
+            "error": null,
+            "stderrErrorLine": "Error",
+            "stderrLastLine": "later",
+            "stderrPath": "daemon-20261114-030405-4242-c0de.err.log"
+          },
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 110,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        }
+      ],
+      "log": [
+        "daemon crash capture pid=110 file=<dir>/daemon-20261114-030405-4242-c0de.err.log"
+      ]
+    },
+    {
+      "name": "summary-fatal-abort",
+      "steps": [
+        {
+          "op": "begin",
+          "stem": "daemon-20261114-030405-4242-c0de",
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": null,
+            "detached": null,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "track",
+          "pid": 110,
+          "detached": true,
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 110,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "stderr",
+          "text": "boot\nFATAL ERROR: Reached heap limit\nlater\n",
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 110,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "summary",
+          "summary": {
+            "pid": 110,
+            "ready": false,
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "exitedAt": null,
+            "exitCode": null,
+            "exitSignal": null,
+            "exitReason": null,
+            "uptimeMs": null,
+            "error": null,
+            "stderrErrorLine": "FATAL ERROR: Reached heap limit",
+            "stderrLastLine": "later",
+            "stderrPath": "daemon-20261114-030405-4242-c0de.err.log"
+          },
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 110,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        }
+      ],
+      "log": [
+        "daemon crash capture pid=110 file=<dir>/daemon-20261114-030405-4242-c0de.err.log"
+      ]
+    },
+    {
+      "name": "summary-fatal-word",
+      "steps": [
+        {
+          "op": "begin",
+          "stem": "daemon-20261114-030405-4242-c0de",
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": null,
+            "detached": null,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "track",
+          "pid": 110,
+          "detached": true,
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 110,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "stderr",
+          "text": "boot\na fatal boot error occurred\nlater\n",
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 110,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "summary",
+          "summary": {
+            "pid": 110,
+            "ready": false,
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "exitedAt": null,
+            "exitCode": null,
+            "exitSignal": null,
+            "exitReason": null,
+            "uptimeMs": null,
+            "error": null,
+            "stderrErrorLine": "a fatal boot error occurred",
+            "stderrLastLine": "later",
+            "stderrPath": "daemon-20261114-030405-4242-c0de.err.log"
+          },
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 110,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        }
+      ],
+      "log": [
+        "daemon crash capture pid=110 file=<dir>/daemon-20261114-030405-4242-c0de.err.log"
+      ]
+    },
+    {
+      "name": "summary-word-containing-fatal",
+      "steps": [
+        {
+          "op": "begin",
+          "stem": "daemon-20261114-030405-4242-c0de",
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": null,
+            "detached": null,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "track",
+          "pid": 110,
+          "detached": true,
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 110,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "stderr",
+          "text": "boot\nnonfatal event\ninfatal\n",
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 110,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "summary",
+          "summary": {
+            "pid": 110,
+            "ready": false,
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "exitedAt": null,
+            "exitCode": null,
+            "exitSignal": null,
+            "exitReason": null,
+            "uptimeMs": null,
+            "error": null,
+            "stderrErrorLine": null,
+            "stderrLastLine": "infatal",
+            "stderrPath": "daemon-20261114-030405-4242-c0de.err.log"
+          },
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 110,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        }
+      ],
+      "log": [
+        "daemon crash capture pid=110 file=<dir>/daemon-20261114-030405-4242-c0de.err.log"
+      ]
+    },
+    {
+      "name": "summary-crlf-and-blank-lines",
+      "steps": [
+        {
+          "op": "begin",
+          "stem": "daemon-20261114-030405-4242-c0de",
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": null,
+            "detached": null,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "track",
+          "pid": 110,
+          "detached": true,
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 110,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "stderr",
+          "text": "first\r\n\r\n   \r\nlast line\r\n",
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 110,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "summary",
+          "summary": {
+            "pid": 110,
+            "ready": false,
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "exitedAt": null,
+            "exitCode": null,
+            "exitSignal": null,
+            "exitReason": null,
+            "uptimeMs": null,
+            "error": null,
+            "stderrErrorLine": null,
+            "stderrLastLine": "last line",
+            "stderrPath": "daemon-20261114-030405-4242-c0de.err.log"
+          },
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 110,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        }
+      ],
+      "log": [
+        "daemon crash capture pid=110 file=<dir>/daemon-20261114-030405-4242-c0de.err.log"
+      ]
+    },
+    {
+      "name": "summary-long-line",
+      "steps": [
+        {
+          "op": "begin",
+          "stem": "daemon-20261114-030405-4242-c0de",
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": null,
+            "detached": null,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "track",
+          "pid": 110,
+          "detached": true,
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 110,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "stderr",
+          "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx fatal yyyyyyyyyy\n",
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 110,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "summary",
+          "summary": {
+            "pid": 110,
+            "ready": false,
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "exitedAt": null,
+            "exitCode": null,
+            "exitSignal": null,
+            "exitReason": null,
+            "uptimeMs": null,
+            "error": null,
+            "stderrErrorLine": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…",
+            "stderrLastLine": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…",
+            "stderrPath": "daemon-20261114-030405-4242-c0de.err.log"
+          },
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 110,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        }
+      ],
+      "log": [
+        "daemon crash capture pid=110 file=<dir>/daemon-20261114-030405-4242-c0de.err.log"
+      ]
+    },
+    {
+      "name": "summary-nothing-on-fd-2",
+      "steps": [
+        {
+          "op": "begin",
+          "stem": "daemon-20261114-030405-4242-c0de",
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": null,
+            "detached": null,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "track",
+          "pid": 110,
+          "detached": true,
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 110,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "stderr",
+          "text": "",
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 110,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        },
+        {
+          "op": "summary",
+          "summary": {
+            "pid": 110,
+            "ready": false,
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "exitedAt": null,
+            "exitCode": null,
+            "exitSignal": null,
+            "exitReason": null,
+            "uptimeMs": null,
+            "error": null,
+            "stderrErrorLine": null,
+            "stderrLastLine": null,
+            "stderrPath": "daemon-20261114-030405-4242-c0de.err.log"
+          },
+          "record": {
+            "kind": "mixdog-daemon-crash-capture",
+            "launcher": "core",
+            "launcherPid": 4242,
+            "pid": 110,
+            "detached": true,
+            "heapFlags": [],
+            "stderrFile": "daemon-20261114-030405-4242-c0de.err.log",
+            "spawnedAt": "2026-11-14T03:04:05.678Z",
+            "readyAt": null,
+            "exitedAt": null,
+            "ready": false,
+            "exitCode": null,
+            "exitSignal": null,
+            "uptimeMs": null,
+            "stderrBytes": 0,
+            "error": null
+          },
+          "files": [
+            "daemon-20261114-030405-4242-c0de.err.log",
+            "daemon-20261114-030405-4242-c0de.json"
+          ]
+        }
+      ],
+      "log": [
+        "daemon crash capture pid=110 file=<dir>/daemon-20261114-030405-4242-c0de.err.log"
+      ]
+    }
+  ],
+  "retention": [
+    {
+      "name": "budget-states-and-debris",
+      "alive": [
+        7,
+        8,
+        31
+      ],
+      "boots": [
+        {
+          "stem": "daemon-20261113-000000-1-00aa",
+          "record": {
+            "pid": 1,
+            "exitedAt": "2026-11-13T00:00:00.000Z"
+          },
+          "raw": 100,
+          "ageSec": 1000
+        },
+        {
+          "stem": "daemon-20261113-000001-1-00aa",
+          "record": {
+            "pid": 1,
+            "exitedAt": "2026-11-13T00:00:00.000Z"
+          },
+          "raw": 100,
+          "ageSec": 1001
+        },
+        {
+          "stem": "daemon-20261113-000002-1-00aa",
+          "record": {
+            "pid": 1,
+            "exitedAt": "2026-11-13T00:00:00.000Z"
+          },
+          "raw": 100,
+          "ageSec": 1002
+        },
+        {
+          "stem": "daemon-20261113-000003-1-00aa",
+          "record": {
+            "pid": 1,
+            "exitedAt": "2026-11-13T00:00:00.000Z"
+          },
+          "raw": 100,
+          "ageSec": 1003
+        },
+        {
+          "stem": "daemon-20261113-000004-1-00aa",
+          "record": {
+            "pid": 1,
+            "exitedAt": "2026-11-13T00:00:00.000Z"
+          },
+          "raw": 100,
+          "ageSec": 1004
+        },
+        {
+          "stem": "daemon-20261113-000005-1-00aa",
+          "record": {
+            "pid": 1,
+            "exitedAt": "2026-11-13T00:00:00.000Z"
+          },
+          "raw": 100,
+          "ageSec": 1005
+        },
+        {
+          "stem": "daemon-20261113-000006-1-00aa",
+          "record": {
+            "pid": 1,
+            "exitedAt": "2026-11-13T00:00:00.000Z"
+          },
+          "raw": 100,
+          "ageSec": 1006
+        },
+        {
+          "stem": "daemon-20261113-000007-1-00aa",
+          "record": {
+            "pid": 1,
+            "exitedAt": "2026-11-13T00:00:00.000Z"
+          },
+          "raw": 100,
+          "ageSec": 1007
+        },
+        {
+          "stem": "daemon-20261113-000008-1-00aa",
+          "record": {
+            "pid": 1,
+            "exitedAt": "2026-11-13T00:00:00.000Z"
+          },
+          "raw": 100,
+          "ageSec": 1008
+        },
+        {
+          "stem": "daemon-20261113-000009-1-00aa",
+          "record": {
+            "pid": 1,
+            "exitedAt": "2026-11-13T00:00:00.000Z"
+          },
+          "raw": 100,
+          "ageSec": 1009
+        },
+        {
+          "stem": "daemon-20261113-010000-2-00bb",
+          "record": {
+            "pid": 2,
+            "exitedAt": null
+          },
+          "raw": 307200,
+          "ageSec": 10
+        },
+        {
+          "stem": "daemon-20261113-020000-7-00cc",
+          "record": {
+            "pid": 7,
+            "exitedAt": null
+          },
+          "raw": 100,
+          "ageSec": 5000
+        },
+        {
+          "stem": "daemon-20261113-030000-8-00dd",
+          "record": {
+            "pid": null,
+            "launcherPid": 8
+          },
+          "raw": 100,
+          "ageSec": 5000
+        },
+        {
+          "stem": "daemon-20261113-040000-9-00ee",
+          "record": {
+            "pid": null,
+            "launcherPid": 9
+          },
+          "raw": 100,
+          "ageSec": 5000
+        },
+        {
+          "stem": "daemon-20261113-050000-9-00ff",
+          "record": "not json",
+          "raw": 100,
+          "ageSec": 5000
+        },
+        {
+          "stem": "daemon-20261113-060000-9-0a0a",
+          "record": null,
+          "raw": 100,
+          "ageSec": 5000
+        }
+      ],
+      "extras": [
+        {
+          "name": "notes.txt",
+          "bytes": 4
+        },
+        {
+          "name": "daemon-20261113-000000-9-00aa.json.mixdog-tmp-abc123",
+          "bytes": 4
+        },
+        {
+          "name": ".daemon-20261113-000000-9-00aa.json.0f0f.tmp",
+          "bytes": 4
+        },
+        {
+          "name": "daemon-20261113-000000-31-00aa.json.mixdog-tmp-def456",
+          "bytes": 4
+        },
+        {
+          "name": "daemon-20261113-000000-0-00aa.json.mixdog-tmp-0",
+          "bytes": 4
+        }
+      ],
+      "result": {
+        "removed": 6,
+        "trimmed": 1,
+        "keptBoots": 8,
+        "keptBytes": 263247,
+        "activeBoots": 2,
+        "unknownBoots": 3
+      },
+      "remaining": [
+        {
+          "name": "daemon-20261113-000000-0-00aa.json.mixdog-tmp-0",
+          "size": 4,
+          "head": null
+        },
+        {
+          "name": "daemon-20261113-000000-1-00aa.err.log",
+          "size": 100,
+          "head": null
+        },
+        {
+          "name": "daemon-20261113-000000-1-00aa.json",
+          "size": 47,
+          "head": null
+        },
+        {
+          "name": "daemon-20261113-000000-31-00aa.json.mixdog-tmp-def456",
+          "size": 4,
+          "head": null
+        },
+        {
+          "name": "daemon-20261113-000001-1-00aa.err.log",
+          "size": 100,
+          "head": null
+        },
+        {
+          "name": "daemon-20261113-000001-1-00aa.json",
+          "size": 47,
+          "head": null
+        },
+        {
+          "name": "daemon-20261113-000002-1-00aa.err.log",
+          "size": 100,
+          "head": null
+        },
+        {
+          "name": "daemon-20261113-000002-1-00aa.json",
+          "size": 47,
+          "head": null
+        },
+        {
+          "name": "daemon-20261113-000003-1-00aa.err.log",
+          "size": 100,
+          "head": null
+        },
+        {
+          "name": "daemon-20261113-000003-1-00aa.json",
+          "size": 47,
+          "head": null
+        },
+        {
+          "name": "daemon-20261113-000004-1-00aa.err.log",
+          "size": 100,
+          "head": null
+        },
+        {
+          "name": "daemon-20261113-000004-1-00aa.json",
+          "size": 47,
+          "head": null
+        },
+        {
+          "name": "daemon-20261113-000005-1-00aa.err.log",
+          "size": 100,
+          "head": null
+        },
+        {
+          "name": "daemon-20261113-000005-1-00aa.json",
+          "size": 47,
+          "head": null
+        },
+        {
+          "name": "daemon-20261113-000006-1-00aa.err.log",
+          "size": 100,
+          "head": null
+        },
+        {
+          "name": "daemon-20261113-000006-1-00aa.json",
+          "size": 47,
+          "head": null
+        },
+        {
+          "name": "daemon-20261113-010000-2-00bb.err.log",
+          "size": 262193,
+          "head": "[capture trimmed: dropped 45056 earlier byte(s)]"
+        },
+        {
+          "name": "daemon-20261113-010000-2-00bb.json",
+          "size": 25,
+          "head": null
+        },
+        {
+          "name": "daemon-20261113-020000-7-00cc.err.log",
+          "size": 100,
+          "head": null
+        },
+        {
+          "name": "daemon-20261113-020000-7-00cc.json",
+          "size": 25,
+          "head": null
+        },
+        {
+          "name": "daemon-20261113-030000-8-00dd.err.log",
+          "size": 100,
+          "head": null
+        },
+        {
+          "name": "daemon-20261113-030000-8-00dd.json",
+          "size": 28,
+          "head": null
+        },
+        {
+          "name": "daemon-20261113-040000-9-00ee.err.log",
+          "size": 100,
+          "head": null
+        },
+        {
+          "name": "daemon-20261113-040000-9-00ee.json",
+          "size": 28,
+          "head": null
+        },
+        {
+          "name": "daemon-20261113-050000-9-00ff.err.log",
+          "size": 100,
+          "head": null
+        },
+        {
+          "name": "daemon-20261113-050000-9-00ff.json",
+          "size": 8,
+          "head": null
+        },
+        {
+          "name": "daemon-20261113-060000-9-0a0a.err.log",
+          "size": 100,
+          "head": null
+        },
+        {
+          "name": "notes.txt",
+          "size": 4,
+          "head": null
+        }
+      ]
+    },
+    {
+      "name": "byte-budget-drops-the-oldest-after-trimming",
+      "alive": [],
+      "boots": [
+        {
+          "stem": "daemon-20261113-000000-3-00ab",
+          "record": {
+            "pid": 3,
+            "exitedAt": "2026-11-13T00:00:00.000Z"
+          },
+          "raw": 307200,
+          "ageSec": 100
+        },
+        {
+          "stem": "daemon-20261113-000001-3-00ab",
+          "record": {
+            "pid": 3,
+            "exitedAt": "2026-11-13T00:00:00.000Z"
+          },
+          "raw": 307200,
+          "ageSec": 110
+        },
+        {
+          "stem": "daemon-20261113-000002-3-00ab",
+          "record": {
+            "pid": 3,
+            "exitedAt": "2026-11-13T00:00:00.000Z"
+          },
+          "raw": 307200,
+          "ageSec": 120
+        },
+        {
+          "stem": "daemon-20261113-000003-3-00ab",
+          "record": {
+            "pid": 3,
+            "exitedAt": "2026-11-13T00:00:00.000Z"
+          },
+          "raw": 307200,
+          "ageSec": 130
+        },
+        {
+          "stem": "daemon-20261113-000004-3-00ab",
+          "record": {
+            "pid": 3,
+            "exitedAt": "2026-11-13T00:00:00.000Z"
+          },
+          "raw": 307200,
+          "ageSec": 140
+        },
+        {
+          "stem": "daemon-20261113-000005-3-00ab",
+          "record": {
+            "pid": 3,
+            "exitedAt": "2026-11-13T00:00:00.000Z"
+          },
+          "raw": 307200,
+          "ageSec": 150
+        },
+        {
+          "stem": "daemon-20261113-000006-3-00ab",
+          "record": {
+            "pid": 3,
+            "exitedAt": "2026-11-13T00:00:00.000Z"
+          },
+          "raw": 307200,
+          "ageSec": 160
+        },
+        {
+          "stem": "daemon-20261113-000007-3-00ab",
+          "record": {
+            "pid": 3,
+            "exitedAt": "2026-11-13T00:00:00.000Z"
+          },
+          "raw": 307200,
+          "ageSec": 170
+        }
+      ],
+      "extras": [],
+      "result": {
+        "removed": 2,
+        "trimmed": 8,
+        "keptBoots": 7,
+        "keptBytes": 1835680,
+        "activeBoots": 0,
+        "unknownBoots": 0
+      },
+      "remaining": [
+        {
+          "name": "daemon-20261113-000000-3-00ab.err.log",
+          "size": 262193,
+          "head": "[capture trimmed: dropped 45056 earlier byte(s)]"
+        },
+        {
+          "name": "daemon-20261113-000000-3-00ab.json",
+          "size": 47,
+          "head": null
+        },
+        {
+          "name": "daemon-20261113-000001-3-00ab.err.log",
+          "size": 262193,
+          "head": "[capture trimmed: dropped 45056 earlier byte(s)]"
+        },
+        {
+          "name": "daemon-20261113-000001-3-00ab.json",
+          "size": 47,
+          "head": null
+        },
+        {
+          "name": "daemon-20261113-000002-3-00ab.err.log",
+          "size": 262193,
+          "head": "[capture trimmed: dropped 45056 earlier byte(s)]"
+        },
+        {
+          "name": "daemon-20261113-000002-3-00ab.json",
+          "size": 47,
+          "head": null
+        },
+        {
+          "name": "daemon-20261113-000003-3-00ab.err.log",
+          "size": 262193,
+          "head": "[capture trimmed: dropped 45056 earlier byte(s)]"
+        },
+        {
+          "name": "daemon-20261113-000003-3-00ab.json",
+          "size": 47,
+          "head": null
+        },
+        {
+          "name": "daemon-20261113-000004-3-00ab.err.log",
+          "size": 262193,
+          "head": "[capture trimmed: dropped 45056 earlier byte(s)]"
+        },
+        {
+          "name": "daemon-20261113-000004-3-00ab.json",
+          "size": 47,
+          "head": null
+        },
+        {
+          "name": "daemon-20261113-000005-3-00ab.err.log",
+          "size": 262193,
+          "head": "[capture trimmed: dropped 45056 earlier byte(s)]"
+        },
+        {
+          "name": "daemon-20261113-000005-3-00ab.json",
+          "size": 47,
+          "head": null
+        },
+        {
+          "name": "daemon-20261113-000006-3-00ab.err.log",
+          "size": 262193,
+          "head": "[capture trimmed: dropped 45056 earlier byte(s)]"
+        },
+        {
+          "name": "daemon-20261113-000006-3-00ab.json",
+          "size": 47,
+          "head": null
+        }
+      ]
+    },
+    {
+      "name": "the-newest-completed-boot-survives-alone",
+      "alive": [],
+      "boots": [
+        {
+          "stem": "daemon-20261113-000001-4-00ac",
+          "record": {
+            "pid": 4,
+            "exitedAt": "2026-11-13T00:00:00.000Z"
+          },
+          "raw": 921600,
+          "ageSec": 10
+        },
+        {
+          "stem": "daemon-20261113-000002-4-00ad",
+          "record": {
+            "pid": 4,
+            "exitedAt": "2026-11-13T00:00:00.000Z"
+          },
+          "raw": 10,
+          "ageSec": 20
+        }
+      ],
+      "extras": [],
+      "result": {
+        "removed": 0,
+        "trimmed": 1,
+        "keptBoots": 2,
+        "keptBytes": 262298,
+        "activeBoots": 0,
+        "unknownBoots": 0
+      },
+      "remaining": [
+        {
+          "name": "daemon-20261113-000001-4-00ac.err.log",
+          "size": 262194,
+          "head": "[capture trimmed: dropped 659456 earlier byte(s)]"
+        },
+        {
+          "name": "daemon-20261113-000001-4-00ac.json",
+          "size": 47,
+          "head": null
+        },
+        {
+          "name": "daemon-20261113-000002-4-00ad.err.log",
+          "size": 10,
+          "head": null
+        },
+        {
+          "name": "daemon-20261113-000002-4-00ad.json",
+          "size": 47,
+          "head": null
+        }
+      ]
+    },
+    {
+      "name": "nothing-there",
+      "alive": [],
+      "boots": [],
+      "extras": [],
+      "result": {
+        "removed": 0,
+        "trimmed": 0,
+        "keptBoots": 0,
+        "keptBytes": 0,
+        "activeBoots": 0,
+        "unknownBoots": 0
+      },
+      "remaining": []
+    }
+  ]
+}
