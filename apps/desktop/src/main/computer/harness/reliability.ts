@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { app, BrowserWindow } from 'electron';
-import { runCommand } from './core-transport';
+import { openComputerCore } from './core-transport';
 import {
   authorizationLiveDispatch,
   electronBackgroundEdit,
@@ -44,11 +44,13 @@ async function run() {
   // The core runs on this data directory (the runner starts it there), so its failure bundles are read from it.
   const dataDir = process.env.MIXDOG_DATA_DIR;
   if (!dataDir) throw new Error('MIXDOG_DATA_DIR is required');
+  const core = await openComputerCore();
   // Every session a scenario touched, so its end can release them as the host's stopAllSessions did.
   const sessions = new Set<string>();
   const command = async (input: Record<string, unknown>, session = 'reliability') => {
     sessions.add(session);
-    return runCommand({ ...input, session_id: session });
+    const result = await core.runCommand({ ...input }, session);
+    return { ...result, helperPid: core.helperPid(session) };
   };
   const authorizationWindows = async (session = 'reliability') =>
     (JSON.parse((await command({ action: 'authorization_windows' }, session)).text) as { windows: AuthorizationWindow[] })
@@ -170,6 +172,7 @@ async function run() {
     await scenario('Authorization live dispatch', () => authorizationLiveDispatch(ctx));
   } finally {
     await stopAllSessions();
+    await core.dispose();
     sentinel.destroy();
     writeFileSync(
       join(directory, 'report.json'),

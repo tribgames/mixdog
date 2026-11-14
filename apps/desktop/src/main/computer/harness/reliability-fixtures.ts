@@ -64,7 +64,6 @@ internal static class MixdogNativeTextFixture {
 }
 `;
 
-
 export function compileNativeTextFixture(directory: string): string {
   const sourcePath = join(directory, 'mixdog-native-text-fixture.cs');
   const outputPath = join(directory, 'mixdog-native-text-fixture.exe');
