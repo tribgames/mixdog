@@ -2,6 +2,7 @@
 import type { App, BrowserWindow } from 'electron';
 import { DESKTOP_IPC, type DesktopSettings } from '../shared/contract';
 import type { DesktopService } from './desktop-service-contract';
+import type { PcQuotaHost } from './ipc-host-extras';
 import { isAllowAllActionsEnable } from './developer-risk-confirm';
 import { raiseDesktopWindow } from './notification-window';
 import { readOnboardingStatusFromDisk } from './onboarding-status-file';
@@ -20,6 +21,8 @@ import {
   requiredZoomFactor,
 } from './ipc-validation';
 import type { IpcHandle as Handle } from './ipc';
+
+export type { PcQuotaHost };
 
 interface WindowSettingsIpcOptions {
   window: BrowserWindow;
@@ -58,16 +61,6 @@ interface WindowSettingsIpcOptions {
   writesAnnounceThemselves?: boolean;
   /** This PC's core connection: the font families installed on this computer are its listing (a server window's fonts are this PC's too). */
   pcCore?: { call(method: string, params: unknown): Promise<unknown> } | null;
-}
-
-/** This PC's daemon as the owner of a server window's provider quota. */
-export interface PcQuotaHost extends Pick<DesktopService, 'invokeCapability' | 'readCapabilities'> {
-  /** The model proxy's own consent (the server's per-host provider list): a
-   *  provider the server may not use runs no call on this PC's sign-in for it. */
-  isProviderAllowed?(provider: string): boolean;
-  /** False while the server runs models with its own logins: its quota reads
-   *  are the server's then. True when absent. */
-  inUse?(): boolean;
 }
 
 const PC_QUOTA_CAPABILITIES: ReadonlySet<string> = new Set([

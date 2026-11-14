@@ -2,10 +2,20 @@
 // actions", the sign-in raise of a window, and the PC-side provider quota of a server window (its model calls run on
 // this PC's sign-ins, so the quota is this PC's, narrowed to the providers the server may use).
 import { DESKTOP_IPC } from '../shared/contract';
+import type { DesktopService } from './desktop-service-contract';
 import type { IpcHandle } from './ipc';
 import { requiredDesktopCapabilityReadRequests, requiredDesktopCapabilityRequest } from './ipc-validation';
-import type { PcQuotaHost } from './ipc-window-settings';
 import type { SignInFocus } from './sign-in-focus';
+
+/** This PC's daemon as the owner of a server window's provider quota. */
+export interface PcQuotaHost extends Pick<DesktopService, 'invokeCapability' | 'readCapabilities'> {
+  /** The model proxy's own consent (the server's per-host provider list): a
+   *  provider the server may not use runs no call on this PC's sign-in for it. */
+  isProviderAllowed?(provider: string): boolean;
+  /** False while the server runs models with its own logins: its quota reads
+   *  are the server's then. True when absent. */
+  inUse?(): boolean;
+}
 
 /** The channels this file registers. */
 export const HOST_EXTRAS_IPC = {

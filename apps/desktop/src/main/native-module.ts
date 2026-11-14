@@ -46,6 +46,14 @@ export function dlopenNativeModule<Exports>(library: string): Exports {
   return module.exports;
 }
 
+const windowModules = new Map<string, unknown>();
+
+/** mixdog_window.node (native/mixdog-window) from `library`, loaded once per file: the Mica appearance and the foreground lease share it. */
+export function loadWindowModule<Exports>(library: string): Exports {
+  if (!windowModules.has(library)) windowModules.set(library, dlopenNativeModule<Exports>(library));
+  return windowModules.get(library) as Exports;
+}
+
 const loaded = new WeakMap<object, unknown>();
 
 /** The module's exports, loaded on the first call and kept; a module that cannot be loaded throws, naming the file. */
