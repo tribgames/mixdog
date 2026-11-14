@@ -1,0 +1,54 @@
+# s3-23: small computer host handlers (permissions, environment events, legacy command)
+
+No HOST_METHOD rows: the two methods are served (host/computer/permissions, host/computer/command) or sent (computer/userControl)
+by name, as host/computer.ts does for host/computer/capture; the host capability `host.computer` they require is already claimed.
+
+1. main/host/index.ts
+   a. imports, beside `import { type ComputerControlSource, registerComputerHost } from './computer';`:
+        import { type ComputerCommandHostSource, registerComputerCommand } from './computer-command';
+        import { type ComputerPermissionReads, registerComputerPermissions } from './computer-permissions';
+   b. interface DesktopHostOptions, after the field `computer: ComputerControlSource;`:
+        /** The operating-system grants (`host/computer/permissions`): `readComputerPermissions` / `requestComputerPermissions`. */
+        computerPermissions: ComputerPermissionReads;
+        /** The legacy Windows host's bridge answer while Computer Use is on, else null (`host/computer/command`, dual path). */
+        computerCommand: ComputerCommandHostSource;
+   c. createDesktopHost, right after `registerComputerHost(connection, options.computer);`:
+        registerComputerPermissions(connection, options.computerPermissions);
+        registerComputerCommand(connection, options.computerCommand);
+
+2. main/index.ts, in the `createLocalHostRole({ ... })` object, right after its `computer: () => { ... },` entry
+   (readComputerPermissions, requestComputerPermissions, assertPublicComputerRequest and ComputerCommand are already imported there):
+        computerPermissions: { read: readComputerPermissions, request: requestComputerPermissions },
+        computerCommand: () => {
+          const host = computerControlEnabled ? computerHost : null;
+          if (!host) return null;
+          return {
+            assertPublic: assertPublicComputerRequest,
+            answerBridgeCommand: (command, signal) => host.answerBridgeCommand(command as ComputerCommand, signal),
+          };
+        },
+
+3. main/browser/test-support/core-harness.ts, in its `createDesktopHost({ ... })` object, after `computer: () => null,`:
+        computerPermissions: {
+          read: () => ({ screen_capture: 'not_required_on_windows', accessibility: 'not_required_on_windows', input: 'target_integrity_dependent' }),
+          request: () => undefined,
+        },
+        computerCommand: () => null,
+   (main/host/host.test.mjs builds its host options in JS: nothing to add, the handlers only register.)
+
+4. main/index.ts
+   a. with the other './host/...' imports:
+        import { bindComputerEnvironment } from './host/computer-environment';
+   b. right after `const localProtocol = localConnection.protocol;` and its null check (powerMonitor and screen are already
+      imported from 'electron' there):
+        const unbindComputerEnvironment = bindComputerEnvironment(
+          powerMonitor,
+          screen,
+          (method, params) => localProtocol.call(method, params),
+          (error) => console.warn('[mixdog-computer] environment takeover report failed:', error)
+        );
+   c. in `app.on('before-quit', ...)`, beside `desktopTray?.dispose();`:
+        unbindComputerEnvironment();
+   The old in-process bindComputerEnvironmentGuard call (computer/host/powershell-host.ts) goes with the legacy path (s3-30);
+   until then both fire. That is harmless: the core's takeover holds only while a core computer execution is open
+   (computer_user_control.rs `hold`: no open execution, no hold), so a report while Computer Use is off changes nothing.
