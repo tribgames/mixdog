@@ -36,20 +36,20 @@ use super::files::STARTERS;
 use super::files::explicit_kind;
 use super::files::is_dialog_default_body;
 use super::files::manifest_of;
+use super::files::BOTS_DIR;
+use super::files::DELETED_MARKER;
+use super::files::MIXY_BOT_ID;
 
 /// `BOT_MIGRATION_LOCK`: beside, never inside, `bots/` and `agents/`.
 pub const LOCK_FILE: &str = ".bot-split.lock";
-/// `BOT_SPLIT_BACKUP_DIRS`: what the backup before a copy carries besides the routine user data.
-pub const BACKUP_DIRS: [&str; 2] = ["agents", "bots"];
-const BOTS_DIR: &str = "bots";
 const MANIFEST: &str = "migration.json";
 const MANIFEST_VERSION: i64 = 1;
-pub const MIXY_BOT_ID: &str = "mixy";
-/// Mixy's home thread keeps the id it always had: its messages never move.
-pub const MIXY_LEGACY_HOME_SESSION_ID: &str = "sess_home_lead";
+/// Mixy's home thread keeps the id it always had (`sess_home_lead`): its messages never move.
+const MIXY_HOME_SESSION_ID: &str = "sess_home_lead";
+/// The roles that start switched off besides the starters (`DEFAULT_DISABLED_AGENT_ROSTER`): never stamped.
+const OFF_ROSTER_EXTRA: [&str; 2] = ["maintainer", "explore"];
 const KIND_RECORD: &str = "agent-kind-migration.json";
 const KIND_VERSION: i64 = 1;
-const DELETED_MARKER: &str = ".deleted";
 const ARCHIVED_FILE: &str = "AGENT.md.archived";
 const LOCK_WAIT: Duration = Duration::from_secs(10);
 /// Keys only the bot store writes into a bot's `agent.json`.
@@ -351,9 +351,9 @@ fn write_staged_manifest(staging: &Path, route: Option<&Value>) -> io::Result<()
 
 /// `migrateBotsToOwnStore`: the split, and on every later start the re-sync (`backup` first whenever something is to
 /// be copied). Runs under the cross-process migration lock: a second process waits, then reads the profile as it is.
-pub fn migrate_bots_to_own_store(lane: &InLane<DurabilityIo>, data: &Path, facts: &Facts, backup: &dyn Fn(&InLane<DurabilityIo>)) -> SplitReport {
+pub fn migrate_bots_to_own_store(lane: &InLane<DurabilityIo>, data: &Path, facts: &Facts, now_iso: &str, backup: &dyn Fn(&InLane<DurabilityIo>)) -> SplitReport {
     let opts = state::LockOpts { timeout: Some(LOCK_WAIT), ..Default::default() };
-    match state::with_lock(lane, &data.join(LOCK_FILE), &opts, || migrate_locked(lane, data, facts, backup)) {
+    match state::with_lock(lane, &data.join(LOCK_FILE), &opts, || migrate_locked(lane, data, facts, now_iso, backup)) {
         Ok(report) => report,
         Err(error) => {
             let done = read_manifest_now(&data.join(BOTS_DIR));
@@ -369,7 +369,7 @@ struct Change {
     old: Option<PathBuf>,
 }
 
-fn migrate_locked(lane: &InLane<DurabilityIo>, data: &Path, facts: &Facts, backup: &dyn Fn(&InLane<DurabilityIo>)) -> SplitReport {
+fn migrate_locked(lane: &InLane<DurabilityIo>, data: &Path, facts: &Facts, now_iso: &str, backup: &dyn Fn(&InLane<DurabilityIo>)) -> SplitReport {
     let bots_root = data.join(BOTS_DIR);
     let done = read_manifest_now(&bots_root);
     let run_tag = format!("{}-{}", std::process::id(), now_ms());
@@ -510,7 +510,7 @@ fn migrate_locked(lane: &InLane<DurabilityIo>, data: &Path, facts: &Facts, backu
                 if let Some(route) = complete_route(current.get("route")).or_else(|| complete_route(facts.mixy_thread_route.as_ref())).or_else(|| complete_route(facts.lead_route.as_ref())) {
                     manifest.insert("route".into(), route);
                 }
-                manifest.insert("homeSessionId".into(), Value::String(MIXY_LEGACY_HOME_SESSION_ID.into()));
+                manifest.insert("homeSessionId".into(), Value::String(MIXY_HOME_SESSION_ID.into()));
                 write_plain_json(&staging.join("agent.json"), &manifest)?;
                 swap_in(&mut changes, MIXY_BOT_ID, staging, true)?;
                 record(&mut copies, MIXY_BOT_ID, &lead_dir);
@@ -521,10 +521,10 @@ fn migrate_locked(lane: &InLane<DurabilityIo>, data: &Path, facts: &Facts, backu
         retired.sort();
         let mut next = Map::new();
         next.insert("version".into(), Value::from(MANIFEST_VERSION));
-        next.insert("completedAt".into(), done.as_ref().and_then(|m| m.get("completedAt").cloned()).filter(|v| truthy(Some(v))).unwrap_or_else(|| Value::String(iso_now())));
+        next.insert("completedAt".into(), done.as_ref().and_then(|m| m.get("completedAt").cloned()).filter(|v| truthy(Some(v))).unwrap_or_else(|| Value::String(now_iso.to_owned())));
         next.insert("bots".into(), Value::from(bots.iter().cloned().collect::<Vec<_>>()));
         next.insert("mixy".into(), Value::Bool(mixy));
-        next.insert("mixyHomeSessionId".into(), if mixy { Value::String(MIXY_LEGACY_HOME_SESSION_ID.into()) } else { Value::Null });
+        next.insert("mixyHomeSessionId".into(), if mixy { Value::String(MIXY_HOME_SESSION_ID.into()) } else { Value::Null });
         next.insert("copies".into(), Value::Object(copies));
         if !retired.is_empty() {
             next.insert("retired".into(), Value::from(retired));
@@ -572,27 +572,6 @@ fn migrate_locked(lane: &InLane<DurabilityIo>, data: &Path, facts: &Facts, backu
         return SplitReport { skipped: true, bots, mixy, ..Default::default() };
     }
     SplitReport { bots, mixy, changed: changes.iter().filter_map(|change| change.target.file_name()).map(|n| n.to_string_lossy().into_owned()).collect(), ..Default::default() }
-}
-
-fn iso_now() -> String {
-    chrono_like_iso(now_ms())
-}
-
-/// `new Date(ms).toISOString()` for a time after 1970.
-fn chrono_like_iso(ms: i64) -> String {
-    let (secs, millis) = (ms.div_euclid(1000), ms.rem_euclid(1000));
-    let (days, rest) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
-    // Civil date from days since 1970-01-01 (Howard Hinnant's algorithm).
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097);
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = doy - (153 * mp + 2) / 5 + 1;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 };
-    let year = yoe + era * 400 + i64::from(month <= 2);
-    format!("{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{millis:03}Z", rest / 3600, rest % 3600 / 60, rest % 60)
 }
 
 // --- The kind stamp ---
@@ -690,7 +669,7 @@ pub fn stamp_agent_kinds(lane: &InLane<DurabilityIo>, data: &Path, facts: &Facts
         let delegated = delegated_agent_ids(data);
         let (mut stamp, mut restore): (Vec<String>, Vec<String>) = (Vec::new(), Vec::new());
         for id in sub_dirs(&agents_root) {
-            if id.starts_with('.') || id == "lead" || facts.hidden.contains(&id) || STARTERS.contains(&id.as_str()) {
+            if id.starts_with('.') || id == "lead" || facts.hidden.contains(&id) || STARTERS.contains(&id.as_str()) || OFF_ROSTER_EXTRA.contains(&id.as_str()) {
                 continue;
             }
             if facts.shipped.join("agents").join(&id).join("AGENT.md").exists() {
@@ -760,7 +739,7 @@ pub fn stamp_agent_kinds(lane: &InLane<DurabilityIo>, data: &Path, facts: &Facts
 /// The second half of `migrateAgentKinds`, under the lock: for each restored bot the split manifest forgets it, its
 /// `agents/<id>` is stamped and only then is `bots/<id>` deleted, which is what ends the restore; then the record is
 /// written.
-pub fn finish_kind_stamp(lane: &InLane<DurabilityIo>, data: &Path, stage: &KindStage) -> KindReport {
+pub fn finish_kind_stamp(lane: &InLane<DurabilityIo>, data: &Path, stage: &KindStage, now_iso: &str) -> KindReport {
     let opts = state::LockOpts { timeout: Some(LOCK_WAIT), ..Default::default() };
     let done = state::with_lock(lane, &data.join(LOCK_FILE), &opts, || -> io::Result<KindReport> {
         let (agents_root, bots_root) = (data.join("agents"), data.join(BOTS_DIR));
@@ -782,7 +761,7 @@ pub fn finish_kind_stamp(lane: &InLane<DurabilityIo>, data: &Path, stage: &KindS
             restored.push(id.clone());
         }
         restored.sort();
-        let record = serde_json::json!({ "version": KIND_VERSION, "completedAt": iso_now(), "stamped": stage.stamped, "restored": restored });
+        let record = serde_json::json!({ "version": KIND_VERSION, "completedAt": now_iso, "stamped": stage.stamped, "restored": restored });
         write_json(lane, &data.join(KIND_RECORD), &record)?;
         Ok(KindReport { stamped: stage.stamped.clone(), restored, ..Default::default() })
     });
@@ -803,6 +782,8 @@ pub fn finish_kind_stamp(lane: &InLane<DurabilityIo>, data: &Path, stage: &KindS
 mod tests {
     use super::*;
 
+    const TEST_NOW: &str = "2026-01-02T03:04:05.006Z";
+
     fn lane() -> mixdog_rt::DurabilityIo {
         mixdog_rt::testing::tokens().durability_io
     }
@@ -821,12 +802,6 @@ mod tests {
         assert_eq!(leftover(".a.b.9-1.old"), Some(("a.b", "9-1", "old")));
         assert_eq!(leftover(".bob.old"), None);
         assert_eq!(leftover("bob"), None);
-    }
-
-    #[test]
-    fn the_iso_time_matches_to_iso_string() {
-        assert_eq!(chrono_like_iso(0), "1970-01-01T00:00:00.000Z");
-        assert_eq!(chrono_like_iso(1_700_000_000_123), "2023-11-14T22:13:20.123Z");
     }
 
     #[allow(clippy::disallowed_methods, reason = "test setup writes a profile")]
@@ -853,7 +828,7 @@ mod tests {
         let backups = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let counted = backups.clone();
         let (dir, with) = (path.clone(), facts.clone());
-        let report = run_on(move |lane| migrate_bots_to_own_store(lane, &dir, &with, &|_| {
+        let report = run_on(move |lane| migrate_bots_to_own_store(lane, &dir, &with, TEST_NOW, &|_| {
             counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         }))
         .await;
@@ -867,9 +842,10 @@ mod tests {
         let manifest = read_json(&path.join("bots/migration.json")).unwrap();
         assert_eq!(manifest["version"], 1);
         assert_eq!(manifest["bots"], serde_json::json!(["buddy"]));
+        assert_eq!(manifest["completedAt"], TEST_NOW);
         // A second start changes nothing and makes no backup.
         let (dir, with) = (path.clone(), facts);
-        let again = run_on(move |lane| migrate_bots_to_own_store(lane, &dir, &with, &|_| unreachable!("nothing is copied"))).await;
+        let again = run_on(move |lane| migrate_bots_to_own_store(lane, &dir, &with, TEST_NOW, &|_| unreachable!("nothing is copied"))).await;
         assert!(again.skipped);
         assert_eq!(again.bots, ["buddy"]);
     }
@@ -881,19 +857,21 @@ mod tests {
         agent(&path, "measurer", "---\nname: m\n---\nMeasure.\n", "{}");
         agent(&path, "greeted-bot", "---\nname: g\n---\nHello.\n", "{}");
         agent(&path, "marked", "---\nkind: bot\n---\nHello.\n", "{}");
+        agent(&path, "maintainer", "---\nname: maint\n---\nKeep up.\n", "{}");
         let mut facts = Facts { shipped: path.join("shipped"), ..Default::default() };
         facts.greeted.insert("greeted-bot".into());
         let (dir, with) = (path.clone(), facts.clone());
         let report = run_on(move |lane| {
             let stage = stamp_agent_kinds(lane, &dir, &with, &|_| {});
             assert!(stage.restore.is_empty());
-            finish_kind_stamp(lane, &dir, &stage)
+            finish_kind_stamp(lane, &dir, &stage, TEST_NOW)
         })
         .await;
         assert_eq!(report.stamped, ["measurer"]);
         assert!(read_text(&path.join("agents/measurer/AGENT.md")).contains("kind: agent"));
         assert!(!read_text(&path.join("agents/greeted-bot/AGENT.md")).contains("kind:"));
         assert!(read_text(&path.join("agents/marked/AGENT.md")).contains("kind: bot"));
+        assert!(!read_text(&path.join("agents/maintainer/AGENT.md")).contains("kind:"), "a role of the off roster is never stamped");
         let (dir, with) = (path.clone(), facts);
         let again = run_on(move |lane| stamp_agent_kinds(lane, &dir, &with, &|_| unreachable!("it ran already"))).await;
         assert!(again.skipped);
