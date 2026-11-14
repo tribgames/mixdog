@@ -4,32 +4,20 @@
  * cross-origin payment layer, the layer itself speaks, or the payment opens in
  * a window.open popup whose first document speaks while it is still parsing.
  * Every dialog must reach the pane as a card the person answers, and the
- * payment layer must take their clicks afterwards. The runner starts it once
- * with the pixel surface and once with native presentation
- * (MIXDOG_BROWSER_NATIVE_VIEW).
+ * payment layer must take their clicks afterwards. It runs once with the pixel
+ * surface and once with native presentation (MIXDOG_BROWSER_NATIVE_VIEW) on the
+ * core harness: the agent's commands reach the browser host as the core
+ * forwards them (`browser/command`).
  */
 import assert from 'node:assert/strict';
-import { appendFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
-import { join } from 'node:path';
 
-import { app, BrowserWindow, webContents, type WebContents, type WebFrameMain } from 'electron';
-import { makeTempDirSync, removeTempDir } from '../../../../../scripts/lib/scoped-temp.mjs';
+import { webContents, type WebContents, type WebFrameMain } from 'electron';
 import { createPolling } from '../host-harness-poll';
 import { readyBrowserFrame } from './harness-frame';
-import { createBrowserHost } from './host';
+import { type CoreHarness, type CoreHarnessSuite, progress } from './test-support/core-harness';
 
-const progressPath = process.env.MIXDOG_BROWSER_INTEGRATION_LOG || '';
-function progress(message: string): void {
-  if (progressPath) appendFileSync(progressPath, `${message}\n`);
-}
-
-const profile = makeTempDirSync('browser-user-dialogs');
-process.env.MIXDOG_DATA_DIR = join(profile, 'data');
-app.setPath('userData', join(profile, 'user-data'));
-app.disableHardwareAcceleration();
-
-const { eventually, readDiscovery } = createPolling({ timeoutMs: 6_000, intervalMs: 50 });
+const { eventually } = createPolling({ timeoutMs: 6_000, intervalMs: 50 });
 
 /** The payment provider: a cross-origin document with an agreement box. */
 function paymentServer(): Server {
@@ -108,271 +96,258 @@ async function listen(server: Server, host: string): Promise<number> {
   return address.port;
 }
 
-async function scenario(origin: string, paymentOrigin: string, native: boolean): Promise<void> {
+async function scenario(harness: CoreHarness, origin: string, paymentOrigin: string, native: boolean): Promise<void> {
   const mode = native ? 'native view' : 'pixel surface';
   const session = 'user-dialogs-session';
-  const parent = new BrowserWindow({ show: false, webPreferences: { contextIsolation: true, sandbox: true } });
-  const browser = createBrowserHost(parent, { hostId: 'test-host', remoteSession: false, requestApproval: async () => true });
-  try {
-    await parent.loadURL('data:text/html,<p>shell</p>');
-    const first = await readyBrowserFrame(browser, session);
-    const opener = webContents.fromId(first.webContentsId)!;
-    browser.setGuestActive(session, opener.id, true);
-    await opener.loadURL(`${origin}/pay`);
+  const browser = harness.browserHost;
+  const first = await readyBrowserFrame(browser, session);
+  const opener = webContents.fromId(first.webContentsId)!;
+  browser.setGuestActive(session, opener.id, true);
+  await opener.loadURL(`${origin}/pay`);
 
-    const frameNow = () => readyBrowserFrame(browser, session);
-    /** A person's click at a page point, the way the pane sends it. */
-    const click = async (point: { x: number; y: number }) => {
-      const { documentId } = await frameNow();
-      const pointer = {
-        type: 'pointer' as const,
-        documentId,
-        ...point,
-        button: 'left' as const,
-        modifiers: 0,
-        clickCount: 1,
-      };
-      await browser.browserPageControl(session, { ...pointer, phase: 'mousePressed', buttons: 1 });
-      await browser.browserPageControl(session, { ...pointer, phase: 'mouseReleased', buttons: 0 });
+  const frameNow = () => readyBrowserFrame(browser, session);
+  /** A person's click at a page point, the way the pane sends it. */
+  const click = async (point: { x: number; y: number }) => {
+    const { documentId } = await frameNow();
+    const pointer = {
+      type: 'pointer' as const,
+      documentId,
+      ...point,
+      button: 'left' as const,
+      modifiers: 0,
+      clickCount: 1,
     };
-    const center = async (target: WebContents | WebFrameMain, selector: string) =>
-      (await target.executeJavaScript(`(() => {
-        const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();
-        return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
-      })()`)) as { x: number; y: number };
-    const stateOf = (guest: WebContents) => guest.executeJavaScript(`document.querySelector('#state').textContent`);
-    const dialogShown = async (type: string, message: string) => {
-      const frame = await eventually(frameNow, (value) => value.dialog?.type === type).catch(async (error) => {
-        const last = await frameNow();
-        throw new Error(
-          `no ${type} card in the pane (${mode}): ${(error as Error).message}; ` +
-            `dialog=${JSON.stringify(last.dialog)} on ${last.url}`
-        );
-      });
-      assert.equal(frame.dialog?.message, message);
-    };
-    const answer = async (accept: boolean, promptText?: string) => {
-      const frame = await frameNow();
-      assert.ok(frame.dialog);
-      await browser.browserPageControl(session, {
-        type: 'answer-dialog',
-        documentId: frame.documentId,
-        requestId: frame.dialog.id,
-        accept,
-        ...(promptText === undefined ? {} : { promptText }),
-      });
-    };
-    /** Click the agreement box in the cross-origin payment layer and see it checked. */
-    const agree = async (guest: WebContents) => {
-      const layer = (await eventually(
-        async () => guest.mainFrame.framesInSubtree.find((frame) => frame.url.startsWith(paymentOrigin)) ?? null,
-        (frame) => frame !== null
-      )) as WebFrameMain;
-      await eventually(
-        () =>
-          layer.executeJavaScript(`document.readyState === 'complete' && Boolean(document.querySelector('#agree'))`),
-        Boolean
+    await browser.browserPageControl(session, { ...pointer, phase: 'mousePressed', buttons: 1 });
+    await browser.browserPageControl(session, { ...pointer, phase: 'mouseReleased', buttons: 0 });
+  };
+  const center = async (target: WebContents | WebFrameMain, selector: string) =>
+    (await target.executeJavaScript(`(() => {
+      const r = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();
+      return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+    })()`)) as { x: number; y: number };
+  const stateOf = (guest: WebContents) => guest.executeJavaScript(`document.querySelector('#state').textContent`);
+  const dialogShown = async (type: string, message: string) => {
+    const frame = await eventually(frameNow, (value) => value.dialog?.type === type).catch(async (error) => {
+      const last = await frameNow();
+      throw new Error(
+        `no ${type} card in the pane (${mode}): ${(error as Error).message}; ` +
+          `dialog=${JSON.stringify(last.dialog)} on ${last.url}`
       );
-      const inner = await center(layer, '#agree');
-      const offset = (await guest.executeJavaScript(`(() => {
-        const r = document.querySelector('#payment').getBoundingClientRect();
-        return { x: r.x, y: r.y };
-      })()`)) as { x: number; y: number };
-      await click({ x: offset.x + inner.x, y: offset.y + inner.y });
-      await eventually(() => layer.executeJavaScript(`document.querySelector('#agree').checked`), Boolean, 3_000);
-    };
+    });
+    assert.equal(frame.dialog?.message, message);
+  };
+  const answer = async (accept: boolean, promptText?: string) => {
+    const frame = await frameNow();
+    assert.ok(frame.dialog);
+    await browser.browserPageControl(session, {
+      type: 'answer-dialog',
+      documentId: frame.documentId,
+      requestId: frame.dialog.id,
+      accept,
+      ...(promptText === undefined ? {} : { promptText }),
+    });
+  };
+  /** Click the agreement box in the cross-origin payment layer and see it checked. */
+  const agree = async (guest: WebContents) => {
+    const layer = (await eventually(
+      async () => guest.mainFrame.framesInSubtree.find((frame) => frame.url.startsWith(paymentOrigin)) ?? null,
+      (frame) => frame !== null
+    )) as WebFrameMain;
+    await eventually(
+      () =>
+        layer.executeJavaScript(`document.readyState === 'complete' && Boolean(document.querySelector('#agree'))`),
+      Boolean
+    );
+    const inner = await center(layer, '#agree');
+    const offset = (await guest.executeJavaScript(`(() => {
+      const r = document.querySelector('#payment').getBoundingClientRect();
+      return { x: r.x, y: r.y };
+    })()`)) as { x: number; y: number };
+    await click({ x: offset.x + inner.x, y: offset.y + inner.y });
+    await eventually(() => layer.executeJavaScript(`document.querySelector('#agree').checked`), Boolean, 3_000);
+  };
 
-    await click(await center(opener, '#alert-pay'));
-    await dialogShown('alert', 'Payment notice');
-    await answer(true);
+  await click(await center(opener, '#alert-pay'));
+  await dialogShown('alert', 'Payment notice');
+  await answer(true);
+  await eventually(
+    () => stateOf(opener),
+    (value) => value === 'alerted'
+  );
+  await agree(opener);
+  progress(`${mode}: alert card answered, then the cross-origin payment layer took the click`);
+
+  await opener.loadURL(`${origin}/pay`);
+  for (const [accept, expected] of [
+    [false, 'cancelled'],
+    [true, 'confirmed'],
+  ] as const) {
+    await click(await center(opener, '#confirm-pay'));
+    await dialogShown('confirm', 'Proceed to payment?');
+    await answer(accept);
     await eventually(
       () => stateOf(opener),
-      (value) => value === 'alerted'
+      (value) => value === expected
     );
-    await agree(opener);
-    progress(`${mode}: alert card answered, then the cross-origin payment layer took the click`);
-
-    await opener.loadURL(`${origin}/pay`);
-    for (const [accept, expected] of [
-      [false, 'cancelled'],
-      [true, 'confirmed'],
-    ] as const) {
-      await click(await center(opener, '#confirm-pay'));
-      await dialogShown('confirm', 'Proceed to payment?');
-      await answer(accept);
-      await eventually(
-        () => stateOf(opener),
-        (value) => value === expected
-      );
-    }
-    await click(await center(opener, '#prompt-pay'));
-    await dialogShown('prompt', 'Payer name?');
-    await answer(true, 'Lee');
-    await eventually(
-      () => stateOf(opener),
-      (value) => value === 'prompt:Lee'
-    );
-    progress(`${mode}: confirm OK/Cancel and prompt answers reached the page`);
-
-    await click(await center(opener, '#layer-speaks'));
-    await dialogShown('alert', 'Payment layer notice');
-    await answer(true);
-    await agree(opener);
-    progress(`${mode}: the payment layer's own alert reached the pane, then the layer took the click`);
-
-    await opener.loadURL(`${origin}/pay`);
-    await click(await center(opener, '#popup-pay'));
-    const popup = (await eventually(
-      async () => webContents.getAllWebContents().find((entry) => entry.getURL().endsWith('/easy')) ?? null,
-      (entry) => entry !== null
-    )) as WebContents;
-    // Dismissed silently rather than shown, or an OS message box owned by a
-    // hidden window, if the popup lost the page preferences.
-    // Electron's own record of the page's preferences (untyped).
-    const preferences = (
-      popup as WebContents & { getLastWebPreferences(): { disableDialogs?: boolean } | null }
-    ).getLastWebPreferences();
-    assert.equal(preferences?.disableDialogs, true, `${mode}: popup keeps disableDialogs`);
-    /** The pane shows `guest` as the selected tab, with no select-tab sent. */
-    const selected = (guest: WebContents, label: string) =>
-      eventually(frameNow, (frame) => frame.webContentsId === guest.id).catch(async (error) => {
-        const last = await frameNow();
-        throw new Error(
-          `${mode}: ${label}: ${(error as Error).message}; shown ${last.url}, ` +
-            `tabs ${JSON.stringify(last.tabs?.map((entry) => [entry.url, entry.active]))}`
-        );
-      });
-    // The person's click opened it in front: it is the tab they now see, as
-    // Chrome brings it forward, with its first-document alert on it.
-    const shownPopup = await selected(popup, "the person's popup is not the selected tab");
-    assert.equal(shownPopup.tabs?.find((entry) => entry.url.endsWith('/easy'))?.active, true);
-    await dialogShown('alert', 'Popup notice');
-    await answer(true);
-    await eventually(
-      () => popup.executeJavaScript('document.title'),
-      (value) => value === 'Easy service ready'
-    );
-    await agree(popup);
-    progress(`${mode}: the person's popup became the selected tab; its alert and payment layer took their input`);
-
-    // Payment done: the popup closes itself, and the person is back on the opener.
-    void popup.executeJavaScript('setTimeout(() => window.close(), 0)').catch(() => undefined);
-    const closed = await selected(opener, 'closing the popup did not return to its opener');
-    assert.equal(
-      closed.tabs?.some((entry) => entry.url.endsWith('/easy')),
-      false
-    );
-    progress(`${mode}: the popup's window.close() returned the selection to its opener`);
-
-    // A popup the opener writes into keeps about:blank as its address.
-    await opener.loadURL(`${origin}/pay`);
-    await click(await center(opener, '#blank-popup'));
-    await dialogShown('alert', 'Blank popup notice');
-    await answer(true);
-    const blank = (await eventually(
-      async () => webContents.getAllWebContents().find((entry) => entry.getTitle() === 'Blank pay done') ?? null,
-      (entry) => entry !== null
-    )) as WebContents;
-    assert.equal(blank.getURL(), 'about:blank');
-    await selected(blank, "the person's about:blank popup is not the selected tab");
-    progress(`${mode}: an about:blank popup's alert reached the pane`);
-
-    // The agent's click opens a popup: it stays behind and the agent is told.
-    const back = await frameNow();
-    const openerTab = back.tabs?.find((entry) => entry.url.endsWith('/pay'));
-    assert.ok(openerTab);
-    await browser.browserPageControl(session, { type: 'select-tab', tabId: openerTab.id, documentId: back.documentId });
-    await selected(opener, 'the opener tab could not be picked');
-
-    // The click's window comes forward; the one the page opens later from a
-    // timer (no gesture of its own) stays behind it.
-    const popupAt = (path: string) =>
-      eventually(
-        async () => webContents.getAllWebContents().find((entry) => entry.getURL().endsWith(path)) ?? null,
-        (entry) => entry !== null
-      ) as Promise<WebContents>;
-    await click(await center(opener, '#late-popup'));
-    const firstPopup = await popupAt('/first');
-    await selected(firstPopup, "the click's popup is not the selected tab");
-    const latePopup = await popupAt('/late');
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    const afterLate = await frameNow();
-    assert.equal(
-      afterLate.webContentsId,
-      firstPopup.id,
-      `${mode}: a timer-opened popup took the selection: shown ${afterLate.url}, ` +
-        `tabs ${JSON.stringify(afterLate.tabs?.map((entry) => [entry.url, entry.active]))}`
-    );
-    assert.equal(afterLate.tabs?.find((entry) => entry.url.endsWith('/late'))?.active, false);
-    assert.equal(latePopup.isDestroyed(), false);
-    progress(`${mode}: a popup opened later from a timer stayed behind the click's popup`);
-    const reselect = await frameNow();
-    const openerAgain = reselect.tabs?.find((entry) => entry.url.endsWith('/pay'));
-    assert.ok(openerAgain);
-    await browser.browserPageControl(session, {
-      type: 'select-tab',
-      tabId: openerAgain.id,
-      documentId: reselect.documentId,
-    });
-    await selected(opener, 'the opener tab could not be picked again');
-
-    // alert('새창에서 열립니다.'); window.open(...): the person reads the alert past
-    // Chromium's 5 s activation window, answers it, and the window still
-    // comes forward as theirs.
-    await click(await center(opener, '#notice-popup'));
-    await dialogShown('alert', '새창에서 열립니다.');
-    await new Promise((resolve) => setTimeout(resolve, 5_500));
-    await answer(true);
-    const notice = await popupAt('/notice');
-    await selected(notice, 'the popup opened right after the alert answer is not the selected tab');
-    progress(`${mode}: a popup opened right after the person answered an alert became the selected tab`);
-    const noticeFrame = await frameNow();
-    const openerThird = noticeFrame.tabs?.find((entry) => entry.url.endsWith('/pay'));
-    assert.ok(openerThird);
-    await browser.browserPageControl(session, {
-      type: 'select-tab',
-      tabId: openerThird.id,
-      documentId: noticeFrame.documentId,
-    });
-    await selected(opener, 'the opener tab could not be picked a third time');
-    // The agent waits out the person's quiet period (command-queue-local-input).
-    await new Promise((resolve) => setTimeout(resolve, 1_200));
-    browser.setBridgeEnabled(true);
-    const discovery = await readDiscovery(join(process.env.MIXDOG_DATA_DIR!, 'browser-bridge.json'));
-    const command = async (input: Record<string, unknown>) => {
-      const response = await fetch(`http://127.0.0.1:${discovery.port}/command`, {
-        method: 'POST',
-        headers: { authorization: `Bearer ${discovery.token}`, 'content-type': 'application/json' },
-        body: JSON.stringify({ session_id: session, turn_id: 1, ...input }),
-      });
-      const payload = (await response.json()) as { ok: boolean; value?: { text?: string }; error?: string };
-      if (!payload.ok) throw new Error(payload.error || 'browser command failed');
-      return String(payload.value?.text || '');
-    };
-    const snapshot = await command({ action: 'snapshot' });
-    const ref = snapshot
-      .split('\n')
-      .find((line) => line.includes('"Quiet popup"'))
-      ?.match(/\[(p\d+-s\d+-e\d+)\]/)?.[1];
-    assert.ok(ref, `no Quiet popup ref in the agent snapshot:\n${snapshot}`);
-    const reply = await command({ action: 'click', ref });
-    assert.match(reply, /popup-\d+/, `${mode}: the agent is told about the popup it opened:\n${reply}`);
-    const quiet = (await eventually(
-      async () => webContents.getAllWebContents().find((entry) => entry.getURL().endsWith('/quiet')) ?? null,
-      (entry) => entry !== null
-    )) as WebContents;
-    const after = await frameNow();
-    assert.equal(after.webContentsId, opener.id, `${mode}: the agent's popup took the selection`);
-    assert.equal(after.tabs?.find((entry) => entry.url.endsWith('/quiet'))?.active, false);
-    assert.equal(quiet.isDestroyed(), false);
-    progress(`${mode}: the agent's popup stayed an unselected tab and its reply named it`);
-  } finally {
-    await browser.dispose().catch(() => undefined);
-    parent.destroy();
   }
+  await click(await center(opener, '#prompt-pay'));
+  await dialogShown('prompt', 'Payer name?');
+  await answer(true, 'Lee');
+  await eventually(
+    () => stateOf(opener),
+    (value) => value === 'prompt:Lee'
+  );
+  progress(`${mode}: confirm OK/Cancel and prompt answers reached the page`);
+
+  await click(await center(opener, '#layer-speaks'));
+  await dialogShown('alert', 'Payment layer notice');
+  await answer(true);
+  await agree(opener);
+  progress(`${mode}: the payment layer's own alert reached the pane, then the layer took the click`);
+
+  await opener.loadURL(`${origin}/pay`);
+  await click(await center(opener, '#popup-pay'));
+  const popup = (await eventually(
+    async () => webContents.getAllWebContents().find((entry) => entry.getURL().endsWith('/easy')) ?? null,
+    (entry) => entry !== null
+  )) as WebContents;
+  // Dismissed silently rather than shown, or an OS message box owned by a
+  // hidden window, if the popup lost the page preferences.
+  // Electron's own record of the page's preferences (untyped).
+  const preferences = (
+    popup as WebContents & { getLastWebPreferences(): { disableDialogs?: boolean } | null }
+  ).getLastWebPreferences();
+  assert.equal(preferences?.disableDialogs, true, `${mode}: popup keeps disableDialogs`);
+  /** The pane shows `guest` as the selected tab, with no select-tab sent. */
+  const selected = (guest: WebContents, label: string) =>
+    eventually(frameNow, (frame) => frame.webContentsId === guest.id).catch(async (error) => {
+      const last = await frameNow();
+      throw new Error(
+        `${mode}: ${label}: ${(error as Error).message}; shown ${last.url}, ` +
+          `tabs ${JSON.stringify(last.tabs?.map((entry) => [entry.url, entry.active]))}`
+      );
+    });
+  // The person's click opened it in front: it is the tab they now see, as
+  // Chrome brings it forward, with its first-document alert on it.
+  const shownPopup = await selected(popup, "the person's popup is not the selected tab");
+  assert.equal(shownPopup.tabs?.find((entry) => entry.url.endsWith('/easy'))?.active, true);
+  await dialogShown('alert', 'Popup notice');
+  await answer(true);
+  await eventually(
+    () => popup.executeJavaScript('document.title'),
+    (value) => value === 'Easy service ready'
+  );
+  await agree(popup);
+  progress(`${mode}: the person's popup became the selected tab; its alert and payment layer took their input`);
+
+  // Payment done: the popup closes itself, and the person is back on the opener.
+  void popup.executeJavaScript('setTimeout(() => window.close(), 0)').catch(() => undefined);
+  const closed = await selected(opener, 'closing the popup did not return to its opener');
+  assert.equal(
+    closed.tabs?.some((entry) => entry.url.endsWith('/easy')),
+    false
+  );
+  progress(`${mode}: the popup's window.close() returned the selection to its opener`);
+
+  // A popup the opener writes into keeps about:blank as its address.
+  await opener.loadURL(`${origin}/pay`);
+  await click(await center(opener, '#blank-popup'));
+  await dialogShown('alert', 'Blank popup notice');
+  await answer(true);
+  const blank = (await eventually(
+    async () => webContents.getAllWebContents().find((entry) => entry.getTitle() === 'Blank pay done') ?? null,
+    (entry) => entry !== null
+  )) as WebContents;
+  assert.equal(blank.getURL(), 'about:blank');
+  await selected(blank, "the person's about:blank popup is not the selected tab");
+  progress(`${mode}: an about:blank popup's alert reached the pane`);
+
+  // The agent's click opens a popup: it stays behind and the agent is told.
+  const back = await frameNow();
+  const openerTab = back.tabs?.find((entry) => entry.url.endsWith('/pay'));
+  assert.ok(openerTab);
+  await browser.browserPageControl(session, { type: 'select-tab', tabId: openerTab.id, documentId: back.documentId });
+  await selected(opener, 'the opener tab could not be picked');
+
+  // The click's window comes forward; the one the page opens later from a
+  // timer (no gesture of its own) stays behind it.
+  const popupAt = (path: string) =>
+    eventually(
+      async () => webContents.getAllWebContents().find((entry) => entry.getURL().endsWith(path)) ?? null,
+      (entry) => entry !== null
+    ) as Promise<WebContents>;
+  await click(await center(opener, '#late-popup'));
+  const firstPopup = await popupAt('/first');
+  await selected(firstPopup, "the click's popup is not the selected tab");
+  const latePopup = await popupAt('/late');
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  const afterLate = await frameNow();
+  assert.equal(
+    afterLate.webContentsId,
+    firstPopup.id,
+    `${mode}: a timer-opened popup took the selection: shown ${afterLate.url}, ` +
+      `tabs ${JSON.stringify(afterLate.tabs?.map((entry) => [entry.url, entry.active]))}`
+  );
+  assert.equal(afterLate.tabs?.find((entry) => entry.url.endsWith('/late'))?.active, false);
+  assert.equal(latePopup.isDestroyed(), false);
+  progress(`${mode}: a popup opened later from a timer stayed behind the click's popup`);
+  const reselect = await frameNow();
+  const openerAgain = reselect.tabs?.find((entry) => entry.url.endsWith('/pay'));
+  assert.ok(openerAgain);
+  await browser.browserPageControl(session, {
+    type: 'select-tab',
+    tabId: openerAgain.id,
+    documentId: reselect.documentId,
+  });
+  await selected(opener, 'the opener tab could not be picked again');
+
+  // alert('새창에서 열립니다.'); window.open(...): the person reads the alert past
+  // Chromium's 5 s activation window, answers it, and the window still
+  // comes forward as theirs.
+  await click(await center(opener, '#notice-popup'));
+  await dialogShown('alert', '새창에서 열립니다.');
+  await new Promise((resolve) => setTimeout(resolve, 5_500));
+  await answer(true);
+  const notice = await popupAt('/notice');
+  await selected(notice, 'the popup opened right after the alert answer is not the selected tab');
+  progress(`${mode}: a popup opened right after the person answered an alert became the selected tab`);
+  const noticeFrame = await frameNow();
+  const openerThird = noticeFrame.tabs?.find((entry) => entry.url.endsWith('/pay'));
+  assert.ok(openerThird);
+  await browser.browserPageControl(session, {
+    type: 'select-tab',
+    tabId: openerThird.id,
+    documentId: noticeFrame.documentId,
+  });
+  await selected(opener, 'the opener tab could not be picked a third time');
+  // The agent waits out the person's quiet period (command-queue-local-input).
+  await new Promise((resolve) => setTimeout(resolve, 1_200));
+  const command = async (input: Record<string, unknown>) => {
+    const value = (await harness.uiCommand(String(input.action), { ...input, session_id: session, turn_id: 1 })) as {
+      text?: string;
+    } | null;
+    return String(value?.text || '');
+  };
+  const snapshot = await command({ action: 'snapshot' });
+  const ref = snapshot
+    .split('\n')
+    .find((line) => line.includes('"Quiet popup"'))
+    ?.match(/\[(p\d+-s\d+-e\d+)\]/)?.[1];
+  assert.ok(ref, `no Quiet popup ref in the agent snapshot:\n${snapshot}`);
+  const reply = await command({ action: 'click', ref });
+  assert.match(reply, /popup-\d+/, `${mode}: the agent is told about the popup it opened:\n${reply}`);
+  const quiet = (await eventually(
+    async () => webContents.getAllWebContents().find((entry) => entry.getURL().endsWith('/quiet')) ?? null,
+    (entry) => entry !== null
+  )) as WebContents;
+  const after = await frameNow();
+  assert.equal(after.webContentsId, opener.id, `${mode}: the agent's popup took the selection`);
+  assert.equal(after.tabs?.find((entry) => entry.url.endsWith('/quiet'))?.active, false);
+  assert.equal(quiet.isDestroyed(), false);
+  progress(`${mode}: the agent's popup stayed an unselected tab and its reply named it`);
 }
 
-async function run(): Promise<void> {
+const suite: CoreHarnessSuite = async (harness) => {
   const payment = paymentServer();
   let paymentOrigin = '';
   const merchant = merchantServer(() => paymentOrigin);
@@ -380,27 +355,12 @@ async function run(): Promise<void> {
     paymentOrigin = `http://127.0.0.2:${await listen(payment, '0.0.0.0')}`;
     const origin = `http://127.0.0.1:${await listen(merchant, '127.0.0.1')}`;
     // One presentation per process: the host reads it once, at creation.
-    await scenario(origin, paymentOrigin, process.env.MIXDOG_BROWSER_NATIVE_VIEW === '1');
+    await scenario(harness, origin, paymentOrigin, process.env.MIXDOG_BROWSER_NATIVE_VIEW === '1');
     progress('user dialogs integration passed');
   } finally {
     payment.close();
     merchant.close();
   }
-}
+};
 
-/** app.exit skips every quit hook, so the disposable profile goes first. */
-async function finish(code: number): Promise<void> {
-  await removeTempDir(profile);
-  app.exit(code);
-}
-
-void app
-  .whenReady()
-  .then(async () => {
-    await run();
-    await finish(0);
-  })
-  .catch(async (error) => {
-    progress(`FAILED: ${(error as Error).stack || error}`);
-    await finish(1);
-  });
+export default suite;
