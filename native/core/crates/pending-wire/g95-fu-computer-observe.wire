@@ -1,0 +1,26 @@
+g95-fu-computer-observe wiring (two edits in mixdog-tools/src/desktop/computer_act.rs and computer_feedback.rs, neither owned by this task)
+
+1. computer_act.rs, fn preflight (anchor: `async fn preflight(&self, planned: &[Map<String, Value>], window_id: &str, cancel: &CancellationToken)`).
+   Insert as the first statement of the body, before `let native: Vec<Value> = planned`:
+
+       // The renderer's key table refuses a key it cannot map; a sequence found to hold one runs none of its steps (`electronKeyPresses` in `createInputPreflight`).
+       for step in planned.iter().filter(|step| text(step, "action") == "key") {
+           if let Some(refused) = APP_OWNED.unmapped_key(step, window_id) {
+               return Ok(Some(refused));
+           }
+       }
+
+   `AppOwnedWindows::unmapped_key` (computer_app_owned.rs) is new and has no other caller; until this is applied it only warns as dead code (the workspace does not deny warnings).
+   The refusal is `background_unsupported: key {NAME} has no Electron input mapping; no input was sent`, a code `preflight` already turns into the sequence's refusal row.
+
+2. computer_feedback.rs, fn serve (anchor: the line `let _ = mixdog_rt::time::timeout(SEND_TIMEOUT, desktop.request(HostCapability::Computer, Method(METHOD), params)).await;`).
+   Replace it with:
+
+       // A relay the desktop could not carry means the overlay surface that draws the arrow is gone: the next pointer action asks for the arrow again.
+       if !matches!(mixdog_rt::time::timeout(SEND_TIMEOUT, desktop.request(HostCapability::Computer, Method(METHOD), params)).await, Ok(Ok(_))) {
+           super::computer_pointer::forget_ready(&session);
+       }
+
+   `computer_pointer::forget_ready` is now `pub(super)` (this task).
+
+No protocol rows, no Cargo edges, no SERVICE_PENDING names.
