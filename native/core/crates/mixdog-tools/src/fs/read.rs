@@ -67,9 +67,6 @@ const TAIL_MODE_LINES_MAX: u64 = 2000;
 const PUBLIC_BATCH_LIMIT: usize = 10;
 /// A file over this many bytes is streamed, not buffered (`READ_STREAM_RANGE_MIN_BYTES`).
 const READ_STREAM_RANGE_MIN_BYTES: u64 = 128 * 1024;
-/// One line is collected up to this many bytes (`READ_MAX_LINE_COLLECT_BYTES`).
-const READ_MAX_LINE_COLLECT_BYTES: usize = OUTPUT_MAX_BYTES;
-const READ_MAX_OUTPUT_BYTES: usize = OUTPUT_MAX_BYTES;
 /// A glob survey shares this many output bytes.
 const SURVEY_BUDGET: usize = 10 * 1024;
 /// A past-the-cap file is read this many bytes at a time.
@@ -348,7 +345,7 @@ impl Tool for ReadTool {
             let e = public.entries.remove(0);
             return self.run_top(ctx, e, 1, public.pages.as_ref()).await;
         }
-        let results = self.pipeline(ctx, public.entries, true, READ_MAX_OUTPUT_BYTES, true, 1).await?;
+        let results = self.pipeline(ctx, public.entries, true, output_max_bytes(), true, 1).await?;
         if args.get("reject_partial") == Some(&JsonValue::Bool(true)) && is_rejected(&results) {
             return text_output(rejected(&results));
         }
@@ -491,7 +488,7 @@ impl ReadTool {
             self.resolve_tail(ctx, &mut entry, raw_path).await;
             entries.push(entry);
         }
-        let results = self.pipeline(ctx, entries, object, READ_MAX_OUTPUT_BYTES, true, 0).await?;
+        let results = self.pipeline(ctx, entries, object, output_max_bytes(), true, 0).await?;
         if map.get("reject_partial") == Some(&JsonValue::Bool(true)) && is_rejected(&results) {
             return text_output(rejected(&results));
         }
@@ -1036,7 +1033,7 @@ impl ReadTool {
                 None => {}
             }
         }
-        let mode = Mode::Single { max_output: READ_MAX_OUTPUT_BYTES, raw: false, suppress: false };
+        let mode = Mode::Single { max_output: output_max_bytes(), raw: false, suppress: false };
         self.run_plan(ctx, &be, base, pages, mode).await
     }
 
@@ -1162,7 +1159,7 @@ impl ReadTool {
                 }
                 let budget = allocated[at].max(256.0) as usize;
                 // An object batch holds what its reads saw until the windows are cut back out.
-                let (body, seen) = self.child(ctx, &slot.child(), base, READ_MAX_OUTPUT_BYTES.min(budget), object, record).await?;
+                let (body, seen) = self.child(ctx, &slot.child(), base, output_max_bytes().min(budget), object, record).await?;
                 if !object && record {
                     self.record(ctx, seen.as_ref());
                 }
@@ -1467,7 +1464,7 @@ impl ReadTool {
         };
         let (text, utf16) = text;
         // A call with no window over the output cap is answered by the smart elision of the file's head and tail.
-        if !utf16 && !e.ranged && !e.full && stat.len >= OUTPUT_MAX_BYTES as u64 {
+        if !utf16 && !e.ranged && !e.full && stat.len >= output_max_bytes() as u64 {
             if let Some((out, ranges, total)) = smart_stream_summary(&text, stat.len) {
                 let meta = SnapshotMeta { ranges: Some(ranges), file_line_count: Some(total), ..SnapshotMeta::new("read_smart_stream") };
                 cache(&out, &meta);
@@ -1556,13 +1553,13 @@ impl ReadTool {
                 let ended = piece.last() == Some(&b'\n');
                 let body = if ended { &piece[..piece.len() - 1] } else { piece };
                 if !c.skipping() {
-                    let room = READ_MAX_LINE_COLLECT_BYTES.saturating_sub(pending.len());
+                    let room = output_max_bytes().saturating_sub(pending.len());
                     pending.extend_from_slice(&body[..body.len().min(room)]);
                 }
                 pending_len += body.len();
                 if ended {
                     // A line over the collect cap keeps its first 50 KiB and no CR strip.
-                    let keep = if pending_len > READ_MAX_LINE_COLLECT_BYTES { &pending[..] } else { pending.strip_suffix(b"\r").unwrap_or(&pending) };
+                    let keep = if pending_len > output_max_bytes() { &pending[..] } else { pending.strip_suffix(b"\r").unwrap_or(&pending) };
                     c.push(keep);
                     pending.clear();
                     pending_len = 0;
@@ -1573,7 +1570,7 @@ impl ReadTool {
             }
         }
         if pending_len > 0 && !c.done() {
-            let keep = if pending_len > READ_MAX_LINE_COLLECT_BYTES { &pending[..] } else { pending.strip_suffix(b"\r").unwrap_or(&pending) };
+            let keep = if pending_len > output_max_bytes() { &pending[..] } else { pending.strip_suffix(b"\r").unwrap_or(&pending) };
             c.push(keep);
         }
         let (numbered, facts) = c.finish();
@@ -1648,7 +1645,7 @@ impl ReadTool {
     /// `extractOoxmlText` within the read's output budget (`READ_MAX_OUTPUT_BYTES`), run by the extension host: the
     /// document's text, or its failure as `Error:` text.
     async fn ooxml_text(&self, ctx: &ToolContext, abs: &AbsPath) -> Result<Body, ToolError> {
-        let params = serde_json::json!({ "path": fwd(abs.as_path()), "maxOutputBytes": READ_MAX_OUTPUT_BYTES });
+        let params = serde_json::json!({ "path": fwd(abs.as_path()), "maxOutputBytes": output_max_bytes() });
         Ok(Body::text(match self.ext_call(ctx, "ooxml.text", params, abs).await? {
             Ok((value, _)) => value.get("text").and_then(JsonValue::as_str).unwrap_or_default().to_owned(),
             Err(e) => ext_error_text(&e),
@@ -1670,7 +1667,7 @@ impl ReadTool {
         // A file without the %PDF- signature: pdf.js reports why it is not one (`extractPdfTextBody`).
         if !bytes.starts_with(b"%PDF-") {
             let page_range = range.map(|(from, to)| serde_json::json!({ "from": from, "to": to }));
-            let params = serde_json::json!({ "path": path, "extractText": true, "maxPages": "unlimited", "maxOutputBytes": READ_MAX_OUTPUT_BYTES, "pageRange": page_range });
+            let params = serde_json::json!({ "path": path, "extractText": true, "maxPages": "unlimited", "maxOutputBytes": output_max_bytes(), "pageRange": page_range });
             return Ok(Body::text(match self.ext_call(ctx, "pdf.inspect", params, abs).await? {
                 Ok((value, _)) => value["text"].as_str().filter(|text| !text.is_empty()).unwrap_or("(no text content extracted from PDF)").to_owned(),
                 Err(e) => pdf_extraction_failed(&e),
@@ -1721,7 +1718,7 @@ impl ReadTool {
             "path": fwd(abs.as_path()),
             "extractText": true,
             "maxPages": "unlimited",
-            "maxOutputBytes": READ_MAX_OUTPUT_BYTES,
+            "maxOutputBytes": output_max_bytes(),
             "pageRange": { "from": from, "to": to },
         });
         let extracted = match self.ext_call(ctx, "pdf.inspect", params, abs).await? {
@@ -1744,7 +1741,7 @@ impl ReadTool {
         let mut text_bytes = 0usize;
         let flush = |text: &mut String, blocks: &mut Vec<ToolPart>, text_bytes: &mut usize| {
             if !text.is_empty() {
-                blocks.push(ToolPart::Text(cap_pdf_text(text.as_str(), READ_MAX_OUTPUT_BYTES.saturating_sub(*text_bytes).max(1))));
+                blocks.push(ToolPart::Text(cap_pdf_text(text.as_str(), output_max_bytes().saturating_sub(*text_bytes).max(1))));
                 *text_bytes += text.len();
                 text.clear();
             }
@@ -1911,8 +1908,8 @@ impl ReadTool {
             }
         }
         flush(&mut texts, &mut blocks);
-        if text_len > READ_MAX_OUTPUT_BYTES {
-            blocks = cap_notebook_text(blocks, READ_MAX_OUTPUT_BYTES);
+        if text_len > output_max_bytes() {
+            blocks = cap_notebook_text(blocks, output_max_bytes());
         }
         if blocks.is_empty() {
             return Ok(Body::text("(empty notebook)"));
@@ -2519,12 +2516,12 @@ fn smart_stream_summary(text: &str, file_size: u64) -> Option<(String, Vec<LineR
     let head_rows: Vec<String> = (0..head_count).map(|i| render_read_line(i as u64 + 1, raw(i))).collect();
     let tail_rows: Vec<String> = (tail_start..total).map(|i| render_read_line(i as u64 + 1, raw(i))).collect();
     let kb = ((file_size as f64 / 1024.0).round() as u64).max(1);
-    let limit = if file_size > OUTPUT_MAX_BYTES as u64 { format_cap_size(OUTPUT_MAX_BYTES) } else { "2000 lines".to_owned() };
+    let limit = if file_size > output_max_bytes() as u64 { format_cap_size(output_max_bytes()) } else { "2000 lines".to_owned() };
     let marker = cap_marker(&limit, &format!("{total} lines / {kb} KB"), None, "read located windows with {file_path, offset, limit}");
     let (mut head_take, mut tail_take) = (head_rows.len(), tail_rows.len());
     let out = loop {
         let out = format!("{}\n{marker}\n{}", head_rows[..head_take].join("\n"), tail_rows[tail_rows.len() - tail_take..].join("\n"));
-        if out.len() <= OUTPUT_MAX_BYTES || (head_take <= 1 && tail_take <= 1) {
+        if out.len() <= output_max_bytes() || (head_take <= 1 && tail_take <= 1) {
             break out;
         }
         if head_take >= tail_take && head_take > 1 {
@@ -2550,7 +2547,7 @@ fn smart_read_truncate(rendered: &str, total_lines: u64, file_bytes: u64) -> Opt
     const MAX_LINES: u64 = 2000;
     const HEAD_LINES: usize = 1200;
     const TAIL_LINES: usize = 400;
-    let over_bytes = file_bytes > OUTPUT_MAX_BYTES as u64;
+    let over_bytes = file_bytes > output_max_bytes() as u64;
     if !over_bytes && total_lines <= MAX_LINES {
         return None;
     }
@@ -2561,7 +2558,7 @@ fn smart_read_truncate(rendered: &str, total_lines: u64, file_bytes: u64) -> Opt
         return None;
     }
     let kb = ((file_bytes as f64 / 1024.0).round() as u64).max(1);
-    let limit = if over_bytes { format_cap_size(OUTPUT_MAX_BYTES) } else { format!("{MAX_LINES} lines") };
+    let limit = if over_bytes { format_cap_size(output_max_bytes()) } else { format!("{MAX_LINES} lines") };
     let shown = format!("lines {}-{tail_start} of {total_lines} omitted ({kb} KB file)", head + 1);
     let marker = cap_marker(&limit, &shown, Some(head as u64 + 1), "");
     let kept = [LineRange { start: 1, end: Some(head as u64) }, LineRange { start: tail_start as u64 + 1, end: Some(rows.len() as u64) }];
@@ -2625,7 +2622,7 @@ impl Collector {
             self.line_idx += 1;
             return;
         }
-        let mut line = String::from_utf8_lossy(&raw[..raw.len().min(READ_MAX_LINE_COLLECT_BYTES)]).into_owned();
+        let mut line = String::from_utf8_lossy(&raw[..raw.len().min(output_max_bytes())]).into_owned();
         if self.line_idx == 0 {
             if let Some(rest) = line.strip_prefix('\u{feff}') {
                 line = rest.to_owned();

@@ -46,7 +46,10 @@ use crate::memory::recall::ranking::{
 use crate::memory::recall::row::{Row, by_diff, compare_by_score, compare_newest_first, unique_rows_by_id};
 
 /// Largest recall text handed to a model.
-pub const RECALL_OUTPUT_MAX_BYTES: usize = 20 * 1024;
+pub fn recall_output_max_bytes() -> usize {
+    static MAX: std::sync::LazyLock<usize> = std::sync::LazyLock::new(|| mixdog_tools::github::positive_env_int(std::env::var("MIXDOG_RECALL_OUTPUT_MAX_BYTES").ok().as_deref(), 20 * 1024));
+    *MAX
+}
 const FAN_OUT_QUERIES_CAP: usize = 5;
 const FAN_OUT_DEADLINE: Duration = Duration::from_secs(180);
 
@@ -303,7 +306,7 @@ impl Recall {
     pub async fn recall_cancellable(&self, args: &Value, cancel: &CancellationToken) -> RecallOutcome {
         match self.handle_search(&recall_search_args(args), cancel).await {
             Ok(mut outcome) => {
-                outcome.text = cap_recall_text(&outcome.text, RECALL_OUTPUT_MAX_BYTES);
+                outcome.text = cap_recall_text(&outcome.text, recall_output_max_bytes());
                 outcome
             }
             Err(error) => RecallOutcome {

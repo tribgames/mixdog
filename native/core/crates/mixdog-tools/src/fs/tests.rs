@@ -3318,3 +3318,19 @@ async fn read_with_tail_matches_the_recorded_node_cases() {
     }
     assert!(failures.is_empty(), "{} of {} differ:\n{}", failures.len(), cases.len(), failures.join("\n"));
 }
+/// `tool-output-limit.mjs`: each cap is its default unless its `MIXDOG_*_OUTPUT_MAX_BYTES` names a positive integer.
+#[test]
+fn the_output_caps_default_to_the_documented_sizes() {
+    for (name, got, default) in [
+        ("MIXDOG_TOOL_OUTPUT_MAX_BYTES", super::common::output_max_bytes(), 50 * 1024),
+        ("MIXDOG_LOCATOR_OUTPUT_MAX_BYTES", super::common::locator_max_bytes(), 20 * 1024),
+        ("MIXDOG_GREP_OUTPUT_MAX_BYTES", super::common::grep_max_bytes(), 5 * 1024),
+    ] {
+        if std::env::var(name).is_err() {
+            assert_eq!(got, default, "{name}");
+        }
+    }
+    assert_eq!(crate::github::positive_env_int(Some(" 4096kb"), 1), 4096);
+    assert_eq!(crate::github::positive_env_int(Some("0"), 7), 7);
+    assert_eq!(crate::github::positive_env_int(None, 7), 7);
+}

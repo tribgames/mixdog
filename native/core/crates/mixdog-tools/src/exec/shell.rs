@@ -423,11 +423,7 @@ async fn compaction_of(
     command: &str,
     exit_code: i32,
 ) -> Option<Compaction> {
-    let cap = std::env::var("MIXDOG_TOOL_OUTPUT_MAX_BYTES")
-        .ok()
-        .and_then(|raw| parse_int_prefix(&raw))
-        .filter(|n| *n > 0)
-        .map_or(50 * 1024, |n| n as usize);
+    let cap = crate::fs::common::output_max_bytes();
     // Node spills a capture past the cap to its logs (`hasExistingRecovery`) and reads a smaller one whole. A capture whose
     // start memory dropped but that the cap still holds (a cap above memory's) is read back whole from its logs, as Node
     // holds it; one the logs cannot give whole is not compacted.
