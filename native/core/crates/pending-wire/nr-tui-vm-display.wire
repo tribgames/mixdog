@@ -1,0 +1,18 @@
+# nr-tui-vm-display: what the wiring applies
+
+[cargo-lock]
+# native/core/Cargo.lock, [[package]] name = "mixdog-view-model": add one dependency line (alphabetical, after "mixdog-testkit"):
+#     "mixdog-tui-style",
+# The dependency list then reads: mixdog-js, mixdog-protocol, mixdog-testkit, mixdog-tui-style, mixdog-workspace-hack, serde, serde_json.
+# (crates/mixdog-view-model/Cargo.toml already has `mixdog-tui-style = { workspace = true }`; the workspace table has the path entry.
+# mixdog-termtext is NOT added: no ported function measures a visible width, so the dependency would be unused.)
+
+[compose_flip]
+# Nothing: this task registers no service and no protocol method.
+
+[consumers]
+# StatuslineSegments (display/statusline_segments.rs) reads files through a SegmentSource and refreshes through a BackgroundRun,
+# both supplied by the host (the workspace bans blocking std::fs outside a lane job). The task that builds the terminal UI's
+# statusline implements them over a lane job and mixdog_statefile::process_exists(pid).
+# StatusStyle (display/statusline_format.rs) takes the colour environment from mixdog_tui_style::color::Styler::process().
+# ModelMetadata / MetadataLookup (display/statusline_format.rs) stand for getModelMetadataSync: the caller passes its catalog.

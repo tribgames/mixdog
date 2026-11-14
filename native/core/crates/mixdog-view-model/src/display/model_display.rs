@@ -6,6 +6,8 @@ use std::sync::LazyLock;
 use mixdog_js::JsRegex;
 use mixdog_js::js_to_lowercase;
 use mixdog_js::js_trim;
+use mixdog_js::slice_utf16;
+use mixdog_js::utf16_len;
 
 fn re(pattern: &str) -> JsRegex {
     JsRegex::new_static(pattern, "i")
@@ -41,7 +43,7 @@ static HYPHENATED_BRANDS: LazyLock<Vec<(JsRegex, &'static str)>> = LazyLock::new
 });
 
 /// `titleModelPart`.
-fn title_model_part(part: &str) -> String {
+pub fn title_model_part(part: &str) -> String {
     let text = js_trim(part);
     if text.is_empty() {
         return String::new();
@@ -87,7 +89,7 @@ fn brand_words(tail: &str, joiner: &str) -> String {
 }
 
 /// `gatewayBrandDisplay`.
-fn gateway_brand_display(raw: &str) -> String {
+pub fn gateway_brand_display(raw: &str) -> String {
     for (pattern, brand, joiner) in SPACED_BRANDS.iter() {
         if let Some(m) = pattern.captures(raw) {
             return format!("{brand}{joiner}{}", brand_words(m.get(1).unwrap_or_default(), " "));
@@ -109,7 +111,7 @@ fn without_match(text: &str, pattern: &JsRegex) -> String {
 }
 
 /// `canonicalModelDisplay`.
-fn canonical_model_display(model: &str) -> String {
+pub fn canonical_model_display(model: &str) -> String {
     let raw = without_match(&without_match(js_trim(model), &DATE_DASHED), &DATE_COMPACT);
     if raw.is_empty() {
         return String::new();
@@ -174,4 +176,91 @@ pub fn display_model_name(model: &str, hint: &str) -> String {
         }
     }
     if hint.is_empty() { id } else { hint.to_owned() }
+}
+
+static ONE_M_CONTEXT: LazyLock<JsRegex> = LazyLock::new(|| re(r"\s*\(1M context\)"));
+static CLAUDE_PREFIX: LazyLock<JsRegex> = LazyLock::new(|| re(r"^Claude\s+"));
+static OPENAI_PREFIX: LazyLock<JsRegex> = LazyLock::new(|| re(r"^OpenAI\s+"));
+
+fn is_option_separator(c: char) -> bool {
+    mixdog_js::is_js_space(c) || c == '_' || c == '-'
+}
+
+/// `titleCaseOption`: each word upper-case first and lower-case rest, the separators (white space, `_`, `-`) kept.
+fn title_case_option(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    let mut word = String::new();
+    let flush = |word: &mut String, out: &mut String| {
+        let mut chars = word.chars();
+        if let Some(first) = chars.next() {
+            out.extend(first.to_uppercase());
+            out.push_str(&js_to_lowercase(chars.as_str()));
+        }
+        word.clear();
+    };
+    for c in value.chars() {
+        if is_option_separator(c) {
+            flush(&mut word, &mut out);
+            out.push(c);
+        } else {
+            word.push(c);
+        }
+    }
+    flush(&mut word, &mut out);
+    out
+}
+
+/// `effortDisplayLabel(value)`: `xhigh` reads `XHigh`, any other effort title-cased; empty for nothing.
+pub fn effort_display_label(value: &str) -> String {
+    let text = js_trim(value);
+    if text.is_empty() {
+        return String::new();
+    }
+    if js_to_lowercase(text) == "xhigh" {
+        return "XHigh".to_owned();
+    }
+    title_case_option(text)
+}
+
+/// `shortenModelName(name, cols)`: the name as a narrow footer shows it: `(1M context)` as `(1M)`, no `Claude ` or
+/// `OpenAI ` prefix, cut to 18 columns under 80 and 28 under 120 with an ellipsis.
+pub fn shorten_model_name(name: &str, cols: f64) -> String {
+    let named = if name.is_empty() { "model" } else { name };
+    let replaced = match ONE_M_CONTEXT.find(named) {
+        Some(range) => format!("{} (1M){}", &named[..range.start], &named[range.end..]),
+        None => named.to_owned(),
+    };
+    let out = without_match(&replaced, &CLAUDE_PREFIX);
+    let out = without_match(&out, &OPENAI_PREFIX);
+    if cols < 80.0 && utf16_len(&out) > 18 {
+        return format!("{}\u{2026}", slice_utf16(&out, 17));
+    }
+    if cols < 120.0 && utf16_len(&out) > 28 {
+        return format!("{}\u{2026}", slice_utf16(&out, 27));
+    }
+    out
+}
+
+#[cfg(test)]
+mod display_tests {
+    use super::*;
+
+    #[test]
+    fn effort_labels_title_case_and_keep_xhigh() {
+        assert_eq!(effort_display_label("xhigh"), "XHigh");
+        assert_eq!(effort_display_label(" XHIGH "), "XHigh");
+        assert_eq!(effort_display_label("medium"), "Medium");
+        assert_eq!(effort_display_label("very_high-ish"), "Very_High-Ish");
+        assert_eq!(effort_display_label(""), "");
+    }
+
+    #[test]
+    fn narrow_footers_shorten_the_name() {
+        assert_eq!(shorten_model_name("Claude Opus 4.7 (1M context)", 200.0), "Opus 4.7 (1M)");
+        assert_eq!(shorten_model_name("OpenAI GPT-5", 200.0), "GPT-5");
+        assert_eq!(shorten_model_name("", 200.0), "model");
+        assert_eq!(shorten_model_name("A very long model display name indeed", 70.0), "A very long model\u{2026}");
+        assert_eq!(shorten_model_name("A very long model display name indeed", 100.0), "A very long model display n\u{2026}");
+        assert_eq!(shorten_model_name("A very long model display name indeed", 120.0), "A very long model display name indeed");
+    }
 }
