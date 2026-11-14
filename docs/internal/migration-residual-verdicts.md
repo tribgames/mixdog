@@ -4,7 +4,7 @@ Owner direction 14: a main-process file that does not handle an Electron object 
 
 ## Scope and how it was computed
 
-Non-test, non-`.d.ts` files under `apps/desktop/src/main` (821 files at `mig/int` base). A file is "named" when a task of `tasks-v2.json` (any field except the x-residual-verdicts entry itself) or a `staysElectron` bullet of a plan mentions its path, or its basename when that basename is unique in the folder tree. The files left over are the rows of this table: **275 files, 35325 lines** (216 stay, 59 move, 0 delete). The earlier critique counted 94 unnamed plus 248 inventory-only files; this table covers both groups because it also includes every file that only an inventory (not a task) named, and it uses the stricter naming rule above (a task naming a stem such as `tabs-display` without its extension does not count). Targets of stay rows cite the plan clause by 0-based index in that plan's `staysElectron` array.
+Non-test, non-`.d.ts` files under `apps/desktop/src/main` (821 files at `mig/int` base). A file is "named" when a task of `tasks-v2.json` (any field except the x-residual-verdicts entry itself) or a `staysElectron` bullet of a plan mentions its path, or its basename when that basename is unique in the folder tree. The files left over are the rows of this table: **275 files, 35325 lines** (216 stay, 59 move, 0 delete). The earlier critique counted 94 unnamed plus 248 inventory-only files; this table covers both groups because it also includes every file that only an inventory (not a task) named, and it uses the stricter naming rule above (a task naming a stem such as `tabs-display` without its extension does not count). Targets of stay rows cite the plan clause by 0-based index in that plan's `staysElectron` array; a stay no clause covers says "no plan clause" and rests on the reason in its row.
 
 Read vs inferred: line counts are `wc -l`; the electron column is a scan for an `electron` import; verdicts come from reading the header comment, imports, exports and (for the ambiguous ones) the first 20 to 60 lines, not every line of the 8,000 lines of visualize or browser code. The pure browser helpers kept as stays are kept for the technical reason in their row (synchronous call from Electron-object code); the integrator may reverse any of them, and a reversal becomes a row of batch d.
 
@@ -172,14 +172,14 @@ Columns: path under `apps/desktop/src/main`, lines (`wc -l`), imports electron (
 
 | path | lines | electron | verdict | reason | target |
 |---|---|---|---|---|---|
-| `agent-awake.ts` | 122 | n | stay | Holds an Electron powerSaveBlocker while the engine reports live work. | s2a staysElectron[4] (core observers: keep-awake) |
+| `agent-awake.ts` | 122 | n | stay | Holds an Electron powerSaveBlocker while the engine reports live work. | s2a staysElectron[5] (core observers: keep-awake) |
 | `agent-memory.ts` | 65 | n | move | Pure list/delete of an agent profile memory pool on disk; no Electron object. | x-residual-moves-b |
 | `approval-grant-change.ts` | 20 | n | move | After a tool approval stored a standing grant, announces the permissions settings change; belongs to the core answer path. | x-residual-moves-b |
 | `attachment-files.ts` | 18 | n | move | Writes a data: attachment under the temp dir; node fs only. | x-residual-moves-b |
 | `attachment-thumbnail.ts` | 74 | n | move | Thumbnail read of stored attachment images; the decoder is injected (nativeImage in the caller), so the Rust port brings its own decoder. | x-residual-moves-b |
 | `background-window.ts` | 28 | n | stay | Wraps a BrowserWindow whose close hides it instead of quitting. | s2b staysElectron[0] (window bodies) |
-| `boot-timeline.ts` | 40 | n | stay | Orders boot diagnostics before the log exists; runs before the core is up, so it cannot depend on it. | x staysElectron[8] (main boot) |
-| `bounded-wait.mjs` | 14 | n | stay | Test helper for the Electron-driven node tests; no runtime code. | x staysElectron[10] (dev scripts) |
+| `boot-timeline.ts` | 40 | n | stay | Orders boot diagnostics before the log exists; runs before the core is up, so it cannot depend on it. | no plan clause (main boot; reason in this row) |
+| `bounded-wait.mjs` | 14 | n | stay | Test helper for the Electron-driven node tests; no runtime code. | no plan clause (dev or test helper; reason in this row) |
 | `browser/actionability.integration.ts` | 84 | y | stay | Test infrastructure for the in-process Electron browser suites (windows, probes, scenarios, helpers); not product code. | s4 staysElectron[14] (test infrastructure) |
 | `browser/background-reclaim.ts` | 161 | y | stay | Page, tab, guest, popup or prompt code that holds WebContents, BrowserWindow or WebContentsView (page-identity-file is the store of page-identity.ts). | s4 staysElectron[0] (views, tabs, page lifecycle) |
 | `browser/browser-session-store.ts` | 245 | y | stay | Profile import feeds Electron Session cookies and safeStorage; its state files and readers are one unit with the sealed store. | s4 staysElectron[8] (profile import and sealed stores) |
@@ -342,17 +342,17 @@ Columns: path under `apps/desktop/src/main`, lines (`wc -l`), imports electron (
 | `computer/overlay/test-fixtures/require-env.ts` | 6 | n | stay | Fixture window or helper for the overlay live checks (dev only). | s3 staysElectron[10] (live harness fixtures) |
 | `context-menu.ts` | 64 | y | stay | Electron Menu, clipboard and shell for the context menu. | x staysElectron[2] (OS presentation) |
 | `conversation-import-progress.ts` | 82 | n | move | Polls the runtime job list on a timer and publishes progress; no Electron object. | x-residual-moves-b |
-| `crash-handler-watch.ts` | 139 | n | stay | Watches the Chromium Crashpad handler process of this Electron app through its registration pipe. | x staysElectron[8] (main boot) |
+| `crash-handler-watch.ts` | 139 | n | stay | Watches the Chromium Crashpad handler process of this Electron app through its registration pipe. | no plan clause (main boot; reason in this row) |
 | `deferred-desktop-services.ts` | 90 | y | stay | Starts desktop services after the first window shows; reads BrowserWindow/webContents state. | s2a staysElectron[4] (main protocol connection) |
-| `desktop-diagnostics.ts` | 77 | n | stay | Desktop log writer used before and without the core (it must never become a failure path). | x staysElectron[8] (main boot) |
+| `desktop-diagnostics.ts` | 77 | n | stay | Desktop log writer used before and without the core (it must never become a failure path). | no plan clause (main boot; reason in this row) |
 | `desktop-identity.ts` | 12 | n | stay | AUMID string handed to app.setAppUserModelId and Windows notification branding. | x staysElectron[2] (OS presentation) |
 | `dialog-folder-memory.ts` | 20 | n | stay | Works around the Electron 43 dialog default folder; feeds Electron dialog defaultPath. | s1 staysElectron[3] (native dialogs) |
 | `feedback-client.ts` | 42 | n | move | HTTP POST of validated feedback to the relay; no Electron object (relay URL resolution moves with s2b remote-relay-device). | x-residual-moves-b |
 | `file-launch.ts` | 19 | n | stay | Launch confirmation flow ending in the injected shell.openPath; the confirmation exists today and is kept as is. | s1 staysElectron[3] (OS hand-off, file-launch confirmation) |
 | `git-contract.mjs` | 12 | n | move | Argument validation (repository cwd) wrapped from shared/git-contract; validators have a core twin (s2a-core-val-*); the wrapper goes with its callers. | x-residual-moves-b |
-| `gpu-recovery.ts` | 108 | n | stay | Chromium GPU fallback switches set before app ready (app.commandLine); no core exists yet. | x staysElectron[8] (main boot) |
+| `gpu-recovery.ts` | 108 | n | stay | Chromium GPU fallback switches set before app ready (app.commandLine); no core exists yet. | no plan clause (main boot; reason in this row) |
 | `host-display-preferences.ts` | 31 | n | stay | Reads theme and language by webContents.executeJavaScript on the host window. | s2a staysElectron[0] (preload host surface) |
-| `host-harness-poll.ts` | 56 | n | stay | Bounded polling shared by the desktop host harnesses (tests). | x staysElectron[10] (dev scripts) |
+| `host-harness-poll.ts` | 56 | n | stay | Bounded polling shared by the desktop host harnesses (tests). | no plan clause (dev or test helper; reason in this row) |
 | `host/lifecycle.ts` | 92 | n | stay | Host-role module: answers host/* methods the core calls into this Electron app. | x staysElectron[8] (host/* modules) |
 | `host/system-proxy.ts` | 30 | n | stay | Host-role module: answers host/* methods the core calls into this Electron app. | x staysElectron[8] (host/* modules) |
 | `host/visualize.ts` | 62 | n | stay | Host-role module: answers host/* methods the core calls into this Electron app. | x staysElectron[8] (host/* modules) |
@@ -391,13 +391,13 @@ Columns: path under `apps/desktop/src/main`, lines (`wc -l`), imports electron (
 | `protocol/screen-sessions-publish.ts` | 59 | n | stay | Main-side client of the core protocol (connection object, notification routes); holds no logic the core can host. | s2a staysElectron[4] (main protocol connection) |
 | `protocol/section-capability-lane.ts` | 81 | n | stay | Main-side client of the core protocol (connection object, notification routes); holds no logic the core can host. | s2a staysElectron[4] (main protocol connection) |
 | `protocol/visualize-publish.ts` | 15 | n | stay | Main-side client of the core protocol (connection object, notification routes); holds no logic the core can host. | s2a staysElectron[4] (main protocol connection) |
-| `quit-sequence.ts` | 74 | n | stay | Orders window hiding and daemon stop on quit; operates on QuitWindow (BrowserWindow) objects. | x staysElectron[8] (main boot) |
+| `quit-sequence.ts` | 74 | n | stay | Orders window hiding and daemon stop on quit; operates on QuitWindow (BrowserWindow) objects. | no plan clause (main boot; reason in this row) |
 | `remote-webrtc/sender-window.integration.ts` | 121 | y | stay | Integration test of the Electron WebRTC sender window; its fate follows x-del-remote-webrtc. | x-del-remote-webrtc |
-| `renderer-recovery.ts` | 153 | n | stay | Decides renderer reload or recovery on render-process-gone; has to work when the core is unavailable. | x staysElectron[8] (main boot) |
+| `renderer-recovery.ts` | 153 | n | stay | Decides renderer reload or recovery on render-process-gone; has to work when the core is unavailable. | no plan clause (main boot; reason in this row) |
 | `session-device.ts` | 21 | n | stay | Stamps the name of the machine running this Electron host; the core may run on another machine. | s2a staysElectron[4] (main protocol connection) |
 | `session-sidebar-actions.ts` | 47 | n | move | Argument validation then a call to the desktop service (favorite, archive, project); validation moves to the core handlers. | x-residual-moves-b |
-| `test-support/session-protocol-actions.recorded.mjs` | 6 | n | stay | Recorded constants of the Node implementation, read by the parity tests. | x staysElectron[10] (test infrastructure) |
-| `test-support/worktree-contract.recorded.mjs` | 7 | n | stay | Recorded constants of the Node implementation, read by the parity tests. | x staysElectron[10] (test infrastructure) |
+| `test-support/session-protocol-actions.recorded.mjs` | 6 | n | stay | Recorded constants of the Node implementation, read by the parity tests. | no plan clause (test infrastructure; reason in this row) |
+| `test-support/worktree-contract.recorded.mjs` | 7 | n | stay | Recorded constants of the Node implementation, read by the parity tests. | no plan clause (test infrastructure; reason in this row) |
 | `user-file-write.ts` | 30 | n | move | In-place flushed write that keeps inode/ACL/mode of a user file; node fs only. | x-residual-moves-b |
 | `viewport-guard.ts` | 91 | y | stay | BrowserWindow viewport guard. | s2a staysElectron[0] (window chrome) |
 | `visualize/act-steps.ts` | 456 | n | move | Visualize request parsing, act steps and export logic: pure parsing, bounds and file writes. | x-residual-moves-c1 |
