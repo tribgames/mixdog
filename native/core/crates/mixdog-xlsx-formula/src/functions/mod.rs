@@ -18,7 +18,12 @@ mod datetime;
 mod lookup;
 mod database;
 
+mod engineering;
+mod complex;
+mod bessel;
+
 pub const TABLES: &[Table] = &[
+    engineering::FUNCTIONS, complex::FUNCTIONS,
     statistical::FUNCTIONS,
     math::FUNCTIONS, logical::FUNCTIONS, information::FUNCTIONS,
     text::FUNCTIONS, datetime::FUNCTIONS, lookup::FUNCTIONS, database::FUNCTIONS,

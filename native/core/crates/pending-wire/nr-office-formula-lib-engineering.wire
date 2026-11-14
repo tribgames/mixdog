@@ -1,0 +1,70 @@
+# nr-office-formula-lib-engineering
+
+## native/core/crates/mixdog-xlsx-formula/src/functions/mod.rs
+
+Add module declarations, retaining all other library workers' declarations:
+
+    mod engineering;
+    mod complex;
+    mod bessel;
+
+Append these entries to TABLES, retaining the existing entries:
+
+    engineering::FUNCTIONS,
+    complex::FUNCTIONS,
+
+bessel.rs is the internal direct port of bessel 1.0.2, not a separate registry.
+No dependency is added. All original Math operations use mixdog_js::math; base
+conversions use the integrated number_to_radix/parse_int_radix helpers.
+
+## Registry compatibility
+
+52 callable names: 26 engineering and 26 complex. The original 4.6.1 exports
+ERFPRECISE/ERFCPRECISE as undefined and defines no ERF.PRECISE/ERFC.PRECISE methods.
+Do not register invented implementations. The corpus checks these are undefined
+in Node and unregistered in Rust, rather than skipping callable functions.
+
+Original quirks retained: 48-bit BIT input validation followed by signed 32-bit
+operators and shift counts modulo 32; suffix-sensitive complex exceptions;
+COMPLEX returns parsed real when either argument is an Error; IMREAL/IMAGINARY
+sometimes return text; IMSUM coerces errors to NaN before its ineffective error
+check; IMPRODUCT does not flatten; ERF validates but ignores upper bound; ERFC
+keeps JS string addition in jStat's 2+x; CONVERT keeps all 146 table rows, duplicate
+alias last-match behaviour, prefix order and original numerical ratios (including
+the source's temperature/astronomical-unit/light-year quirks).
+
+## Shared special-function reuse
+
+engineering::erf(&Value) -> f64 is pub(crate), a single jStat 1.9.6 Chebyshev
+implementation. A future distribution module should reuse it with Value::Number(x)
+instead of introducing another erf/erfc kernel. ERFC is 1-erf exactly as jStat.
+
+## Fixture index
+
+Index native/core/fixtures/office-engineering/MANIFEST.json using the root index's
+existing schema. Recorder: benchmarks/rust-core/recorders/record-office-engineering.mjs.
+--write writes only this owned fixture directory; without it, the recording goes
+to stdout. Sources are the original read-only C:/Project/mixdog node_modules.
+The manifest records source SHA-256 hashes and the golden hash/size. Original
+formulajs MIT, bessel Apache-2.0 and jStat MIT notices are preserved beside it.
+
+Evidence: 10,002 returned-value/exception cases, 52 functions, all 146 unit rows
+and aliases, all unit/binary prefixes, base limits/padding, signed-zero/nonfinite
+inputs, Bessel branch neighbours and recurrence orders, complex malformed forms,
+numeric-vs-text results and thrown-message distinctions. Comparisons use exact
+f64 bits, no tolerance or NaN normalisation and no skipped mismatch.
+Golden SHA256: e019394cdea61381444725ac67a9e97ddfee79bc33f49f5747dc6f73424a19e1.
+
+Two source nonterminating inputs are explicitly recorded as bounded observations:
+BESSELJ(1,+Infinity) and BESSELI(1,+Infinity). The source's f64 recurrence counter
+cannot decrement infinity; this port does not invent a returned error or new cap.
+They are not run inside the Rust test process; the worker's existing process
+cancellation/isolation remains responsible for unbounded calculations.
+
+## Required validation after registration
+
+Root runs offline cargo test -p mixdog-xlsx-formula --test twin_engineering,
+then clippy/all-targets and the ignored twin_live_engineering against the original
+Node tree. The worker ran bounded Node recording and rustfmt parsing only; no
+Cargo/build/test/apps/profile/commit operation was performed. Source translation
+and oracle recording are not a Rust parity-pass claim.
