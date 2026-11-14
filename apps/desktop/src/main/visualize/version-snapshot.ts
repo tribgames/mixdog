@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import { readFile, realpath, stat } from 'node:fs/promises';
 import { dirname, relative, resolve, sep } from 'node:path';
 
-import { pageAssetType } from '../local-page-server';
+import { coreLocalPages } from '../core-local-pages';
 import { insidePath } from './targets';
 
 const MAX_PAGE_ASSETS = 64;
@@ -96,8 +96,8 @@ export async function collectSnapshot(
       } catch {
         continue;
       }
-      // The page server's own asset policy: inside the root, not hidden, a web type.
-      if (!insidePath(root, real) || !pageAssetType(root, real, dirname(path))) continue;
+      // The core page server's asset policy: inside the root, not hidden, a web type.
+      if (!insidePath(root, real) || !(await coreLocalPages().assetType(root, real, dirname(path)))) continue;
       // An asset that does not fit is left out; the page itself is kept.
       await add(keptOf(root, real), real).catch(() => false);
     }

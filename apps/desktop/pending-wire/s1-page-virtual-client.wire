@@ -1,0 +1,50 @@
+# s1-page-virtual-client desktop wiring
+
+## 1. Route (apps/desktop/src/shared/core-lanes/desktop-operation-route.ts, hot-adjacent, not owned by this task)
+In the "local pages served by the core page server" block, after the `localPageVirtualIn` line add:
+
+    localPageAssetType: positional('projectFs/localPage/assetType', ['root', 'file', 'dataRoot']),
+
+and in the reply table after `localPageVirtualIn: (reply) => record(reply).url,` add:
+
+    // The core answers {type}; '' when the file is not served.
+    localPageAssetType: (reply) => String(record(reply).type ?? ''),
+
+Add 'localPageAssetType' beside 'localPageVirtualIn' in the name list of protocol/desktop-operation-route.test.mjs (line ~368).
+Update the comment on the localPageVirtualIn row: CoreLocalPages.virtual (renamed from virtualUrl) maps the Record to it.
+
+## 2. index.ts (DESKTOP-WIRE-G4)
+The renderer CSP frame-src keeps ONE loopback page origin: the core's (coreLocalPages().origin()). Drop the Electron page server's
+origin (localPageOrigin() of local-page-server.ts) from frame-src. After that nothing calls local-page-server.ts except its own
+tests: its deletion task removes local-page-server.ts, local-page-server.test.mjs, and moves visualize/inline-page.test.mjs and
+local-page-permissions.test.mjs virtual cases (they still import localVirtualPageUrl) to the core replays.
+
+## 3. Needs the core method projectFs/localPage/assetType (see pending-rows and core pending-wire of this task)
+
+## 4. visualize/service.slow.test.mjs (not owned here)
+Its fake core invoke (setCoreLocalPages(createCoreLocalPages(...)), line ~46) throws on any call but localPageUrlIn. Version snapshots now call
+localPageAssetType and inline pages / exports call localPageVirtualIn. Answer localPageAssetType with the Electron pageAssetType(root, file, dataRoot)
+until local-page-server.ts is deleted, and then with a table by extension; answer localPageVirtualIn with a fixed loopback url.
+
+## 5. visualize/versions.test.mjs (not owned here; fails until this is applied)
+collectSnapshot now asks coreLocalPages().assetType for each page asset, and versions.test.mjs sets no core page client:
+"a version is kept only when the files changed, with the page assets it uses" and "panes from different folders keep their
+files apart and restore back where they came from" fail with "The local page server is not connected.". At the top of the
+file add (imports beside the others):
+
+    import { createCoreLocalPages, setCoreLocalPages } from '../core-local-pages.ts';
+    import { pageAssetType } from '../local-page-server.ts';
+    // The core page server's asset policy stands behind coreLocalPages(); here the shared policy answers the same call.
+    setCoreLocalPages(
+      createCoreLocalPages(async (name, [root, file, dataRoot]) => {
+        if (name === 'localPageAssetType') return pageAssetType(root, file, dataRoot);
+        throw new Error(`unexpected core call ${name}`);
+      })
+    );
+
+The deletion task of local-page-server.ts replaces pageAssetType there as in item 4 (the test needs '.cache/x.js' refused and
+css/js served).
+
+## 6. Client input corpus
+After item 1, regenerate native/core/crates/mixdog-app-protocol/src/boundary/validate/fixtures/clients-accepted.json with
+scripts/collect-client-inputs.mjs so projectFs/localPage/assetType has its desktop row (ownerDirection 3).

@@ -10,14 +10,10 @@ import type { VisualizeInlineContent } from '../../shared/visualize';
 import { registerFilePreview } from '../file-preview';
 import { coreLocalPages } from '../core-local-pages';
 import { windowIdFor } from '../core-port/window-ids';
-import { localVirtualPageUrl } from '../local-page-server';
 import { inlinePageFiles } from './inline-page';
 import type { VisualizeServiceDeps } from './service';
 
 type PaneTarget = Parameters<VisualizeServiceDeps['preparePane']>[0];
-
-/** Pages of this window need no authorization step beyond owning the lease. */
-const authorizeOwned = async () => {};
 
 /** A chart / html sketch as a virtual page: its own lease (opaque origin,
  *  scripts on), the same problem capture and network guard as file pages. */
@@ -27,7 +23,7 @@ export async function inlinePageUrl(
   observe: (contents: WebContents) => void
 ): Promise<string> {
   if (contents) observe(contents);
-  return localVirtualPageUrl(await inlinePageFiles(content), { owner: contents, authorize: authorizeOwned });
+  return coreLocalPages().virtual(await inlinePageFiles(content), { owner: contents, ownerId: contents && windowIdFor(contents) });
 }
 
 /** The preview URL of one pane file, contained in its root (the cwd, an
