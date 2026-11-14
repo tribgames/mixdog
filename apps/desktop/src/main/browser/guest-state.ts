@@ -19,6 +19,19 @@ import type { VisualGrounding } from './ref-points';
 import type { BrowserRefSet } from './ref-recovery';
 import type { AccessibilityRefSnapshot } from './snapshot-capture';
 
+/** What moved in a page's record, for whoever publishes the page's facts. */
+export type GuestChangeReason = 'document' | 'dialog' | 'chooser' | 'crash' | 'session';
+
+/** What the record tells an observer: a fact changed, or the host itself
+ *  logged or refused something the core must see in order with the page's own
+ *  events (`Mixdog.internalConsole`, `Mixdog.requestRefused`). */
+export type GuestStateEvent =
+  | { kind: 'changed'; reason: GuestChangeReason }
+  | { kind: 'internalConsole'; text: string }
+  | { kind: 'requestRefused'; url: string; reason: string };
+
+export type GuestStateListener = (guest: WebContents, event: GuestStateEvent) => void;
+
 interface CdpTargetSession {
   type: string;
   url: string;
@@ -67,6 +80,13 @@ interface BrowserDiagnostics {
 
 interface BrowserGuestState extends BrowserDiagnostics {
   readonly pageId: string;
+  /** Rises by one for every notification the host sends the core about this
+   *  page (events batch or facts), so a gap on the core's side is a lost one. */
+  seq: number;
+  /** When `dismissedDialog` was set. */
+  dismissedDialogAt?: number;
+  /** When a person first touched this document (stamped when facts are built). */
+  userInputAt?: number;
   snapshotGeneration: number;
   documentGeneration: number;
   /** When a snapshot last told the caller about this page's downloads. */
@@ -116,12 +136,56 @@ type OptionalKeys = {
   [K in keyof BrowserGuestState]-?: undefined extends BrowserGuestState[K] ? K : never;
 }[keyof BrowserGuestState];
 
+/** The console ledger of a guest: the browser's own faults also reach the observer. */
+class GuestConsoleLedger extends BrowserConsoleLedger {
+  constructor(
+    sanitize: (value: string) => string,
+    private readonly onInternal: (text: string) => void
+  ) {
+    super(sanitize);
+  }
+
+  override recordInternal(text: unknown): void {
+    super.recordInternal(text);
+    this.onInternal(String(text || ''));
+  }
+}
+
 export class BrowserGuestStateStore {
   private readonly states = new WeakMap<WebContents, BrowserGuestState>();
+  private readonly listeners = new Set<GuestStateListener>();
   private nextPageId = 0;
 
   /** `rendererPeers`: the other live pages sharing a guest's renderer process. */
   constructor(private readonly rendererPeers: (guest: WebContents) => WebContents[] = () => []) {}
+
+  /** Calls `listener` after every change of a page's facts and for every
+   *  host-made console or refusal entry. Returns the function that stops it. */
+  onChange(listener: GuestStateListener): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  /** A fact of the page changed in a way only the caller can see (a dialog or
+   *  file chooser it recorded straight into the record). */
+  changed(guest: WebContents, reason: GuestChangeReason): void {
+    this.emit(guest, { kind: 'changed', reason });
+  }
+
+  /** The next notification number of the page. */
+  nextSeq(guest: WebContents): number {
+    return ++this.for(guest).seq;
+  }
+
+  private emit(guest: WebContents, event: GuestStateEvent): void {
+    for (const listener of [...this.listeners]) {
+      try {
+        listener(guest, event);
+      } catch {
+        // An observer's failure never reaches the page's own bookkeeping.
+      }
+    }
+  }
 
   /** The record for a guest, created on first touch. */
   for(guest: WebContents): BrowserGuestState {
@@ -129,6 +193,7 @@ export class BrowserGuestStateStore {
     if (existing) return existing;
     const created: BrowserGuestState = {
       pageId: `p${++this.nextPageId}`,
+      seq: 0,
       snapshotGeneration: 0,
       documentGeneration: 0,
       // Downloads are shared by the session, so a page that opens with this at
@@ -142,7 +207,10 @@ export class BrowserGuestStateStore {
       pendingDialog: null,
       dismissedDialog: null,
       pendingFileChooser: null,
-      console: new BrowserConsoleLedger((value) => this.redactText(guest, value)),
+      console: new GuestConsoleLedger(
+        (value) => this.redactText(guest, value),
+        (text) => this.emit(guest, { kind: 'internalConsole', text })
+      ),
       networkFailures: [],
       reportedNetworkFailures: new Set(),
       refusedRequests: new Map(),
@@ -167,6 +235,7 @@ export class BrowserGuestStateStore {
     refused.delete(url);
     refused.set(url, reason.slice(0, 300));
     if (refused.size > 50) refused.delete(refused.keys().next().value as string);
+    this.emit(guest, { kind: 'requestRefused', url, reason: reason.slice(0, 300) });
   }
 
   pageId(guest: WebContents): string {
@@ -197,6 +266,7 @@ export class BrowserGuestStateStore {
     state.pendingDialog = null;
     state.pendingFileChooser = null;
     this.invalidateInteraction(guest);
+    this.changed(guest, 'crash');
   }
 
   /** CDP sessions ended: one child target, or, with no id, the debugger and
@@ -217,6 +287,7 @@ export class BrowserGuestStateStore {
     }
     if (state.pendingDialog && ended(state.pendingDialog.sessionId)) state.pendingDialog = null;
     if (state.pendingFileChooser && ended(state.pendingFileChooser.sessionId)) state.pendingFileChooser = null;
+    this.changed(guest, 'session');
   }
 
   /** Another page sharing this guest's renderer process whose dialog is open.
@@ -244,6 +315,7 @@ export class BrowserGuestStateStore {
     if (!state || !dialog || dialog.bridgeRequestId || dialog.sessionId !== sessionId) return;
     state.pendingDialog = null;
     if (!dialog.answering && BRIDGED_DIALOG_TYPES.has(dialog.type)) this.noteDismissedDialog(guest, dialog, 'early');
+    else this.changed(guest, 'dialog');
   }
 
   noteDismissedDialog(
@@ -251,7 +323,10 @@ export class BrowserGuestStateStore {
     dialog: { type: string; message: string },
     reason: DismissedBrowserDialog['reason']
   ): void {
-    this.for(guest).dismissedDialog = { type: dialog.type, message: dialog.message, reason };
+    const state = this.for(guest);
+    state.dismissedDialog = { type: dialog.type, message: dialog.message, reason };
+    state.dismissedDialogAt = Date.now();
+    this.changed(guest, 'dialog');
   }
 
   /** Report and clear the crash flag in one step. */
@@ -259,6 +334,7 @@ export class BrowserGuestStateStore {
     const state = this.states.get(guest);
     if (!state?.crashed) return false;
     state.crashed = false;
+    this.changed(guest, 'crash');
     return true;
   }
 
@@ -293,6 +369,7 @@ export class BrowserGuestStateStore {
       state.reportedNetworkFailures.clear();
       state.console.clearDocument();
     }
+    this.changed(guest, 'document');
   }
 
   /** A new document replaced the old one (a navigation that merely started may
@@ -306,7 +383,10 @@ export class BrowserGuestStateStore {
     state.userInput = false;
     state.actor = undefined;
     state.personDialogAnswerAt = undefined;
+    state.dismissedDialogAt = undefined;
+    state.userInputAt = undefined;
     state.windowOpens = [];
+    this.changed(guest, 'document');
   }
 
   /** Text bound for the caller, minus the page's known secrets. */

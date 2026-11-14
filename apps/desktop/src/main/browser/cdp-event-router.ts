@@ -22,13 +22,28 @@ import type { BrowserGuestStateStore } from './guest-state';
 import { reportPageFault } from './page-fault-diagnostics';
 import { recordWindowOpen } from './popup-focus';
 import { redactBrowserText } from './redaction';
+import { isBrowserComponentAddress } from './request-scheme';
 
 type CdpParams = Record<string, unknown>;
 type GuestRecord = ReturnType<BrowserGuestStateStore['for']>;
 
+/** Where the engine lane takes the page's events: with the core driving the
+ *  browser, the events it reads are forwarded to it instead of being recorded
+ *  in the host's own ledgers. */
+export interface EngineEventSink {
+  /** The core drives the browser through the engine lane. */
+  active(): boolean;
+  /** Queues one event of the page for the core, in arrival order. */
+  forward(guest: WebContents, method: string, params: CdpParams, sessionId: string | undefined): void;
+  /** Whether the engine lane carries this CDP event at all. */
+  carries(method: string): boolean;
+}
+
 interface BrowserCdpEventRouterHost extends RequestPauseHost, TargetAttachHost {
   /** A child target's session ended; commands still in flight on it settle. */
   targetDetached(guest: WebContents, sessionId: string): void;
+  /** Present when the engine lane exists; used only while it is active. */
+  engine?: EngineEventSink;
 }
 
 interface EventContext {
@@ -120,7 +135,7 @@ export function createBrowserCdpEventRouter(host: BrowserCdpEventRouterHost) {
     },
     // Sent before Electron asks for the window; decides whether it comes forward.
     'Page.windowOpen': ({ diagnostics, params }) => recordWindowOpen(diagnostics, params),
-    'Page.javascriptDialogOpening': ({ diagnostics, params, sessionId }) => {
+    'Page.javascriptDialogOpening': ({ guest, diagnostics, params, sessionId }) => {
       diagnostics.pendingDialog = {
         type: String(params.type || 'dialog'),
         message: redactBrowserText(params.message || ''),
@@ -128,11 +143,12 @@ export function createBrowserCdpEventRouter(host: BrowserCdpEventRouterHost) {
         openedAt: Date.now(),
         sessionId,
       };
+      state.changed(guest, 'dialog');
     },
     // Only the native dialog of the closing session: a bridged one is
     // answered through its held request, never by this event.
     'Page.javascriptDialogClosed': ({ guest, sessionId }) => state.nativeDialogClosed(guest, sessionId),
-    'Page.fileChooserOpened': ({ diagnostics, params, sessionId }) => {
+    'Page.fileChooserOpened': ({ guest, diagnostics, params, sessionId }) => {
       const backendNodeId = Number(params.backendNodeId);
       diagnostics.pendingFileChooser = {
         mode: String(params.mode || 'selectSingle'),
@@ -141,6 +157,7 @@ export function createBrowserCdpEventRouter(host: BrowserCdpEventRouterHost) {
         sessionId,
         openedAt: Date.now(),
       };
+      state.changed(guest, 'chooser');
     },
     'Runtime.executionContextCreated': ({ guest, params, sessionId }) =>
       onExecutionContextCreated(state, guest, params, sessionId),
@@ -181,6 +198,65 @@ export function createBrowserCdpEventRouter(host: BrowserCdpEventRouterHost) {
     'Inspector.targetCrashed': targetCrashed,
   };
 
+  /** Engine lane: the core reads the page's events, so the ledger-only ones
+   *  are forwarded instead of recorded, after the host's own filters (Chromium's
+   *  bundled components, replayed entries, the dialog bridge's notices). The
+   *  events the host's own state also needs (contexts, dialogs, file choosers)
+   *  run their local route first. Returns whether the event was handled. */
+  function routeToEngine(
+    engine: EngineEventSink,
+    guest: WebContents,
+    cdp: Electron.Debugger,
+    name: string,
+    params: CdpParams,
+    sessionId: string | undefined,
+    diagnostics: GuestRecord
+  ): boolean {
+    if (NETWORK_LEDGER_ROUTES[name] || name === 'Network.loadingFailed') {
+      if (engine.carries(name)) engine.forward(guest, name, params, sessionId);
+      return true;
+    }
+    const component = (contextId: unknown) =>
+      diagnostics.browserComponentContexts.has(`${sessionId ?? ''}:${String(contextId)}`);
+    switch (name) {
+      case 'Runtime.consoleAPICalled': {
+        if (!freshEntry(diagnostics, `${sessionId ?? ''}|runtime`, params.timestamp)) return true;
+        const dismissed = parseDialogBridgeNotice(params);
+        if (dismissed) {
+          state.noteDismissedDialog(
+            guest,
+            { ...dismissed, message: redactBrowserText(dismissed.message) },
+            'unreachable'
+          );
+        } else if (!component(params.executionContextId)) engine.forward(guest, name, params, sessionId);
+        return true;
+      }
+      case 'Runtime.exceptionThrown': {
+        if (!freshEntry(diagnostics, `${sessionId ?? ''}|runtime`, params.timestamp)) return true;
+        const detail = params.exceptionDetails as { executionContextId?: unknown } | undefined;
+        if (!component(detail?.executionContextId)) engine.forward(guest, name, params, sessionId);
+        return true;
+      }
+      case 'Log.entryAdded': {
+        const entry = params.entry as { timestamp?: unknown; url?: unknown } | undefined;
+        if (!freshEntry(diagnostics, `${sessionId ?? ''}|log`, entry?.timestamp)) return true;
+        if (!isBrowserComponentAddress(entry?.url)) engine.forward(guest, name, params, sessionId);
+        return true;
+      }
+      case 'Runtime.executionContextCreated':
+      case 'Runtime.executionContextDestroyed':
+      case 'Runtime.executionContextsCleared':
+      case 'Page.javascriptDialogOpening':
+      case 'Page.javascriptDialogClosed':
+      case 'Page.fileChooserOpened':
+        routes[name]?.({ guest, cdp, params, sessionId, diagnostics });
+        engine.forward(guest, name, params, sessionId);
+        return true;
+      default:
+        return false;
+    }
+  }
+
   /** Route one CDP event into the guest's state record. */
   return function onCdpEvent(
     guest: WebContents,
@@ -190,6 +266,8 @@ export function createBrowserCdpEventRouter(host: BrowserCdpEventRouterHost) {
     sessionId: string | undefined
   ): void {
     const diagnostics = state.for(guest);
+    const engine = host.engine?.active() ? host.engine : undefined;
+    if (engine && routeToEngine(engine, guest, cdp, name, params, sessionId, diagnostics)) return;
     const ledgerRoute = NETWORK_LEDGER_ROUTES[name];
     if (ledgerRoute) {
       ledgerRoute(diagnostics.network, params, sessionId);
