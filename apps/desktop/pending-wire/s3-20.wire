@@ -1,0 +1,50 @@
+# s3-20: presence mirror (overlay, arrow and pill follow the core's `computer` section)
+
+No new HOST_METHOD row or protocol row: `host/computer/cursorPrepare` and `computer/pointerReleased` are already in the
+protocol (server_requests.rs, notifications.rs). The claim's `serves` list is read from the connection (`servedMethods()`),
+so it carries `host/computer/cursorPrepare` once the handler below is registered. Core side (CORE-WIRE, not this file):
+`computer/pointerReleased` leaves SERVICE_PENDING where s3-19's `ComputerPointerService` is registered.
+
+## 1. apps/desktop/src/main/host/computer.ts, `registerComputerHost`, after `registerComputerPointer(connection);`
+
+    registerComputerCursor(connection);
+
+and, with the other imports of the file (after `import { registerComputerPointer } from './computer-pointer';`):
+
+    import { registerComputerCursor } from './computer-cursor';
+
+## 2. apps/desktop/src/main/host/connection.ts, comment of HOST_CAPABILITIES `computer`
+
+Add `cursorPrepare` (computer-cursor.ts) to the list of `host/computer/*` methods named in the comment.
+
+## 3. apps/desktop/src/main/protocol/desktop-host-wiring.ts, `createLocalHostRole`
+
+The pill source is now an adapter over the presence mirror and takes the legacy coordinator and the release notification:
+
+    import { computerUseCoordinator } from '../computer/session/coordinator';
+    import { bindPointerPresence } from '../computer/host/pointer-cursor';
+    ...
+    const computerPill = createComputerPillSource(Date.now, {
+      legacy: computerUseCoordinator,
+      notifyPointerReleased: (sessionThreadId) => protocol.notify('computer/pointerReleased', { sessionThreadId }),
+    });
+    bindPointerPresence(computerPill);
+
+`protocol.watchSection('computer', ...)` keeps calling `computerPill.apply(value)` unchanged (`apply` is
+`presence.applySection`; the section's `backend` and `sessions[].windowIds|mode|phase` are read from `entry.value`).
+`hostRole.computerPill` is the presence: it has `snapshot`, `subscribe`, `releasePointer`, `windowIdsWithActiveCommand`,
+`backend`.
+
+## 4. apps/desktop/src/main/index.ts
+
+- The `createComputerUseOverlay(..., app.getLocale(), {}, hostRole.computerPill)` call is unchanged: the overlay now hands
+  that source to the arrow overlay too (`createComputerUseCursorOverlay(source)`), so the arrow paints from the mirror and
+  moving the real mouse calls `hostRole.computerPill.releasePointer`, which sends `computer/pointerReleased`.
+- `computerUseOnWindow` (`computerUseOperates(computerUseCoordinator, ...)`) may read `windowIdsWithActiveCommand` from
+  `hostRole.computerPill` instead of the coordinator once the s3 desktop removal task (s3-26) takes the legacy host out;
+  until then the legacy coordinator is correct because the legacy backend delegates to it.
+
+## 5. Tests that call the host with the new handler
+
+host.test.mjs (host/computer/*): add `assert.deepEqual(await wire.call('host/computer/cursorPrepare', { sessionThreadId: 's1', x: 1, y: 2 }), { state: 'unavailable' });`
+next to the pointerFeedback assertion (no overlay is bound in that test, so the answer is `unavailable`).
