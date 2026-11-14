@@ -18,6 +18,7 @@ use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::state::SectionChange;
 use mixdog_core_api::state::StatePublisher;
 use mixdog_core_domains::domains::host::publish_remote_viewing;
+use mixdog_core_domains::domains::pc_access::PcAccessEvents;
 use mixdog_js::js_trim;
 use mixdog_protocol::ConnectionKind;
 use mixdog_protocol::Origin;
@@ -103,10 +104,12 @@ impl Dialer for LateDialer {
 
 /// What the runtime tells the desktop beyond the `remote` section. An accepted controller key
 /// and an owed revocation are already in the section the runtime publishes right after the event
-/// (`controllerKeys`, `owedKeys`), which the desktop reads; only the relay failure has no
+/// (`controllerKeys`, `owedKeys`), which the desktop reads; PC access, once bound, also acts on them
+/// (the delegated enroll of a delivered key, the revoke of an owed one); only the relay failure has no
 /// section field, so it is logged.
 pub struct SectionEvents {
     cleanup: OnceLock<Arc<dyn DeviceCleanup>>,
+    pc_access: OnceLock<Arc<dyn PcAccessEvents>>,
 }
 
 /// What the services holding a device's state drop when it is unpaired. Bound once they exist (they are built after the runtime).
@@ -121,11 +124,16 @@ pub trait DeviceCleanup: Send + Sync {
 
 impl SectionEvents {
     pub fn new() -> Self {
-        Self { cleanup: OnceLock::new() }
+        Self { cleanup: OnceLock::new(), pc_access: OnceLock::new() }
     }
 
     pub fn bind(&self, cleanup: Arc<dyn DeviceCleanup>) -> Result<(), &'static str> {
         self.cleanup.set(cleanup).map_err(|_| "the device cleanup is already bound")
+    }
+
+    /// PC access, built after the runtime: a delivered key is enrolled, an owed revocation is revoked.
+    pub fn bind_pc_access(&self, pc_access: Arc<dyn PcAccessEvents>) -> Result<(), &'static str> {
+        self.pc_access.set(pc_access).map_err(|_| "PC access is already bound")
     }
 }
 
@@ -136,9 +144,17 @@ impl Default for SectionEvents {
 }
 
 impl RemoteEvents for SectionEvents {
-    fn controller_key_delivered(&self, _public_key: &str) {}
+    fn controller_key_delivered(&self, public_key: &str) {
+        if let Some(pc_access) = self.pc_access.get() {
+            pc_access.key_delivered(public_key);
+        }
+    }
 
-    fn owed_access_changed(&self) {}
+    fn owed_access_changed(&self) {
+        if let Some(pc_access) = self.pc_access.get() {
+            pc_access.owed_changed();
+        }
+    }
 
     fn device_unpaired(&self, credential_id: &str) {
         if let Some(cleanup) = self.cleanup.get() {
