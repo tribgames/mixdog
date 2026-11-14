@@ -743,3 +743,209 @@ async fn each_pre_fill_refusal_drops_the_value_and_remembers_nothing() {
         assert_eq!(fill.redact(&thread, &format!("pw={VALUE}!")), format!("pw={VALUE}!"), "{name}: not remembered");
     }
 }
+
+/// `fill_saved_login` served by [`SavedLoginComputerBackend`]: the saved-login fill instead of the
+/// backend answering `unsupported`.
+mod saved_login_backend {
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+
+    use mixdog_core_api::domain::computer::ComputerAction;
+    use mixdog_core_api::domain::computer::ComputerBackend;
+    use mixdog_core_api::domain::computer::ComputerError;
+    use mixdog_core_api::domain::computer::ComputerRequest;
+    use mixdog_core_api::domain::computer::ComputerStatus;
+    use mixdog_core_api::domain::computer::DesktopIdentity;
+    use mixdog_core_api::domain::computer::DisplayId;
+    use mixdog_core_api::domain::computer::DisplayInfo;
+    use mixdog_core_api::domain::computer::InputOutcome;
+    use mixdog_core_api::domain::computer::ScreenInput;
+    use mixdog_core_api::domain::media::MediaFrameSource;
+    use mixdog_core_api::domain::tool::ToolPart;
+    use mixdog_tools::desktop::host::BROWSER_UNAVAILABLE;
+    use tokio_util::sync::CancellationToken;
+
+    use super::super::SavedLoginRegistry;
+    use super::super::SavedLoginTurn;
+    use super::super::computer::SavedLoginComputerBackend;
+    use super::super::computer::SavedLoginTurns;
+    use super::*;
+
+    const PASSWORD: &str = "Pa55-\"word\"\\x";
+    const SESSION: &str = "S1";
+
+    /// The backend that would answer `unsupported`: it counts what reaches it.
+    struct Inner(AtomicUsize);
+
+    #[async_trait]
+    impl ComputerBackend for Inner {
+        async fn run(&self, _: ComputerRequest, _: CancellationToken) -> Result<Vec<ToolPart>, ComputerError> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(vec![ToolPart::Text("inner".to_owned())])
+        }
+        fn inject(&self, _: ScreenInput) -> Result<InputOutcome, ComputerError> {
+            unreachable!()
+        }
+        fn release_input(&self) -> Result<u32, ComputerError> {
+            unreachable!()
+        }
+        fn input_desktop(&self) -> Option<DesktopIdentity> {
+            None
+        }
+        fn displays(&self) -> Result<Vec<DisplayInfo>, ComputerError> {
+            unreachable!()
+        }
+        fn screen_source(&self, _: DisplayId) -> Result<Box<dyn MediaFrameSource>, ComputerError> {
+            unreachable!()
+        }
+        fn status(&self) -> ComputerStatus {
+            unreachable!()
+        }
+    }
+
+    /// The desktop browser host, answering the saved-login actions.
+    struct Desktop {
+        actions: Mutex<Vec<String>>,
+        auto_login: bool,
+        gone: bool,
+    }
+
+    #[async_trait]
+    impl HostCommands for Desktop {
+        async fn browser(&self, _: &ThreadId, action: &str, _: JsonValue, _: &mixdog_rt::CancellationToken) -> Result<JsonValue, HostCommandError> {
+            self.actions.lock().unwrap().push(action.to_owned());
+            if self.gone {
+                return Err(HostCommandError::NoHost);
+            }
+            Ok(match action {
+                "saved_login_admit" => json!({ "enabled": self.auto_login }),
+                "saved_login_release" => json!({ "released": true }),
+                _ => json!({ "enabled": self.auto_login, "value": PASSWORD, "label": "j•••e@example.com", "origin": "https://login.example.com" }),
+            })
+        }
+        async fn visualize(&self, _: &ThreadId, _: &str, _: &str, _: JsonValue, _: &mixdog_rt::CancellationToken) -> Result<JsonValue, HostCommandError> {
+            unreachable!()
+        }
+    }
+
+    /// The session computer helper: it proves the page and takes the write.
+    struct Helper(Mutex<Vec<Value>>);
+
+    #[async_trait]
+    impl ComputerCommands for Helper {
+        async fn execute(&self, _: &ThreadId, command: Value) -> Result<Value, String> {
+            self.0.lock().unwrap().push(command.clone());
+            Ok(match command["action"].as_str() {
+                Some("saved_login_check") => json!({ "saved_login_target": { "window_id": "hwnd:0x1", "pid": "4242", "origin": "https://login.example.com" } }),
+                _ => json!({ "action": "fill_saved_login", "effect": "confirmed" }),
+            })
+        }
+    }
+
+    struct Turn(Option<u64>);
+
+    impl SavedLoginTurns for Turn {
+        fn turn(&self, _: &ThreadId) -> Option<u64> {
+            self.0
+        }
+    }
+
+    struct Registered(Arc<SavedLoginRegistry>);
+
+    impl Redact for Registered {
+        fn redact(&self, _: &ThreadId, text: &str) -> String {
+            self.0.redact(text)
+        }
+    }
+
+    struct Rig {
+        backend: SavedLoginComputerBackend,
+        inner: Arc<Inner>,
+        desktop: Arc<Desktop>,
+        helper: Arc<Helper>,
+        registry: Arc<SavedLoginRegistry>,
+    }
+
+    fn rig(turn: Option<u64>, auto_login: bool, gone: bool) -> Rig {
+        let inner = Arc::new(Inner(AtomicUsize::new(0)));
+        let desktop = Arc::new(Desktop { actions: Mutex::new(Vec::new()), auto_login, gone });
+        let helper = Arc::new(Helper(Mutex::new(Vec::new())));
+        let registry = SavedLoginRegistry::new();
+        let backend = SavedLoginComputerBackend::new(
+            inner.clone(),
+            ThreadId::from(SESSION),
+            desktop.clone(),
+            helper.clone(),
+            registry.clone(),
+            Arc::new(Registered(registry.clone())),
+            Arc::new(Turn(turn)),
+        );
+        Rig { backend, inner, desktop, helper, registry }
+    }
+
+    fn login() -> ComputerRequest {
+        ComputerRequest { action: ComputerAction::SavedLogin, input: json!({ "window_id": "hwnd:0x1", "savedAccount": "j•••e@example.com", "field": "password" }) }
+    }
+
+    fn failure(outcome: Result<Vec<ToolPart>, ComputerError>) -> (String, String) {
+        match outcome {
+            Err(ComputerError::Failed { code, message }) => (code, message),
+            other => panic!("expected a refusal, got {other:?}"),
+        }
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn a_saved_login_fill_is_served_by_the_vault_and_the_helper_and_the_value_stays_out_of_the_reply() {
+        let rig = rig(Some(7), true, false);
+        let parts = rig.backend.run(login(), CancellationToken::new()).await.unwrap();
+        let [ToolPart::Text(text)] = parts.as_slice() else { panic!("one text part") };
+        assert!(!text.contains("Pa55"), "the reply carries no value");
+        let reply: Value = serde_json::from_str(text).unwrap();
+        assert_eq!(reply["ok"], true);
+        assert_eq!(reply["saved_login"], json!({ "account": "j•••e@example.com", "origin": "https://login.example.com", "field": "password" }));
+        assert!(reply["message"].as_str().unwrap().starts_with("filled the saved password of j•••e@example.com"));
+        assert_eq!(rig.inner.0.load(Ordering::SeqCst), 0, "the backend never saw the action");
+        assert_eq!(*rig.desktop.actions.lock().unwrap(), ["saved_login_admit", "saved_login_value", "saved_login_release"]);
+        let sent = rig.helper.0.lock().unwrap().clone();
+        assert_eq!(sent.iter().map(|command| command["action"].as_str().unwrap()).collect::<Vec<_>>(), ["saved_login_check", "saved_login_type"]);
+        assert!(sent.iter().all(|command| command["session_id"] == SESSION && command["window_id"] == "hwnd:0x1"));
+        // The password is hidden from later replies, and the pixels of its browser are withheld until the turn settles.
+        assert_eq!(rig.registry.redact(&format!("x {PASSWORD} y")), "x [saved login] y");
+        let capture = ComputerRequest { action: ComputerAction::Capture, input: json!({ "window_id": "hwnd:0x1" }) };
+        assert!(failure(rig.backend.run(capture.clone(), CancellationToken::new()).await).1.starts_with("capture_withheld"));
+        let ax = ComputerRequest { action: ComputerAction::Capture, input: json!({ "window_id": "hwnd:0x1", "mode": "ax" }) };
+        rig.backend.run(ax, CancellationToken::new()).await.unwrap();
+        rig.registry.settle(&SavedLoginTurn { session: SESSION.to_owned(), turn: 7 }).await;
+        rig.backend.run(capture, CancellationToken::new()).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_fill_with_no_agent_turn_no_desktop_or_auto_login_off_sends_nothing() {
+        let no_turn = rig(None, true, false);
+        let (code, message) = failure(no_turn.backend.run(login(), CancellationToken::new()).await);
+        assert_eq!(code, "saved_login_unavailable");
+        assert!(message.contains("no runtime and agent turn") && no_turn.desktop.actions.lock().unwrap().is_empty());
+
+        let gone = rig(Some(7), true, true);
+        let (code, message) = failure(gone.backend.run(login(), CancellationToken::new()).await);
+        assert_eq!(code, "saved_login_unavailable");
+        assert!(message.contains(BROWSER_UNAVAILABLE), "{message}");
+
+        let off = rig(Some(7), false, false);
+        let (code, message) = failure(off.backend.run(login(), CancellationToken::new()).await);
+        assert_eq!(code, "saved_login_unavailable");
+        assert!(message.ends_with("no input was sent"), "{message}");
+        assert!(off.helper.0.lock().unwrap().is_empty() && off.registry.spellings().is_empty());
+        assert!(!off.desktop.actions.lock().unwrap().iter().any(|action| action == "saved_login_value"));
+    }
+
+    #[tokio::test]
+    async fn every_other_action_goes_to_the_backend() {
+        let rig = rig(Some(7), true, false);
+        let list = ComputerRequest { action: ComputerAction::List, input: json!({}) };
+        assert_eq!(rig.backend.run(list, CancellationToken::new()).await.unwrap().len(), 1);
+        assert_eq!(rig.inner.0.load(Ordering::SeqCst), 1);
+        assert!(rig.desktop.actions.lock().unwrap().is_empty());
+    }
+}
