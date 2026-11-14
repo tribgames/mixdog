@@ -12,6 +12,7 @@ import { spawn } from 'node:child_process';
 
 import { desktopCapturer, screen } from 'electron';
 
+import { windowsWorkerFromEnvironment, type WindowsWorker } from '../computer/backend/host-worker-process';
 import { mixdogDataDirectory } from '../data-directory';
 import type { ScreenDisplay } from './screen-geometry';
 import { showRemoteScreenIndicator, type RemoteScreenIndicatorHandle } from './screen-indicator';
@@ -74,9 +75,16 @@ export function createElectronScreenDisplays(): ElectronScreenDisplays {
   };
 }
 
-/** The input host: the packaged mixdog-computer helper (MIXDOG_COMPUTER_BIN) in its screen-input mode. */
-export function createElectronScreenInputHost(): ScreenInputHost {
-  return createScreenInputHost({ spawn, legacyDirectory: mixdogDataDirectory() });
+/** The input host: the packaged mixdog-computer helper (MIXDOG_COMPUTER_BIN) in its screen-input mode.
+ *  The one-time sweep of the old PowerShell host script and DLL cache is skipped while the
+ *  PowerShell worker is selected: that host still publishes and caches them. */
+export function createElectronScreenInputHost(
+  windowsWorker: WindowsWorker = windowsWorkerFromEnvironment()
+): ScreenInputHost {
+  return createScreenInputHost({
+    spawn,
+    ...(windowsWorker === 'powershell' ? {} : { legacyDirectory: mixdogDataDirectory() }),
+  });
 }
 
 /** One session's place on the remote-control pill (see the header). */
