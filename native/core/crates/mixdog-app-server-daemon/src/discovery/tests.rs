@@ -301,6 +301,21 @@ fn a_serving_core_publishes_a_deleted_discovery_file_again_and_a_second_client_a
 }
 
 #[test]
+fn a_deleted_runtime_root_is_made_again_with_the_file() {
+    let parent = tempfile::tempdir().unwrap();
+    let root = parent.path().join("runtime");
+    ensure_private_root(&root).unwrap();
+    let owned = OwnedDiscovery::start_with(root.clone(), std::time::Duration::from_millis(5));
+    owned.publish(&running_discovery("inst-1", CoreState::Serving)).unwrap();
+    {
+        // Held so the watcher cannot write into the directory while it is being removed.
+        let _watcher_waits = owned.held.lock().unwrap();
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+    wait_until("the discovery file to come back", || path(&root).is_file());
+}
+
+#[test]
 fn the_state_published_last_is_the_one_put_back() {
     let root = tempfile::tempdir().unwrap();
     let owned = OwnedDiscovery::start_with(root.path().to_path_buf(), std::time::Duration::from_millis(5));
