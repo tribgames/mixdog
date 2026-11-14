@@ -1,0 +1,27 @@
+# s3-12: dual-path DesktopHostBackend and desktop.computerBackend
+
+## mixdog-tools/src/desktop/mod.rs
+After the line `mod computer_command;` add:
+pub mod computer_desktop_host;
+
+## mixdog-core-config/src/config/mod.rs  (not a hot file; one owner-less re-export block, apply with this wave)
+After the line `pub use desktop::SessionRetention;` add:
+pub use desktop::ComputerBackendChoice;
+After the line `pub use desktop::browser_cookie_auto_import;` add:
+pub use desktop::computer_backend;
+
+## Cargo
+No new dependency edge, workspace member or lockfile entry: the file uses only crates mixdog-tools already depends on.
+
+## Compose / service registration
+None here. s3-19 (compose_computer) selects the backend:
+  if mixdog_core_config::computer_backend(&config) == ComputerBackendChoice::DesktopHost
+      => Arc::new(DesktopHostBackend::new(host_channel, blobs, session_id, observe_only))
+  where `blobs: Arc<dyn ComputerBlobs>` is implemented over the core blob store, and the section reports
+  `DesktopHostBackend::backend_name()` ("desktopHost") as ComputerSection.backend.
+  The wrapper GatedComputerBackend goes around it as around the helper backend.
+  Session lifecycle: `DesktopHostBackend::session_control("execution_end" | "session_release" | "turn_settle", extra, timeout)`
+  is the client's sendComputerSessionControl for the turn settlement and the idle release of the session.
+
+## SERVICE_PENDING (compose_flip.rs)
+No name is removed: host/computer/command is a core -> host request, not a protocol method the core serves.
