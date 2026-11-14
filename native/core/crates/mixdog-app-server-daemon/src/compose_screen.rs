@@ -3,8 +3,10 @@
 //!
 //! - displays: the monitors the desktop enumerates (`host/computer/displays`, `HostDisplays`) and their pictures
 //!   (`host/computer/pixels`, [`HostPixels`], the JPEG the desktop uploaded to the core's blob store);
-//! - access: a paired connection's grant before its screen `ready` is forwarded, and its withdrawal when the connection or its pairing
-//!   ends ([`PhoneScreens`], called by the live view);
+//! - access: a paired connection's grant before its screen `ready` is forwarded (the displays are listed by then), and its withdrawal
+//!   when the connection or its pairing ends ([`PhoneScreens`], called by the live view);
+//! - the viewer: the live view resolves a phone's screen signal to its session, takes the track's pictures from the display (or the
+//!   helper's drawn frames) and carries the screen channel's messages (`live`);
 //! - input: one `mixdog-computer --screen-input` process per session ([`InputHost`] over `ScreenInput`);
 //! - the pill: the on-PC indicator of the desktop, driven by `host/screen/indicator` and stopped by `host/screen/indicator/stop`
 //!   ([`DesktopIndicator`], [`IndicatorStops`]);
@@ -160,6 +162,11 @@ pub async fn compose_screen(inputs: ScreenInputs) -> Screens {
     tracing::error!(reason = "screen control is implemented for Windows only", "phone screen control is off");
     Screens {}
 }
+
+/// The live view's half: the sessions as the host streams them, and the sink they report to.
+#[cfg(windows)]
+#[path = "compose_screen_live.rs"]
+pub(crate) mod live;
 
 #[cfg(windows)]
 #[path = "compose_screen_service.rs"]
