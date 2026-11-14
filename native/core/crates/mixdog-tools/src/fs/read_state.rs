@@ -877,11 +877,42 @@ fn files_to_json(files: &[(String, Snapshot)]) -> Option<String> {
     serde_json::to_string(&JsonValue::Object(obj)).ok()
 }
 
+/// `MAX_RANGES_PER_ENTRY` (`snapshot-store.mjs`).
+const MAX_RANGES_PER_ENTRY: usize = 4096;
+
+/// `isValidPersistedSnapshotEntry`: an entry that is not shaped as the store writes it is dropped whole, so the file is read again
+/// before it is edited. The identity fields may be missing (the entry then never takes the stat fast path) but not malformed.
+fn persisted_entry_is_valid(o: &serde_json::Map<String, JsonValue>) -> bool {
+    let finite = |v: &JsonValue| v.as_f64().is_some_and(f64::is_finite);
+    if !o.get("mtimeMs").is_some_and(finite) || !o.get("size").is_some_and(|v| finite(v) && v.as_f64().is_some_and(|n| n >= 0.0)) {
+        return false;
+    }
+    if ["ctimeMs", "ino", "dev"].iter().any(|field| o.get(*field).is_some_and(|v| !finite(v))) {
+        return false;
+    }
+    let hash_ok = match o.get("contentHash") {
+        None | Some(JsonValue::Null) => true,
+        Some(JsonValue::String(hash)) => (1..=128).contains(&hash.len()) && hash.bytes().all(|b| b.is_ascii_hexdigit()),
+        Some(_) => false,
+    };
+    let list_ok = |field: &str| match o.get(field) {
+        None => true,
+        Some(JsonValue::Array(rows)) => rows.len() <= MAX_RANGES_PER_ENTRY,
+        Some(_) => false,
+    };
+    let range_hash_ok = matches!(o.get("rangeHash"), None | Some(JsonValue::Null | JsonValue::String(_)));
+    let grep_only_ok = matches!(o.get("grepOnly"), None | Some(JsonValue::Bool(_)));
+    hash_ok && list_ok("ranges") && list_ok("rangeHashes") && range_hash_ok && grep_only_ok
+}
+
 fn files_from_json(text: &str) -> Vec<(String, Snapshot)> {
     let Ok(JsonValue::Object(obj)) = serde_json::from_str::<JsonValue>(text) else { return Vec::new() };
     let mut out = Vec::new();
     for (path, entry) in obj {
         let JsonValue::Object(mut o) = entry else { continue };
+        if !persisted_entry_is_valid(&o) {
+            continue;
+        }
         let (Some(mtime_ms), Some(size)) = (o.shift_remove("mtimeMs").and_then(|v| v.as_f64()), o.shift_remove("size").and_then(|v| v.as_u64())) else {
             continue;
         };
@@ -1245,6 +1276,33 @@ mod tests {
         state.settle().await;
         let left = disk.0.lock().unwrap().clone();
         assert_eq!(left, [("a".to_owned(), r#"{"/b":{"mtimeMs":2,"size":2},"/c":{"mtimeMs":3,"size":3}}"#.to_owned())]);
+    }
+
+    /// `isValidPersistedSnapshotEntry`: an entry shaped otherwise than the store writes it is dropped whole; missing identity fields are not
+    /// malformed ones.
+    #[test]
+    fn a_malformed_persisted_entry_is_dropped_whole() {
+        let many = serde_json::to_string(&vec![0; MAX_RANGES_PER_ENTRY + 1]).unwrap();
+        let kept = r#"{"mtimeMs":1,"size":2,"contentHash":"AbC1","ranges":[],"rangeHash":null,"grepOnly":false}"#;
+        let bare = r#"{"mtimeMs":1,"size":2}"#;
+        let dropped = [
+            r#"{"mtimeMs":1}"#.to_owned(),
+            r#"{"mtimeMs":1,"size":-1}"#.to_owned(),
+            r#"{"mtimeMs":1,"size":2,"ctimeMs":null}"#.to_owned(),
+            r#"{"mtimeMs":1,"size":2,"ino":"7"}"#.to_owned(),
+            r#"{"mtimeMs":1,"size":2,"contentHash":"xyz"}"#.to_owned(),
+            r#"{"mtimeMs":1,"size":2,"contentHash":5}"#.to_owned(),
+            format!(r#"{{"mtimeMs":1,"size":2,"contentHash":"{}"}}"#, "a".repeat(129)),
+            format!(r#"{{"mtimeMs":1,"size":2,"ranges":{many}}}"#),
+            format!(r#"{{"mtimeMs":1,"size":2,"rangeHashes":{many}}}"#),
+            r#"{"mtimeMs":1,"size":2,"rangeHash":3}"#.to_owned(),
+            r#"{"mtimeMs":1,"size":2,"grepOnly":"yes"}"#.to_owned(),
+        ];
+        let text = |entries: &[&str]| format!("{{{}}}", entries.iter().enumerate().map(|(i, e)| format!("\"/f{i}\":{e}")).collect::<Vec<_>>().join(","));
+        assert_eq!(files_from_json(&text(&[kept, bare])).len(), 2);
+        for entry in &dropped {
+            assert!(files_from_json(&text(&[entry])).is_empty(), "{entry}");
+        }
     }
 
     /// Node: deleting the known keys one by one from `{mtimeMs, x, y, size}` leaves `x` before `y`.

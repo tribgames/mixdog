@@ -688,6 +688,17 @@ fn spawn_error(program: &str, error: &std::io::Error) -> ProcessError {
     }
 }
 
+/// How long to wait before starting a Windows PowerShell again after the system refused it (`spawnShellWithRetry`,
+/// `shell-spawn-retry.mjs`): a refused start (EPERM) is retried after 100, 300 and 700 ms, then reported. `None` for any other
+/// program, platform or error, and once the three retries are spent.
+fn denied_spawn_delay(program: &str, error: &std::io::Error, attempt: usize) -> Option<Duration> {
+    const DELAYS_MS: [u64; 3] = [100, 300, 700];
+    let name = program.to_ascii_lowercase();
+    let powershell = name.contains("pwsh") || name.contains("powershell");
+    let denied = error.kind() == std::io::ErrorKind::PermissionDenied;
+    (cfg!(windows) && powershell && denied).then(|| DELAYS_MS.get(attempt).copied()).flatten().map(Duration::from_millis)
+}
+
 fn io_error(error: &std::io::Error) -> ProcessError {
     ProcessError::Io {
         os_code: error.raw_os_error(),
@@ -1050,20 +1061,32 @@ fn launch_process(
         });
     }
     let containment = Containment::create(crate::contain::breakaway_ok(&request.owner)).map_err(|e| io_error(&e))?;
-    let started = match request.pty {
-        Some(size) => {
-            pty::spawn(&launch, request.cwd.as_path(), &env, size, &containment).map(|parts| {
-                Started {
-                    root: parts.root,
-                    pty: Some(parts.pty),
-                    readers: vec![(OutputStream::Pty, parts.reader)],
-                    writer: Some(parts.writer),
+    let mut attempt = 0;
+    let started = loop {
+        let result = match request.pty {
+            Some(size) => {
+                pty::spawn(&launch, request.cwd.as_path(), &env, size, &containment).map(|parts| {
+                    Started {
+                        root: parts.root,
+                        pty: Some(parts.pty),
+                        readers: vec![(OutputStream::Pty, parts.reader)],
+                        writer: Some(parts.writer),
+                    }
+                })
+            }
+            None => start_piped(&launch, &request, &env, &containment),
+        };
+        match result {
+            Err(error) => match denied_spawn_delay(launch.program(), &error, attempt) {
+                Some(delay) => {
+                    attempt += 1;
+                    thread::sleep(delay);
                 }
-            })
+                None => return Err(spawn_error(launch.program(), &error)),
+            },
+            Ok(started) => break started,
         }
-        None => start_piped(&launch, &request, &env, &containment),
-    }
-    .map_err(|e| spawn_error(launch.program(), &e))?;
+    };
 
     let Started {
         root,
@@ -1516,7 +1539,24 @@ mod tests {
     use std::sync::mpsc;
 
     use super::InputQueue;
+    use super::denied_spawn_delay;
     use super::pieces;
+
+    /// `spawnShellWithRetry`: a refused PowerShell start waits 100, 300 and 700 ms and is then reported; nothing else is retried.
+    #[test]
+    fn a_refused_powershell_start_is_retried_three_times_on_windows_only() {
+        let denied = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
+        let missing = std::io::Error::from(std::io::ErrorKind::NotFound);
+        let delays: Vec<_> = (0..4).map(|n| denied_spawn_delay("pwsh.exe", &denied, n).map(|d| d.as_millis())).collect();
+        if cfg!(windows) {
+            assert_eq!(delays, [Some(100), Some(300), Some(700), None]);
+            assert!(denied_spawn_delay(r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe", &denied, 0).is_some());
+        } else {
+            assert_eq!(delays, [None, None, None, None]);
+        }
+        assert_eq!(denied_spawn_delay("pwsh.exe", &missing, 0), None);
+        assert_eq!(denied_spawn_delay("bash.exe", &denied, 0), None);
+    }
 
     /// A write to a piped input that fails part way ends the process's tree before the input is let go, and the input is let
     /// go only once the process is gone: the reader never sees an end of input after a part of what was written.

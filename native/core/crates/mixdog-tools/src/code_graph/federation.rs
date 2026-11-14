@@ -20,7 +20,7 @@ use super::args::Args;
 use super::dispatch::{Answer, Env, run_scoped};
 use super::output::{Warnings, wrap};
 use super::roots::{
-    FEDERATION_CAP, abs_from, child_project_roots, find_dir_project_root, is_filesystem_root, path_key,
+    abs_from, child_project_roots, find_dir_project_root, is_filesystem_root, path_key,
 };
 
 /// Where a federated call finds the roots a user has told Mixdog about. The composition root
@@ -245,7 +245,7 @@ pub(super) fn plan_federation(
     // yields nothing.
     let mut federation_roots = trusted.clone();
     if trusted.is_empty() && base_project_root.is_none() {
-        federation_roots = child_project_roots(base, FEDERATION_CAP).into_iter().filter(not_self).collect();
+        federation_roots = child_project_roots(base, super::roots::federation_cap()).into_iter().filter(not_self).collect();
     }
     let sentinel_free = base_project_root.is_none()
         && !filesystem_root_cwd

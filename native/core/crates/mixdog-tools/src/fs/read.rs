@@ -659,6 +659,9 @@ impl ReadTool {
                 let body = bytes.strip_prefix(&[0xef, 0xbb, 0xbf][..]).unwrap_or(&bytes);
                 match std::str::from_utf8(body) {
                     Ok(text) => text.to_owned(),
+                    // `countTextStatsStreaming`: a file of streaming size counted by `mode=count` is decoded with U+FFFD for its
+                    // invalid bytes, as Node's streaming decoder does, and is not refused.
+                    Err(_) if mode == "count" && stat.len > READ_STREAM_RANGE_MIN_BYTES => String::from_utf8_lossy(body).into_owned(),
                     Err(_) => {
                         return Ok("Error: invalid UTF-8 in text file: The encoded data was not valid for encoding utf-8".to_owned());
                     }
