@@ -10,7 +10,7 @@ import { stat } from 'node:fs/promises';
 import { extname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { Session } from 'electron';
-import { projectEntryPathIn } from './project-files';
+import { projectEntryPathIn } from './project-entry-path';
 import { type OffscreenOrigins, offscreenOrigins } from './visualize/offscreen-origins';
 
 export const SNAPSHOT_TIMEOUT_MS = 4_000;
