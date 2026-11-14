@@ -23,6 +23,8 @@ mixdog-scm = { workspace = true }
 mixdog-protocol = { workspace = true }
 mixdog-core-api = { workspace = true }
 mixdog-app-protocol = { workspace = true }
+# s4-tool-adapter: the browser engine runs the Browser Use actions when the claimed desktop serves `browserEngine`.
+mixdog-browser-engine = { workspace = true }
 async-trait = { workspace = true }
 bytes = { workspace = true }
 base64 = { workspace = true }
@@ -76,6 +78,7 @@ mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 tempfile = { workspace = true }
 wiremock = { workspace = true }
 mixdog-scm = { workspace = true, features = ["write-queue-hook"] }
+mixdog-browser-engine = { workspace = true, features = ["test-support"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 mixdog-ai = { workspace = true, features = ["count-work", "replay-bytes", "test-support", "virtual-clock"] }
@@ -90,6 +93,9 @@ mixdog-protocol = { workspace = true }
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 mixdog-tools = { path = ".", features = ["policy-observer"] }
 mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-core-base = { workspace = true, features = ["test-support"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Globalization", "Win32_Networking_WinSock", "Win32_Storage_FileSystem", "Win32_System_SystemInformation", "Win32_System_Threading"] }

@@ -66,6 +66,10 @@ mixdog-fsio = { workspace = true, features = ["elide-syncs"] }
 # Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
 # whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
 mixdog-exthost = { path = ".", features = ["test-support"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-browser-engine = { workspace = true, features = ["test-support"] }
+mixdog-core-base = { workspace = true, features = ["test-support"] }
 
 [features]
 # Observation hooks for the G8 driver (the core reader's outstanding-window counts).

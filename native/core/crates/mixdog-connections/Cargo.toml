@@ -15,6 +15,9 @@ mixdog-app-protocol = { workspace = true }
 mixdog-app-server-client = { workspace = true }
 mixdog-rt = { workspace = true }
 mixdog-statefile = { workspace = true }
+mixdog-core-domains = { workspace = true }
+mixdog-services = { workspace = true }
+mixdog-workspace = { workspace = true }
 async-trait = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -33,3 +36,7 @@ mixdog-rt = { workspace = true, features = ["test-support", "virtual-clock"] }
 mixdog-testkit = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros", "sync", "time", "test-util", "net", "io-util"] }
+mixdog-core-api = { workspace = true, features = ["mock"] }
+# Every workspace crate this crate's tests build, with its test-only features, so a test build has one feature set
+# whatever packages are selected (D:\mixdog-build\tools\unify-test-features.py).
+mixdog-workspace = { workspace = true, features = ["count-jobs", "kill-points", "replay-controls"] }
