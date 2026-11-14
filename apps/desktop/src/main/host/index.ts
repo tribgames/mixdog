@@ -5,7 +5,11 @@
  */
 import type { HostClaimParams } from '../../../../../packages/protocol/src/index.ts';
 import type { DesktopRemoteBrowserStreamFrame } from '../../shared/contract';
+import type { RemoteScreenDisplaySummary } from '../../shared/remote-webrtc';
 import { createBrowserCommandHost, type BrowserCommandRunner, type BrowserInputControl } from './browser-command';
+import { type BrowserLiveControl, registerBrowserLiveControlHost } from './browser-live-control';
+import { createBrowserPageReporter, type StreamedPage } from './browser-page-report';
+import { type BrowserSurfaceSource, registerBrowserSurfaceReport } from './browser-surface-report';
 import { type BrowserTabsControl, createBrowserTabsReporter } from './browser-tabs';
 import { type BrowserViewControl, createBrowserView } from './browser-view';
 import { HOST_METHOD, type HostConnection } from './connection';
@@ -16,6 +20,7 @@ import { type NotificationPresenter, registerNotificationHost } from './notifica
 import { registerSystemProxyHost } from './system-proxy';
 import { type ComputerControlSource, registerComputerHost } from './computer';
 import { registerHumanOnlyHolds } from './human-only';
+import { registerScreenDisplaysHost } from './screen-displays';
 
 export interface DesktopHostOptions {
   connection: HostConnection;
@@ -24,9 +29,15 @@ export interface DesktopHostOptions {
   /** The in-app browser, resolved when first used (it is built after the connection). */
   browser: () => {
     runner: BrowserCommandRunner;
-    view: BrowserViewControl & Pick<BrowserInputControl, 'remoteBrowserControl'>;
+    view: BrowserViewControl &
+      Pick<BrowserInputControl, 'remoteBrowserControl'> & {
+        /** The streamed page's document and locked geometry (`host/browser/page`); null when not streamed. */
+        streamedPage(sessionId: string): StreamedPage | null;
+      };
     tabs: BrowserTabsControl;
     remote: BrowserInputControl['remote'];
+    /** The streamed page's resize and video limit (`host/browser/liveControl`). */
+    liveControl: BrowserLiveControl;
   };
   /** The visualize service, resolved when first used. */
   visualize: () => VisualizeControl;
@@ -67,10 +78,24 @@ export function createDesktopHost(options: DesktopHostOptions) {
     options.onBrowserViewFailed
   );
   const tabs = createBrowserTabsReporter(connection, () => options.browser().tabs);
+  // Resolved per request: the browser is built after the host connection.
+  registerBrowserLiveControlHost(connection, () => options.browser().liveControl);
+  const pageReport = createBrowserPageReporter(connection, (sessionId) => {
+    try {
+      return options.browser().view.streamedPage(sessionId);
+    } catch {
+      // The browser is gone (its window closed): no page is streamed.
+      return null;
+    }
+  });
   const visualize = createVisualizeHost(connection, options.visualize, options.onVisualizePublishFailed);
   registerFilesHost(connection, options.files);
   registerSystemProxyHost(connection, options.resolveProxy);
   registerComputerHost(connection, options.computer);
+  // The browser host's own screen-displays path (the screen sources' displays, or "Remote screen is unavailable.").
+  registerScreenDisplaysHost(connection, () => ({
+    list: () => options.browser().remote('screenDisplays', []) as Promise<RemoteScreenDisplaySummary[]>,
+  }));
   const humanOnly = registerHumanOnlyHolds(connection);
   registerNotificationHost(connection, options.notifications);
   const reports = createHostReports(connection, options.updater, options.onUpdaterInstallFailed);
@@ -80,6 +105,7 @@ export function createDesktopHost(options: DesktopHostOptions) {
     claimed = false;
     tabs.stop();
     commands.stop();
+    pageReport.stop();
   });
 
   return {
@@ -102,5 +128,10 @@ export function createDesktopHost(options: DesktopHostOptions) {
     publishVisualize: visualize.publish,
     /** The browser host's `publishRemoteFrame`. */
     publishRemoteFrame: (frame: DesktopRemoteBrowserStreamFrame): Promise<void> => view.publishFrame(frame),
+    /** The browser host's `onStreamedPageChanged`: sends `host/browser/page` when the page or its geometry changed. */
+    streamedPageChanged: (sessionId: string): void => pageReport.changed(sessionId),
+    /** Reports a browser host's surface reveals and hides as `host/browser/surface`; returns the detach (its window
+     *  closed). Attached per browser host, since one is built for each window of this PC. */
+    reportBrowserSurfaces: (source: BrowserSurfaceSource): (() => void) => registerBrowserSurfaceReport(connection, source),
   };
 }

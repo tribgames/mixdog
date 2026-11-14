@@ -2358,6 +2358,8 @@ function installLocalWindowFeatures(
     // through the service, which owns the relay and per-client pacing.
     publishRemoteFrame: (frame) => hostRole.host.publishRemoteFrame(frame),
     publishRemoteTabs: (tabs) => hostRole.host.publishRemoteTabs(tabs),
+    // The streamed page's document and geometry reach the core as `host/browser/page`.
+    onStreamedPageChanged: (sessionId) => hostRole.host.streamedPageChanged(sessionId),
     publishRemoteImportProgress: async (progress) => {
       await localService.invokeDesktopOperation('browserRemoteImportProgress', [progress]);
     },
@@ -2380,11 +2382,10 @@ function installLocalWindowFeatures(
       // which a fresh client is built.
       screens: process.platform === 'win32' ? windowsRemoteScreens() : undefined,
     },
-    onSurfaceRequest: (request) => {
-      void localService.invokeDesktopOperation('browserRemoteOpen', [request]).catch(() => {});
-    },
   });
   browserHost = windowBrowserHost;
+  // Explicit reveals and hides reach paired clients as the core's `host/browser/surface` (failed opens are not sent).
+  const stopSurfaceReport = hostRole.host.reportBrowserSurfaces(windowBrowserHost.hostRole().surfaces);
   windowBrowserHost.setBridgeEnabled(browserControlEnabled);
   // Taskbar attention: flash/bounce when the active turn finishes while this
   // window is unfocused; focusing it clears the signal.
@@ -2416,6 +2417,7 @@ function installLocalWindowFeatures(
   window.on('close', (event) => backgroundWindow.onClose(event, () => window.hide()));
   window.on('closed', () => {
     stopScreenSessions();
+    stopSurfaceReport();
     computerUseOverlay?.dispose();
     computerUseOverlay = null;
     // This window's host dies with it (macOS 'activate' builds a new one);

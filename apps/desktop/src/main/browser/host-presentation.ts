@@ -99,43 +99,47 @@ function createBrowserHostRemoteControl(options: {
   dialogOwner: (guest: WebContents) => WebContents | null;
   publishRemoteFrame?: (frame: DesktopRemoteBrowserStreamFrame) => Promise<void>;
   remoteMedia?: Pick<BrowserRemoteControlHost, 'geometryChanged' | 'captured'>;
+  onStreamedPageChanged?: (sessionId: string) => void;
 }) {
   const { state, cdp, leave, urls } = options;
-  return createBrowserRemoteControl({
-    geometryChanged: options.remoteMedia?.geometryChanged,
-    captured: options.remoteMedia?.captured,
-    tabs: options.sessionTabs,
-    dialog: (guest) => options.prompts.describe(guest).dialog,
-    drive: options.remoteDrive,
-    state,
-    cdp,
-    urlPolicy: options.urlPolicy,
-    ensureGuest: options.lifecycle.ensureGuest,
-    currentGuest: (sessionId) => options.sessions.currentGuest(sessionId) ?? null,
-    viewerChanged: (sessionId, active) => {
-      // Lease expiry ends a stream without remoteBrowserStream(null), so the
-      // power classification follows the stream lifecycle itself.
-      options.display.setRemoteViewing(sessionId, active);
-      options.sendToRenderer(DESKTOP_IPC.browserRemoteViewerChanged, { sessionId, active });
-    },
-    onUserControl: createUserTakesPage({
-      sessionIdForGuest: (guest) => options.sessions.sessionIdForGuest(guest),
-      claimPage: options.lifecycle.claimPage,
-      retain: options.retainGuest,
-    }),
-    leave,
-    assertResolvedUrlAllowed: urls.assertResolvedUrlAllowed,
-    dispatchPageInput: createPageInputDispatcher({
+  return createBrowserRemoteControl(
+    {
+      geometryChanged: options.remoteMedia?.geometryChanged,
+      captured: options.remoteMedia?.captured,
+      tabs: options.sessionTabs,
+      dialog: (guest) => options.prompts.describe(guest).dialog,
+      drive: options.remoteDrive,
       state,
       cdp,
-      dispatchInput: options.dispatchInput,
-      dialogOwner: options.dialogOwner,
-      leave,
       urlPolicy: options.urlPolicy,
-      assertUrl: urls.assertResolvedUrlAllowed,
-    }),
-    publishFrame: (frame) => options.publishRemoteFrame?.(frame) ?? Promise.resolve(),
-  });
+      ensureGuest: options.lifecycle.ensureGuest,
+      currentGuest: (sessionId) => options.sessions.currentGuest(sessionId) ?? null,
+      viewerChanged: (sessionId, active) => {
+        // Lease expiry ends a stream without remoteBrowserStream(null), so the
+        // power classification follows the stream lifecycle itself.
+        options.display.setRemoteViewing(sessionId, active);
+        options.sendToRenderer(DESKTOP_IPC.browserRemoteViewerChanged, { sessionId, active });
+      },
+      onUserControl: createUserTakesPage({
+        sessionIdForGuest: (guest) => options.sessions.sessionIdForGuest(guest),
+        claimPage: options.lifecycle.claimPage,
+        retain: options.retainGuest,
+      }),
+      leave,
+      assertResolvedUrlAllowed: urls.assertResolvedUrlAllowed,
+      dispatchPageInput: createPageInputDispatcher({
+        state,
+        cdp,
+        dispatchInput: options.dispatchInput,
+        dialogOwner: options.dialogOwner,
+        leave,
+        urlPolicy: options.urlPolicy,
+        assertUrl: urls.assertResolvedUrlAllowed,
+      }),
+      publishFrame: (frame) => options.publishRemoteFrame?.(frame) ?? Promise.resolve(),
+    },
+    { onStreamedPageChanged: options.onStreamedPageChanged }
+  );
 }
 
 export function createBrowserHostPresentation(options: {
@@ -163,6 +167,8 @@ export function createBrowserHostPresentation(options: {
   publishRemoteTabs?: (tabs: DesktopRemoteBrowserTab[]) => Promise<void>;
   /** The WebRTC live view's taps on remote streams (geometry, pictures). */
   remoteMedia?: Pick<BrowserRemoteControlHost, 'geometryChanged' | 'captured'>;
+  /** A streamed page's document or locked geometry changed, or its stream ended (`host/browser/page`). */
+  onStreamedPageChanged?: (sessionId: string) => void;
   onDiagnostic?: (event: string, data: Record<string, unknown>) => void;
 }) {
   const { window, lifecycle, tools } = options;
@@ -234,6 +240,7 @@ export function createBrowserHostPresentation(options: {
     dialogOwner,
     publishRemoteFrame: options.publishRemoteFrame,
     remoteMedia: options.remoteMedia,
+    onStreamedPageChanged: options.onStreamedPageChanged,
   });
   const remoteTabs = createBrowserRemoteTabs({
     sessionIds: () => sessions.sessionIds(),

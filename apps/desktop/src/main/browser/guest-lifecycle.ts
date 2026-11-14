@@ -248,6 +248,7 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
     requestBrowserSurface,
     revealPage: surface.revealPage,
     reportOpenFailure: surface.reportOpenFailure,
+    onSurfaceChanged: surface.onSurfaceChanged,
     discardCreatedPage,
     ensureGuest,
     panelShown: panelFold.panelShown,
