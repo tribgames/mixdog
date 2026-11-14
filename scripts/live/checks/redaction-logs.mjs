@@ -2,7 +2,7 @@
 // computer paths, for secrets: the run's own session token, private keys, bearer tokens, provider keys, user:password
 // URLs and `password=`-style assignments with a real value. Findings name file, line and kind; the secret is never printed.
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { dirname, extname, join } from 'node:path';
+import { extname, join } from 'node:path';
 
 export const name = 'host-forwarding logs hold no secrets';
 
@@ -54,8 +54,26 @@ function* files(dir, depth = 0) {
 export function logRoots(env) {
   const { info } = env;
   const roots = [join(info.dataDir, 'daemon-crash'), join(info.dataDir, 'logs'), join(info.profile, 'logs'), join(info.profile, 'runtime')];
-  if (info.logPath) roots.push(dirname(info.logPath));
   return [...new Set(roots)].filter((r) => existsSync(r));
+}
+
+/**
+ * The log files that sit beside other state rather than in a log folder: the launcher's log, the core's daemon.log and
+ * memory proxy log, the trace and tool-failure journals, the desktop's perf log. The instance folder itself is not
+ * walked: it also holds the Electron profile, the config home and the app build, which are not logs.
+ */
+export function logFiles(env) {
+  const { info } = env;
+  const history = join(info.dataDir, 'history');
+  const paths = [
+    info.logPath,
+    join(info.dataDir, 'daemon.log'),
+    join(info.dataDir, 'memory-runtime-proxy.log'),
+    join(history, 'agent-trace.jsonl'),
+    join(history, 'tool-failures.jsonl'),
+    join(info.profile, 'desktop-perf.log'),
+  ];
+  return paths.filter((p) => p && existsSync(p));
 }
 
 export function scanFiles(paths, literals) {
@@ -85,13 +103,13 @@ export function scanFiles(paths, literals) {
 export async function run({ env }) {
   const tokens = Object.values(env.doc?.endpoints ?? {}).map((e) => e?.token).filter((t) => typeof t === 'string' && t.length >= 8);
   const roots = logRoots(env);
-  const all = new Set();
+  const all = new Set(logFiles(env));
   for (const root of roots) for (const f of files(root)) all.add(f);
   const { findings, scannedFiles, scannedLines } = scanFiles([...all], tokens);
   const lower = [...all].map((f) => f.toLowerCase());
   const coverage = ['ssh', 'browser', 'computer'].map((path) => `${path}:${lower.some((f) => f.includes(path)) ? 'own log' : 'core log only'}`).join(' ');
   const capture = existsSync(join(env.info.dataDir, 'daemon-crash')) ? 'present' : 'absent';
-  const summary = `${scannedFiles} files, ${scannedLines} lines under ${roots.length} folders; crash capture dir ${capture}; paths ${coverage}`;
+  const summary = `${scannedFiles} files, ${scannedLines} lines under ${roots.length} folders and beside the core and launcher; crash capture dir ${capture}; paths ${coverage}`;
   if (findings.length) {
     const shown = findings.slice(0, 20).map((f) => `${f.file}:${f.line} ${f.kind}`).join('; ');
     throw new Error(`${findings.length} secret findings (${shown}); ${summary}`);
