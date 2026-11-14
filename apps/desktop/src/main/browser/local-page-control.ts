@@ -49,7 +49,7 @@ export function createBrowserLocalPageControl(options: {
     // cancel the agent using that page, not the session's primary page.
     const engine = options.engine?.isEngineMode() ? options.engine.leases : undefined;
     const pageId = state.pageId(guest);
-    const command = { action: 'remote_control', session_id: owner, tab: state.pageId(guest) };
+    const command = { action: 'remote_control', session_id: owner, tab: pageId };
     if (input.type !== 'resize' && !(input.type === 'pointer' && input.phase === 'mouseMoved' && input.buttons === 0))
       options.retainGuest(guest);
     if (browserInputImmediate(input)) {
