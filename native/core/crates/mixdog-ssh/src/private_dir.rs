@@ -69,6 +69,7 @@ fn random_suffix() -> String {
 fn make_temp_dir(parent: &Path, prefix: &str) -> io::Result<PathBuf> {
     for _ in 0..NAME_ATTEMPTS {
         let dir = parent.join(format!("{prefix}{}", random_suffix()));
+        #[cfg_attr(not(unix), allow(unused_mut))]
         let mut builder = DirBuilder::new();
         #[cfg(unix)]
         builder.mode(0o700);
