@@ -107,19 +107,23 @@ struct Rig {
     answers: Arc<Answers>,
     sessions: watch::Sender<Vec<SessionSummaryLite>>,
     agent_pool: watch::Sender<Vec<AgentRowLite>>,
-    states: broadcast::Sender<SessionStateChange>,
+    approvals: watch::Sender<Vec<PendingApproval>>,
     view: watch::Sender<LinkViewState>,
     _notifier: ServerNotifier,
 }
 
 fn rig_named(name: &str) -> Rig {
+    rig_holding(name, Vec::new())
+}
+
+fn rig_holding(name: &str, held: Vec<PendingApproval>) -> Rig {
     let sink = Arc::new(Sink::default());
     let prefs = Arc::new(Prefs(Mutex::new(PreferencesView { preferences: DevicePreferences::default(), overrides: Vec::new() })));
     let focus = Arc::new(Focus::default());
     let answers = Arc::new(Answers::default());
     let (sessions, sessions_rx) = watch::channel(Vec::new());
     let (agent_pool, pool_rx) = watch::channel(Vec::new());
-    let (states, states_rx) = broadcast::channel(16);
+    let (approvals, approvals_rx) = watch::channel(held);
     let (view, view_rx) = watch::channel(link(LinkState::Connected));
     let env = NotifierEnv {
         connection_id: "srv".into(),
@@ -131,9 +135,15 @@ fn rig_named(name: &str) -> Rig {
     };
     let notifier = ServerNotifier::start(
         env,
-        NotifierSources { sessions: sessions_rx, agent_pool: pool_rx, states: states_rx, view: view_rx, answers: answers.clone() },
+        NotifierSources {
+            sessions: sessions_rx,
+            agent_pool: pool_rx,
+            approvals: approvals_rx,
+            view: view_rx,
+            answers: answers.clone(),
+        },
     );
-    Rig { sink, prefs, focus, answers, sessions, agent_pool, states, view, _notifier: notifier }
+    Rig { sink, prefs, focus, answers, sessions, agent_pool, approvals, view, _notifier: notifier }
 }
 
 fn rig() -> Rig {
@@ -186,17 +196,8 @@ fn row(id: &str, title: &str, working: bool) -> SessionSummaryLite {
     row_with(id, title, working, json!({}))
 }
 
-fn approval(id: &str, key: &str, kind: &str) -> SessionStateChange {
-    SessionStateChange {
-        session_id: id.into(),
-        state: SessionRunState::Running,
-        started_at: None,
-        snapshot: json!({ "busy": true, "toolApproval": { "id": key, "kind": kind } }),
-    }
-}
-
-fn no_approval(id: &str) -> SessionStateChange {
-    SessionStateChange { session_id: id.into(), state: SessionRunState::Running, started_at: None, snapshot: json!({ "busy": true }) }
+fn approval(session: &str, key: &str, kind: ApprovalKind, order: u64) -> PendingApproval {
+    PendingApproval { request_id: RequestId::String(key.into()), session_id: session.into(), kind, requested_at: 0, order }
 }
 
 async fn settle() {
@@ -319,7 +320,7 @@ async fn a_lead_waiting_on_its_agents_has_not_answered() {
         status: status.into(),
         stage: String::new(),
         released: false,
-        row: json!({}),
+        row: json!({ "tag": "t", "sessionId": "worker", "ownerSessionId": "lead", "status": status }),
     };
     rig.agent_pool.send(vec![agent("running")]).unwrap();
     settle().await;
@@ -364,41 +365,43 @@ async fn approval_start_only() {
     let rig = rig();
     rig.sessions.send(vec![row("a", "Deploy", true)]).unwrap();
     settle().await;
-    rig.states.send(approval("a", "ap1", "tool")).unwrap();
+    rig.approvals.send(vec![approval("a", "ap1", ApprovalKind::Tool, 1)]).unwrap();
     settle().await;
     let shown = rig.shown();
     assert_eq!(shown.len(), 1);
     assert_eq!(shown[0].title, "Build box · Deploy");
     assert_eq!(shown[0].body, "Waiting for your approval.");
-    // The same approval again is not told; a new one is; one after it was answered is.
-    rig.states.send(approval("a", "ap1", "tool")).unwrap();
+    assert_eq!(shown[0].thread_id.as_ref().map(|id| id.as_str()), Some("a"));
+    // A second request queued behind the one shown waits its turn; it is told when it is the one shown.
+    rig.approvals.send(vec![approval("a", "ap1", ApprovalKind::Tool, 1), approval("a", "ap2", ApprovalKind::Question, 2)]).unwrap();
     settle().await;
     assert_eq!(rig.shown().len(), 1);
-    rig.states.send(approval("a", "ap2", "question")).unwrap();
+    rig.approvals.send(vec![approval("a", "ap2", ApprovalKind::Question, 2)]).unwrap();
     settle().await;
     assert_eq!(rig.shown().len(), 2);
-    rig.states.send(no_approval("a")).unwrap();
-    rig.states.send(approval("a", "ap2", "question")).unwrap();
+    // The link drops (the held list empties) and the server holds the same request again: told once.
+    rig.approvals.send(Vec::new()).unwrap();
     settle().await;
-    assert_eq!(rig.shown().len(), 3);
+    rig.approvals.send(vec![approval("a", "ap2", ApprovalKind::Question, 2)]).unwrap();
+    settle().await;
+    assert_eq!(rig.shown().len(), 2);
+    // Browser and computer requests are told by their own dialogs.
+    rig.approvals.send(vec![approval("b", "br1", ApprovalKind::Browser, 1), approval("c", "pc1", ApprovalKind::Computer, 1)]).unwrap();
+    settle().await;
+    assert_eq!(rig.shown().len(), 2);
 }
 
 #[tokio::test(start_paused = true)]
-async fn an_approval_without_an_id_uses_one_key() {
-    let rig = rig();
-    let waiting = SessionStateChange {
-        session_id: "a".into(),
-        state: SessionRunState::Running,
-        started_at: None,
-        snapshot: json!({ "toolApproval": { "kind": "tool" } }),
-    };
-    rig.states.send(waiting.clone()).unwrap();
-    rig.states.send(waiting).unwrap();
+async fn an_approval_already_showing_at_attach_is_not_told() {
+    let rig = rig_holding("Build box", vec![approval("a", "ap1", ApprovalKind::Tool, 1)]);
     settle().await;
-    let shown = rig.shown();
-    assert_eq!(shown.len(), 1);
+    rig.approvals.send(vec![approval("a", "ap1", ApprovalKind::Tool, 1)]).unwrap();
+    settle().await;
+    assert!(rig.shown().is_empty());
     // A session the roster does not know is titled by the server.
-    assert_eq!(shown[0].title, "Build box · Build box");
+    rig.approvals.send(vec![approval("x", "ap9", ApprovalKind::Permissions, 1)]).unwrap();
+    settle().await;
+    assert_eq!(rig.shown()[0].title, "Build box · Build box");
 }
 
 #[tokio::test(start_paused = true)]
@@ -409,14 +412,14 @@ async fn foreground_suppresses() {
     // The window shows this very session: no approval toast, no final answer.
     rig.focus.window.store(true, Ordering::SeqCst);
     *rig.focus.session.lock().unwrap() = Some("a".into());
-    rig.states.send(approval("a", "ap1", "tool")).unwrap();
+    rig.approvals.send(vec![approval("a", "ap1", ApprovalKind::Tool, 1)]).unwrap();
     rig.answers.by_session.lock().unwrap().insert("a".into(), Ok(Some(done("Done."))));
     rig.sessions.send(vec![row("a", "Deploy", false)]).unwrap();
     advance(LEAD_FINISHED_MS + 50).await;
     assert!(rig.shown().is_empty());
     // A focused window on another session does not hold it back.
     *rig.focus.session.lock().unwrap() = Some("b".into());
-    rig.states.send(approval("a", "ap2", "tool")).unwrap();
+    rig.approvals.send(vec![approval("a", "ap2", ApprovalKind::Tool, 2)]).unwrap();
     settle().await;
     assert_eq!(rig.shown().len(), 1);
     // The link notices are held back by a focused window of any session.
@@ -431,7 +434,7 @@ async fn this_pcs_preferences_decide() {
     rig.prefs.0.lock().unwrap().preferences.scope = Scope::Off;
     rig.sessions.send(vec![row("a", "Deploy", true)]).unwrap();
     settle().await;
-    rig.states.send(approval("a", "ap1", "tool")).unwrap();
+    rig.approvals.send(vec![approval("a", "ap1", ApprovalKind::Tool, 1)]).unwrap();
     settle().await;
     assert!(rig.shown().is_empty());
 }
@@ -519,7 +522,7 @@ async fn an_attachment_only_title_is_shown_in_this_pcs_language() {
     let rig = rig();
     rig.sessions.send(vec![row("a", "[Image]", true)]).unwrap();
     settle().await;
-    rig.states.send(approval("a", "ap1", "tool")).unwrap();
+    rig.approvals.send(vec![approval("a", "ap1", ApprovalKind::Tool, 1)]).unwrap();
     settle().await;
     assert_eq!(rig.shown()[0].title, "Build box · Bild");
 }
@@ -532,37 +535,4 @@ fn a_room_and_a_bot_home_shape_the_conversation() {
     assert_eq!(conversation_of(&scheduled).origin, Origin::Schedule);
     let plain = row("p", "", false);
     assert_eq!(notification_title_of(&plain), "Mixdog");
-}
-
-#[test]
-fn agent_work_is_classified_by_its_status() {
-    let agent = |status: &str, stage: &str| AgentRowLite {
-        tag: String::new(),
-        session_id: "w".into(),
-        owner_session_id: Some("o".into()),
-        parent_session_id: None,
-        title: None,
-        status: status.into(),
-        stage: stage.into(),
-        released: false,
-        row: json!({}),
-    };
-    for (status, stage, pending) in [
-        ("running", "", true),
-        ("Tool-Running", "", true),
-        ("queued", "idle", true),
-        ("", "streaming", true),
-        ("idle", "", false),
-        ("done", "running", false),
-        ("running", "cancelled", false),
-        ("cancelling", "", true),
-        ("cancel-unconfirmed", "", true),
-        ("cancelled", "", false),
-        ("", "", false),
-    ] {
-        let found = sessions_with_pending_work(&[agent(status, stage)]).contains("o");
-        assert_eq!(found, pending, "status {status:?} stage {stage:?}");
-    }
-    let own = AgentRowLite { session_id: "o".into(), ..agent("running", "") };
-    assert!(sessions_with_pending_work(&[own]).is_empty());
 }

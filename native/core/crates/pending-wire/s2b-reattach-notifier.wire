@@ -12,7 +12,8 @@ Two new dependency edges, in `[dependencies]` after `mixdog-statefile = { worksp
 
 - `mixdog-core-domains`: `notify::decision::{decide, DecisionInput, Conversation, SessionFields, PreferencesView, LocalClock, Event, Origin,
   allows_device_notice}` (the one notification rule) and `notify::preview::notification_preview`.
-- `mixdog-services`: `bots::routine::is_routine_quiet_reply` (the routine quiet sentinel, so a quiet routine reply is not told).
+- `mixdog-services`: `bots::routine::is_routine_quiet_reply` (the routine quiet sentinel, so a quiet routine reply is not told) and
+  `task_reports::chain::sessions_with_pending_work` (the Lead sessions still waiting on their agents).
 - No cycle: no crate depends on mixdog-connections yet (the daemon wiring of s2b-service is the first). Cargo.lock: the `mixdog-connections`
   package entry gains `"mixdog-core-domains"` and `"mixdog-services"` in its dependency list (alphabetical), via `cargo update --workspace --offline`.
   mixdog-workspace-hack needs nothing (no new external crate or feature: tokio features rt/sync/macros/time are already enabled).
