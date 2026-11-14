@@ -1,4 +1,18 @@
 {
-  "version": 1,
-  "methods": []
+  "version": 2,
+  "methods": [
+    "connections/endpoint",
+    "host/claim",
+    "host/humanOnly/begin",
+    "host/humanOnly/end",
+    "host/remoteTarget/set",
+    "host/state/set",
+    "modelProxy/run",
+    "process/kill",
+    "process/resizePty",
+    "process/spawn",
+    "process/writeStdin",
+    "projectFs/localPage/revokeOwner",
+    "test/browserEngine/run"
+  ]
 }
