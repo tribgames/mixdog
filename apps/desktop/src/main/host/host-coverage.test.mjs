@@ -24,35 +24,7 @@ const { createDesktopHost } = await import('./index.ts');
  * that owns the handler; the entry is deleted by that task.
  * @type {Record<string, string>}
  */
-const PENDING = {
-  'host/browser/pages/resolve': 's4-host-page-methods (wired by s4-wire-desktop)',
-  'host/browser/pages/list': 's4-host-page-methods (wired by s4-wire-desktop)',
-  'host/browser/pages/close': 's4-host-page-methods (wired by s4-wire-desktop)',
-  'host/browser/pages/surface': 's4-host-page-methods (wired by s4-wire-desktop)',
-  'host/browser/page/navigate': 's4-host-page-methods (wired by s4-wire-desktop)',
-  'host/browser/page/stop': 's4-host-page-methods (wired by s4-wire-desktop)',
-  'host/browser/page/eval': 's4-host-page-methods (wired by s4-wire-desktop)',
-  'host/browser/page/read': 's4-host-page-methods (wired by s4-wire-desktop)',
-  'host/browser/page/renderCheckpoint': 's4-host-page-methods (wired by s4-wire-desktop)',
-  'host/browser/page/domQuiet': 's4-host-page-methods (wired by s4-wire-desktop)',
-  'host/browser/page/dialog/answer': 's4-host-page-methods (wired by s4-wire-desktop)',
-  'host/browser/page/sync': 's4-host-page-methods (wired by s4-wire-desktop)',
-  'host/browser/cdp/send': 's4-host-page-methods (wired by s4-wire-desktop)',
-  'host/browser/snapshot': 's4-host-snapshot (wired by s4-wire-desktop)',
-  'host/browser/ref/call': 's4-host-snapshot (wired by s4-wire-desktop)',
-  'host/browser/ref/mint': 'g45-fu-rest ref-mint.ts (wired by s4-wire-desktop)',
-  'host/browser/screenshot': 's4-host-snapshot (wired by s4-wire-desktop)',
-  'host/browser/input/batch': 's4-host-input-batch (wired by s4-wire-desktop)',
-  'host/browser/cookies': 's4-host-session-methods (wired by s4-wire-desktop)',
-  'host/browser/storage': 's4-host-session-methods (wired by s4-wire-desktop)',
-  'host/browser/initScripts': 's4-host-session-methods (wired by s4-wire-desktop)',
-  'host/browser/intercept': 's4-host-session-methods (wired by s4-wire-desktop)',
-  'host/browser/performance': 's4-host-session-methods (wired by s4-wire-desktop)',
-  'host/browser/emulation': 's4-host-session-methods (wired by s4-wire-desktop)',
-  'host/browser/downloads': 's4-host-session-methods (wired by s4-wire-desktop)',
-  'host/browser/upload': 's4-host-session-methods (wired by s4-wire-desktop)',
-  'host/browser/lease/release': 's4-host-lease (wired by s4-wire-desktop)',
-};
+const PENDING = {};
 
 function served() {
   const requests = new Set();

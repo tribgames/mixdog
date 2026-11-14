@@ -92,6 +92,7 @@ import { resolveToolApprovalAnnouncingGrant } from './approval-grant-change';
 import { hostDeviceName } from './session-device';
 import { endBrowserApprovalSession, setBrowserApprovalHooks } from './browser/approval-dialog';
 import { approvalSurfaceSessionId, createApprovalRequesterResolver } from './browser/approval-requester';
+import { createTranscriptTap } from './host/browser-engine/transcript';
 import { createBrowserApprovalGrants } from './browser/approval-grants';
 import { boundedNotification } from './connections/server-notifier';
 import type { RemoteHostWindows } from './remote-host-windows';
@@ -1188,6 +1189,9 @@ const hostRole = createLocalHostRole({
     if (!browserHost) throw new Error('The in-app browser is not open.');
     return browserHost.hostRole();
   },
+  // The engine lane's record of every host/browser/* call, for the golden replay: a development build only, into the folder
+  // MIXDOG_BROWSER_TRANSCRIPT names (a diagnostics location, not a choice of implementation).
+  browserEngineTranscript: createTranscriptTap({ dir: process.env.MIXDOG_BROWSER_TRANSCRIPT, devBuild: !app.isPackaged }),
   visualize: () => ({
     execute: (command) => visualize.execute(command),
     exportForDevice: (command) => visualize.exportForDevice(command),
