@@ -92,3 +92,22 @@ test('a throwing connection does not escape', () => {
   );
   reporter.changed('s1');
 });
+
+test('a reclaim sends every live stream again, also after the connection closed, and not a stream that ended', () => {
+  const { sent, pages, reporter } = setup();
+  pages.set('s1', { documentId: 'd1', geometry: geometry(1) });
+  pages.set('s2', { documentId: 'd2', geometry: geometry(3) });
+  pages.set('s3', { documentId: 'd3', geometry: null });
+  for (const id of ['s1', 's2', 's3']) reporter.changed(id);
+  assert.equal(sent.length, 2);
+  reporter.stop();
+  pages.delete('s2');
+  reporter.resend();
+  assert.deepEqual(
+    sent.slice(2),
+    [['host/browser/page', { tabId: 's1', documentId: 'd1', geometry: geometry(1) }]]
+  );
+  pages.get('s3').geometry = geometry(1);
+  reporter.resend();
+  assert.deepEqual(sent.slice(3).map(([, params]) => params.tabId), ['s1', 's3']);
+});

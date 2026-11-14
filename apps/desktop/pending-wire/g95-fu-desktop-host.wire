@@ -1,0 +1,57 @@
+# g95-fu-desktop-host: what the wiring applies (hot files; the rest of the task is committed)
+
+## 1. host/connection.ts
+
+a) Declare the browser engine, in HOST_CAPABILITIES right after `windows: true,` (the line of deferred-g8.md, unblocked by
+   g85-fu-engine; the engine lane now serves the behaviour the earlier reviews listed, and input/batch and upload are closed by this task):
+
+  // `host/browser/*` engine methods (host/browser-engine/index.ts). A core that does not compose the engine ignores it.
+  browserEngine: { version: 1, features: ['inputBatch', 'snapshot', 'lease', 'blob'] },
+
+b) Add, after HOST_CAPABILITIES (import `existsSync` is not needed; `join`, `dirname` from 'node:path' and `coreBinaryPath` from '../protocol/local-core'):
+
+/**
+ * `host/claim` `resources`: where this desktop keeps what the core launches. Packaged, the server cores are
+ * `resources/server-cores` and the askpass helper sits beside the core binary (`resources/core`); a source checkout has the
+ * helper beside the built core and no staged server cores unless `apps/desktop/.runtime/server-cores` exists. A field whose
+ * path is not there is left out, so a core reads what it has (it also reads MIXDOG_SERVER_CORES_DIR / MIXDOG_ASKPASS_HELPER).
+ */
+export function claimResources(
+  packaged: boolean,
+  resourcesPath: string,
+  exists: (path: string) => boolean,
+  platform: NodeJS.Platform = process.platform
+): HostClaimResources {
+  const serverCores = join(resourcesPath, 'server-cores');
+  const askpass = join(dirname(coreBinaryPath(packaged, resourcesPath, platform)), platform === 'win32' ? 'mixdog-askpass.exe' : 'mixdog-askpass');
+  return {
+    ...(exists(serverCores) ? { serverCoresDir: serverCores } : {}),
+    ...(exists(askpass) ? { askpassHelper: askpass } : {}),
+  };
+}
+   (import type { HostClaimResources } from the protocol package beside HostCapabilities.) For a source checkout the server cores
+   are `localServerCoresDir(import.meta.dirname)` (ssh/remote-install-payload.ts) when it does not throw: main/index.ts passes
+   that as `serverCoresDir` override (see 3).
+
+## 2. host/index.ts (createDesktopHost)
+
+- DesktopHostOptions gains `resources?: HostClaimResources` (what main/index.ts computed with claimResources).
+- claim(): the request becomes
+    await connection.request(HOST_METHOD.claim, {
+      hostId: options.hostId,
+      ...(options.resources ? { resources: options.resources } : {}),
+      serves: connection.servedMethods(),
+    } satisfies HostClaimParams);
+- claim(): after `reports.resend();` add `pageReport.resend();` (browser-page-report.ts: every live stream's `host/browser/page`
+  is sent again on each claim, so a stream alive across a core restart reports its geometry at once).
+- host.test.mjs: the expected claim request (line `['host/claim', { hostId: 'host-1', serves: ... }]`) is unchanged without `resources`.
+
+## 3. main/index.ts (createDesktopHost call)
+
+  resources: { ...claimResources(app.isPackaged, process.resourcesPath, existsSync), ...devServerCores() },
+where, for a source checkout only, `devServerCores()` is `{ serverCoresDir: localServerCoresDir(import.meta.dirname) }` in a try
+(ignored when the folder is not staged), and `{}` when packaged.
+
+## 4. SERVICE_PENDING / core
+
+Nothing to remove. The core half (building the SshEnv from `resources`) is g95-fu-ssh-service.
