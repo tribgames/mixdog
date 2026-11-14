@@ -1,9 +1,0 @@
-# g55-fu-engine: desktop wire lines for DESKTOP-WIRE-G7
-
-Done in the tree (host/browser-engine/upload.ts registers host/browser/upload/receiver beside host/browser/upload and index.ts lists it in
-ENGINE_REQUEST_METHODS; page.ts read takes `attributes` and `limit` and never ends a part inside a surrogate pair; session.ts answers the
-emulation `labels`; input-batch.ts resolves the `ControlOrMeta` press modifier by the host's platform).
-
-Nothing to paste into a hot file. Once the protocol rows are applied (core fragment g55-fu-engine.wire):
-- host/host-coverage.test.mjs: host/browser/upload/receiver is served (like host/browser/upload): no PENDING entry is added for it.
-- host/browser-engine/secret-precondition.test.mjs already carries its params row (it lists the methods from packages/protocol's ServerRequest).
