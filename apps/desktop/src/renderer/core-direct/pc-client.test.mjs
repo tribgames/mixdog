@@ -51,12 +51,14 @@ test('pc_client_main_window_is_primary', async (t) => {
 });
 
 test('pc_client_server_window_uses_pc_slot', async (t) => {
-  const w = world((slot) => ({ role: slot === 'pc' ? 'main' : 'server:s1' }));
+  // The relay's roles: slot primary is the server's core (a main window there), slot pc is this PC's core as server:<id>.
+  const w = world((slot) => ({ role: slot === 'pc' ? 'server:s1' : 'main' }));
   globalThis.window = w.host;
   t.after(reset);
   const primary = await openDirectClient({ bridge: w.bridge, version: '1' });
-  assert.equal(pcCoreClient(), null, 'a server window has no PC client until slot pc is open');
-  const pc = await openDirectClient({ bridge: w.bridge, version: '1', slot: 'pc' });
+  const opening = openDirectClient({ bridge: w.bridge, version: '1', slot: 'pc' });
+  assert.equal(pcCoreClient(), null, 'a server window has no PC client until slot pc is open, and never the server client');
+  const pc = await opening;
   assert.equal(pcCoreClient(), pc);
   assert.notEqual(pc, primary);
   assert.deepEqual(w.infos.map((i) => i.slot), ['primary', 'pc']);

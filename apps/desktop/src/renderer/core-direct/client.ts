@@ -28,6 +28,9 @@ export interface CoreWindowInfo {
 const clients = new Map<PortSlot, ProtocolClient<SessionFold>>();
 const windows = new Map<PortSlot, CoreWindowInfo | undefined>();
 let warnedWindowScope = false;
+// Only a server window opens slot `pc` (its link to this PC's core, role `server:<id>`): set when that open is asked for,
+// so the server's own primary client is never taken for this PC's while the pc client is still opening.
+let serverWindow = false;
 
 /** `connection.window` of an initialize reply, or undefined (said once, at warn level, that the core predates it). */
 export function windowOfReply(reply: InitializeResponse | undefined): CoreWindowInfo | undefined {
@@ -42,6 +45,7 @@ export function windowOfReply(reply: InitializeResponse | undefined): CoreWindow
 
 export async function openDirectClient(o: OpenDirectClientOptions): Promise<ProtocolClient<SessionFold>> {
   const slot: PortSlot = o.slot ?? 'primary';
+  if (slot === 'pc') serverWindow = true;
   const client = await connect<SessionFold>({
     target: { id: slot === 'pc' ? 'pc' : 'core' },
     connector: createPortConnector(o.bridge),
@@ -70,13 +74,14 @@ export function directWindow(): CoreWindowInfo | undefined {
 /** The client to this PC's core: the primary one in a main window, the one on slot `pc` in a server window
  *  (role `server:<id>`). Null until that client is open. */
 export function pcCoreClient(): ProtocolClient<SessionFold> | null {
-  const role = windows.get('primary')?.role;
-  if (typeof role === 'string' && role.startsWith('server:')) return clients.get('pc') ?? null;
-  return clients.get('primary') ?? null;
+  const isServer =
+    serverWindow || [...windows.values()].some((w) => typeof w?.role === 'string' && w.role.startsWith('server:'));
+  return clients.get(isServer ? 'pc' : 'primary') ?? null;
 }
 
 /** Forgets a slot's client (it was closed, or replaced by a reopen). */
 export function forgetDirectClient(slot: PortSlot = 'primary'): void {
   clients.delete(slot);
   windows.delete(slot);
+  if (clients.size === 0) serverWindow = false;
 }
