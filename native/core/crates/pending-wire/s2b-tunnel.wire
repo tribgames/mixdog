@@ -1,0 +1,20 @@
+# s2b-tunnel core wiring
+
+## 1. Dependency edge (mixdog-ssh -> mixdog-workspace)
+tunnel.rs picks the local port with `mixdog_workspace::pageserver::ports::bind_loopback` (the one fetch-safe loopback port rule of the
+tree; the tunnel's tests also read `FETCH_BLOCKED_PORTS`). No cycle: mixdog-workspace does not depend on mixdog-ssh.
+
+In crates/mixdog-ssh/Cargo.toml [dependencies], after the `mixdog-app-server-client` line:
+
+    mixdog-workspace = { workspace = true }
+
+and in Cargo.lock add `"mixdog-workspace",` to the dependency list of the `mixdog-ssh` package (alphabetical place, after `"mixdog-statefile"` /
+`"mixdog-spawn"` entries as the sort puts it), because the build is --locked.
+
+## 2. Modules
+lib.rs of mixdog-ssh already lists `pub mod tunnel;` and `pub mod callback_forward;`; nothing to add. `tunnel` declares its own test module
+(`tunnel_tests.rs`, which also holds the callback forward's tests).
+
+## 3. SERVICE_PENDING
+No protocol method is served by these two modules; nothing to remove. A task that connects a remote host starts them:
+`SshTunnel::start(env, ctx, TunnelSpec)` and `open_callback_forward(env, ctx, target, port)`.
