@@ -25,7 +25,6 @@ import type {
   InputStep,
   Precondition,
 } from '../../../../../../packages/protocol/src/index.ts';
-import { withAgentInput } from '../../browser/agent-input';
 import { createBrowserHitTarget } from '../../browser/hit-target';
 import { createBrowserInputDriver, normalizeModifierMask, normalizeMouseButton } from '../../browser/input';
 import { createBrowserInputDispatch } from '../../browser/input-dispatch';
@@ -285,18 +284,18 @@ export function registerInputBatch(connection: HostConnection, ctx: EngineContex
     let outcome: BrowserInputOutcome = 'completed';
     let completed = 0;
     try {
-      await withAgentInput(guest, async () => {
-        for (const step of steps) {
-          work.throwIfAborted();
-          if (state.pendingDialog && stopOnDialog) {
-            run.dialog = true;
-            return;
-          }
-          await runStep(step);
-          if (run.dialog && stopOnDialog) return;
-          completed += 1;
+      // Each event is marked as the agent's while it is dispatched (sendCdpInput, agent-input.ts), never the
+      // pauses between steps: a person's input during a slow batch still counts as theirs and stops it.
+      for (const step of steps) {
+        work.throwIfAborted();
+        if (state.pendingDialog && stopOnDialog) {
+          run.dialog = true;
+          break;
         }
-      });
+        await runStep(step);
+        if (run.dialog && stopOnDialog) break;
+        completed += 1;
+      }
       if (run.dialog && stopOnDialog) outcome = 'dialog';
     } catch (error) {
       if (signal.aborted) {
