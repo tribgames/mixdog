@@ -101,7 +101,7 @@ fn conversation_of(input: &Value) -> Conversation {
         task_agent: session["taskAgent"].as_bool().unwrap_or(false),
         agent_mode: session["agentMode"].as_bool().unwrap_or(false),
         origin: session["origin"].as_str().map(origin_of),
-        run_owner: None,
+        run_owner: session["runOwner"].as_str().map(str::to_owned),
     };
     Conversation::of(text(session, "id"), &fields)
 }

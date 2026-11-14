@@ -3,10 +3,12 @@
 //   fn: decide | conversation | quietHours | override | activeOverrides | taskbarFlash | deviceNotice
 //   prefs: { base: 'default' | 'newPhone', ...fields to replace; events and quietHours merge }
 //   clock: { weekday (0 = Sunday), hour, minute } on this PC's local clock; an override's `untilOffsetMs` is relative to it
-//   session: { id, agentHome?, agentRoomId?, taskAgent?, agentMode?, origin? }, or conversation: the fields as given
+//   session: { id, agentHome?, agentRoomId?, taskAgent?, agentMode?, origin?, runOwner? }, or conversation: the fields as given
+//   (runOwner is recorded as the session's unattended-run owner before the conversation is read)
 import test from 'node:test';
 
 import { assertCase, loadCases } from '../../../../scripts/parity/cases.mjs';
+import { recordRunOwner } from '../shared/core-src/runtime/shared/held-request-host.mjs';
 import {
   DEFAULT_NOTIFICATION_PREFERENCES,
   NEW_PHONE_NOTIFICATION_PREFERENCES,
@@ -38,6 +40,7 @@ const preferencesOf = (spec = {}) => {
 const conversationOf = (input) => {
   if (input.conversation) return input.conversation;
   const s = input.session;
+  if (s.runOwner) recordRunOwner(s.id, s.runOwner);
   return notificationConversationOf({
     id: s.id,
     ...(s.agentHome ? { agentHome: s.agentHome } : {}),
