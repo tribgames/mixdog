@@ -48,9 +48,10 @@ Run `cargo hakari generate` (the new crate adds no registry crate, so the file i
 
 ## 4. The recording
 
-`native/core/fixtures/skill-scripts/golden.json` and `MANIFEST.json` are written by `node benchmarks/rust-core/recorders/record-skill-scripts.mjs --tree C:\Project\mixdog` (it runs the shipped scripts and the launcher
-entry of that tree with node, on inputs it builds in a temporary folder; it creates 20001 files and 50000 folders for the two bounds). tests/node_twin.rs reads that file: until it is recorded the twin
-tests fail on the missing fixture (the unit tests of the crate do not need it). Optional: give `inventory_refuses_what_node_refuses_at_its_bounds` a longer slow-timeout in `.config/nextest.toml` (it makes 70000 files and folders).
+`native/core/fixtures/skill-scripts/golden.json` and `MANIFEST.json` are committed (recorded with Node v22.20.0 on Windows by `node benchmarks/rust-core/recorders/record-skill-scripts.mjs --tree C:\Project\mixdog`;
+it builds its inputs in a temporary folder, among them 20001 files and 50000 folders for the two bounds). tests/node_twin.rs reads it. The case "names that sort differently by case and by byte" holds the
+order NTFS lists entries in; a Unix runner lists them by byte, as Node there would, so that one case is Windows-recorded. Optional: give `inventory_refuses_what_node_refuses_at_its_bounds` a longer
+slow-timeout in `.config/nextest.toml` (it makes 70000 files and folders).
 
 ## 5. Nothing else
 
