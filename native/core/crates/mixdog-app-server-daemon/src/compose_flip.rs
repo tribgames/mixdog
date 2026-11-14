@@ -40,6 +40,8 @@ const SERVICE_PENDING: &[&str] = &[
     "test/browserEngine/run",
     // s2b-service (wave 9): the connections service (window host notification included).
     "host/window/closed",
+    // g9-screen-switch: the display-change notification of the desktop; the host service takes it when phone screen control is composed.
+    "host/screen/displaysChanged",
     // s3-13 (registered by G2.5-WIRE): DevComputerRun, served only by a `test-hooks` build started with MIXDOGD_TEST_HOOKS=1,
     // so an ordinary start leaves the name unclaimed.
     "dev/computer/run",
