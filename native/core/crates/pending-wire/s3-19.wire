@@ -1,0 +1,68 @@
+# s3-19: Core wiring B. Module: mixdog-app-server-daemon/src/compose_computer.rs (created). The pool (mixdog-core native_tools.rs),
+# the gate wrapper (compose_mcp.rs `ComputerGatedBridges`) and the userControl service are already edited by s3-19.
+# No Cargo.toml, Cargo.lock or workspace-hack change: every crate the new code names is already a dependency of its crate
+# (mixdog-core: mixdog-tools, mixdog-core-config, mixdog-protocol, serde_json; daemon: mixdog-core, mixdog-store, mixdog-protocol,
+# mixdog-core-domains, mixdog-tools, mixdog-core-base, mixdog-rt, tokio-util, async-trait; tempfile is a dev-dependency).
+# Applied by CORE-WIRE-G3.
+
+file: native/core/crates/mixdog-app-server-daemon/src/lib.rs
+place: after `pub mod compose_mcp;`
+add: pub mod compose_computer;
+
+# 1. The bridge fact: `computer` is the gate (desktop.computerControl and a claimed host.computer, or a resolvable helper), not the bridge file.
+#    The ONE `bridges` value feeds the skill gate, DomainSeams.feature_activity and the feature probes (FeatureFacts.computer), so
+#    wrapping it here is the FEATURE-FACTS call site; no change in feature_probes.rs or mcp_surface.rs.
+file: native/core/crates/mixdog-app-server-daemon/src/compose_flip.rs
+place: fn real_core, the `late_computer_hosts` / `bridges` lines (`let bridges: Arc<dyn crate::compose_mcp::BridgeFeatures> = Arc::new(crate::mcp_surface::ToolBridges { .. });`); `config` (the opened Config) and `b.host` exist there
+edit: let computer_host = Arc::new(crate::compose_computer::ComputerHostPresence::new(b.host.clone()));
+edit: let bridges: Arc<dyn crate::compose_mcp::BridgeFeatures> = Arc::new(crate::compose_mcp::ComputerGatedBridges::new(
+edit:     Arc::new(crate::mcp_surface::ToolBridges { files: crate::mcp_surface::SharedBridgeFiles(bridge_files.clone()), computer: late_computer_hosts.clone() }),
+edit:     config.clone(),
+edit:     computer_host.clone(),
+edit: ));
+# (`config` is `let (config, _config_changes) = Config::open(..)` of the same function, opened before this point.)
+
+# 2. The pool, the desktop channel binding and the GNOME extension follower: one call. KEEP the comment `// The helper binary (..)` and
+#    `let native_paths = Arc::new(mixdog_core::run_host::native_tools::NativeToolPaths::new(..));` as they are (the tidy host's
+#    `native: native_paths.clone()` reads it too). REPLACE `let computer_pool = native_paths.computer_sessions(..).await;`,
+#    `if let Some(pool) = &computer_pool { pool.attach_desktop(..) }` and the `{ // GNOME window control ... tokio::spawn .. }` block.
+#    KEEP `late_computer_hosts.bind(computer_pool.clone()).map_err(..)?;` (it stands between the attach and the GNOME block): it follows the call below.
+#    The `wrap` closure is the existing `Arc::new({ let (human_only, redactor, saved_logins, saved_login_turns, late_computer_hosts, host) = ..; move |session, inner| { .. } })`
+#    unchanged, given as `wrap`.
+file: native/core/crates/mixdog-app-server-daemon/src/compose_flip.rs
+place: fn real_core, right after the `let native_paths = Arc::new(mixdog_core::run_host::native_tools::NativeToolPaths::new(..));` statement
+edit: let computer = crate::compose_computer::compose_computer(crate::compose_computer::ComputerInputs {
+edit:     env: b.env.clone(),
+edit:     paths: native_paths.clone(),
+edit:     manager: b.process_manager.clone(),
+edit:     wrap: <the existing wrap closure, as `Arc::new({ ... })`>,
+edit:     publisher: pre.state.publisher.clone(),
+edit:     data_dir: b.data_dir.clone(),
+edit:     config: config.clone(),
+edit:     presence: computer_host.clone(),
+edit:     blobs: blobs.clone(),
+edit:     tokens: &b.tokens,
+edit:     cancel: b.cancel.clone(),
+edit: })
+edit: .await;
+edit: let computer_pool: Option<Arc<mixdog_core::run_host::native_tools::ComputerSessionPool>> = computer.pool.clone();
+# `blobs` is `let blobs = mixdog_store::blobs::BlobStore::new(&b.data_dir);` (earlier in the same function). `native_paths` stays for the tidy host.
+
+# 3. The services. `Composed::register` registers computer/userControl, computer/pointerReleased and (test-hooks + MIXDOGD_TEST_HOOKS=1) dev/computer/run.
+file: native/core/crates/mixdog-app-server-daemon/src/compose_flip.rs
+place: fn real_core, REPLACE the `#[cfg(feature = "test-hooks")] if let Some(pool) = &computer_pool { .. DevComputerRun::if_enabled(..) .. }` block (the one before `builder.register(screen.clone())?;`)
+edit: computer.register(&mut builder)?;
+file: native/core/crates/mixdog-app-server-daemon/src/compose_flip.rs
+place: fn real_core, DELETE the line `builder.register(Arc::new(crate::computer_control::ComputerUserControlService::new(computer_pool.as_ref().map(|pool| pool.user_control()))))?;` and its comment `// computer/userControl: ...` (registering it twice is an error; `Composed::register` does it)
+
+# 4. SERVICE_PENDING: computer/pointerReleased is served now.
+file: native/core/crates/mixdog-app-server-daemon/src/compose_flip.rs
+place: const SERVICE_PENDING
+remove: the entry "computer/pointerReleased" and its comment line `// s3-08 / s3-19 (wave 3): ComputerPointerService over the pool's pointer hold.`
+# "dev/computer/run" stays in SERVICE_PENDING (an ordinary start registers nothing for it).
+
+# 5. Callers of the pool API that changed shape (read, nothing to edit): ComputerSettings::from_config now takes a third argument
+#    (the host blobs; only compose_computer.rs calls it), ComputerSessionPool::new takes `Option<PathBuf>` (only
+#    NativeToolPaths::computer_sessions calls it), ComputerSettings has two new public fields (`backend`, `host_blobs`; tests use
+#    `ComputerSettings::new`). `ComputerSessionPool::pointer_hold(self: &Arc<Self>)` is new; `PointerHold::command_ended`, `other_session`,
+#    `turn_ended` (turn_ended is called by the pool's end_execution) and `prepare_cursor` are for the act path (s3-18) to call.
