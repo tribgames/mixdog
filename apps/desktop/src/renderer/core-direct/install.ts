@@ -3,13 +3,15 @@
 // API; a preload that already supplies window.mixdogDesktop is left as it is.
 import desktopPackage from '../../../package.json';
 import type { DesktopApi } from '../../shared/contract';
-import type { DesktopHostApi } from '../../shared/desktop-api-split.ts';
+import { DIRECT_KEYS, type DesktopHostApi } from '../../shared/desktop-api-split.ts';
 import { createCapabilitiesApi } from './api-capabilities.ts';
 import { createFilesApi } from './api-files.ts';
 import { createScmApi } from './api-scm.ts';
 import { createSessionsApi } from './api-sessions.ts';
 import { createSettingsApi } from './api-settings.ts';
 import { createTerminalApi } from './api-terminal.ts';
+import { connectionsApi } from '../connections-core-api.ts';
+import { withApiFileGrantRefresh } from '../remote-file-grant-refresh.ts';
 import { openDirectClient } from './client.ts';
 import { createDirectContext } from './context.ts';
 import type { CorePortBridge } from './port-connector.ts';
@@ -60,7 +62,9 @@ export async function installDirectDesktopApi(options: InstallOptions = {}): Pro
     ...createSettingsApi(ctx),
     ...createCapabilitiesApi(ctx, { host }),
     ...createSectionsApi(ctx),
+    ...Object.fromEntries(DIRECT_KEYS.connections.map((key) => [key, connectionsApi[key]])),
   };
-  const composed = { ...host, ...direct } as unknown as DesktopApi;
+  // The refresh of a file grant that ended (the wrapper the preload put around the API) goes around the composed one.
+  const composed = withApiFileGrantRefresh({ ...host, ...direct } as unknown as DesktopApi);
   target.mixdogDesktop = Object.freeze(host.connection?.kind === 'ssh' ? withServerGates(composed) : composed);
 }

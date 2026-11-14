@@ -283,23 +283,23 @@ test('a start call publishes its blank snapshot as the window shell snapshot', a
   assert.equal(sessionLanesOf(ctx).shell.get().cwd, 'T');
 });
 
-test('an image preview is read in ranges into a blob URL of its own type', async () => {
+test('a converted document PDF is read in ranges into a blob URL; a file previewed as it is is the host', async () => {
   const made = [];
   const realCreate = URL.createObjectURL;
-  URL.createObjectURL = (blob) => (made.push(blob), `blob:img-${made.length}`);
+  URL.createObjectURL = (blob) => (made.push(blob), `blob:pdf-${made.length}`);
   try {
     const { api, sent } = await world((method) => {
       if (method === 'project/directory') return { path: 'F:/proj', standalone: false };
-      if (method === 'projectFs/previewFile') return { kind: 'image', mime: 'image/png', mtimeMs: 1, size: 3, mediaAssetId: 'lease-1' };
+      if (method === 'document/preview') return { path: 'C:/cache/a.pdf', format: 'docx', mtimeMs: 1, size: 3 };
       if (method === 'projectFs/previewRange') return { data: Buffer.from([1, 2, 3]).toString('base64'), size: 3 };
       return {};
     });
-    const preview = await api.previewProjectFile('proj', 'a.png');
-    assert.equal(preview.url, 'blob:img-1');
-    assert.equal(preview.mediaAssetId, undefined);
-    assert.equal(made[0].type, 'image/png');
+    assert.equal('previewProjectFile' in api, false, 'streamed by the main process');
+    const preview = await api.previewDocumentFile('proj', 'a.docx');
+    assert.equal(preview.url, 'blob:pdf-1');
+    assert.equal(made[0].type, 'application/pdf');
     assert.equal(made[0].size, 3);
-    assert.ok(sent().some(([m]) => m === 'projectFs/previewRange'));
+    assert.ok(sent().some(([m, p]) => m === 'projectFs/previewRange' && p.root === 'C:/cache' && p.rel === 'a.pdf'));
   } finally {
     URL.createObjectURL = realCreate;
   }

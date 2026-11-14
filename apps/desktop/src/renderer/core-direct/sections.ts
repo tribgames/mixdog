@@ -63,6 +63,32 @@ export function createSectionsApi(ctx: DirectContext): Pick<DesktopApi, 'section
 
   const subscribeSource = (listener: (push: DesktopSectionsPush) => void): (() => void) => {
     pushListeners.add(listener);
+    // A burst of store changes (an app snapshot folds all its sections in one synchronous run) leaves one push: the changed
+    // `(section, key)` pairs with their entries as they are when it is sent. The set is drained once per burst, in a later
+    // loop turn than the library's folding of the frame that caused it.
+    const dirty = new Map<string, { section: string; key: string | null }>();
+    let scheduled = false;
+    const flush = (): void => {
+      scheduled = false;
+      const store = connection.client()?.store as
+        | { section(section: string, key?: string | null): DesktopSectionEntry | undefined }
+        | undefined;
+      const changes = store
+        ? [...dirty.values()].map(({ section, key }) => ({ section, key, entry: store.section(section, key) ?? null }))
+        : [];
+      dirty.clear();
+      if (changes.length > 0 && pushListeners.has(listener)) listener({ kind: 'sections', changes });
+    };
+    const schedule = (): void => {
+      if (scheduled) return;
+      scheduled = true;
+      setTimeout(flush, 0);
+    };
+    // The whole store supersedes the changes still waiting for the push.
+    const replaceAll = (): void => {
+      dirty.clear();
+      replaceWhole(listener);
+    };
     // A leg of the same client came back: the app snapshot it folds may be another core's, so the window takes the whole
     // store once that snapshot is announced (what the main relay's `reconnected` did).
     let awaitingAppSnapshot = false;
@@ -70,7 +96,7 @@ export function createSectionsApi(ctx: DirectContext): Pick<DesktopApi, 'section
       if (change.type === 'appSnapshot') {
         if (awaitingAppSnapshot) {
           awaitingAppSnapshot = false;
-          replaceWhole(listener);
+          replaceAll();
         }
         return;
       }
@@ -81,14 +107,12 @@ export function createSectionsApi(ctx: DirectContext): Pick<DesktopApi, 'section
         return;
       }
       if (change.type !== 'section' || change.section === undefined) return;
-      const store = connection.client()?.store as
-        | { section(section: string, key?: string | null): DesktopSectionEntry | undefined; owed?: unknown }
-        | undefined;
+      const store = connection.client()?.store as { owed?: unknown } | undefined;
       if (!store) return;
       // A tell is not state: the announcement of a snapshot (a leg that came back) is not one.
       if (store.owed && EVENT_SECTIONS.includes(change.section)) return;
-      const key = change.key ?? null;
-      listener({ kind: 'sections', changes: [{ section: change.section, key, entry: store.section(change.section, key) ?? null }] });
+      dirty.set(`${change.section}\u0000${change.key ?? ''}`, { section: change.section, key: change.key ?? null });
+      schedule();
     });
     const offEvent = connection.onEvent((event) => {
       if (event.type !== 'status') return;
@@ -98,7 +122,7 @@ export function createSectionsApi(ctx: DirectContext): Pick<DesktopApi, 'section
       listener({ kind: 'status', status: next });
     });
     // A replaced connection holds another client's store, already folded when it is announced.
-    const offReplaced = connection.onReplaced(() => replaceWhole(listener));
+    const offReplaced = connection.onReplaced(() => replaceAll());
     // A reopen drops the client first: the window shows `reconnecting` from its start, not only once the new client reports.
     const offReopening = connection.onReopening(() => listener({ kind: 'status', status: 'reconnecting' }));
     // The first open has no event of its own: its outcome is the status.

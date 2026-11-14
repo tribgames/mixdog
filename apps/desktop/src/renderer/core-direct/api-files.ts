@@ -116,11 +116,12 @@ export function createFilesApi(ctx: DirectContext): FilesApi {
     return result;
   };
 
-  // A previewed file's bytes (a PDF, image, audio or video) are read in ranges and held as a blob URL: a file lease the core
-  // minted is not something the media protocol resolves, and the ranges travel this window's connection, a server window's too.
+  // A converted document's PDF is read in ranges and held as a blob URL (the ranges travel this window's connection, a server
+  // window's too). A file previewed as it is (an image, audio, video or PDF) is not read here: `previewProjectFile` is the host's,
+  // whose `mixdog-media://preview/<token>` URL the main process serves by range, so a large video plays without being read whole.
   const previewBlobs = new Map<string, string>();
-  const previewBlobUrl = async (target: FileTarget, version: string, mime = 'application/pdf'): Promise<string> => {
-    const key = `${target.root}\0${target.rel}\0${target.accessToken ?? ''}\0${version}\0${mime}`;
+  const previewBlobUrl = async (target: FileTarget, version: string): Promise<string> => {
+    const key = `${target.root}\0${target.rel}\0${target.accessToken ?? ''}\0${version}`;
     const held = previewBlobs.get(key);
     if (held) {
       previewBlobs.delete(key);
@@ -141,7 +142,7 @@ export function createFilesApi(ctx: DirectContext): FilesApi {
       parts.push(bytes);
       offset += bytes.length;
     }
-    const url = URL.createObjectURL(new Blob(parts as BlobPart[], { type: mime }));
+    const url = URL.createObjectURL(new Blob(parts as BlobPart[], { type: 'application/pdf' }));
     previewBlobs.set(key, url);
     while (previewBlobs.size > PREVIEW_BLOB_LIMIT) {
       const [oldest, oldUrl] = previewBlobs.entries().next().value as [string, string];
@@ -224,20 +225,6 @@ export function createFilesApi(ctx: DirectContext): FilesApi {
         )
       );
     },
-    previewProjectFile: (projectPath, relPath, accessToken) =>
-      direct(async () => {
-        const target = await fileTarget(projectPath, relPath, accessToken);
-        const preview = (await ctx.call('projectFs/previewFile', target)) as {
-          kind: 'image' | 'pdf' | 'audio' | 'video';
-          mime: string;
-          mtimeMs: number;
-          size: number;
-          mediaAssetId?: string;
-        };
-        const { mediaAssetId: _lease, ...info } = preview;
-        const url = await previewBlobUrl(target, `${info.mtimeMs}:${info.size}`, info.kind === 'pdf' ? 'application/pdf' : info.mime);
-        return { url, ...info };
-      }),
     captureFileSnapshot: (projectPath, relPath, accessToken) =>
       direct(async () => {
         // A server window's files live on the server, out of this PC's reach.
