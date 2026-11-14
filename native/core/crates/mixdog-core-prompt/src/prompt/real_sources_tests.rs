@@ -265,16 +265,18 @@ async fn an_agents_profile_stamp_follows_its_files() {
         let persona = stamp("helper", false);
         fs::write(data.join("agents/helper/agent.json"), "{\"name\":\"Helper\"}").unwrap();
         let manifest = stamp("helper", false);
-        // A file holding only NUL and blanks reads as absent, as `readSafe` of a trimmed empty file does.
+        // A file holding only blanks reads as absent, as `readSafe` of a trimmed empty file does.
         fs::write(data.join("agents/helper/PERSONA.md"), "  \n").unwrap();
         let blank = stamp("helper", false);
-        (before, persona, manifest, blank, stamp("lead", false), stamp("..", false), stamp("lead", true))
+        fs::remove_file(data.join("agents/helper/PERSONA.md")).unwrap();
+        let absent = stamp("helper", false);
+        (before, persona, manifest, (blank, absent), stamp("lead", false), stamp("..", false), stamp("lead", true))
     })
     .await
     .unwrap();
     assert_eq!(stamps.0.len(), 24);
     assert!(stamps.0 != stamps.1 && stamps.1 != stamps.2 && stamps.0 != stamps.2);
-    assert_eq!(stamps.3.len(), 24);
+    assert_eq!(stamps.3.0, stamps.3.1);
     assert_eq!(stamps.4, "coding-lead");
     assert_eq!(stamps.5, "");
     assert_eq!(stamps.6.len(), 24);

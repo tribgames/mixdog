@@ -40,7 +40,6 @@ const HEARTBEAT_MODEL_TOOL_NAMES: [&str; 3] = ["session", "setup", "load_tool"];
 /// `LEAD_DISALLOWED_TOOLS` (`tool-defs.mjs:228`).
 pub const LEAD_DISALLOWED_TOOLS: [&str; 4] = ["get_goal", "create_goal", "set_goal_tasks", "update_goal"];
 
-
 /// The header key of `autoWakeCompletions: false` (Node's `onCompletionQueued: null`).
 pub const AUTO_WAKE_COMPLETIONS: &str = "autoWakeCompletions";
 /// The header key of the session's memory switch (`MIXDOG_FEATURE_MEMORY`).
