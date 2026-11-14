@@ -1,0 +1,34 @@
+# nr-tui-launch-core: the new crate mixdog-launch (native/core/crates/mixdog-launch). Nothing else of the tree is changed by this task.
+
+## 1. native/core/Cargo.toml, [workspace] members
+Add, in the order of the list (after "crates/mixdog-app-server-client", which the crate depends on):
+    "crates/mixdog-launch",
+
+## 2. native/core/Cargo.toml, [workspace.dependencies] (internal crates, beside mixdog-app-server-client)
+    mixdog-launch = { path = "crates/mixdog-launch" }
+(Only the tasks that call the launcher need it: the TUI binary crate, later tasks. Nothing in the workspace depends on it yet.)
+
+## 3. native/core/Cargo.lock
+Regenerate (`cargo update --workspace --offline`): one new package `mixdog-launch`. Every dependency is already in the lock:
+mixdog-app-server-client, mixdog-app-server-daemon, mixdog-js, mixdog-rt, mixdog-store, mixdog-workspace-hack, serde, serde_json, libc (unix);
+dev: mixdog-testkit, tempfile, tokio. No crate is added to the lock (self-replace, tar, flate2 and zip, which the plan's work text lists for
+staged_update.rs, are NOT in the lock: they belong to nr-tui-launch-update, which owns that file's real implementation and the manifest in wave 3).
+
+## 4. native/core/crates/mixdog-workspace-hack/Cargo.toml
+`cargo hakari generate` after (1): the new crate carries `mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }`
+in its [dependencies]; hakari adds the crate's feature unions to the hack as for every member.
+
+## 5. dev-dependency feature unification
+mixdog-launch's [dev-dependencies] list mixdog-testkit and tokio (features rt, rt-multi-thread, macros, time) without test-only features of workspace
+crates; run D:\mixdog-build\tools\unify-test-features.py after (1) in case it wants the usual "every workspace crate this crate's tests build"
+lines (mixdog-app-server-daemon is a normal dependency, whose test-only features the crate's tests do not use).
+
+## 6. compose_flip.rs SERVICE_PENDING
+Nothing: the crate registers no protocol method.
+
+## 7. Dependency edge to know about
+mixdog-launch depends on mixdog-app-server-daemon (the whole core) to reuse crash_record::{capture_dir, describe_exit, pid_alive},
+stale_temps::{prune_crash_captures, reclaim_dead_capture_temps} and verdict::OsProcessTable: one implementation of the capture's exit
+text, retention and process-liveness rule, as the plan asked ("prefer re-using them over re-declaring"). A binary that links mixdog-launch
+therefore links the core. If the TUI binary must not carry the core, the shared functions move to a small crate (crash_record.rs and
+stale_temps.rs of the daemon are the lead's/daemon owner's files, not this task's).

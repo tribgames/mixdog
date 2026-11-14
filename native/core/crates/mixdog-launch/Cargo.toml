@@ -1,0 +1,37 @@
+[package]
+name = "mixdog-launch"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+# The test-only core `fake_core` (src/bin/fake_core.rs): writes discovery as `mixdogd serve` does and can crash. Never shipped.
+fake-core = []
+
+[[bin]]
+name = "fake_core"
+path = "src/bin/fake_core.rs"
+required-features = ["fake-core"]
+
+[dependencies]
+# Discovery (`Discovery::read`) and the client error a version refusal arrives as.
+mixdog-app-server-client = { workspace = true }
+# One implementation of the crash capture's exit text, retention and capture directory: the core's own (crash_record.rs, stale_temps.rs).
+mixdog-app-server-daemon = { workspace = true }
+mixdog-store = { workspace = true }
+mixdog-js = { workspace = true }
+mixdog-rt = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
+
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+mixdog-testkit = { workspace = true }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros", "time"] }
