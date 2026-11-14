@@ -69,7 +69,12 @@ async fn release_when_idle(loaded: Weak<std::sync::Mutex<Loaded>>, usage: Arc<Us
         if now < last + idle {
             continue;
         }
+        // An embed in flight keeps the model (`_embedInFlight`): nothing is released, and the next use arms the timer again.
+        let busy = locked(&loaded).get().and_then(|outcome| outcome.as_ref().ok()).is_some_and(Embedder::in_use);
         usage.armed.store(false, Ordering::Release);
+        if busy {
+            return;
+        }
         *locked(&loaded) = Loaded::default();
         tick.bump();
         // Asked for while it was released: the new load needs its own timer.
