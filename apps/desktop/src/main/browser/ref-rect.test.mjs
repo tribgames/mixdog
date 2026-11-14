@@ -39,6 +39,8 @@ test('a ref rect adds the offset of a same-process frame ancestor', async () => 
       clientLeft: 1,
       clientTop: 2,
       ownerDocument: {},
+      // The frame chain is read from the target now, so the frame is brought into view like one a page record names.
+      scrollIntoView() {},
     },
   });
   try {
