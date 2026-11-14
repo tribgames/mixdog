@@ -8,7 +8,7 @@ use windows::core::{BOOL, PWSTR};
 use windows::Wdk::System::Threading::{NtQueryInformationProcess, ProcessBasicInformation};
 use windows::Win32::Foundation::{CloseHandle, HANDLE, HWND, LPARAM, POINT, RECT};
 use windows::Win32::Graphics::Dwm::{
-    DwmGetWindowAttribute, DWMWA_CLOAKED,
+    DwmGetWindowAttribute, DWMWA_CLOAKED, DWMWA_EXTENDED_FRAME_BOUNDS,
 };
 use windows::Win32::Graphics::Gdi::{
     CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, GetDC, ReleaseDC, SelectObject,
@@ -25,15 +25,14 @@ use windows::Win32::System::Threading::{
     PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE,
     PROCESS_TERMINATE,
 };
+use windows::Win32::UI::Input::KeyboardAndMouse::{keybd_event, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP};
 use windows::Win32::UI::WindowsAndMessaging::{
     BringWindowToTop, ChildWindowFromPointEx, EnumChildWindows, EnumWindows, GetAncestor,
     GetClassNameW, GetClientRect, GetCursorPos, GetForegroundWindow, GetGUIThreadInfo, GetWindow,
     GetWindowRect, GetWindowTextW, GetWindowThreadProcessId, IsHungAppWindow,
     IsIconic, IsWindow, IsWindowVisible, IsZoomed, MoveWindow, PostMessageW,
-    SetForegroundWindow, ShowWindow, SystemParametersInfoW, WindowFromPoint, GA_ROOT,
-    GUITHREADINFO, GW_OWNER, SPI_GETFOREGROUNDLOCKTIMEOUT,
-    SPI_SETFOREGROUNDLOCKTIMEOUT, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE,
-    SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, WM_CLOSE,
+    SetForegroundWindow, ShowWindow, WindowFromPoint, GA_ROOT,
+    GUITHREADINFO, GW_OWNER, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE, WM_CLOSE,
 };
 
 pub fn hwnd(handle: Wid) -> HWND {
@@ -81,6 +80,11 @@ pub fn rect(handle: Wid) -> Option<RECT> {
         .map(|_| rect)
 }
 
+pub fn is_visible(handle: Wid) -> bool {
+    // SAFETY: a stale handle answers false.
+    unsafe { IsWindowVisible(hwnd(handle)) }.as_bool()
+}
+
 pub fn is_iconic(handle: Wid) -> bool {
     unsafe { IsIconic(hwnd(handle)) }.as_bool()
 }
@@ -108,13 +112,18 @@ pub fn cursor() -> (i32, i32) {
     (point.x, point.y)
 }
 
-pub fn window_at_point(x: i32, y: i32) -> Wid {
+/// The window under the point as WindowFromPoint answers it, a child
+/// window included; 0 for none.
+pub fn window_from_point(x: i32, y: i32) -> Wid {
     // SAFETY: plain value argument.
-    let hit = unsafe { WindowFromPoint(POINT { x, y }) };
-    if hit.0.is_null() {
-        0
-    } else {
-        wid(unsafe { GetAncestor(hit, GA_ROOT) })
+    wid(unsafe { WindowFromPoint(POINT { x, y }) })
+}
+
+pub fn window_at_point(x: i32, y: i32) -> Wid {
+    match window_from_point(x, y) {
+        0 => 0,
+        // SAFETY: plain value argument.
+        hit => wid(unsafe { GetAncestor(hwnd(hit), GA_ROOT) }),
     }
 }
 
@@ -580,36 +589,25 @@ pub fn try_focus_attached(handle: Wid) -> bool {
     landed
 }
 
-fn foreground_lock_timeout() -> Option<u32> {
-    let mut value = 0u32;
-    // SAFETY: value is a valid out pointer for this query.
+/// Presses and releases the system's reserved no-name key, which no
+/// application reads: the system counts it as this process's latest input, and
+/// a process that has just had input may take the foreground. Nothing global
+/// is changed, so there is nothing to put back (the foreground lock timeout is
+/// left alone).
+fn grant_foreground_by_input(marker: i64) {
+    const VK_NONAME: u8 = 0xFC;
+    // SAFETY: plain value arguments; the marker (the one the observer was
+    // started with) lets it count the event as this host's own input.
     unsafe {
-        SystemParametersInfoW(
-            SPI_GETFOREGROUNDLOCKTIMEOUT,
-            0,
-            Some(&mut value as *mut u32 as *mut c_void),
-            SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
-        )
+        keybd_event(VK_NONAME, 0, KEYBD_EVENT_FLAGS(0), marker as usize);
+        keybd_event(VK_NONAME, 0, KEYEVENTF_KEYUP, marker as usize);
     }
-    .ok()
-    .map(|_| value)
 }
 
-fn set_foreground_lock_timeout(value: u32) {
-    // SAFETY: the value travels in the pointer argument by contract.
-    let _ = unsafe {
-        SystemParametersInfoW(
-            SPI_SETFOREGROUNDLOCKTIMEOUT,
-            0,
-            Some(value as usize as *mut c_void),
-            SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
-        )
-    };
-}
-
-/// The foreground lock is a timeout, not a permission: a background process
-/// may drop it for the length of one switch.
-pub fn focus(handle: Wid) -> bool {
+/// The foreground lock refuses a plain `SetForegroundWindow` to a process
+/// without recent input: one no-name key from this process, sent with this
+/// host's input `marker`, lifts that for a few bounded tries.
+pub fn focus(handle: Wid, marker: i64) -> bool {
     if !is_window(handle) {
         return false;
     }
@@ -622,24 +620,15 @@ pub fn focus(handle: Wid) -> bool {
     if foreground() == handle || try_focus_attached(handle) {
         return true;
     }
-    let previous = foreground_lock_timeout().filter(|value| *value != 0);
-    if previous.is_some() {
-        set_foreground_lock_timeout(0);
-    }
-    let mut landed = false;
+    grant_foreground_by_input(marker);
     for _ in 0..3 {
         if try_focus_attached(handle) {
-            landed = true;
-            break;
+            return true;
         }
         std::thread::sleep(Duration::from_millis(25));
     }
-    if let Some(value) = previous {
-        set_foreground_lock_timeout(value);
-    }
-    landed
+    false
 }
-
 /// The child window at a screen point inside `top`, descending only while the
 /// child belongs to the same process as `top`.
 pub fn child_at(parent: Wid, x: i32, y: i32) -> Option<Wid> {
@@ -667,16 +656,76 @@ fn capture_failure(code: &str, message: &str) -> String {
     format!("{code}|{message}")
 }
 
-struct Target {
-    pid: u32,
-    thread: u32,
-    x: i32,
-    y: i32,
-    width: i32,
-    height: i32,
+/// The most pixels one capture may hold (EncodePixels,
+/// WindowGraphicsCapture.cs:62; BeginWindowCapture).
+pub(super) const PIXEL_BUDGET: i64 = 16_777_216;
+
+/// One window as a capture found it (WindowCaptureTarget, MixWin32Window.cs:236-246).
+#[derive(Debug, PartialEq)]
+pub(super) struct Target {
+    pub pid: u32,
+    pub thread: u32,
+    pub composited: bool,
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
 }
 
-fn begin_capture(handle: Wid) -> Result<Target, String> {
+fn has_area(rect: &RECT) -> bool {
+    rect.right > rect.left && rect.bottom > rect.top
+}
+
+/// The rectangle DWM draws the window in, without the invisible resize
+/// border, or the window rect when DWM reports none (TryVisibleWindowBounds,
+/// MixWin32Window.cs:136-147).
+fn visible_rect(handle: Wid) -> Option<RECT> {
+    let mut extended = RECT::default();
+    // SAFETY: the out pointer and size describe one RECT.
+    let read = unsafe {
+        DwmGetWindowAttribute(
+            hwnd(handle),
+            DWMWA_EXTENDED_FRAME_BOUNDS,
+            &mut extended as *mut RECT as *mut c_void,
+            std::mem::size_of::<RECT>() as u32,
+        )
+    };
+    if read.is_ok() && has_area(&extended) {
+        Some(extended)
+    } else {
+        rect(handle)
+    }
+}
+
+/// The part of a window-rect frame (top-left at `window`) that lies inside
+/// the visible `frame`: the frame's rectangle in screen coordinates, or None
+/// when it is the whole frame or reaches outside it.
+fn visible_crop(window: &Target, frame: &RECT) -> Option<RECT> {
+    let inside = frame.left >= window.x
+        && frame.top >= window.y
+        && frame.right <= window.x + window.width
+        && frame.bottom <= window.y + window.height;
+    let whole = frame.left == window.x
+        && frame.top == window.y
+        && frame.right == window.x + window.width
+        && frame.bottom == window.y + window.height;
+    (inside && has_area(frame) && !whole).then_some(*frame)
+}
+
+/// The rows and columns of a BGRA frame `width` wide that `crop` (in the
+/// frame's own pixels, inside it) keeps.
+fn crop_pixels(bgra: &[u8], width: usize, crop: &RECT) -> Vec<u8> {
+    let (left, right) = (crop.left as usize * 4, crop.right as usize * 4);
+    let mut kept = Vec::with_capacity((right - left) * (crop.bottom - crop.top) as usize);
+    for row in crop.top as usize..crop.bottom as usize {
+        kept.extend_from_slice(&bgra[row * width * 4 + left..row * width * 4 + right]);
+    }
+    kept
+}
+
+/// BeginWindowCapture (MixWin32Window.cs:247-287): `composited` measures the
+/// visible frame a compositor capture covers.
+pub(super) fn begin_capture(handle: Wid, composited: bool) -> Result<Target, String> {
     if !is_window(handle) {
         return Err(capture_failure(
             "capture_source_unavailable",
@@ -695,7 +744,12 @@ fn begin_capture(handle: Wid) -> Result<Target, String> {
             "native window is cloaked and has no available surface",
         ));
     }
-    let bounds = rect(handle).ok_or_else(|| {
+    let bounds = if composited {
+        visible_rect(handle)
+    } else {
+        rect(handle)
+    }
+    .ok_or_else(|| {
         capture_failure(
             "capture_source_unavailable",
             "could not read exact native window bounds",
@@ -703,7 +757,7 @@ fn begin_capture(handle: Wid) -> Result<Target, String> {
     })?;
     let width = bounds.right - bounds.left;
     let height = bounds.bottom - bounds.top;
-    if width <= 0 || height <= 0 || (width as i64) * (height as i64) > 16_777_216 {
+    if width <= 0 || height <= 0 || (width as i64) * (height as i64) > PIXEL_BUDGET {
         return Err(capture_failure(
             "capture_source_unavailable",
             "exact native window bounds exceed the capture budget",
@@ -719,11 +773,39 @@ fn begin_capture(handle: Wid) -> Result<Target, String> {
     Ok(Target {
         pid,
         thread,
+        composited,
         x: bounds.left,
         y: bounds.top,
         width,
         height,
     })
+}
+
+/// AssertWindowCaptureStable (MixWin32Window.cs:288-297).
+pub(super) fn assert_capture_stable(handle: Wid, before: &Target) -> Result<(), String> {
+    if begin_capture(handle, before.composited)? == *before {
+        Ok(())
+    } else {
+        Err(capture_failure(
+            "capture_geometry_changed",
+            "native window changed during capture",
+        ))
+    }
+}
+
+/// Straight RGBA as a PNG.
+pub(super) fn encode_png(rgba: &[u8], width: i32, height: i32) -> Result<Vec<u8>, String> {
+    let mut png = Vec::new();
+    let mut encoder = png::Encoder::new(&mut png, width as u32, height as u32);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    encoder
+        .write_header()
+        .and_then(|mut writer| writer.write_image_data(rgba))
+        .map_err(|error| {
+            capture_failure("capture_source_unavailable", &format!("png encoding failed: {error}"))
+        })?;
+    Ok(png)
 }
 
 /// At least 99.5% of up to 4096 sampled pixels with every channel at or below 4.
@@ -745,7 +827,15 @@ fn is_blank_black(bgra: &[u8], width: usize, height: usize) -> bool {
 
 /// Asks the window to render into our bitmap; never reads a desktop DC for pixels.
 pub fn window_surface(handle: Wid) -> Result<Surface, String> {
-    let before = begin_capture(handle)?;
+    let before = begin_capture(handle, false)?;
+    // PrintWindow blocks on a window that never answers; a hung one is
+    // recoverable, so the plan moves on to the compositor capture.
+    if !is_responding(handle) {
+        return Err(capture_failure(
+            "capture_timeout",
+            "window is not responding",
+        ));
+    }
     let (width, height) = (before.width as usize, before.height as usize);
     let header = BITMAPINFOHEADER {
         biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
@@ -766,7 +856,7 @@ pub fn window_surface(handle: Wid) -> Result<Surface, String> {
         let dc = CreateCompatibleDC(Some(screen));
         let mut bits: *mut c_void = std::ptr::null_mut();
         let bitmap = CreateDIBSection(Some(dc), &info, DIB_RGB_COLORS, &mut bits, None, 0);
-        let outcome = (|| -> Result<Vec<u8>, String> {
+        let outcome = (|| -> Result<(Vec<u8>, &'static str), String> {
             let bitmap = bitmap.map_err(|_| {
                 capture_failure("capture_source_unavailable", "window bitmap is unavailable")
             })?;
@@ -774,8 +864,10 @@ pub fn window_surface(handle: Wid) -> Result<Surface, String> {
             let pixels = std::slice::from_raw_parts_mut(bits as *mut u8, width * height * 4);
             // PW_RENDERFULLCONTENT reads the composed surface; a window never
             // composed renders black that way but still paints on request.
+            let mut flags = "2";
             let mut rendered = PrintWindow(hwnd(handle), dc, PRINT_WINDOW_FLAGS(0x2)).as_bool();
             if !rendered || is_blank_black(pixels, width, height) {
+                flags = "2,0";
                 pixels.fill(0);
                 rendered = PrintWindow(hwnd(handle), dc, PRINT_WINDOW_FLAGS(0)).as_bool();
             }
@@ -788,40 +880,69 @@ pub fn window_surface(handle: Wid) -> Result<Surface, String> {
                     "window-owned rendering is unavailable",
                 ));
             }
-            Ok(copy)
+            Ok((copy, flags))
         })();
         let _ = DeleteDC(dc);
         ReleaseDC(None, screen);
-        let mut bgra = outcome?;
-        let after = begin_capture(handle)?;
-        if (before.pid, before.thread, before.x, before.y, before.width, before.height)
-            != (after.pid, after.thread, after.x, after.y, after.width, after.height)
-        {
-            return Err(capture_failure(
-                "capture_geometry_changed",
-                "native window changed during capture",
-            ));
+        let (mut bgra, flags) = outcome?;
+        assert_capture_stable(handle, &before)?;
+        // PrintWindow draws the whole window rect, the invisible resize
+        // border a black margin: keep the frame DWM shows.
+        let (mut x, mut y, mut width_px, mut height_px) =
+            (before.x, before.y, before.width, before.height);
+        if let Some(frame) = visible_rect(handle).and_then(|frame| visible_crop(&before, &frame)) {
+            let crop = RECT {
+                left: frame.left - before.x,
+                top: frame.top - before.y,
+                right: frame.right - before.x,
+                bottom: frame.bottom - before.y,
+            };
+            bgra = crop_pixels(&bgra, width, &crop);
+            (x, y) = (frame.left, frame.top);
+            (width_px, height_px) = (frame.right - frame.left, frame.bottom - frame.top);
         }
         for pixel in bgra.chunks_exact_mut(4) {
             pixel.swap(0, 2);
             pixel[3] = 255;
         }
-        let mut png = Vec::new();
-        let mut encoder = png::Encoder::new(&mut png, before.width as u32, before.height as u32);
-        encoder.set_color(png::ColorType::Rgba);
-        encoder.set_depth(png::BitDepth::Eight);
-        encoder
-            .write_header()
-            .and_then(|mut writer| writer.write_image_data(&bgra))
-            .map_err(|error| {
-                capture_failure("capture_source_unavailable", &format!("png encoding failed: {error}"))
-            })?;
+        let png = encode_png(&bgra, width_px, height_px)?;
         Ok(Surface {
             png,
-            x: before.x,
-            y: before.y,
-            width: before.width,
-            height: before.height,
+            x,
+            y,
+            width: width_px,
+            height: height_px,
+            print_window_flags: Some(flags),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_a_frame_with_area_replaces_the_window_rect() {
+        let frame = |left, top, right, bottom| RECT { left, top, right, bottom };
+        assert!(has_area(&frame(-7, 0, 1913, 1040)));
+        assert!(!has_area(&RECT::default()));
+        assert!(!has_area(&frame(10, 10, 10, 50)));
+        assert!(!has_area(&frame(10, 50, 90, 50)));
+        assert!(!has_area(&frame(90, 10, 10, 50)));
+    }
+
+    #[test]
+    fn a_frame_is_cropped_to_the_visible_bounds_inside_the_window_rect() {
+        let window = Target { pid: 1, thread: 1, composited: false, x: 100, y: 50, width: 4, height: 3 };
+        let frame = |left, top, right, bottom| RECT { left, top, right, bottom };
+        assert_eq!(visible_crop(&window, &frame(101, 50, 103, 52)), Some(frame(101, 50, 103, 52)));
+        assert_eq!(visible_crop(&window, &frame(100, 50, 104, 53)), None);
+        assert_eq!(visible_crop(&window, &frame(99, 50, 104, 53)), None);
+        assert_eq!(visible_crop(&window, &frame(101, 51, 101, 53)), None);
+        // 4x3 pixels numbered 0..12 in the blue channel; keep columns 1..3, rows 0..2.
+        let bgra: Vec<u8> = (0..12u8).flat_map(|n| [n, 0, 0, 0]).collect();
+        let kept = crop_pixels(&bgra, 4, &frame(1, 0, 3, 2));
+        let blues: Vec<u8> = kept.chunks_exact(4).map(|pixel| pixel[0]).collect();
+        assert_eq!(blues, [1, 2, 5, 6]);
     }
 }

@@ -202,6 +202,8 @@ pub fn code(key: Key) -> Result<u16, String> {
         Key::Mod(Mod::Ctrl) => 29,
         Key::Mod(Mod::Alt) => 56,
         Key::Mod(Mod::Super) => 125,
+        // Only a Windows keyboard layout resolves a character to a virtual key.
+        Key::Vk(vk) => return Err(format!("invalid_keys: virtual key {vk:#x} has no key here")),
         Key::Named(named) => match named {
             Named::Escape => 1,
             Named::Backspace => 14,

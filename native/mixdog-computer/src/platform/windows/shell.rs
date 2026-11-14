@@ -1,5 +1,6 @@
 //! The clipboard, launching applications, the Start catalogue, and Windows OCR.
 
+use super::capture_budget::Budget;
 use crate::platform::{AppEntry, Launched};
 use serde_json::{json, Value};
 use std::ffi::c_void;
@@ -262,20 +263,28 @@ fn winrt(error: windows::core::Error) -> String {
     error.message()
 }
 
-fn decode(image: &[u8]) -> windows::core::Result<(BitmapDecoder, InMemoryRandomAccessStream)> {
+/// The time every WinRT wait of one recognition shares (Await-WinRt had none
+/// here, runtime-ocr-clipboard.ps1:19-66; a wedged recognizer now refuses).
+const OCR_WORK_MS: u32 = 20_000;
+
+fn decode(
+    image: &[u8],
+    budget: &Budget,
+) -> Result<(BitmapDecoder, InMemoryRandomAccessStream), String> {
     // Screenshots stay in volatile memory, including when the host is killed.
-    let stream = InMemoryRandomAccessStream::new()?;
-    let writer = DataWriter::CreateDataWriter(&stream)?;
-    writer.WriteBytes(image)?;
-    writer.StoreAsync()?.join()?;
-    writer.DetachStream()?;
-    stream.Seek(0)?;
-    let decoder = BitmapDecoder::CreateAsync(&stream)?.join()?;
+    let stream = InMemoryRandomAccessStream::new().map_err(winrt)?;
+    let writer = DataWriter::CreateDataWriter(&stream).map_err(winrt)?;
+    writer.WriteBytes(image).map_err(winrt)?;
+    budget.wait(writer.StoreAsync())?;
+    writer.DetachStream().map_err(winrt)?;
+    stream.Seek(0).map_err(winrt)?;
+    let decoder = budget.wait(BitmapDecoder::CreateAsync(&stream))?;
     Ok((decoder, stream))
 }
 
 pub fn ocr(image: &[u8], language: &str, max_words: usize) -> Result<Value, String> {
-    let (decoder, _stream) = decode(image).map_err(winrt)?;
+    let budget = Budget::new(OCR_WORK_MS);
+    let (decoder, _stream) = decode(image, &budget)?;
     let (width, height) = (
         decoder.PixelWidth().map_err(winrt)?,
         decoder.PixelHeight().map_err(winrt)?,
@@ -302,31 +311,19 @@ pub fn ocr(image: &[u8], language: &str, max_words: usize) -> Result<Value, Stri
         transform
             .SetScaledHeight(((height as f64 * scale).floor() as u32).max(1))
             .map_err(winrt)?;
-        decoder
-            .GetSoftwareBitmapTransformedAsync(
-                BitmapPixelFormat::Bgra8,
-                BitmapAlphaMode::Ignore,
-                &transform,
-                ExifOrientationMode::IgnoreExifOrientation,
-                ColorManagementMode::DoNotColorManage,
-            )
-            .map_err(winrt)?
-            .join()
-            .map_err(winrt)?
+        budget.wait(decoder.GetSoftwareBitmapTransformedAsync(
+            BitmapPixelFormat::Bgra8,
+            BitmapAlphaMode::Ignore,
+            &transform,
+            ExifOrientationMode::IgnoreExifOrientation,
+            ColorManagementMode::DoNotColorManage,
+        ))?
     } else {
-        decoder
-            .GetSoftwareBitmapAsync()
-            .map_err(winrt)?
-            .join()
-            .map_err(winrt)?
+        budget.wait(decoder.GetSoftwareBitmapAsync())?
     };
     let engine = engine_for(language)?
         .ok_or_else(|| format!("Windows OCR has no recognizer for language '{language}'"))?;
-    let result = engine
-        .RecognizeAsync(&bitmap)
-        .map_err(winrt)?
-        .join()
-        .map_err(winrt)?;
+    let result = budget.wait(engine.RecognizeAsync(&bitmap))?;
     let scale = upscale as f64;
     let (mut words, mut lines, mut total) = (Vec::new(), Vec::new(), 0usize);
     for (index, line) in result.Lines().map_err(winrt)?.into_iter().enumerate() {

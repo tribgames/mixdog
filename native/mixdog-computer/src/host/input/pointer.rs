@@ -3,7 +3,7 @@
 use crate::a11y::Element;
 use crate::host::{parse_modifiers, sleep_ms, Host, Res};
 use crate::keys::Mod;
-use crate::platform::{window_id, Button, Wid};
+use crate::platform::{window_id, Background, Button, Wid};
 use crate::protocol::{Obj, Req};
 use serde_json::json;
 use std::rc::Rc;
@@ -79,6 +79,16 @@ impl Host {
             };
             self.authorize(req, target)?;
             self.announce_background_target(point.x, point.y);
+            // A held button keeps its window non-activatable until the matching
+            // release, so the press, the gap and the release share one hold.
+            let hold = if kind == "press" {
+                match background.hold(target) {
+                    Ok(root) => root,
+                    Err(error) => return self.background_failure(&action, &error, id, false),
+                }
+            } else {
+                0
+            };
             return match background.pointer(target, point.x, point.y, kind, &modifiers) {
                 Ok(message_target) => {
                     self.report_pointer(
@@ -88,7 +98,15 @@ impl Host {
                         if kind == "press" { "press" } else { "release" },
                     );
                     if matches!(kind, "press" | "release") {
-                        self.record_held_pointer(target, point.x, point.y, kind == "press");
+                        if let Err(error) = self.record_held_pointer(
+                            background,
+                            target,
+                            (point.x, point.y),
+                            kind == "press",
+                            hold,
+                        ) {
+                            return self.background_failure(&action, &error, id, false);
+                        }
                     }
                     let message = format!("{action} delivered as a native pointer event");
                     Ok(self.complete_native_action(
@@ -100,7 +118,12 @@ impl Host {
                         &message,
                     ))
                 }
-                Err(error) => self.background_failure(&action, &error, id, false),
+                Err(error) => {
+                    // Only a press that did not land still owns its hold; the
+                    // press's own failure is the one reported.
+                    let _ = background.release_hold(hold);
+                    self.background_failure(&action, &error, id, false)
+                }
             };
         }
         let reference = req.str("ref");
@@ -138,19 +161,33 @@ impl Host {
         self.foreground_input(target, &action, true, &mut body)
     }
 
-    fn record_held_pointer(&self, target: Wid, x: i32, y: i32, pressed: bool) {
+    /// Record-HeldPointer (input-pointer.ps1:149-165): a press records the
+    /// button and the hold that keeps its window inactive; a release ends them.
+    /// The hold of an earlier press on the same window ends either way.
+    fn record_held_pointer(
+        &self,
+        background: &dyn Background,
+        target: Wid,
+        point: (i32, i32),
+        pressed: bool,
+        hold: Wid,
+    ) -> Result<(), String> {
         let id = window_id(target);
-        self.session(|session| {
+        let previous = self.session(|session| {
             if pressed {
-                session.held_pointer.insert(id, (x, y));
+                session.held_pointer.insert(id.clone(), point);
+                session.held_pointer_roots.insert(id, hold)
             } else {
                 session.held_pointer.remove(&id);
+                session.held_pointer_roots.remove(&id)
             }
         });
+        previous.map_or(Ok(()), |root| background.release_hold(root))
     }
 
     pub(in crate::host) fn do_drag(&self, req: &Req) -> Res<Obj> {
         let modifiers = parse_modifiers(&req.text("modifiers"))?;
+        let button = drag_button(&req.text("button"))?;
         let allowed = req.strings("allowed_window_ids");
         let waypoints = req.list("waypoints");
         if !waypoints.is_empty() {
@@ -177,7 +214,7 @@ impl Host {
                     )
                 })
                 .collect();
-            return self.drag_points(req, info.handle, &points, &modifiers, &allowed, None);
+            return self.drag_points(req, info.handle, &points, &modifiers, button, &allowed, None);
         }
         if req.has("x") || req.has("y") || req.has("to_x") || req.has("to_y") {
             let (Some(x1), Some(y1), Some(x2), Some(y2)) =
@@ -198,7 +235,7 @@ impl Host {
             }
             let info = self.resolve_window(req)?;
             let points = [(x1 as i32, y1 as i32), (x2 as i32, y2 as i32)];
-            return self.drag_points(req, info.handle, &points, &modifiers, &allowed, None);
+            return self.drag_points(req, info.handle, &points, &modifiers, button, &allowed, None);
         }
         let Some(to) = req.str("to") else {
             return Err("drag requires to (destination ref)".into());
@@ -225,7 +262,7 @@ impl Host {
         }
         if !req.delivery_foreground() {
             let points = [(a.x, a.y), (b.x, b.y)];
-            return self.drag_points(req, a.target, &points, &modifiers, &allowed, Some(&element));
+            return self.drag_points(req, a.target, &points, &modifiers, button, &allowed, Some(&element));
         }
         let target = a.target;
         let mut body = || -> Res<()> {
@@ -238,7 +275,7 @@ impl Host {
             }
             self.assert_drag_points(req, target, &[(a.x, a.y), (b.x, b.y)], &allowed)?;
             self.with_modifiers(&modifiers, || {
-                self.fg_drag_path(target, &[(a.x, a.y), (b.x, b.y)])
+                self.fg_drag_path(target, &[(a.x, a.y), (b.x, b.y)], button)
             })
         };
         self.foreground_input(target, "drag", true, &mut body)
@@ -250,11 +287,20 @@ impl Host {
         target: Wid,
         points: &[(i32, i32)],
         modifiers: &[Mod],
+        button: Button,
         allowed: &[String],
         element: Option<&Rc<dyn Element>>,
     ) -> Res<Obj> {
         let id = Some(window_id(target));
         if !req.delivery_foreground() {
+            if button != Button::Left {
+                return self.background_failure(
+                    "drag",
+                    "background_unsupported|a background drag presses only the left button; use explicit foreground delivery for another button; no input sent",
+                    id,
+                    false,
+                );
+            }
             let background = match self.background_or_unsupported("drag", id.clone()) {
                 Ok(background) => background,
                 Err(result) => return Ok(result),
@@ -285,7 +331,7 @@ impl Host {
         }
         let mut body = || -> Res<()> {
             self.assert_drag_points(req, target, points, allowed)?;
-            self.with_modifiers(modifiers, || self.fg_drag_path(target, points))
+            self.with_modifiers(modifiers, || self.fg_drag_path(target, points, button))
         };
         self.foreground_input(target, "drag", true, &mut body)
     }
@@ -308,7 +354,7 @@ impl Host {
 
     /// One physical press that travels through every point, checking that the
     /// target still owns each one; the button is released however it ends.
-    fn fg_drag_path(&self, target: Wid, points: &[(i32, i32)]) -> Res<()> {
+    pub(in crate::host) fn fg_drag_path(&self, target: Wid, points: &[(i32, i32)], button: Button) -> Res<()> {
         if points.len() < 2 {
             return Err("drag path requires at least two points".into());
         }
@@ -319,7 +365,7 @@ impl Host {
         self.glide(target, x0, y0)?;
         sleep_ms(60);
         self.assert_drag_target(target, x0, y0)?;
-        self.fg_button(Button::Left, true, x0, y0, 1)?;
+        self.fg_button(button, true, x0, y0, 1)?;
         let travel = (|| -> Res<()> {
             self.report_pointer(x0, y0, true, "drag");
             sleep_ms(150);
@@ -333,7 +379,7 @@ impl Host {
                     self.assert_continue()?;
                     self.mark_own();
                     self.desktop.drag_move(px, py).map_err(|error| {
-                        format!("input_delivery_failed: drag movement was rejected: {error}")
+                        crate::host::coded_or(error, "input_delivery_failed: drag movement was rejected")
                     })?;
                     self.report_pointer(px, py, true, "drag");
                     sleep_ms(20);
@@ -345,9 +391,10 @@ impl Host {
             self.assert_drag_target(target, lx, ly)
         })();
         let (cx, cy) = self.desktop.cursor();
-        let released = self.fg_button(Button::Left, false, cx, cy, 1);
-        travel?;
-        released.map_err(|error| format!("input_cleanup_unconfirmed: drag release failed: {error}"))
+        // fg_button already names a failed release; it wins over the travel's
+        // failure, as the throwing finally of DragPath does.
+        self.fg_button(button, false, cx, cy, 1)?;
+        travel
     }
 
     pub(in crate::host) fn do_scroll(&self, req: &Req) -> Res<Obj> {
@@ -401,16 +448,19 @@ impl Host {
             if !foreground && modifiers.is_empty() {
                 self.show_reference_pointer(&reference, "scroll");
                 let increments = (clicks.abs() * 3).min(30) * clicks.signum();
-                self.authorize_current(element.window())?;
-                if let Some((before, after)) = element.scroll(horizontal, increments)? {
+                if let Some((before, after)) =
+                    self.scroll_by_increments(element.as_ref(), horizontal, increments)?
+                {
                     let verified = before != after;
+                    // uia_scroll / "through UIA" on Windows (input-pointer.ps1).
+                    let (prefix, tree) = self.semantic_words();
                     let message = format!(
-                        "scrolled {reference} {direction} {} increments through accessibility",
+                        "scrolled {reference} {direction} {} increments through {tree}",
                         increments.abs()
                     );
                     return Ok(self.action_result(
                         "scroll",
-                        "a11y_scroll",
+                        &format!("{prefix}_scroll"),
                         crate::host::windows::effect(verified),
                         verified,
                         &message,
@@ -468,6 +518,22 @@ impl Host {
             &modifiers,
             &direction,
             None,
+        )
+    }
+
+    /// UIA scrolls one increment at a time, authorizing each (input-pointer.ps1:
+    /// 400-421): an authorization that expires mid-scroll stops it, and a range
+    /// that stops being scrollable ends it. `None` when it was never scrollable.
+    fn scroll_by_increments(
+        &self,
+        element: &dyn Element,
+        horizontal: bool,
+        increments: i32,
+    ) -> Res<Option<(String, String)>> {
+        step_scroll(
+            increments,
+            || self.authorize_current(element.window()),
+            |step| element.scroll(horizontal, step),
         )
     }
 
@@ -563,14 +629,15 @@ impl Host {
         for node in under {
             if let Some((before, after)) = node.element.scroll(horizontal, increments)? {
                 let verified = before != after;
+                let (prefix, tree) = self.semantic_words();
                 let message = format!(
-                    "scrolled {direction} {} increments through accessibility at the point",
+                    "scrolled {direction} {} increments through {tree} at the point",
                     increments.abs()
                 );
                 self.report_pointer(x, y, false, "scroll");
                 return Ok(Some(self.action_result(
                     "scroll",
-                    "a11y_scroll",
+                    &format!("{prefix}_scroll"),
                     crate::host::windows::effect(verified),
                     verified,
                     &message,
@@ -600,5 +667,109 @@ impl Host {
             self.report_pointer(x, y, false, "scroll");
             Ok(())
         })
+    }
+}
+
+/// The button a drag holds: the action's `button`, left when it names none.
+fn drag_button(value: &str) -> Res<Button> {
+    match value {
+        "" | "left" => Ok(Button::Left),
+        "right" => Ok(Button::Right),
+        "middle" => Ok(Button::Middle),
+        other => Err(format!("unknown drag button: {other} (use left, right, middle)")),
+    }
+}
+
+/// The positions before the first step and after the last one that scrolled:
+/// each of `increments` steps is authorized first and ends the scroll when its
+/// range is no longer scrollable.
+fn step_scroll(
+    increments: i32,
+    mut authorize: impl FnMut() -> Res<()>,
+    mut scroll: impl FnMut(i32) -> Res<Option<(String, String)>>,
+) -> Res<Option<(String, String)>> {
+    let mut seen: Option<(String, String)> = None;
+    for _ in 0..increments.unsigned_abs() {
+        authorize()?;
+        let Some((before, after)) = scroll(increments.signum())? else {
+            break;
+        };
+        seen = Some(match seen {
+            Some((first, _)) => (first, after),
+            None => (before, after),
+        });
+    }
+    Ok(seen)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::Cell;
+
+    #[test]
+    fn a_drag_holds_the_named_button_and_left_by_default() {
+        assert_eq!(drag_button(""), Ok(Button::Left));
+        assert_eq!(drag_button("right"), Ok(Button::Right));
+        assert_eq!(drag_button("middle"), Ok(Button::Middle));
+        assert!(drag_button("back").is_err());
+    }
+
+    #[test]
+    fn a_scroll_is_authorized_before_every_increment() {
+        let (checks, steps) = (Cell::new(0), Cell::new(0));
+        let seen = step_scroll(
+            3,
+            || {
+                checks.set(checks.get() + 1);
+                Ok(())
+            },
+            |step| {
+                assert_eq!(step, 1);
+                steps.set(steps.get() + 1);
+                Ok(Some((format!("{}", steps.get() - 1), format!("{}", steps.get()))))
+            },
+        );
+        assert_eq!(seen, Ok(Some(("0".into(), "3".into()))));
+        assert_eq!((checks.get(), steps.get()), (3, 3));
+    }
+
+    #[test]
+    fn an_authorization_that_expires_mid_scroll_stops_it() {
+        let (checks, steps) = (Cell::new(0), Cell::new(0));
+        let seen = step_scroll(
+            -5,
+            || {
+                checks.set(checks.get() + 1);
+                if checks.get() > 2 {
+                    Err("computer_policy_expired: authorization expired before native dispatch".into())
+                } else {
+                    Ok(())
+                }
+            },
+            |step| {
+                assert_eq!(step, -1);
+                steps.set(steps.get() + 1);
+                Ok(Some(("a".into(), "b".into())))
+            },
+        );
+        assert!(seen.unwrap_err().starts_with("computer_policy_expired"));
+        assert_eq!(steps.get(), 2, "nothing scrolled after the expiry");
+    }
+
+    #[test]
+    fn a_range_that_stops_being_scrollable_ends_the_scroll() {
+        let steps = Cell::new(0);
+        let seen = step_scroll(
+            4,
+            || Ok(()),
+            |_| {
+                steps.set(steps.get() + 1);
+                Ok((steps.get() <= 2).then(|| ("x".into(), "y".into())))
+            },
+        );
+        assert_eq!(steps.get(), 3);
+        assert_eq!(seen, Ok(Some(("x".into(), "y".into()))));
+        assert_eq!(step_scroll(2, || Ok(()), |_| Ok(None)), Ok(None));
     }
 }

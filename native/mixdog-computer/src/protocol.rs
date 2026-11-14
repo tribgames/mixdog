@@ -9,9 +9,17 @@ pub type Obj = Map<String, Value>;
 
 pub const RESPONSE_MARKER: &str = "@@MIXCU@@";
 pub const POINTER_MARKER: &str = "@@MIXDOG_POINTER@@";
+/// A foreground-lock lease request on stdout, and the host's answer line on
+/// stdin (MixForegroundLockHost.LinePrefix and ReplyPrefix,
+/// MixForegroundLock.cs:336-337).
+#[cfg_attr(not(windows), allow(dead_code, reason = "only Windows leases the foreground lock"))]
+pub const FGLOCK_MARKER: &str = "@@MIXDOG_FGLOCK@@";
+pub const FGLOCK_REPLY_MARKER: &str = "@@MIXDOG_FGLOCK_REPLY@@";
 
 static STDOUT: Mutex<()> = Mutex::new(());
 
+/// One whole line on stdout. Any thread may write: a lease request waiting
+/// for its answer and the request thread's replies never interleave.
 pub fn write_line(prefix: &str, value: &Value) {
     let _guard = STDOUT
         .lock()

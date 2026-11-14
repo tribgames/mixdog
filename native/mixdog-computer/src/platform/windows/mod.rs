@@ -2,19 +2,41 @@
 //! window messages for background input, UI Automation for the accessibility
 //! tree, the shell for launching, and Windows OCR.
 
+mod activation_guard;
+mod activation_restore;
 mod background;
+mod bounded;
+mod capture_budget;
+mod cursor_theme;
+mod edit;
+pub mod elevated;
+mod encode;
+mod foreground_lock;
+pub(crate) use foreground_lock::lease_now_ms;
 mod input;
+mod layout;
+mod ledger;
+mod msaa;
+mod msaa_element;
 mod native;
+mod native_state;
 mod observe;
+mod process;
+mod saved_login;
+mod screen_input;
 mod shell;
 mod uia;
+mod wgc;
 
 use super::{
-    AppEntry, Background, Button, Desktop, Integrity, Launched, Surface, Wid, WinState, WindowInfo,
+    AppEntry, Background, Button, CaptureFailure, Desktop, Integrity, Launched, SavedLoginReads, Surface, Wid,
+    WinState, WindowInfo, UNKNOWN_CAPTURE_BACKEND,
 };
 use crate::a11y::Accessibility;
-use crate::keys::Key;
+use crate::keys::{Key, Mod};
+use crate::lease_api::ForegroundLease;
 use crate::observer::Shared;
+use crate::protocol::{Obj, Req};
 use serde_json::Value;
 use std::sync::Arc;
 use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
@@ -24,6 +46,19 @@ use windows::Win32::UI::HiDpi::{
 
 pub fn release_owned_input() -> Result<(), String> {
     input::release_owned(crate::config::input_marker())
+}
+
+pub fn recover_inactive_ledger() -> Result<(), String> {
+    ledger::replay()
+}
+
+pub fn cursor_watchdog(parent_pid: &str) -> i32 {
+    cursor_theme::watchdog::run(parent_pid)
+}
+
+/// The remote screen's input process (crate::screen_input); the exit code.
+pub fn screen_input() -> i32 {
+    screen_input::run()
 }
 
 pub fn terminate_pid(pid: i64) -> Result<(), String> {
@@ -44,6 +79,9 @@ pub struct WinDesktop {
     sender: input::Sender,
     background: background::WinBackground,
     accessibility: Option<uia::Uia>,
+    observer: Arc<Shared>,
+    /// The marker the observer counts as this host's own input.
+    marker: i64,
 }
 
 impl WinDesktop {
@@ -60,7 +98,9 @@ impl WinDesktop {
         WinDesktop {
             sender,
             background: background::WinBackground::new(observer.clone()),
-            accessibility: uia::Uia::new(observer).ok(),
+            accessibility: uia::Uia::new(observer.clone()).ok(),
+            observer,
+            marker,
         }
     }
 }
@@ -87,7 +127,7 @@ impl Desktop for WinDesktop {
     }
 
     fn focus(&self, handle: Wid) -> bool {
-        native::focus(handle)
+        native::focus(handle, self.marker)
     }
 
     fn window_at_point(&self, x: i32, y: i32) -> Wid {
@@ -100,6 +140,10 @@ impl Desktop for WinDesktop {
 
     fn is_owned_by(&self, candidate: Wid, owner: Wid) -> bool {
         native::is_owned_by(candidate, owner)
+    }
+
+    fn is_visible_focus_home(&self, handle: Wid) -> bool {
+        native::is_visible(handle) && !native::is_cloaked(handle) && !native::is_iconic(handle)
     }
 
     fn is_contained(&self, candidate: Wid, surface: Wid) -> bool {
@@ -169,6 +213,17 @@ impl Desktop for WinDesktop {
         input::desktop_ready()
     }
 
+    fn pid_of(&self, handle: Wid) -> u32 {
+        native::pid_of(handle)
+    }
+
+    fn window_owner_identity(&self, handle: Wid) -> String {
+        match native::pid_thread(handle) {
+            (pid, thread) if native::is_window(handle) && pid != 0 && thread != 0 => format!("{pid}:{thread}"),
+            _ => String::new(),
+        }
+    }
+
     fn background(&self) -> Option<&dyn Background> {
         Some(&self.background)
     }
@@ -199,5 +254,79 @@ impl Desktop for WinDesktop {
 
     fn ocr_status(&self, language: &str) -> Value {
         shell::ocr_status(language)
+    }
+
+    fn encode_image(
+        &self,
+        rgba: &[u8],
+        width: u32,
+        height: u32,
+        quality: Option<u8>,
+    ) -> Option<(&'static str, Vec<u8>)> {
+        match quality {
+            Some(quality) => encode::encode(rgba, width, height, quality),
+            None => encode::png(rgba, width, height).ok().map(|bytes| ("image/png", bytes)),
+        }
+    }
+
+    fn resolve_glyph(&self, glyph: char) -> Option<(u16, Vec<Mod>)> {
+        layout::resolve_glyph(glyph)
+    }
+
+    /// The cursor must land exactly where it was sent
+    /// (AssertCursorPosition, MixWin32Foreground.cs:160-168).
+    fn cursor_tolerance(&self) -> i32 {
+        0
+    }
+
+    fn window_surface_backend(
+        &self,
+        handle: Wid,
+        backend: &str,
+        work_ms: u32,
+    ) -> Result<Surface, CaptureFailure> {
+        match backend {
+            "print_window" => self.window_surface(handle).map_err(CaptureFailure::from),
+            "wgc" => wgc::window_surface(handle, work_ms),
+            _ => Err(UNKNOWN_CAPTURE_BACKEND.to_string().into()),
+        }
+    }
+
+    fn guard_semantic(
+        &self,
+        target: Wid,
+        request_id: i64,
+        lease: &dyn ForegroundLease,
+        op: &mut dyn FnMut() -> Result<Obj, String>,
+    ) -> (Result<Obj, String>, Option<Value>) {
+        activation_guard::guard(&self.observer, target, request_id, lease, op)
+    }
+
+    fn process_fate(&self, pid: &str, created: &str) -> Value {
+        process::fate(pid, created)
+    }
+
+    fn saved_login(&self) -> Option<&dyn SavedLoginReads> {
+        Some(&saved_login::Reads)
+    }
+
+    fn elevated_run(&self, req: &Req) -> Option<Result<Obj, String>> {
+        elevated::run(req)
+    }
+
+    fn cursor_theme_reserve(&self) -> Result<bool, String> {
+        cursor_theme::reserve()
+    }
+
+    fn cursor_theme_begin(&self, decorate: bool) -> Result<bool, String> {
+        cursor_theme::begin(decorate)
+    }
+
+    fn cursor_theme_end(&self) -> Result<bool, String> {
+        cursor_theme::end()
+    }
+
+    fn release_process_holds(&self) {
+        let _ = foreground_lock::process().release();
     }
 }

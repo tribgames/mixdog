@@ -2,6 +2,10 @@
 //! this test creates and closes. Nothing here touches another window: the
 //! fixture is topmost and never activated, and every input is delivered to it
 //! as window messages or through accessibility.
+//!
+//! These tests act on the real desktop, so they run only when asked for
+//! (`cargo test -- --ignored`) with MIXDOG_COMPUTER_LIVE_TESTS=1, on a test
+//! machine nobody is using.
 #![cfg(windows)]
 
 use serde_json::{json, Value};
@@ -18,6 +22,11 @@ use windows::Win32::UI::HiDpi::{
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::SetFocus;
 use windows::Win32::UI::WindowsAndMessaging::*;
+
+/// Whether this run may drive the desktop at all.
+fn live() -> bool {
+    std::env::var("MIXDOG_COMPUTER_LIVE_TESTS").is_ok_and(|value| value == "1")
+}
 
 static CLICKS: AtomicUsize = AtomicUsize::new(0);
 /// The fixture's own signal, raised after every click it counts and when its message pump ends
@@ -247,7 +256,11 @@ fn find_element(snapshot: &Value, role: &str) -> Value {
 /// DS-COMP-1: the harness's observe/act/verify scenarios against a fixture
 /// window, through the resident-helper protocol.
 #[test]
+#[ignore = "live: creates windows and injects input; MIXDOG_COMPUTER_LIVE_TESTS=1 on a test machine only"]
 fn windows_backend_serves_the_computer_protocol() {
+    if !live() {
+        return;
+    }
     let title = format!("MixdogComputerFixture-{}", std::process::id());
     let fixture = Fixture::open(&title);
     let mut host = Host::start(4242);
@@ -276,10 +289,13 @@ fn windows_backend_serves_the_computer_protocol() {
     assert_eq!(capture["capture_source"], json!("window_surface"));
     assert_eq!(capture["width"], json!(460));
     use base64::Engine;
-    let png = base64::engine::general_purpose::STANDARD
-        .decode(capture["image_base64"].as_str().unwrap())
+    // A window narrower than the default 1280 cap is delivered unscaled, as JPEG.
+    assert_eq!(capture["image"]["mimeType"], json!("image/jpeg"));
+    assert_eq!(capture["image_width"], json!(460));
+    let jpeg = base64::engine::general_purpose::STANDARD
+        .decode(capture["image"]["data"].as_str().unwrap())
         .unwrap();
-    assert_eq!(&png[..8], b"\x89PNG\r\n\x1a\n");
+    assert_eq!(&jpeg[..2], b"\xff\xd8");
 
     let status = host.ok(json!({ "action": "ocr_status" }));
     assert!(status["available"].is_boolean());
@@ -342,7 +358,11 @@ fn windows_backend_serves_the_computer_protocol() {
 /// The one-shot cleanup from a fresh process succeeds with no host left, and
 /// the probe reports a working desktop with an answering input observer.
 #[test]
+#[ignore = "live: creates windows and injects input; MIXDOG_COMPUTER_LIVE_TESTS=1 on a test machine only"]
 fn abort_cleanup_and_probe_run_from_a_fresh_process() {
+    if !live() {
+        return;
+    }
     let status = Command::new(env!("CARGO_BIN_EXE_mixdog-computer"))
         .arg("--abort-cleanup")
         .env("MIXDOG_COMPUTER_INPUT_MARKER", "4343")

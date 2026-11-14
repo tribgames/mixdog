@@ -3,7 +3,7 @@
 
 use super::ffi::*;
 use super::windows;
-use crate::a11y::{normalize_menu_label, Accessibility, Element, MenuOutcome, Node};
+use crate::a11y::{normalize_menu_label, Accessibility, Element, MenuOutcome, Node, NodeExtra};
 use crate::obj;
 use crate::platform::{Wid, WindowInfo};
 use crate::protocol::Obj;
@@ -483,6 +483,7 @@ impl MacAccessibility {
             y: origin.y,
             width: size.width,
             height: size.height,
+            extra: NodeExtra::default(),
         }
     }
 }
