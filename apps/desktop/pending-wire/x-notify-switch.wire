@@ -1,0 +1,10 @@
+# x-notify-switch (desktop wire)
+apps/desktop/src/main/ipc.ts, in registerDesktopIpc, the line
+  if (notifications) registerNotificationIpc({ handle, invokeDesktopOperation, notifications });
+becomes
+  registerNotificationIpc({ handle, invokeDesktopOperation, core: protocol });
+(`protocol` is the ProtocolConnection option already destructured there). Then drop the `notifications` option of
+DesktopIpcDependencies, the NotificationIpcHost import, and the `notifications: { isSupported, sendTest: showTestNotification }`
+object in apps/desktop/src/main/index.ts (~line 2715) with showTestNotification if nothing else uses it: the core's notify/state
+asks the host (host/notification/status) and notify/test sends through host/notification/show. After that remove the
+NotificationIpcHost interface and the `notifications?` field from ipc-notifications.ts.
