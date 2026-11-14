@@ -9,10 +9,7 @@
 
 use std::sync::LazyLock;
 
-use mixdog_core_api::domain::ext::ExtCall;
 use mixdog_core_api::domain::ext::ExtError;
-use mixdog_core_api::domain::ext::ExtFrame;
-use mixdog_core_api::domain::ext::ExtPool;
 use mixdog_js::JsRegex;
 use mixdog_js::utf16_len;
 use mixdog_protocol::ThreadId;
@@ -31,44 +28,31 @@ const WINDOWS_INLINE_COMMAND_FILE_THRESHOLD: usize = 24_000;
 /// Whether a Node script body compiles as a CommonJS function body — the check V8's
 /// `new Script(...)` makes. A body using `await` outside an `async` function does not, and then
 /// `node -e` (which accepts top-level `await`) must stay inline. A checker that cannot answer
-/// (no worker, overload) is an error, never a guess.
+/// is an error, never a guess.
 #[async_trait::async_trait]
 pub trait ScriptSyntax: Send + Sync {
     async fn compiles_as_commonjs(&self, thread: &ThreadId, body: &str) -> Result<bool, ExtError>;
 }
 
-/// [`ScriptSyntax`] over the extension host: a `syntax.check` worker call compiles the exact
-/// wrapper Node's `-e` path would, with `new vm.Script`.
-pub struct ExtSyntax {
-    pool: std::sync::Arc<dyn ExtPool>,
-}
+/// [`ScriptSyntax`] decided in-process: `mixdog_jssyntax::check_commonjs_script` answers what
+/// `new vm.Script` answers for the exact wrapper Node's `-e` path would compile, with no worker
+/// and no pool, so the decision works wherever the shell tool does.
+#[derive(Default)]
+pub struct ExtSyntax;
 
 impl ExtSyntax {
-    pub fn new(pool: std::sync::Arc<dyn ExtPool>) -> Self {
-        Self { pool }
+    pub fn new() -> Self {
+        Self
     }
 }
 
 #[async_trait::async_trait]
 impl ScriptSyntax for ExtSyntax {
-    async fn compiles_as_commonjs(&self, thread: &ThreadId, body: &str) -> Result<bool, ExtError> {
-        // The wrapper is Node's `nodeBodyNeedsModuleSyntax`; the call is the worker's
-        // `syntax.check` (`mixdog_exthost::check_syntax` sends the same method and params).
-        let source = format!("(function (exports, require, module, __filename, __dirname) {{{body}\n}})");
-        let call = ExtCall {
-            thread: thread.clone(),
-            method: "syntax.check".to_owned(),
-            params: serde_json::json!({ "source": source, "kind": "commonjs-script" }),
-            paths: Vec::new(),
-        };
-        let mut stream = self.pool.call(call)?;
-        loop {
-            match stream.next().await {
-                Some(ExtFrame::Chunk(_)) => {}
-                Some(ExtFrame::Done(answer)) => return Ok(answer?["ok"] == true),
-                None => return Err(ExtError::UnknownWorker),
-            }
-        }
+    async fn compiles_as_commonjs(&self, _thread: &ThreadId, body: &str) -> Result<bool, ExtError> {
+        // The wrapper is Node's `nodeBodyNeedsModuleSyntax`.
+        let source = format!("(function (exports, require, module, __filename, __dirname) {{{body}
+}})");
+        Ok(mixdog_jssyntax::check_commonjs_script(&source).is_ok())
     }
 }
 
