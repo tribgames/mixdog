@@ -11,6 +11,7 @@ use std::sync::MutexGuard;
 use std::time::Duration;
 use std::time::Instant;
 
+use mixdog_app_protocol::v2::host::HostComputerDisplay;
 use mixdog_core_api::domain::computer::ComputerError;
 use mixdog_core_api::domain::tool::ImageData;
 use regex::Regex;
@@ -49,6 +50,20 @@ pub(super) struct Frame {
     pub(super) capture_width: i64,
     pub(super) capture_height: i64,
     pub(super) idle: Option<InputIdle>,
+}
+
+/// The display a frame's pixels were cut from (`CaptureFrame.displayId`, `displayX..displayHeight`): its rectangle in physical pixels
+/// and its scale, as `host/computer/pixels` reported them. A zoom of a display frame keeps its parent's, which is what the frame is
+/// checked against when the layout may have changed.
+#[derive(Clone, Debug, PartialEq)]
+#[cfg_attr(not(test), expect(dead_code, reason = "display frames are issued by computer_pixels, whose caller is the wiring of the screen capture"))]
+pub(super) struct DisplaySource {
+    pub(super) display_id: String,
+    pub(super) x: i64,
+    pub(super) y: i64,
+    pub(super) width: i64,
+    pub(super) height: i64,
+    pub(super) scale_factor: f64,
 }
 
 fn int(value: Option<&Value>) -> Option<i64> {
@@ -116,6 +131,22 @@ impl Frame {
     }
 }
 
+#[cfg_attr(not(test), expect(dead_code, reason = "judged by assert_display_unchanged, whose caller is the wiring of the screen capture"))]
+impl DisplaySource {
+    /// Whether `display` is the one this source was cut from, as it is now: its id, its origin and its size (in physical pixels, or in
+    /// the host's own units where it reports points). A new scale over the same rectangle moves no pixel, so it is no change
+    /// (`assertDisplayUnchanged` compares the native rectangle only).
+    fn matches(&self, display: &HostComputerDisplay) -> bool {
+        let physical = |edge: u32| (f64::from(edge) * display.scale_factor).round() as i64;
+        let same_size = |edge: i64, host: u32| edge == i64::from(host) || edge == physical(host);
+        display.id == self.display_id
+            && i64::from(display.x) == self.x
+            && i64::from(display.y) == self.y
+            && same_size(self.width, display.width)
+            && same_size(self.height, display.height)
+    }
+}
+
 fn refused(message: String) -> ComputerError {
     ComputerError::Failed { code: "computer_failed".into(), message }
 }
@@ -143,6 +174,8 @@ pub(super) struct FrameStore {
     marks: Mutex<Option<Marks>>,
     /// The last image delivered per window (`createCaptureImageDedupStore`), oldest first: the digest and the exact length.
     delivered: Mutex<Vec<(String, u64, usize)>>,
+    /// The display the latest frame was cut from, under the frame's id; `None` for a window frame.
+    display: Mutex<Option<(String, DisplaySource)>>,
 }
 
 /// How many windows' last images are remembered (`createCaptureImageDedupStore`'s 64).
@@ -189,13 +222,42 @@ impl FrameStore {
 
     fn remember_at(&self, frame: Frame, at: Instant) {
         *locked(&self.marks) = None;
+        *locked(&self.display) = None;
         *locked(&self.latest) = Some((frame, at));
     }
 
     /// Forgets the frame a mutation invalidated (`invalidateActionTargets`), and its marks.
     pub(super) fn clear(&self) {
         *locked(&self.marks) = None;
+        *locked(&self.display) = None;
         *locked(&self.latest) = None;
+    }
+
+    /// Registers the frame of a display capture or of a zoom of one, with the display it was cut from.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the capture path of a screen (the wiring of computer_pixels) issues display frames"))]
+    pub(super) fn remember_display(&self, frame: Frame, source: DisplaySource) {
+        let id = frame.id.clone();
+        self.remember(frame);
+        *locked(&self.display) = Some((id, source));
+    }
+
+    /// The display `frame_id` was cut from, when the latest frame is a display frame of that id.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the capture path of a screen (the wiring of computer_pixels) routes a zoom by it"))]
+    pub(super) fn display_of(&self, frame_id: &str) -> Option<DisplaySource> {
+        locked(&self.display).as_ref().filter(|(id, _)| id == frame_id).map(|(_, source)| source.clone())
+    }
+
+    /// `assertDisplayUnchanged` (`session/frame-validity.ts`): a display frame whose display is gone from `displays`, or has another
+    /// rectangle, is a stale frame, since every pixel coordinate in it would point somewhere else. The frame is forgotten, so a
+    /// step that names it is refused too. A window frame, or no frame, is not judged here.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the act path of a screen (the wiring of computer_pixels) checks the layout before a step"))]
+    pub(super) fn assert_display_unchanged(&self, displays: &[HostComputerDisplay]) -> Result<(), ComputerError> {
+        let Some((id, source)) = locked(&self.display).clone() else { return Ok(()) };
+        if displays.iter().any(|display| source.matches(display)) {
+            return Ok(());
+        }
+        self.clear();
+        Err(ComputerError::Failed { code: "stale_frame".into(), message: format!("stale_frame: display layout changed ({id})") })
     }
 
     /// Publishes the OCR marks of the latest frame (`elementTargetsFromRecords`); a mark of any other frame is not kept.
@@ -654,5 +716,71 @@ mod tests {
         let frame = Frame::from_json(&reply).unwrap();
         assert_eq!((frame.origin_y, frame.idle.unwrap().sequence), (-4, 12));
         assert!(Frame::from_json(&json!({"id":"f","physical_width":0})).is_none());
+    }
+
+    fn display(id: &str, x: i32, y: i32, width: u32, height: u32, scale_factor: f64) -> HostComputerDisplay {
+        HostComputerDisplay { index: 0, id: id.into(), primary: true, scale_factor, width, height, x, y }
+    }
+
+    /// A display frame of a 3000x1500 physical display at (-3000, 0) shown at 1500x750, with the display it was cut from.
+    fn display_store() -> FrameStore {
+        let store = FrameStore::default();
+        let mut shown = frame("frame-d");
+        (shown.window_id, shown.related_window_ids) = (None, None);
+        (shown.origin_x, shown.origin_y, shown.physical_width, shown.physical_height, shown.capture_width, shown.capture_height) = (-3000, 0, 3000, 1500, 1500, 750);
+        store.remember_display(shown, DisplaySource { display_id: "7".into(), x: -3000, y: 0, width: 3000, height: 1500, scale_factor: 2.0 });
+        store
+    }
+
+    #[test]
+    fn a_display_frame_maps_clicks_and_is_found_by_its_id() {
+        let store = display_store();
+        let mut click = step(json!({"action":"click","x":750,"y":375,"frame_id":"frame-d"}));
+        map_step(&store, &mut click).unwrap();
+        assert_eq!((click["x"].clone(), click["y"].clone(), click.contains_key("window_id")), (json!(-1500), json!(750), false));
+        assert_eq!(store.display_of("frame-d").map(|source| source.scale_factor), Some(2.0));
+        assert!(store.display_of("frame-x").is_none());
+        // A window capture after it is no display frame.
+        store.remember(frame("frame-w"));
+        assert!(store.display_of("frame-d").is_none() && store.display_of("frame-w").is_none());
+    }
+
+    /// The layout the frame was cut from still stands: the same display at the same physical rectangle. A display that moved, resized,
+    /// was rescaled to another physical size or went away makes the frame stale, and a click that names it is refused.
+    #[test]
+    fn a_click_on_a_display_frame_after_the_layout_changed_is_refused() {
+        let same = [display("6", 0, 0, 800, 600, 1.0), display("7", -3000, 0, 1500, 750, 2.0)];
+        let store = display_store();
+        store.assert_display_unchanged(&same).unwrap();
+        assert!(store.lookup(Some("frame-d"), Instant::now()).unwrap().is_some());
+        // A new scale over the same physical rectangle moves no pixel.
+        store.assert_display_unchanged(&[display("7", -3000, 0, 3000, 1500, 1.0)]).unwrap();
+        for changed in [
+            vec![display("7", -2000, 0, 1500, 750, 2.0)],
+            vec![display("7", -3000, 0, 1600, 750, 2.0)],
+            vec![display("7", -3000, 0, 1500, 750, 1.0)],
+            vec![display("6", 0, 0, 800, 600, 1.0)],
+            Vec::new(),
+        ] {
+            let store = display_store();
+            let error = store.assert_display_unchanged(&changed).unwrap_err();
+            assert_eq!(error, ComputerError::Failed { code: "stale_frame".into(), message: "stale_frame: display layout changed (frame-d)".into() });
+            assert!(refusal(&store, json!({"action":"click","x":1,"y":1,"frame_id":"frame-d"})).starts_with("stale_frame: unknown frame_id frame-d"));
+        }
+        // A window frame is not judged by the display list.
+        let store = FrameStore::default();
+        store.remember(frame("frame-w"));
+        store.assert_display_unchanged(&[]).unwrap();
+        assert!(store.lookup(Some("frame-w"), Instant::now()).unwrap().is_some());
+    }
+
+    /// Where the host reports points (macOS) the rectangle is the display's own size, not scaled.
+    #[test]
+    fn a_host_that_reports_points_matches_an_unscaled_frame() {
+        let store = FrameStore::default();
+        let mut shown = frame("frame-m");
+        shown.window_id = None;
+        store.remember_display(shown, DisplaySource { display_id: "1".into(), x: 0, y: 0, width: 1440, height: 900, scale_factor: 2.0 });
+        store.assert_display_unchanged(&[display("1", 0, 0, 1440, 900, 2.0)]).unwrap();
     }
 }
