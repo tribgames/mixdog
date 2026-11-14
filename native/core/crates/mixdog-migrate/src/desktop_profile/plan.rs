@@ -113,6 +113,13 @@ const RETIRED_TREES: &[&str] = &[
     "document-preview-pages",
     "shell-integration",
 ];
+/// Where the core reads the editor's state: the unsaved-draft backups in the user-data folder (`Backups::new`), the interrupted-save
+/// journals in the data dir's recovery store (`recovery::JOURNALS_DIR`), the person's editor settings beside the backups
+/// (`read_editor_settings`). Tests assert these names equal the core's.
+const EDITOR_BACKUPS_TARGET: &str = "userdata/editor-backups";
+const EDITOR_RECOVERY_TARGET: &str = "recovery";
+const USER_EDITOR_SETTINGS: &str = "User/settings.json";
+const USER_EDITOR_SETTINGS_TARGET: &str = "userdata/User/settings.json";
 const RECEIPTS_DIR: &str = "new-task-receipts";
 const RECEIPTS_TARGET: &str = "userdata/new-task-receipts";
 const BRIDGES_DIR: &str = "bridges";
@@ -283,8 +290,8 @@ pub(super) fn plan(profile: &Path, sink: &mut PlanSink, sessions_converted: bool
     }
 
     for (kind, dir, secret, target) in [
-        (ItemKind::EditorBackups, "editor-backups", true, "desktop/editor-backups"),
-        (ItemKind::EditorRecovery, "editor-recovery", false, "desktop/editor-recovery"),
+        (ItemKind::EditorBackups, "editor-backups", true, EDITOR_BACKUPS_TARGET),
+        (ItemKind::EditorRecovery, "editor-recovery", false, EDITOR_RECOVERY_TARGET),
     ] {
         debug_assert_eq!(preserve::source_dir(kind), Some(dir));
         // The writer of each directory (`editor-backups.ts:118`, `project-recovery-store.ts:338`) may have been cut before
@@ -299,6 +306,13 @@ pub(super) fn plan(profile: &Path, sink: &mut PlanSink, sessions_converted: bool
             };
             items.push(kind_item(kind, Contract::Preserve, files, Some(target))?);
         }
+    }
+
+    // The user-level editor settings are where the core reads them (`<D>/userdata/User/settings.json`); until they move the editor
+    // applies none of the person's own settings.
+    if let Some(file) = source_file(profile, sink, USER_EDITOR_SETTINGS, false)? {
+        let target = Target::File { root: Root::Data, path: USER_EDITOR_SETTINGS_TARGET.to_owned() };
+        items.push(kind_item(ItemKind::UserEditorSettings, Contract::Preserve, vec![file], Some(target))?);
     }
 
     // The receipts of new tasks keep their names and bytes: the core answers a retried request from the receipt Node wrote, where

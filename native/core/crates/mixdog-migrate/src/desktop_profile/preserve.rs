@@ -85,6 +85,10 @@ fn staged_file(stage_dir: &Path, item: &ManifestItem, file: &SourceFile) -> Step
 /// A preserved JSON file must parse (FORMAT.md §10.6: SHA-256 plus strict parse). A
 /// single file is JSON by its target name, so a restored `.bak` is checked too.
 fn strict_parse(item: &ManifestItem, file: &SourceFile, path: &Path) -> Step<()> {
+    // The user's editor settings are JSONC (comments and trailing commas are valid there), so the file moves as it is.
+    if item.kind == ItemKind::UserEditorSettings {
+        return Ok(());
+    }
     let name = if source_dir(item.kind).is_some() {
         file.path.as_str()
     } else {

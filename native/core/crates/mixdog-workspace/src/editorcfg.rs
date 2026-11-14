@@ -416,13 +416,22 @@ pub fn now_ms() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
 }
 
+/// Where the profile migration put the backups before it moved them under the user-data folder, relative to the data dir.
+const MIGRATED_BACKUPS: &str = "desktop/editor-backups";
+
 pub struct Backups {
     dir: PathBuf,
 }
 
 impl Backups {
+    /// The backups of `user_data`, after it has taken in the ones an earlier migration left beside it
+    /// (`<data>/desktop/editor-backups`, `user_data` being `<data>/userdata`): a draft of the old app is still offered.
     pub fn new(user_data: &Path) -> Self {
-        Self { dir: user_data.join("editor-backups") }
+        let dir = user_data.join("editor-backups");
+        if let Some(data) = user_data.parent() {
+            crate::recovery::adopt_missing(&data.join(MIGRATED_BACKUPS), &dir);
+        }
+        Self { dir }
     }
 
     /// The backup file of a source path (for serializing operations on it).
@@ -596,5 +605,45 @@ mod tests {
         backups.write(&source, op["content"].as_str().unwrap(), op["expectedContent"].as_str().unwrap()).unwrap();
         let written: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
         assert_eq!(&written, after);
+    }
+
+    /// A data dir the first migration pass already filled holds the old app's drafts under `desktop/editor-backups`: the backups
+    /// the core reads take them in, keep what is already there, and leave no copy behind.
+    #[test]
+    fn backups_an_earlier_migration_left_under_desktop_are_offered_from_the_user_data_folder() {
+        let data = tempfile::tempdir().unwrap();
+        let (mine, theirs) = (data.path().join("mine.txt").to_string_lossy().into_owned(), data.path().join("theirs.txt").to_string_lossy().into_owned());
+        let probe = Backups::new(&data.path().join("probe"));
+        let name_of = |source: &str| probe.path_of(source).unwrap().file_name().unwrap().to_owned();
+        let draft = |content: &str| json!({ "content": content, "expectedContent": "disk", "updatedAt": now_ms() }).to_string();
+        let left = data.path().join("desktop").join("editor-backups");
+        std::fs::create_dir_all(&left).unwrap();
+        std::fs::write(left.join(name_of(&mine)), draft("old draft")).unwrap();
+        std::fs::write(left.join(name_of(&theirs)), draft("stale copy")).unwrap();
+        let user_data = data.path().join("userdata");
+        std::fs::create_dir_all(user_data.join("editor-backups")).unwrap();
+        std::fs::write(user_data.join("editor-backups").join(name_of(&theirs)), draft("newer draft")).unwrap();
+
+        let backups = Backups::new(&user_data);
+        assert_eq!(backups.read(&mine).unwrap()["content"], "old draft");
+        assert_eq!(backups.read(&theirs).unwrap()["content"], "newer draft", "a draft written since stays");
+        assert!(!data.path().join("desktop").join("editor-backups").join(name_of(&mine)).exists());
+    }
+
+    /// The user-level settings file is read where the migration puts it (`<data>/userdata/User/settings.json`).
+    #[test]
+    fn the_migrated_user_settings_file_applies_to_every_file() {
+        let data = tempfile::tempdir().unwrap();
+        let user_data = data.path().join("userdata");
+        std::fs::create_dir_all(user_data.join("User")).unwrap();
+        std::fs::write(user_data.join("User").join("settings.json"), "{
+  // mine
+  \"editor.tabSize\": 2,
+}
+").unwrap();
+        let folder = data.path().join("project");
+        std::fs::create_dir_all(&folder).unwrap();
+        let settings = read_editor_settings(&user_data, &folder, "a.ts", None, None).unwrap();
+        assert_eq!(settings["tabSize"], 2);
     }
 }
