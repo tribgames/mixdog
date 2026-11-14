@@ -364,3 +364,19 @@ async fn health_probe_every_15_s_three_failures_inside_60_s_reset_the_tunnel() {
     advance(HEALTH_INTERVAL_MS * 12).await;
     assert!(rig.calls().is_empty());
 }
+
+#[tokio::test(start_paused = true)]
+async fn the_view_holds_the_current_state_before_start_and_tells_receivers_only_once_started() {
+    let (link, _rig) = fixture(REMOTE_CLIENT_GRACE_DEFAULT_MS, true, never);
+    let mut view = link.view();
+    link.terminal(LinkFailure { code: "auth".into(), message: "Permission denied".into(), settings_required: false });
+    assert_eq!(view.borrow().state, lost(true, "auth", "Permission denied", false), "a read sees the state");
+    assert!(!view.has_changed().unwrap(), "nobody is told before start");
+    link.start();
+    assert!(view.has_changed().unwrap());
+    let _ = view.borrow_and_update();
+    link.dispose();
+    link.set_terminals_available(false);
+    assert!(!view.borrow().terminals_available);
+    assert!(!view.has_changed().unwrap(), "nobody is told after dispose");
+}
