@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
@@ -8,6 +8,16 @@ import { DESKTOP_IPC } from '../shared/contract';
 import { ipcErrorFromEnvelope } from '../shared/coded-error';
 import { registerDesktopIpc } from './ipc';
 import * as projectFiles from './project-files';
+import { createCoreLocalPages, setCoreLocalPages } from './core-local-pages';
+import { localPageUrl } from './local-page-server';
+
+// The core stands behind these two clients; here the in-process twins answer the same calls.
+setCoreLocalPages(
+  createCoreLocalPages(async (name, [root, rel, , ownerId]) => {
+    if (name === 'localPageUrlIn') return localPageUrl(root, rel, { scope: 'project', owner: { ownerId }, authorize: async () => {} });
+    throw new Error(`unexpected core call ${name}`);
+  })
+);
 
 async function fixture(t) {
   const directory = await mkdtemp(join(tmpdir(), 'mixdog-file-links-'));
@@ -48,7 +58,12 @@ async function fixture(t) {
           },
         ])
       ),
-      invokeDesktopOperation: async (method, args) => projectFiles[method](...args),
+      invokeDesktopOperation: async (method, args) => {
+        // A folder outside every Project is a root of its own; the core claims a trashed path, then the OS trash takes it.
+        if (method === 'standaloneRoot') return (await stat(args[0]).catch(() => null))?.isDirectory() ? args[0] : null;
+        if (method === 'trashProjectEntryIn') return void trashed.push(projectFiles.projectEntryPathIn(...args));
+        return projectFiles[method](...args);
+      },
     },
     {
       app: { quit() {} },
