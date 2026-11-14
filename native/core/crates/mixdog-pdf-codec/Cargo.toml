@@ -1,0 +1,15 @@
+[package]
+name = "mixdog-pdf-codec"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+aes = { workspace = true }
+md-5 = { workspace = true }
+sha2 = { workspace = true }
+unicode-normalization = { workspace = true }
+mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
