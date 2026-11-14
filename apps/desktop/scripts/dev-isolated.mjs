@@ -593,7 +593,7 @@ export function parsePassEnv(value) {
 }
 
 /** Copies the named variables of `parent` into `env`. A name the isolation already owns (and sets to another
- *  value) is refused: a pass-through never reaches a shared store, the relay or a port. A name unset in
+ *  value) is refused: a pass-through never replaces the instance's stores, relay or ports. A name unset in
  *  `parent` is skipped. */
 export function applyPassEnv(env, names, parent = process.env) {
   for (const name of names) {
