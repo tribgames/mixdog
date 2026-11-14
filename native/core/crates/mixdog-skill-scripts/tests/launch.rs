@@ -232,6 +232,9 @@ fn validate_skill_prints_what_the_recording_holds() {
             assert_eq!(normal(&run.stdout), observed["stdout"].as_str().expect("stdout"), "{shell:?}: stdout of {}", case["case"]);
             assert_eq!(normal(&run.stderr), observed["stderr"].as_str().expect("stderr"), "{shell:?}: stderr of {}", case["case"]);
             assert_eq!(i64::from(run.code), status, "{shell:?}: exit code of {}", case["case"]);
+            // validate-skill writes its warnings and errors before its verdict: one file holding both streams has them in that order.
+            let in_order = format!("{}{}", observed["stderr"].as_str().expect("stderr"), observed["stdout"].as_str().expect("stdout"));
+            assert_eq!(normal(&run.merged), in_order, "{shell:?}: both streams of {} in call order", case["case"]);
         }
     }
 }
