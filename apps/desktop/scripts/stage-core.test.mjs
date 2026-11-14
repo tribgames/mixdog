@@ -47,6 +47,14 @@ test('a local deploy stages the host core from a plain cargo release build, and 
   assert.deepEqual(JSON.parse(readFileSync(join(runtimeDir, 'core', 'js-runtime.json'), 'utf8')), jsRuntimeManifest('win32', 'x64'));
   // The SSH install's bundles need every platform's build: a local deploy ships none.
   assert.equal(existsSync(join(runtimeDir, 'server-cores')), false);
+
+  // The ssh askpass helper is built with the core: a core staged without it is refused, naming the file.
+  const lone = makeTempDirSync('stage-core-host-noaskpass');
+  writeFileSync(join(lone, 'mixdogd.exe'), 'cargo release build');
+  await assert.rejects(
+    stageHostCore({ ...options, binary: join(lone, 'mixdogd.exe'), version: '1.4.6', reportedVersion: () => '1.4.6' }),
+    /mixdog-askpass is not built: .*mixdog-askpass\.exe/
+  );
 });
 
 test('a server payload that fails its integrity check is never archived', async () => {
