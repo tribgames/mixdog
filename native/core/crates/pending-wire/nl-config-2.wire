@@ -1,0 +1,48 @@
+# nl-config-2: the usage history of the earlier daemon is imported into the statistics (mixdog-ledger `history`).
+
+## native/core/crates/mixdog-ledger/Cargo.toml
+
+[dependencies]: add (the database reader of the import; it drives its own connection, so no tokio edge is needed):
+
+    tokio-postgres = { workspace = true }
+
+## native/core/Cargo.lock
+
+Package `mixdog-ledger`: add `"tokio-postgres"` to its dependencies (it is already in the lock, used by mixdog-services).
+
+## native/core/crates/mixdog-workspace-hack/Cargo.toml
+
+Nothing by hand: tokio-postgres with `with-serde_json-1` is already unified through mixdog-services. Run the hakari check
+and take its output if it asks for a line.
+
+## native/core/crates/mixdog-core-base/src/pricing/ledger_pricer.rs (CatalogPricer)
+
+`Pricer` (mixdog-ledger refresh.rs) gained a provided method `price_aggregate(&self, request: &PriceRequest) -> Result<Priced>`
+whose default is `self.price(request)`. The restored legacy days of the import are priced as daily sums, which the catalog
+does with `UsageArgs { historical_aggregate: true, .. }` (a route with context-size tiers is unpriced: a sum cannot say which
+requests crossed one). In `impl Pricer for CatalogPricer` add an override that builds the same `UsageArgs` as `price` with
+`historical_aggregate: true`, for example by moving the body of `price` into a private `fn priced(&self, request: &PriceRequest,
+aggregate: bool)` and having `price` call it with `false` and `price_aggregate` with `true`. Without it a restored day with a
+tiered route is priced as one request. Add a test next to `a_cold_catalog_prices_and_stamps_as_nodes_does`: a route whose
+metadata has `pricingTiers` with `aboveInputTokens` below the sums is unpriced through `price_aggregate` and priced through `price`.
+
+## native/core/crates/mixdog-core/src/run_host/ledger_source.rs (LedgerSource::open)
+
+The history import is off until it is enabled on the ledger's refresher. In `fn open`, right after
+`let refresher = UsageRefresher::new(self.pricer.clone(), self.lanes.cpu_bulk);` add:
+
+    refresher.enable_history(self.plugin_data.clone(), self.lanes.maintenance_io);
+
+(`plugin_data` is `resolvePluginData()`, the directory the importer reads `history/agent-trace.jsonl*`,
+`gateway-usage.local.jsonl|json`, `usage-rollup.local.json` and `pgdata/postmaster.pid` from, as Node passed it.) Every
+`UsageLedger::get_usage_stats` then imports once before its read. Opening a ledger in a test that names no data directory stays
+as it is: a refresher without `enable_history` imports nothing.
+
+## SERVICE_PENDING (compose_flip.rs)
+
+No name to remove: this task registers no service and adds no protocol method.
+
+## Later tasks
+
+None. The `usage-rollup.local.json` family is retired by the migration only after the import marked the ledger
+(`metadata.importedThrough`); `mixdog-migrate` `stores.rs` retains them until then and says so.
