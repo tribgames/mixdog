@@ -355,6 +355,12 @@ pub(super) async fn app_input(desktop: &dyn HostChannel, session: &str, window_i
             }
         }
         "window_gone" => return Err(failed("computer_window_gone: the window closed before the input was delivered; no input was sent".into())),
+        // A key the renderer's input table has no mapping for (`electronKeyPresses`) or a zoom it cannot read: refused before any
+        // input, in the code and words the helper's own grammar refusal has, so the step's row and the sequence's reason read alike.
+        "refused" if answer.get("code").and_then(Value::as_str) == Some("background_unsupported") => {
+            let said = answer.get("text").and_then(Value::as_str).filter(|text| !text.is_empty());
+            return Err(failed(said.unwrap_or("background_unsupported: the window takes no background input of this kind; no input was sent").to_owned()));
+        }
         _ => return Err(failed("input_refused: the desktop refused input to this window; no input was sent".into())),
     }
     Ok(Value::Object(result))
@@ -513,6 +519,9 @@ mod tests {
         assert!(matches!(&gone, ComputerError::Failed { message, .. } if message.starts_with("computer_window_gone")));
         assert!(!falls_back(&gone));
         assert!(ask(json!({ "delivered": false, "effect": "refused" })).await.is_err());
+        let unmappable = ask(json!({ "delivered": false, "effect": "refused", "code": "background_unsupported", "text": "background_unsupported: key {Zork} has no Electron input mapping; no input was sent" })).await.expect_err("refused");
+        assert!(matches!(&unmappable, ComputerError::Failed { message, .. } if crate::desktop::computer_recovery::lead_code(message) == "background_unsupported"));
+        assert!(!falls_back(&unmappable), "the helper is not tried after a refusal");
     }
 
     /// `preparatoryClickFailure`: the click's code and words, and whether input may have gone out, are the row's.

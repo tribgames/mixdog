@@ -1,0 +1,35 @@
+# g35-fu-cu: HostComputerAppInputParams / HostComputerAppInputResult / HostComputerAppInputEffect (src/v2/computer_host.rs, already edited by the
+# task) carry what the desktop's appInput handler (apps/desktop/src/main/host/computer-app-input.ts) answers and the core
+# (mixdog-tools computer_app_owned.rs) reads: effect `click_unconfirmed`, `presses`, `pid`, `code`, `text`, `deliveryAccepted`,
+# `inputMayHaveExecuted`, and the wheel's `modifiers`. No method, notification or inventory row.
+[methods]
+none
+
+[server_requests]
+none
+
+[notifications]
+none
+
+[inventory]
+none
+
+[free_text]
+# Two string fields are new in the answer of host/computer/appInput (answers of server requests are walked by free_text_fields.json).
+# src/free_text.rs: next to `(Kind::Answer, "host/computer/appInput", ...)` if a row exists, else next to
+# `(Kind::Answer, "host/computer/command", &["/text", "/error"])` add
+#     (Kind::Answer, "host/computer/appInput", &["/text"]),
+# tests/it/free_text_fields.json: `"answer host/computer/appInput /text"` goes into the `free` class (the one that holds
+# `answer host/computer/command /text`), and `"answer host/computer/appInput /code"` into the `refused` class whose reason starts
+# "a kind, mode, scope, phase, sort, state or other word from a fixed vocabulary" (next to `answer host/computer/appInput /effect`).
+# The params (core -> host request) are not walked.
+
+[type_edits]
+# Already applied in src/v2/computer_host.rs. Regenerate schema/*.json, packages/protocol/src/index.ts (HostComputerAppInputParams,
+# HostComputerAppInputResult, HostComputerAppInputEffect) and the goldens of host/computer/appInput.
+
+[remove]
+none
+
+[window]
+none

@@ -100,8 +100,8 @@ async fn an_act_is_refused_while_a_browser_approval_is_pending_and_free_after_de
 #[tokio::test]
 async fn a_second_hold_for_one_request_is_the_same_hold() {
     let (_, holds, gated, helper) = setup();
-    let first = holds.hold_for_request("req-1", HumanOnlyCard::SecretRequest);
-    assert_eq!(holds.hold_for_request("req-1", HumanOnlyCard::SecretRequest), first);
+    let first = holds.hold_for_request("req-1", HumanOnlyCard::BrowserApproval);
+    assert_eq!(holds.hold_for_request("req-1", HumanOnlyCard::BrowserApproval), first);
     holds.hold_for_request("req-2", HumanOnlyCard::ScreenTakeover);
     holds.release("req-1");
     assert!(!reaches(&gated, &helper).await, "the other card still holds");
@@ -138,7 +138,7 @@ async fn the_hold_is_released_at_its_expiry() {
 async fn the_hold_is_released_when_its_thread_ends() {
     let (_, holds, gated, helper) = setup();
     let (a, b) = (ThreadId::from("A"), ThreadId::from("B"));
-    holds.hold_for_request_in("req-a", HumanOnlyCard::SecretRequest, CardScope { thread: Some(a.clone()), ..CardScope::default() });
+    holds.hold_for_request_in("req-a", HumanOnlyCard::BrowserApproval, CardScope { thread: Some(a.clone()), ..CardScope::default() });
     holds.hold_for_request_in("req-b", HumanOnlyCard::BrowserApproval, CardScope { thread: Some(b.clone()), ..CardScope::default() });
     holds.release_thread(&a);
     assert!(!reaches(&gated, &helper).await, "the other thread's card still holds");

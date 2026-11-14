@@ -161,7 +161,7 @@ impl HumanOnlyLock {
 
     /// Resolves once no operation runs (`withHumanOnlyApproval` waiting for `activeComputerOperations`):
     /// while a hold refuses new ones, once those already running ended.
-    pub(crate) async fn drained(&self) {
+    pub async fn drained(&self) {
         loop {
             let notified = self.idle.notified();
             tokio::pin!(notified);
@@ -378,7 +378,7 @@ mod tests {
 
     impl TakeoverHolds for Takeover {
         fn hold(&self, _: &ThreadId) -> TakeoverHold {
-            TakeoverHold { held: true, screen: Some(self.0.to_owned()) }
+            TakeoverHold { held: true, screen: Some(self.0.to_owned()), step: Some(self.0.to_owned()), id: None }
         }
         fn screen(&self) -> Option<String> {
             Some(self.0.to_owned())

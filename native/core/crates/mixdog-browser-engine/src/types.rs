@@ -117,6 +117,9 @@ impl TakeoverGuard {
     pub fn cancelled(&self) -> CancellationToken {
         self.cancelled.clone()
     }
+
+    /// What the stopped command fails with once [`Self::cancelled`] fired (`drainOperations` aborts with this text).
+    pub const STOPPED: &'static str = "Browser Use stopped: the user took over this session";
 }
 
 impl Drop for TakeoverGuard {
@@ -160,6 +163,7 @@ mod tests {
         let token = CancellationToken::new();
         let guard = TakeoverGuard::new(token.clone(), Some(Box::new(move || flag.store(true, Ordering::SeqCst))));
         assert!(!guard.cancelled().is_cancelled());
+        assert_eq!(TakeoverGuard::STOPPED, "Browser Use stopped: the user took over this session");
         token.cancel();
         assert!(guard.cancelled().is_cancelled());
         assert!(!released.load(Ordering::SeqCst));

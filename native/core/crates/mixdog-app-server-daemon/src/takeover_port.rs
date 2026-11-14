@@ -8,8 +8,10 @@
 //!   session's never refuses), else one running command, counted until its guard drops. The guard's `cancelled()` fires when a
 //!   takeover of the session starts meanwhile (`drainOperations` aborting the in-flight commands). The takeover state is read
 //!   by polling while a command runs: the sessions publish it into their control cell without a notification.
-//! - `ready(session, takeover)` is `ready`: true once the takeover is held and the session's commands drained (no agent
-//!   capture lands after it); false when it ends first, or when it is not held within [`UNSEEN_READY`].
+//! - `ready(session, takeover)` is `ready`: true once the takeover (the one the card names, by its request id) is held and the
+//!   session's commands drained (no agent capture lands after it); a screen takeover also waits for the running Computer Use
+//!   operations to drain (`withHumanOnlyApproval`'s wait); false when it ends first, or when it is not held within
+//!   [`UNSEEN_READY`].
 //! - The screen takeover's hold on Computer Use is the human-only lock's own read of the same state, and the hold the core takes
 //!   for the cards it raises is `CardHolds`, both in `mixdog_core_session::session::secret_input`.
 
@@ -35,6 +37,8 @@ use mixdog_core_api::ids::ThreadId;
 use mixdog_core_api::service::Admit;
 use mixdog_core_base::support::decode;
 use mixdog_core_base::support::wrong_method;
+use mixdog_core_session::session::secret_input::HumanOnlyLock;
+use mixdog_core_session::session::secret_input::TakeoverHold;
 use mixdog_core_session::session::secret_input::TakeoverHolds;
 use serde_json::Value;
 use serde_json::json;
@@ -59,6 +63,8 @@ struct State {
 
 struct Shared {
     holds: Arc<dyn TakeoverHolds>,
+    /// The human-only lock whose running Computer Use operations a screen takeover waits for.
+    computer: Option<Arc<HumanOnlyLock>>,
     state: Mutex<State>,
 }
 
@@ -67,8 +73,12 @@ impl Shared {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
+    fn hold(&self, session: &str) -> TakeoverHold {
+        self.holds.hold(&ThreadId::from(session))
+    }
+
     fn held(&self, session: &str) -> bool {
-        self.holds.hold(&ThreadId::from(session)).held
+        self.hold(session).held
     }
 
     fn running(&self, session: &str) -> usize {
@@ -83,19 +93,35 @@ pub struct CoreTakeover {
 
 impl CoreTakeover {
     pub fn new(holds: Arc<dyn TakeoverHolds>) -> Self {
-        Self { shared: Arc::new(Shared { holds, state: Mutex::default() }) }
+        Self { shared: Arc::new(Shared { holds, computer: None, state: Mutex::default() }) }
+    }
+
+    /// A takeover owner whose screen takeovers also wait for the running operations of `lock` (Computer Use) to drain.
+    pub fn with_computer_drain(mut self, lock: Arc<HumanOnlyLock>) -> Self {
+        Arc::get_mut(&mut self.shared).expect("the owner is not shared before it is built").computer = Some(lock);
+        self
     }
 
     /// Resolves true once the person may act on takeover `takeover_id` of `session_id`, false when it ends first or is never
-    /// seen. The takeover state names no takeover id: the session's current takeover answers for `takeover_id`.
-    pub async fn ready(&self, session_id: &str, _takeover_id: &str) -> bool {
+    /// seen. Only the session's held takeover answers to its own id: another id is a takeover not seen (`held.get(id) !== id`).
+    pub async fn ready(&self, session_id: &str, takeover_id: &str) -> bool {
         let deadline = tokio::time::Instant::now() + UNSEEN_READY;
         let mut seen = false;
         loop {
-            let held = self.shared.held(session_id);
+            let hold = self.shared.hold(session_id);
+            let held = hold.held && hold.id.as_deref().is_none_or(|id| id == takeover_id);
             seen |= held;
             if held && self.shared.running(session_id) == 0 {
-                return true;
+                match (&self.shared.computer, hold.screen.is_some()) {
+                    (Some(lock), true) => {
+                        // A screen takeover waits for Computer Use to drain too; the takeover ending first drops the wait.
+                        if tokio::time::timeout(POLL, lock.drained()).await.is_ok() {
+                            return true;
+                        }
+                        continue;
+                    }
+                    _ => return true,
+                }
             }
             if (!held && seen) || (!seen && tokio::time::Instant::now() >= deadline) {
                 return false;
@@ -143,7 +169,7 @@ impl TakeoverPort for CoreTakeover {
     fn begin(&self, session_id: &str) -> Result<TakeoverGuard, String> {
         let hold = self.shared.holds.hold(&ThreadId::from(session_id));
         if hold.held {
-            return Err(refusal(hold.screen));
+            return Err(refusal(hold.step));
         }
         let token = CancellationToken::new();
         let (id, spawn) = {
@@ -194,9 +220,21 @@ impl DomainService for TakeoverReadyService {
 
 #[cfg(test)]
 mod tests {
+    use mixdog_core_api::domain::computer::ComputerAction;
+    use mixdog_core_api::domain::computer::ComputerBackend;
+    use mixdog_core_api::domain::computer::ComputerError;
+    use mixdog_core_api::domain::computer::ComputerRequest;
+    use mixdog_core_api::domain::computer::ComputerStatus;
+    use mixdog_core_api::domain::computer::DesktopIdentity;
+    use mixdog_core_api::domain::computer::DisplayId;
+    use mixdog_core_api::domain::computer::DisplayInfo;
+    use mixdog_core_api::domain::computer::InputOutcome;
+    use mixdog_core_api::domain::computer::ScreenInput;
+    use mixdog_core_api::domain::media::MediaFrameSource;
+    use mixdog_core_api::domain::tool::ToolPart;
     use mixdog_core_base::support::testing::request;
+    use mixdog_core_session::session::secret_input::GatedComputerBackend;
     use mixdog_core_base::support::testing::value;
-    use mixdog_core_session::session::secret_input::TakeoverHold;
 
     use super::*;
 
@@ -205,7 +243,12 @@ mod tests {
 
     impl Holds {
         fn take(&self, session: &str, screen: Option<&str>) {
-            self.0.lock().unwrap().insert(session.to_owned(), TakeoverHold { held: true, screen: screen.map(str::to_owned) });
+            self.take_with(session, screen, "t1");
+        }
+        fn take_with(&self, session: &str, screen: Option<&str>, id: &str) {
+            let step = screen.unwrap_or("a step only the user can do").to_owned();
+            let hold = TakeoverHold { held: true, screen: screen.map(str::to_owned), step: Some(step), id: Some(id.to_owned()) };
+            self.0.lock().unwrap().insert(session.to_owned(), hold);
         }
         fn end(&self, session: &str) {
             self.0.lock().unwrap().remove(session);
@@ -271,6 +314,78 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
+    async fn a_browser_takeover_is_refused_with_its_own_step() {
+        let (holds, owner) = owner();
+        holds.take_with("s1", None, "t1");
+        holds.0.lock().unwrap().get_mut("s1").unwrap().step = Some("step \"the captcha\"".to_owned());
+        let refused = owner.begin("s1").unwrap_err();
+        assert!(refused.contains("the user has taken over (step \"the captcha\")"), "{refused}");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn ready_answers_only_for_the_takeover_that_is_held() {
+        let (holds, owner) = owner();
+        holds.take_with("s1", None, "t2");
+        assert!(owner.ready("s1", "t2").await);
+        let started = tokio::time::Instant::now();
+        assert!(!owner.ready("s1", "t1").await, "an earlier takeover of the session is not the held one");
+        assert!(started.elapsed() >= UNSEEN_READY);
+    }
+
+    /// A backend that runs one `computer` call until told to finish.
+    struct Running(Arc<tokio::sync::Notify>);
+
+    #[async_trait]
+    impl ComputerBackend for Running {
+        async fn run(&self, _: ComputerRequest, _: CancellationToken) -> Result<Vec<ToolPart>, ComputerError> {
+            self.0.notified().await;
+            Ok(Vec::new())
+        }
+        fn inject(&self, _: ScreenInput) -> Result<InputOutcome, ComputerError> {
+            Ok(InputOutcome::Applied)
+        }
+        fn release_input(&self) -> Result<u32, ComputerError> {
+            Ok(0)
+        }
+        fn input_desktop(&self) -> Option<DesktopIdentity> {
+            None
+        }
+        fn displays(&self) -> Result<Vec<DisplayInfo>, ComputerError> {
+            Ok(Vec::new())
+        }
+        fn screen_source(&self, _: DisplayId) -> Result<Box<dyn MediaFrameSource>, ComputerError> {
+            Err(ComputerError::Cancelled)
+        }
+        fn status(&self) -> ComputerStatus {
+            ComputerStatus::default()
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_screen_takeover_is_ready_once_computer_use_drained() {
+        let holds = Arc::new(Holds::default());
+        let lock = Arc::new(HumanOnlyLock::new(holds.clone()));
+        let owner = Arc::new(CoreTakeover::new(holds.clone()).with_computer_drain(lock.clone()));
+        let finish = Arc::new(tokio::sync::Notify::new());
+        let backend = Arc::new(GatedComputerBackend::new(Arc::new(Running(finish.clone())), lock));
+        let call = tokio::spawn(async move { backend.run(ComputerRequest { action: ComputerAction::Capture, input: json!({}) }, CancellationToken::new()).await });
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        holds.take("s1", Some("step \"x\""));
+        let waiting = tokio::spawn({
+            let owner = owner.clone();
+            async move { owner.ready("s1", "t1").await }
+        });
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        assert!(!waiting.is_finished(), "a Computer Use operation is still running");
+        finish.notify_one();
+        call.await.unwrap().unwrap();
+        assert!(waiting.await.unwrap());
+        // A browser takeover never waits on Computer Use.
+        holds.take("s2", None);
+        assert!(owner.ready("s2", "t1").await);
+    }
+
+    #[tokio::test(start_paused = true)]
     async fn ready_is_false_when_the_takeover_ends_or_is_never_seen() {
         let (holds, owner) = owner();
         holds.take("s1", None);
@@ -279,7 +394,7 @@ mod tests {
         holds.take("s2", None);
         let ends = tokio::spawn({
             let owner = owner.clone();
-            async move { owner.ready("s2", "t2").await }
+            async move { owner.ready("s2", "t1").await }
         });
         tokio::time::sleep(Duration::from_millis(200)).await;
         holds.end("s2");
