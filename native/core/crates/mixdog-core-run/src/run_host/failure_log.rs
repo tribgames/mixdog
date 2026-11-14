@@ -20,6 +20,7 @@ use std::time::Duration;
 use mixdog_agent::env::Clock;
 use mixdog_agent::env::FailedCall;
 use mixdog_agent::env::ProviderSend;
+use mixdog_agent::env::RequestUsage;
 use mixdog_agent::env::ToolBatch;
 use mixdog_agent::env::ToolFailureLog;
 use mixdog_agent::env::TracedCall;
@@ -253,6 +254,13 @@ impl FailureWriter {
         let due = self.trace.cache_break(record, self.clock.now_ms());
         self.after_append(due);
         mixdog_rt::node_stderr!("{}", mixdog_trace::cache_break_line(record));
+    }
+
+    /// `traceAgentUsage(args)`: the `usage_raw` row of one request (`mixdog_trace::usage_raw_record` has the fields of `args`
+    /// and of `identity`), queued behind the same buffers.
+    pub fn record_usage_raw(self: &Arc<Self>, args: &Map<String, Value>, identity: &Map<String, Value>) {
+        let due = self.trace.append(&mixdog_trace::usage_raw_record(args, Some(identity)), self.clock.now_ms());
+        self.after_append(due);
     }
 
     /// `traceAgentLoop(args)`: the `loop` row of a completed send (`mixdog_trace::loop_record` has the fields of `args`).
@@ -532,6 +540,30 @@ impl ToolFailureLog for RunFailureLog {
 
     fn cache_break(&self, record: Map<String, Value>) {
         self.writer.record_cache_break(&record);
+    }
+
+    /// `traceAgentUsage`: the request's `usage_raw` row, with the reasoning count the provider reported, its raw usage object and
+    /// the send's identity (the provider, the model asked for, the session). No price is written: the row carries tokens.
+    fn request_usage(&self, request: RequestUsage) {
+        let RequestUsage { iteration, provider, model, requested_model, source_type, usage } = request;
+        let args = json!({
+            "iteration": iteration,
+            "inputTokens": usage.input_tokens,
+            "outputTokens": usage.output_tokens,
+            "cachedTokens": usage.cache_read_tokens,
+            "cacheWriteTokens": usage.cache_write_tokens,
+            "rawUsage": usage.raw,
+            "model": model,
+        });
+        let identity = json!({
+            "provider": provider,
+            "sessionId": self.session_id,
+            "requestedModel": requested_model,
+            "sourceType": source_type,
+        });
+        if let (Value::Object(args), Value::Object(identity)) = (args, identity) {
+            self.writer.record_usage_raw(&args, &identity);
+        }
     }
 
     /// `traceProviderSend`. Under `MIXDOG_AGENT_TRACE_VERBOSE` Node also sizes the request (`estimateProviderPayloadBytes`

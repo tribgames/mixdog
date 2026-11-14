@@ -861,6 +861,16 @@ impl Run {
                 message_count: self.messages.len(),
             });
         }
+        if let Some(log) = &self.env.failures {
+            log.request_usage(crate::env::RequestUsage {
+                iteration: self.iterations,
+                provider: self.provider.id().to_string(),
+                model: if response.model.is_empty() { self.model.clone() } else { response.model.clone() },
+                requested_model: self.model.clone(),
+                source_type: self.config.options.request_kind.clone(),
+                usage: response.usage.clone(),
+            });
+        }
         let had_usage = self.last_usage.is_some();
         self.last_usage = Some(add_usage(self.last_usage.take(), &response.usage));
         if !had_usage {

@@ -227,3 +227,25 @@ async fn a_flush_waiting_on_a_cancelled_one_takes_the_turn() {
     assert_eq!(writer.submitted.load(Ordering::Acquire), 1);
     assert!(mixdog_testkit::read_string(data.path().join("history").join("tool-failures.jsonl")).contains("\"first\""));
 }
+
+/// A completed request's `usage_raw` row (`traceAgentUsage`) is in the agent trace with the session, the counts and the prompt total
+/// of its provider's kind (Anthropic's cached tokens add to the input, a OpenAI-kind's are inside it).
+#[tokio::test]
+async fn a_requests_usage_raw_row_joins_the_agent_trace() {
+    let tokens = mixdog_rt::testing::tokens();
+    for (provider, prompt) in [("anthropic", 160), ("openai", 100)] {
+        let data = tempfile::tempdir().unwrap();
+        let env = |name: &str| (name == "MIXDOG_DIAGNOSTICS").then(|| "1".to_owned());
+        let config = TraceConfig::from_env(data.path(), &env, false);
+        let io = ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io };
+        let writer = Arc::new(FailureWriter::new(&config, io, Arc::new(At(1))));
+        let log = RunFailureLog::new(Arc::clone(&writer), "s", Some("lead"), "/ws");
+        let usage = mixdog_core_api::domain::provider::Usage { input_tokens: 100, output_tokens: 7, cache_read_tokens: 60, ..Default::default() };
+        log.request_usage(RequestUsage { iteration: 3, provider: provider.into(), model: "m".into(), requested_model: "m".into(), source_type: None, usage });
+        writer.flush().await;
+        let written = mixdog_testkit::read_string(data.path().join("history").join("agent-trace.jsonl"));
+        let row: Value = serde_json::from_str(written.lines().next().expect("a row")).unwrap();
+        assert_eq!((row["kind"].as_str(), row["session_id"].as_str(), row["iteration"].as_u64()), (Some("usage_raw"), Some("s"), Some(3)), "{provider}");
+        assert_eq!((row["input_tokens"].as_u64(), row["output_tokens"].as_u64(), row["cached_tokens"].as_u64(), row["prompt_tokens"].as_u64()), (Some(100), Some(7), Some(60), Some(prompt)), "{provider}");
+    }
+}
