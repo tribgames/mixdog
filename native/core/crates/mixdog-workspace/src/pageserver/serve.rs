@@ -621,6 +621,8 @@ mod tests {
         for host in [Some("evil.example"), Some("127.0.0.1"), Some("localhost:1")] {
             assert_eq!(fx.send("GET", &url, None, host).await.status, 403, "{host:?}");
         }
+        // No Host header at all (hyper may refuse such a request before it gets here): the server's own answer is a refusal too.
+        assert_eq!(fx.server.respond(&Method::GET, None, &fx.path_of(&url), fx.port).await.status(), StatusCode::FORBIDDEN);
         let error = fx.server.lease_url(&fx.root.join("assets"), "../page.html", PageScope::Project, None).await.unwrap_err();
         assert!(error.message.contains("inside its folder"), "{}", error.message);
     }

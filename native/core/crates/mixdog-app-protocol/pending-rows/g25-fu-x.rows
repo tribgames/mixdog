@@ -1,0 +1,15 @@
+# g25-fu-x: PcAccessReadiness gains `needsEnroll` (the TS readiness state 'needs-enroll').
+# The Rust type is already edited in src/v2/pc_access.rs (not a hot file): `pub needs_enroll: bool` after `other_user`.
+# The wiring task regenerates the generated files that come from it (hot): schema/client_methods.json and packages/protocol/src/index.ts.
+# It is a bool: no free_text class line is needed.
+
+[type_edits]
+# schema/client_methods.json, definitions.PcAccessReadiness.properties, between "missingKeys" and "otherUser":
+#         "needsEnroll": {
+#           "description": "A paired phone's delegated enroll was refused in a way only elevation fixes (delegation off or denied)\n and no delegated enroll of it is running: the row offers Approve for the new phone.",
+#           "type": "boolean"
+#         },
+#   and "needsEnroll" in `required`, between "missingKeys" and "otherUser". (Regenerate rather than hand-edit: the description text is the doc comment.)
+# packages/protocol/src/index.ts, type PcAccessReadiness: after `otherUser: boolean,` add
+#   /** doc comment as above */ needsEnroll: boolean,
+v2::pc_access::PcAccessReadiness + needs_enroll: bool

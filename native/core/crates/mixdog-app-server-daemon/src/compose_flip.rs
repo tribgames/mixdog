@@ -2827,11 +2827,6 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     );
     scm_service.watch_folders(core_watcher.clone(), &git_watch_sink); // each `git/watch` follows its work tree on the core's one watcher
     builder.register(Arc::new(mixdog_scm::service::ScmHandle(scm_service.clone())))?;
-    builder.register(Arc::new(mixdog_core_domains::domains::remote_access::RemoteAccessService::new(
-        built_remote.runtime.clone(),
-        built_remote.registry.clone(),
-        domain_inputs.scopes.scopes("remoteAccess").map_err(ComposeError::ComposeDomains)?,
-    )))?;
     // PC access: the one secure-desktop installer over the bridge executable (Node: `secureDesktopExePath`: `native-tools/` of the package, else the crate's release build).
     let secure_desktop_exe = {
         let exists = mixdog_core::run_host::native_tools::FileServiceExists { files: b.files.clone(), lane: b.tokens.interactive_io };
@@ -2842,10 +2837,19 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             b.package_root.join("native").join("mixdog-secure-desktop").join("target").join("release").join("mixdog-secure-desktop.exe")
         }
     };
-    builder.register(Arc::new(mixdog_core_domains::domains::pc_access::PcAccessService::new(
+    // PC access is built before remote access: an unpair runs in its queue (g25-fu-x) and the runtime's events reach it.
+    let pc_access = Arc::new(mixdog_core_domains::domains::pc_access::PcAccessService::new(
         mixdog_core_domains::domains::pc_access_installer::production_installer(secure_desktop_exe),
         Arc::new(mixdog_core_domains::domains::pc_access::RuntimeRoster(built_remote.runtime.clone())),
-    )))?;
+    ));
+    // A delivered controller key is enrolled (delegated, no prompt) and an owed revocation is revoked: REMOTE_CONTROLLER_KEY_DELIVERED_EVENT / REMOTE_CONTROLLER_KEYS_OWED_EVENT of the desktop.
+    built_remote.events.bind_pc_access(pc_access.clone()).map_err(|_| ComposeError::AlreadyBound("PC access events"))?;
+    builder.register(Arc::new(mixdog_core_domains::domains::remote_access::RemoteAccessService::new(
+        built_remote.runtime.clone(),
+        built_remote.registry.clone(),
+        domain_inputs.scopes.scopes("remoteAccess").map_err(ComposeError::ComposeDomains)?,
+    ).with_pc_access(pc_access.clone())))?;
+    builder.register(pc_access)?;
     builder.register(screen.clone())?;
     builder.register(Arc::new(mixdog_core_domains::notify::timeline::ConnectionTimeline::new(built_remote.registry.clone(), {
         let log = b.log.clone();
