@@ -1,0 +1,84 @@
+# x-pcaccess-core: the pcAccess domain (mixdog-core-domains) and the legacy pending-revoke fold (mixdog-remote).
+# No new workspace edge: mixdog-core-domains already depends on mixdog-remote, mixdog-app-protocol, mixdog-core-api, mixdog-core-base.
+
+# mixdog-core-domains: the module line
+file: native/core/crates/mixdog-core-domains/src/domains/mod.rs
+place: the `pub mod` block, after `pub mod instructions;`
+add:   pub mod pc_access;
+
+# mixdog-core-domains: futures `Shared` (a second Approve joins the running one) needs futures' `std`
+file: native/core/crates/mixdog-core-domains/Cargo.toml
+place: the `futures = { workspace = true, features = ["alloc", "async-await"] }` line
+edit:  futures = { workspace = true, features = ["alloc", "async-await", "std"] }
+note:  mixdog-tools already enables futures `std` in the same build, so Cargo.lock does not change.
+
+# mixdog-remote: module line
+file: native/core/crates/mixdog-remote/src/access/mod.rs
+place: before `pub mod runtime;`
+add:   pub mod legacy_revokes;
+
+# mixdog-remote: Roster gains the one method legacy_revokes::fold calls (roster.rs has no owner this wave and its state is private to it)
+file: native/core/crates/mixdog-remote/src/identity/roster.rs
+place: in `impl Roster`, directly after `pub fn owed_access(&self) -> OwedAccess { ... }`
+add:
+    /// Takes over revocations another store owed (the desktop's old pending-revokes file): the keys join the owed
+    /// access; past the cap, or with `unknown`, the revocations count as unknown (at least 1, so folding the same
+    /// record twice owes nothing twice). Nothing is written when all of it is held already; a failed write keeps
+    /// the state as it was.
+    pub fn owe_access<L: WriteLane>(&mut self, lane: &InLane<L>, keys: &[String], unknown: bool) -> Result<(), SecretError> {
+        let before = (self.state.owed_access_keys.clone(), self.state.owed_access_unknown);
+        let mut lost = unknown;
+        for key in keys {
+            if self.state.owed_access_keys.contains(key) {
+                continue;
+            }
+            if self.state.owed_access_keys.len() >= MAX_OWED_KEYS {
+                lost = true;
+            } else {
+                self.state.owed_access_keys.push(key.clone());
+            }
+        }
+        if lost && self.state.owed_access_unknown == 0 {
+            self.state.owed_access_unknown = 1;
+        }
+        if before == (self.state.owed_access_keys.clone(), self.state.owed_access_unknown) {
+            return Ok(());
+        }
+        if let Err(error) = self.persist(lane) {
+            (self.state.owed_access_keys, self.state.owed_access_unknown) = before;
+            return Err(error);
+        }
+        Ok(())
+    }
+
+# mixdog-remote access/runtime.rs: the single call site, at remote runtime start (CORE-WIRE-G1 applies it; runtime.rs is not owned by this task)
+file: native/core/crates/mixdog-remote/src/access/runtime.rs
+place: `async fn roster(&self)`, the lane job inside the `get_or_try_init` closure
+edit:  replace `let loaded = self.durable(move |lane| Roster::load(lane, &dir)).await??;` with
+         let loaded = self
+             .durable(move |lane| {
+                 let mut roster = Roster::load(lane, &dir)?;
+                 // The desktop's old pending revokes join the owed access, once (the file is renamed to `.folded`).
+                 // `dir` is `<data dir>/remote` (compose_flip.rs: `b.data_dir.join("remote")`); the record is under `<data dir>/desktop`.
+                 if let Some(data_dir) = dir.parent() {
+                     crate::access::legacy_revokes::fold(data_dir, &mut roster, lane)?;
+                 }
+                 Ok::<_, SecretError>(roster)
+             })
+             .await??;
+
+# mixdog-app-server-daemon compose_flip.rs, fn real_core: registration (CORE-WIRE-G1)
+file: native/core/crates/mixdog-app-server-daemon/src/compose_flip.rs
+place: directly after the `RemoteAccessService` registration
+add:   builder.register(Arc::new(mixdog_core_domains::domains::pc_access::PcAccessService::new(
+           installer, // Arc<dyn PcAccessInstaller>: the ONE secure-desktop installer the phone's screen control uses (see the blocker below)
+           Arc::new(mixdog_core_domains::domains::pc_access::RuntimeRoster(remote_runtime.clone())),
+       )))?;
+
+# BLOCKER carried to the lead: `SecureDesktopInstaller` (mixdog-tools desktop/computer_screen/installer.rs) is `pub(super)` inside the private module
+# `computer_screen`, owned by s3-01a, so this domain cannot name it. The domain takes the trait `PcAccessInstaller` (state, install, enroll) instead.
+# Needed in mixdog-tools (s3-01a's files, or the task that next owns computer_screen): a `pub` adapter implementing that trait over the one
+# installer instance, mapping InstallState and KeyChangeOutcome 1:1 (Installed, Outdated, NotInstalled, NotEnrolled, OtherUser, Unavailable;
+# Installed, Updated, Enrolled, Declined, Failed, InProgress, OtherUser, Unavailable, everything else `KeyOutcome::Other(<kebab-case name>)`),
+# `install(keys, revoke)` = `SecureDesktopInstaller::install(keys, KeyChangeOptions { revoke, credential: None, delegated: None })`,
+# `enroll` likewise, carrying `detail` and `exit_code`, and reachable from compose_flip.rs (for example `ComputerSessionPool::pc_access_installer()`).
