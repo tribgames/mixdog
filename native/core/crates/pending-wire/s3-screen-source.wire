@@ -88,8 +88,11 @@ Windows only; elsewhere the phone's screen control reports once, at error level,
         log,            // Arc<dyn Fn(Value)>: tracing at debug, a `start-failed` at warn
     }));
 
-- ScreenPcAccessPort over `PcAccessService` (deferred-g2.md, "s3-screen-source (G7)"): `account_is_admin` -> the service's admin
-  check (None when it cannot be told); `approve_with_credential(client_id, public_key, credential, cancelled)` ->
+- ScreenPcAccessPort over `PcAccessService` (deferred-g2.md, "s3-screen-source (G7)"): `account_is_admin` -> the PC account's
+  administrator check of Node `secure-desktop/account-admin.ts` (`createAccountAdminCheck`: `whoami /groups` lists the
+  Administrators group, the answer cached, a failed read answers None and is read again next time). NO core code has that check
+  today (PcAccessService has none): it must be ported for this port (owner: the compose hookup, CORE-WIRE-G7); answering a
+  constant None would drop the `accountIsAdmin` helper fact the phone is told today. `approve_with_credential(client_id, public_key, credential, cancelled)` ->
   `PcAccessService::approve_with_credential(CredentialRequest { client_id, public_key, credential: PcCredential { user, password },
   cancelled })`, mapped `Ok(answer)` -> `PcAccessAnswer { outcome: match answer.outcome { CredentialOutcome::Busy => "busy",
   CredentialOutcome::Ran(k) => k.name() }.to_string(), state: <HelperState as mixdog-tools InstallState>, detail: answer.detail }`
@@ -99,6 +102,17 @@ Windows only; elsewhere the phone's screen control reports once, at error level,
   `on_desktop`, `on_exit`, `stop` = release then end, `kill`). The geometry the input is mapped through is the session's own
   (`ScreenSession` keeps the pointer mapping and the geometry generation and refuses stale-generation input), so there is no
   `ScreenGeometry` impl to write: a `ScreenGeometry` trait in computer_screen_input.rs has nothing to be implemented by.
+  CONFLICT for the lead: s3-screen-input.wire says the opposite (this source implements its `ScreenGeometry` and the live view
+  calls `ScreenInput::apply_remote`). Only one of the two mappings may stay: the session's (already ported, with its tests) is
+  the one this file uses; `apply_remote` / `screen_input_ops` / `ScreenGeometry` of computer_screen_input.rs would then have no
+  caller. Its `InputDesktop` and this file's `InputDesktop` are the same three facts: one of them should be used by both.
+- Display changes: `screen_sources.displays_changed()` must be called when a display is added, removed or rescaled (Node:
+  Electron `screen` `display-added` / `display-removed` / `display-metrics-changed`, which renew every session's geometry).
+  Nothing in the core reports that today: the hookup needs a source for it (a desktop -> core notification or a Windows
+  display-change watch).
+- Displays: `Screen::displays` (computer_screen.rs, not this task's) reports one display `0`, the virtual screen at scale 100.
+  Node lists every monitor with its own id, OS label, primary flag and DPI scale; per-monitor enumeration has to be added there
+  for the phone's display picker to keep choosing a monitor.
 - ScreenIndicatorPort: the Electron pill stays in the desktop (screen-indicator*.ts); the port needs a core -> desktop host
   notification `host/screen/indicator` {state: show|update|hide, clientLabel, screenId, controlling} and a desktop -> core call
   for the pill's Stop button (`screenIndicatorStop`). Neither protocol row exists yet (x-screen-source-desktop owns the

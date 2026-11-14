@@ -949,7 +949,7 @@ impl ScreenSources {
         };
         if refused {
             // Closed while it was made: nothing started, so there is nothing to release but the helper's hold.
-            lease.dispose();
+            self.parts.timers.turn().enter(|| lease.dispose());
             return None;
         }
         viewer.start();
