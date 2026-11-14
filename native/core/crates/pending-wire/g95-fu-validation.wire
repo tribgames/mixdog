@@ -1,0 +1,21 @@
+# g95-fu-validation: the normalisation the host's validators returned, and what the wiring applies of it.
+
+## 1. turn/start (apply)
+
+`mixdog-core-session/src/session/actor.rs`, fn `turn_start`: make the decoded params mutable and normalise the prompt right after the decode:
+
+    let mut params: TurnStartParams = parse(&req.params, "TurnStartParams")?;
+    mixdog_app_protocol::boundary::validate::normalize::turn_input(&mut params.input);
+
+(`requiredPromptContent` returned a copy whose image type is trimmed and lowercased, whose file type is the canonical PDF/office spelling,
+and whose file or image name is cut to 160 UTF-16 units and dropped when empty; every consumer read that copy.) `thread/start`
+with an `initialInput` and a `draft` already gets it in `new_task.rs` (`normalised`), and the receipt signature is over the normalised prompt
+and draft, as the host signed them. No Cargo edge is added (`mixdog-core-session` already depends on `mixdog-app-protocol`).
+
+## 2. SERVICE_PENDING
+
+Nothing to remove: no protocol method is added or registered by this task.
+
+## 3. Protocol rows
+
+None.
