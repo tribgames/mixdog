@@ -263,3 +263,56 @@ test('the relay refusal subscription is returned a remover', async () => {
   const { api } = await opened();
   assert.equal(typeof api.subscribeRelayPayloadRefused(() => undefined), 'function');
 });
+
+// The patch chain of the removed preload decoder (session-state.test.mjs) is gone: the lane publishes whole states, so a
+// window that missed frames, or whose feed was resumed after a gap, is rebuilt from the whole fold, never from a delta.
+const folding = (client, id, items) => client.folds.set(id, { state: sessionReducer.initial({ thread: { id }, items }) });
+const row = (id, text) => ({ type: 'agentMessage', id, text, meta: {} });
+
+test('a feed resumed after a gap replaces the window state with the whole new fold', async () => {
+  const { client, api } = await opened();
+  const seen = [];
+  api.subscribeSessionState((u) => seen.push(u));
+  await api.setVisibleSessions([S1]);
+  await tick();
+  assert.equal(seen.length, 1);
+  const before = seen[0].snapshot.items.length;
+  // The library lost frames and folded a fresh snapshot: none of the earlier rows is carried over by a patch.
+  folding(client, S1, [row('x1', 'one'), row('x2', 'two')]);
+  client.emitStore({ type: 'thread', threadId: S1 });
+  assert.equal(seen.length, 2);
+  assert.equal(seen[1].frameSource, 'live');
+  assert.equal(seen[1].snapshot.items.length, 2);
+  assert.notEqual(seen[1].snapshot.items.length, before);
+  assert.equal(Object.hasOwn(seen[1].snapshot, '__itemsPatch'), false);
+  assert.equal(Object.hasOwn(seen[1].snapshot, '__itemsRevision'), false);
+});
+
+test('a resync of a hidden session the fold moved on is answered with the whole current fold, once while it is out', async () => {
+  const { client, api } = await opened();
+  const seen = [];
+  api.subscribeSessionState((u) => seen.push(u));
+  folding(client, S2, [row('y1', 'a'), row('y2', 'b'), row('y3', 'c')]);
+  // Nothing was published for S2 (hidden): the window holds no state of it, so the request goes to the lane, which reads the fold.
+  api.resyncSessionState(S2);
+  api.resyncSessionState(S2);
+  assert.equal(seen.length, 1, 'the second request coalesces with the one in flight');
+  assert.equal(seen[0].sessionId, S2);
+  assert.equal(seen[0].snapshot.items.length, 3);
+});
+
+test('a resync after the fold changed delivers what the window last showed, and the next frame replaces it whole', async () => {
+  const { client, api } = await opened();
+  const seen = [];
+  api.subscribeSessionState((u) => seen.push(u));
+  await api.setVisibleSessions([S1]);
+  await tick();
+  folding(client, S1, [row('z1', 'first')]);
+  client.emitStore({ type: 'thread', threadId: S1 });
+  api.resyncSessionState(S1);
+  assert.equal(seen.length, 3);
+  assert.equal(seen[2].snapshot, seen[1].snapshot, 'the held whole state is delivered again');
+  folding(client, S1, [row('z1', 'first'), row('z2', 'second')]);
+  client.emitStore({ type: 'thread', threadId: S1 });
+  assert.equal(seen[3].snapshot.items.length, 2);
+});
