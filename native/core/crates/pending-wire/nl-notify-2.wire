@@ -4,8 +4,13 @@ The session notification producer (domain_seams/notify_producer.rs, notify_sourc
 (ThreadListService::on_row, from `announce`), deleted rows (thread_deletions on_gone), the agent pool (PoolTap over the agentPool section's publisher),
 approvals and questions (WaitTap over the sessions' server-request sink: the card of the request frame), and a desktop host's claim (HostClaimNotify
 in the claim hook). The two `pub mod` lines of domain_seams/mod.rs and ThreadListService::on_row are in the commit (no task owned those files).
-The kept fragment pending-wire/g99-notify-producer.kept is now applied: delete it (and apps/desktop/pending-wire/g99-notify-producer.kept after its
-desktop part below).
+The kept fragment pending-wire/g99-notify-producer.kept is now applied: delete it.
+
+## apps/desktop (hot file index.ts) -- SAME STEP as this commit
+0. Apply apps/desktop/pending-wire/g99-notify-producer.kept (items 1-5: delete createDesktopTurnNotifier and its four feeds from
+   apps/desktop/src/main/index.ts, add the two keys to apps/desktop/scripts/i18n/core-native-keys.json) in the same merge step, then delete
+   that .kept file. The core producer now shows this PC's turn and wait toasts itself (host/notification/show): while index.ts still runs
+   the TypeScript turnNotifier every finished turn, approval and question is toasted twice.
 
 ## native/core/crates/mixdog-app-server-daemon/src/compose_connections_language.rs (symbol: `ASKED` in mod tests)
 1. Add `"Waiting for your answer."` and `"Waiting for your approval."` to `ASKED` (sorted, length 14 -> 16) in the same step as
