@@ -1337,7 +1337,7 @@ async fn a_code_saves_the_host_and_answers_the_address_the_window_loads() {
     // The words of the refusal are the desktop's language, not the English key.
     assert_eq!(message_of(&wrong.expect_err("refused")), "translated: The code is wrong or has expired.");
     let malformed = call(&rig, "remoteHosts/redeemCode", json!({ "code": "12" }), host_ctx()).await;
-    assert!(message_of(&malformed.expect_err("refused")).contains("6-digit"));
+    assert_eq!(message_of(&malformed.expect_err("refused")), "translated: Enter the 6-digit code shown on your PC.");
 }
 
 #[tokio::test]

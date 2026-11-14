@@ -288,3 +288,15 @@ async fn a_route_longer_than_six_servers_and_a_loop_of_hops_are_handled() {
     assert_eq!(body.matches("Host \"a\"").count(), 1);
     assert_eq!(body.matches("Host \"b\"").count(), 1);
 }
+
+#[tokio::test]
+async fn a_machine_without_mixdogs_config_names_no_file_and_resolves_no_target() {
+    let tools = Ssh::new(&[]);
+    let folder = tempfile::tempdir().expect("a folder");
+    let env = env_for(folder.path(), tools);
+    let configs = ResolvedConfigs::without_config();
+    assert_eq!(configs.generic(), None);
+    let target = parse_ssh_target("ops@10.0.0.9").expect("a target");
+    assert!(configs.resolve_for_target(&env, &AttemptContext::default(), &target).await.is_err());
+    assert_eq!(configs.for_args(&args(&["-p", "22", "--", "ops@10.0.0.9"])), None);
+}
