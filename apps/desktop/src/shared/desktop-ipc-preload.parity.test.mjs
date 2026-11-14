@@ -123,7 +123,7 @@ test('the host half of DesktopApi is served through the preload, never through t
 
 test('the core port hand-off channels are opened by main and answered in the preload', () => {
   for (const value of Object.values(HOST_EXTRA_IPC)) {
-    assert.ok(MAIN.includes(value) || /HOST_EXTRA_IPC/.test(MAIN), `${value} is not used by main`);
+    assert.ok(MAIN.includes(`'${value}'`), `${value} is not used by main`);
+    assert.ok(PRELOAD.includes(`'${value}'`), `${value} is not used by the preload`);
   }
-  assert.ok(/HOST_EXTRA_IPC|mixdog:core-port/.test(PRELOAD), 'the preload does not use the core port channels');
 });
