@@ -31,6 +31,31 @@ use crate::compose_mcp::{AgentSeams, McpInputs, SetupSeams, build_agents, mcp_se
 /// for it (`ready::recover`), so it is bounded (Node's `republishCatalog` only starts its listing, `session-host.ts:353-356`).
 const ROOM_RECOVERY_REPUBLISH: std::time::Duration = std::time::Duration::from_secs(60);
 
+/// Table methods whose protocol rows landed before the service that answers them (the migration's protocol wiring
+/// runs ahead of the domain services). Until then a call is answered as any unclaimed method is (`CapabilityUnavailable`),
+/// and none of them is used by a client today. Each wiring task that registers the service removes its names here.
+const SERVICE_PENDING: &[&str] = &[
+    // s1-ws-wire (wave 3): desktop file grants and the core page server in WorkspaceService.
+    "projectFs/grant/describe",
+    "projectFs/grant/redeem",
+    "projectFs/localPage/revokeOwner",
+    "projectFs/localPage/origin",
+    // pcAccess: the domain is built; its registration waits for the production secure-desktop installer
+    // (native/core/crates/pending-wire/deferred-g1.md).
+    "pcAccess/readiness",
+    "pcAccess/approve",
+    // s4-core-events-service (wave 5) / CORE-WIRE-G7: the browser engine composed into mixdogd.
+    "test/browserEngine/run",
+    "host/browser/events",
+    "host/browser/page/facts",
+    "host/browser/userInput",
+    // s2b-service (wave 9): the connections service (window host notification included).
+    "host/window/closed",
+];
+
+/// Namespaces whose every method the connections service (s2b-service, wave 9) answers.
+const SERVICE_PENDING_NAMESPACES: &[&str] = &["connections", "remoteHosts"];
+
 /// What `compose()` has built before the real core starts.
 pub struct Built {
     /// What `real_core` registers a release for as it acquires it; `compose` runs them if `real_core` fails.
@@ -3468,6 +3493,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // host/claim is answered by the server itself (it owns the connection registry, ClientRequest::HostClaim), so no domain service claims it.
     let mut unclaimed = builder.unclaimed();
     unclaimed.retain(|method| *method != "host/claim");
+    // Rows ahead of their service (see `SERVICE_PENDING`).
+    unclaimed.retain(|method| !SERVICE_PENDING.contains(method) && !SERVICE_PENDING_NAMESPACES.contains(&method.split('/').next().unwrap_or(method)));
     if !unclaimed.is_empty() {
         return Err(ComposeError::Unclaimed { methods: unclaimed });
     }
