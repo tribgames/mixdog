@@ -1,0 +1,26 @@
+# s2b-scaffold: core wiring for the three new crates (applied by CORE-WIRE-G1, then cargo hakari generate).
+# No compose call and no mod line is needed by this task: the crates are libraries/binaries with only module lists;
+# their composition is wired by the tasks that fill them.
+
+[native/core/Cargo.toml: [workspace] members, after "crates/mixdog-app-server-client"]
+    "crates/mixdog-ssh",
+    "crates/mixdog-connections",
+    "crates/mixdog-askpass",
+
+[native/core/Cargo.toml: [workspace.dependencies], internal crates block, after the mixdog-app-server-client line]
+mixdog-ssh = { path = "crates/mixdog-ssh" }
+mixdog-connections = { path = "crates/mixdog-connections" }
+mixdog-askpass = { path = "crates/mixdog-askpass" }
+
+[native/core/Cargo.toml: [workspace.dependencies], third-party block, alphabetical (zeroize 1.9.1 is already in Cargo.lock; the workspace-hack already has it with zeroize_derive)]
+zeroize = "1"
+
+[native/core/Cargo.lock]
+# cargo regenerates the three new package entries (mixdog-ssh, mixdog-connections, mixdog-askpass); no new registry crate.
+# mixdog-ssh and mixdog-connections each list mixdog-workspace-hack; run cargo hakari generate afterwards.
+
+[native/core/crates/mixdog-workspace-hack/Cargo.toml]
+# cargo hakari generate (integrator); hand edit nothing.
+
+[native/core/clippy.toml note]
+# crates/mixdog-askpass/clippy.toml (created by this task) restates the workspace bans minus std::fs/Path I/O, like mixdog-fsio's.
