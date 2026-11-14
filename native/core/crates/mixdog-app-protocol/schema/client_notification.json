@@ -519,6 +519,13 @@
             "null"
           ]
         },
+        "loadId": {
+          "description": "Changes when a document is loaded and stays when only the URL changed inside it (a pushState or hash navigation gives a new `document_id` and keeps this one); the console log and the failure list belong to it. Absent: the `document_id` stands for it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "loading": {
           "type": "boolean"
         },

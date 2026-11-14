@@ -3064,6 +3064,290 @@
       ],
       "type": "object"
     },
+    "DesktopPetPlacementResolveParams": {
+      "description": "Params of `desktopPet/placement/resolve`: one of the rules that place the pet window, by `op`. Every answer is a plain document: `geometry` -> `{ window, sprite, coreWidth }`; `pinned`, `clamp`, `clampFree`, `herePosition`, `positionOn` -> a point; `hereAnchor` -> the anchor; `displayFor` -> the display's id, or null for no display.",
+      "oneOf": [
+        {
+          "description": "The window's size at a pet scale: its window, sprite box and core width.",
+          "properties": {
+            "op": {
+              "enum": [
+                "geometry"
+              ],
+              "type": "string"
+            },
+            "scale": {
+              "description": "One of 50, 60, ... 200.",
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "op",
+            "scale"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "composer": {
+              "$ref": "#/definitions/PlacementComposer"
+            },
+            "content": {
+              "$ref": "#/definitions/PlacementRect"
+            },
+            "op": {
+              "enum": [
+                "pinned"
+              ],
+              "type": "string"
+            },
+            "scale": {
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "zoom": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "composer",
+            "content",
+            "op",
+            "scale",
+            "zoom"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "op": {
+              "enum": [
+                "clamp"
+              ],
+              "type": "string"
+            },
+            "point": {
+              "$ref": "#/definitions/PlacementPoint"
+            },
+            "size": {
+              "$ref": "#/definitions/PlacementSize"
+            },
+            "workArea": {
+              "$ref": "#/definitions/PlacementRect"
+            }
+          },
+          "required": [
+            "op",
+            "point",
+            "size",
+            "workArea"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "op": {
+              "enum": [
+                "clampFree"
+              ],
+              "type": "string"
+            },
+            "point": {
+              "$ref": "#/definitions/PlacementPoint"
+            },
+            "scale": {
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "workArea": {
+              "$ref": "#/definitions/PlacementRect"
+            }
+          },
+          "required": [
+            "op",
+            "point",
+            "scale",
+            "workArea"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "content": {
+              "$ref": "#/definitions/PlacementRect"
+            },
+            "op": {
+              "enum": [
+                "hereAnchor"
+              ],
+              "type": "string"
+            },
+            "point": {
+              "$ref": "#/definitions/PlacementPoint"
+            },
+            "sprite": {
+              "$ref": "#/definitions/PlacementRect"
+            }
+          },
+          "required": [
+            "content",
+            "op",
+            "point",
+            "sprite"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "anchor": {
+              "$ref": "#/definitions/PetHereAnchor"
+            },
+            "content": {
+              "$ref": "#/definitions/PlacementRect"
+            },
+            "op": {
+              "enum": [
+                "herePosition"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "anchor",
+            "content",
+            "op"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "displays": {
+              "items": {
+                "$ref": "#/definitions/PlacementDisplay"
+              },
+              "type": "array"
+            },
+            "op": {
+              "enum": [
+                "displayFor"
+              ],
+              "type": "string"
+            },
+            "point": {
+              "$ref": "#/definitions/PlacementPoint"
+            },
+            "size": {
+              "$ref": "#/definitions/PlacementSize"
+            }
+          },
+          "required": [
+            "displays",
+            "op",
+            "point",
+            "size"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "display": {
+              "$ref": "#/definitions/PlacementDisplay"
+            },
+            "op": {
+              "enum": [
+                "positionOn"
+              ],
+              "type": "string"
+            },
+            "prefs": {
+              "$ref": "#/definitions/DesktopPetPrefs"
+            },
+            "scale": {
+              "format": "uint32",
+              "minimum": 0.0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "display",
+            "op",
+            "prefs",
+            "scale"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "DesktopPetPrefs": {
+      "description": "The pet's per-device settings, as `desktop-pet.json` stores them.",
+      "properties": {
+        "autoAdvance": {
+          "type": "boolean"
+        },
+        "autoClose": {
+          "type": "boolean"
+        },
+        "collapsed": {
+          "type": "boolean"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "hereAnchor": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/PetHereAnchor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "keepAbove": {
+          "type": "boolean"
+        },
+        "onScreen": {
+          "type": "boolean"
+        },
+        "pinned": {
+          "type": "boolean"
+        },
+        "pinnedHere": {
+          "type": "boolean"
+        },
+        "positions": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PetPoint"
+          },
+          "description": "Saved free-floating window positions by display id.",
+          "type": "object"
+        },
+        "scale": {
+          "description": "One of 50, 60, ... 200.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "autoAdvance",
+        "autoClose",
+        "collapsed",
+        "enabled",
+        "keepAbove",
+        "onScreen",
+        "pinned",
+        "pinnedHere",
+        "positions",
+        "scale"
+      ],
+      "type": "object"
+    },
     "DesktopPetStateReadParams": {
       "description": "Params of `desktopPet/state/read`: none.",
       "type": "object"
@@ -6473,6 +6757,191 @@
     },
     "PcAccessReadinessParams": {
       "description": "Params of `pcAccess/readiness`: none.",
+      "type": "object"
+    },
+    "PetHereAnchor": {
+      "description": "Where a pinned-here window stands relative to the app window's content bounds: its top-left `dx` from the left edge (or, `right`, from the right edge, positive leftward), and `dy` from the top (or, `bottom`, the bottom).",
+      "properties": {
+        "bottom": {
+          "type": "boolean"
+        },
+        "composer": {
+          "description": "Measured against the composer card instead of the content bounds.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "dx": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "dy": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "right": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "bottom",
+        "dx",
+        "dy",
+        "right"
+      ],
+      "type": "object"
+    },
+    "PetPoint": {
+      "description": "A saved free-floating window position (screen px).",
+      "properties": {
+        "x": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "y": {
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "x",
+        "y"
+      ],
+      "type": "object"
+    },
+    "PlacementComposer": {
+      "description": "The app window's composer card (CSS px), the bottom edge of the pill above it, and the pill's extent.",
+      "properties": {
+        "island": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "islandSpan": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/PlacementIslandSpan"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "rect": {
+          "$ref": "#/definitions/PlacementRect"
+        }
+      },
+      "required": [
+        "rect"
+      ],
+      "type": "object"
+    },
+    "PlacementDisplay": {
+      "description": "A display: its id and its work area (screen px).",
+      "properties": {
+        "id": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "workArea": {
+          "$ref": "#/definitions/PlacementRect"
+        }
+      },
+      "required": [
+        "id",
+        "workArea"
+      ],
+      "type": "object"
+    },
+    "PlacementIslandSpan": {
+      "description": "The extent of the status island's pill (CSS px).",
+      "properties": {
+        "left": {
+          "format": "double",
+          "type": "number"
+        },
+        "right": {
+          "format": "double",
+          "type": "number"
+        },
+        "top": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "left",
+        "right",
+        "top"
+      ],
+      "type": "object"
+    },
+    "PlacementPoint": {
+      "description": "A point in screen px.",
+      "properties": {
+        "x": {
+          "format": "double",
+          "type": "number"
+        },
+        "y": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y"
+      ],
+      "type": "object"
+    },
+    "PlacementRect": {
+      "description": "A rectangle in screen px (or, for a composer card, the app's CSS px).",
+      "properties": {
+        "height": {
+          "format": "double",
+          "type": "number"
+        },
+        "width": {
+          "format": "double",
+          "type": "number"
+        },
+        "x": {
+          "format": "double",
+          "type": "number"
+        },
+        "y": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "height",
+        "width",
+        "x",
+        "y"
+      ],
+      "type": "object"
+    },
+    "PlacementSize": {
+      "description": "A size in px.",
+      "properties": {
+        "height": {
+          "format": "double",
+          "type": "number"
+        },
+        "width": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "height",
+        "width"
+      ],
       "type": "object"
     },
     "PluginsAddPluginParams": {
@@ -25434,6 +25903,29 @@
         },
         "params": {
           "$ref": "#/definitions/DesktopPetStateWriteParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "One of the rules that place the desktop pet's window (desktop-pet-store.ts: `desktopPetGeometry`, `pinnedPetPosition`, `clampPetPosition`, `clampFreePetPosition`, `petHereAnchor`, `petHerePosition`, `displayForPetPosition`, `petPositionOn`), named by `op`, over the rectangles and displays the window controller read from Electron. Answers a point, an anchor, a display id (null for none) or the geometry.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "desktopPet/placement/resolve"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/DesktopPetPlacementResolveParams"
         }
       },
       "required": [

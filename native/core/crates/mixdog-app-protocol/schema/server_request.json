@@ -182,12 +182,23 @@
       "type": "object"
     },
     "BrowserListOp": {
-      "enum": [
-        "add",
-        "remove",
-        "list"
-      ],
-      "type": "string"
+      "oneOf": [
+        {
+          "enum": [
+            "add",
+            "remove",
+            "list"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Removes every init script of the page (the old init_script `clear`).",
+          "enum": [
+            "clear"
+          ],
+          "type": "string"
+        }
+      ]
     },
     "BrowserMailLink": {
       "properties": {
@@ -1163,6 +1174,13 @@
         },
         "pageId": {
           "type": "string"
+        },
+        "saveTrace": {
+          "description": "Save the redacted trace in the host's own trace folder (the old `saveTrace`); `export_path` names another absolute folder instead.",
+          "type": [
+            "boolean",
+            "null"
+          ]
         }
       },
       "required": [
@@ -1464,6 +1482,13 @@
         },
         "keys": {
           "description": "`key`: the normalized chord, e.g. `ctrl+a`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "modifiers": {
+          "description": "`wheel`: the modifiers held while it turns, e.g. `ctrl+shift`.",
           "type": [
             "string",
             "null"

@@ -11449,6 +11449,24 @@
     },
     {
       "class": "C2",
+      "method": "desktopPet/placement/resolve",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "v2::desktop_pet::DesktopPetPlacementResolveParams",
+      "result": "JsonValue",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
       "method": "browser/command",
       "mutation": {
         "kind": "none"

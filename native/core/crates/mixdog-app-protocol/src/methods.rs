@@ -4761,6 +4761,15 @@ crate::client_request_definitions! {
         mutation: none,
         origins: [Local],
     },
+    /// One of the rules that place the desktop pet's window (desktop-pet-store.ts: `desktopPetGeometry`, `pinnedPetPosition`, `clampPetPosition`, `clampFreePetPosition`, `petHereAnchor`, `petHerePosition`, `displayForPetPosition`, `petPositionOn`), named by `op`, over the rectangles and displays the window controller read from Electron. Answers a point, an anchor, a display id (null for none) or the geometry.
+    DesktopPetPlacementResolve => "desktopPet/placement/resolve" {
+        params: v2::desktop_pet::DesktopPetPlacementResolveParams,
+        result: JsonValue,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
     /// UI-originated in-app browser control; forwarded as `host/browser/command`.
     BrowserCommand => "browser/command" {
         params: BrowserCommandParams,
