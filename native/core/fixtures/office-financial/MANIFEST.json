@@ -1,0 +1,86 @@
+{
+  "version": 1,
+  "set": "office-financial",
+  "library": "4.6.1",
+  "source": "node_modules/@formulajs/formulajs/lib/esm/index.mjs",
+  "sourceSha256": "4d3b65138fcbe8c4f6e8cca02725f392f489e6e63f9336b965437a3b7b9f257e",
+  "recorder": "benchmarks/rust-core/recorders/record-office-financial.mjs",
+  "functions": [
+    "ACCRINT",
+    "COUPDAYS",
+    "CUMIPMT",
+    "CUMPRINC",
+    "DB",
+    "DDB",
+    "DISC",
+    "DOLLARDE",
+    "DOLLARFR",
+    "EFFECT",
+    "FV",
+    "FVSCHEDULE",
+    "IPMT",
+    "IRR",
+    "ISPMT",
+    "MIRR",
+    "NOMINAL",
+    "NPER",
+    "NPV",
+    "PDURATION",
+    "PMT",
+    "PPMT",
+    "PRICEDISC",
+    "PV",
+    "RATE",
+    "RRI",
+    "SLN",
+    "SYD",
+    "TBILLEQ",
+    "TBILLPRICE",
+    "TBILLYIELD",
+    "XIRR",
+    "XNPV"
+  ],
+  "cases": 3331,
+  "nontermination": [
+    {
+      "name": "IRR",
+      "args": [
+        {
+          "t": "array",
+          "v": [
+            {
+              "t": "number",
+              "bits": "c0c3880000000000"
+            },
+            {
+              "t": "number",
+              "bits": "40a7700000000000"
+            },
+            {
+              "t": "number",
+              "bits": "40b0680000000000"
+            },
+            {
+              "t": "number",
+              "bits": "40ba900000000000"
+            }
+          ]
+        },
+        {
+          "t": "number",
+          "bits": "7ff0000000000000"
+        }
+      ],
+      "observation": "VM timeout after 1000ms",
+      "sourceReason": "bisection lower bound remains Infinity after subtracting 0.1",
+      "productionPolicy": "retain original loop; no invented limit or error"
+    }
+  ],
+  "files": [
+    {
+      "path": "golden.json",
+      "sha256": "8676f80491ff50f268f8454d6e84b66cf21bb403cb23f31c9a0405a087ee8eca",
+      "bytes": 1995156
+    }
+  ]
+}

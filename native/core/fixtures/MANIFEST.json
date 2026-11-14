@@ -650,6 +650,15 @@
       "totalBytes": 1523887
     },
     {
+      "command": "node benchmarks/rust-core/recorders/record-office-financial.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "office-financial/MANIFEST.json",
+      "manifestSha256": "7d1ecf1ddf14fd5853ea6dfb94c9308f99bccaff5fa29b43eea16f77d9bc210a",
+      "recorder": "benchmarks/rust-core/recorders/record-office-financial.mjs",
+      "set": "office-financial",
+      "totalBytes": 1995156
+    },
+    {
       "command": "node benchmarks/rust-core/recorders/record-office-math.mjs --tree <tree>",
       "fileCount": 1,
       "manifest": "office-math/MANIFEST.json",

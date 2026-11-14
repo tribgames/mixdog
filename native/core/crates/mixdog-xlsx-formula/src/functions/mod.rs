@@ -22,7 +22,10 @@ mod engineering;
 mod complex;
 mod bessel;
 
+mod financial;
+
 pub const TABLES: &[Table] = &[
+    financial::FUNCTIONS,
     engineering::FUNCTIONS, complex::FUNCTIONS,
     statistical::FUNCTIONS,
     math::FUNCTIONS, logical::FUNCTIONS, information::FUNCTIONS,
