@@ -1,0 +1,15 @@
+# x-rs-desktop-pet-client desktop wiring (wave 4), index.ts
+
+createDesktopPetController (function createDesktopPetController(): DesktopPet) builds `createDesktopPet({ prefsPath: join(app.getPath('userData'), 'desktop-pet.json'), screen, createWindow: ... })`.
+desktop-pet-window.ts no longer reads or writes desktop-pet.json: the settings (desktopPet/state/read, desktopPet/state/write) and every placement rule
+(desktopPet/placement/resolve) are the core's (DesktopPetService; its first read copies the Electron profile's desktop-pet.json once, the old file kept).
+
+In index.ts, in that call:
+- delete the option `prefsPath: join(app.getPath('userData'), 'desktop-pet.json'),`
+- add, before `screen,`:
+    call: (method, params) => localProtocol.call(method, params),
+    reportError: (what, error) =>
+      diagnostics?.write('desktop-pet-core-failed', { what, message: error instanceof Error ? error.message : String(error) }),
+- keep every other option (createWindow, load, submit, openApp, markRead, decideApproval, copyText, avatarImage) as it is.
+Until this is applied, `npx tsc --noEmit -p tsconfig.node.json` in apps/desktop reports exactly one error: index.ts 'prefsPath' does not exist in type 'DesktopPetDeps'.
+`join` and `app` stay imported (the same function still uses them for the preload path and the window).

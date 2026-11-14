@@ -6,6 +6,8 @@ import {
   DESKTOP_PET_CORE_WIDTH,
   DESKTOP_PET_ISLAND,
   DESKTOP_PET_MENU,
+  DESKTOP_PET_ON_ISLAND_GAP,
+  DESKTOP_PET_SCALES,
   DESKTOP_PET_SPRITE,
   DESKTOP_PET_WINDOW,
   desktopPetAppLayout,
@@ -14,14 +16,6 @@ import {
 import { DESKTOP_PET_WINDOW_IPC } from '../shared/desktop-pet-bridge.ts';
 import { createDesktopPet } from './desktop-pet-window.ts';
 import { agentHomeSessionId, MIXY_AGENT_ID } from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
-import {
-  clampPetPosition,
-  defaultPetPosition,
-  DESKTOP_PET_MARGIN,
-  DESKTOP_PET_PIN_INSET,
-  normalizeDesktopPetPrefs,
-  pinnedPetPosition,
-} from './desktop-pet-store.ts';
 import {
   requiredDesktopPetCommand,
   requiredDesktopPetComposer,
@@ -35,6 +29,117 @@ import {
   requiredDesktopPetTheme,
 } from './ipc-validation.ts';
 
+// ---- The core's placement and settings, as a test double --------------------------
+// The rules live in the core (desktopPet/* in mixdog-core-domains, tested there:
+// desktop_pet_tests.rs). This double answers the controller's calls with the same
+// arithmetic so the window tests can assert where the window ends up.
+const DESKTOP_PET_MARGIN = 16;
+const DESKTOP_PET_PIN_INSET = 2;
+const clampToRange = (value, min, max) => Math.min(Math.max(min, max), Math.max(min, value));
+const clampPoint = (point, size, area) => ({
+  x: Math.round(clampToRange(point.x, area.x, area.x + area.width - size.width)),
+  y: Math.round(clampToRange(point.y, area.y, area.y + area.height - size.height)),
+});
+const placementRules = {
+  geometry: ({ scale }) => desktopPetGeometry(scale),
+  pinned({ content, composer, zoom, scale }) {
+    const { sprite, window } = desktopPetGeometry(scale);
+    const card = composer.rect;
+    const left = content.x + card.x * zoom;
+    const restRight = content.x + (card.x + card.width) * zoom - DESKTOP_PET_PIN_INSET;
+    const span = composer.island == null ? undefined : composer.islandSpan;
+    const overlaps =
+      span !== undefined &&
+      content.x + span.left * zoom < restRight &&
+      content.x + span.right * zoom > restRight - sprite.size;
+    let boxRight = restRight;
+    let line = content.y + (composer.island ?? card.y - DESKTOP_PET_ISLAND.gap) * zoom;
+    if (overlaps) {
+      const islandLeft = content.x + span.left * zoom;
+      const islandRight = content.x + span.right * zoom;
+      boxRight = Math.min(islandRight - DESKTOP_PET_PIN_INSET, restRight);
+      boxRight = Math.max(boxRight, Math.min(islandLeft + DESKTOP_PET_PIN_INSET + sprite.size, restRight));
+      boxRight = Math.max(boxRight, left + DESKTOP_PET_PIN_INSET + sprite.size);
+      line = content.y + span.top * zoom - DESKTOP_PET_ON_ISLAND_GAP;
+    }
+    return {
+      x: Math.round(boxRight - sprite.left - sprite.size),
+      y: Math.round(line - (window.height - sprite.bottom)),
+    };
+  },
+  clamp: ({ point, size, workArea }) => clampPoint(point, size, workArea),
+  clampFree({ point, scale, workArea }) {
+    const { sprite, window } = desktopPetGeometry(scale);
+    const above = window.height - sprite.bottom - sprite.size;
+    const box = clampPoint(
+      { x: point.x + sprite.left, y: point.y + above },
+      { width: sprite.size, height: sprite.size + sprite.bottom },
+      workArea
+    );
+    return { x: box.x - sprite.left, y: box.y - above };
+  },
+  hereAnchor({ point, sprite, content }) {
+    const right = sprite.x + sprite.width / 2 > content.x + content.width / 2;
+    const bottom = sprite.y + sprite.height / 2 > content.y + content.height / 2;
+    return {
+      right,
+      bottom,
+      dx: Math.round(right ? content.x + content.width - point.x : point.x - content.x),
+      dy: Math.round(bottom ? content.y + content.height - point.y : point.y - content.y),
+    };
+  },
+  herePosition: ({ anchor, content }) => ({
+    x: anchor.right ? content.x + content.width - anchor.dx : content.x + anchor.dx,
+    y: anchor.bottom ? content.y + content.height - anchor.dy : content.y + anchor.dy,
+  }),
+  displayFor({ point, size, displays }) {
+    const cx = point.x + size.width / 2;
+    const cy = point.y + size.height / 2;
+    const inside = displays.find(
+      ({ workArea: a }) => cx >= a.x && cx < a.x + a.width && cy >= a.y && cy < a.y + a.height
+    );
+    if (inside) return inside.id;
+    let best = null;
+    let distance = Number.POSITIVE_INFINITY;
+    for (const display of displays) {
+      const a = display.workArea;
+      const d = Math.hypot(a.x + a.width / 2 - cx, a.y + a.height / 2 - cy);
+      if (d < distance) {
+        distance = d;
+        best = display.id;
+      }
+    }
+    return best;
+  },
+  positionOn({ display, prefs, scale }) {
+    const geometry = desktopPetGeometry(scale);
+    const area = display.workArea;
+    const saved = prefs.positions[String(display.id)] ?? {
+      x: area.x + area.width - geometry.window.width - DESKTOP_PET_MARGIN,
+      y: area.y + area.height - geometry.window.height - DESKTOP_PET_MARGIN,
+    };
+    return placementRules.clampFree({ point: saved, scale, workArea: area });
+  },
+};
+/** The stored document as the core normalizes it (the cases are in desktop_pet_tests.rs). */
+function normalizePrefs(raw = {}) {
+  const pinned = raw.pinned !== false;
+  return {
+    enabled: raw.enabled === true,
+    keepAbove: raw.keepAbove === true,
+    collapsed: raw.collapsed === true,
+    autoAdvance: raw.autoAdvance !== false,
+    autoClose: raw.autoClose !== false,
+    pinned,
+    pinnedHere: !pinned && raw.pinnedHere === true,
+    onScreen: !pinned && raw.pinnedHere !== true && raw.onScreen === true,
+    scale: DESKTOP_PET_SCALES.includes(raw.scale) ? raw.scale : 100,
+    positions: raw.positions ?? {},
+    hereAnchor: !pinned && raw.pinnedHere === true ? (raw.hereAnchor ?? null) : null,
+  };
+}
+
+const tick = () => new Promise((resolve) => setImmediate(resolve));
 const DESKTOP_PET_IPC = { ...APP_IPC, ...DESKTOP_PET_WINDOW_IPC };
 const SIZE = DESKTOP_PET_WINDOW;
 /** The 100% window and sprite (today's look). */
@@ -77,8 +182,10 @@ function fakeContents() {
         handlers.delete(channel);
       },
     },
+    /** Calls the listeners, then lets the core calls they start finish. */
     emit(channel, ...args) {
       for (const listener of listeners.get(channel) ?? []) listener({}, ...args);
+      return tick();
     },
     invoke(channel, ...args) {
       const handler = handlers.get(channel);
@@ -162,7 +269,10 @@ function fakeScreen(displays = [PRIMARY]) {
       ) ?? displays[0],
     on: (event, listener) => events.on(event, listener),
     removeListener: (event, listener) => events.removeListener(event, listener),
-    emit: (event) => events.emit(event),
+    emit: (event) => {
+      events.emit(event);
+      return tick();
+    },
     listeners: (event) => events.listenerCount(event),
   };
 }
@@ -181,7 +291,10 @@ function fakeApp() {
   app.webContents.on = (event, listener) => contentsEvents.on(event, listener);
   app.webContents.removeListener = (event, listener) => contentsEvents.removeListener(event, listener);
   /** A webContents event (a reload starting, the renderer gone). */
-  app.webContents.fire = (event, ...args) => contentsEvents.emit(event, ...args);
+  app.webContents.fire = (event, ...args) => {
+    contentsEvents.emit(event, ...args);
+    return tick();
+  };
   app.isDestroyed = () => false;
   app.getBounds = () => ({ ...app.content });
   app.getContentBounds = () => ({ ...app.content });
@@ -193,6 +306,7 @@ function fakeApp() {
   app.fire = (event, change = {}) => {
     Object.assign(app, change);
     app.events.emit(event);
+    return tick();
   };
   return app;
 }
@@ -205,21 +319,31 @@ function setup({
   paint = true,
   pageLoaded = Promise.resolve(),
   avatarImage,
+  readError,
 } = {}) {
   // The overlay is off by default; these tests exercise it, so they start on
   // unless a test passes `enabled` itself (`enabled: undefined` = never chosen).
-  let stored = normalizeDesktopPetPrefs({ enabled: true, ...prefs });
+  let stored = normalizePrefs({ enabled: true, ...prefs });
   const screen = fakeScreen(displays);
   const windows = [];
-  const calls = { submit: [], open: [], read: [], copy: [], decide: [], writes: 0 };
+  const calls = { submit: [], open: [], read: [], copy: [], decide: [], writes: 0, core: [], errors: [] };
   const pet = createDesktopPet({
-    prefsPath: 'pet.json',
     screen,
-    readPrefs: () => stored,
-    writePrefs: (_path, next) => {
-      stored = next;
-      calls.writes += 1;
+    call: async (method, params) => {
+      calls.core.push(method);
+      if (method === 'desktopPet/state/read') {
+        if (readError) throw readError;
+        return stored;
+      }
+      if (method === 'desktopPet/state/write') {
+        stored = normalizePrefs(params.prefs);
+        calls.writes += 1;
+        return stored;
+      }
+      if (method === 'desktopPet/placement/resolve') return placementRules[params.op](params);
+      throw new Error('unexpected method ' + method);
     },
+    reportError: (what, error) => calls.errors.push([what, error]),
     createWindow: (bounds, layer) => {
       const window = fakeWindow(bounds, layer);
       windows.push(window);
@@ -250,7 +374,6 @@ function setup({
   return { pet, screen, windows, calls, app, stored: () => stored };
 }
 
-const tick = () => new Promise((resolve) => setImmediate(resolve));
 /** The app window's composer card after boot (CSS px). */
 const BOOT_COMPOSER = { x: 300, y: 600, width: 700, height: 120 };
 /** The app renderer's first published state: nothing to say yet. */
@@ -283,6 +406,32 @@ const STATE = {
 const command = (window, name) => window.webContents.emit(DESKTOP_PET_IPC.command, name);
 
 // ---- Life -----------------------------------------------------------------------
+
+test('the settings and every placement come from the core: no window while the first read fails', async () => {
+  const failing = await started({ readError: new Error('core down') });
+  assert.equal(failing.windows.length, 0, 'off: the settings could not be read');
+  assert.equal(failing.pet.config().enabled, false);
+  assert.deepEqual(failing.calls.errors.map(([what]) => what), ['desktopPet/state/read']);
+  failing.pet.dispose();
+  const working = await started();
+  assert.equal(working.calls.core[0], 'desktopPet/state/read', 'read first');
+  assert.ok(working.calls.core.includes('desktopPet/placement/resolve'), 'the pinned spot is the core\x27s');
+  assert.deepEqual(working.calls.errors, []);
+  working.pet.dispose();
+});
+
+test('drag moves that a newer one overtook are not resolved: the last move and the end decide', async () => {
+  const { window, calls, stored } = await started({ prefs: FREE });
+  const start = { ...window.bounds };
+  await window.webContents.emit(DESKTOP_PET_IPC.drag, { phase: 'start', screenX: 0, screenY: 0 });
+  const before = calls.core.length;
+  for (let at = 1; at <= 40; at += 1) window.webContents.emit(DESKTOP_PET_IPC.drag, { phase: 'move', screenX: -at, screenY: 0 });
+  await tick();
+  assert.ok(calls.core.length - before < 40 * 2, 'a burst costs one placement, not one per move');
+  assert.deepEqual([window.bounds.x, window.bounds.y], [start.x - 40, start.y]);
+  await window.webContents.emit(DESKTOP_PET_IPC.drag, { phase: 'end', screenX: -40, screenY: 0 });
+  assert.deepEqual(stored().positions, { 1: { x: start.x - 40, y: start.y } });
+});
 
 test('an unset overlay preference is off and opens no window; a stored true stays on', async () => {
   const unset = await started({ prefs: { enabled: undefined } });
@@ -337,7 +486,7 @@ test('the overlay turned on persists; off persists across a restart; on and quit
   await app.webContents.invoke(DESKTOP_PET_IPC.setEnabled, true);
   await tick();
   assert.equal(windows.length, 1, 'a second on opens no second window');
-  command(window, 'off');
+  await command(window, 'off');
   assert.equal(window.destroyed, true);
   assert.equal(pet.window(), null);
   assert.equal(lastConfig(app).enabled, false, 'Settings hears the menu turning it off');
@@ -352,11 +501,11 @@ test('the overlay turned on persists; off persists across a restart; on and quit
 test('no representative bot, no overlay: it appears when the bot exists and goes when it is removed', async () => {
   const { pet, app, windows, stored } = await started({ available: false });
   assert.equal(windows.length, 0, 'on, but no representative bot yet: no window');
-  app.webContents.emit(DESKTOP_PET_IPC.available, true);
+  await app.webContents.emit(DESKTOP_PET_IPC.available, true);
   await tick();
   assert.equal(windows.length, 1, 'the bot was created: it appears');
   assert.equal(windows[0].shown, true);
-  app.webContents.emit(DESKTOP_PET_IPC.available, false);
+  await app.webContents.emit(DESKTOP_PET_IPC.available, false);
   assert.equal(windows[0].destroyed, true, 'the bot was removed: it goes');
   assert.equal(stored().enabled, true, 'the stored setting is not touched');
   assert.equal(pet.config().enabled, true);
@@ -364,7 +513,7 @@ test('no representative bot, no overlay: it appears when the bot exists and goes
   await app.webContents.invoke(DESKTOP_PET_IPC.setEnabled, true);
   await tick();
   assert.equal(windows.length, 1);
-  app.webContents.emit(DESKTOP_PET_IPC.available, 'yes');
+  await app.webContents.emit(DESKTOP_PET_IPC.available, 'yes');
   await tick();
   assert.equal(windows.length, 1, 'a malformed answer changes nothing');
 });
@@ -375,10 +524,10 @@ test('the pet appears with the composer, not before: first shown already at its 
   assert.ok(window, 'the window is made (hidden) while the app boots');
   assert.equal(window.shown, false, 'no composer yet: not shown');
   assert.deepEqual(window.shows, []);
-  app.webContents.emit(DESKTOP_PET_IPC.composer, BOOT_COMPOSER);
+  await app.webContents.emit(DESKTOP_PET_IPC.composer, BOOT_COMPOSER);
   assert.equal(window.shown, true);
   assert.equal(window.shows.length, 1);
-  const pinned = pinnedPetPosition(APP_CONTENT, BOOT_COMPOSER, 1, GEOMETRY);
+  const pinned = placementRules.pinned({ content: APP_CONTENT, composer: { rect: BOOT_COMPOSER, island: null }, zoom: 1, scale: 100 });
   assert.deepEqual(
     [window.shows[0].x, window.shows[0].y],
     [pinned.x, pinned.y],
@@ -386,25 +535,25 @@ test('the pet appears with the composer, not before: first shown already at its 
   );
   assert.equal(window.webContents.lastView().visible, true, 'the pet knows it is on screen');
   // The composer goes (settings page, onboarding): hidden until it comes back.
-  app.webContents.emit(DESKTOP_PET_IPC.composer, null);
+  await app.webContents.emit(DESKTOP_PET_IPC.composer, null);
   assert.equal(window.shown, false);
   assert.equal(window.webContents.lastView().visible, false, 'its idle animation pauses');
-  app.webContents.emit(DESKTOP_PET_IPC.composer, BOOT_COMPOSER);
+  await app.webContents.emit(DESKTOP_PET_IPC.composer, BOOT_COMPOSER);
   assert.equal(window.shown, true);
   // A renderer reload (or crash) takes the composer with it.
-  app.webContents.fire('did-navigate');
+  await app.webContents.fire('did-navigate');
   assert.equal(window.shown, false);
-  app.webContents.emit(DESKTOP_PET_IPC.publish, BOOT_STATE);
-  app.webContents.emit(DESKTOP_PET_IPC.composer, BOOT_COMPOSER);
+  await app.webContents.emit(DESKTOP_PET_IPC.publish, BOOT_STATE);
+  await app.webContents.emit(DESKTOP_PET_IPC.composer, BOOT_COMPOSER);
   assert.equal(window.shown, true);
-  app.webContents.fire('render-process-gone');
+  await app.webContents.fire('render-process-gone');
   assert.equal(window.shown, false);
 });
 
 test('unpinned, the pet also waits for the composer', async () => {
   const { app, window } = await started({ prefs: FREE, composer: null });
   assert.equal(window.shown, false);
-  app.webContents.emit(DESKTOP_PET_IPC.composer, BOOT_COMPOSER);
+  await app.webContents.emit(DESKTOP_PET_IPC.composer, BOOT_COMPOSER);
   assert.equal(window.shown, true);
   assert.equal(window.shows.length, 1);
 });
@@ -416,16 +565,16 @@ test('an iframe loading or an in-page navigation in the app window is not a relo
   // visualize/preview frame loading, for history.pushState and for a link
   // the window's navigation guard blocks (Electron 41): the page and its
   // renderer state are unchanged, and it publishes nothing again.
-  app.webContents.fire('did-start-loading');
-  app.webContents.fire('did-start-navigation', { isMainFrame: false, isSameDocument: false });
-  app.webContents.fire('did-start-navigation', { isMainFrame: true, isSameDocument: true });
-  app.webContents.fire('did-start-navigation', { isMainFrame: true, isSameDocument: false });
+  await app.webContents.fire('did-start-loading');
+  await app.webContents.fire('did-start-navigation', { isMainFrame: false, isSameDocument: false });
+  await app.webContents.fire('did-start-navigation', { isMainFrame: true, isSameDocument: true });
+  await app.webContents.fire('did-start-navigation', { isMainFrame: true, isSameDocument: false });
   assert.equal(window.shown, true, 'still on the message box');
   // The app page replaced (a reload committed) hides it until the new page publishes.
-  app.webContents.fire('did-navigate');
+  await app.webContents.fire('did-navigate');
   assert.equal(window.shown, false);
-  app.webContents.emit(DESKTOP_PET_IPC.publish, BOOT_STATE);
-  app.webContents.emit(DESKTOP_PET_IPC.composer, BOOT_COMPOSER);
+  await app.webContents.emit(DESKTOP_PET_IPC.publish, BOOT_STATE);
+  await app.webContents.emit(DESKTOP_PET_IPC.composer, BOOT_COMPOSER);
   assert.equal(window.shown, true);
 });
 
@@ -437,15 +586,15 @@ test('by default the pet follows the app window: owned by it, not above other wi
   assert.equal(window.parent, app, 'owned by the app window');
   assert.equal(window.alwaysOnTop, false);
   // Minimised or hidden with the app window, back with it (even unpinned).
-  app.fire('minimize', { minimized: true });
+  await app.fire('minimize', { minimized: true });
   assert.equal(window.shown, false);
-  app.fire('restore', { minimized: false });
+  await app.fire('restore', { minimized: false });
   assert.equal(window.shown, true);
 });
 
 test('"Keep above other windows" puts it above every window, persists, and shows in Settings', async () => {
   const { pet, window: first, windows, app, stored } = await started({ prefs: FREE });
-  command(first, 'keep-above');
+  await command(first, 'keep-above');
   await tick();
   // A new window on the new layer replaces the old one: a live window is
   // never re-layered (that moves the app window's focus on Windows).
@@ -458,9 +607,9 @@ test('"Keep above other windows" puts it above every window, persists, and shows
   assert.equal(window.webContents.lastView().keepAbove, true, 'the menu shows it checked');
   assert.equal(lastConfig(app).keepAbove, true, 'Settings shows it checked');
   // A free pet above other windows stays when the app window is minimised.
-  app.fire('minimize', { minimized: true });
+  await app.fire('minimize', { minimized: true });
   assert.equal(window.shown, true);
-  app.fire('restore', { minimized: false });
+  await app.fire('restore', { minimized: false });
   // From Settings: back to following the app window.
   assert.equal((await app.webContents.invoke(DESKTOP_PET_IPC.setOption, 'keepAbove', false)).keepAbove, false);
   await tick();
@@ -494,9 +643,9 @@ test('Settings toggles never take focus from the app window; a closed quick mess
   const [window] = windows;
   assert.equal(window.focused, false, 'never focused');
   assert.equal(window.relayered, 0);
-  window.webContents.emit(DESKTOP_PET_IPC.focusInput, true);
+  await window.webContents.emit(DESKTOP_PET_IPC.focusInput, true);
   assert.equal(window.focused, true, 'the user clicked the pet');
-  window.webContents.emit(DESKTOP_PET_IPC.focusInput, false);
+  await window.webContents.emit(DESKTOP_PET_IPC.focusInput, false);
   assert.equal(window.focused, false, 'closed again: focus goes back to the window below');
 });
 
@@ -504,14 +653,14 @@ test('the overlay stays hidden until the app renderer published its first state 
   const { app, window } = await started({ published: false });
   assert.ok(window, 'the window is made (hidden) meanwhile');
   assert.equal(window.shown, false, 'composer laid out, but no state yet: hidden');
-  app.webContents.emit(DESKTOP_PET_IPC.publish, BOOT_STATE);
+  await app.webContents.emit(DESKTOP_PET_IPC.publish, BOOT_STATE);
   assert.equal(window.shown, true, 'the app renderer is up: shown');
   assert.equal(window.shows.length, 1);
   // A reload takes the app back to its boot screen: hidden until it publishes again.
-  app.webContents.fire('did-navigate');
-  app.webContents.emit(DESKTOP_PET_IPC.composer, BOOT_COMPOSER);
+  await app.webContents.fire('did-navigate');
+  await app.webContents.emit(DESKTOP_PET_IPC.composer, BOOT_COMPOSER);
   assert.equal(window.shown, false);
-  app.webContents.emit(DESKTOP_PET_IPC.publish, BOOT_STATE);
+  await app.webContents.emit(DESKTOP_PET_IPC.publish, BOOT_STATE);
   assert.equal(window.shown, true);
 });
 
@@ -519,7 +668,7 @@ test('the overlay stays hidden until the app renderer published its first state 
 
 test('unpinned, the window opens at the default corner of the app window display', async () => {
   const { window } = await started({ prefs: FREE, displays: [PRIMARY, SECOND] });
-  const expected = defaultPetPosition(PRIMARY.workArea, SIZE);
+  const expected = placementRules.positionOn({ display: PRIMARY, prefs: normalizePrefs({}), scale: 100 });
   assert.deepEqual(expected, {
     x: 1920 - SIZE.width - DESKTOP_PET_MARGIN,
     y: 1040 - SIZE.height - DESKTOP_PET_MARGIN,
@@ -531,30 +680,30 @@ test('unpinned, dragging moves the window, clamps the bot to the work area and s
   const { window, stored } = await started({ prefs: FREE, displays: [PRIMARY, SECOND] });
   const contents = window.webContents;
   const start = { ...window.bounds };
-  contents.emit(DESKTOP_PET_IPC.drag, { phase: 'start', screenX: 1800, screenY: 900 });
-  contents.emit(DESKTOP_PET_IPC.drag, { phase: 'move', screenX: 1700, screenY: 850 });
+  await contents.emit(DESKTOP_PET_IPC.drag, { phase: 'start', screenX: 1800, screenY: 900 });
+  await contents.emit(DESKTOP_PET_IPC.drag, { phase: 'move', screenX: 1700, screenY: 850 });
   assert.deepEqual(position(window), [start.x - 100, start.y - 50]);
-  contents.emit(DESKTOP_PET_IPC.drag, { phase: 'move', screenX: -5000, screenY: -5000 });
+  await contents.emit(DESKTOP_PET_IPC.drag, { phase: 'move', screenX: -5000, screenY: -5000 });
   assert.deepEqual(
     position(window),
     [-DESKTOP_PET_SPRITE.left, -DESKTOP_PET_SPRITE.bottom],
     'the sprite box at the corner (the window flipped at the top)'
   );
   assert.deepEqual(stored().positions, {}, 'nothing saved mid-drag');
-  contents.emit(DESKTOP_PET_IPC.drag, { phase: 'end', screenX: 1000, screenY: 500 });
+  await contents.emit(DESKTOP_PET_IPC.drag, { phase: 'end', screenX: 1000, screenY: 500 });
   const dropped = { x: start.x - 800, y: start.y - 400 };
   assert.deepEqual(position(window), [dropped.x, dropped.y]);
   assert.deepEqual(stored().positions, { 1: dropped });
   assert.deepEqual([window.bounds.width, window.bounds.height], [SIZE.width, SIZE.height], 'the size never changes');
-  contents.emit(DESKTOP_PET_IPC.drag, { phase: 'start', screenX: 0, screenY: 0 });
-  contents.emit(DESKTOP_PET_IPC.drag, { phase: 'end', screenX: 1500, screenY: 0 });
+  await contents.emit(DESKTOP_PET_IPC.drag, { phase: 'start', screenX: 0, screenY: 0 });
+  await contents.emit(DESKTOP_PET_IPC.drag, { phase: 'end', screenX: 1500, screenY: 0 });
   assert.deepEqual(stored().positions[2], { x: dropped.x + 1500, y: dropped.y });
   assert.deepEqual(stored().positions[1], dropped, 'the first display keeps its own spot');
-  contents.emit(DESKTOP_PET_IPC.nudge, -500, 8);
+  await contents.emit(DESKTOP_PET_IPC.nudge, -500, 8);
   assert.deepEqual(position(window), [dropped.x + 1500 - 64, dropped.y + 8]);
   assert.deepEqual(stored().positions[2], { x: dropped.x + 1500 - 64, y: dropped.y + 8 });
-  contents.emit(DESKTOP_PET_IPC.drag, { phase: 'teleport', screenX: 0, screenY: 0 });
-  contents.emit(DESKTOP_PET_IPC.nudge, 'a', 1);
+  await contents.emit(DESKTOP_PET_IPC.drag, { phase: 'teleport', screenX: 0, screenY: 0 });
+  await contents.emit(DESKTOP_PET_IPC.nudge, 'a', 1);
   assert.equal(window.bounds.x, dropped.x + 1500 - 64);
 });
 
@@ -572,16 +721,12 @@ test('a removed display moves a free pet onto the primary display; a resized one
   const { window, screen } = await started({ prefs: { ...FREE, positions: { 1: { x: 400, y: 200 } } }, displays });
   window.setPosition(2500, 500);
   displays.splice(1, 1);
-  screen.emit('display-removed');
+  await screen.emit('display-removed');
   assert.deepEqual(position(window), [400, 200], "the primary display's saved spot");
   PRIMARY.workArea.height = 400;
-  screen.emit('display-metrics-changed');
+  await screen.emit('display-metrics-changed');
   assert.ok(window.bounds.y + SIZE.height <= 400);
   PRIMARY.workArea.height = 1040;
-});
-
-test('clampPetPosition keeps the whole window inside the work area', () => {
-  assert.deepEqual(clampPetPosition({ x: -10, y: 9999 }, SIZE, PRIMARY.workArea), { x: 0, y: 1040 - SIZE.height });
 });
 
 // #179: the free bot was held 228px inside the screen's sides (and 244px
@@ -592,15 +737,15 @@ test('free (kept above other windows), the dragged bot reaches both side edges o
     const { window, stored } = await started({ prefs: { ...FREE, keepAbove: true, scale } });
     assert.equal(window.parent, null, 'above every window, owned by none');
     const { sprite, window: size } = desktopPetGeometry(scale);
-    const drag = (dx, dy) => {
+    const drag = async (dx, dy) => {
       const at = { ...window.bounds };
-      window.webContents.emit(DESKTOP_PET_IPC.drag, { phase: 'start', screenX: 1000, screenY: 500 });
-      window.webContents.emit(DESKTOP_PET_IPC.drag, { phase: 'end', screenX: 1000 + dx, screenY: 500 + dy });
+      await window.webContents.emit(DESKTOP_PET_IPC.drag, { phase: 'start', screenX: 1000, screenY: 500 });
+      await window.webContents.emit(DESKTOP_PET_IPC.drag, { phase: 'end', screenX: 1000 + dx, screenY: 500 + dy });
       return at;
     };
-    drag(-5000, 0);
+    await drag(-5000, 0);
     assert.equal(window.bounds.x + sprite.left, 0, `${scale}%: the sprite box at the left edge`);
-    drag(5000, 5000);
+    await drag(5000, 5000);
     assert.equal(window.bounds.x + sprite.left + sprite.size, 1920, `${scale}%: the sprite box at the right edge`);
     assert.equal(window.bounds.y + size.height, 1040, `${scale}%: the window's bottom on the work area's`);
     assert.deepEqual(stored().positions[1], { x: window.bounds.x, y: window.bounds.y }, 'saved');
@@ -622,22 +767,22 @@ test('free, the bot reaches the top edge: the window flips (bubble, quick messag
   for (const scale of [50, 100, 200]) {
     const { window, stored } = await started({ prefs: { ...FREE, scale } });
     const { sprite, window: size } = desktopPetGeometry(scale);
-    const drag = (dx, dy) => {
-      window.webContents.emit(DESKTOP_PET_IPC.drag, { phase: 'start', screenX: 1000, screenY: 500 });
-      window.webContents.emit(DESKTOP_PET_IPC.drag, { phase: 'end', screenX: 1000 + dx, screenY: 500 + dy });
+    const drag = async (dx, dy) => {
+      await window.webContents.emit(DESKTOP_PET_IPC.drag, { phase: 'start', screenX: 1000, screenY: 500 });
+      await window.webContents.emit(DESKTOP_PET_IPC.drag, { phase: 'end', screenX: 1000 + dx, screenY: 500 + dy });
     };
-    drag(0, -5000);
+    await drag(0, -5000);
     assert.equal(window.webContents.lastView().flipped, true, `${scale}%: flipped at the top`);
     assert.equal(spriteTop(window, scale), 0, `${scale}%: the sprite box at the top edge`);
     assert.equal(window.bounds.y, -sprite.bottom, `${scale}%: the window hangs down from just above the bot`);
     assert.ok(window.bounds.y + size.height <= 1040, 'the room below it on screen');
     // Dragged on from there, the bot follows the pointer one to one (no jump at the flip).
-    drag(0, 150);
+    await drag(0, 150);
     assert.equal(spriteTop(window, scale), 150, `${scale}%: still under the pointer`);
-    drag(0, 400);
+    await drag(0, 400);
     assert.equal(window.webContents.lastView().flipped, false, `${scale}%: room above again: unflipped`);
     assert.equal(spriteTop(window, scale), 550);
-    drag(0, -5000);
+    await drag(0, -5000);
     // Restarted at the top: flipped again, at the same place.
     const again = await started({ prefs: stored() });
     assert.equal(again.window.webContents.lastView().flipped, true);
@@ -647,24 +792,24 @@ test('free, the bot reaches the top edge: the window flips (bubble, quick messag
 
 test('the composer-pinned bot never flips; "Pin here" at the top keeps its flip', async () => {
   const pinned = await started();
-  pinned.app.webContents.emit(DESKTOP_PET_IPC.composer, { x: 300, y: -80, width: 700, height: 120 });
+  await pinned.app.webContents.emit(DESKTOP_PET_IPC.composer, { x: 300, y: -80, width: 700, height: 120 });
   assert.equal(pinned.window.webContents.lastView().flipped, false);
   assert.equal(pinned.window.bounds.y, 0, 'its whole window on screen, as before');
   const here = await started({ prefs: FREE });
-  here.app.fire('move', { content: { x: 0, y: 0, width: 1920, height: 1040 } });
-  here.window.webContents.emit(DESKTOP_PET_IPC.drag, { phase: 'start', screenX: 1000, screenY: 500 });
-  here.window.webContents.emit(DESKTOP_PET_IPC.drag, { phase: 'end', screenX: 1000, screenY: -5000 });
-  command(here.window, 'pin-here');
+  await here.app.fire('move', { content: { x: 0, y: 0, width: 1920, height: 1040 } });
+  await here.window.webContents.emit(DESKTOP_PET_IPC.drag, { phase: 'start', screenX: 1000, screenY: 500 });
+  await here.window.webContents.emit(DESKTOP_PET_IPC.drag, { phase: 'end', screenX: 1000, screenY: -5000 });
+  await command(here.window, 'pin-here');
   assert.equal(here.window.webContents.lastView().flipped, true);
   assert.equal(spriteTop(here.window), 0);
-  here.app.fire('resize', { content: { x: 0, y: 0, width: 1800, height: 1000 } });
+  await here.app.fire('resize', { content: { x: 0, y: 0, width: 1800, height: 1000 } });
   assert.equal(spriteTop(here.window), 0, 'kept at the top against the app window');
 });
 
 test('"Free on screen": anywhere on screen apart from the app window, with or without "Keep above"; exclusive with both pins; kept across a restart', async () => {
   for (const keepAbove of [false, true]) {
     const { pet, window: first, windows, app, stored } = await started({ prefs: { keepAbove } });
-    command(first, 'on-screen');
+    await command(first, 'on-screen');
     await tick();
     assert.deepEqual(
       [lastConfig(app).onScreen, lastConfig(app).pinned, lastConfig(app).pinnedHere],
@@ -675,42 +820,39 @@ test('"Free on screen": anywhere on screen apart from the app window, with or wi
     assert.equal(window.parent, null, 'a window of its own, never owned by the app window');
     assert.equal(window.alwaysOnTop, keepAbove, '"Keep above" stays its own choice');
     assert.equal(window.webContents.lastView().onScreen, true);
-    window.webContents.emit(DESKTOP_PET_IPC.drag, { phase: 'start', screenX: 1000, screenY: 500 });
-    window.webContents.emit(DESKTOP_PET_IPC.drag, { phase: 'end', screenX: -9000, screenY: 9000 });
+    await window.webContents.emit(DESKTOP_PET_IPC.drag, { phase: 'start', screenX: 1000, screenY: 500 });
+    await window.webContents.emit(DESKTOP_PET_IPC.drag, { phase: 'end', screenX: -9000, screenY: 9000 });
     assert.equal(window.bounds.x + GEOMETRY.sprite.left, 0, 'at the screen edge, outside the app window');
     // Over the app window: the bubble still keeps to the screen, not the app's content.
-    window.webContents.emit(DESKTOP_PET_IPC.drag, { phase: 'start', screenX: 0, screenY: 0 });
-    window.webContents.emit(DESKTOP_PET_IPC.drag, { phase: 'end', screenX: 500, screenY: -400 });
+    await window.webContents.emit(DESKTOP_PET_IPC.drag, { phase: 'start', screenX: 0, screenY: 0 });
+    await window.webContents.emit(DESKTOP_PET_IPC.drag, { phase: 'end', screenX: 500, screenY: -400 });
     assert.deepEqual(window.webContents.lastView().bubbleSpan, {
       left: Math.max(0, -window.bounds.x),
       right: Math.min(SIZE.width, 1920 - window.bounds.x),
     });
     const at = position(window);
-    app.fire('move', { content: { x: 900, y: 500, width: 400, height: 300 } });
+    await app.fire('move', { content: { x: 900, y: 500, width: 400, height: 300 } });
     assert.deepEqual(position(window), at, 'never moved with the app window');
-    app.fire('minimize', { minimized: true });
+    await app.fire('minimize', { minimized: true });
     assert.equal(window.shown, true, 'not hidden with the minimised app window');
-    app.fire('restore', { minimized: false });
-    app.webContents.emit(DESKTOP_PET_IPC.composer, null);
+    await app.fire('restore', { minimized: false });
+    await app.webContents.emit(DESKTOP_PET_IPC.composer, null);
     assert.equal(window.shown, true, 'nor on an app page with no composer');
     assert.equal(stored().onScreen, true);
     pet.dispose();
     const again = await started({ prefs: stored() });
     assert.equal(again.window.parent, null);
     assert.deepEqual(position(again.window), at, 'restored where it was');
-    command(again.window, 'pin-here');
+    await command(again.window, 'pin-here');
     await tick();
     assert.deepEqual([lastConfig(again.app).onScreen, lastConfig(again.app).pinnedHere], [false, true]);
-    command(again.windows.at(-1), 'on-screen');
+    await command(again.windows.at(-1), 'on-screen');
     await tick();
-    command(again.windows.at(-1), 'pin');
+    await command(again.windows.at(-1), 'pin');
     await tick();
     assert.deepEqual([lastConfig(again.app).onScreen, lastConfig(again.app).pinned], [false, true]);
     assert.equal(again.windows.at(-1).parent, keepAbove ? null : again.app, 'pinned: following the app again');
   }
-  assert.equal(normalizeDesktopPetPrefs({ pinned: false, onScreen: true }).onScreen, true);
-  assert.equal(normalizeDesktopPetPrefs({ onScreen: true }).onScreen, false, 'never with the composer pin');
-  assert.equal(normalizeDesktopPetPrefs({ pinned: false, pinnedHere: true, onScreen: true }).onScreen, false);
 });
 
 // #179 follow-up: what each placement allows. Pinned (composer) and "Pin
@@ -723,13 +865,13 @@ test('free, placement is the screen\'s, the same with or without "Keep above", n
     const { window, app } = await started({ prefs: { ...FREE, keepAbove } });
     assert.equal(window.parent, keepAbove ? null : app, keepAbove ? 'above every window' : "on the app window's layer");
     // The app window is small, in the middle; the bot goes to the screen's bottom-right corner, far outside it.
-    app.fire('move', { content: { x: 600, y: 300, width: 700, height: 400 } });
-    window.webContents.emit(DESKTOP_PET_IPC.drag, { phase: 'start', screenX: 1000, screenY: 500 });
-    window.webContents.emit(DESKTOP_PET_IPC.drag, { phase: 'end', screenX: 6000, screenY: 6000 });
+    await app.fire('move', { content: { x: 600, y: 300, width: 700, height: 400 } });
+    await window.webContents.emit(DESKTOP_PET_IPC.drag, { phase: 'start', screenX: 1000, screenY: 500 });
+    await window.webContents.emit(DESKTOP_PET_IPC.drag, { phase: 'end', screenX: 6000, screenY: 6000 });
     const left = () => window.bounds.x + GEOMETRY.sprite.left;
     assert.equal(left() + GEOMETRY.sprite.size, 1920, 'at the screen edge, outside the app window');
     assert.ok(left() > 600 + 700);
-    app.fire('move', { content: { x: 100, y: 100, width: 500, height: 300 } });
+    await app.fire('move', { content: { x: 100, y: 100, width: 500, height: 300 } });
     assert.equal(left() + GEOMETRY.sprite.size, 1920, 'the app window moving does not move it');
     assert.equal(window.shown, true);
     spots.push(position(window));
@@ -750,11 +892,11 @@ test("the pet window reads the face's custom picture through main; nothing for a
   });
   const custom = { kind: 'custom', states: { idle: 'idle-0123456789ab.png' } };
   const face = (avatar) => ({ room: false, members: [{ id: MIXY_AGENT_ID, name: '하치와레', avatar }] });
-  app.webContents.emit(DESKTOP_PET_IPC.publish, { ...STATE, face: face(custom) });
+  await app.webContents.emit(DESKTOP_PET_IPC.publish, { ...STATE, face: face(custom) });
   assert.deepEqual(window.webContents.lastView().face.members[0].avatar, custom, 'the picture look reaches the pet');
   assert.deepEqual(await window.webContents.invoke(DESKTOP_PET_IPC.avatarImage, MIXY_AGENT_ID), answer);
   assert.equal(await window.webContents.invoke(DESKTOP_PET_IPC.avatarImage, 'someone-else'), null);
-  app.webContents.emit(DESKTOP_PET_IPC.publish, {
+  await app.webContents.emit(DESKTOP_PET_IPC.publish, {
     ...STATE,
     face: face({ kind: 'mascot', species: 'shiba', color: '#5b9bff' }),
   });
@@ -823,8 +965,6 @@ const pinnedAt = (composer = COMPOSER, content = APP_CONTENT, zoom = 1, shape = 
 });
 
 test("pinned by default: the bot's feet on the island's bottom line, its right just inside the card", async () => {
-  assert.equal(normalizeDesktopPetPrefs({}).pinned, true, 'absent: pinned');
-  assert.equal(normalizeDesktopPetPrefs({ pinned: false }).pinned, false, 'an explicit unpin is kept');
   assert.deepEqual(DESKTOP_PET_ISLAND, { pillHeight: 34, gap: 12 });
   const { window } = await started({ composer: COMPOSER });
   assert.equal(window.shown, true);
@@ -836,7 +976,7 @@ test("pinned by default: the bot's feet on the island's bottom line, its right j
     "no island: feet where the pill's bottom would be"
   );
   assert.equal(box.right, APP_CONTENT.x + COMPOSER.x + COMPOSER.width - DESKTOP_PET_PIN_INSET, 'right inside the card');
-  assert.deepEqual(pinnedPetPosition(APP_CONTENT, COMPOSER, 1, GEOMETRY), pinnedAt());
+  assert.deepEqual(placementRules.pinned({ content: APP_CONTENT, composer: { rect: COMPOSER, island: COMPOSER.island ?? null }, zoom: 1, scale: 100 }), pinnedAt());
 });
 
 test("pinned: the bot's visible feet sit on the island pill's bottom edge, from the pill's real rect, at every scale", async () => {
@@ -847,7 +987,7 @@ test("pinned: the bot's visible feet sit on the island pill's bottom edge, from 
     assert.deepEqual([window.bounds.width, window.bounds.height], [shape.window.width, shape.window.height]);
     // The pill shown above the card (its bottom edge reported, e.g. 588 = card top 600 - 12).
     for (const island of [588, 571, 480]) {
-      app.webContents.emit(DESKTOP_PET_IPC.composer, { ...COMPOSER, island });
+      await app.webContents.emit(DESKTOP_PET_IPC.composer, { ...COMPOSER, island });
       const box = sprite(window.bounds, shape);
       assert.ok(
         Math.abs(artBottom(box, size) - (APP_CONTENT.y + island)) <= 1,
@@ -856,12 +996,12 @@ test("pinned: the bot's visible feet sit on the island pill's bottom edge, from 
       assert.equal(box.right, APP_CONTENT.x + COMPOSER.x + COMPOSER.width - DESKTOP_PET_PIN_INSET);
     }
     // No pill: the line the pill's bottom would take.
-    app.webContents.emit(DESKTOP_PET_IPC.composer, { ...COMPOSER, island: null });
+    await app.webContents.emit(DESKTOP_PET_IPC.composer, { ...COMPOSER, island: null });
     const box = sprite(window.bounds, shape);
     assert.ok(Math.abs(artBottom(box, size) - (APP_CONTENT.y + COMPOSER.y - 12)) <= 1, `${scale}%: no island`);
     // Zoomed app: the line scales with the app's CSS px.
     app.zoom = 1.25;
-    app.webContents.emit(DESKTOP_PET_IPC.composer, { ...COMPOSER, island: 588 });
+    await app.webContents.emit(DESKTOP_PET_IPC.composer, { ...COMPOSER, island: 588 });
     assert.ok(
       Math.abs(artBottom(sprite(window.bounds, shape), size) - (APP_CONTENT.y + 588 * 1.25)) <= 1,
       `${scale}%: zoom`
@@ -880,20 +1020,20 @@ test('pinned: a wide island running under the bot puts its feet on the island to
     const size = shape.sprite.size;
     const { window, app, pet } = await started({ prefs: { scale }, composer: COMPOSER });
     const feet = () => artBottom(sprite(window.bounds, shape), size);
-    const emit = (left, right) =>
-      app.webContents.emit(DESKTOP_PET_IPC.composer, {
+    const emit = async (left, right) =>
+      await app.webContents.emit(DESKTOP_PET_IPC.composer, {
         ...COMPOSER,
         island: 588,
         islandSpan: { left, right, top: 554 },
       });
     // Narrow, centred: clear of the box, feet on the pill's bottom as today.
-    emit(500, 800);
+    await emit(500, 800);
     assert.ok(Math.abs(feet() - (APP_CONTENT.y + 588)) <= 1, `${scale}%: narrow island, baseline`);
     // Ends just short of the box's left edge: still beside it.
-    emit(400, boxRight - size);
+    await emit(400, boxRight - size);
     assert.ok(Math.abs(feet() - (APP_CONTENT.y + 588)) <= 1, `${scale}%: touching is not overlapping`);
     // Wide: its right end runs under the box, the bot stands on its top (2px gap).
-    emit(320, boxRight - size + 10);
+    await emit(320, boxRight - size + 10);
     assert.ok(Math.abs(feet() - (APP_CONTENT.y + 554 - 2)) <= 1, `${scale}%: wide island, feet on its top`);
     assert.equal(
       sprite(window.bounds, shape).right,
@@ -901,23 +1041,23 @@ test('pinned: a wide island running under the bot puts its feet on the island to
       `${scale}%: at the island's right end, the card's inset inside it`
     );
     // An island reaching the card's right: the bot at the card's right as on the card.
-    emit(320, COMPOSER.x + COMPOSER.width);
+    await emit(320, COMPOSER.x + COMPOSER.width);
     assert.equal(sprite(window.bounds, shape).right, APP_CONTENT.x + boxRight, `${scale}%: never past the card`);
     // A short island under the box: the sprite stays over it, from its left end.
-    emit(boxRight - size - 20, boxRight - size + 10);
+    await emit(boxRight - size - 20, boxRight - size + 10);
     assert.equal(
       sprite(window.bounds, shape).left,
       APP_CONTENT.x + boxRight - size - 20 + DESKTOP_PET_PIN_INSET,
       `${scale}%: kept over a short island`
     );
-    emit(320, boxRight - size + 10);
+    await emit(320, boxRight - size + 10);
     // Same rect again: no move.
     const before = position(window);
-    emit(320, boxRight - size + 10);
+    await emit(320, boxRight - size + 10);
     assert.deepEqual(position(window), before, 'no jitter');
     // Zoomed: the overlap and the top in the app's CSS px.
     app.zoom = 1.25;
-    app.webContents.emit(DESKTOP_PET_IPC.composer, {
+    await app.webContents.emit(DESKTOP_PET_IPC.composer, {
       ...COMPOSER,
       island: 588,
       islandSpan: { left: 320, right: 1000, top: 554 },
@@ -925,7 +1065,7 @@ test('pinned: a wide island running under the bot puts its feet on the island to
     assert.ok(Math.abs(feet() - (APP_CONTENT.y + 554 * 1.25 - 2)) <= 1, `${scale}%: zoomed`);
     app.zoom = 1;
     // No island: 12px above the card as today (a stale span is ignored).
-    app.webContents.emit(DESKTOP_PET_IPC.composer, { ...COMPOSER, island: null });
+    await app.webContents.emit(DESKTOP_PET_IPC.composer, { ...COMPOSER, island: null });
     assert.ok(Math.abs(feet() - (APP_CONTENT.y + COMPOSER.y - 12)) <= 1, `${scale}%: no island`);
     assert.equal(window.shows.length, 1);
     pet.dispose();
@@ -956,52 +1096,52 @@ test('pinned: a wide island running under the bot puts its feet on the island to
 
 test('pinned, the pet rides the composer: window move/resize/maximize, zoom, height change, minimise', async () => {
   const { window, app } = await started();
-  app.webContents.emit(DESKTOP_PET_IPC.composer, COMPOSER);
+  await app.webContents.emit(DESKTOP_PET_IPC.composer, COMPOSER);
   const moved = { x: 300, y: 150, width: 1400, height: 820 };
-  app.fire('move', { content: moved });
+  await app.fire('move', { content: moved });
   assert.deepEqual(position(window), Object.values(pinnedAt(COMPOSER, moved)));
   const maximized = { x: 0, y: 0, width: 1920, height: 1040 };
-  app.fire('maximize', { content: maximized });
+  await app.fire('maximize', { content: maximized });
   assert.deepEqual(position(window), Object.values(pinnedAt(COMPOSER, maximized)));
-  app.fire('unmaximize', { content: moved });
+  await app.fire('unmaximize', { content: moved });
   // The composer grows (several lines, attachments): the bot stays on the
   // island line above its top edge, up and then down again with it.
   for (const height of [120, 168, 240, 120]) {
     const card = { ...COMPOSER, y: COMPOSER.y + COMPOSER.height - height, height };
-    app.webContents.emit(DESKTOP_PET_IPC.composer, card);
+    await app.webContents.emit(DESKTOP_PET_IPC.composer, card);
     assert.equal(sprite(window.bounds).bottom, moved.y + card.y - NO_ISLAND_LINE, `on the line at height ${height}`);
     assert.deepEqual(position(window), Object.values(pinnedAt(card, moved)));
   }
   // A side panel opens: the card narrows and moves; the pet follows its right end.
   const narrowed = { ...COMPOSER, x: 200, width: 560 };
-  app.webContents.emit(DESKTOP_PET_IPC.composer, narrowed);
+  await app.webContents.emit(DESKTOP_PET_IPC.composer, narrowed);
   assert.equal(sprite(window.bounds).right, moved.x + 760 - DESKTOP_PET_PIN_INSET);
   app.zoom = 1.25;
-  app.fire('resize');
+  await app.fire('resize');
   assert.deepEqual(position(window), Object.values(pinnedAt(narrowed, moved, 1.25)));
   app.zoom = 1;
-  app.fire('minimize', { minimized: true });
+  await app.fire('minimize', { minimized: true });
   assert.equal(window.shown, false);
-  app.fire('restore', { minimized: false });
+  await app.fire('restore', { minimized: false });
   assert.equal(window.shown, true);
-  app.fire('hide', { visible: false });
+  await app.fire('hide', { visible: false });
   assert.equal(window.shown, false);
-  app.fire('show', { visible: true });
+  await app.fire('show', { visible: true });
   assert.equal(window.shown, true);
   // Near the top of the work area: still on screen.
-  app.webContents.emit(DESKTOP_PET_IPC.composer, { ...COMPOSER, y: -80 });
+  await app.webContents.emit(DESKTOP_PET_IPC.composer, { ...COMPOSER, y: -80 });
   assert.equal(window.bounds.y, 0);
   const near = position(window);
-  app.webContents.emit(DESKTOP_PET_IPC.composer, { x: 'a', y: 0, width: 1, height: 1 });
+  await app.webContents.emit(DESKTOP_PET_IPC.composer, { x: 'a', y: 0, width: 1, height: 1 });
   assert.deepEqual(position(window), near, 'a malformed rect is dropped');
-  app.fire('closed');
+  await app.fire('closed');
   assert.equal(window.destroyed, true, 'the app window closing takes the pet with it');
 });
 
 test('pinned near the right edge, the pet and its quick message stay on screen', async () => {
   const { window, app } = await started();
-  app.fire('move', { content: { x: 900, y: 100, width: 1020, height: 800 } });
-  app.webContents.emit(DESKTOP_PET_IPC.composer, { x: 300, y: 600, width: 712, height: 120 });
+  await app.fire('move', { content: { x: 900, y: 100, width: 1020, height: 800 } });
+  await app.webContents.emit(DESKTOP_PET_IPC.composer, { x: 300, y: 600, width: 712, height: 120 });
   assert.equal(window.bounds.x + DESKTOP_PET_CORE_WIDTH, 1920, 'as far right as the quick message allows');
   assert.ok(sprite(window.bounds).right < 900 + 1012, 'over the card');
 });
@@ -1010,15 +1150,15 @@ test("pinned at the screen's right edge, the pet tells its menu how much of the 
   const { window, app } = await started();
   const menuNeed = DESKTOP_PET_SPRITE.left + DESKTOP_PET_SPRITE.size + 8 + 200 + 4;
   assert.equal(window.webContents.lastView().screenRight, SIZE.width, 'mid-screen: the whole window');
-  app.fire('move', { content: { x: 900, y: 100, width: 1020, height: 800 } });
-  app.webContents.emit(DESKTOP_PET_IPC.composer, { x: 300, y: 600, width: 712, height: 120 });
+  await app.fire('move', { content: { x: 900, y: 100, width: 1020, height: 800 } });
+  await app.webContents.emit(DESKTOP_PET_IPC.composer, { x: 300, y: 600, width: 712, height: 120 });
   const edge = window.webContents.lastView().screenRight;
   assert.equal(edge, 1920 - window.bounds.x, 'pushed live as the pinned window moves');
   assert.ok(edge < menuNeed, 'the right-hand menu would run off screen here');
   assert.ok(edge >= DESKTOP_PET_CORE_WIDTH, 'the left-hand menu room is on screen');
   assert.deepEqual([window.bounds.width, window.bounds.height], [SIZE.width, SIZE.height], 'never resized');
-  app.fire('move', { content: { x: 0, y: 0, width: 1400, height: 900 } });
-  app.webContents.emit(DESKTOP_PET_IPC.composer, BOOT_COMPOSER);
+  await app.fire('move', { content: { x: 0, y: 0, width: 1400, height: 900 } });
+  await app.webContents.emit(DESKTOP_PET_IPC.composer, BOOT_COMPOSER);
   assert.equal(window.webContents.lastView().screenRight, SIZE.width, 'back mid-screen: the right again');
 });
 
@@ -1027,7 +1167,7 @@ test("pinned at the app window's right edge, the bubble's span ends at the app's
   for (const scale of [50, 100, 200]) {
     const { window, app } = await started({ prefs: { scale } });
     // The card runs to the window's right edge: the pet window extends past it.
-    app.webContents.emit(DESKTOP_PET_IPC.composer, { x: 300, y: 600, width: APP_CONTENT.width - 300, height: 120 });
+    await app.webContents.emit(DESKTOP_PET_IPC.composer, { x: 300, y: 600, width: APP_CONTENT.width - 300, height: 120 });
     const width = desktopPetGeometry(scale).window.width;
     assert.ok(window.bounds.x + width > appRight, `${scale}%: the pet window passes the app's right edge`);
     const span = window.webContents.lastView().bubbleSpan;
@@ -1038,7 +1178,7 @@ test("pinned at the app window's right edge, the bubble's span ends at the app's
 
 test('free, the span is the app content while the bot stands over it, else the work area; resent as the app moves', async () => {
   const { window, app } = await started({ prefs: { ...FREE, positions: { 1: { x: 1000, y: 300 } } } });
-  app.webContents.emit(DESKTOP_PET_IPC.composer, COMPOSER);
+  await app.webContents.emit(DESKTOP_PET_IPC.composer, COMPOSER);
   const at = window.bounds.x;
   assert.deepEqual(
     window.webContents.lastView().bubbleSpan,
@@ -1049,12 +1189,12 @@ test('free, the span is the app content while the bot stands over it, else the w
     'over the app window: its content'
   );
   // The app window moves away from under it: the work area (the whole window here).
-  app.fire('move', { content: { x: 0, y: 0, width: 600, height: 500 } });
+  await app.fire('move', { content: { x: 0, y: 0, width: 600, height: 500 } });
   assert.deepEqual(window.webContents.lastView().bubbleSpan, { left: 0, right: SIZE.width });
   // Saved past the screen's right edge (clamped there): within the work area.
   const edge = await started({ prefs: { ...FREE, positions: { 1: { x: 5000, y: 300 } } } });
-  edge.app.fire('move', { content: { x: 0, y: 0, width: 600, height: 500 } });
-  edge.app.webContents.emit(DESKTOP_PET_IPC.composer, COMPOSER);
+  await edge.app.fire('move', { content: { x: 0, y: 0, width: 600, height: 500 } });
+  await edge.app.webContents.emit(DESKTOP_PET_IPC.composer, COMPOSER);
   const span = edge.window.webContents.lastView().bubbleSpan;
   assert.ok(edge.window.bounds.x + span.right <= 1920, 'inside the work area');
   assert.ok(edge.window.bounds.x + span.left >= 0);
@@ -1064,49 +1204,49 @@ test('pinned, a hidden app window at start keeps the pet hidden until it shows',
   const context = setup();
   context.app.visible = false;
   context.pet.start();
-  context.app.webContents.emit(DESKTOP_PET_IPC.publish, BOOT_STATE);
-  context.app.webContents.emit(DESKTOP_PET_IPC.composer, BOOT_COMPOSER);
+  await context.app.webContents.emit(DESKTOP_PET_IPC.publish, BOOT_STATE);
+  await context.app.webContents.emit(DESKTOP_PET_IPC.composer, BOOT_COMPOSER);
   await tick();
   assert.equal(context.windows[0].shown, false);
-  context.app.fire('show', { visible: true });
+  await context.app.fire('show', { visible: true });
   assert.equal(context.windows[0].shown, true);
 });
 
 test('pinned, the pet cannot be dragged or nudged; unpinned first, it can, and the spot is saved', async () => {
   const { pet, window, app, stored } = await started();
   const contents = window.webContents;
-  app.webContents.emit(DESKTOP_PET_IPC.composer, COMPOSER);
+  await app.webContents.emit(DESKTOP_PET_IPC.composer, COMPOSER);
   const at = Object.values(pinnedAt());
-  contents.emit(DESKTOP_PET_IPC.drag, { phase: 'start', screenX: 500, screenY: 500 });
-  contents.emit(DESKTOP_PET_IPC.drag, { phase: 'move', screenX: 400, screenY: 450 });
-  contents.emit(DESKTOP_PET_IPC.drag, { phase: 'end', screenX: 400, screenY: 450 });
-  contents.emit(DESKTOP_PET_IPC.nudge, 8, 0);
+  await contents.emit(DESKTOP_PET_IPC.drag, { phase: 'start', screenX: 500, screenY: 500 });
+  await contents.emit(DESKTOP_PET_IPC.drag, { phase: 'move', screenX: 400, screenY: 450 });
+  await contents.emit(DESKTOP_PET_IPC.drag, { phase: 'end', screenX: 400, screenY: 450 });
+  await contents.emit(DESKTOP_PET_IPC.nudge, 8, 0);
   assert.deepEqual(position(window), at, 'not moved');
   assert.equal(stored().pinned, true, 'still pinned');
   assert.deepEqual(stored().positions, {});
   // Unpin from the menu: it stays where it stands, as its free spot.
-  command(window, 'pin');
+  await command(window, 'pin');
   assert.equal(stored().pinned, false);
   assert.equal(contents.lastView().pinned, false);
   assert.deepEqual(stored().positions, { 1: pinnedAt() });
-  contents.emit(DESKTOP_PET_IPC.drag, { phase: 'start', screenX: 500, screenY: 500 });
-  contents.emit(DESKTOP_PET_IPC.drag, { phase: 'end', screenX: 400, screenY: 450 });
+  await contents.emit(DESKTOP_PET_IPC.drag, { phase: 'start', screenX: 500, screenY: 500 });
+  await contents.emit(DESKTOP_PET_IPC.drag, { phase: 'end', screenX: 400, screenY: 450 });
   const dropped = { x: at[0] - 100, y: at[1] - 50 };
   assert.deepEqual(position(window), [dropped.x, dropped.y]);
   assert.deepEqual(stored().positions, { 1: dropped });
-  app.fire('move', { content: { ...APP_CONTENT, x: 500 } });
+  await app.fire('move', { content: { ...APP_CONTENT, x: 500 } });
   assert.deepEqual(position(window), [dropped.x, dropped.y], 'a free pet does not follow the composer');
   pet.dispose();
   const restarted = await started({ prefs: stored() });
-  restarted.app.webContents.emit(DESKTOP_PET_IPC.composer, COMPOSER);
+  await restarted.app.webContents.emit(DESKTOP_PET_IPC.composer, COMPOSER);
   assert.deepEqual(position(restarted.window), [dropped.x, dropped.y], 'free, at the saved spot after restart');
 });
 
 test('Reset position re-pins; Settings and the menu set the same options and both hear every change', async () => {
   const { window, app, stored } = await started({ prefs: { ...FREE, positions: { 1: { x: 40, y: 40 } } } });
-  app.webContents.emit(DESKTOP_PET_IPC.composer, COMPOSER);
+  await app.webContents.emit(DESKTOP_PET_IPC.composer, COMPOSER);
   assert.deepEqual(position(window), [40, 40], 'free: the saved spot');
-  command(window, 'reset');
+  await command(window, 'reset');
   assert.equal(stored().pinned, true);
   assert.deepEqual(stored().positions, {});
   assert.deepEqual(position(window), Object.values(pinnedAt()));
@@ -1129,7 +1269,7 @@ test('Reset position re-pins; Settings and the menu set the same options and bot
   assert.equal(window.webContents.lastView().collapsed, true);
   assert.equal(window.webContents.lastView().pinned, false);
   // The menu's collapse toggles it back; Settings hears it.
-  command(window, 'collapse');
+  await command(window, 'collapse');
   assert.equal(lastConfig(app).collapsed, false);
   // Settings' Reset position re-pins.
   config = await app.webContents.invoke(DESKTOP_PET_IPC.resetPosition);
@@ -1137,47 +1277,47 @@ test('Reset position re-pins; Settings and the menu set the same options and bot
   assert.deepEqual(position(window), Object.values(pinnedAt()));
   await assert.rejects(async () => app.webContents.invoke(DESKTOP_PET_IPC.setOption, 'enabled', false));
   await assert.rejects(async () => app.webContents.invoke(DESKTOP_PET_IPC.setOption, 'pinned', 'yes'));
-  command(window, 'open');
-  command(window, 'evil');
+  await command(window, 'open');
+  await command(window, 'evil');
   assert.equal(stored().pinned, true);
 });
 
 test('"Pin here" locks the bot where it stands: no drag or nudge, kept across a restart, exclusive with the composer pin, cleared by Reset', async () => {
   const { pet, window, app, stored } = await started({ prefs: { ...FREE, positions: { 1: { x: 40, y: 40 } } } });
-  app.webContents.emit(DESKTOP_PET_IPC.composer, COMPOSER);
+  await app.webContents.emit(DESKTOP_PET_IPC.composer, COMPOSER);
   const contents = window.webContents;
-  const drag = (from, to) => {
-    contents.emit(DESKTOP_PET_IPC.drag, { phase: 'start', screenX: from, screenY: from });
-    contents.emit(DESKTOP_PET_IPC.drag, { phase: 'move', screenX: to, screenY: to });
-    contents.emit(DESKTOP_PET_IPC.drag, { phase: 'end', screenX: to, screenY: to });
+  const drag = async (from, to) => {
+    await contents.emit(DESKTOP_PET_IPC.drag, { phase: 'start', screenX: from, screenY: from });
+    await contents.emit(DESKTOP_PET_IPC.drag, { phase: 'move', screenX: to, screenY: to });
+    await contents.emit(DESKTOP_PET_IPC.drag, { phase: 'end', screenX: to, screenY: to });
   };
   // Free: it drags (today's behaviour).
-  drag(500, 520);
+  await drag(500, 520);
   assert.deepEqual(position(window), [60, 60]);
-  command(window, 'pin-here');
+  await command(window, 'pin-here');
   assert.equal(stored().pinnedHere, true);
   assert.equal(stored().pinned, false);
   assert.deepEqual(stored().positions, { 1: { x: 60, y: 60 } }, 'its spot is saved');
   assert.equal(contents.lastView().pinnedHere, true, 'the menu shows it checked');
   assert.equal(lastConfig(app).pinnedHere, true, 'Settings hears it');
-  drag(500, 400);
-  contents.emit(DESKTOP_PET_IPC.nudge, 8, 0);
+  await drag(500, 400);
+  await contents.emit(DESKTOP_PET_IPC.nudge, 8, 0);
   assert.deepEqual(position(window), [60, 60], 'drag and nudge are ignored');
-  app.fire('move', { content: { ...APP_CONTENT, x: 500 } });
+  await app.fire('move', { content: { ...APP_CONTENT, x: 500 } });
   assert.deepEqual(position(window), [460, 60], 'it moves with the app window');
-  app.fire('move', { content: { ...APP_CONTENT } });
+  await app.fire('move', { content: { ...APP_CONTENT } });
   assert.deepEqual(position(window), [60, 60]);
   // Restart: still locked at the same spot.
   pet.dispose();
   const again = await started({ prefs: stored() });
-  again.app.webContents.emit(DESKTOP_PET_IPC.composer, COMPOSER);
+  await again.app.webContents.emit(DESKTOP_PET_IPC.composer, COMPOSER);
   assert.deepEqual(position(again.window), [60, 60], 'at its spot after restart');
   assert.equal(again.pet.config().pinnedHere, true);
-  again.window.webContents.emit(DESKTOP_PET_IPC.drag, { phase: 'start', screenX: 0, screenY: 0 });
-  again.window.webContents.emit(DESKTOP_PET_IPC.drag, { phase: 'end', screenX: 90, screenY: 90 });
+  await again.window.webContents.emit(DESKTOP_PET_IPC.drag, { phase: 'start', screenX: 0, screenY: 0 });
+  await again.window.webContents.emit(DESKTOP_PET_IPC.drag, { phase: 'end', screenX: 90, screenY: 90 });
   assert.deepEqual(position(again.window), [60, 60], 'still locked after restart');
   // Pin above the message box turns it off; Pin here turns that off again.
-  command(again.window, 'pin');
+  await command(again.window, 'pin');
   assert.deepEqual([again.stored().pinned, again.stored().pinnedHere], [true, false]);
   assert.deepEqual(position(again.window), Object.values(pinnedAt()));
   let config = await again.app.webContents.invoke(DESKTOP_PET_IPC.setOption, 'pinnedHere', true);
@@ -1187,13 +1327,13 @@ test('"Pin here" locks the bot where it stands: no drag or nudge, kept across a 
   config = await again.app.webContents.invoke(DESKTOP_PET_IPC.setOption, 'pinnedHere', false);
   assert.deepEqual([config.pinned, config.pinnedHere], [false, false]);
   const free = position(again.window);
-  again.window.webContents.emit(DESKTOP_PET_IPC.drag, { phase: 'start', screenX: 0, screenY: 0 });
-  again.window.webContents.emit(DESKTOP_PET_IPC.drag, { phase: 'end', screenX: -10, screenY: -10 });
+  await again.window.webContents.emit(DESKTOP_PET_IPC.drag, { phase: 'start', screenX: 0, screenY: 0 });
+  await again.window.webContents.emit(DESKTOP_PET_IPC.drag, { phase: 'end', screenX: -10, screenY: -10 });
   assert.deepEqual(position(again.window), [free[0] - 10, free[1] - 10]);
   // Reset position clears it.
-  command(again.window, 'pin-here');
+  await command(again.window, 'pin-here');
   assert.equal(again.stored().pinnedHere, true);
-  command(again.window, 'reset');
+  await command(again.window, 'reset');
   assert.deepEqual([again.stored().pinned, again.stored().pinnedHere], [true, false]);
   await assert.rejects(async () => again.app.webContents.invoke(DESKTOP_PET_IPC.setOption, 'pinnedHere', 1), /boolean/);
   await assert.rejects(async () => again.app.webContents.invoke(DESKTOP_PET_IPC.setOption, 'here', true), /option/);
@@ -1204,33 +1344,33 @@ test('"Pin here" is held against the app window\'s composer card: moves with it,
   const spot = { x: 900, y: 520 };
   const { pet, window, app, stored } = await started({ prefs: { ...FREE, positions: { 1: spot } } });
   assert.deepEqual(position(window), [900, 520]);
-  command(window, 'pin-here');
+  await command(window, 'pin-here');
   assert.deepEqual(
     stored().hereAnchor,
     { right: true, bottom: true, dx: 200, dy: 300, composer: true },
     'from the right/bottom'
   );
   // Moved: by the same delta.
-  app.fire('move', { content: { ...APP_CONTENT, x: 160, y: 80 } });
+  await app.fire('move', { content: { ...APP_CONTENT, x: 160, y: 80 } });
   assert.deepEqual(position(window), [960, 500]);
   // Resized (the card keeps its CSS box): the right/bottom offsets are kept.
-  app.fire('resize', { content: { x: 160, y: 80, width: 1400, height: 900 } });
+  await app.fire('resize', { content: { x: 160, y: 80, width: 1400, height: 900 } });
   assert.deepEqual(position(window), [160 + 300 + 700 - 200, 80 + 600 + 120 - 300]);
   // Maximised to the work area: the same corner offsets.
-  app.fire('maximize', { content: { x: 0, y: 0, width: 1920, height: 1040 } });
+  await app.fire('maximize', { content: { x: 0, y: 0, width: 1920, height: 1040 } });
   assert.deepEqual(position(window), [800, 420]);
   // Minimised: hidden; restored: back, at its spot.
-  app.fire('minimize', { minimized: true });
+  await app.fire('minimize', { minimized: true });
   assert.equal(window.shown, false);
-  app.fire('restore', { minimized: false });
+  await app.fire('restore', { minimized: false });
   assert.equal(window.shown, true);
   assert.deepEqual(position(window), [800, 420]);
-  app.fire('hide', { visible: false });
+  await app.fire('hide', { visible: false });
   assert.equal(window.shown, false);
-  app.fire('show', { visible: true });
+  await app.fire('show', { visible: true });
   assert.equal(window.shown, true);
   // A window too small for the offset: the sprite stays inside its content.
-  app.fire('resize', { content: { x: 0, y: 0, width: 300, height: 300 } });
+  await app.fire('resize', { content: { x: 0, y: 0, width: 300, height: 300 } });
   const { sprite: box, window: room } = GEOMETRY;
   assert.ok(window.bounds.x + box.left >= 0 && window.bounds.x + box.left + box.size <= 300, 'inside, x');
   // (Its window flipped: no room above it on the screen's top.)
@@ -1243,39 +1383,35 @@ test('"Pin here" is held against the app window\'s composer card: moves with it,
   const again = await started({ prefs: stored() });
   assert.deepEqual(again.stored().hereAnchor, { right: true, bottom: true, dx: 200, dy: 300, composer: true });
   assert.deepEqual(position(again.window), [900, 520]);
-  again.app.fire('move', { content: { ...APP_CONTENT, x: 0 } });
+  await again.app.fire('move', { content: { ...APP_CONTENT, x: 0 } });
   assert.deepEqual(position(again.window), [800, 520]);
   // Reset position clears it.
-  command(again.window, 'reset');
+  await command(again.window, 'reset');
   assert.equal(again.stored().hereAnchor, null);
   // An older absolute "Pin here" spot: anchored to the card it first meets.
   const older = await started({ prefs: { ...FREE, pinnedHere: true, positions: { 1: { x: 40, y: 40 } } } });
   assert.deepEqual(older.stored().hereAnchor, { right: false, bottom: false, dx: -360, dy: -660, composer: true });
   assert.deepEqual(position(older.window), [40, 40]);
-  older.app.fire('move', { content: { ...APP_CONTENT, x: 300 } });
+  await older.app.fire('move', { content: { ...APP_CONTENT, x: 300 } });
   assert.deepEqual(position(older.window), [240, 40]);
   // Turned off: the anchor goes.
-  command(older.window, 'pin-here');
+  await command(older.window, 'pin-here');
   assert.equal(older.stored().hereAnchor, null);
-  assert.equal(
-    normalizeDesktopPetPrefs({ pinned: false, pinnedHere: true, hereAnchor: { right: 1 } }).hereAnchor,
-    null
-  );
 });
 
 test('"Pin here" is held against the composer card: it follows the card when the side dock moves it, with no window move', async () => {
   const spot = { x: 900, y: 520 };
   const { window, app, stored } = await started({ prefs: { ...FREE, positions: { 1: spot } }, composer: COMPOSER });
-  command(window, 'pin-here');
+  await command(window, 'pin-here');
   assert.equal(stored().hereAnchor.composer, true, 'anchored to the card');
   assert.deepEqual(position(window), [900, 520]);
   const send = (change) => app.webContents.emit(DESKTOP_PET_IPC.composer, { ...COMPOSER, ...change });
   // The card slides left (a dock opened) and right again: the bot goes with it.
-  send({ x: COMPOSER.x - 150 });
+  await send({ x: COMPOSER.x - 150 });
   assert.deepEqual(position(window), [750, 520]);
-  send({ x: COMPOSER.x + 50 });
+  await send({ x: COMPOSER.x + 50 });
   assert.deepEqual(position(window), [950, 520]);
-  send({});
+  await send({});
   assert.deepEqual(position(window), [900, 520]);
   // A spot saved against the window (an older one) moves onto the card where it stands.
   const older = await started({
@@ -1283,10 +1419,10 @@ test('"Pin here" is held against the composer card: it follows the card when the
     composer: null,
   });
   assert.equal(older.stored().hereAnchor?.composer, undefined, 'no card yet: against the window');
-  older.app.webContents.emit(DESKTOP_PET_IPC.composer, COMPOSER);
+  await older.app.webContents.emit(DESKTOP_PET_IPC.composer, COMPOSER);
   assert.equal(older.stored().hereAnchor.composer, true);
   assert.deepEqual(position(older.window), [900, 520], 'where it stood');
-  older.app.webContents.emit(DESKTOP_PET_IPC.composer, { ...COMPOSER, x: COMPOSER.x - 150 });
+  await older.app.webContents.emit(DESKTOP_PET_IPC.composer, { ...COMPOSER, x: COMPOSER.x - 150 });
   assert.deepEqual(position(older.window), [750, 520], 'then follows the card');
 });
 
@@ -1298,31 +1434,31 @@ test('the over-transcript flag follows the pinned bot over the transcript column
       .map(([, layout]) => layout.overTranscript);
   // The column above the card, its last row ending 24px above the region (CSS px).
   const column = { left: 300, right: 1000, bottom: 530 };
-  const send = (change) =>
-    app.webContents.emit(DESKTOP_PET_IPC.composer, { ...COMPOSER, transcript: column, ...change });
+  const send = async (change) =>
+    await app.webContents.emit(DESKTOP_PET_IPC.composer, { ...COMPOSER, transcript: column, ...change });
   // Wide window: the bot on the island's baseline stays below the last line.
-  send({ island: 588, islandSpan: { left: 500, right: 800, top: 554 } });
+  await send({ island: 588, islandSpan: { left: 500, right: 800, top: 554 } });
   assert.equal(flags().at(-1), false);
   // Narrow: a wide island lifts it onto its top, up into the column.
-  send({ island: 588, islandSpan: { left: 320, right: 1000, top: 554 } });
+  await send({ island: 588, islandSpan: { left: 320, right: 1000, top: 554 } });
   assert.equal(flags().at(-1), true, 'over the column');
   const count = flags().length;
-  send({ island: 588, islandSpan: { left: 320, right: 1000, top: 554 } });
-  app.fire('move');
+  await send({ island: 588, islandSpan: { left: 320, right: 1000, top: 554 } });
+  await app.fire('move');
   assert.equal(flags().length, count, 'unchanged: not sent again');
   // A column that ends left of the bot: clear.
-  send({ island: 588, islandSpan: { left: 320, right: 1000, top: 554 }, transcript: { ...column, right: 700 } });
+  await send({ island: 588, islandSpan: { left: 320, right: 1000, top: 554 }, transcript: { ...column, right: 700 } });
   assert.equal(flags().at(-1), false, 'beside the column');
-  send({ island: 588, islandSpan: { left: 320, right: 1000, top: 554 } });
+  await send({ island: 588, islandSpan: { left: 320, right: 1000, top: 554 } });
   assert.equal(flags().at(-1), true);
   // Hidden with the app window, unpinned, or off: no flag.
-  app.fire('minimize', { minimized: true });
+  await app.fire('minimize', { minimized: true });
   assert.equal(flags().at(-1), false, 'hidden');
-  app.fire('restore', { minimized: false });
+  await app.fire('restore', { minimized: false });
   assert.equal(flags().at(-1), true);
-  command(window, 'pin');
+  await command(window, 'pin');
   assert.equal(flags().at(-1), false, 'unpinned');
-  command(window, 'pin');
+  await command(window, 'pin');
   assert.equal(flags().at(-1), true);
   await app.webContents.invoke(DESKTOP_PET_IPC.setEnabled, false);
   assert.equal(flags().at(-1), false, 'overlay off');
@@ -1340,49 +1476,49 @@ test('the over-transcript flag follows the pinned bot over the transcript column
 
 test("the island reserve: the pinned bot's visible art at its scale, look and zoom while pinned above the message box, else 0", async () => {
   const { window, app } = await started({ composer: COMPOSER });
-  window.webContents.emit(DESKTOP_PET_IPC.area, { x: 108, y: 120, width: 120, height: 84 });
+  await window.webContents.emit(DESKTOP_PET_IPC.area, { x: 108, y: 120, width: 120, height: 84 });
   const reserves = () =>
     app.webContents.sent
       .filter(([channel]) => channel === DESKTOP_PET_IPC.appLayout)
       .map(([, layout]) => layout.islandReserve);
   // No look yet: the whole 56px box + 2px pin inset + 4px clearance.
   assert.equal(reserves().at(-1), 62);
-  const look = (id, avatar, room = false) =>
-    app.webContents.emit(DESKTOP_PET_IPC.publish, {
+  const look = async (id, avatar, room = false) =>
+    await app.webContents.emit(DESKTOP_PET_IPC.publish, {
       ...STATE,
       face: { room, members: [{ id, name: 'Bot', avatar }] },
     });
   // Mixy's own look: drawn from column 1 of 16 (3.5px clear at 56px): 52.5 + 2, up, + 4.
   assert.equal(Math.min(...mascotCells(MIXY_AVATAR).map((cell) => cell.x)), 1);
-  look(MIXY_AGENT_ID, null);
+  await look(MIXY_AGENT_ID, null);
   assert.equal(reserves().at(-1), 59);
   // A look drawn from column 3 (10.5px clear): 45.5 + 2, up, + 4.
   const corgi = { kind: 'mascot', species: 'corgi', accessory: 'none', expression: 'calm', color: '#e6e6e6' };
   assert.equal(Math.min(...mascotCells(corgi).map((cell) => cell.x)), 3);
-  look('scout', corgi);
+  await look('scout', corgi);
   assert.equal(reserves().at(-1), 52, 'another look');
-  look('scout', corgi, true);
+  await look('scout', corgi, true);
   assert.equal(reserves().at(-1), 62, "a room's stack: the whole box");
-  look(MIXY_AGENT_ID, null);
+  await look(MIXY_AGENT_ID, null);
   assert.equal(reserves().at(-1), 59);
   // Showing or not at this moment does not move it: no island reflow.
   const count = reserves().length;
-  app.fire('minimize', { minimized: true });
-  app.fire('restore', { minimized: false });
-  app.webContents.emit(DESKTOP_PET_IPC.layers, { backdrop: false, rects: [{ x: 0, y: 0, width: 1400, height: 900 }] });
+  await app.fire('minimize', { minimized: true });
+  await app.fire('restore', { minimized: false });
+  await app.webContents.emit(DESKTOP_PET_IPC.layers, { backdrop: false, rects: [{ x: 0, y: 0, width: 1400, height: 900 }] });
   assert.equal(window.shown, true, 'a menu over it cuts it, never hides it');
   assert.equal(window.webContents.lastView().cutouts.length, 1);
-  app.webContents.emit(DESKTOP_PET_IPC.layers, { backdrop: true, rects: [] });
+  await app.webContents.emit(DESKTOP_PET_IPC.layers, { backdrop: true, rects: [] });
   assert.equal(window.shown, false, 'under a backdrop modal');
-  app.webContents.emit(DESKTOP_PET_IPC.layers, { backdrop: false, rects: [] });
-  app.fire('move');
+  await app.webContents.emit(DESKTOP_PET_IPC.layers, { backdrop: false, rects: [] });
+  await app.fire('move');
   assert.equal(reserves().length, count, 'not sent again');
   // In the app's CSS px.
   app.zoom = 2;
-  app.webContents.emit(DESKTOP_PET_IPC.composer, { ...COMPOSER, width: 400 });
+  await app.webContents.emit(DESKTOP_PET_IPC.composer, { ...COMPOSER, width: 400 });
   assert.equal(reserves().at(-1), 32, '(52.5 + 2) / 2, rounded up, + 4');
   app.zoom = 1;
-  app.webContents.emit(DESKTOP_PET_IPC.composer, { ...COMPOSER });
+  await app.webContents.emit(DESKTOP_PET_IPC.composer, { ...COMPOSER });
   assert.equal(reserves().at(-1), 59);
   // Follows the scale, with no 0 while the window is replaced.
   const before = reserves().length;
@@ -1399,9 +1535,9 @@ test("the island reserve: the pinned bot's visible art at its scale, look and zo
   assert.equal(reserves().at(-1), 0, 'pinned here');
   await app.webContents.invoke(DESKTOP_PET_IPC.setOption, 'pinned', true);
   assert.equal(reserves().at(-1), 33);
-  app.webContents.emit(DESKTOP_PET_IPC.composer, null);
+  await app.webContents.emit(DESKTOP_PET_IPC.composer, null);
   assert.equal(reserves().at(-1), 0, 'no card');
-  app.webContents.emit(DESKTOP_PET_IPC.composer, { ...COMPOSER });
+  await app.webContents.emit(DESKTOP_PET_IPC.composer, { ...COMPOSER });
   assert.equal(reserves().at(-1), 33);
   await app.webContents.invoke(DESKTOP_PET_IPC.setEnabled, false);
   assert.equal(reserves().at(-1), 0, 'overlay off');
@@ -1418,24 +1554,24 @@ test("the island reserve: the pinned bot's visible art at its scale, look and zo
 
 test('showsSession: the followed session while the overlay is on screen with its bubble open', async () => {
   const { pet, window, app } = await started({ composer: COMPOSER });
-  app.webContents.emit(DESKTOP_PET_IPC.publish, STATE);
+  await app.webContents.emit(DESKTOP_PET_IPC.publish, STATE);
   assert.equal(pet.showsSession(MIXY), true);
   assert.equal(pet.showsSession('other-session'), false, 'another session still notifies');
   assert.equal(pet.showsSession(''), false);
-  app.fire('minimize', { minimized: true });
+  await app.fire('minimize', { minimized: true });
   assert.equal(pet.showsSession(MIXY), false, 'hidden with the app window');
-  app.fire('restore', { minimized: false });
+  await app.fire('restore', { minimized: false });
   assert.equal(pet.showsSession(MIXY), true);
-  command(window, 'collapse');
+  await command(window, 'collapse');
   assert.equal(pet.showsSession(MIXY), false, 'collapsed bubble');
-  command(window, 'collapse');
-  pet.setEnabled(false);
+  await command(window, 'collapse');
+  await pet.setEnabled(false);
   assert.equal(pet.showsSession(MIXY), false, 'overlay off');
 });
 
 test("the menu's Settings item brings the app window to front on Settings → Bots; its Size row sets the size", async () => {
   const { app, windows, calls, stored } = await started({ composer: COMPOSER });
-  command(windows[0], 'settings');
+  await command(windows[0], 'settings');
   assert.deepEqual(calls.open, [''], 'the app window to front (no session opened)');
   assert.deepEqual(app.webContents.sent.at(-1), [DESKTOP_PET_IPC.openSettings]);
   // The Size row's choice, given as the menu closes: validated, replaces the window.
@@ -1454,13 +1590,13 @@ test('the pet window is created hidden and shows only after its renderer drew th
   const { window, app } = await started({ paint: false });
   assert.ok(window, 'created');
   assert.equal(window.shown, false, 'loaded and the composer is there, but nothing drawn yet: hidden');
-  app.webContents.emit(DESKTOP_PET_IPC.composer, { ...BOOT_COMPOSER, y: 560 });
+  await app.webContents.emit(DESKTOP_PET_IPC.composer, { ...BOOT_COMPOSER, y: 560 });
   assert.equal(window.shown, false);
   const pinned = { ...window.bounds };
-  window.webContents.emit(DESKTOP_PET_IPC.painted);
+  await window.webContents.emit(DESKTOP_PET_IPC.painted);
   assert.equal(window.shown, true, 'painted: shown');
   assert.deepEqual(window.shows, [pinned], 'once, already at its spot, no resize after');
-  window.webContents.emit(DESKTOP_PET_IPC.painted);
+  await window.webContents.emit(DESKTOP_PET_IPC.painted);
   assert.equal(window.shows.length, 1);
 });
 
@@ -1489,7 +1625,7 @@ test('click-through with mouse forwarding is armed only after the page loaded (W
   });
   const { pet, windows, app } = setup({ pageLoaded });
   pet.start();
-  app.webContents.emit(DESKTOP_PET_IPC.composer, BOOT_COMPOSER);
+  await app.webContents.emit(DESKTOP_PET_IPC.composer, BOOT_COMPOSER);
   await tick();
   const [window] = windows;
   // Electron's forwarding (Windows) posts the moves to the page's child
@@ -1505,15 +1641,15 @@ test('click-through with mouse forwarding is armed only after the page loaded (W
 
 test('the window never resizes: the menu fits beside the pet, so right-click cannot flash the sprite', async () => {
   const { window, app } = await started();
-  app.webContents.emit(DESKTOP_PET_IPC.composer, COMPOSER);
+  await app.webContents.emit(DESKTOP_PET_IPC.composer, COMPOSER);
   const resting = sprite(window.bounds);
   // Opening the menu takes focus and reports a wider drawn area; neither
   // moves, resizes or hides the window.
-  window.webContents.emit(DESKTOP_PET_IPC.focusInput, true);
-  window.webContents.emit(DESKTOP_PET_IPC.area, { x: 108, y: 4, width: 280, height: 204 });
+  await window.webContents.emit(DESKTOP_PET_IPC.focusInput, true);
+  await window.webContents.emit(DESKTOP_PET_IPC.area, { x: 108, y: 4, width: 280, height: 204 });
   assert.deepEqual(sprite(window.bounds), resting);
   assert.equal(window.shown, true);
-  app.webContents.emit(DESKTOP_PET_IPC.composer, { ...COMPOSER, y: 560, height: 160 });
+  await app.webContents.emit(DESKTOP_PET_IPC.composer, { ...COMPOSER, y: 560, height: 160 });
   assert.deepEqual([window.bounds.width, window.bounds.height], [SIZE.width, SIZE.height]);
   assert.equal(sprite(window.bounds).bottom, APP_CONTENT.y + 560 - NO_ISLAND_LINE);
 });
@@ -1522,48 +1658,48 @@ test("one of the app's own menus or tooltips over the pet is cut out of it (wind
   const { window, app } = await started();
   const layers = (...rects) => app.webContents.emit(DESKTOP_PET_IPC.layers, { backdrop: false, rects });
   const cuts = () => window.webContents.lastView().cutouts;
-  app.webContents.emit(DESKTOP_PET_IPC.composer, COMPOSER);
+  await app.webContents.emit(DESKTOP_PET_IPC.composer, COMPOSER);
   // What the pet draws: the sprite and a small bubble (window px).
-  window.webContents.emit(DESKTOP_PET_IPC.area, { x: 108, y: 120, width: 120, height: 84 });
+  await window.webContents.emit(DESKTOP_PET_IPC.area, { x: 108, y: 120, width: 120, height: 84 });
   assert.deepEqual(cuts(), []);
   // The window's top-left in the app's CSS px (zoom 1).
   const left = window.bounds.x - APP_CONTENT.x;
   const top = window.bounds.y - APP_CONTENT.y;
   // A menu off the pet window: nothing to cut.
-  layers({ x: 10, y: 10, width: 50, height: 50 });
+  await layers({ x: 10, y: 10, width: 50, height: 50 });
   assert.equal(window.shown, true);
   assert.deepEqual(cuts(), []);
   // The model menu opens up from the composer over the pet: shown, that part
   // cut out (clipped to the window).
   const menu = { x: left + 8, y: top - 30, width: 260, height: 220 };
-  layers({ x: 10, y: 10, width: 50, height: 50 }, menu);
+  await layers({ x: 10, y: 10, width: 50, height: 50 }, menu);
   assert.equal(window.shown, true, 'the pet stays, behind the menu');
   assert.deepEqual(cuts(), [{ x: 8, y: 0, width: 260, height: 190 }]);
   // The composer grows while the menu is open: still shown, still placed, the cut follows the window.
-  app.webContents.emit(DESKTOP_PET_IPC.composer, { ...COMPOSER, y: 560, height: 160 });
+  await app.webContents.emit(DESKTOP_PET_IPC.composer, { ...COMPOSER, y: 560, height: 160 });
   assert.equal(window.shown, true);
   assert.equal(sprite(window.bounds).bottom, APP_CONTENT.y + 560 - NO_ISLAND_LINE);
   const shift = window.bounds.y - APP_CONTENT.y - top;
   const cutTop = Math.max(0, -30 - shift);
   assert.notEqual(shift, 0, 'the window moved');
   assert.deepEqual(cuts(), [{ x: 8, y: cutTop, width: 260, height: 190 - shift - cutTop }]);
-  app.webContents.emit(DESKTOP_PET_IPC.composer, COMPOSER);
+  await app.webContents.emit(DESKTOP_PET_IPC.composer, COMPOSER);
   // A tooltip touching the sprite: shown, a 4px cut.
-  layers({ x: left + 227, y: top + 203, width: 4, height: 4 });
+  await layers({ x: left + 227, y: top + 203, width: 4, height: 4 });
   assert.equal(window.shown, true);
   assert.deepEqual(cuts(), [{ x: 227, y: 203, width: 4, height: 4 }]);
   // It closes: the cut-outs clear.
-  layers();
+  await layers();
   assert.deepEqual(cuts(), []);
-  layers(menu);
-  app.webContents.emit(DESKTOP_PET_IPC.layers, 'all');
-  app.webContents.emit(DESKTOP_PET_IPC.layers, [menu]);
+  await layers(menu);
+  await app.webContents.emit(DESKTOP_PET_IPC.layers, 'all');
+  await app.webContents.emit(DESKTOP_PET_IPC.layers, [menu]);
   assert.deepEqual(
     cuts(),
     [{ x: 8, y: 0, width: 260, height: 190 }],
     'a malformed (or old-shape) report changes nothing'
   );
-  layers();
+  await layers();
   assert.equal(window.shown, true);
   assert.deepEqual(cuts(), []);
 });
@@ -1571,21 +1707,21 @@ test("one of the app's own menus or tooltips over the pet is cut out of it (wind
 test('at 200% zoom an app menu is cut out at its screen place in the pet window', async () => {
   const { window, app } = await started();
   app.zoom = 2;
-  app.webContents.emit(DESKTOP_PET_IPC.composer, { ...COMPOSER, x: 100, y: 300, width: 350, height: 60 });
-  window.webContents.emit(DESKTOP_PET_IPC.area, { x: 108, y: 120, width: 120, height: 84 });
+  await app.webContents.emit(DESKTOP_PET_IPC.composer, { ...COMPOSER, x: 100, y: 300, width: 350, height: 60 });
+  await window.webContents.emit(DESKTOP_PET_IPC.area, { x: 108, y: 120, width: 120, height: 84 });
   // A 100×50 CSS px menu about 20px right of and 10px below the window's top-left.
   const x = Math.round((window.bounds.x - APP_CONTENT.x) / 2) + 10;
   const y = Math.round((window.bounds.y - APP_CONTENT.y) / 2) + 5;
-  app.webContents.emit(DESKTOP_PET_IPC.layers, { backdrop: false, rects: [{ x, y, width: 100, height: 50 }] });
+  await app.webContents.emit(DESKTOP_PET_IPC.layers, { backdrop: false, rects: [{ x, y, width: 100, height: 50 }] });
   assert.equal(window.shown, true);
   // Screen px = content origin + CSS px × 2; window px = screen − the window's top-left.
   assert.deepEqual(window.webContents.lastView().cutouts, [
     { x: APP_CONTENT.x + 2 * x - window.bounds.x, y: APP_CONTENT.y + 2 * y - window.bounds.y, width: 200, height: 100 },
   ]);
   // A backdrop modal: hidden, as before.
-  app.webContents.emit(DESKTOP_PET_IPC.layers, { backdrop: true, rects: [{ x, y, width: 100, height: 50 }] });
+  await app.webContents.emit(DESKTOP_PET_IPC.layers, { backdrop: true, rects: [{ x, y, width: 100, height: 50 }] });
   assert.equal(window.shown, false);
-  app.webContents.emit(DESKTOP_PET_IPC.layers, { backdrop: false, rects: [] });
+  await app.webContents.emit(DESKTOP_PET_IPC.layers, { backdrop: false, rects: [] });
   assert.equal(window.shown, true);
   assert.deepEqual(window.webContents.lastView().cutouts, []);
 });
@@ -1602,10 +1738,10 @@ test('a side panel covering the pet is cut out of it in every placement, and the
   };
   for (const [name, prefs] of Object.entries(placements)) {
     const { window, app } = await started({ prefs });
-    app.webContents.emit(DESKTOP_PET_IPC.composer, COMPOSER);
-    window.webContents.emit(DESKTOP_PET_IPC.area, { x: 108, y: 120, width: 120, height: 84 });
+    await app.webContents.emit(DESKTOP_PET_IPC.composer, COMPOSER);
+    await window.webContents.emit(DESKTOP_PET_IPC.area, { x: 108, y: 120, width: 120, height: 84 });
     assert.equal(window.shown, true, name);
-    app.webContents.emit(DESKTOP_PET_IPC.layers, panel);
+    await app.webContents.emit(DESKTOP_PET_IPC.layers, panel);
     assert.equal(window.shown, true, `${name}: cut, not hidden`);
     const [cut, ...rest] = window.webContents.lastView().cutouts;
     assert.deepEqual(rest, [], name);
@@ -1624,13 +1760,13 @@ test("an app modal's backdrop hides the pet wherever it overlaps the app window;
   const BACKDROP = { backdrop: true, rects: [] };
   const NONE = { backdrop: false, rects: [] };
   const { window, app } = await started();
-  app.webContents.emit(DESKTOP_PET_IPC.composer, COMPOSER);
-  window.webContents.emit(DESKTOP_PET_IPC.area, { x: 108, y: 120, width: 120, height: 84 });
+  await app.webContents.emit(DESKTOP_PET_IPC.composer, COMPOSER);
+  await window.webContents.emit(DESKTOP_PET_IPC.area, { x: 108, y: 120, width: 120, height: 84 });
   assert.equal(window.shown, true);
   // The quick message is open (the window has focus) when a modal opens.
-  window.webContents.emit(DESKTOP_PET_IPC.focusInput, true);
+  await window.webContents.emit(DESKTOP_PET_IPC.focusInput, true);
   const sent = window.webContents.sent.length;
-  app.webContents.emit(DESKTOP_PET_IPC.layers, BACKDROP);
+  await app.webContents.emit(DESKTOP_PET_IPC.layers, BACKDROP);
   assert.equal(window.shown, false, 'pinned on the composer: under the dim');
   window.events.emit('blur');
   assert.ok(
@@ -1638,24 +1774,24 @@ test("an app modal's backdrop hides the pet wherever it overlaps the app window;
     'hiding is not the user leaving: the quick message stays open'
   );
   // A nested modal closes: the outer one's backdrop still covers.
-  app.webContents.emit(DESKTOP_PET_IPC.layers, {
+  await app.webContents.emit(DESKTOP_PET_IPC.layers, {
     backdrop: true,
     rects: [{ x: 300, y: 200, width: 400, height: 300 }],
   });
-  app.webContents.emit(DESKTOP_PET_IPC.layers, BACKDROP);
+  await app.webContents.emit(DESKTOP_PET_IPC.layers, BACKDROP);
   assert.equal(window.shown, false);
   // The last one closes: back.
-  app.webContents.emit(DESKTOP_PET_IPC.layers, NONE);
+  await app.webContents.emit(DESKTOP_PET_IPC.layers, NONE);
   assert.equal(window.shown, true);
   // A real blur (the user clicked elsewhere) still closes it.
   window.events.emit('blur');
   assert.deepEqual(window.webContents.sent.at(-1), [DESKTOP_PET_IPC.blurred]);
   // Off the app window, a modal there leaves the pet alone.
   const free = await started({ prefs: { ...FREE, positions: { 1: { x: 1500, y: 300 } } } });
-  free.app.webContents.emit(DESKTOP_PET_IPC.composer, COMPOSER);
-  free.window.webContents.emit(DESKTOP_PET_IPC.area, { x: 108, y: 120, width: 120, height: 84 });
+  await free.app.webContents.emit(DESKTOP_PET_IPC.composer, COMPOSER);
+  await free.window.webContents.emit(DESKTOP_PET_IPC.area, { x: 108, y: 120, width: 120, height: 84 });
   assert.equal(free.window.shown, true);
-  free.app.webContents.emit(DESKTOP_PET_IPC.layers, BACKDROP);
+  await free.app.webContents.emit(DESKTOP_PET_IPC.layers, BACKDROP);
   assert.equal(free.window.shown, true, 'not over the app window: stays');
 });
 
@@ -1663,7 +1799,7 @@ test("an app modal's backdrop hides the pet wherever it overlaps the app window;
 
 test('the published state and theme reach the pet window; the quick message goes through the send path once', async () => {
   const { window, app, calls } = await started({ prefs: { enabled: true } });
-  app.webContents.emit(DESKTOP_PET_IPC.publish, STATE);
+  await app.webContents.emit(DESKTOP_PET_IPC.publish, STATE);
   const base = {
     ...STATE,
     collapsed: false,
@@ -1686,52 +1822,52 @@ test('the published state and theme reach the pet window; the quick message goes
   };
   assert.deepEqual(window.webContents.lastView(), base);
   const theme = { scheme: 'light', vars: { '--mx-composer-surface': '#ffffff', '--mx-text': 'rgb(20, 20, 20)' } };
-  app.webContents.emit(DESKTOP_PET_IPC.theme, theme);
+  await app.webContents.emit(DESKTOP_PET_IPC.theme, theme);
   assert.deepEqual(window.webContents.lastView().theme, theme, 'the app theme is relayed');
-  app.webContents.emit(DESKTOP_PET_IPC.theme, { scheme: 'light', vars: { '--mx-text': 'url(x)' } });
+  await app.webContents.emit(DESKTOP_PET_IPC.theme, { scheme: 'light', vars: { '--mx-text': 'url(x)' } });
   assert.deepEqual(window.webContents.lastView().theme, theme, 'an unsafe theme is dropped');
-  app.webContents.emit(DESKTOP_PET_IPC.publish, { ...STATE, sessionId: '../etc' });
-  window.webContents.emit(DESKTOP_PET_IPC.ready);
+  await app.webContents.emit(DESKTOP_PET_IPC.publish, { ...STATE, sessionId: '../etc' });
+  await window.webContents.emit(DESKTOP_PET_IPC.ready);
   assert.deepEqual(window.webContents.lastView(), { ...base, theme });
   assert.equal(await window.webContents.invoke(DESKTOP_PET_IPC.send, '  ship it  '), true);
   assert.deepEqual(calls.submit, [[MIXY, 'ship it']]);
   await assert.rejects(async () => window.webContents.invoke(DESKTOP_PET_IPC.send, '   '));
   assert.equal(calls.submit.length, 1);
-  window.webContents.emit(DESKTOP_PET_IPC.open);
-  command(window, 'open');
+  await window.webContents.emit(DESKTOP_PET_IPC.open);
+  await command(window, 'open');
   assert.deepEqual(calls.open, [MIXY, MIXY]);
-  app.webContents.emit(DESKTOP_PET_IPC.publish, { ...STATE, sessionId: '' });
+  await app.webContents.emit(DESKTOP_PET_IPC.publish, { ...STATE, sessionId: '' });
   assert.equal(await window.webContents.invoke(DESKTOP_PET_IPC.send, 'hello'), false);
   assert.equal(calls.submit.length, 1);
-  window.webContents.emit(DESKTOP_PET_IPC.focusInput, true);
+  await window.webContents.emit(DESKTOP_PET_IPC.focusInput, true);
   assert.equal(window.focused, true);
   window.events.emit('blur');
   assert.deepEqual(window.webContents.sent.at(-1), [DESKTOP_PET_IPC.blurred]);
-  window.webContents.emit(DESKTOP_PET_IPC.interactive, true);
+  await window.webContents.emit(DESKTOP_PET_IPC.interactive, true);
   assert.deepEqual(window.ignore, { ignore: false, forward: true });
 });
 
 test('a reply read in the overlay marks its chat read: only the shown reply, only with a chat', async () => {
   const { window, app, calls } = await started();
-  window.webContents.emit(DESKTOP_PET_IPC.read, 'turn-1');
+  await window.webContents.emit(DESKTOP_PET_IPC.read, 'turn-1');
   assert.deepEqual(calls.read, [], 'no reply shown yet');
-  app.webContents.emit(DESKTOP_PET_IPC.publish, STATE);
-  window.webContents.emit(DESKTOP_PET_IPC.read, 'turn-0');
+  await app.webContents.emit(DESKTOP_PET_IPC.publish, STATE);
+  await window.webContents.emit(DESKTOP_PET_IPC.read, 'turn-0');
   assert.deepEqual(calls.read, [], 'an older reply marks nothing');
-  window.webContents.emit(DESKTOP_PET_IPC.read, 'turn-1');
+  await window.webContents.emit(DESKTOP_PET_IPC.read, 'turn-1');
   assert.deepEqual(calls.read, [MIXY]);
-  app.webContents.emit(DESKTOP_PET_IPC.publish, { ...STATE, bubble: { kind: 'working' } });
-  window.webContents.emit(DESKTOP_PET_IPC.read, 'turn-1');
+  await app.webContents.emit(DESKTOP_PET_IPC.publish, { ...STATE, bubble: { kind: 'working' } });
+  await window.webContents.emit(DESKTOP_PET_IPC.read, 'turn-1');
   assert.deepEqual(calls.read, [MIXY], 'no longer shown');
 });
 
 test("Copy writes the shown reply's whole text (every page) to the clipboard; nothing for another key", async () => {
   const { window, app, calls } = await started();
   const text = `${'First page line.\n'.repeat(12)}Last page.`;
-  app.webContents.emit(DESKTOP_PET_IPC.publish, { ...STATE, bubble: { kind: 'reply', key: 'long', text } });
-  window.webContents.emit(DESKTOP_PET_IPC.copy, 'other');
+  await app.webContents.emit(DESKTOP_PET_IPC.publish, { ...STATE, bubble: { kind: 'reply', key: 'long', text } });
+  await window.webContents.emit(DESKTOP_PET_IPC.copy, 'other');
   assert.deepEqual(calls.copy, []);
-  window.webContents.emit(DESKTOP_PET_IPC.copy, 'long');
+  await window.webContents.emit(DESKTOP_PET_IPC.copy, 'long');
   assert.deepEqual(calls.copy, [text]);
 });
 
@@ -1753,7 +1889,7 @@ test('a bubble decision applies only to the request the bubble shows, with the d
     deny: 1,
   });
   const bubble = { kind: 'approval', approvals: [request('shown'), request('hidden')], total: 2 };
-  app.webContents.emit(DESKTOP_PET_IPC.publish, { ...STATE, bubble });
+  await app.webContents.emit(DESKTOP_PET_IPC.publish, { ...STATE, bubble });
   assert.equal(await window.webContents.invoke(DESKTOP_PET_IPC.decide, 'hidden', 0), false);
   assert.equal(await window.webContents.invoke(DESKTOP_PET_IPC.decide, 'shown', 9), false);
   assert.deepEqual(calls.decide, []);
@@ -1781,12 +1917,12 @@ test('auto-advance and auto-close: on by default, set from Settings, kept across
   assert.equal(again.pet.config().autoAdvance, false);
   assert.equal(again.pet.config().autoClose, false);
   await assert.rejects(async () => again.app.webContents.invoke(DESKTOP_PET_IPC.setOption, 'autoClose', 'no'));
-  assert.equal(normalizeDesktopPetPrefs({ autoAdvance: 'no' }).autoAdvance, true, 'only an explicit off');
 });
 
 test('the app window closing detaches its channels; a new app window brings an owned pet back', async () => {
   const { pet, window, app } = await started({ prefs: FREE });
   app.events.emit('closed');
+  await tick();
   assert.equal(app.webContents.handles(DESKTOP_PET_IPC.getConfig), false);
   assert.equal(app.events.listenerCount('move'), 0, 'its window listeners are gone');
   // Electron destroys an owned window with its owner (it goes here either way);
@@ -1876,39 +2012,6 @@ test('pet IPC validation keeps only the narrow state and bounded inputs', () => 
   assert.deepEqual(requiredDesktopPetOption('pinnedHere', true), { name: 'pinnedHere', value: true });
   assert.throws(() => requiredDesktopPetOption('enabled', true), /option/);
   assert.throws(() => requiredDesktopPetOption('pinnedHere', 'yes'), /boolean/);
-});
-
-test('stored prefs: malformed fields read as defaults', () => {
-  assert.deepEqual(
-    normalizeDesktopPetPrefs({
-      enabled: 'yes',
-      alwaysOnTop: true,
-      keepAbove: 'yes',
-      positions: { 1: { x: 'a' }, abc: { x: 1, y: 2 }, 7: { x: 1.4, y: 2 } },
-    }),
-    {
-      enabled: false,
-      keepAbove: false,
-      collapsed: false,
-      autoAdvance: true,
-      autoClose: true,
-      pinned: true,
-      pinnedHere: false,
-      onScreen: false,
-      scale: 100,
-      positions: { 7: { x: 1, y: 2 } },
-      hereAnchor: null,
-    }
-  );
-  assert.equal(normalizeDesktopPetPrefs({ pinned: false, pinnedHere: true }).pinnedHere, true);
-  assert.equal(normalizeDesktopPetPrefs({ pinnedHere: true }).pinnedHere, false, 'never with the composer pin');
-  assert.equal(normalizeDesktopPetPrefs({ pinned: false, pinnedHere: 'yes' }).pinnedHere, false);
-  assert.equal(normalizeDesktopPetPrefs({ enabled: false }).enabled, false, 'explicit off kept');
-  assert.equal(normalizeDesktopPetPrefs({ keepAbove: true }).keepAbove, true);
-  for (const scale of [50, 150, 200]) assert.equal(normalizeDesktopPetPrefs({ scale }).scale, scale);
-  for (const scale of [40, 210, 155, '150', null, Number.NaN]) {
-    assert.equal(normalizeDesktopPetPrefs({ scale }).scale, 100, `stored ${String(scale)} reads as 100`);
-  }
 });
 
 // ---- Size --------------------------------------------------------------------------
