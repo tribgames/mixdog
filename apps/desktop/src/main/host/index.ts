@@ -118,7 +118,15 @@ export function createDesktopHost(options: DesktopHostOptions) {
     list: () => options.browser().remote('screenDisplays', []) as Promise<RemoteScreenDisplaySummary[]>,
   }));
   // A display added, removed or rescaled is told to the core (host/screen/displaysChanged).
-  const stopDisplayReports = typeof screen?.on === 'function' ? reportScreenDisplayChanges(connection, screen) : () => {};
+  // Electron's `screen` exists only once the app is ready, and the host role is built before that.
+  let stopDisplayReports = () => {};
+  let displayReportsOff = false;
+  void import('electron')
+    .then((electron) => electron.app?.whenReady?.())
+    .then(() => {
+      if (!displayReportsOff && typeof screen?.on === 'function') stopDisplayReports = reportScreenDisplayChanges(connection, screen);
+    })
+    .catch(() => {});
   const humanOnly = registerHumanOnlyHolds(connection);
   registerNotificationHost(connection, options.notifications);
   // host/state/set is a request, host/window/closed a notification.
@@ -135,6 +143,7 @@ export function createDesktopHost(options: DesktopHostOptions) {
   const reports = createHostReports(connection, options.updater, options.onUpdaterInstallFailed);
   let claimed = false;
   connection.onClose(() => {
+    displayReportsOff = true;
     stopDisplayReports();
     if (!claimed) return;
     claimed = false;
