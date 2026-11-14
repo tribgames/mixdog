@@ -16,6 +16,7 @@ use std::pin::pin;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
+use std::sync::OnceLock;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 use std::task::Context;
@@ -138,16 +139,18 @@ use crate::refs::ref_actions::RefActions;
 use crate::refs::ref_set::RefSet;
 use crate::refs::target_resolve::ResolvedTarget;
 use crate::refs::target_resolve::TargetContext;
+use crate::refs::target_resolve::css_element;
 use crate::refs::target_resolve::TargetError;
 use crate::refs::target_resolve::TargetSpec;
 use crate::refs::target_resolve::resolve_targets;
 use crate::reply::dialog_text::blocking_dialog_reply;
+use crate::reply::downloads_text::DownloadFiles;
 use crate::reply::downloads_text::DownloadReports;
+use crate::reply::downloads_text::attach_download;
 use crate::reply::downloads_text::did_not_complete;
 use crate::reply::downloads_text::ended_as;
 use crate::reply::downloads_text::list_text;
 use crate::reply::downloads_text::none_to_attach;
-use crate::reply::downloads_text::not_a_file;
 use crate::reply::downloads_text::not_complete_to_attach;
 use crate::reply::reply::EffectBaseline;
 use crate::reply::reply::PageReplyState;
@@ -258,6 +261,8 @@ fn gone_facts(page_id: &str) -> PageFacts {
 /// The observation a snapshot answer made: its ref set (stamped with the document and revision) and where the page was scrolled.
 struct Observation {
     refs: RefSet,
+    /// The snapshot the refs were made of: a ref minted afterwards for a selector match joins it.
+    payload: BrowserSnapshotPayload,
     scroll_y: f64,
 }
 
@@ -279,7 +284,30 @@ impl FactsStore {
 
     fn record_snapshot(&self, result: &HostBrowserSnapshotResult) {
         let refs = RefSet::from_payload(&result.snapshot_id, &result.payload).with_document(&result.document_id, result.revision);
-        locked(&self.snapshots).insert(result.facts.page_id.clone(), Arc::new(Observation { refs, scroll_y: result.payload.scroll_y }));
+        locked(&self.snapshots).insert(result.facts.page_id.clone(), Arc::new(Observation { refs, payload: result.payload.clone(), scroll_y: result.payload.scroll_y }));
+    }
+
+    /// Selector matches the snapshot did not list, given refs minted by the host (`registerCssRef`): they join the page's ref set of
+    /// that snapshot, so the stale-ref recovery and the change reports know them as any listed ref. Nothing changes when the page's latest
+    /// snapshot is another one or every element is already in it.
+    fn register_minted(&self, page_id: &str, snapshot_id: &str, minted: &[BrowserSnapshotElement]) {
+        let mut snapshots = locked(&self.snapshots);
+        let Some(held) = snapshots.get(page_id).filter(|observation| observation.refs.snapshot_id == snapshot_id) else { return };
+        let mut payload = held.payload.clone();
+        let before = payload.elements.len();
+        for element in minted {
+            if held.refs.get(&element.ref_id).is_none() && !payload.elements.iter().any(|known| known.ref_id == element.ref_id) {
+                payload.elements.push(element.clone());
+            }
+        }
+        if payload.elements.len() == before {
+            return;
+        }
+        let mut refs = RefSet::from_payload(snapshot_id, &payload).with_document(&held.refs.document_id, held.refs.revision.unwrap_or_default()).with_observation(held.refs.observation.as_deref());
+        // The snapshot still covered what it covered: a minted match is not part of what the page's scan reported.
+        refs.covered_elements = held.refs.covered_elements;
+        let scroll_y = held.scroll_y;
+        snapshots.insert(page_id.to_owned(), Arc::new(Observation { refs, payload, scroll_y }));
     }
 
     fn get(&self, page_id: &str) -> Option<PageFacts> {
@@ -288,6 +316,10 @@ impl FactsStore {
 
     fn snapshot(&self, page_id: &str, snapshot_id: &str) -> Option<Arc<Observation>> {
         locked(&self.snapshots).get(page_id).filter(|observation| observation.refs.snapshot_id == snapshot_id).cloned()
+    }
+
+    fn latest_snapshot_id(&self, page_id: &str) -> Option<String> {
+        locked(&self.snapshots).get(page_id).map(|observation| observation.refs.snapshot_id.clone())
     }
 
     fn forget(&self, page_id: &str) {
@@ -342,10 +374,21 @@ observed_facts!(
     HostBrowserEmulationResult,
     HostBrowserUploadResult,
     HostBrowserUploadReceiverResult,
-    HostBrowserRefMintResult,
     HostBrowserCredentialsFillResult,
     HostBrowserRevisionResult,
 );
+
+impl Observed for HostBrowserRefMintResult {
+    fn observe(&self, store: &FactsStore) {
+        store.record(&self.facts);
+        // A minted ref is `<snapshot>-t<n>`: the snapshot it belongs to is the page's latest when that prefix is its id.
+        let Some(snapshot_id) = store.latest_snapshot_id(&self.facts.page_id) else { return };
+        let prefix = format!("{snapshot_id}-t");
+        let minted: Vec<BrowserSnapshotElement> =
+            self.matches.iter().filter(|found| found.ref_id.starts_with(&prefix)).map(|found| css_element(found.ref_id.clone(), found.role.clone(), found.name.clone())).collect();
+        store.register_minted(&self.facts.page_id, &snapshot_id, &minted);
+    }
+}
 observed_nothing!(HostBrowserPagesCloseResult, HostBrowserInitScriptsResult, HostBrowserInterceptResult, HostBrowserPerformanceResult, HostBrowserDownloadsResult, HostBrowserTurnResult);
 
 impl Observed for HostBrowserSignInResult {
@@ -566,6 +609,10 @@ struct Inner {
     directory: Mutex<Directory>,
     tasks: Mutex<TaskPages>,
     commands: AtomicU64,
+    /// The commands of each session that were asked and have not ended (queued or running): a turn's end waits for them.
+    in_flight: Mutex<HashMap<String, Vec<(u64, CancellationToken)>>>,
+    /// The reader of saved downloads an inline attach needs; the composing core sets it once.
+    download_files: OnceLock<Arc<dyn DownloadFiles>>,
 }
 
 /// The Browser Use engine: one per claimed host. It is cheap to clone; clones are the same engine.
@@ -762,8 +809,16 @@ impl BrowserEngine {
                 directory: Mutex::new(Directory::default()),
                 tasks: Mutex::new(TaskPages::default()),
                 commands: AtomicU64::new(0),
+                in_flight: Mutex::new(HashMap::new()),
+                download_files: OnceLock::new(),
             }),
         }
+    }
+
+    /// The reader of saved downloads a `downloads` attach returns inline; set once by the core that composes the engine. A second
+    /// call changes nothing.
+    pub fn set_download_files(&self, files: Arc<dyn DownloadFiles>) {
+        let _ = self.inner.download_files.set(files);
     }
 
     /// What the host pushes goes through this: it is `inner` (the lane's sink), and the engine keeps the facts that pass.
@@ -797,6 +852,13 @@ impl BrowserEngine {
     /// The session is released: the pages it owned are no longer tracked, and the host forgets what it remembered of it.
     pub async fn forget_session(&self, thread: &ThreadId) {
         locked(&self.inner.tasks).forget(thread.as_str());
+        // The session's pages are gone with it, and so is the person's hold on them (`releaseLocal`): a hold left behind would
+        // refuse the next agent command on a page id the host never reuses, and keep a record for ever.
+        if let Some(held) = locked(&self.inner.directory).sessions.remove(thread.as_str()) {
+            for page_id in held.current.iter().chain(held.backgrounds.values()) {
+                self.inner.ports.hold.release_page(page_id);
+            }
+        }
         self.inner.turn_note(thread, BrowserTurnOp::Forget, None, false).await;
     }
 }
@@ -826,6 +888,30 @@ impl TurnEvents for BrowserEngine {
 struct EndedTurn {
     turn: u64,
     closing: Vec<String>,
+    /// The session's commands in flight when the turn ended: its pages are closed after they are done, not under them.
+    in_flight: Vec<CancellationToken>,
+}
+
+/// A command of a session that is in flight; dropping it records it as done.
+struct InFlight {
+    inner: Arc<Inner>,
+    session: String,
+    id: u64,
+    done: CancellationToken,
+}
+
+impl Drop for InFlight {
+    fn drop(&mut self) {
+        let mut flights = locked(&self.inner.in_flight);
+        if let Some(held) = flights.get_mut(&self.session) {
+            held.retain(|(id, _)| *id != self.id);
+            if held.is_empty() {
+                flights.remove(&self.session);
+            }
+        }
+        drop(flights);
+        self.done.cancel();
+    }
 }
 
 impl Inner {
@@ -838,11 +924,25 @@ impl Inner {
         let turn = tasks.current(thread.as_str());
         let store = self.store.clone();
         let closing = tasks.finish(thread.as_str(), turn, aborted, |page| !store.get(page).is_some_and(|facts| facts.pending_dialog.is_some()));
-        Some(EndedTurn { turn, closing })
+        drop(tasks);
+        let in_flight: Vec<CancellationToken> = locked(&self.in_flight).get(thread.as_str()).map(|held| held.iter().map(|(_, done)| done.clone()).collect()).unwrap_or_default();
+        Some(EndedTurn { turn, closing, in_flight })
+    }
+
+    /// Records a command of `session` as in flight until the returned guard is dropped.
+    fn track(self: &Arc<Self>, session: &str) -> InFlight {
+        let id = self.commands.fetch_add(1, Ordering::Relaxed);
+        let done = CancellationToken::new();
+        locked(&self.in_flight).entry(session.to_owned()).or_default().push((id, done.clone()));
+        InFlight { inner: self.clone(), session: session.to_owned(), id, done }
     }
 
     /// Closes the pages an ended turn released and tells the host the turn ended; answers how many pages were closed.
     async fn close_ended(&self, thread: &ThreadId, ended: EndedTurn, aborted: bool) -> usize {
+        // A command of the turn still running has the page in hand: it ends (or is ended by its caller) before the page is closed.
+        for done in &ended.in_flight {
+            done.cancelled().await;
+        }
         let mut closed = 0;
         for page_id in ended.closing {
             let params = HostBrowserPagesCloseParams { page_id: page_id.clone(), reason: BrowserPageCloseReason::TurnEnd };
@@ -851,6 +951,8 @@ impl Inner {
                     closed += usize::from(answer.closed);
                     self.drop_page(&page_id);
                 }
+                // A page destroyed while the close ran is closed: nothing is left to try again.
+                Err(HostCallError::PageGone) => self.drop_page(&page_id),
                 // A close the host failed leaves the page owned, as the lifecycle kept it, so a later cleanup of it can try again.
                 Err(_) => locked(&self.tasks).reown(thread.as_str(), ended.turn, &page_id),
             }
@@ -880,6 +982,7 @@ impl Inner {
     async fn run_command(self: &Arc<Self>, thread: &ThreadId, turn: u64, action: &str, input: &Map<String, Value>, cancel: &CancellationToken) -> Result<ToolReply, Failed> {
         let session = thread.as_str();
         let prepared = prepare(action, input, session, turn).map_err(RunError::Failed)?;
+        let _flight = self.track(session);
         let key = {
             let directory = locked(&self.directory);
             QueueKey::for_command(&*directory, &KeyInput { session: Some(session), action: prepared.action.name(), tab: &prepared.tab, background: prepared.background })
@@ -1101,12 +1204,13 @@ impl Inner {
         if chosen.state != "completed" {
             return Err(RunError::Failed(not_complete_to_attach(&chosen.id, &chosen.state)));
         }
-        // The file stays where the host saved it and the reply names its path: nothing travels inline, whatever its size. It must still
-        // be a file the model can read.
-        if !self.ports.files.stat(std::path::Path::new(&chosen.path)).await.is_file {
-            return Err(RunError::Failed(not_a_file(&chosen.id)));
-        }
-        reply.text.push_str(&format!("\n\nDownload {} is saved at {}; read it with that path.", chosen.id, chosen.path));
+        let Some(reader) = self.download_files.get() else {
+            return Err(RunError::Failed("downloads cannot attach a file: this core was not given a reader for the downloaded files".to_owned()));
+        };
+        let (file, note) = attach_download(&*self.ports.files, &**reader, chosen).await.map_err(RunError::Failed)?;
+        throw_if_cancelled(cancel)?;
+        reply.text.push_str(&note);
+        reply.file = Some(file);
         Ok(reply)
     }
 
@@ -1254,6 +1358,16 @@ impl PageProbe for PageCtx {
             dialog: facts.pending_dialog.as_ref().map(|dialog| dialog.kind.clone()),
             ..PageState::default()
         })
+    }
+
+    fn stop_loading(&self) {
+        let host = self.inner.host.clone();
+        let params = HostBrowserPageStopParams { page_id: self.page_id.clone() };
+        // A stop that fails or hangs changes nothing the cancelled command is told: its answer is not waited for. The command's own
+        // token is already cancelled, so the request rides a token of its own.
+        mixdog_rt::spawn("browser-page-stop", mixdog_rt::TaskClass::Work, async move {
+            let _ = host.page_stop(params, &CancellationToken::new()).await;
+        });
     }
 }
 
@@ -1507,7 +1621,29 @@ impl PageCtx {
                 ),
             )
             .await?;
+        self.register_minted(&resolved);
         Ok(resolved)
+    }
+
+    /// The selector matches this resolution minted refs for join the page's ref set (the one the page reports against, and the
+    /// snapshot's own in the store).
+    fn register_minted(&self, resolved: &[ResolvedTarget]) {
+        for (snapshot_id, minted) in resolved.iter().fold(Vec::<(&str, Vec<BrowserSnapshotElement>)>::new(), |mut grouped, target| {
+            if let Some(element) = &target.minted {
+                match grouped.iter_mut().find(|(id, _)| *id == target.snapshot_id) {
+                    Some((_, elements)) => elements.push(element.clone()),
+                    None => grouped.push((target.snapshot_id.as_str(), vec![element.clone()])),
+                }
+            }
+            grouped
+        }) {
+            self.inner.store.register_minted(&self.page_id, snapshot_id, &minted);
+            let Some(joined) = self.inner.store.snapshot(&self.page_id, snapshot_id) else { continue };
+            let mut state = self.state_lock();
+            if let Some(held) = state.refs.as_mut().filter(|held| held.snapshot_id == snapshot_id && held.len() != joined.refs.len()) {
+                *held = joined.refs.clone().with_observation(held.observation.as_deref());
+            }
+        }
     }
 
     // ---- the reply ----
@@ -2291,6 +2427,7 @@ mod tests {
     use crate::refs::ref_set::tests::payload;
     use crate::types::BrowserApprovalPrompt;
     use crate::types::FileFacts;
+    use mixdog_app_protocol::v2::browser_engine::BrowserUserInputReason;
 
     struct Masks;
 
@@ -2413,11 +2550,18 @@ mod tests {
     #[async_trait]
     impl FilePort for FilesOn {
         async fn stat(&self, path: &Path) -> FileFacts {
-            FileFacts { exists: path == Path::new(self.0), is_file: path == Path::new(self.0), ..FileFacts::default() }
+            FileFacts { exists: path == Path::new(self.0), is_file: path == Path::new(self.0), size: 4, ..FileFacts::default() }
         }
 
         async fn write_frame(&self, run_dir: &Path, _bytes: Bytes, _mime_type: &str) -> std::io::Result<PathBuf> {
             Ok(run_dir.to_path_buf())
+        }
+    }
+
+    #[async_trait]
+    impl DownloadFiles for FilesOn {
+        async fn read_file(&self, _path: &Path, _limit: u64) -> std::io::Result<Bytes> {
+            Ok(Bytes::from_static(b"%PDF"))
         }
     }
 
@@ -2430,16 +2574,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_attached_download_names_its_path_and_is_refused_when_it_is_no_readable_file_or_not_complete() {
+    async fn an_attached_download_is_returned_inline_and_is_refused_when_it_is_no_readable_file_or_not_complete() {
         let saved = "/dl/report.pdf";
         let finished = download("d1", "completed", saved);
         let on_disk = Arc::new(FakeHost::scripted(vec![downloads_of(&[finished.clone()])]));
         let engine_on = engine_over(&on_disk, None, ActionPolicy::from_env(None, None, None, is_action), Arc::new(FilesOn(saved)));
+        engine_on.set_download_files(Arc::new(FilesOn(saved)));
         let reply = run(&engine_on, "downloads", json!({"attach": true})).await.expect("the download is a file");
-        assert!(reply.text.ends_with(&format!("Download d1 is saved at {saved}; read it with that path.")), "{}", reply.text);
+        assert!(reply.text.ends_with("Attached download d1 as report.pdf."), "{}", reply.text);
+        let file = reply.file.expect("the file rides in the reply");
+        assert_eq!((file.name.as_str(), file.mime_type.as_str(), &file.bytes[..]), ("report.pdf", "application/pdf", &b"%PDF"[..]));
 
         let gone = Arc::new(FakeHost::scripted(vec![downloads_of(&[finished])]));
-        let error = run(&engine(&gone, None), "downloads", json!({"attach": true})).await.expect_err("no file at the path");
+        let engine_gone = engine(&gone, None);
+        engine_gone.set_download_files(Arc::new(FilesOn(saved)));
+        let error = run(&engine_gone, "downloads", json!({"attach": true})).await.expect_err("no file at the path");
         assert_eq!(error.message_for_model, "download d1 is not a readable file");
 
         let running = Arc::new(FakeHost::scripted(vec![downloads_of(&[download("d2", "in_progress", saved)])]));
@@ -2765,5 +2914,85 @@ mod tests {
         let error = run(&engine_with(&host, None, policy), "click", json!({"ref": "p1-s1-e1"})).await.expect_err("denied");
         assert_eq!(error.message_for_model, "Browser Use action is denied by policy; nothing was dispatched");
         host.finish().expect("only the page was resolved");
+    }
+
+    #[tokio::test]
+    async fn a_turns_pages_are_closed_after_the_commands_in_flight_when_it_ended_are_done() {
+        let close = Expect::ok("host/browser/pages/close", json!({"closed": true})).with_params(json!({"pageId": "p1", "reason": "turnEnd"}));
+        let host = Arc::new(FakeHost::scripted(vec![resolved_new("p1"), snapshot_answer(), no_downloads(), close]));
+        let engine = engine(&host, None);
+        run(&engine, "snapshot", json!({})).await.expect("snapshot");
+        // A command of the session is still queued or running when the turn ends.
+        let flight = engine.inner.track("s1");
+        let other_session = engine.inner.track("s2");
+        let ended = engine.inner.end_turn(&thread(), true).expect("a command ran in the turn");
+        assert_eq!(ended.in_flight.len(), 1, "only the session's own commands are waited for");
+        let session = thread();
+        let mut closing = pin!(engine.inner.close_ended(&session, ended, true));
+        assert!(std::future::poll_fn(|cx| Poll::Ready(closing.as_mut().poll(cx).is_pending())).await, "the page is not closed under the running command");
+        assert!(host.calls().iter().all(|call| call.method != "host/browser/pages/close"));
+        drop(flight);
+        assert_eq!(closing.await, 1);
+        drop(other_session);
+        host.finish().expect("the page closed once the command was done");
+    }
+
+    #[tokio::test]
+    async fn a_close_that_failed_is_retried_unless_the_page_was_destroyed_meanwhile() {
+        let gone = Expect::err("host/browser/pages/close", HostCallError::PageGone);
+        let host = Arc::new(FakeHost::scripted(vec![resolved_new("p1"), snapshot_answer(), no_downloads(), gone]));
+        let engine = engine(&host, None);
+        run(&engine, "snapshot", json!({})).await.expect("snapshot");
+        assert_eq!(engine.finish_turn(&thread(), true).await, 0);
+        assert!(!locked(&engine.inner.tasks).owns("p1"), "a destroyed page is not owned again");
+
+        let failed = Expect::err("host/browser/pages/close", HostCallError::Failed { message: "window close failed".into() });
+        let host = Arc::new(FakeHost::scripted(vec![resolved_new("p1"), snapshot_answer(), no_downloads(), failed]));
+        let engine = self::engine(&host, None);
+        run(&engine, "snapshot", json!({})).await.expect("snapshot");
+        assert_eq!(engine.finish_turn(&thread(), true).await, 0);
+        assert!(locked(&engine.inner.tasks).owns("p1"), "a failed close leaves the page owned for a later cleanup");
+    }
+
+    #[tokio::test]
+    async fn releasing_a_session_ends_the_persons_hold_on_its_pages() {
+        use crate::queue::key::QueueKey;
+        use crate::queue::user_hold::UserInputParams;
+        let host = Arc::new(FakeHost::scripted(vec![resolved("p1"), snapshot_answer(), no_downloads()]));
+        let engine = engine(&host, None);
+        run(&engine, "snapshot", json!({})).await.expect("snapshot");
+        let hold = engine.inner.ports.hold.clone();
+        hold.on_user_input(UserInputParams { page_id: "p1".into(), seq: 1, held: true, until: None, reason: BrowserUserInputReason::Pointer });
+        let key = QueueKey::new("session:s1:foreground", Some("p1".into()));
+        assert!(hold.takeover_error(&key).is_err());
+        engine.forget_session(&thread()).await;
+        assert_eq!(hold.takeover_error(&key), Ok(()));
+        assert!(locked(&engine.inner.directory).sessions.is_empty());
+    }
+
+    #[test]
+    fn a_selector_match_the_snapshot_did_not_list_joins_the_snapshots_ref_set() {
+        let store = FactsStore::default();
+        let result: HostBrowserSnapshotResult = serde_json::from_value(serde_json::json!({
+            "snapshotId": "p1-s1", "documentId": "p1:1", "revision": 1, "warnings": [], "facts": page_facts("p1", 2),
+            "payload": serde_json::to_value(payload("p1-s1", vec![element("p1-s1-e1", "button", "Go")], "https://a.test/")).expect("payload"),
+        }))
+        .expect("snapshot");
+        result.observe(&store);
+        let covered = store.snapshot("p1", "p1-s1").expect("observed").refs.covered_elements;
+        // The host minted `p1-s1-t1` for a match the snapshot did not list; the one it listed keeps its own place.
+        let minted: HostBrowserRefMintResult = serde_json::from_value(serde_json::json!({
+            "count": 2, "facts": page_facts("p1", 3),
+            "matches": [{"ref": "p1-s1-e1", "role": "button", "name": "Go"}, {"ref": "p1-s1-t1", "role": "div", "name": "card"}],
+        }))
+        .expect("mint");
+        minted.observe(&store);
+        let joined = store.snapshot("p1", "p1-s1").expect("still observed").refs;
+        let found = joined.get("p1-s1-t1").expect("the minted ref joined");
+        assert_eq!((found.role.as_str(), found.name.as_str(), found.url.as_str()), ("div", "card", "https://a.test/"));
+        assert_eq!((joined.len(), joined.covered_elements, joined.document_id.as_str()), (2, covered, "p1:1"));
+        // A ref of another snapshot is not this one's.
+        store.register_minted("p1", "p1-s9", &[crate::refs::target_resolve::css_element("p1-s9-t1".into(), "div".into(), "x".into())]);
+        assert!(store.snapshot("p1", "p1-s1").expect("kept").refs.get("p1-s9-t1").is_none());
     }
 }

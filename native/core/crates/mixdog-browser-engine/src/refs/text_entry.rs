@@ -17,48 +17,10 @@ use super::ref_actions::press;
 use super::ref_actions::type_text;
 
 /// Page functions written once for both realms: the element's realm applies them to the ref's element (`FILL_REF`).
-const FILL_REF: &str = r##"function(text) {
-  const el = this;
-  if (!el || !el.isConnected) return { error: 'stale' };
-  const editError = (__MIXDOG_EDITABILITY__)(el);
-  if (editError) return { error: editError };
-  el.scrollIntoView({ block: 'center', inline: 'center' });
-  el.focus();
-  const tag = (el.tagName || '').toLowerCase();
-  if (tag === 'input' || tag === 'textarea') {
-    const type = tag === 'input' ? String(el.type || 'text').toLowerCase() : '';
-    if (type === 'file') return { error: 'file inputs require upload' };
-    const proto = tag === 'input' ? HTMLInputElement.prototype : HTMLTextAreaElement.prototype;
-    const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
-    if (!setter) return { error: 'input value setter is unavailable' };
-    setter.call(el, text);
-    el.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
-    el.dispatchEvent(new Event('change', { bubbles: true }));
-    return { value: type === 'password' ? '' : el.value, sensitive: type === 'password' };
-  }
-  if (el.isContentEditable) {
-    const doc = el.ownerDocument;
-    const range = doc.createRange();
-    range.selectNodeContents(el);
-    const selection = doc.getSelection();
-    selection.removeAllRanges();
-    selection.addRange(range);
-    return { contentEditable: true };
-  }
-  return { error: 'element is not editable' };
-}"##;
+const FILL_REF: &str = include_str!("../../assets/page/fill-ref.js");
 
 /// Focuses the element for typing (`FOCUS_REF`).
-const FOCUS_REF: &str = r##"function() {
-  const el = this;
-  if (!el || !el.isConnected) return { error: 'stale' };
-  const editError = (__MIXDOG_EDITABILITY__)(el);
-  if (editError) return { error: editError };
-  if (!(el.matches?.('input, textarea') || el.isContentEditable)) return { error: 'element is not editable' };
-  el.scrollIntoView({ block: 'center', inline: 'center' });
-  el.focus();
-  return { sensitive: el.type === 'password' };
-}"##;
+const FOCUS_REF: &str = include_str!("../../assets/page/focus-ref.js");
 
 /// What an editor holds, as text.
 const READ_EDITOR_TEXT: &str = r#"function() { return String(this.innerText ?? this.textContent ?? ""); }"#;

@@ -1,0 +1,51 @@
+# g95-fu-browser-engine wiring
+
+Everything else is inside mixdog-browser-engine. No protocol row, no Cargo edge, nothing to take out of SERVICE_PENDING.
+
+## 1. The downloads attach needs a file reader (mixdog-app-server-daemon)
+`downloads` with `attach: true` now returns the completed download as an inline file (`ToolReply.file`, cap `DOWNLOAD_ATTACH_MAX_BYTES`, size
+checked before and after the read). The engine reads the file through a new trait `mixdog_browser_engine::reply::downloads_text::DownloadFiles`
+(`async fn read_file(&self, path: &Path, limit: u64) -> std::io::Result<Bytes>`: at most `limit` bytes). Until the core gives the engine one, an
+attach fails with "downloads cannot attach a file: this core was not given a reader for the downloaded files" (no path-only fallback).
+
+1a. compose_browser_engine.rs, after `impl FilePort for EngineFiles`, add (same lane helper the `stat` uses):
+
+    #[async_trait]
+    impl mixdog_browser_engine::reply::downloads_text::DownloadFiles for EngineFiles {
+        async fn read_file(&self, path: &Path, limit: u64) -> std::io::Result<Bytes> {
+            let path = path.to_path_buf();
+            on_lane_wait(self.lane, &CancellationToken::new(), move |_| {
+                use std::io::Read;
+                let mut bytes = Vec::new();
+                std::fs::File::open(&path)?.take(limit).read_to_end(&mut bytes)?;
+                Ok::<_, std::io::Error>(Bytes::from(bytes))
+            })
+            .await
+            .map_err(|error| std::io::Error::other(error.to_string()))?
+        }
+    }
+
+(Use the fsio read helper the neighbouring `stat` code uses if the crate bans `std::fs` there.)
+
+1b. compose_flip.rs, right after `let engine = Arc::new(mixdog_browser_engine::runner::runner::BrowserEngine::new(...));`:
+
+    engine.set_download_files(Arc::new(crate::compose_browser_engine::EngineFiles { lane: b.tokens.interactive_io }));
+
+## 2. The file part reaches the tool output (mixdog-tools desktop/browser_engine.rs, desktop/host.rs)
+`ToolReply` has a new field `file: Option<ReplyFile { mime_type, name, bytes }>`.
+- browser_engine.rs `reply_value`: after the `image` block add
+  `if let Some(file) = reply.file { value.insert("file".to_owned(), json!({ "mimeType": file.mime_type, "name": file.name, "data": STANDARD.encode(&file.bytes) })); }`
+- host.rs `browser_output`: a result value with `file` {mimeType, name, data} adds a part after the image: `ToolPart::Document` for `application/pdf`,
+  `ToolPart::Image` for image/jpeg and image/png (the same size cap as `image`), and for a text type (`text/*`, application/json, application/xml,
+  image/svg+xml) a `ToolPart::Text` of the decoded UTF-8 headed by the file name; any other type stays named in the text only (the reply text already
+  says "Attached download <id> as <name>."). This only makes visible what the old path's `result.file` carried.
+
+## 3. Ref set of selector matches the snapshot did not list
+Handled in runner.rs for the two places the engine itself resolves targets (`PageCtx::resolve_targets` and the host's `ref/mint` answer). The pointer
+actions resolve through `actions/target.rs resolve_command_targets` (not an owner of this task): its `page-world selector` branch (the `table` report
+of `selector_candidates`) mints refs whose `ResolvedTarget.minted` is not yet registered. Fix there (owner of actions/target.rs): in
+`adopt_resolved_targets`, before `cx.page.adopt_snapshot(..)`, hand `resolved.iter().filter_map(|r| r.minted.as_ref())` to a new `ActionPage` method
+that calls `FactsStore::register_minted` (runner.rs already has it; `PageCtx::register_minted(&[ResolvedTarget])` takes the same list).
+
+## 4. Session release and the person's hold
+`BrowserEngine::forget_session` now ends the hold of every page of the session (`UserHold::release_page`), so nothing is needed in host_lane.rs for it.
