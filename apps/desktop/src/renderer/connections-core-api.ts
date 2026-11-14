@@ -224,7 +224,7 @@ export function createConnectionsCoreApi(deps: ConnectionsCoreDeps): Connections
         { id, provider },
       );
       // The server never opens a browser of its own: this PC's does. A browser that does not open ends the login.
-      if (flow.openUrl) {
+      if (flow.openUrl && /^https?:\/\//i.test(flow.openUrl)) {
         try {
           await deps.openExternal(flow.openUrl);
         } catch (error) {
@@ -302,10 +302,17 @@ export function createConnectionsCoreApi(deps: ConnectionsCoreDeps): Connections
       }),
     subscribeConnectionSignIn: (listener) => onNotificationWithFeed('connections/signIn', (p) => listener(p as never)),
     subscribeServerPorts: (listener) => onKey(`ports/${connectionId()}`, listener as (value: unknown) => void),
-    subscribeServerRestoreProgress: (listener) =>
-      onKey<{ progress?: unknown }>('restore', (value) => {
-        for (const progress of Array.isArray(value?.progress) ? value.progress : []) listener(progress as never);
-      }),
+    subscribeServerRestoreProgress: (listener) => {
+      // The list holds the reopenings still running or failed: one that left it is ready, and the window hears so.
+      let shown = new Map<string, string>();
+      return onKey<{ progress?: unknown }>('restore', (value) => {
+        const entries = (Array.isArray(value?.progress) ? value.progress : []).map(asRecord);
+        const now = new Map(entries.map((entry) => [String(entry.id), String(entry.name ?? '')]));
+        for (const [id, name] of shown) if (!now.has(id)) listener({ id, name, phase: 'ready' });
+        shown = now;
+        for (const progress of entries) listener(progress as never);
+      });
+    },
     subscribeSshHostsChanged: (listener) => onKey('hosts', () => listener()),
   };
   return api;

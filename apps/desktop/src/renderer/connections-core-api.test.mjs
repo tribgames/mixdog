@@ -180,6 +180,13 @@ test('restore_progress_is_delivered_one_entry_at_a_time_and_hosts_changes_say_so
   w.note('connections/updated', { section: 'connections', key: 'hosts', revision: 1, value: [] }, 'connections');
   assert.deepEqual(seen, [{ id: 'a' }, { id: 'b' }]);
   assert.equal(changed, 1);
+  // A reopening that left the list is ready: the banner drops it.
+  w.note(
+    'connections/updated',
+    { section: 'connections', key: 'restore', revision: 2, value: { enabled: true, progress: [{ id: 'b', name: 'B' }] } },
+    'connections',
+  );
+  assert.deepEqual(seen.slice(2), [{ id: 'a', name: '', phase: 'ready' }, { id: 'b', name: 'B' }]);
 });
 
 test('connection_scoped_notifications_reach_their_subscribers', () => {
