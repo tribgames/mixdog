@@ -439,11 +439,13 @@ jobs:
         shell: pwsh
         working-directory: apps/desktop
         run: |
-          # The secure-desktop helper runs as LocalSystem once installed; it is
+          # The secure-desktop helper runs as LocalSystem once installed and the
+          # Computer Use helper drives the desktop for the core; each is
           # signed like every packaged .exe and must verify too. The window
           # library is signed through win.signExts (electron-builder.yml).
           foreach ($file in 'dist/win-unpacked/Mixdog.exe', 'dist/mixdog-desktop-win-x64.exe',
                             'dist/win-unpacked/resources/native-tools/mixdog-secure-desktop.exe',
+                            'dist/win-unpacked/resources/native-tools/mixdog-computer.exe',
                             'dist/win-unpacked/resources/native-tools/mixdog_window.dll') {
             $signature = Get-AuthenticodeSignature -FilePath $file
             if ($signature.Status -ne 'Valid') {
