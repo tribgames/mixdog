@@ -9,6 +9,7 @@ pub mod link_machine;
 pub mod model_proxy_relay;
 pub mod server_feed;
 pub mod link;
+pub mod remote_file_reader;
 pub mod port_forwards;
 pub mod attempts;
 pub mod connect;
