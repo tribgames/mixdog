@@ -1,0 +1,31 @@
+# s2b-restore-view-policy core wiring
+
+## 1. Modules
+lib.rs of mixdog-connections already lists `pub mod restore; pub mod view; pub mod policy;`. The test module is declared inside view.rs
+(`restore_view_policy_tests.rs`). Nothing to add.
+
+## 2. Cargo
+mixdog-connections/Cargo.toml, `[dev-dependencies]`: add the mock feed the tests attach to (the crate is already a regular dependency; no
+Cargo.lock change):
+  mixdog-core-api = { workspace = true, features = ["mock"] }
+Everything else the three modules use (mixdog-core-api, mixdog-protocol, mixdog-app-protocol, mixdog-ssh, mixdog-rt, tokio sync/macros,
+tokio-util, async-trait, serde_json, tracing) is already a regular dependency.
+
+## 3. SERVICE_PENDING
+These modules serve no protocol method; nothing to remove. The service (s2b-service) calls them.
+
+## 4. For s2b-service and the daemon wiring
+- policy: `policy::authorize(ctx, method, connection_id: Option<&str>)` is the whole table (`policy::callers(method)`, `policy::methods()`); the
+  primitives `require_main(ctx, method)`, `require_main_or_server(ctx, method, id)`, `require_host(ctx, method)`, `require_server(ctx, method, id)` take
+  the method name too (the refusal is `CoreError::PermissionDenied{method, origin}`, the same refusal the window gate gives). `connections/subscribe`:
+  `subscription_scope(ctx, method, requested)` returns the connection the subscription is limited to (`None` = every key).
+- restore: `Restore::new(Arc<WindowRestoreStore>, Arc<SshHostStore>)`; `run(Arc<dyn RestoreLinks>, Arc<dyn RestoreWindows>) -> Result<(), StoreError>`
+  resolves when every reopening settled; `progress()` is the watch (answer of `connections/restore/progress` is its current value).
+  `RestoreLinks` is implemented for `LinkPool`; `RestoreWindows::open(connection_id, name) -> Result<(), String>` is the host's `host/window/open`
+  (the service's WindowHost adapter implements it; `opened: false` is an `Err`). `restore::attempt_context(&SshHostRecord)` is the batch-mode context of a
+  saved server (connect.rs may reuse it).
+- view: `ConnectionsFeed::start(feeds: Arc<dyn ScopedFeeds>, links: Arc<LinkPool>, hosts, restore_store, &restore)` (a `LinkPool` is a `FeedLinks`).
+  `connections/subscribe` replies `Reply::Subscribe{feed: feed.source(scope.as_deref()), window: Window::Fixed, ..}`. After every `LinkPool::open`
+  returns and every `close`/`close_all`, call `feed.reconcile()` (the pool announces a first attach before it lists the link, and a close not at all).
+  After `connections/restore/set`, call `feed.refresh_restore().await`. `view::ssh_host_view(record, open)` is the `SshHost` of a record (connections/ssh/list
+  should answer with it) and `view::connection_link_view(&LinkViewState)` the answer of `connections/link/get`.
