@@ -547,7 +547,8 @@ mod tests {
     async fn concurrent_selections_survive_a_reload_and_a_mismatch_is_refused() {
         let f = Fixture::new();
         let store = f.store();
-        let (a, b) = tokio::join!(store.describe(&[text(&f.files[0])], true, &[]), store.describe(&[text(&f.files[1])], true, &[]));
+        let (first, second) = ([text(&f.files[0])], [text(&f.files[1])]);
+        let (a, b) = tokio::join!(store.describe(&first, true, &[]), store.describe(&second, true, &[]));
         let (a, b) = (token_of(&a.unwrap()[0]), token_of(&b.unwrap()[0]));
         let reloaded = f.store();
         assert_eq!(redeem(&reloaded, &a, &f.files[0]).await.unwrap().absolute, f.files[0]);

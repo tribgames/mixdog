@@ -403,7 +403,17 @@ impl Inner {
         self.roster
             .get_or_try_init(|| async {
                 let dir = self.cfg.dir.clone();
-                let loaded = self.durable(move |lane| Roster::load(lane, &dir)).await??;
+                let loaded = self
+                    .durable(move |lane| {
+                        let mut roster = Roster::load(lane, &dir)?;
+                        // The desktop's old pending revokes join the owed access, once (the file is renamed to `.folded`).
+                        // `dir` is `<data dir>/remote` (compose_flip.rs: `b.data_dir.join("remote")`); the record is under `<data dir>/desktop`.
+                        if let Some(data_dir) = dir.parent() {
+                            crate::access::legacy_revokes::fold(data_dir, &mut roster, lane)?;
+                        }
+                        Ok::<_, SecretError>(roster)
+                    })
+                    .await??;
                 Ok::<_, RemoteError>(Arc::new(Mutex::new(loaded)))
             })
             .await

@@ -13,6 +13,7 @@ use std::sync::LazyLock;
 use std::sync::Mutex;
 use std::sync::PoisonError;
 
+use mixdog_browser_policy::suffix::registrable_domain;
 use regex::Regex;
 use serde_json::Value;
 use serde_json::json;
@@ -20,7 +21,7 @@ use url::Url;
 
 /// How long after the read a mail's link stays navigable: the lifetime the desktop gives a sign-in flow, a 2-step check
 /// included (`MAIL_LINK_WINDOW_MS`, which the desktop's `url-policy.ts` enforces again).
-pub const MAIL_LINK_WINDOW_MS: i64 = 30 * 60_000;
+pub use mixdog_browser_policy::url_policy::MAIL_LINK_WINDOW_MS;
 
 /// `{ url, from_domain, read_at }`.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -52,84 +53,6 @@ fn host_of(domain: &str) -> Option<String> {
     Some(Url::parse(&format!("https://{text}/")).ok()?.host_str()?.to_owned())
 }
 
-/// tldts's `isValidHostname`: a shallow structural check (at most 255 bytes, a label of at most 63, no label starting or ending
-/// with `-`, no empty label) that every host passes before its suffix is looked up.
-fn is_valid_hostname(host: &str) -> bool {
-    host.len() <= 255
-        && host.split('.').all(|label| {
-            let bytes = label.as_bytes();
-            (1..=63).contains(&bytes.len()) && bytes[0] != b'-' && bytes[bytes.len() - 1] != b'-' && bytes.iter().all(|&b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_' || b > 127)
-        })
-}
-
-/// tldts's `isIp` for a host that passed `is_valid_hostname`: seven to fifteen digits and dots with exactly three dots.
-fn is_dotted_quad(host: &str) -> bool {
-    (7..=15).contains(&host.len()) && host.bytes().all(|b| b.is_ascii_digit() || b == b'.') && host.bytes().filter(|&b| b == b'.').count() == 3 && !host.starts_with('.') && !host.ends_with('.')
-}
-
-/// The Organizational Domain of `host` (RFC 7489 §3.2: by the public suffix list, its private suffixes included, so `a.github.io` is
-/// not `b.github.io`); `None` for an invalid hostname, an IP address, a bare suffix or no host.
-fn site_of(host: &str) -> Option<String> {
-    if !is_valid_hostname(host) || is_dotted_quad(host) {
-        return None;
-    }
-    let labels: Vec<&str> = host.split('.').collect();
-    let suffix = suffix::length(&labels);
-    (labels.len() > suffix).then(|| labels[labels.len() - suffix - 1..].join("."))
-}
-
-/// The public-suffix lookup of tldts (`suffix-trie.js`) over the trie it ships (`public_suffix.txt`, generated from it).
-mod suffix {
-    use std::collections::HashMap;
-    use std::sync::LazyLock;
-
-    const DATA: &str = include_str!("mail_links/public_suffix.txt");
-    /// ICANN and private rules both count.
-    const MASK: u8 = 3;
-
-    struct Trie {
-        rules: HashMap<String, u8>,
-        exceptions: HashMap<String, u8>,
-    }
-
-    static TRIE: LazyLock<Trie> = LazyLock::new(|| {
-        let mut trie = Trie { rules: HashMap::new(), exceptions: HashMap::new() };
-        for line in DATA.lines().filter(|line| !line.starts_with('#')) {
-            let mut fields = line.splitn(3, ' ');
-            let (Some(root), Some(flags), Some(path)) = (fields.next(), fields.next(), fields.next()) else { continue };
-            let table = if root == "r" { &mut trie.rules } else { &mut trie.exceptions };
-            table.insert(path.to_owned(), flags.parse().unwrap_or(0));
-        }
-        trie
-    });
-
-    /// The deepest node with a rule the labels (left to right) spell from the right, as `(index of its first label, ...)`.
-    fn walk(nodes: &HashMap<String, u8>, labels: &[&str]) -> Option<usize> {
-        let mut path = String::new();
-        let mut found = None;
-        for (index, label) in labels.iter().enumerate().rev() {
-            let child = |name: &str| if path.is_empty() { name.to_owned() } else { format!("{path}/{name}") };
-            let exact = child(label);
-            let next = if nodes.contains_key(&exact) { exact } else { child("*") };
-            let Some(flags) = nodes.get(&next) else { return found };
-            if flags & MASK != 0 {
-                found = Some(index);
-            }
-            path = next;
-        }
-        found
-    }
-
-    /// How many right-most labels of `labels` are the public suffix.
-    pub(super) fn length(labels: &[&str]) -> usize {
-        // An exception strips its own left-most label; no rule at all makes the right-most label the suffix.
-        if let Some(index) = walk(&TRIE.exceptions, labels) {
-            return labels.len() - index - 1;
-        }
-        walk(&TRIE.rules, labels).map_or(1, |index| labels.len() - index)
-    }
-}
-
 /// The From domain of read_email header `head` when From names exactly one mailbox (with several, RFC 7489 §6.6.1 checks each
 /// author domain, and one verdict cannot vouch for the one a link names) and Gmail authenticated it: DMARC passed for that very
 /// domain, or a passing DKIM signature's `d=` is aligned with it in relaxed mode (the same Organizational Domain, RFC 7489 §3.1.1).
@@ -143,11 +66,11 @@ fn authenticated_sender(head: &Value) -> Option<String> {
     if dmarc.and_then(|d| d.get("result")).and_then(Value::as_str) == Some("pass") && host_of(&text(dmarc.and_then(|d| d.get("from")))).as_deref() == Some(host.as_str()) {
         return Some(host);
     }
-    let site = site_of(&host)?;
+    let site = registrable_domain(&host)?;
     let signed = authentication.and_then(|a| a.get("dkim")).and_then(Value::as_array).is_some_and(|signatures| {
         signatures.iter().any(|sig| {
             sig.get("result").and_then(Value::as_str) == Some("pass")
-                && host_of(&text(sig.get("domain"))).and_then(|domain| site_of(&domain)).as_deref() == Some(site.as_str())
+                && host_of(&text(sig.get("domain"))).and_then(|domain| registrable_domain(&domain)).as_deref() == Some(site.as_str())
         })
     });
     signed.then_some(host)

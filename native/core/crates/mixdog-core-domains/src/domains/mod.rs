@@ -21,6 +21,7 @@ pub mod diagnostics;
 pub mod feedback;
 pub mod host;
 pub mod instructions;
+pub mod pc_access;
 pub mod remote_access;
 pub mod remote_push;
 pub mod update;

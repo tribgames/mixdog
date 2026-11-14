@@ -4044,6 +4044,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "mixdog-browser-policy"
+version = "1.5.0"
+dependencies = [
+ "async-trait",
+ "mixdog-js",
+ "mixdog-testkit",
+ "mixdog-workspace-hack",
+ "serde",
+ "serde_json",
+ "tokio",
+ "url",
+]
+
+[[package]]
 name = "mixdog-cli"
 version = "1.5.0"
 dependencies = [
@@ -5297,6 +5311,7 @@ dependencies = [
  "libc",
  "mixdog-ai",
  "mixdog-app-protocol",
+ "mixdog-browser-policy",
  "mixdog-core-api",
  "mixdog-fsio",
  "mixdog-graph",
@@ -5368,6 +5383,7 @@ dependencies = [
  "mixdog-protocol",
  "mixdog-rt",
  "mixdog-spawn",
+ "mixdog-statefile",
  "mixdog-store",
  "mixdog-testkit",
  "mixdog-workspace",
@@ -5415,7 +5431,6 @@ dependencies = [
  "generic-array",
  "getrandom 0.2.17",
  "getrandom 0.4.3",
- "grep",
  "hashbrown 0.17.1",
  "hmac 0.12.1",
  "hyper",
@@ -5465,6 +5480,7 @@ dependencies = [
  "tokio-rustls",
  "tokio-tungstenite",
  "tokio-util",
+ "toml",
  "toml_datetime",
  "toml_parser",
  "tower-http",
