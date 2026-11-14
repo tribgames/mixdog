@@ -17,6 +17,7 @@ use super::computer_backend::ProcessComputerBackend;
 use super::computer_command::DEFAULT_DELIVERY;
 use super::computer_command::text;
 use super::computer_frames;
+use super::computer_policy;
 use super::computer_recovery::lead_code;
 use super::computer_reply;
 use super::computer_settle;
@@ -443,6 +444,9 @@ impl ProcessComputerBackend {
     /// One step through the helper. A background step goes through the helper's `sequence_step`, which reports the windows around
     /// it; any other is the action itself, settled as a single action is.
     async fn send_step(&self, mut step: Map<String, Value>, window_id: &str, delivery: &str, cancel: &CancellationToken) -> Result<Map<String, Value>, ComputerError> {
+        // Node admits each step again right before its input transport (`input-dispatch.ts`): observation-only mode turned on
+        // mid-sequence refuses the step in the host's words, a failed row that stops the steps left.
+        computer_policy::admit(&step, self.observe_only())?;
         computer_frames::map_step(&self.frames, &mut step)?;
         if delivery != "background" {
             let action = text(&step, "action").to_owned();
@@ -537,7 +541,11 @@ mod tests {
     use mixdog_core_api::domain::computer::ComputerBackend;
     use mixdog_core_api::domain::computer::ComputerRequest;
 
+    use std::sync::atomic::AtomicBool;
+    use std::sync::atomic::Ordering;
+
     use super::super::computer_backend::ComputerConfig;
+    use super::super::computer_backend::ComputerShared;
     use super::super::computer_targets::testing::Scripted;
     use super::*;
 
@@ -597,6 +605,29 @@ mod tests {
         assert_eq!(reply["steps"][1], json!({ "index": 2, "action": "key", "status": "skipped", "reason": "background_unsupported" }));
         assert_eq!(reply["verdict"], json!({ "decision": "escalate", "recommended": "inspect_failed_step" }));
         assert_eq!(reply["capture_after"]["target_reason"], "original_target");
+    }
+
+    /// Observation-only mode turned on after the sequence was admitted refuses the next step in the host's words before it is sent:
+    /// its row fails, and the steps left never reach the helper.
+    #[tokio::test]
+    async fn observation_only_turned_on_mid_sequence_stops_the_steps_left() {
+        let observing = Arc::new(AtomicBool::new(false));
+        let turned_on = observing.clone();
+        let manager = helper(move |request| {
+            (request["action"] == "sequence_step").then(|| {
+                turned_on.store(true, Ordering::SeqCst);
+                Ok(quiet_step(request))
+            })
+        });
+        let setting = observing.clone();
+        let shared = ComputerShared { observe_only: Arc::new(move || setting.load(Ordering::SeqCst)), ..ComputerShared::default() };
+        let actions = json!([{ "type": "key", "keys": "a" }, { "type": "key", "keys": "b" }, { "type": "key", "keys": "c" }]);
+        let parts = backend(&manager).with_shared(shared).run(act(actions), CancellationToken::new()).await.unwrap();
+        let reply = payload(&parts);
+        assert_eq!(sent(&manager, "sequence_step").len(), 1, "only the step admitted before the change was sent");
+        assert_eq!(reply["stopped_reason"], "observation_only");
+        assert_eq!(reply["steps"][1]["status"], "failed");
+        assert_eq!(reply["steps"][2], json!({ "index": 3, "action": "key", "status": "skipped", "reason": "observation_only" }));
     }
 
     /// A dialog the step opened (owned by the target) is the successor: the sequence stops there and the capture is of the dialog.
