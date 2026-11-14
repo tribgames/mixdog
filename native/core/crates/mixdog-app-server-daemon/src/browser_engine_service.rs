@@ -1,8 +1,9 @@
 //! Owner: s4-core-events-service
 //! The daemon service of the browser engine's host lane: what the desktop pushes (`host/browser/events`, `host/browser/page/facts`,
 //! `host/browser/userInput`) goes to the engine's [`EngineSink`], and the end of the desktop's claim goes there as
-//! [`EngineSink::host_gone`]. Only the connection that holds the host claim is believed: a notification from any other connection
-//! is dropped, so a client that never claimed the host role cannot move a page's ledgers or hold it for the person.
+//! [`EngineSink::host_gone`]. Only the connection the engine lane is served by (the latest `browserEngine` claim) is believed: a
+//! notification from any other connection (an earlier desktop still connected after a newer one took the claim included) is
+//! dropped, so a client that does not serve the engine cannot move a page's ledgers or hold it for the person.
 //!
 //! The claim is read from the connection table through [`ClaimantProbe`] when a notification arrives; the connection a notification
 //! last came from is remembered, so its end is known even after the table has forgotten its claim. A different claimant's first
@@ -42,7 +43,8 @@ const NOTIFICATIONS: &[&str] = &[EVENTS, FACTS, USER_INPUT];
 #[cfg(feature = "test-hooks")]
 const NOTIFICATIONS_AND_HOOK: &[&str] = &[EVENTS, FACTS, USER_INPUT, TEST_RUN];
 
-/// Whether a connection is the one that holds the host claim now (the server's claim table, `Outgoing::is_host_claimant`).
+/// Whether a connection is the one the browser engine lane is served by now: the latest claim that declared `browserEngine`
+/// (the server's claim table, `Outgoing::serves_capability`).
 pub trait ClaimantProbe: Send + Sync {
     fn is_claimant(&self, connection: ConnectionId) -> bool;
 }
