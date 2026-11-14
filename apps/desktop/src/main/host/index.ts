@@ -19,10 +19,7 @@ import { createHostReports, type HostUpdater } from './lifecycle';
 import { createVisualizeHost, type VisualizeControl } from './visualize';
 import { type NotificationPresenter, registerNotificationHost } from './notification';
 import { registerSystemProxyHost } from './system-proxy';
-import { type ComputerControlSource, registerComputerHost } from './computer';
-import type { ComputerAppInputDeps } from './computer-app-input';
-import { type ComputerCommandHostSource, registerComputerCommand } from './computer-command';
-import { type ComputerPermissionReads, registerComputerPermissions } from './computer-permissions';
+import { registerComputerHost, type ComputerHostWiring } from './register-s3';
 import { registerHumanOnlyHolds } from './human-only';
 import { registerScreenDisplaysHost } from './screen-displays';
 
@@ -52,14 +49,9 @@ export interface DesktopHostOptions {
   /** `host/browser/viewFrames` is a notification: a live view that failed to start is reported (diagnostics). */
   onBrowserViewFailed: (error: unknown) => void;
   resolveProxy: (url: string) => Promise<string>;
-  /** The computer host while Computer Use is on, else null. */
-  computer: ComputerControlSource;
-  /** Shows the agent's arrow for input `host/computer/appInput` delivered into the desktop's own windows. */
-  computerAppInput: ComputerAppInputDeps;
-  /** The operating-system grants (`host/computer/permissions`): `readComputerPermissions` / `requestComputerPermissions`. */
-  computerPermissions: ComputerPermissionReads;
-  /** The desktop's PowerShell Windows host's bridge answer while Computer Use is on, else null (`host/computer/command`, dual path). */
-  computerCommand: ComputerCommandHostSource;
+  /** Every `host/computer/*` handler's inputs (register-s3.ts): the presence mirror, the permissions, the environment reports and the
+   *  desktop's own computer host while it runs. */
+  computer: ComputerHostWiring;
   notifications: NotificationPresenter;
   updater?: HostUpdater;
   /** An install that failed after `host/update/command` was answered: report it (diagnostics). */
@@ -103,9 +95,7 @@ export function createDesktopHost(options: DesktopHostOptions) {
   const visualize = createVisualizeHost(connection, options.visualize, options.onVisualizePublishFailed);
   registerFilesHost(connection, options.files);
   registerSystemProxyHost(connection, options.resolveProxy);
-  registerComputerHost(connection, options.computer, { appInput: options.computerAppInput });
-  registerComputerPermissions(connection, options.computerPermissions);
-  registerComputerCommand(connection, options.computerCommand);
+  const stopComputer = registerComputerHost(connection, options.computer);
   // The browser host's own screen-displays path (the screen sources' displays, or "Remote screen is unavailable.").
   registerScreenDisplaysHost(connection, () => ({
     list: () => options.browser().remote('screenDisplays', []) as Promise<RemoteScreenDisplaySummary[]>,
@@ -129,6 +119,7 @@ export function createDesktopHost(options: DesktopHostOptions) {
     if (!claimed) return;
     claimed = false;
     tabs.stop();
+    stopComputer();
     commands.stop();
     pageReport.stop();
   });

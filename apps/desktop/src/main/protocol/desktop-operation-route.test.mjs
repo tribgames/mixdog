@@ -370,6 +370,7 @@ const ROOTED = [
     'projectFs/localPage/virtual',
     { files: [{ path: 'index.html', text: '<p>', type: 'text/html' }], ownerId: 'owner1' },
   ],
+  ['localPageAssetType', [R, `${R}/a.css`, R], 'projectFs/localPage/assetType', { root: R, file: `${R}/a.css`, dataRoot: R }],
   // Like the rooted operations, added after the spec map (x-pcaccess-desktop): ipc-computer.ts's PC access row.
   ['pcAccessReadiness', [], 'pcAccess/readiness', {}],
   ['pcAccessApprove', [], 'pcAccess/approve', {}],

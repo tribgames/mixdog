@@ -8,6 +8,7 @@ import { bindPointerPresence } from '../computer/host/pointer-cursor';
 import { computerUseCoordinator } from '../computer/session/coordinator';
 import { createComputerPillSource, type ComputerSectionValue } from '../host/computer-pill';
 import { createDesktopHost, type DesktopHostOptions } from '../host';
+import type { ComputerHostWiring } from '../host/register-s3';
 import { createHostConnection } from './host-connection';
 import type { ProtocolConnection } from './connection';
 
@@ -25,15 +26,16 @@ export function readOrCreateHostId(userDataDir: string): string {
   return created;
 }
 
-export interface LocalHostRoleOptions extends Omit<DesktopHostOptions, 'connection'> {
+export interface LocalHostRoleOptions extends Omit<DesktopHostOptions, 'connection' | 'computer'> {
   protocol: ProtocolConnection;
+  /** The computer host's inputs but the presence mirror, which this role builds before the host. */
+  computer: Omit<ComputerHostWiring, 'mirror'>;
   /** A failed claim (another desktop holds the role, or the core refused) is reported, never retried on a timer:
    *  the next reconnect claims again. */
   onClaimFailed(error: unknown): void;
 }
 
-export function createLocalHostRole({ protocol, onClaimFailed, ...options }: LocalHostRoleOptions) {
-  const host = createDesktopHost({ ...options, connection: createHostConnection(protocol) });
+export function createLocalHostRole({ protocol, onClaimFailed, computer, ...options }: LocalHostRoleOptions) {
   // The presence mirror: the pill and the arrow follow the core's section (the in-process coordinator while the section
   // names the desktop's own host as the backend); moving the real mouse releases the agent's pointer in the core.
   const computerPill = createComputerPillSource(Date.now, {
@@ -47,6 +49,8 @@ export function createLocalHostRole({ protocol, onClaimFailed, ...options }: Loc
       value ?? { active: false, observeOnly: false, controller: null, sessionThreadId: null, sessions: [] }
     );
   });
+  // The mirror exists before the host: the computer handlers draw the app input's arrow through it and ask it who drives the computer.
+  const host = createDesktopHost({ ...options, connection: createHostConnection(protocol), computer: { ...computer, mirror: computerPill } });
   let wasReady = false;
   const claim = (): void => void host.claim().catch(onClaimFailed);
   protocol.onEvent((event) => {

@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import { withDefaultPresets } from '../shared/core-src/runtime/agent/orchestrator/config-presets.mjs';
 import type { SessionSnapshot } from '../shared/contract';
 import { mixdogConfigPath } from './onboarding-status-file';
-import { objectRecord as record } from './workflow-config';
+const record = (v: unknown) => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
 
 function selectedPreset(agent: Record<string, unknown>): Record<string, unknown> | null {
   // Storage holds only the delta from the shipped presets; rebuild the effective list.

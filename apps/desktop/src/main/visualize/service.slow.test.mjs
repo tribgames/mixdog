@@ -21,7 +21,7 @@ import test from 'node:test';
 import { filePreviewServable, registerFilePreview, resolveFilePreview } from '../file-preview.ts';
 import { panePreviewUrl } from './host-pane-preview.ts';
 import { createCoreLocalPages, setCoreLocalPages } from '../core-local-pages.ts';
-import { localPageUrl } from '../local-page-server.ts';
+import { localPageUrl, pageAssetType } from '../local-page-server.ts';
 import { VisualizeBridgeServer } from './bridge-server.ts';
 import { createDesktopVisualize, REMOTE_ONLY_ANNOTATE } from './host.ts';
 import { createVisualizeService } from './service.ts';
@@ -44,8 +44,10 @@ import { remoteLabelOf } from './tab-state.ts';
 
 // The core page server stands behind coreLocalPages(); here the in-process page server answers the same call.
 setCoreLocalPages(
-  createCoreLocalPages(async (name, [root, rel, , ownerId]) => {
+  createCoreLocalPages(async (name, [root, rel, third, ownerId]) => {
     if (name === 'localPageUrlIn') return localPageUrl(root, rel, { scope: 'project', owner: { ownerId }, authorize: async () => {} });
+    if (name === 'localPageAssetType') return pageAssetType(root, rel, third);
+    if (name === 'localPageVirtualIn') return 'http://127.0.0.1:1/__virtual/index.html';
     throw new Error(`unexpected core call ${name}`);
   })
 );

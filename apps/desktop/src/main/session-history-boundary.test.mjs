@@ -35,8 +35,6 @@ test('only the host, its client and readSessionAttachment name the history read'
     // The download host's type Pick, handed on to readSessionAttachment.
     // The service RPC's route onto the core's `thread/items/list` op (main <-> core only).
     'main/protocol/service-route.ts',
-    // The one caller.
-    'main/session-attachments.ts',
   ]);
   // Not the window's preload / renderer / shared contract, nor any remote table.
   assert.equal(

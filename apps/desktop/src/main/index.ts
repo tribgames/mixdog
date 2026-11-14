@@ -78,6 +78,7 @@ import { isSessionOnScreen, screenSessionIds } from './screen-sessions';
 import { setForegroundLeaseLibrary } from './computer/backend/foreground-lock-host';
 import { micaLibraryPath } from './window-mica';
 import { onProtocolAttached, publishScreenSessions } from './protocol/screen-sessions-publish';
+import { adoptProfileIfBehind } from './protocol/profile-adopt';
 import { desktopIdentity } from './desktop-identity';
 import { notificationSoundPath, playWindowsNotificationSound, scaledNotificationSound } from './notification-sound';
 import {
@@ -102,7 +103,6 @@ import { scheduleDeferredDesktopServices as scheduleAfterServiceQuiet } from './
 import { installViewportGuard } from './viewport-guard';
 import { computerUseOperates, createUserInputReporter, type UserInputReporter } from './user-input-report';
 import { agentInputInFlight } from './browser/agent-input';
-import { computerUseCoordinator, type ComputerUseCursorEffect } from './computer/session/coordinator';
 import { electronWindowForNativeId } from './computer/observation/window-handles';
 import {
   gpuFallbackDecision,
@@ -112,7 +112,6 @@ import {
 } from './gpu-recovery';
 import { registerDesktopIpc } from './ipc';
 import { HOST_CAPABILITIES } from './host/connection';
-import { bindComputerEnvironment } from './host/computer-environment';
 import { notifyHostListsChanged } from './host-lists-changed';
 import { createProtocolConnection } from './protocol/connection';
 import { loginUpdateOf } from './protocol/login-feed';
@@ -143,17 +142,15 @@ import { createTerminalRunDispatch } from './terminal/run-dispatch';
 import { TerminalBridgeServer } from './terminal/bridge-server';
 import { VisualizeBridgeServer } from './visualize/bridge-server';
 import { createDesktopVisualize } from './visualize/host';
-import { localPageOrigin } from './local-page-server';
 import { coreLocalPages, createCoreLocalPages, setCoreLocalPages } from './core-local-pages';
 import { windowIdFor } from './core-port/window-ids';
 import { createTerminalCommandExecutor, type TerminalBridgeCommand } from './terminal/commands';
 import { createTerminalRunRequests } from './terminal/run-requests';
 import { createTerminalBridgeBackend } from './terminal/bridge-backend';
 import { readComputerPermissions, requestComputerPermissions } from './computer/host/permission-reads';
-import { applyGnomeExtensionSetting } from './computer/host/gnome-extension';
 import { createComputerUseOverlay, type ComputerUseOverlay } from './computer/overlay';
 import { confirmComputerTurnsStopped } from './computer/overlay/stop-turns';
-import { coreDrivesComputer, createComputerPillControls, createCoreUserControl } from './host/computer-user-control';
+import { createComputerPillControls, createCoreUserControl } from './host/computer-user-control';
 import { MEDIA_SCHEME, registerMediaProtocol, registerMediaScheme } from './media-protocol';
 import { desktopPermissionAllowed } from './permission-policy';
 import { installNativeMenu } from './menu';
@@ -866,16 +863,8 @@ const visualizeBridge = new VisualizeBridgeServer<object>({
   dataDirectory: bridgeDiscoveryDirectory,
   execute: (command) => visualize.execute(command),
 });
-// The renderer frames visualize HTML from the local page server; its CSP
-// names that one origin, so the server starts with the app.
-let localPageFrameOrigin = '';
-void localPageOrigin()
-  .then((origin) => {
-    localPageFrameOrigin = origin;
-  })
-  .catch((error: unknown) => console.error('local page server failed to start:', error));
-// File pages come from the core page server: its origin is read once the core is up and again after each reconnect
-// (a restarted core listens on a new port). Visualize's virtual pages stay on the server above until they move too.
+// File and visualize pages come from the core page server: its origin is read once the core is up and again after each
+// reconnect (a restarted core listens on a new port).
 let corePageFrameOrigin = '';
 function refreshCorePageOrigin(): void {
   void coreLocalPages()
@@ -1077,14 +1066,8 @@ function applyComputerControlSetting(enabled: boolean): void {
   if (enabled && !computerControlEnabled && computerControlApplied) requestComputerPermissions();
   computerControlApplied = true;
   computerControlEnabled = enabled;
-  // GNOME window control comes from Mixdog's own shell extension: keep it in
-  // place and enabled exactly while Computer Use is on (a no-op elsewhere).
-  void applyGnomeExtensionSetting(
-    enabled,
-    app.isPackaged
-      ? join(process.resourcesPath, 'gnome-extension', 'mixdog-windows@mixdog.io')
-      : join(app.getAppPath(), '..', '..', 'native', 'gnome-extension', 'mixdog-windows@mixdog.io')
-  );
+  // GNOME window control comes from Mixdog's own shell extension: the core keeps it in place and enabled exactly while
+  // Computer Use is on (s3-15).
   computerHost?.setBridgeEnabled(computerControlEnabled);
 }
 // Observation only: the bridge keeps serving reads while every input action is
@@ -1161,19 +1144,10 @@ unsubscribeServiceSettings = localService.subscribeDesktopEvents(({ name, value 
 const localProtocol = localConnection.protocol;
 if (!localProtocol) throw new Error('This PC\'s connection has no protocol link.');
 onProtocolAttached(localProtocol, refreshCorePageOrigin);
-// Lock screen, suspend and display changes take the desktop from a core computer execution (computer/userControl
-// takeover), bound once the app is ready (powerMonitor and screen need it). Reported only while the core drives the
-// computer (the pill's section); while the desktop's own host runs Computer Use its in-process guard takes over instead.
-let unbindComputerEnvironment: () => void = () => {};
-function bindCoreComputerEnvironment(protocol: NonNullable<typeof localProtocol>): void {
-  unbindComputerEnvironment = bindComputerEnvironment(
-    powerMonitor,
-    screen,
-    (method, params) => protocol.call(method, params),
-    () => coreDrivesComputer(hostRole.computerPill),
-    (error) => console.warn('[mixdog-computer] environment takeover report failed:', error)
-  );
-}
+// This PC's core adopts the Electron profile's moved files once (local core only: a server's core is not this PC's profile).
+onProtocolAttached(localProtocol, () => {
+  void adoptProfileIfBehind(localProtocol, app.getPath('userData'));
+});
 const hostRole = createLocalHostRole({
   protocol: localProtocol,
   hostId: readOrCreateHostId(desktopUserData),
@@ -1207,36 +1181,33 @@ const hostRole = createLocalHostRole({
     trashItem: (path) => shell.trashItem(path),
   }),
   resolveProxy: (url) => session.defaultSession.resolveProxy(url),
-  computer: () => {
-    const host = computerControlEnabled ? computerHost : null;
-    if (!host) return null;
-    return {
-      assertPublic: assertPublicComputerRequest,
-      answer: (command, signal) => host.answerBridgeCommand(command as ComputerCommand, signal),
-      displays: readDisplays,
-    };
-  },
-  // `host/computer/appInput` into the desktop's own windows, called only by a core that drives the computer. The arrow
-  // follows the session (x, y are native physical pixels); the presence overlay's own showCursor replaces the coordinator's with s3-26.
-  computerAppInput: {
-    showCursor: (sessionId, x, y, action) =>
-      computerUseCoordinator.showCursor({
-        sessionId,
-        x,
-        y,
-        action,
-        effect: action as ComputerUseCursorEffect,
-        mode: 'background',
-      }),
-  },
-  computerPermissions: { read: readComputerPermissions, request: requestComputerPermissions },
-  computerCommand: () => {
-    const host = computerControlEnabled ? computerHost : null;
-    if (!host) return null;
-    return {
-      assertPublic: assertPublicComputerRequest,
-      answerBridgeCommand: (command, signal) => host.answerBridgeCommand(command as ComputerCommand, signal),
-    };
+  // Every host/computer/* handler (host/register-s3.ts). The arrow of `host/computer/appInput` into the desktop's own windows is
+  // drawn through the presence mirror; lock screen, suspend and display changes take the desktop from a core computer
+  // execution (computer/userControl takeover) while the core drives the computer, bound once the app is ready.
+  computer: {
+    permissions: { read: readComputerPermissions, request: requestComputerPermissions },
+    environment: {
+      ready: app.whenReady(),
+      sources: () => ({ power: powerMonitor, screen }),
+      onError: (error) => console.warn('[mixdog-computer] environment takeover report failed:', error),
+    },
+    desktopHostScreen: () => {
+      const host = computerControlEnabled ? computerHost : null;
+      if (!host) return null;
+      return {
+        assertPublic: assertPublicComputerRequest,
+        answer: (command, signal) => host.answerBridgeCommand(command as ComputerCommand, signal),
+        displays: readDisplays,
+      };
+    },
+    desktopHostCommand: () => {
+      const host = computerControlEnabled ? computerHost : null;
+      if (!host) return null;
+      return {
+        assertPublic: assertPublicComputerRequest,
+        answerBridgeCommand: (command, signal) => host.answerBridgeCommand(command as ComputerCommand, signal),
+      };
+    },
   },
   notifications: {
     createNotification: (content) =>
@@ -1968,9 +1939,9 @@ function installRendererSessionPolicy(target: Electron.Session): void {
       return;
     }
     const development = Boolean(process.env.ELECTRON_RENDERER_URL);
-    // Visualize panes frame pages from two loopback page servers only (tokenized): the core's (file and project
-    // pages) and this process's virtual page server (inline visualize pages); no other http origin may be framed.
-    const pageOrigins = [localPageFrameOrigin, corePageFrameOrigin].filter(Boolean).map((origin) => ` ${origin}`);
+    // Visualize panes frame pages from one loopback page server only (tokenized): the core's (file, project and
+    // inline visualize pages); no other http origin may be framed.
+    const pageOrigins = [corePageFrameOrigin].filter(Boolean).map((origin) => ` ${origin}`);
     const frameSrc = `frame-src 'self' blob: ${MEDIA_SCHEME}:${pageOrigins.join('')}`;
     // GitHub avatar hosts are allowed in img-src for the onboarding /
     // settings account cards (github.com redirects to avatars host).
@@ -2247,7 +2218,9 @@ function createWindowPresentation(window: BrowserWindow, startupStartedAt: numbe
 function createDesktopPetController(): DesktopPet {
   const { developmentUrl, rendererUrl } = resolveRendererTarget();
   return createDesktopPet({
-    prefsPath: join(app.getPath('userData'), 'desktop-pet.json'),
+    call: (method, params) => localProtocol.call(method, params),
+    reportError: (what, error) =>
+      diagnostics?.write('desktop-pet-core-failed', { what, message: error instanceof Error ? error.message : String(error) }),
     screen,
     createWindow: (bounds, layer) => {
       const window = new BrowserWindow({
@@ -2401,7 +2374,7 @@ function installLocalWindowFeatures(
     computerUseOverlay = createComputerUseOverlay(
       createComputerPillControls({
         core: createCoreUserControl((method, params) => localProtocol.call(method, params)),
-        snapshot: () => hostRole.computerPill.snapshot(),
+        mirror: hostRole.computerPill,
         abortSession: async (sessionId) => localService.abortSession(sessionId),
         host: {
           // Control-renderer recovery pauses input without cancelling the task.
@@ -2597,7 +2570,7 @@ async function createWindow(connection: DesktopConnection): Promise<void> {
   });
   // Not while Computer Use is executing a command against this window (its
   // Browser Use pages, which live inside it, follow the same rule).
-  const computerUseOnWindow = () => computerUseOperates(computerUseCoordinator, electronWindowForNativeId, window);
+  const computerUseOnWindow = () => computerUseOperates(hostRole.computerPill, electronWindowForNativeId, window);
   inputReporter.watch(window.webContents, computerUseOnWindow);
   userInputReporters.add(inputReporter);
   window.once('closed', () => {
@@ -2734,6 +2707,7 @@ function installWindowIpc(
     },
     serviceUserDataPath: () => connection.serviceUserDataPath(),
     protocol: connection.protocol,
+    pcCore: localProtocol,
     // The updater and the notification sound are this PC's: a server window
     // gets neither (its channels are refused by the feature gates).
     ...(local && process.platform === 'win32' ? { previewNotificationSound: playNotificationSound } : {}),
@@ -3035,7 +3009,6 @@ if (!app.requestSingleInstanceLock()) {
     .whenReady()
     .then(async () => {
       const appReadyAt = Date.now();
-      bindCoreComputerEnvironment(localProtocol);
       // Separate shell registrations keep dev/test Electron shortcuts from
       // replacing the installed Mixdog name and icon.
       if (process.platform === 'win32') {
@@ -3165,7 +3138,6 @@ app.on('before-quit', (event) => {
   userInputReporters.clear();
   desktopTray?.dispose();
   desktopTray = null;
-  unbindComputerEnvironment();
   if (quitAfterDispose) return;
   event.preventDefault();
   void quitSequence.begin();

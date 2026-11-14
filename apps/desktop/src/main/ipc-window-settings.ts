@@ -6,7 +6,6 @@ import { isAllowAllActionsEnable } from './developer-risk-confirm';
 import { raiseDesktopWindow } from './notification-window';
 import { readOnboardingStatusFromDisk } from './onboarding-status-file';
 import { createSignInFocus } from './sign-in-focus';
-import { listSystemFonts } from './system-fonts';
 import type { DesktopSettingsStore } from './settings-store';
 import { setDesktopTitleBarDim, setDesktopTitleBarTheme, setDesktopTitleBarZoom } from './window-options';
 import {
@@ -56,6 +55,8 @@ interface WindowSettingsIpcOptions {
   confirmAllowAllActions?: () => Promise<boolean>;
   /** The host's settings writes announce the `desktop` change themselves (a core connection), so the handlers send none. */
   writesAnnounceThemselves?: boolean;
+  /** This PC's core connection: the font families installed on this computer are its listing (a server window's fonts are this PC's too). */
+  pcCore?: { call(method: string, params: unknown): Promise<unknown> } | null;
 }
 
 /** This PC's daemon as the owner of a server window's provider quota. */
@@ -210,6 +211,7 @@ export function registerWindowSettingsIpc({
   pcHost,
   confirmAllowAllActions,
   writesAnnounceThemselves = false,
+  pcCore,
 }: WindowSettingsIpcOptions): void {
   // Node raised `settings-changed` for the desktop after its write, ahead of the `agent` change its watch found a moment later. A
   // core connection's write carries that announcement itself (`config/value/write` with `announce`), in that order.
@@ -318,7 +320,10 @@ export function registerWindowSettingsIpc({
     );
   });
   // Settings → Appearance: font families installed on this computer.
-  handle(DESKTOP_IPC.listSystemFonts, () => listSystemFonts());
+  handle(DESKTOP_IPC.listSystemFonts, async () => {
+    if (!pcCore) throw new Error('The core connection is not available.');
+    return ((await pcCore.call('desktop/fonts/list', {})) as { families: string[] }).families;
+  });
   // A connector sign-in this window started on this PC's browser brings the
   // window back once the browser callback arrived (sign-in-focus.ts).
   const signInFocus = raiseOnSignIn ? createSignInFocus({ activate: () => raiseDesktopWindow(window) }) : null;
