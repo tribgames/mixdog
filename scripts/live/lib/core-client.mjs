@@ -42,8 +42,10 @@ export async function startThread(core, projectPath, { title } = {}) {
   const r = await core.call('thread/start', {
     kind: 'task',
     projectPath,
-    draft: { projectPath, route: { provider: CUSTOM, model: 'smoke' }, orchestrationMode: 'none', ...(title ? { title } : {}) },
+    draft: { projectPath, route: { provider: CUSTOM, model: 'smoke' }, orchestrationMode: 'none' },
   });
+  // A draft carries no title (the core refuses the field, as the desktop's validator did): a named thread is renamed after it exists.
+  if (title) await core.call('thread/name/set', { threadId: r.thread.id, title });
   await core.client.resumeThread(r.thread.id, { lastItems: 50 });
   return r.thread.id;
 }
