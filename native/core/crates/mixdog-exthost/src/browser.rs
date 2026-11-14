@@ -604,12 +604,8 @@ mod tests {
     const IDLE: Duration = Duration::from_millis(300);
 
     fn service(launches: &Arc<AtomicU64>) -> BrowserHandle {
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(4).unwrap();
         let config = RenderBrowserConfig {
-            command: Some((
-                "node".into(),
-                vec![root.join("src/ext-host/test/fake-browser.mjs").into_os_string()],
-            )),
+            command: Some((crate::pool::tests::fake_binary("ext_fake_browser"), vec!["endpoint".into()])),
             profile_root: std::env::temp_dir().join("mixdog-exthost-idle-tests"),
             no_sandbox: false,
         };
@@ -627,12 +623,11 @@ mod tests {
     /// the next request launches again.
     #[tokio::test(start_paused = true)]
     async fn a_browser_that_never_publishes_its_endpoint_fails_the_launch_at_thirty_seconds() {
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(4).unwrap();
         let config = RenderBrowserConfig {
             command: Some((
-                "node".into(),
+                crate::pool::tests::fake_binary("ext_fake_browser"),
                 vec![
-                    root.join("src/ext-host/test/silent-browser.mjs").into_os_string(),
+                    "silent".into(),
                     std::env::temp_dir().join("mixdog-exthost-silent-browser.pid").into_os_string(),
                 ],
             )),
