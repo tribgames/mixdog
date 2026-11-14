@@ -8,13 +8,11 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { isolatedEnv, isolatedPaths, stageProfile, waitServing } from '../../../scripts/rust-core/lib/core-session.mjs';
-import { endTree, spawnTree } from '../../../scripts/rust-core/lib/process-tree.mjs';
+import { startCore } from '../../../scripts/rust-core/lib/core-session.mjs';
 import { computerSourceEsbuildPlugin } from './computer-source-assets.mjs';
 import { bundleElectronEntry, electronProcessEnv, spawnElectron, waitForChildExit, withTempWorkspace } from './electron-harness.mjs';
 
 const SUITE_LIMIT_MS = 90_000;
-const STOP_MS = 15_000;
 
 function flag(name) {
   const at = process.argv.indexOf(`--${name}`);
@@ -41,58 +39,10 @@ if (!existsSync(suiteFile)) {
   process.exit(2);
 }
 
-/** Starts `mixdogd serve` on the isolated profile under `root`; resolves once it serves. */
-async function startCore(root) {
-  const paths = isolatedPaths(root);
-  const exe = stageProfile(paths, { bin, config: {} });
-  const child = spawnTree(exe, ['serve'], {
-    env: isolatedEnv(paths, { MIXDOGD_TEST_HOOKS: '1' }),
-    cwd: paths.root,
-    stdio: ['ignore', 'pipe', 'pipe'],
-    windowsHide: true,
-  });
-  const tail = [];
-  for (const stream of ['stdout', 'stderr']) {
-    child[stream].setEncoding('utf8');
-    child[stream].on('data', (chunk) => {
-      tail.push(...chunk.split(/\r?\n/).filter(Boolean));
-      tail.splice(0, Math.max(0, tail.length - 40));
-    });
-  }
-  const exited = new Promise((done) => child.once('exit', (code, signal) => done({ code, signal })));
-  const failIfExited = exited.then(({ code, signal }) => {
-    throw new Error(`the core exited (code=${code} signal=${signal}) before it was ready:\n${tail.join('\n')}`);
-  });
-  failIfExited.catch(() => {});
-  try {
-    const discovery = await Promise.race([waitServing(paths.runtimeRoot), failIfExited]);
-    return { paths, discovery, child, exited };
-  } catch (error) {
-    await endTree(child).catch(() => {});
-    throw error;
-  }
-}
-
-/** The core's own stop (`POST /mgmt/stop`), then its exit; the tree is ended by its handle when that fails. */
-async function stopCore({ discovery, child, exited }) {
-  try {
-    const response = await fetch(`http://127.0.0.1:${discovery.core.control.port}/mgmt/stop`, {
-      method: 'POST',
-      headers: { authorization: `Bearer ${discovery.endpoints.session.token}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ mode: 'whenIdle', reason: 'quit' }),
-      signal: AbortSignal.timeout(STOP_MS),
-    });
-    if (!response.ok) throw new Error(`/mgmt/stop answered ${response.status}`);
-    await Promise.race([exited, new Promise((_, reject) => setTimeout(() => reject(new Error('the core did not exit')), STOP_MS))]);
-  } catch {
-    await endTree(child).catch(() => {});
-  }
-}
-
 const coreRoot = mkdtempSync(join(tmpdir(), 'mixdog-browser-core-'));
 let core = null;
 try {
-  core = await startCore(coreRoot);
+  core = await startCore({ bin, root: coreRoot, extraEnv: { MIXDOGD_TEST_HOOKS: '1' }, clientName: 'browser-core-harness' });
   await withTempWorkspace('mixdog-browser-core-integration-', async (staging) => {
     const output = join(staging, 'browser-core-integration.mjs');
     const entry = join(staging, 'entry.ts');
@@ -131,6 +81,7 @@ try {
     }
   });
 } finally {
-  if (core) await stopCore(core);
+  // The core's own stop (`POST /mgmt/stop`), else its tree ended by handle; a failed stop is reported, not thrown over the run's outcome.
+  if (core) await core.stop().catch((error) => console.error(error.message));
   await rm(coreRoot, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }).catch(() => {});
 }
