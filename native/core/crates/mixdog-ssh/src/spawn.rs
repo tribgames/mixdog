@@ -26,19 +26,26 @@ use crate::binary::{missing_client_message, ssh_tool_command};
 use crate::command::{classify_failure, exec_args, stderr_tail_default, FailureClass, SshError, SshTarget};
 use crate::context::{AttemptContext, ChildExit, PreparedSpawn, SshChild, SshEnv, SshSpawner};
 use crate::diagnostics::SpawnTrace;
+use crate::private_dir::join_name;
 
 /// Bytes kept of what a short ssh run printed (both streams together).
 pub const MAX_CAPTURE_BYTES: usize = 4 * 1024 * 1024;
 /// Bytes of one stdin write or one read of a pipe.
 const CHUNK: usize = 64 * 1024;
 
-/// `~` or `~/x` (either separator) in front of a path is this user's home folder.
+/// `~` or `~/x` (either separator) in front of a path is this user's home folder, joined with the separator of the
+/// platform ssh runs on (Node's `path.join`, which writes `\` on Windows), not of the host the code was built for.
 fn expand_home(env: &SshEnv, path: &str) -> String {
+    let home = env.home.to_string_lossy();
     if path == "~" {
-        return env.home.to_string_lossy().into_owned();
+        return home.into_owned();
     }
     match path.strip_prefix("~/").or_else(|| path.strip_prefix("~\\")) {
-        Some(rest) => env.home.join(rest.trim_start_matches(['/', '\\'])).to_string_lossy().into_owned(),
+        Some(rest) => {
+            let rest = rest.trim_start_matches(['/', '\\']);
+            let rest = if env.platform.is_windows() { rest.replace('/', "\\") } else { rest.to_owned() };
+            join_name(env.platform, &home, &rest)
+        }
         None => path.to_owned(),
     }
 }
