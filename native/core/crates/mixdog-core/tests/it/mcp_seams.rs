@@ -19,6 +19,7 @@ use mixdog_agent::env::ToolGate;
 use mixdog_agent::message::AgentMessage;
 use mixdog_agent::message::Source;
 use mixdog_agent::tools::ToolEnv;
+use mixdog_core::run_host::hooks::PostToolAnswer;
 use mixdog_core::run_host::hooks::PostToolDispatch;
 use mixdog_core::run_host::hooks::PostToolEvent;
 use mixdog_core::run_host::mcp_seams::BusPostToolDispatch;
@@ -560,7 +561,7 @@ async fn the_post_tool_dispatch_asks_the_bus_with_the_sessions_common_fields() {
     );
     let event = PostToolEvent { call_id: "c1".to_owned(), name: "edit".to_owned(), args: json!({"file_path": "a"}), cwd: dir.path().to_string_lossy().into_owned(), session_id: "s1".to_owned(), result: "ok".to_owned() };
     // No hooks are configured: nothing replaces the result and nothing blocks.
-    assert_eq!(dispatch.post_tool(&event).await, None);
+    assert_eq!(dispatch.post_tool(&event).await, PostToolAnswer::default());
     dispatch.post_failure(&event).await;
     let decision = dispatch.post_batch("s1", &event.cwd, 2).await.expect("a batch with calls is dispatched");
     assert!(!decision.blocked);

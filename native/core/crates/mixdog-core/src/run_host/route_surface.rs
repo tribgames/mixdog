@@ -185,10 +185,16 @@ pub fn resumed_surface_change(surface: &ToolSurface, clock: &dyn Clock, header: 
 /// `mgr.resumeSession(id, toolSpecForMode(getMode()))` (`session-switch/resume.mjs:146`), and `_prepareResumeTools` takes
 /// that spec over the stored one (`preset || session.preset || 'full'`). `getMode()` is the thread's own tool mode, the one
 /// the restore after it reads: a readonly Lead resolves the readonly spec again, not the `full` of the `preset` its record
-/// names. An agent's session resolves `full` either way.
+/// names. An agent's session resolves `full` either way. Owner-approved difference from Node (B-16): a record whose
+/// `preset` is an explicit spec narrower than `full` (a tool list such as `tools: [read, grep]` or `[]`, or the named
+/// `readonly` or `mcp` spec) keeps it, so a resume does not widen it to the mode's spec; the mode's spec is used only when
+/// the preset is absent or resolves to `full`.
 pub fn resume_header(scoped: &Header) -> Header {
     let mut resuming = scoped.clone();
-    resuming.insert("preset".to_owned(), tool_spec_for_mode(thread_mode(scoped)));
+    let narrowed = matches!(scoped.get("preset"), Some(Value::Array(_))) || matches!(scoped.get("preset").and_then(Value::as_str), Some("readonly" | "mcp"));
+    if !narrowed {
+        resuming.insert("preset".to_owned(), tool_spec_for_mode(thread_mode(scoped)));
+    }
     resuming
 }
 
@@ -446,5 +452,19 @@ mod tests {
             assert_eq!(Value::Bool(changed), row["changed"], "{}", row["before"]);
             assert_eq!(session, row["after"], "{}", row["before"]);
         }
+    }
+
+    /// A resume keeps the explicit tool list a Lead was created with (owner-approved difference from Node, B-16) and
+    /// resolves the mode's spec for any other preset.
+    #[test]
+    fn a_resume_keeps_an_explicitly_narrowed_preset() {
+        let record = |preset: Value, mode: &str| Header::from_iter([("preset".to_owned(), preset), ("toolMode".to_owned(), json!(mode))]);
+        let narrow = json!(["read", "grep"]);
+        assert_eq!(resume_header(&record(narrow.clone(), "full"))["preset"], narrow);
+        assert_eq!(resume_header(&record(json!([]), "full"))["preset"], json!([]));
+        assert_eq!(resume_header(&record(json!("readonly"), "full"))["preset"], json!("readonly"));
+        assert_eq!(resume_header(&record(json!("full"), "full"))["preset"], json!("full"));
+        assert_eq!(resume_header(&record(json!("full"), "readonly"))["preset"], tool_spec_for_mode("readonly"));
+        assert_eq!(resume_header(&Header::from_iter([("toolMode".to_owned(), json!("readonly"))]))["preset"], tool_spec_for_mode("readonly"));
     }
 }

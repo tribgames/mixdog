@@ -292,6 +292,8 @@ pub fn compose_session_prompt(input: &SessionPromptInput, paths: &PromptPaths, s
         input.instruction_files_context.map_or_else(|| sources.instruction_files(config_mode, input.cwd), str::to_owned)
     };
     let part = |text| if input.owner_is_agent { "" } else { text };
+    // A delegated worker gets no workflow pack (owner-approved difference from Node, B-12): its own rules carry the approval policy.
+    let workflow = part(input.workflow_context);
     let slices = Slices {
         skip: input.profile_skip,
         agent_rules: &injected_rules,
@@ -302,7 +304,7 @@ pub fn compose_session_prompt(input: &SessionPromptInput, paths: &PromptPaths, s
         skip_persona: role.skip_persona,
         agent: input.agent,
         provider: Some(input.provider),
-        workflow_context: input.workflow_context,
+        workflow_context: workflow,
         role_rules: &role.role_rules,
         orchestration_context: part(input.orchestration_context),
         lead_mode_rules: &role.lead_mode_rules,
@@ -323,7 +325,7 @@ pub fn compose_session_prompt(input: &SessionPromptInput, paths: &PromptPaths, s
     let coding_lead = !input.owner_is_agent && !input.agent_mode;
     let sections = Sections {
         meta: &meta_context,
-        workflow: input.workflow_context,
+        workflow,
         orchestration: if coding_lead { input.orchestration_context } else { "" },
         orchestration_mode: if coding_lead { input.orchestration_mode } else { "" },
         skills: input.skill_manifest,

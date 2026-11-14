@@ -288,3 +288,23 @@ fn initdb_skips_its_flushes_exactly_where_this_process_elides_its_own() {
     assert!(!initdb_args(data, None, false).contains(&"--no-sync".to_owned()));
     assert_eq!(initdb_args(data, Some(Path::new("share")), false)[..4], ["-D", "pgdata", "-L", "share"]);
 }
+
+/// A data directory without `PG_VERSION` that holds something is kept under another name (never deleted) so a new cluster can be made; an empty one is removed
+/// and a missing one is left (A-18: Node's `initdb` refuses the non-empty one for good).
+#[tokio::test]
+async fn a_data_dir_without_a_cluster_is_moved_aside_not_deleted() {
+    let lane = mixdog_rt::testing::tokens().durability_io;
+    let dir = tempfile::tempdir().unwrap();
+    quarantine_without_cluster(lane, &dir.path().join("pgdata")).await.unwrap();
+    let data = pgdata(dir.path());
+    quarantine_without_cluster(lane, &data).await.unwrap();
+    assert!(!data.exists(), "an empty one is removed");
+    std::fs::create_dir_all(&data).unwrap();
+    std::fs::write(data.join("half"), "x").unwrap();
+    quarantine_without_cluster(lane, &data).await.unwrap();
+    assert!(!data.exists(), "the way for a new cluster is clear");
+    let kept: Vec<_> = std::fs::read_dir(dir.path()).unwrap().map(|entry| entry.unwrap().path()).collect();
+    assert_eq!(kept.len(), 1);
+    assert!(kept[0].file_name().unwrap().to_string_lossy().starts_with("pgdata.broken-"));
+    assert_eq!(std::fs::read_to_string(kept[0].join("half")).unwrap(), "x", "its content is kept");
+}

@@ -205,6 +205,7 @@ mod tests {
                 skipped: request.budget_tokens == 0,
                 pipeline_ms: 0.0,
                 summary_ms: None,
+                summary_route: None,
             })
         }
         fn cache_expired(&self) -> bool {

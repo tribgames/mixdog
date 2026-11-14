@@ -33,6 +33,8 @@ pub trait OAuthProvider: Send + Sync {
 /// registry sync, caches, admission cooldowns and catalogs. Boot owns these.
 pub trait AuthRefresh: Send + Sync {
     fn after_credential_change(&self);
+    /// `onCustomProviderRemoved(id)`: a deleted custom provider leaves the registry at once, before the refresh that follows.
+    fn custom_provider_removed(&self, id: &str);
     fn adopt_credentials(&self);
     fn after_usage_auth_change(&self);
     fn release_admission_cooldowns(&self);

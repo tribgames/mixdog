@@ -24,7 +24,7 @@ fn read(store: &AttachmentStore, lane: &InLane<InteractiveIo>, reference: &str) 
     match store.read_blob(lane, reference) {
         Ok(bytes) => Ok(Some(bytes)),
         Err(BlobError::Permanent) => Ok(None),
-        Err(BlobError::Invalid(message) | BlobError::Transient(message)) => Err(failed("thread", message)),
+        Err(BlobError::Invalid(message) | BlobError::Transient(message)) => Err(failed("session", message)),
     }
 }
 
@@ -69,7 +69,7 @@ pub(super) fn materialize_texts(store: &AttachmentStore, lane: &InLane<Interacti
             continue;
         }
         // A refusal is answered with Node's own sentence, as `saveBuffer`'s throw reaches the caller.
-        let taken = pasted_text(&store, raw).map_err(|message| failed("thread", message))?;
+        let taken = pasted_text(&store, raw).map_err(|message| failed("session", message))?;
         if let Some((_, entry)) = taken {
             *raw = entry;
         }

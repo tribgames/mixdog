@@ -289,18 +289,18 @@ mod tests {
         let heard = Arc::new(Mutex::new(Vec::new()));
         let told = heard.clone();
         tokio::spawn(late.follow(&fx.lifecycle, move |state| told.lock().unwrap().push(state)));
-        fx.lifecycle.hold(true).unwrap();
+        fx.lifecycle.hold(true, None).unwrap();
         reads(&mut gate, StartHold::Held).await;
-        fx.lifecycle.hold(false).unwrap();
+        fx.lifecycle.hold(false, None).unwrap();
         reads(&mut gate, StartHold::Open).await;
+        fx.lifecycle.hold(true, None).unwrap();
+        reads(&mut gate, StartHold::Held).await;
         let work = fx.lifecycle.begin_activity(crate::lifecycle::ActivityInfo {
             kind: crate::lifecycle::ActivityKind::Turn,
             thread_id: Some("thread-1".into()),
             turn_id: Some("turn-1".into()),
             title: "a turn".into(),
         });
-        fx.lifecycle.hold(true).unwrap();
-        reads(&mut gate, StartHold::Held).await;
         fx.lifecycle.stop(StopMode::WhenIdle, StopReason::Update, None).unwrap();
         reads(&mut gate, StartHold::Closed(mixdog_protocol::DrainReason::Update)).await;
         let drain_id = fx.lifecycle.status().drain.as_ref().expect("draining").drain_id.clone();
@@ -321,19 +321,19 @@ mod tests {
         let fx = fixture();
         fx.lifecycle.set_serving().unwrap();
         let _client = fx.lifecycle.connection(ClientKind::Session);
+        let late = Arc::new(LateLifecycle::default());
+        let mut gate = late.start_hold();
+        tokio::spawn(late.follow(&fx.lifecycle, |_| {}));
+        fx.lifecycle.hold(true, None).unwrap();
+        reads(&mut gate, StartHold::Held).await;
         let work = fx.lifecycle.begin_activity(crate::lifecycle::ActivityInfo {
             kind: crate::lifecycle::ActivityKind::Turn,
             thread_id: Some("thread-1".into()),
             turn_id: Some("turn-1".into()),
             title: "a turn".into(),
         });
-        let late = Arc::new(LateLifecycle::default());
-        let mut gate = late.start_hold();
-        tokio::spawn(late.follow(&fx.lifecycle, |_| {}));
-        fx.lifecycle.hold(true).unwrap();
-        reads(&mut gate, StartHold::Held).await;
         // Both moves with no await between: the follower, on this test's one thread, wakes once after them.
-        fx.lifecycle.hold(false).unwrap();
+        fx.lifecycle.hold(false, None).unwrap();
         fx.lifecycle.stop(StopMode::WhenIdle, StopReason::Update, None).unwrap();
         reads(&mut gate, StartHold::Open).await;
         assert_eq!(*fx.lifecycle.state().borrow(), CoreState::Draining { reason: mixdog_protocol::DrainReason::Update });

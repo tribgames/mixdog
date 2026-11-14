@@ -915,6 +915,8 @@ impl SessionDirectory {
     /// carried no system prompt and no tools.
     pub async fn create_imported_session(&self, header: Header, params: Value) -> Result<ThreadId, CoreError> {
         let id = self.inner.mint_session_id();
+        // Node's `createSession` boots the imported session's runtime on the route its options name.
+        self.inner.deps.new_route.boot(&id, &header);
         let header = self
             .inner
             .deps
@@ -1410,6 +1412,11 @@ impl DirInner {
                             me.refresh_resumed_tools(handle).await;
                             // `resume`'s `setRoute(resumedRoute)`: the runtime takes the route its session holds.
                             me.deps.new_route.boot(&thread, &handle.cell.header.load_full());
+                            // `resume`'s `routePreparation`: the booted route takes its effort fields once the provider's catalog
+                            // answers; the open does not wait for it.
+                            let route = me.deps.new_route.clone();
+                            let prepared = thread.clone();
+                            drop(mixdog_rt::spawn("route-prepare", TaskClass::Work, async move { route.prepare(&prepared).await }));
                         }
                         // An open a person waits for: one that took long says which step did.
                         let ended = me.deps.clock.now_ms();
@@ -1503,10 +1510,8 @@ impl DirInner {
     /// `agent-room-turn.ts:278`, `agent-room-views.ts:89`), so a client on the log receives them
     /// and its response decides them in the member's thread (P §8.4).
     fn lineage_of(&self, id: &ThreadId, header: &Header) -> Lineage {
-        if let Some(member) = mixdog_core_base::rooms::ids::room_member_of_session(id.as_str())
-            && let Some(log) = mixdog_core_base::rooms::ids::room_session_id(&member.room_id)
-        {
-            return Lineage { surface: ThreadId::from(log), chain: Vec::new() };
+        if let Some(log) = super::delegation::room_log_surface(id.as_str()) {
+            return Lineage { surface: log, chain: Vec::new() };
         }
         let Some(parent) = header
             .get("parentSessionId")

@@ -73,7 +73,21 @@ pub trait ScopeConfigs: Send + Sync {
 
     /// `ensurePluginServerData` (`plugin-servers.mjs`): makes `folders`, the data folders of the plugin servers an
     /// operation is about to connect, in that operation's turn and before its connect.
-    async fn make_data_folders(&self, _folders: Vec<PathBuf>) {}
+    /// A folder that cannot be made is answered with why: its server cannot connect (`mkdirSync` throws).
+    async fn make_data_folders(&self, _folders: Vec<PathBuf>) -> Vec<(PathBuf, String)> {
+        Vec::new()
+    }
+}
+
+/// `configs` with the servers whose data folder `failed` made unconnectable; `folders` names each server's folder.
+fn block_failed(configs: &mut [McpServerConfig], folders: &[(String, PathBuf)], failed: &[(PathBuf, String)]) {
+    for (folder, why) in failed {
+        for (name, _) in folders.iter().filter(|(_, own)| own == folder) {
+            if let Some(config) = configs.iter_mut().find(|config| &config.name == name) {
+                config.blocked = Some(why.clone());
+            }
+        }
+    }
 }
 
 /// The plugin data folders `op` makes before it connects (`connect.mjs:119`, `server-connection.mjs:41`): every enabled
@@ -473,10 +487,11 @@ impl ScopeRuntime {
         // `syncScopeRoot` (mcp-glue/server-connection.mjs:70): the roots the scope-following servers advertise track
         // the session's folder, and the connected ones are told when it moved.
         self.hub.set_scope_root(&cell.scope, &cell.cwd());
-        let resolved = self.configs.resolve(&cell.scope, &cell.cwd(), only).await;
+        let mut resolved = self.configs.resolve(&cell.scope, &cell.cwd(), only).await;
         let folders = data_folders(op, &resolved.data_folders);
         if !folders.is_empty() {
-            self.configs.make_data_folders(folders).await;
+            let failed = self.configs.make_data_folders(folders).await;
+            block_failed(&mut resolved.configs, &resolved.data_folders, &failed);
         }
         self.connect(&cell.scope, generation, op, resolved).await;
         #[cfg(feature = "test-support")]
@@ -584,9 +599,20 @@ impl ScopeRuntime {
     /// The runtime scope is the exception ([`McpHub::retire_scope`]): its servers close, but it stays in the
     /// table and its owner is not closed, so it reads on and a reset connects it again.
     pub fn release(&self, owner: &str) {
+        self.release_scopes(owner, true);
+    }
+
+    /// [`release`](Self::release) for an owner that only left memory (an idle session unloaded: Node's runtime close
+    /// disconnects its scope, and the resume that follows boots a new one): the owner is not closed, so it opens a new
+    /// scope when it comes back.
+    pub fn release_unloaded(&self, owner: &str) {
+        self.release_scopes(owner, false);
+    }
+
+    fn release_scopes(&self, owner: &str, close_owner: bool) {
         let retired: Vec<(Arc<Cell>, Vec<Arc<McpServer>>)> = {
             let mut table = lock(&self.table);
-            if owner != RUNTIME_OWNER {
+            if close_owner && owner != RUNTIME_OWNER {
                 table.closed_owners.insert(owner.to_owned());
             }
             let held: Vec<String> = table.cells.iter().filter(|(_, cell)| *lock(&cell.owner) == owner).map(|(scope, _)| scope.clone()).collect();

@@ -1520,6 +1520,9 @@ mod tests {
         fn release_mcp_scope(&self, session_id: &str) {
             self.inner.release_mcp_scope(session_id);
         }
+        fn unload_mcp_scope(&self, session_id: &str) {
+            self.inner.unload_mcp_scope(session_id);
+        }
         fn forget_session_search(&self, session_id: &str) {
             self.inner.forget_session_search(session_id);
         }

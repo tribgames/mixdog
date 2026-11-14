@@ -66,6 +66,8 @@ struct Configs {
     data_folders: Mutex<Vec<(String, PathBuf)>>,
     /// The data folders made, in order.
     made: Mutex<Vec<PathBuf>>,
+    /// The data folders that cannot be made.
+    refused: Mutex<Vec<PathBuf>>,
 }
 
 impl Configs {
@@ -111,8 +113,10 @@ impl ScopeConfigs for Configs {
         }
     }
 
-    async fn make_data_folders(&self, folders: Vec<PathBuf>) {
-        lock(&self.made).extend(folders);
+    async fn make_data_folders(&self, folders: Vec<PathBuf>) -> Vec<(PathBuf, String)> {
+        let refused = lock(&self.refused).clone();
+        lock(&self.made).extend(folders.iter().cloned());
+        folders.into_iter().filter(|folder| refused.contains(folder)).map(|folder| (folder, "access denied".to_owned())).collect()
     }
 }
 
@@ -802,4 +806,35 @@ async fn plugin_data_folders_are_made_only_by_the_operations_that_connect() {
     runtime.run("s1", Op::Reconcile).await;
     assert_eq!(configs.made(), paths(&["/d/alpha", "/d/beta", "/d/alpha", "/d/alpha", "/d/beta"]), "a reconcile makes every enabled one's");
     runtime.release("t1");
+}
+
+/// `ensurePluginServerData` throws before the connect: a server whose data folder cannot be made fails with the reason,
+/// and the others connect.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_server_whose_data_folder_cannot_be_made_fails_to_connect() {
+    let Rig { runtime, hub, configs, .. } = rig();
+    configs.set(&["alpha", "beta"]);
+    *lock(&configs.data_folders) = vec![("alpha".to_owned(), PathBuf::from("/d/alpha")), ("beta".to_owned(), PathBuf::from("/d/beta"))];
+    *lock(&configs.refused) = vec![PathBuf::from("/d/alpha")];
+    runtime.open("s1", "t1", "/w").await.unwrap();
+    assert!(
+        matches!(&*hub.server_in("s1", "alpha").unwrap().state(), ServerState::Failed { cause } if cause == "access denied"),
+        "the refused folder's server failed"
+    );
+    assert!(ready(&hub.server_in("s1", "beta").unwrap().state()), "the other server connected");
+    runtime.release("t1");
+}
+
+/// An owner that left memory (an idle session unloaded) lets its scope go and opens a new one when it comes back; an
+/// owner that was closed cannot.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unloaded_owner_opens_a_new_scope_and_a_closed_one_cannot() {
+    let Rig { runtime, configs, .. } = rig();
+    configs.set(&["alpha"]);
+    runtime.open("s1", "t1", "/w").await.unwrap();
+    runtime.release_unloaded("t1");
+    assert_eq!(runtime.open("s1", "t1", "/w").await, Err(ScopeReleased), "the released scope stays released");
+    runtime.open("s2", "t1", "/w").await.unwrap();
+    runtime.release("t1");
+    assert_eq!(runtime.open("s3", "t1", "/w").await, Err(ScopeReleased), "a closed owner opens no other scope");
 }

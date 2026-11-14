@@ -20,8 +20,8 @@ impl<T> SessionGoals for T where
 }
 
 /// The queue mode of an automatic Goal turn.
-pub const CONTINUATION_MODE: &str = "goal-continuation";
-const CLOSEOUT_MODE: &str = "goal-closeout";
+pub const CONTINUATION_MODE: &str = mixdog_protocol::message_class::GOAL_CONTINUATION_SOURCE;
+const CLOSEOUT_MODE: &str = mixdog_protocol::message_class::GOAL_CLOSEOUT_SOURCE;
 
 /// The `goalContinuation` inputs of the facade (`goal-facade-api.mjs`): the session's todo list
 /// as the Goal's block, and whether the session waits on an agent or an awaited background
@@ -265,7 +265,7 @@ pub fn automatic(input_row: &Value) -> bool {
 
 /// Whether a row is the prompt of a Goal entry's turn ([`input_row`]), which shows no row of its own.
 pub fn is_goal_prompt(row: &Value) -> bool {
-    matches!(row.pointer("/meta/source").and_then(Value::as_str), Some(CONTINUATION_MODE | CLOSEOUT_MODE))
+    mixdog_protocol::message_class::is_goal_prompt(row)
 }
 
 /// `isUsageLimitError`: a spent quota, a plan-gated feature or a billing refusal, never a bare

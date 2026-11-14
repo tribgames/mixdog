@@ -27,6 +27,9 @@ use crate::memory::service::MemoryModule;
 pub trait MemoryCallers: Send + Sync {
     /// `memoryCallerScope(session)` of the calling thread: `{ kind, agentId }`.
     async fn memory_caller(&self, thread: &ThreadId) -> Value;
+    /// The session whose runtime loads the memory module for a call of `thread`: a delegated worker's calls run in its owner's runtime
+    /// (the top of its headers' `parentSessionId` chain), so the owner is the session marked, never the worker; any other thread is its own.
+    async fn runtime_owner(&self, thread: &ThreadId) -> String;
 }
 
 /// `{ ...memoryToolArgsForCaller(args, callerCwd), memory_caller }`: the model's own `cwd`, if it
@@ -63,9 +66,9 @@ struct Host {
 }
 
 impl Host {
-    /// The call's arguments; the calling session's runtime has loaded the module (`knowledge-tools.mjs:45`, `getMemoryModule()`).
+    /// The call's arguments; the calling session's runtime (its owner's, for a delegated worker) has loaded the module (`knowledge-tools.mjs:45`, `getMemoryModule()`).
     async fn args(&self, call: &ServiceCall<'_>) -> Value {
-        self.memory.note_session_use(call.thread.as_str());
+        self.memory.note_session_use(&self.callers.runtime_owner(call.thread).await);
         args_for_caller(call.args, call.cwd.as_path(), self.callers.memory_caller(call.thread).await)
     }
 }

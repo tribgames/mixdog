@@ -268,8 +268,7 @@ pub(crate) fn read_config(data: &Path) -> Result<Option<(Vec<u8>, Value)>> {
     let Some(bytes) = durable::read_optional(&path)? else {
         return Ok(None);
     };
-    let text = bytes.strip_prefix("\u{feff}".as_bytes()).unwrap_or(&bytes);
-    let value = json::parse_source(text).map_err(|detail| Blocked::StoreSchema {
+    let value = json::parse_config(&bytes).map_err(|detail| Blocked::StoreSchema {
         key: "store/settings".into(),
         detail,
     })?;

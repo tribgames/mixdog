@@ -169,6 +169,9 @@ pub enum CallError {
     /// `outcome_unknown`: the call may have run.
     #[error("{message}")]
     Recovery { message: String, outcome_unknown: bool },
+    /// The call sat without progress past the server's call timeout (`runMcpRequest`'s `timeoutMessage`).
+    #[error("{0}")]
+    TimedOut(String),
 }
 
 pub struct McpServer {
@@ -522,6 +525,12 @@ impl McpServer {
         }
         let generation = self.generation.fetch_add(1, Ordering::AcqRel) + 1;
         self.state.send_replace(Arc::new(ServerState::Starting));
+        if let Some(cause) = &self.config.blocked {
+            let cause = scrub(cause, &self.secrets);
+            self.died.store(None);
+            self.publish(generation, ServerState::Failed { cause: cause.clone() });
+            return Err(ConnectError::Failed(cause));
+        }
         let opened: Mutex<Option<Arc<RpcClient>>> = Mutex::new(None);
         let outcome = match self.config.startup_timeout {
             Some(budget) => match mixdog_rt::time::timeout(budget, self.handshake(&opened)).await {
@@ -905,10 +914,12 @@ impl McpServer {
             return Err(CallError::UnknownTool { server: self.name().to_owned(), tool: tool.to_owned() });
         };
         match self.call_ready(gate, &ready, owner, request, arguments, cancel, deadline).await {
-            Err(CallError::Rpc(retry)) if !matches!(retry, RpcError::Cancelled) && !cancel.is_cancelled() => {
-                // The SDK's text of a JSON-RPC error (`McpError`).
+            Err(retry @ (CallError::Rpc(_) | CallError::TimedOut(_)))
+                if !matches!(retry, CallError::Rpc(RpcError::Cancelled)) && !cancel.is_cancelled() =>
+            {
+                // The SDK's text of a JSON-RPC error (`McpError`); a timed-out replay is wrapped too (`retryMsg`).
                 let (text, answered) = match &retry {
-                    RpcError::Server { code, message, .. } => (format!("MCP error {code}: {message}"), true),
+                    CallError::Rpc(RpcError::Server { code, message, .. }) => (format!("MCP error {code}: {message}"), true),
                     other => (other.to_string(), false),
                 };
                 let message = format!("Tool call failed: {first}; retry after reconnect also failed: {text}");
@@ -1014,6 +1025,20 @@ impl McpServer {
         };
         let result = ready.client.request(method, params, options).await;
         drop(permit);
+        // The call's own deadline, worded as `runMcpRequest`'s caller words it (`executeMcpTool`, `_callMcpFeatureWithTimeout`).
+        let result = result.map_err(|error| match (error, self.config.call_timeout) {
+            (RpcError::IdleTimeout, Some(limit)) => {
+                let (kind, field, name) = match request {
+                    Request::Tool(tool) => ("tool", "tool", tool),
+                    Request::Feature(feature) => ("feature", "operation", feature.operation()),
+                };
+                CallError::TimedOut(scrub(
+                    &format!("MCP {kind} call timed out after {}ms without progress (server=\"{}\", {field}=\"{name}\")", limit.as_millis(), self.name()),
+                    &self.secrets,
+                ))
+            }
+            (error, _) => CallError::Rpc(error),
+        });
         match request {
             Request::Tool(tool) => self.checked(ready, tool, result?, cancel).await,
             // The server's answer, as the text of a call that succeeded.

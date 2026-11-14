@@ -14,6 +14,13 @@ use globset::Glob;
 use globset::GlobBuilder;
 use globset::GlobSet;
 use globset::GlobSetBuilder;
+use nucleo_matcher::Config as FuzzyConfig;
+use nucleo_matcher::Matcher as FuzzyMatcher;
+use nucleo_matcher::Utf32String;
+use nucleo_matcher::pattern::AtomKind;
+use nucleo_matcher::pattern::CaseMatching;
+use nucleo_matcher::pattern::Normalization;
+use nucleo_matcher::pattern::Pattern;
 use mixdog_core_api::domain::common::AbsPath;
 use mixdog_core_api::domain::fs::Descent;
 use mixdog_core_api::domain::fs::DirEntry;
@@ -985,42 +992,6 @@ impl Default for FindTool {
     }
 }
 
-/// Case-insensitive subsequence score of one fragment against a path; `None`
-/// when the fragment is not a subsequence.
-fn fuzzy_score(token: &str, path: &str) -> Option<i64> {
-    let hay: Vec<char> = path.chars().flat_map(char::to_lowercase).collect();
-    let needle: Vec<char> = token.chars().flat_map(char::to_lowercase).collect();
-    if needle.is_empty() {
-        return Some(0);
-    }
-    let base_start = hay.iter().rposition(|c| *c == '/').map_or(0, |i| i + 1);
-    let mut score = 0i64;
-    let mut at = 0usize;
-    let mut prev: Option<usize> = None;
-    for n in &needle {
-        let found = (at..hay.len()).find(|i| hay[*i] == *n)?;
-        score += 16;
-        if prev.is_some_and(|p| p + 1 == found) {
-            score += 8;
-        }
-        if found == 0 || matches!(hay[found - 1], '/' | '.' | '_' | '-' | ' ') {
-            score += 10;
-        }
-        if found >= base_start {
-            score += 2;
-        }
-        score -= prev.map_or(0, |p| (found - p - 1).min(8) as i64);
-        prev = Some(found);
-        at = found + 1;
-    }
-    let hay_str: String = hay.iter().collect();
-    let needle_str: String = needle.iter().collect();
-    if hay_str[hay_str.char_indices().nth(base_start).map_or(0, |(i, _)| i)..].contains(&needle_str) {
-        score += 30;
-    }
-    Some(score)
-}
-
 #[async_trait]
 impl Tool for FindTool {
     fn spec(&self) -> &ToolSpec {
@@ -1065,19 +1036,24 @@ impl Tool for FindTool {
             walk_kept(ctx, request, |e| include_noise || !in_noise_dir(e.path.as_path().parent().unwrap_or(root_path.as_path()), &root_path), None)
         })
         .await?;
-        let tokens: Vec<&str> = query.split_whitespace().collect();
-        let mut scored: Vec<(i64, String)> = entries
+        // serve_search/fuzzy.rs: every whitespace-separated fragment is a nucleo fuzzy atom (case ignored, Unicode
+        // normalised "smart"), all must match one path, the scores add, and the best score comes first, a tie by path.
+        let atoms: Vec<Pattern> =
+            query.split_whitespace().map(|t| Pattern::new(t, CaseMatching::Ignore, Normalization::Smart, AtomKind::Fuzzy)).collect();
+        let mut matcher = FuzzyMatcher::new(FuzzyConfig::DEFAULT.match_paths());
+        let mut scored: Vec<(u32, String)> = entries
             .iter()
             .filter_map(|e| {
                 let rel = display_under(e.path.as_path(), &root_path);
-                let mut total = 0;
-                for t in &tokens {
-                    total += fuzzy_score(t, &rel)?;
+                let text = Utf32String::from(rel.as_str());
+                let mut total = 0u32;
+                for atom in &atoms {
+                    total = total.saturating_add(atom.score(text.slice(..), &mut matcher)?);
                 }
                 Some((total, rel))
             })
             .collect();
-        scored.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.len().cmp(&b.1.len())).then_with(|| a.1.cmp(&b.1)));
+        scored.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
         let more = scored.len() > limit;
         scored.truncate(limit);
         let mut lines: Vec<String> = scored.into_iter().map(|(_, p)| p).collect();

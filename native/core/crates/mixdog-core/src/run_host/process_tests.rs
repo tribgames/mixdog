@@ -407,7 +407,7 @@ async fn after_a_reload_each_provider_kind_is_readied_from_the_agent_config() {
     }
     providers.insert(
         "custom-abc".into(),
-        json!({"enabled": true, "type": "custom", "protocol": "openai-chat", "baseURL": "http://localhost:1/v1/", "apiKey": "k"}),
+        json!({"enabled": true, "type": "custom", "schemaVersion": 2, "name": "Custom", "protocol": "openai-chat", "baseURL": "http://localhost:1/v1/", "apiKey": "k"}),
     );
     let names: Vec<String> = providers.keys().cloned().collect();
     let w = world(&[], Value::Object(providers), Vec::new()).await;
@@ -597,7 +597,7 @@ async fn a_send_with_no_session_header_is_scoped_by_its_options_alone() {
 #[tokio::test]
 async fn the_ladder_reads_the_process_stores() {
     let providers = json!({
-        "custom-acme": {"type": "custom", "protocol": "openai-chat", "baseURL": "https://example.test/v1",
+        "custom-acme": {"type": "custom", "schemaVersion": 2, "name": "Custom", "protocol": "openai-chat", "baseURL": "https://example.test/v1",
             "modelOverrides": {"m1": {"manual": true, "reasoning": {"levels": ["low", "high"]}}}},
     });
     let w = world(&[], providers, vec![anthropic_row(&json!({"id": "claude-sonnet-4-6", "reasoningOptions": [{"type": "effort", "values": ["low", "medium", "high", "max"]}]}))]).await;
@@ -627,7 +627,7 @@ async fn the_ladder_reads_the_process_stores() {
 #[tokio::test]
 async fn the_ladder_facts_of_a_custom_and_an_anthropic_route() {
     let providers = json!({
-        "custom-acme": {"type": "custom", "protocol": "openai-chat", "baseURL": "https://example.test/v1",
+        "custom-acme": {"type": "custom", "schemaVersion": 2, "name": "Custom", "protocol": "openai-chat", "baseURL": "https://example.test/v1",
             "modelOverrides": {"m1": {"manual": true, "reasoning": {"levels": ["low", "high"]}}}},
     });
     let w = world(&[], providers, Vec::new()).await;
@@ -680,7 +680,7 @@ async fn a_manual_override_keeps_the_levels_discovery_found() {
     ] {
         let node = &golden["rows"][case];
         assert_eq!(node["reasoningLevels"], json!(want), "{case}: Node's row");
-        let providers = json!({"custom-acme": {"type": "custom", "protocol": "openai-chat", "baseURL": "https://example.test/v1",
+        let providers = json!({"custom-acme": {"type": "custom", "schemaVersion": 2, "name": "Custom", "protocol": "openai-chat", "baseURL": "https://example.test/v1",
             "modelOverrides": {"m1": override_}}});
         let record = listed_row("custom-acme", "m1", &node["reasoningLevels"], &node["reasoningOptions"]);
         let w = world(&[], providers, vec![record]).await;
@@ -688,7 +688,7 @@ async fn a_manual_override_keeps_the_levels_discovery_found() {
         let row = ladder.cached_row("custom-acme", "m1").unwrap();
         assert_eq!(levels_of(&row), want.map(|l| l.iter().map(|s| (*s).to_owned()).collect()), "{case}");
     }
-    let providers = json!({"custom-acme": {"type": "custom", "protocol": "openai-chat", "baseURL": "https://example.test/v1",
+    let providers = json!({"custom-acme": {"type": "custom", "schemaVersion": 2, "name": "Custom", "protocol": "openai-chat", "baseURL": "https://example.test/v1",
         "modelOverrides": {"m1": {"manual": true}}}});
     let w = world(&[], providers, Vec::new()).await;
     let row = ProcessLadder::new(&w.services).cached_row("custom-acme", "m1").unwrap();
@@ -750,7 +750,7 @@ async fn adapter_of(w: &World, name: &str) -> Arc<dyn ProviderAdapter> {
 #[tokio::test]
 async fn the_hop_wires_a_route_as_the_turn_start_does() {
     let providers = json!({
-        "custom-acme": {"type": "custom", "protocol": "openai-chat", "baseURL": "https://example.test/v1",
+        "custom-acme": {"type": "custom", "schemaVersion": 2, "name": "Custom", "protocol": "openai-chat", "baseURL": "https://example.test/v1",
             "modelOverrides": {"m1": {"manual": true, "reasoning": {"levels": ["low", "high"]}}}},
     });
     let w = world(&[], providers, Vec::new()).await;

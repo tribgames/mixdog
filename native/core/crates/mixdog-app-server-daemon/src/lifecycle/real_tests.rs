@@ -223,6 +223,18 @@ fn cancel_running_cancels_only_the_named_work_and_a_finished_one_is_forgotten() 
     assert!(!c.is_cancelled(), "a unit of work that finished is no longer tracked");
 }
 
+/// A busy session's turn and the manual compaction beside it are one activity: the one that ends first leaves the other tracked.
+#[test]
+fn work_tracked_under_one_activity_leaves_on_its_own() {
+    let f = fixture();
+    let (turn, compaction) = (CancellationToken::new(), CancellationToken::new());
+    let _turn = f.cancel.track(1, turn.clone());
+    drop(f.cancel.track(1, compaction.clone()));
+    f.core.cancel_running(&[work(1)]);
+    assert!(turn.is_cancelled(), "the turn is still tracked after the compaction ended");
+    assert!(!compaction.is_cancelled());
+}
+
 #[test]
 fn the_release_steps_reach_what_the_composition_supplied() {
     let f = fixture();

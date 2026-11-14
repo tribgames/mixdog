@@ -503,7 +503,7 @@ async fn an_implicit_approval_session_asks_nobody() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn the_first_valid_decision_wins_and_an_invalid_one_is_rejected() {
+async fn the_first_decision_wins_and_one_that_does_not_decode_is_a_denial() {
     let rig = Rig::new();
     let resolved: Arc<Mutex<Option<ApprovalResolution>>> = Arc::default();
     let seen = resolved.clone();
@@ -547,6 +547,7 @@ async fn the_first_valid_decision_wins_and_an_invalid_one_is_rejected() {
         origin: mixdog_protocol::Origin::Local,
         result,
     };
+    // Node's `resolve` refuses no answer: `approved: 'yes'` is not `true`, so it is a denial, and it is the first.
     handle.decide(decide(7, json!({ "approved": "yes" }))).expect("routed");
     handle.decide(decide(8, json!({ "approved": true }))).expect("routed");
     handle.decide(decide(9, json!({ "approved": false }))).expect("routed");
@@ -554,8 +555,8 @@ async fn the_first_valid_decision_wins_and_an_invalid_one_is_rejected() {
     let ApprovalResolution::Decided { decision, device, .. } = resolution else {
         panic!("decided");
     };
-    assert!(decision.approved);
-    assert_eq!(device, "desktop-8");
+    assert!(!decision.approved);
+    assert_eq!(device, "desktop-7");
     let rejected: Vec<ConnectionId> = rig
         .sink
         .events()
@@ -565,7 +566,7 @@ async fn the_first_valid_decision_wins_and_an_invalid_one_is_rejected() {
             _ => None,
         })
         .collect();
-    assert_eq!(rejected, vec![ConnectionId(7)]);
+    assert!(rejected.is_empty());
     eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     let result = handle
         .cell
@@ -578,7 +579,7 @@ async fn the_first_valid_decision_wins_and_an_invalid_one_is_rejected() {
         .expect("result");
     assert_eq!(
         serde_json::to_value(result).unwrap(),
-        json!({ "id": crate::session::room_approval::card_id(published.id.as_str()), "approved": true, "device": "desktop-8", "at": 1000 })
+        json!({ "id": crate::session::room_approval::card_id(published.id.as_str()), "approved": false, "device": "desktop-7", "at": 1000 })
     );
 }
 
@@ -4540,6 +4541,8 @@ async fn an_idle_thread_unloads_one_idle_delay_after_its_last_subscriber_left_an
     eventually_on!(&[&*rig.closes.ended], || (lock(&rig.closes.seen).len() == 1).then_some(())).await;
     assert_eq!(lock(&rig.closes.seen)[0].1.len(), 2, "the input row and the reply");
     assert!(!handle.cell.subscribing(), "an unloaded thread takes no subscriber");
+    assert_eq!(*lock(&rig.deletes.0), [format!("unloadMcpScope:{}", handle.id)], "the unload released the thread's MCP scope");
+    assert!(lock(&rig.deletes.2).is_empty(), "and did not close its owner");
     // A later open loads it again.
     let reopened = directory.open_handle(&handle.id, &connection()).await.expect("reopen");
     assert!(!Arc::ptr_eq(&reopened.cell, &handle.cell));

@@ -10,7 +10,7 @@
      "patch": {},
      "returned": {
       "webhook": {
-       "enabled": true,
+       "enabled": false,
        "port": 3333
       }
      },
@@ -26,11 +26,7 @@
        "port": 3333
       }
      },
-     "channels": {
-      "webhook": {
-       "enabled": false
-      }
-     }
+     "channels": {}
     },
     {
      "patch": {
@@ -42,7 +38,11 @@
        "port": 3333
       }
      },
-     "channels": {}
+     "channels": {
+      "webhook": {
+       "enabled": true
+      }
+     }
     },
     {
      "patch": {
@@ -54,11 +54,7 @@
        "port": 3333
       }
      },
-     "channels": {
-      "webhook": {
-       "enabled": false
-      }
-     }
+     "channels": {}
     },
     {
      "patch": {
@@ -72,7 +68,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": 4000
       }
      }
@@ -89,7 +84,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": 8080
       }
      }
@@ -104,11 +98,7 @@
        "port": 3333
       }
      },
-     "channels": {
-      "webhook": {
-       "enabled": false
-      }
-     }
+     "channels": {}
     },
     {
      "patch": {
@@ -120,11 +110,7 @@
        "port": 3333
       }
      },
-     "channels": {
-      "webhook": {
-       "enabled": false
-      }
-     }
+     "channels": {}
     },
     {
      "patch": {
@@ -136,11 +122,7 @@
        "port": 3333
       }
      },
-     "channels": {
-      "webhook": {
-       "enabled": false
-      }
-     }
+     "channels": {}
     },
     {
      "patch": {
@@ -154,7 +136,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": 70000
       }
      }
@@ -171,7 +152,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": 3.5
       }
      }
@@ -188,7 +168,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": -5
       }
      }
@@ -205,7 +184,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": 1000
       }
      }
@@ -222,7 +200,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": null
       }
      }
@@ -237,11 +214,7 @@
        "port": 3333
       }
      },
-     "channels": {
-      "webhook": {
-       "enabled": false
-      }
-     }
+     "channels": {}
     },
     {
      "patch": {
@@ -256,7 +229,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "domain": "d.example"
       }
      }
@@ -274,7 +246,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "domain": "d.example"
       }
      }
@@ -294,7 +265,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": 9000,
        "domain": "x.example"
       }
@@ -311,7 +281,7 @@
      "patch": {},
      "returned": {
       "webhook": {
-       "enabled": true,
+       "enabled": false,
        "port": 3333
       }
      },
@@ -327,11 +297,7 @@
        "port": 3333
       }
      },
-     "channels": {
-      "webhook": {
-       "enabled": false
-      }
-     }
+     "channels": {}
     },
     {
      "patch": {
@@ -343,7 +309,11 @@
        "port": 3333
       }
      },
-     "channels": {}
+     "channels": {
+      "webhook": {
+       "enabled": true
+      }
+     }
     },
     {
      "patch": {
@@ -355,11 +325,7 @@
        "port": 3333
       }
      },
-     "channels": {
-      "webhook": {
-       "enabled": false
-      }
-     }
+     "channels": {}
     },
     {
      "patch": {
@@ -373,7 +339,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": 4000
       }
      }
@@ -390,7 +355,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": 8080
       }
      }
@@ -405,11 +369,7 @@
        "port": 3333
       }
      },
-     "channels": {
-      "webhook": {
-       "enabled": false
-      }
-     }
+     "channels": {}
     },
     {
      "patch": {
@@ -421,11 +381,7 @@
        "port": 3333
       }
      },
-     "channels": {
-      "webhook": {
-       "enabled": false
-      }
-     }
+     "channels": {}
     },
     {
      "patch": {
@@ -437,11 +393,7 @@
        "port": 3333
       }
      },
-     "channels": {
-      "webhook": {
-       "enabled": false
-      }
-     }
+     "channels": {}
     },
     {
      "patch": {
@@ -455,7 +407,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": 70000
       }
      }
@@ -472,7 +423,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": 3.5
       }
      }
@@ -489,7 +439,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": -5
       }
      }
@@ -506,7 +455,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": 1000
       }
      }
@@ -523,7 +471,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": null
       }
      }
@@ -538,11 +485,7 @@
        "port": 3333
       }
      },
-     "channels": {
-      "webhook": {
-       "enabled": false
-      }
-     }
+     "channels": {}
     },
     {
      "patch": {
@@ -557,7 +500,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "domain": "d.example"
       }
      }
@@ -575,7 +517,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "domain": "d.example"
       }
      }
@@ -595,7 +536,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": 9000,
        "domain": "x.example"
       }
@@ -621,7 +561,11 @@
        "port": 3333
       }
      },
-     "channels": {}
+     "channels": {
+      "webhook": {
+       "enabled": true
+      }
+     }
     },
     {
      "patch": {
@@ -633,11 +577,7 @@
        "port": 3333
       }
      },
-     "channels": {
-      "webhook": {
-       "enabled": false
-      }
-     }
+     "channels": {}
     },
     {
      "patch": {
@@ -649,7 +589,11 @@
        "port": 3333
       }
      },
-     "channels": {}
+     "channels": {
+      "webhook": {
+       "enabled": true
+      }
+     }
     },
     {
      "patch": {
@@ -661,11 +605,7 @@
        "port": 3333
       }
      },
-     "channels": {
-      "webhook": {
-       "enabled": false
-      }
-     }
+     "channels": {}
     },
     {
      "patch": {
@@ -679,7 +619,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": 4000
       }
      }
@@ -696,7 +635,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": 8080
       }
      }
@@ -711,11 +649,7 @@
        "port": 3333
       }
      },
-     "channels": {
-      "webhook": {
-       "enabled": false
-      }
-     }
+     "channels": {}
     },
     {
      "patch": {
@@ -727,11 +661,7 @@
        "port": 3333
       }
      },
-     "channels": {
-      "webhook": {
-       "enabled": false
-      }
-     }
+     "channels": {}
     },
     {
      "patch": {
@@ -743,11 +673,7 @@
        "port": 3333
       }
      },
-     "channels": {
-      "webhook": {
-       "enabled": false
-      }
-     }
+     "channels": {}
     },
     {
      "patch": {
@@ -761,7 +687,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": 70000
       }
      }
@@ -778,7 +703,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": 3.5
       }
      }
@@ -795,7 +719,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": -5
       }
      }
@@ -812,7 +735,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": 1000
       }
      }
@@ -829,7 +751,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": null
       }
      }
@@ -844,11 +765,7 @@
        "port": 3333
       }
      },
-     "channels": {
-      "webhook": {
-       "enabled": false
-      }
-     }
+     "channels": {}
     },
     {
      "patch": {
@@ -863,7 +780,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "domain": "d.example"
       }
      }
@@ -881,7 +797,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "domain": "d.example"
       }
      }
@@ -901,7 +816,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": 9000,
        "domain": "x.example"
       }
@@ -931,7 +845,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": 4000,
        "domain": "hooks.example"
       }
@@ -950,7 +863,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": 4000,
        "domain": "hooks.example"
       }
@@ -969,6 +881,7 @@
      },
      "channels": {
       "webhook": {
+       "enabled": true,
        "port": 4000,
        "domain": "hooks.example"
       }
@@ -987,7 +900,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": 4000,
        "domain": "hooks.example"
       }
@@ -1006,7 +918,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": 4000,
        "domain": "hooks.example"
       }
@@ -1025,7 +936,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": 8080,
        "domain": "hooks.example"
       }
@@ -1044,7 +954,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "domain": "hooks.example"
       }
      }
@@ -1062,7 +971,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "domain": "hooks.example"
       }
      }
@@ -1080,7 +988,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "domain": "hooks.example"
       }
      }
@@ -1098,7 +1005,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": 70000,
        "domain": "hooks.example"
       }
@@ -1117,7 +1023,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": 3.5,
        "domain": "hooks.example"
       }
@@ -1136,7 +1041,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": -5,
        "domain": "hooks.example"
       }
@@ -1155,7 +1059,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": 1000,
        "domain": "hooks.example"
       }
@@ -1174,7 +1077,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": null,
        "domain": "hooks.example"
       }
@@ -1193,7 +1095,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "domain": "hooks.example"
       }
      }
@@ -1211,7 +1112,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "domain": "d.example"
       }
      }
@@ -1229,7 +1129,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "domain": "d.example"
       }
      }
@@ -1249,7 +1148,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": 9000,
        "domain": "x.example"
       }
@@ -1288,7 +1186,7 @@
      "patch": {},
      "returned": {
       "webhook": {
-       "enabled": true,
+       "enabled": false,
        "port": 5000,
        "keep": 1
       },
@@ -1340,7 +1238,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": 5000,
        "keep": 1
       },
@@ -1377,6 +1274,7 @@
      },
      "channels": {
       "webhook": {
+       "enabled": true,
        "port": 5000,
        "keep": 1
       },
@@ -1413,7 +1311,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": 5000,
        "keep": 1
       },
@@ -1450,7 +1347,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": 4000,
        "keep": 1
       },
@@ -1487,7 +1383,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": 8080,
        "keep": 1
       },
@@ -1524,7 +1419,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "keep": 1
       },
       "secret": "global-secret",
@@ -1560,7 +1454,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "keep": 1
       },
       "secret": "global-secret",
@@ -1596,7 +1489,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "keep": 1
       },
       "secret": "global-secret",
@@ -1632,7 +1524,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": 70000,
        "keep": 1
       },
@@ -1669,7 +1560,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": 3.5,
        "keep": 1
       },
@@ -1706,7 +1596,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": -5,
        "keep": 1
       },
@@ -1743,7 +1632,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": 1000,
        "keep": 1
       },
@@ -1780,7 +1668,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": null,
        "keep": 1
       },
@@ -1817,7 +1704,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "keep": 1
       },
       "secret": "global-secret",
@@ -1854,7 +1740,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "keep": 1,
        "domain": "d.example"
       },
@@ -1892,7 +1777,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "keep": 1,
        "domain": "d.example"
       },
@@ -1932,7 +1816,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": 9000,
        "keep": 1,
        "domain": "x.example"
@@ -1987,7 +1870,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": "6000"
       }
      }
@@ -2004,6 +1886,7 @@
      },
      "channels": {
       "webhook": {
+       "enabled": true,
        "port": "6000"
       }
      }
@@ -2020,7 +1903,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": "6000"
       }
      }
@@ -2037,7 +1919,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": 4000
       }
      }
@@ -2054,7 +1935,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": 8080
       }
      }
@@ -2069,11 +1949,7 @@
        "port": 3333
       }
      },
-     "channels": {
-      "webhook": {
-       "enabled": false
-      }
-     }
+     "channels": {}
     },
     {
      "patch": {
@@ -2085,11 +1961,7 @@
        "port": 3333
       }
      },
-     "channels": {
-      "webhook": {
-       "enabled": false
-      }
-     }
+     "channels": {}
     },
     {
      "patch": {
@@ -2101,11 +1973,7 @@
        "port": 3333
       }
      },
-     "channels": {
-      "webhook": {
-       "enabled": false
-      }
-     }
+     "channels": {}
     },
     {
      "patch": {
@@ -2119,7 +1987,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": 70000
       }
      }
@@ -2136,7 +2003,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": 3.5
       }
      }
@@ -2153,7 +2019,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": -5
       }
      }
@@ -2170,7 +2035,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": 1000
       }
      }
@@ -2187,7 +2051,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": null
       }
      }
@@ -2202,11 +2065,7 @@
        "port": 3333
       }
      },
-     "channels": {
-      "webhook": {
-       "enabled": false
-      }
-     }
+     "channels": {}
     },
     {
      "patch": {
@@ -2221,7 +2080,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "domain": "d.example"
       }
      }
@@ -2239,7 +2097,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "domain": "d.example"
       }
      }
@@ -2259,7 +2116,6 @@
      },
      "channels": {
       "webhook": {
-       "enabled": false,
        "port": 9000,
        "domain": "x.example"
       }

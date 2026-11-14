@@ -72,6 +72,9 @@ const INSERT_SQL: &str = "
         RETURNING id
       ";
 
+/// How many rows of the session the transcript watcher stored with this role and text: that many occurrences of the message are held.
+const TRANSCRIPT_HELD_SQL: &str = "SELECT COUNT(*) FROM entries WHERE session_id = $1 AND role = $2 AND content = $3 AND source_ref LIKE 'transcript:%'";
+
 #[derive(Clone)]
 pub struct SessionIngest(Arc<Inner>);
 
@@ -214,6 +217,11 @@ impl SessionIngest {
             let fallback = now - (messages.len() - row.index) as i64;
             let (ts_ms, time_source) =
                 if row.untimestamped { (fallback, "collected") } else { (parse_ts_to_ms(raw_ts(message), now), "recorded") };
+            // The transcript watcher stores every session's own file: an occurrence it holds is not stored a second time.
+            let held: i64 = client.query_one(TRANSCRIPT_HELD_SQL, &[&session_id, &row.role, &row.raw_content]).await?.get(0);
+            if held > row.occurrence as i64 {
+                continue;
+            }
             let assigned = turn + 1;
             let source_ref = stable_session_source_ref(session_id, message, row.role, &row.content, row.occurrence as usize);
             self.observe(

@@ -5,8 +5,12 @@
 
 use std::sync::Arc;
 
+use async_trait::async_trait;
+use mixdog_agent::cancel::Cancel;
 use mixdog_core::run_host::agent_dispatch::RunHold;
 use mixdog_core::run_host::agent_dispatch::RunWatch;
+
+use mixdog_core_session::session::StartHold;
 
 use crate::late_lifecycle::LateLifecycle;
 use crate::lifecycle::ActivityInfo;
@@ -17,7 +21,21 @@ pub struct MemoryAgentWatch {
     pub lifecycle: Arc<LateLifecycle>,
 }
 
+#[async_trait]
 impl RunWatch for MemoryAgentWatch {
+    /// Waits out the hold (`daemonWorkGate.deferring`); a core that stopped refuses with Node's text for a shut-down gate.
+    async fn admitted(&self, cancel: &Cancel) -> Result<(), String> {
+        let mut hold = self.lifecycle.start_hold();
+        let open = async move { hold.wait_for(|read| *read != StartHold::Held).await.map(|read| *read) };
+        tokio::select! {
+            () = cancel.cancelled() => Err(cancel.reason()),
+            read = open => match read {
+                Ok(StartHold::Closed(_)) => Err("daemon is shutting down".to_owned()),
+                _ => Ok(()),
+            },
+        }
+    }
+
     fn started(&self) -> RunHold {
         let info = ActivityInfo { kind: ActivityKind::SubAgent, thread_id: None, turn_id: None, title: "memory agent".into() };
         // Before the bind (a startup bug: the listener accepts only after it) the cell says so, and the run is not counted.

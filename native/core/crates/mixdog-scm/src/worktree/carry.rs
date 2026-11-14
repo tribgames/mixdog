@@ -59,7 +59,7 @@ const COMMIT_ENV: [(&str, &str); 4] = [
     ("GIT_COMMITTER_EMAIL", "mixdog@localhost"),
 ];
 
-fn identity_path(project_subdir: &str) -> String {
+pub(crate) fn identity_path(project_subdir: &str) -> String {
     if project_subdir.is_empty() {
         IDENTITY_PATH.to_owned()
     } else {

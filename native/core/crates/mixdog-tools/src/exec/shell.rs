@@ -423,13 +423,21 @@ async fn compaction_of(
     command: &str,
     exit_code: i32,
 ) -> Option<Compaction> {
-    let (raw_out, raw_err) = job.captured();
-    let (out, err) = (strip_ansi(&raw_out), strip_ansi(&raw_err));
     let cap = std::env::var("MIXDOG_TOOL_OUTPUT_MAX_BYTES")
         .ok()
         .and_then(|raw| parse_int_prefix(&raw))
         .filter(|n| *n > 0)
         .map_or(50 * 1024, |n| n as usize);
+    // Node spills a capture past the cap to its logs (`hasExistingRecovery`) and reads a smaller one whole. A capture whose
+    // start memory dropped but that the cap still holds (a cap above memory's) is read back whole from its logs, as Node
+    // holds it; one the logs cannot give whole is not compacted.
+    let produced = job.captured_bytes();
+    let (raw_out, raw_err) = if job.spilled() && produced <= cap {
+        job.captured_from_logs(runtime.config.lanes.interactive, &ctx.cancel).await?
+    } else {
+        job.captured()
+    };
+    let (out, err) = (strip_ansi(&raw_out), strip_ansi(&raw_err));
     let plan = plan(
         command,
         &out,
@@ -438,10 +446,8 @@ async fn compaction_of(
             exit_code: Some(exit_code),
             signal: false,
             timed_out: false,
-            // Node: `Boolean(stdoutPath || stderrPath)`, a capture that outgrew the cap and kept its log. One whose start
-            // memory dropped is not compacted either, since only its log holds it whole: with the cap below its size
-            // Node skips it too; with the cap set above, Node compacts the whole capture, which memory no longer holds.
-            has_existing_recovery: job.spilled() || raw_out.len() + raw_err.len() > cap,
+            // Node: `Boolean(stdoutPath || stderrPath)`, a capture that outgrew the cap and kept its log.
+            has_existing_recovery: produced > cap,
         },
     )?;
     let data_dir = runtime.config.data_dir.as_deref()?;

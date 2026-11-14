@@ -406,7 +406,7 @@ impl HostRunParts {
                 None => None,
             },
         }
-        .ok_or_else(|| refuse(format!("provider {provider_id:?} is not available")))?;
+        .ok_or_else(|| refuse(format!("Provider \"{provider_id}\" not available")))?;
         let cwd = cwd_of(header)?;
         let SessionTools { tools, builtins, agent } = seams.tools(thread, header, source.surface).await.map_err(refuse)?;
         let tool_set = ToolSet::with_builtins(tools, builtins).for_agent(agent);
@@ -769,7 +769,7 @@ impl RunParts for HostRunParts {
                     Arc::new(super::mcp_seams::ExplicitSkillSelector::new(parts.names, parts.tool, run.gate, run.env, run.cancel).with_selection(selection).with_deliveries(parts.deliveries)) as Arc<dyn SkillSelector>
                 }) as SkillsBuilder
             }),
-            hooks: Some(Arc::new(SessionToolHooks::new(session_id, &cwd, seams.post_tool_dispatch()))),
+            hooks: Some(Arc::new(SessionToolHooks::new(session_id, &cwd, seams.post_tool_dispatch(), input.unattended || hidden))),
             // The session's own cache: the one its earlier turns filled (Node's `_bySession`), not one per run.
             reuse: Some(s.reuses.run(s.io, session_id, &cwd, read_body, s.clock.clone())),
             reactions: Some(Arc::new(LoopReactions::new(session_id, s.reaction_targets.clone(), rows, mixdog_protocol::text_class::is_internal_transcript_display_text))),

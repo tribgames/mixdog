@@ -44,8 +44,10 @@ use mixdog_core_config::config::Config;
 use mixdog_core_ports::ports::gate::GateEnv;
 use mixdog_core_ports::ports::gate::GateRun;
 use super::hooks::BatchDecision;
+use super::hooks::PostToolAnswer;
 use super::hooks::PostToolDispatch;
 use super::hooks::PostToolEvent;
+use super::hooks::StopDecision;
 
 /// `PostToolDispatch` over the hook bus: the configured PostToolUse, PostToolUseFailure and
 /// PostToolBatch handlers.
@@ -66,8 +68,9 @@ fn call_of(event: &PostToolEvent) -> PostCall<'_> {
 
 #[async_trait]
 impl PostToolDispatch for BusPostToolDispatch {
-    async fn post_tool(&self, event: &PostToolEvent) -> Option<JsonValue> {
-        self.inner.tool(&call_of(event)).await
+    async fn post_tool(&self, event: &PostToolEvent) -> PostToolAnswer {
+        let decided = self.inner.tool(&call_of(event)).await;
+        PostToolAnswer { updated_output: decided.updated_tool_output, context: decided.additional_context, feedback: decided.blocked.then_some(decided.reason).flatten() }
     }
 
     async fn post_failure(&self, event: &PostToolEvent) {
@@ -77,6 +80,12 @@ impl PostToolDispatch for BusPostToolDispatch {
     async fn post_batch(&self, session_id: &str, cwd: &str, tool_count: usize) -> Option<BatchDecision> {
         let outcome = self.inner.batch(session_id, cwd, tool_count).await?;
         Some(BatchDecision { blocked: outcome.blocked, reason: outcome.reason })
+    }
+
+    async fn stop(&self, session_id: &str, cwd: &str, stop_hook_active: bool) -> StopDecision {
+        let decided = self.inner.stop(session_id, cwd, stop_hook_active).await;
+        // `continue: false` ends the turn even when a handler also blocked the stop (Claude Code's `preventContinuation`).
+        StopDecision { blocked: decided.blocked && !decided.prevent_continuation, reason: decided.reason }
     }
 }
 

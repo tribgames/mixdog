@@ -117,6 +117,10 @@ impl ToolGate for ReviewGate {
         self.inner.check_call(call_id, call).await
     }
 
+    async fn refresh_policy(&self, call: &GateCall) {
+        self.inner.refresh_policy(call).await
+    }
+
     fn pre_dispatch_deny(&self, call: &GateCall) -> Option<String> {
         self.inner.pre_dispatch_deny(call)
     }

@@ -1,5 +1,5 @@
-//! The core's hold on new turn starts (`hold{on}`, LR §5.1) as a session follows it: a client's prompt is queued at once and the
-//! release starts it, an in-core start waits out the hold before it is admitted (Node's `daemonWorkGate.deferring`), and the drain
+//! The core's hold on new turn starts (`hold{on}`) as a session follows it: a client's prompt is refused while it holds (Node's
+//! `callRefusal`), an in-core start waits out the hold before it is admitted (Node's `daemonWorkGate.deferring`), and the drain
 //! commit that drops the hold refuses what it kept waiting (`daemonWorkGate.shutdown()`); and a busy session is running work the
 //! core's lifecycle counts (Node's `busySessions`).
 
@@ -14,7 +14,6 @@ use mixdog_core_api::ThreadHandle;
 use mixdog_core_api::call::CallContext;
 use mixdog_core_api::call::CoreRequest;
 use mixdog_core_api::ids::ThreadId;
-use mixdog_core_api::thread::Stop;
 use mixdog_protocol::DrainReason;
 use serde_json::Value;
 use serde_json::json;
@@ -27,7 +26,6 @@ use super::SessionHandle;
 use super::StartHold;
 use super::testing::Rig;
 use super::testing::awaiting;
-use super::tests::connection;
 use super::tests::idle;
 use super::tests::request;
 use super::tests::rows;
@@ -82,23 +80,33 @@ impl Drop for Period {
     }
 }
 
-/// Node's `busySessions` (`busy.mjs` `sessionTurnBusy`: `busy`, and the `queued` input a settling turn runs next): the prompts the
-/// hold queued run as one busy period of the session, which holds the core from the first one's start until the last one settled,
-/// with each run registered for a confirmed stop's abort; input the hold keeps queued is no busy work.
+/// Node's `busySessions` (`busy.mjs` `sessionTurnBusy`: `busy`, and the `queued` input a settling turn runs next): a prompt sent while
+/// the first one runs is queued and runs as the same busy period of the session, which holds the core from the first one's start until
+/// the last one settled, with each run registered for a confirmed stop's abort.
 #[tokio::test(start_paused = true)]
-async fn a_session_is_busy_from_its_first_queued_turn_until_the_last_one_settled() {
+async fn a_session_is_busy_from_its_first_turn_until_the_last_queued_one_settled() {
     let rig = Rig::new();
+    // The first turn runs until the second prompt is queued behind it.
+    let (first, go) = (Arc::new(std::sync::atomic::AtomicBool::new(true)), Arc::new(tokio::sync::Notify::new()));
+    let release = go.clone();
+    rig.set_script(Arc::new(move |run| {
+        let (first, go) = (first.clone(), go.clone());
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            if first.swap(false, SeqCst) {
+                go.notified().await;
+            }
+            super::seams::RunOutcome::Completed(Default::default())
+        })
+    }));
     let counted = Arc::new(Counted::default());
-    let (hold, directory) = held_counting(&rig, counted.clone());
+    let (_hold, directory) = held_counting(&rig, counted.clone());
     let handle = start_thread(&directory).await;
-    hold.send_replace(StartHold::Held);
-    for (op, prompt) in [("op-1", "first"), ("op-2", "second")] {
-        answer(&handle, submit(&handle, op, prompt, "")).await.expect("admitted");
-    }
-    eventually_on!(&[&handle.cell.stepped], || (handle.cell.queue.load().len() == 2).then_some(())).await;
-    assert_eq!(counted.began.load(SeqCst), 0, "input the hold keeps queued is not busy");
-
-    hold.send_replace(StartHold::Open);
+    answer(&handle, submit(&handle, "op-1", "first", "")).await.expect("admitted");
+    eventually_on!(&[&handle.cell.stepped], || (counted.runs.load(SeqCst) == 1).then_some(())).await;
+    answer(&handle, submit(&handle, "op-2", "second", "")).await.expect("admitted");
+    eventually_on!(&[&handle.cell.stepped], || (handle.cell.queue.load().len() == 1).then_some(())).await;
+    release.notify_one();
     let user = |text: &str| ("user", text.to_owned());
     eventually_on!(&[&handle.cell.stepped], || (counted.held.load(SeqCst) == 0 && handle.cell.queue.load().is_empty() && rows(&handle).contains(&user("second"))).then_some(())).await;
     assert!(idle(&handle));
@@ -118,34 +126,30 @@ async fn answer(handle: &SessionHandle, req: CoreRequest) -> Result<Value, CoreE
     Ok(value)
 }
 
-/// A client's prompt under the hold is queued and answered at once, so its call keeps none of the thread's requests waiting
-/// behind it; a stop naming it hands it back, and the release starts the prompt left queued.
+/// Node's work gate refuses a client's send while it holds (`callRefusal`: `HOLD_ALLOWED_CALLS` lacks the submit): nothing is queued
+/// and nothing starts, and once the hold is released the same prompt starts.
 #[tokio::test(start_paused = true)]
-async fn a_client_prompt_under_the_hold_is_queued_at_once_and_the_release_starts_it() {
+async fn a_client_prompt_under_the_hold_is_refused_and_the_release_lets_it_start() {
     let rig = Rig::new();
     let (hold, directory) = held(&rig);
     let handle = start_thread(&directory).await;
     hold.send_replace(StartHold::Held);
 
-    for (op, prompt, submission) in [("op-1", "kept", "sub1"), ("op-2", "taken back", "sub2")] {
-        let reply = answer(&handle, submit(&handle, op, prompt, submission)).await.expect("admitted");
-        assert_eq!(reply["kind"], "queued", "answered at once, not held: {reply}");
-    }
-    eventually_on!(&[&handle.cell.stepped], || (handle.cell.queue.load().len() == 2).then_some(())).await;
-    assert!(idle(&handle), "nothing starts while the core holds turn starts");
-    let stopped = handle.stop(Stop { turn: None, restore_prompt: None, submission_id: Some("sub2".into()), ctx: connection() }).await.expect("stop");
-    assert_eq!(stopped["restoreText"], "taken back", "the stop hands the held prompt back: {stopped}");
+    let refused = answer(&handle, submit(&handle, "op-1", "refused", "sub1")).await.err();
+    assert_eq!(refused, Some(mixdog_core_base::support::failed("session", "daemon is holding new work for an update install")));
+    assert!(idle(&handle) && handle.cell.queue.load().is_empty(), "nothing is queued or started while the core holds turn starts");
 
     hold.send_replace(StartHold::Open);
+    let started = answer(&handle, submit(&handle, "op-2", "after", "sub2")).await.expect("admitted");
+    assert_eq!(started["kind"], "started", "{started}");
     let user = |text: &str| ("user", text.to_owned());
-    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && handle.cell.queue.load().is_empty() && rows(&handle).contains(&user("kept"))).then_some(())).await;
-    assert!(!rows(&handle).contains(&user("taken back")), "the prompt handed back never runs");
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).contains(&user("after"))).then_some(())).await;
+    assert!(!rows(&handle).contains(&user("refused")), "the refused prompt never runs");
 }
 
 /// An in-core start (a routine's, a channel's) waits out the hold before it is admitted, as Node's `deferring` waits before
 /// `admitted` enters the turn gate, so an idle delete is not held off meanwhile. The drain commit that drops the hold refuses it
-/// with admission's refusal, refuses the starts that follow, and starts nothing the hold queued; a cancelled drain opens the hold
-/// again, and what it queued starts on this core.
+/// with admission's refusal and refuses the starts that follow; a cancelled drain opens the hold again.
 #[tokio::test(start_paused = true)]
 async fn the_drain_commit_refuses_the_start_the_hold_kept_waiting() {
     let rig = Rig::new();
@@ -160,18 +164,17 @@ async fn the_drain_commit_refuses_the_start_the_hold_kept_waiting() {
     mixdog_rt::time::sleep(Duration::from_secs(1)).await;
     assert!(!routine.is_finished() && idle(&handle), "the in-core start waits for the hold");
     drop(directory.turn_gate().fence(&handle.id).expect("the waiting start holds no admission of the thread"));
-    let queued = answer(&handle, submit(&handle, "op-1", "queued", "")).await.expect("admitted");
-    assert_eq!(queued["kind"], "queued", "{queued}");
 
     hold.send_replace(StartHold::Closed(DrainReason::Update));
     let shutting_down = CoreError::ServerShuttingDown { drain_reason: DrainReason::Update };
     let refused = awaiting(|| "the held start to be refused".to_owned(), routine).await.expect("joined");
     assert_eq!(refused.err(), Some(shutting_down.clone()));
     assert_eq!(answer(&handle, submit(&handle, "op-2", "after", "")).await.err(), Some(shutting_down));
-    assert!(idle(&handle) && handle.cell.queue.load().len() == 1, "the queued prompt stays for the next core");
+    assert!(idle(&handle) && handle.cell.queue.load().is_empty(), "nothing started or queued");
 
     hold.send_replace(StartHold::Open);
-    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && handle.cell.queue.load().is_empty() && rows(&handle).contains(&("user", "queued".to_owned()))).then_some(())).await;
+    let started = answer(&handle, submit(&handle, "op-3", "again", "")).await.expect("a cancelled drain opens the hold again");
+    assert_eq!(started["kind"], "started", "{started}");
 }
 
 /// Node's work gate refuses a client's `retryFailedTurn` while it holds (`callRefusal`: `HOLD_ALLOWED_CALLS` lacks it), as the retry

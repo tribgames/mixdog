@@ -3,6 +3,8 @@
 
 use mixdog_rt::InLane;
 use mixdog_rt::Liveness;
+use mixdog_tools::exec::codepage::ShellStreamDecoder;
+use mixdog_tools::exec::codepage::host_oem;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -223,10 +225,14 @@ async fn read_loop(stdout: tokio::process::ChildStdout, tx: IncomingTx) {
 
 async fn stderr_loop(mut stderr: tokio::process::ChildStderr, tail: Arc<Mutex<String>>) {
     let mut buf = [0u8; 2048];
+    let mut decoder = ShellStreamDecoder::new(host_oem(), None);
     loop {
         match stderr.read(&mut buf).await {
-            Ok(0) | Err(_) => return,
-            Ok(n) => push_tail(&tail, &String::from_utf8_lossy(&buf[..n])),
+            Ok(0) | Err(_) => {
+                push_tail(&tail, &decoder.end());
+                return;
+            }
+            Ok(n) => push_tail(&tail, &decoder.write(&buf[..n])),
         }
     }
 }

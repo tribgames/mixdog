@@ -252,8 +252,8 @@ pub enum PromptPart {
         #[cfg_attr(feature = "codegen", ts(optional))]
         attachment_ref: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[cfg_attr(feature = "codegen", ts(optional))]
-        size_bytes: Option<u32>,
+        #[cfg_attr(feature = "codegen", ts(optional, type = "number"))]
+        size_bytes: Option<i64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[cfg_attr(feature = "codegen", ts(optional))]
         mime_type: Option<String>,
@@ -272,8 +272,8 @@ pub enum PromptPart {
         #[cfg_attr(feature = "codegen", ts(optional))]
         attachment_ref: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[cfg_attr(feature = "codegen", ts(optional))]
-        size_bytes: Option<u32>,
+        #[cfg_attr(feature = "codegen", ts(optional, type = "number"))]
+        size_bytes: Option<i64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[cfg_attr(feature = "codegen", ts(optional))]
         filename: Option<String>,
@@ -291,8 +291,8 @@ pub enum PromptPart {
         #[cfg_attr(feature = "codegen", ts(optional))]
         attachment_ref: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[cfg_attr(feature = "codegen", ts(optional))]
-        size_bytes: Option<u32>,
+        #[cfg_attr(feature = "codegen", ts(optional, type = "number"))]
+        size_bytes: Option<i64>,
     },
 }
 
@@ -426,8 +426,9 @@ pub struct QuotaResume {
     pub turn_key: String,
     pub provider: String,
     pub model: String,
+    /// Epoch milliseconds as the provider's error gave them, fractional or whole (a JS number).
     #[cfg_attr(feature = "codegen", ts(type = "number"))]
-    pub reset_at: i64,
+    pub reset_at: serde_json::Number,
     #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub attempts: i64,
 }
@@ -820,4 +821,19 @@ pub enum OrchestrationMode {
     Focused,
     Balanced,
     Swarm,
+}
+
+#[cfg(test)]
+mod quota_resume_tests {
+    use serde_json::json;
+
+    use super::QuotaResume;
+
+    /// `publicQuotaResume` sends `resetAt` as the JS number it holds: a fractional reset is published as it is.
+    #[test]
+    fn a_fractional_reset_is_published_as_it_is() {
+        let public = json!({ "state": "waiting", "turnKey": "t", "provider": "p", "model": "m", "resetAt": 1_900_000_000_000.5, "attempts": 0 });
+        let value: QuotaResume = serde_json::from_value(public.clone()).unwrap();
+        assert_eq!(serde_json::to_value(value).unwrap(), public);
+    }
 }

@@ -7,7 +7,6 @@ use crate::transport::deadlines::TOKEN_EXCHANGE;
 use mixdog_core_api::domain::keepalive::TransportKind;
 use mixdog_core_api::domain::login::LoginFailure;
 use mixdog_core_api::domain::provider::ProviderError;
-use mixdog_core_api::domain::provider::TransportFault;
 use mixdog_core_api::domain::provider::WireRequest;
 use mixdog_protocol::JsonValue;
 
@@ -81,11 +80,7 @@ pub fn network_cause(error: &ProviderError) -> String {
     if error.timed_out {
         return "timed out".to_owned();
     }
-    match &error.transport {
-        Some(TransportFault::Dns) => "ENOTFOUND".to_owned(),
-        Some(fault) => fault.errno_name().unwrap_or("network error").to_owned(),
-        None => "network error".to_owned(),
-    }
+    error.transport.as_ref().and_then(|fault| fault.errno_name()).unwrap_or("network error").to_owned()
 }
 
 /// `oauthRequestError`: `<operation> request failed (<cause>). <hint>`.

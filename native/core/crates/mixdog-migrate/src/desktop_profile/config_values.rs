@@ -23,6 +23,7 @@ use super::source;
 use super::source::Parsed;
 use crate::durable;
 use crate::error::Blocked;
+use crate::json;
 use crate::framework::ItemContext;
 
 pub(super) const CONFIG_FILE: &str = "mixdog-config.json";
@@ -249,20 +250,17 @@ fn read_config(data: &Path) -> Result<(Value, Option<String>), ApplyError> {
         Err(error) => return Err(ApplyError::io("read", &path, error)),
     };
     let hash = durable::sha256_hex(&bytes);
-    // A config that does not parse is never quarantined here: the run stops (SM §11.5). The daemon's boot keeps a file
-    // `JSON.parse` refuses aside and restores its newest backup before the migration starts (`Config::recover_malformed`),
-    // so under the daemon this stops only on a config that is not an object (`null` included), or on a text `JSON.parse`
-    // accepts that this strict parse refuses (invalid UTF-8, nesting deeper than 128, a number out of range).
+    // A config that does not parse is never quarantined here: the run stops (SM §11.5). The daemon's boot and `mixdogd migrate` keep a file
+    // `JSON.parse` refuses aside and restore its newest backup before the migration starts (`recover_malformed_config`), so this stops only
+    // on a config that is not an object (`null` included). The read is Node's: invalid UTF-8, deep nesting and huge numbers parse.
     let schema = |detail: String| {
         ApplyError::Blocked(Blocked::StoreSchema {
             key: CONFIG_FILE.to_owned(),
             detail,
         })
     };
-    let text = std::str::from_utf8(&bytes).map_err(|error| schema(error.to_string()))?;
     // A profile title a phone sent cut inside an emoji is stored by Node with half of it: U+FFFD here.
-    let doc: Value = serde_json::from_str(&mixdog_js::json_well_formed_str(text.strip_prefix('\u{feff}').unwrap_or(text)))
-        .map_err(|error| schema(error.to_string()))?;
+    let doc = json::parse_config(&bytes).map_err(schema)?.value;
     if !doc.is_object() {
         return Err(schema("the config is not an object".to_owned()));
     }

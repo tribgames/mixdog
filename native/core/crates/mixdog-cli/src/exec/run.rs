@@ -251,6 +251,7 @@ async fn execute(
         model: &route.model,
         effort: route.effort.as_deref(),
         fast: route.fast,
+        provider_config: opts.provider_config.as_deref(),
         host_env: &host.host_env,
         host_data_dir: &host.host_data_dir,
         temp_dir: &host.temp_dir,

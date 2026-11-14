@@ -100,7 +100,7 @@ async fn each_family_builds_under_its_own_id() {
     for name in ["anthropic", "openai", "gemini", "xai", "deepseek", "openrouter", "cursor-api"] {
         assert_eq!(id_of(&b, name, json!({"enabled": true, "apiKey": "k"})).await, name);
     }
-    let custom = json!({"type": "custom", "protocol": "openai-chat", "baseURL": "http://localhost:1/v1/",
+    let custom = json!({"type": "custom", "schemaVersion": 2, "name": "Custom", "protocol": "openai-chat", "baseURL": "http://localhost:1/v1/",
         "apiKey": "k", "headers": {"X-A": "1"}, "requestBody": {"top_k": 5}});
     assert_eq!(id_of(&b, "custom-abc", custom).await, "custom-abc");
 }
@@ -137,7 +137,7 @@ async fn each_route_takes_the_documents_nodes_instance_declared() {
         options: RequestOptions::default(),
     };
     let enabled = json!({"enabled": true, "apiKey": "k"});
-    let custom = json!({"type": "custom", "protocol": "anthropic", "baseURL": "http://localhost:1", "apiKey": "k"});
+    let custom = json!({"type": "custom", "schemaVersion": 2, "name": "Custom", "protocol": "anthropic", "baseURL": "http://localhost:1", "apiKey": "k"});
     // (the table's provider, the builder's name and config, the model whose route the row is for, the wire it is on)
     let routes = [
         ("anthropic", "anthropic", enabled.clone(), "claude-sonnet-4-5", None),
@@ -176,13 +176,13 @@ async fn a_one_wire_custom_provider_routes_its_wire_like_node() {
     let dir = tempfile::tempdir().unwrap();
     let b = builder(&dir);
     let context = WireRouteContext { agent: true, ..WireRouteContext::default() };
-    let chat = b.build("custom-harness", &json!({"type": "custom", "protocol": "openai-chat", "baseURL": "http://localhost:1/v1/", "apiKey": "k"})).await.unwrap();
+    let chat = b.build("custom-harness", &json!({"type": "custom", "schemaVersion": 2, "name": "Custom", "protocol": "openai-chat", "baseURL": "http://localhost:1/v1/", "apiKey": "k"})).await.unwrap();
     let route = chat.wire_routing().expect("an OpenAI-compatible custom provider routes").resolve_wire_route("harness-model", &context).await.unwrap().unwrap();
     assert_eq!((route.wire.as_str(), route.source.as_str(), route.profile_id.as_str()), ("chat", "default", "custom-harness:chat"));
-    let responses = b.build("custom-r", &json!({"type": "custom", "protocol": "openai-responses", "baseURL": "http://localhost:1/v1/", "apiKey": "k"})).await.unwrap();
+    let responses = b.build("custom-r", &json!({"type": "custom", "schemaVersion": 2, "name": "Custom", "protocol": "openai-responses", "baseURL": "http://localhost:1/v1/", "apiKey": "k"})).await.unwrap();
     let route = responses.wire_routing().expect("routes").resolve_wire_route("m", &context).await.unwrap().unwrap();
     assert_eq!((route.wire.as_str(), route.profile_id.as_str()), ("responses", "custom-r:responses"));
-    let anthropic = b.build("custom-a", &json!({"type": "custom", "protocol": "anthropic", "baseURL": "http://localhost:1", "apiKey": "k"})).await.unwrap();
+    let anthropic = b.build("custom-a", &json!({"type": "custom", "schemaVersion": 2, "name": "Custom", "protocol": "anthropic", "baseURL": "http://localhost:1", "apiKey": "k"})).await.unwrap();
     assert!(anthropic.wire_routing().is_none());
 }
 
@@ -198,6 +198,29 @@ async fn a_legacy_custom_entrys_models_are_its_manual_rows() {
     let rows = parts.listing.cached_rows();
     let row = rows.iter().find(|row| row.id == "smoke").expect("the legacy model is a row");
     assert_eq!((row.name.as_deref(), row.context_window, row.max_output_tokens, row.manual, row.hidden), (Some("Smoke Legacy"), Some(30_000), Some(1_234), true, false));
+}
+
+/// `createCustomProvider` throws what `normalizeCustomProviderConfig` throws: a nameless entry, a v2 entry with a field the normalizer
+/// does not know and a legacy entry with v2 fields are not built; `instantiateProvider` strips `customKeyIds` before the constructor.
+#[tokio::test]
+async fn a_custom_entry_the_normalizer_refuses_is_not_built() {
+    let dir = tempfile::tempdir().unwrap();
+    let b = builder(&dir);
+    let v2 = json!({"type": "custom", "schemaVersion": 2, "name": "N", "protocol": "openai-chat", "baseURL": "http://localhost:1/v1", "apiKey": "k"});
+    let err = |cfg: Value| b.build_custom_parts("custom-x", &cfg).err();
+    let mut nameless = v2.clone();
+    nameless.as_object_mut().unwrap().remove("name");
+    assert_eq!(err(nameless).as_deref(), Some("[custom-provider] name is required"));
+    let mut unknown = v2.clone();
+    unknown["surprise"] = json!(1);
+    assert!(err(unknown).is_some());
+    let mut legacy_headers = v2.clone();
+    legacy_headers.as_object_mut().unwrap().remove("schemaVersion");
+    legacy_headers["headers"] = json!({"X-A": "1"});
+    assert_eq!(err(legacy_headers).as_deref(), Some("[custom-provider] headers require schemaVersion 2"));
+    let mut with_ids = v2;
+    with_ids["customKeyIds"] = json!(["k1"]);
+    assert!(err(with_ids).is_none());
 }
 
 /// `describeVertexAdc` against Node's (`fixtures/vertex-adc/golden.json`, `record-vertex-adc.mjs`):
@@ -280,7 +303,7 @@ async fn a_name_without_an_adapter_says_why() {
         "mixdog-local needs the managed local runtime, which this host does not have"
     );
     let wires = |protocol: &str, extra: Value| {
-        let mut cfg = json!({"type": "custom", "protocol": protocol, "baseURL": "http://x/v1"});
+        let mut cfg = json!({"type": "custom", "schemaVersion": 2, "name": "Custom", "protocol": protocol, "baseURL": "https://x/v1"});
         cfg.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
         cfg
     };
@@ -447,7 +470,7 @@ async fn a_custom_provider_warms_on_the_wires_node_warms_on() {
     let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../fixtures/custom-warmups/golden.json")).unwrap();
     let (start, lapsed) = (golden["clock"]["start"].as_u64().unwrap(), golden["clock"]["lapsed"].as_u64().unwrap());
     for (wire, recorded) in golden["scenarios"].as_object().unwrap() {
-        let origin = format!("http://warm-{wire}.test");
+        let origin = format!("https://warm-{wire}.test");
         let clock = Arc::new(AtomicU64::new(start));
         let replay = Arc::new(Replay::new(|_| (400, br#"{"error":{"message":"scripted refusal","type":"invalid_request_error"}}"#.to_vec())));
         let dir = tempfile::tempdir().unwrap();
@@ -456,7 +479,7 @@ async fn a_custom_provider_warms_on_the_wires_node_warms_on() {
         let builder = builder_over(&dir, Arc::new(ProcessEnv), Some(replay.clone() as Arc<dyn HttpSend>), context);
         let models = [("chat", "model-chat"), ("responses", "model-responses"), ("messages", "model-messages")];
         let cfg = json!({
-            "type": "custom", "protocol": "openai-chat", "baseURL": format!("{origin}/{wire}/v1"), "apiKey": "warm-up-key",
+            "type": "custom", "schemaVersion": 2, "name": "Custom", "protocol": "openai-chat", "baseURL": format!("{origin}/{wire}/v1"), "apiKey": "warm-up-key",
             "wires": ["chat", "responses", "messages"],
             "modelWires": models.iter().map(|(w, m)| ((*m).to_owned(), json!(w))).collect::<serde_json::Map<_, _>>(),
         });
@@ -566,7 +589,7 @@ async fn custom_request(cfg: &Value, request: ModelRequest) -> (HashMap<String, 
 /// A keyless custom provider on `protocol` at a stand-in endpoint, not warmed, with `overrides` as its `modelOverrides`.
 fn custom_config(protocol: &str, overrides: Value) -> Value {
     json!({
-        "type": "custom", "protocol": protocol, "baseURL": "http://shape.test/v1", "auth": "none", "preconnect": false,
+        "type": "custom", "schemaVersion": 2, "name": "Custom", "protocol": protocol, "baseURL": "https://shape.test/v1", "auth": "none", "preconnect": false,
         "modelOverrides": overrides,
     })
 }
@@ -730,6 +753,20 @@ async fn a_custom_requests_own_fields_sit_where_node_puts_them() {
     assert_eq!(last(&body, 5), ["thinking", "output_config", "top_k", "top_p", "stream"], "{body}");
     let (_, body) = custom_request(&config("openai-responses"), custom_turn("smoke", options)).await;
     assert_eq!(last(&body, 4), ["reasoning", "prompt_cache_key", "top_k", "top_p"], "{body}");
+}
+
+/// A custom Responses request's `reasoning` is the row's (`resolveReasoning`), placed where `buildCompatResponsesParams` puts it:
+/// ahead of the session's cache key.
+#[tokio::test]
+async fn a_custom_responses_requests_reasoning_is_the_rows_ahead_of_the_cache_key() {
+    use mixdog_core_api::domain::provider::RequestOptions;
+    let overrides = json!({"smoke": {"manual": true, "reasoning": {"levels": ["none", "low", "medium", "high"]}}});
+    let config = custom_config("openai-responses", overrides);
+    let keyed = RequestOptions { effort: Some("high".to_owned()), session_id: Some("s".to_owned()), ..RequestOptions::default() };
+    let (_, body) = custom_request(&config, custom_turn("smoke", keyed)).await;
+    let keys: Vec<&str> = body.as_object().unwrap().keys().map(String::as_str).collect();
+    let at = |name: &str| keys.iter().position(|k| *k == name).unwrap();
+    assert!(at("reasoning") < at("prompt_cache_key"), "{body}");
 }
 
 /// On the Messages wire the request's own `anthropic-beta` (here the effort beta) is a per-request header over the

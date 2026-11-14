@@ -742,6 +742,10 @@ impl Run {
                 match self.resolve_no_tool(response).await? {
                     crate::no_tool::Outcome::Continue => continue,
                     crate::no_tool::Outcome::Break(response) => {
+                        // Every completed turn asks the Stop hooks once (B-5); the normal finish already did.
+                        if !self.no_tool.stop_asked {
+                            self.hold_stop(None).await?;
+                        }
                         self.response = Some(*response);
                         return Ok(());
                     }
@@ -758,6 +762,9 @@ impl Run {
                     ..response
                 };
                 self.response = Some(self.no_tool.finalize(ended));
+                if !self.no_tool.stop_asked {
+                    self.hold_stop(None).await?;
+                }
                 return Ok(());
             }
         }

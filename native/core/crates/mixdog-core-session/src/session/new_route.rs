@@ -95,7 +95,7 @@ pub fn create_keys(route: &Map<String, Value>) -> Result<Map<String, Value>, Str
 }
 
 /// The route a session's record holds, as a resume asks for it (`resumedRouteFor`, `resume.mjs`), which is also the route
-/// a session created on its creator's route holds: the provider and model, its own effort (else the one the config saves),
+/// a session created on its creator's route holds: the provider and model, its own effort (else, at the boot, the held route's),
 /// Fast and Auto effort as it holds them, its model parameters. `None` when the record names no model: the thread has no
 /// session yet, and its route is the one it is started on.
 fn record_route(header: &Map<String, Value>) -> Option<Map<String, Value>> {
@@ -139,6 +139,10 @@ impl NewThreadRoute for RouteService {
         if let Some(request) = record_route(header) {
             self.writer.boot(thread, &request);
         }
+    }
+
+    async fn prepare(&self, thread: &ThreadId) {
+        self.prepare_route(thread).await;
     }
 }
 

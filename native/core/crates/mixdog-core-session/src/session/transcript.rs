@@ -179,7 +179,7 @@ fn part_attachment(part: &PromptPart, sizes: Option<&std::collections::BTreeMap<
     Some(json!({
         "id": reference, "kind": kind, "name": pick(name.as_ref(), default_name, 200),
         "mimeType": pick(mime, default_mime, 100),
-        "size": sizes.and_then(|s| s.get(reference)).copied().or(size.filter(|s| *s > 0)).unwrap_or(0),
+        "size": sizes.and_then(|s| s.get(reference)).copied().map(i64::from).or(size.filter(|s| *s > 0)).unwrap_or(0),
     }))
 }
 

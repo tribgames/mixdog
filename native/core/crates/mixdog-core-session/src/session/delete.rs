@@ -127,6 +127,9 @@ pub trait DeleteSeams: Send + Sync {
     /// The close's tombstone landed: the MCP scope the session holds is released and its servers
     /// close (the runtime's teardown, `disconnectAll({ scopeId })`, `runtime-stops.mjs:24`). Not awaited.
     fn release_mcp_scope(&self, session_id: &str);
+    /// The session left memory (the idle unload): its MCP scope is released as its runtime's close does, and the session
+    /// takes a new one when it is loaded again. Not awaited.
+    fn unload_mcp_scope(&self, _session_id: &str) {}
     /// `forgetSessionSearch(id)`, not awaited.
     fn forget_session_search(&self, session_id: &str);
     /// `releaseDeletedWorktree(id)`: the worktree maintenance's `cleanupDeletedSession`, off the

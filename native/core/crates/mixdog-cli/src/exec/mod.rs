@@ -73,6 +73,8 @@ pub struct ExecOptions {
     pub model: Option<String>,
     pub effort: Option<String>,
     pub fast: bool,
+    /// `--provider-config`: the one custom provider the run may use (decision B-8; Node's exec has no such option).
+    pub provider_config: Option<String>,
     pub web_search: bool,
     pub json: bool,
     pub cwd: PathBuf,
@@ -89,7 +91,7 @@ pub struct ExecArgs {
     /// The options and the message, in any order; `--` ends the options. --provider <name>, --model <name>, --effort
     /// <level>, --fast, --web-search (web research stays off unless asked for), --json (the lifecycle events as JSON
     /// lines), --cwd <dir> (default: the current one), --usage-log <file> (default: $MIXDOG_USAGE_LOG), --tool-mode
-    /// full|readonly.
+    /// full|readonly, --provider-config <file-or-json> ({"custom-x": {...}}: the one custom provider the run may use).
     #[arg(allow_hyphen_values = true, value_name = "ARGS")]
     argv: Vec<OsString>,
     /// The message after a `--` that comes first, which clap takes for itself.
@@ -97,19 +99,41 @@ pub struct ExecArgs {
     escaped: Vec<OsString>,
 }
 
-/// What an exec's command line asks for: Node's `help` and `exec` kinds (`classifyCliInvocation`).
+/// What an exec's command line asks for: Node's `help`, `plain`, `react` and `exec` kinds (`classifyCliInvocation`).
 #[derive(Debug)]
 pub enum Invocation {
-    /// `--help` or `-h` anywhere on the line: the exec's usage.
+    /// `--help` or `-h` anywhere on the line: the usage (`printHelp`).
     Help,
+    /// `--plain` (without help): Node starts its readline REPL, which `mixdogd` does not have.
+    Plain,
+    /// `--react` (without help or plain): Node's removed-flag refusal.
+    React,
     Run(ExecOptions),
 }
 
-/// The options that take the next word as their value (`VALUE_OPTIONS`), with the core's `--cwd` and `--usage-log`.
-const VALUE_OPTIONS: [&str; 6] = ["--provider", "--model", "--effort", "--workflow", "--cwd", "--usage-log"];
-/// `FLAG_OPTIONS` without the interactive CLI's `--plain` and `--react`, which `mixdogd` does not have.
-const FLAG_OPTIONS: [&str; 10] =
-    ["--no-worktree", "--readonly", "--help", "-h", "--remote", "--onboarding", "--fast", "--web-search", "--memory", "--json"];
+/// `printHelp`'s text (`src/help.mjs`), as Node prints it.
+pub const HELP_TEXT: &str = include_str!("help.txt");
+
+/// What `--react` prints to stderr, with exit 1 (`run`, `app.mjs`).
+pub const REACT_REMOVED: &str = "mixdog: --react was removed; run `mixdog` for the canonical TUI.
+";
+
+/// The options that take the next word as their value (`VALUE_OPTIONS`), with the core's `--cwd`, `--usage-log` and `--provider-config` (B-8).
+const VALUE_OPTIONS: [&str; 7] = ["--provider", "--model", "--effort", "--workflow", "--cwd", "--usage-log", "--provider-config"];
+const FLAG_OPTIONS: [&str; 12] = [
+    "--no-worktree",
+    "--readonly",
+    "--help",
+    "-h",
+    "--plain",
+    "--react",
+    "--remote",
+    "--onboarding",
+    "--fast",
+    "--web-search",
+    "--memory",
+    "--json",
+];
 /// The interactive CLI's flags an exec refuses, in Node's order (`EXEC_UNSUPPORTED_FLAGS`).
 const UNSUPPORTED_FLAGS: [&str; 5] = ["--readonly", "--remote", "--onboarding", "--memory", "--no-worktree"];
 const WORKTREE_OPTION: &str = "--worktree";
@@ -136,8 +160,10 @@ fn quoted(word: &str) -> String {
 }
 
 /// `parseTokens`: an option counts wherever it stands, only `--` ends the options. A `strict` line refuses a missing value,
-/// an invalid worktree name and the exec verb as a route value; a line that asks for help (not strict) skips them.
+/// an invalid worktree name and (unless it carries `--react`) the exec verb as a route value; a line that asks for help or
+/// `--plain` (not strict) skips them.
 fn parse_tokens(argv: &[String], strict: bool) -> Result<Tokens<'_>, String> {
+    let headless_intent = strict && !argv.iter().any(|arg| arg == "--react");
     let mut tokens = Tokens::default();
     let mut index = 0;
     while let Some(arg) = argv.get(index).map(String::as_str) {
@@ -163,7 +189,7 @@ fn parse_tokens(argv: &[String], strict: bool) -> Result<Tokens<'_>, String> {
                 None if strict => return Err(format!("option {option} requires a non-option value")),
                 None => {}
                 Some(value) => {
-                    if strict && is_exec(value) {
+                    if headless_intent && is_exec(value) {
                         if option == "--workflow" {
                             return Err(WORKFLOW_REFUSAL.into());
                         }
@@ -208,12 +234,19 @@ impl ExecArgs {
         // Node reads a flag with `argv.includes`: anywhere on the line, past a `--` too.
         let given = |flag: &str| argv.iter().any(|arg| arg == flag);
         let help = given("--help") || given("-h");
-        let tokens = parse_tokens(&argv, !help)?;
+        let plain = given("--plain");
+        let tokens = parse_tokens(&argv, !help && !plain)?;
         if help {
             return Ok(Invocation::Help);
         }
+        if plain {
+            return Ok(Invocation::Plain);
+        }
         if tokens.worktree && given("--no-worktree") {
             return Err("options --worktree and --no-worktree are mutually exclusive".into());
+        }
+        if given("--react") {
+            return Ok(Invocation::React);
         }
         let message = js_trim(&tokens.positional.join(" ")).to_owned();
         if message.is_empty() {
@@ -238,6 +271,7 @@ impl ExecArgs {
             model: value("--model"),
             effort: value("--effort"),
             fast: given("--fast"),
+            provider_config: value("--provider-config"),
             web_search: given("--web-search"),
             json: given("--json"),
             cwd,

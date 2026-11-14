@@ -1222,6 +1222,13 @@ impl DefaultProviderBuilder {
     /// A custom provider with its model listing at hand: the setup probes read the listing's
     /// own discovery error (`customDiscoveryError`), which the adapter's `models()` hides.
     pub fn build_custom_parts(&self, name: &str, cfg: &Value) -> Result<CustomParts, String> {
+        // `instantiateProvider` hands the constructor the entry without its additional key ids, and `createCustomProvider` throws
+        // what `normalizeCustomProviderConfig` throws: an entry the normalizer refuses is not built.
+        let mut stored = cfg.clone();
+        if let Some(object) = stored.as_object_mut() {
+            object.shift_remove(super::providers::CUSTOM_KEY_IDS);
+        }
+        let normalized = custom::config::normalize(&stored)?;
         let protocol: Protocol = serde_json::from_value(cfg.get("protocol").cloned().unwrap_or(Value::Null))
             .map_err(|_| "[custom-provider] protocol must be openai-chat, openai-responses or anthropic".to_owned())?;
         let base_url = text(cfg, "baseURL").ok_or("[custom-provider] baseURL is required")?.trim_end_matches('/').to_owned();
@@ -1236,10 +1243,8 @@ impl DefaultProviderBuilder {
         let headers = custom::normalize_headers(&object("headers"), "headers", &[]).map_err(|e| e.message)?;
         let request_body = custom::normalize_request_body(&object("requestBody"), "requestBody").map_err(|e| e.message)?;
         // `createCustomProvider` takes the model overrides from `normalizeCustomProviderConfig(config)`, which makes an
-        // unversioned entry's `models` manual overrides (`migrateLegacy`) and hides the ids discovered beside them. An entry
-        // the normalizer refuses is read as stored.
-        let normalized = custom::config::normalize(cfg).ok();
-        let entry = normalized.as_ref().unwrap_or(cfg);
+        // unversioned entry's `models` manual overrides (`migrateLegacy`) and hides the ids discovered beside them.
+        let entry = &normalized;
         let mut model_body = Map::new();
         let mut model_headers = Vec::new();
         for (model, over) in entry.get("modelOverrides").and_then(Value::as_object).cloned().unwrap_or_default() {

@@ -532,3 +532,11 @@ async fn a_worker_may_only_make_a_snapshot_and_an_unmanaged_path_is_not_removed(
     let unmanaged = run(&rig, "lead", &rig.ws, json!({"command": "git worktree remove ../nowhere"})).await;
     assert!(unmanaged.contains("is not a Mixdog-managed worktree"), "{unmanaged}");
 }
+
+#[tokio::test]
+async fn a_file_name_with_non_ascii_characters_is_shown_as_it_is() {
+    let rig = rig();
+    std::fs::write(rig.ws.join("한글.txt"), "x\n").unwrap();
+    let status = run(&rig, "lead", &rig.ws, json!({"command": "git status --short"})).await;
+    assert!(status.contains("한글.txt"), "not octal-escaped: {status}");
+}

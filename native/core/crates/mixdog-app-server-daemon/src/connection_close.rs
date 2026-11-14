@@ -11,6 +11,7 @@ use mixdog_core::run_host::late::Bound;
 use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_domains::notify::screen::ScreenSessions;
 use mixdog_remote::registry::DeviceRegistry;
+use mixdog_scm::service::ScmService;
 use mixdog_spawn::service::SystemService;
 use mixdog_spawn::service::TerminalService;
 use mixdog_workspace::service::WorkspaceService;
@@ -41,6 +42,13 @@ impl ConnectionOwner for WorkspaceService {
     }
 }
 
+impl ConnectionOwner for ScmService {
+    /// The `git/watch` calls the connection made and did not end.
+    fn connection_closed(&self, connection: ConnectionId) {
+        ScmService::connection_closed(self, connection);
+    }
+}
+
 impl ConnectionOwner for SystemService {
     /// The connection's ports view (the sampler stops with the last viewer).
     fn connection_closed(&self, connection: ConnectionId) {
@@ -67,8 +75,9 @@ impl ConnectionOwners {
         system: Arc<SystemService>,
         devices: Arc<DeviceRegistry>,
         live_view: Arc<crate::live_view::LiveViewService>,
+        scm: Arc<ScmService>,
     ) -> Self {
-        Self { owners: vec![terminal, screen, workspace, system, devices, live_view] }
+        Self { owners: vec![terminal, screen, workspace, system, devices, live_view, scm] }
     }
 
     /// Every owner releases what `connection` held, in a fixed order.

@@ -293,7 +293,7 @@ impl SessionHandle {
     /// `daemonWorkGate.deferring` (`daemon-work-gate.mjs`), which `submitSession` wraps around `admitted`: an in-core start (a
     /// routine's, a channel's, an agent's) waits out the core's hold on turn starts (`hold{on}`, LR §5.1) before it enters the
     /// turn gate, so the wait holds no admission; it is refused once the drain commit closed the hold, and its caller's cancel
-    /// ends the wait. A client's start is the actor's to queue under the hold. The wait keeps the thread loaded: Node's start opens
+    /// ends the wait. A client's start is the actor's to refuse under the hold. The wait keeps the thread loaded: Node's start opens
     /// its session after the wait (`submitAdmitted`'s `entryForSession`), while here the caller's start is on this thread's cell.
     async fn deferring(&self, ctx: &CallContext) -> Result<(), CoreError> {
         if matches!(ctx.caller, Caller::Connection(_)) {
@@ -648,6 +648,9 @@ impl SessionHandle {
             .await?;
         // The heir's prompt is composed for the heir (`createSession`: its scratch directory, tools and workflow), never the
         // source's text; `carryConversation` carries the conversation only ("System blocks belong to the session that BUILT them").
+        // A resume's `setRoute(resumedRoute)` (`resume.mjs`): the heir's runtime takes the route its record holds, which no open
+        // for use boots (the heir is created loaded).
+        directory.deps.new_route.boot(&created.id, &created.cell.header.load_full());
         directory.deps.empty_surface.refresh_empty(&created.id).await.map_err(|message| mixdog_core_base::support::failed("session", message))?;
         // `inheritFrom` (`lifecycle/inheritance.mjs`): the heir is a created, empty session and the source's conversation is
         // carried into it with its inheritance boundary, as an `intoThreadId` heir's is.

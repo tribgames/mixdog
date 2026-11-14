@@ -10,7 +10,6 @@ use std::sync::OnceLock;
 use std::sync::Weak;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
-use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
@@ -103,9 +102,14 @@ const GATE_OFF: &str = "Enable Git & GitHub in Extensions → Plugin before usin
 /// The id of a `git/watch`'s folder watch on the core's `FolderWatcher` is this prefix, the watch's number and its key
 /// (`scm.git:<n>:<key>`): a watch made again after the last unwatch never shares its id with the one still being ended.
 const FOLDER_WATCH_PREFIX: &str = "scm.git:";
-/// `activityMinGapMs` of the desktop's git status surfaces (`createGitRefreshScheduler` with `ISLAND_GIT_REFRESH`): the least
-/// time from the end of one rescan of a watch to the start of the next.
-const RESCAN_MIN_GAP: Duration = Duration::from_millis(3_000);
+/// `activityDebounceMs` of the desktop's git refresh schedulers (`createGitRefreshScheduler`): evidence that arrives while a watch
+/// is idle is read this long after the first of it.
+const RESCAN_DEBOUNCE: Duration = Duration::from_millis(125);
+/// `activityMinGapMs` of the surfaces that follow a diff (`FILE_DIFF_REFRESH_OPTIONS`: the editor gutter, the diff pane): the least
+/// time from the end of one rescan of a watch to the start of the next. The status surfaces that wait 3 s read the same feed.
+const RESCAN_MIN_GAP: Duration = Duration::from_millis(1_000);
+/// Who holds a `git/watch`: the connection that made it, or an internal caller.
+type Holder = Option<ConnectionId>;
 
 struct GitWatch {
     feed: FeedPublisher,
@@ -119,24 +123,31 @@ struct GitWatch {
     /// When the last read of its status ended (the snapshot `git/watch` published, then each rescan) and how long the last
     /// one that read a status took.
     paced: Mutex<Option<(Instant, Duration)>>,
-    /// `git/watch` calls not yet ended by a `git/unwatch` (`createFolderWatchRegistry`'s `count`), changed only under the
-    /// service's `watches` lock: at least 1 while the watch is in the service's map, and 0 once its last unwatch took it out.
-    listeners: AtomicUsize,
-    /// Set by the lane job that ends the folder watch, before it ends it: a follow job that the lane runs after that one ends
-    /// the folder watch it opened itself.
-    unfollowed: AtomicBool,
+    /// The holders of `git/watch` calls not yet ended by a `git/unwatch` (`createFolderWatchRegistry`'s `count`), one entry per
+    /// call, changed only under the service's `watches` lock: at least one while the watch is in the service's map, and none once
+    /// its last unwatch took it out.
+    holders: Mutex<Vec<Holder>>,
 }
 
 impl GitWatch {
-    /// One more listener of the watch.
-    fn listen(self: &Arc<Self>) -> Arc<Self> {
-        self.listeners.fetch_add(1, Ordering::AcqRel);
+    /// One more listener of the watch, held by `holder`.
+    fn listen(self: &Arc<Self>, holder: Holder) -> Arc<Self> {
+        self.holders.lock().expect("holders").push(holder);
         Arc::clone(self)
     }
 
     /// Its last listener unwatched it: it is out of the service's map, and its rescans stop.
     fn ended(&self) -> bool {
-        self.listeners.load(Ordering::Acquire) == 0
+        self.holders.lock().expect("holders").is_empty()
+    }
+
+    /// One listener fewer: `holder`'s own, else any (Node's count is the registry's, whoever unwatches).
+    fn unlisten(&self, holder: Holder) {
+        let mut holders = self.holders.lock().expect("holders");
+        let at = holders.iter().position(|held| *held == holder).unwrap_or(0);
+        if at < holders.len() {
+            holders.remove(at);
+        }
     }
 
     /// When the next rescan may start (`createGitRefreshScheduler`'s `requiredIdleMs`): the larger of [`RESCAN_MIN_GAP`] and the
@@ -156,6 +167,23 @@ impl GitWatch {
     }
 }
 
+/// A `git/watch` making its watch: the folder watch it registered ahead of its snapshot. Dropped, it leaves `opening`, and unless
+/// the watch was made (`keep`) ends the folder watch, whether the call failed, was cancelled, or lost to another first watch.
+struct Opening {
+    service: Arc<ScmService>,
+    folder: String,
+    keep: bool,
+}
+
+impl Drop for Opening {
+    fn drop(&mut self) {
+        self.service.opening.lock().expect("opening").remove(&self.folder);
+        if !self.keep && let Err(error) = self.service.end_follow(self.folder.clone()) {
+            tracing::warn!(folder = %self.folder, "the git watch's folder watch is not ended: {error:?}");
+        }
+    }
+}
+
 /// The core watcher's sink for the folder watches of `git/watch`, bound to its service by [`ScmService::watch_folders`] (the
 /// watcher takes its sinks before the service exists). A batch is evidence for its watch: Node's desktop folder watch
 /// (`createFolderWatchRegistry`, which also follows the checkout's git dirs) raised `folder-changed`, and the pane read the
@@ -171,14 +199,21 @@ impl ChangeSink for GitWatchSink {
         let Some(service) = self.0.get().and_then(Weak::upgrade) else {
             return;
         };
-        // A batch of a folder watch still being ended is not the current watch's.
-        let repo = service
+        // A batch of a folder watch still being ended is not the current watch's; one of a watch still being made (its snapshot
+        // is not read yet) is kept, for the watch to read again once it is made.
+        let current = service
             .watches
             .lock()
             .expect("watches")
             .get(key)
             .filter(|watch| watch.folder == watch_id)
             .map(|watch| watch.repo.clone());
+        let repo = current.or_else(|| {
+            service.opening.lock().expect("opening").get_mut(watch_id).map(|(repo, seen)| {
+                *seen = true;
+                repo.clone()
+            })
+        });
         let evidence = match kind {
             FolderChange::Git => RepoEvidence::GitDir,
             FolderChange::Overflow => RepoEvidence::Overflow,
@@ -220,6 +255,9 @@ pub struct ScmService {
     watches: Mutex<HashMap<String, Arc<GitWatch>>>,
     /// The number of the last `git/watch` made, in its folder watch's id.
     watch_seq: AtomicU64,
+    /// The folder watches of the `git/watch` calls that are making their watch (the OS watch is registered before the snapshot is
+    /// read): the repository each follows and whether a batch of it has come since.
+    opening: Mutex<HashMap<String, (RepoRef, bool)>>,
     /// Where each `git/watch` follows its work tree; unbound, a watch publishes its snapshot only.
     folders: OnceLock<Arc<FolderWatcher>>,
     /// The review listener's unsubscribe: the service's `stopTurnReviewPush`.
@@ -251,6 +289,14 @@ fn decode<T: DeserializeOwned>(req: &CoreRequest) -> Result<T, CoreError> {
 /// `requiredRepositoryCwd` of the desktop's own `git/watch`.
 fn cwd(value: &str) -> Result<PathBuf, ScmFailure> {
     input::repository_cwd(Some(&Value::String(value.to_owned()))).map(PathBuf::from)
+}
+
+/// The holder of a `git/watch` call: its connection.
+fn holder_of(req: &CoreRequest) -> Holder {
+    match req.ctx.caller {
+        mixdog_core_api::call::Caller::Connection(connection) => Some(connection),
+        mixdog_core_api::call::Caller::Internal(_) => None,
+    }
 }
 
 fn unit() -> Value {
@@ -341,6 +387,7 @@ impl ScmService {
             flow_seq: AtomicU64::new(0),
             watches: Mutex::new(HashMap::new()),
             watch_seq: AtomicU64::new(0),
+            opening: Mutex::new(HashMap::new()),
             folders: OnceLock::new(),
             stop_review_push,
         })
@@ -357,27 +404,26 @@ impl ScmService {
     }
 
     /// A recursive watch of the work tree, which also follows its git dirs outside it: Node's desktop `folderWatch` of the
-    /// project (`createFolderWatchRegistry`). Not cancelled with the request, which has already published the watch. A
-    /// `git/unwatch` whose job ran before this one found no folder watch to end, so this job ends the one it opened.
-    async fn follow(&self, watch: &Arc<GitWatch>) {
+    /// project (`createFolderWatchRegistry`). Not cancelled with the request.
+    async fn follow(&self, folder: &str, root: &std::path::Path) {
         let Some(folders) = self.folders.get().cloned() else {
             return;
         };
-        let (followed, path) = (Arc::clone(watch), watch.root.clone());
-        let job = move || {
-            let opened = folders.watch(&followed.folder, &path, true);
-            // The unwatch job sets this before it takes the watcher's lock, so one whose unwatch came before the watch above
-            // (and ended nothing) is seen here.
-            if followed.unfollowed.load(Ordering::Acquire) {
-                folders.unwatch(&followed.folder);
-            }
-            opened
-        };
-        match on_lane(self.scm.lane, &CancellationToken::new(), job).await {
+        let (id, path) = (folder.to_owned(), root.to_path_buf());
+        match on_lane(self.scm.lane, &CancellationToken::new(), move || folders.watch(&id, &path, true)).await {
             Ok(Ok(())) => {}
-            Ok(Err(error)) => tracing::warn!(root = %watch.root.display(), "the git watch cannot follow the work tree: {}", error.message),
-            Err(error) => tracing::warn!(root = %watch.root.display(), "the git watch cannot follow the work tree: {error}"),
+            Ok(Err(error)) => tracing::warn!(root = %root.display(), "the git watch cannot follow the work tree: {}", error.message),
+            Err(error) => tracing::warn!(root = %root.display(), "the git watch cannot follow the work tree: {error}"),
         }
+    }
+
+    /// Ends the folder watch `folder` on the lane, as `follow` opened it, with a token no cancel reaches. Not waited for: the job
+    /// runs whether or not its handle is kept.
+    fn end_follow(&self, folder: String) -> Result<Option<mixdog_rt::JobHandle<()>>, ScmFailure> {
+        let Some(folders) = self.folders.get().cloned() else {
+            return Ok(None);
+        };
+        admit(self.scm.lane, &CancellationToken::new(), move || folders.unwatch(&folder)).map(Some)
     }
 
     /// The watcher saw the repository change: cached inspections go stale and the pane's
@@ -405,10 +451,16 @@ impl ScmService {
         }
         let this = self.clone();
         mixdog_rt::spawn("scm-git-watch", TaskClass::Work, async move {
+            // The first evidence of an idle watch waits out the debounce; evidence that came during a read is read at once (the
+            // scheduler's `scheduleActivity(0)`). Both wait out the gap.
+            let mut debounce = RESCAN_DEBOUNCE;
             loop {
-                if let Some(due) = watch.next_scan().filter(|due| *due > Instant::now()) {
+                let due = Instant::now() + debounce;
+                let due = watch.next_scan().map_or(due, |gap| gap.max(due));
+                if due > Instant::now() {
                     mixdog_rt::time::sleep_until(due).await;
                 }
+                debounce = Duration::ZERO;
                 // A watch whose last listener left during the wait reads nothing more: its feed is closed.
                 if watch.ended() {
                     watch.running.store(false, Ordering::Release);
@@ -441,38 +493,48 @@ impl ScmService {
         });
     }
 
-    async fn git_watch(self: &Arc<Self>, cwd: PathBuf, cancel: &CancellationToken) -> Result<Reply, ScmFailure> {
+    async fn git_watch(self: &Arc<Self>, cwd: PathBuf, holder: Holder, cancel: &CancellationToken) -> Result<Reply, ScmFailure> {
         let repo = self.scm.open(&cwd, cancel).await?;
         let root = repo.root()?.to_path_buf();
         let key = crate::locks::path_key(&root);
-        let existing = self.watches.lock().expect("watches").get(&key).map(GitWatch::listen);
+        let existing = self.watches.lock().expect("watches").get(&key).map(|watch| watch.listen(holder));
         let watch = match existing {
             Some(watch) => watch,
             None => {
                 let reference = repo.repo_ref()?;
+                let number = self.watch_seq.fetch_add(1, Ordering::Relaxed) + 1;
+                let folder = format!("{FOLDER_WATCH_PREFIX}{number}:{key}");
+                // The OS watch is registered before the snapshot is read, so a change between the two is a batch of the watch (kept
+                // in `opening` until the watch exists) and not lost. A request cancelled or failed from here on ends the OS watch.
+                self.opening.lock().expect("opening").insert(folder.clone(), (reference.clone(), false));
+                let mut opening = Opening { service: Arc::clone(self), folder: folder.clone(), keep: false };
+                self.follow(&folder, &root).await;
                 let read = Instant::now();
                 let status = self.scm.git_status(&root, cancel).await?;
                 let id = FeedId(format!("git:{}", crate::inspect::status::path_text(&root)));
-                let number = self.watch_seq.fetch_add(1, Ordering::Relaxed) + 1;
                 let created = Arc::new(GitWatch {
                     feed: FeedPublisher::create(self.feeds.as_ref(), id, status),
-                    repo: reference,
-                    folder: format!("{FOLDER_WATCH_PREFIX}{number}:{key}"),
+                    repo: reference.clone(),
+                    folder,
                     root,
                     revision: AtomicU64::new(0),
                     dirty: AtomicBool::new(false),
                     running: AtomicBool::new(false),
                     paced: Mutex::new(None),
-                    listeners: AtomicUsize::new(0),
-                    unfollowed: AtomicBool::new(false),
+                    holders: Mutex::new(Vec::new()),
                 });
                 // The snapshot is the watch's first read (the scheduler's run on `resume`): evidence right after it waits out
                 // the gap too.
                 created.scanned(read, true);
-                let watch = GitWatch::listen(self.watches.lock().expect("watches").entry(key).or_insert_with(|| created.clone()));
-                // A concurrent first watch of the same work tree that got in first already follows it.
+                let watch = self.watches.lock().expect("watches").entry(key).or_insert_with(|| created.clone()).listen(holder);
+                // A concurrent first watch of the same work tree that got in first already follows it: this one's OS watch ends
+                // with `opening`.
                 if Arc::ptr_eq(&watch, &created) {
-                    self.follow(&watch).await;
+                    opening.keep = true;
+                    let seen = self.opening.lock().expect("opening").get(&watch.folder).is_some_and(|(_, seen)| *seen);
+                    if seen {
+                        self.refresh_watch(Arc::clone(&watch), reference);
+                    }
                 }
                 watch
             }
@@ -487,43 +549,58 @@ impl ScmService {
 
     /// Ends one `git/watch` of the work tree holding `cwd` (`createFolderWatchRegistry`'s `unwatch`): the last one ends the
     /// folder watch and the feed, whose subscriptions end with it. A work tree nobody watches is left as it is.
-    async fn git_unwatch(&self, cwd: PathBuf, cancel: &CancellationToken) -> Result<(), ScmFailure> {
+    async fn git_unwatch(&self, cwd: PathBuf, holder: Holder, cancel: &CancellationToken) -> Result<(), ScmFailure> {
         let repo = match self.scm.open(&cwd, cancel).await {
             Err(ScmFailure::NotARepository) => return Ok(()),
             repo => repo?,
         };
         let key = crate::locks::path_key(repo.root()?);
-        let (watch, unfollow) = {
-            let mut watches = self.watches.lock().expect("watches");
-            let Some(watch) = watches.get(&key).cloned() else { return Ok(()) };
-            if watch.listeners.load(Ordering::Acquire) > 1 {
-                watch.listeners.fetch_sub(1, Ordering::AcqRel);
-                return Ok(());
-            }
-            // The last listener. Ending an OS watch closes its handle: on the lane, as `follow` opened it, with a token no
-            // cancel reaches, so a request cancelled meanwhile does not leave it open. The job is admitted before the watch's
-            // record goes (as `fs/unwatch` does): a lane that refuses it leaves the watch whole, so the OS watch never
-            // outlives its record.
-            let unfollow = match self.folders.get().cloned() {
-                Some(folders) => {
-                    let ending = Arc::clone(&watch);
-                    Some(admit(self.scm.lane, &CancellationToken::new(), move || {
-                        ending.unfollowed.store(true, Ordering::Release);
-                        folders.unwatch(&ending.folder);
-                    })?)
-                }
-                None => None,
-            };
-            watch.listeners.fetch_sub(1, Ordering::AcqRel);
-            watches.remove(&key);
-            (watch, unfollow)
-        };
-        watch.feed.close();
-        if let Some(unfollow) = unfollow {
+        if let Some(unfollow) = self.release(&key, holder)? {
             // Dropped unrun only by a lane that shut down, with the folder watcher.
             let _ = unfollow.await;
         }
         Ok(())
+    }
+
+    /// One listener of the watch at `key` fewer, held by `holder` (else any). The last one ends the folder watch on the lane
+    /// ([`Self::end_follow`]), which is admitted before the watch's record goes (as `fs/unwatch` does): a lane that refuses it
+    /// leaves the watch whole, so the OS watch never outlives its record. The job to wait for, if it was the last.
+    fn release(&self, key: &str, holder: Holder) -> Result<Option<mixdog_rt::JobHandle<()>>, ScmFailure> {
+        let (watch, unfollow) = {
+            let mut watches = self.watches.lock().expect("watches");
+            let Some(watch) = watches.get(key).cloned() else { return Ok(None) };
+            if watch.holders.lock().expect("holders").len() > 1 {
+                watch.unlisten(holder);
+                return Ok(None);
+            }
+            let unfollow = self.end_follow(watch.folder.clone())?;
+            watch.unlisten(holder);
+            watches.remove(key);
+            (watch, unfollow)
+        };
+        watch.feed.close();
+        Ok(unfollow)
+    }
+
+    /// A connection closed: the `git/watch` calls it made and did not end with a `git/unwatch` end (Node's windows leave no watch
+    /// of theirs behind). The OS watch of the last of them ends on the lane, as it would on the unwatch.
+    pub fn connection_closed(&self, connection: ConnectionId) {
+        let held: Vec<(String, usize)> = self
+            .watches
+            .lock()
+            .expect("watches")
+            .iter()
+            .map(|(key, watch)| (key.clone(), watch.holders.lock().expect("holders").iter().filter(|held| **held == Some(connection)).count()))
+            .filter(|(_, count)| *count > 0)
+            .collect();
+        for (key, count) in held {
+            for _ in 0..count {
+                if let Err(error) = self.release(&key, Some(connection)) {
+                    tracing::warn!(%key, "a closed connection's git watch is not ended: {error:?}");
+                    break;
+                }
+            }
+        }
     }
 
     fn flow(&self, id: &LoginFlowId) -> Result<Arc<Flow>, ScmFailure> {
@@ -688,10 +765,10 @@ impl ScmService {
             }
             "git/cliStatus" => scm.git_cli_status(cancel, false).await?,
             "git/globalConfig/read" => scm.git_global_config(cancel).await?,
-            "git/watch" => { let p: p::GitWatchParams = decode(req)?; return Ok(self.git_watch(cwd(&p.cwd)?, cancel).await?); }
+            "git/watch" => { let p: p::GitWatchParams = decode(req)?; return Ok(self.git_watch(cwd(&p.cwd)?, holder_of(req), cancel).await?); }
             "git/unwatch" => {
                 let p: p::GitUnwatchParams = decode(req)?;
-                self.git_unwatch(cwd(&p.cwd)?, cancel).await?;
+                self.git_unwatch(cwd(&p.cwd)?, holder_of(req), cancel).await?;
                 json!({})
             }
             "git/stage" => { at!().stage(&a!().texts(1)).await?; unit() }
@@ -860,5 +937,58 @@ impl DomainService for ScmHandle {
 
     fn notify(&self, _method: Method, _params: Value, _from: ConnectionId) -> Admit {
         Admit::Accepted
+    }
+}
+
+#[cfg(test)]
+mod watch_tests {
+    use mixdog_core_api::domain::common::AbsPath;
+    use mixdog_core_api::mock::MockLimits;
+    use mixdog_core_api::mock::MockScopedFeeds;
+
+    use super::*;
+
+    fn watch() -> Arc<GitWatch> {
+        let root = std::env::temp_dir();
+        Arc::new(GitWatch {
+            feed: FeedPublisher::create(&MockScopedFeeds::new(MockLimits::default()), FeedId("git:test".into()), json!({})),
+            repo: RepoRef { common_dir: AbsPath::new(root.clone()).expect("absolute"), work_tree: AbsPath::new(root.clone()) },
+            folder: "scm.git:1:test".into(),
+            root,
+            revision: AtomicU64::new(0),
+            dirty: AtomicBool::new(false),
+            running: AtomicBool::new(false),
+            paced: Mutex::new(None),
+            holders: Mutex::new(Vec::new()),
+        })
+    }
+
+    #[test]
+    fn a_rescan_waits_one_second_after_the_last_read_and_longer_after_a_slow_one() {
+        assert_eq!(RESCAN_DEBOUNCE, Duration::from_millis(125));
+        let watch = watch();
+        assert_eq!(watch.next_scan(), None);
+        let started = Instant::now();
+        watch.scanned(started, true);
+        let due = watch.next_scan().expect("a read was timed");
+        assert!(due - Instant::now() <= RESCAN_MIN_GAP && RESCAN_MIN_GAP == Duration::from_secs(1));
+        watch.scanned(started - Duration::from_secs(4), true);
+        assert!(watch.next_scan().expect("timed") > Instant::now() + Duration::from_secs(3), "a 4 s read is not repeated back to back");
+    }
+
+    #[test]
+    fn a_watch_ends_with_its_last_holder_whoever_unwatches() {
+        let watch = watch();
+        let (one, two) = (Some(ConnectionId(1)), Some(ConnectionId(2)));
+        assert!(watch.ended());
+        watch.listen(one);
+        watch.listen(one);
+        watch.listen(two);
+        watch.unlisten(two);
+        assert_eq!(*watch.holders.lock().unwrap(), vec![one, one]);
+        watch.unlisten(two);
+        assert_eq!(*watch.holders.lock().unwrap(), vec![one], "an unwatch by another connection still counts, as Node's count does");
+        watch.unlisten(one);
+        assert!(watch.ended());
     }
 }

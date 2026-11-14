@@ -253,19 +253,24 @@ impl Behind {
     }
 }
 
+/// Node's first read of a config that does not parse keeps it aside and restores the newest backup (`readAll`): the migration then reads a
+/// config that parses, or none, and a damaged file never stops the start. `mixdogd migrate` runs it too, before its own run. Not from an async context.
+pub fn recover_malformed_config(data_dir: &Path, tokens: &LaneTokens, runtime: &tokio::runtime::Handle) -> Result<(), String> {
+    let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
+    runtime
+        .block_on(Config::recover_malformed(crate::compose_flip::config_file(data_dir), lanes))
+        .map_err(|error| format!("recovering {}: {error}", mixdog_core_config::user_data::CONFIG_FILE))
+}
+
 /// The migration's front on its own thread: its office extractor drives the extension host with the runtime's handle (`block_on`), which a lane job running on a worker may not do.
 /// The host it uses is its own, closed when the migration ends; the core's starts later. `None`: the migration is complete.
-fn migrate_data(data_dir: &Path, host: ExtHostConfig, config_lanes: ConfigLanes, runtime: &tokio::runtime::Handle) -> Result<Option<Behind>, String> {
+fn migrate_data(data_dir: &Path, host: ExtHostConfig, tokens: LaneTokens, runtime: &tokio::runtime::Handle) -> Result<Option<Behind>, String> {
     std::thread::scope(|scope| {
         scope
             .spawn(|| {
                 let roots = migration_roots(data_dir, &|name| std::env::var_os(name), std::env::home_dir())?;
                 let _entered = runtime.enter();
-                // Node's first read of a config that does not parse keeps it aside and restores the newest backup (`readAll`): the migration
-                // then reads a config that parses, or none, and a damaged file never stops the start.
-                runtime
-                    .block_on(Config::recover_malformed(crate::compose_flip::config_file(&roots.data), config_lanes))
-                    .map_err(|error| format!("recovering {}: {error}", mixdog_core_config::user_data::CONFIG_FILE))?;
+                recover_malformed_config(&roots.data, &tokens, runtime)?;
                 let pool = Arc::new(ExtHostPool::new(host).map_err(|error| format!("starting the extension host: {error}"))?);
                 let office = OfficeExtractor { docs: Arc::new(ExtDocumentText::new(pool.clone())), runtime: runtime.clone() };
                 let projector = Arc::new(ServingProjector::default());
@@ -335,9 +340,9 @@ pub async fn boot(tokens: &LaneTokens, data_dir: &Path, host: ExtHostConfig, giv
     let behind: Arc<Mutex<Option<Behind>>> = Arc::default();
     let migrate = {
         let (data_dir, runtime, behind) = (data_dir.to_path_buf(), tokio::runtime::Handle::current(), behind.clone());
-        let config_lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
+        let tokens = *tokens;
         move || {
-            let left = migrate_data(&data_dir, host, config_lanes, &runtime)?;
+            let left = migrate_data(&data_dir, host, tokens, &runtime)?;
             *behind.lock().unwrap_or_else(PoisonError::into_inner) = left;
             Ok(())
         }

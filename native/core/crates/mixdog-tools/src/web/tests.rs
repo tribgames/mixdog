@@ -451,6 +451,16 @@ mod tools {
         let web = WebService::new(WebConfig::new("test", super::super::lanes::WebLanes { extract: mixdog_rt::testing::tokens().cpu_interactive, dns: mixdog_rt::testing::tokens().interactive_io })).unwrap();
         let out = text(&call(&web, "local_fetch", json!({"url": format!("{}/t", server.uri())})).await);
         assert_eq!(out, format!("{}/t\n\nlocal text", server.uri()));
+        // B-18: a loopback page converts to markdown as a public one does (no script or style).
+        page(&server, "/h", "<html><body><main><h1>Hi</h1><script>var x = 1;</script><p>body text</p></main></body></html>").await;
+        let html = text(&call(&web, "local_fetch", json!({"url": format!("{}/h", server.uri())})).await);
+        assert!(html.contains("# Hi") && html.contains("body text") && !html.contains("<script") && !html.contains("var x"), "{html}");
+        // An empty body answers empty, as Node's raw text does, not as an unreadable page.
+        Mock::given(path("/e")).respond_with(ResponseTemplate::new(200).set_body_raw("", "text/plain")).mount(&server).await;
+        let empty = call(&web, "local_fetch", json!({"url": format!("{}/e", server.uri())})).await;
+        assert_eq!(text(&empty), format!("{}/e
+
+", server.uri()));
         let remote = text(&call(&web, "local_fetch", json!({"url": "http://example.com/"})).await);
         assert!(remote.contains("Blocked non-loopback local_fetch target: example.com"), "{remote}");
         let many: Vec<String> = (0..9).map(|i| format!("http://127.0.0.1:1/{i}")).collect();

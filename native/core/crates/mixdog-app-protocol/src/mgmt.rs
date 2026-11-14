@@ -185,6 +185,9 @@ pub struct CoreStatus {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct HoldRequest {
     pub on: bool,
+    /// How long the hold lasts (Node's `ttlMs`: 120 s by default, at least 1 s, at most 5 minutes).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ttl_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

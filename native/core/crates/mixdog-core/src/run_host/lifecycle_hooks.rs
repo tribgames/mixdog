@@ -1,5 +1,5 @@
 //! A session's lifecycle hooks over the hook bus (`SessionDeps.lifecycle`): `SessionStart`,
-//! `UserPromptSubmit`, `Stop`, `StopFailure`, `SessionEnd` and `CwdChanged`, each dispatched with
+//! `UserPromptSubmit`, `StopFailure`, `SessionEnd` and `CwdChanged`, each dispatched with
 //! Node's payload (`hooks.dispatch(event, hookCommonPayload({ session_id, ...extra }))`). This layer
 //! supplies what the session knows: its working directory and the common fields of its hook
 //! payloads, read from the header the session hands over. It also holds what a turn does with a
@@ -55,11 +55,6 @@ impl LifecycleHooks for BusLifecycleHooks {
         let (cwd, common) = self.context(header);
         let answer = self.bus.user_prompt_submit(thread.as_str(), prompt, &cwd, &common).await;
         PromptVerdict { blocked: answer.blocked, reason: answer.reason, context: answer.additional_context }
-    }
-
-    async fn stop(&self, thread: &ThreadId, header: &Header) {
-        let (cwd, common) = self.context(header);
-        self.bus.stop(thread.as_str(), &cwd, &common).await;
     }
 
     async fn stop_failure(&self, thread: &ThreadId, header: &Header, error_type: &str) {

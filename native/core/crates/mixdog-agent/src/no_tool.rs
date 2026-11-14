@@ -14,7 +14,10 @@ use crate::env::Priority;
 use crate::env::RetractReason;
 use crate::env::Retracted;
 use crate::env::RunEvent;
+use crate::env::Stage;
+use crate::env::StopVerdict;
 use crate::env::TextRetraction;
+use crate::env::Tone;
 use crate::env::or_cancelled;
 use crate::message::AgentMessage;
 use crate::message::Source;
@@ -31,6 +34,9 @@ use crate::todo::TODO_TOOL;
 
 const MAX_OUTPUT_RECOVERY_LIMIT: u32 = 3;
 const EMPTY_NUDGE_MAX: u32 = 3;
+/// Stop-hook continuations one turn may make (the references leave the bound to the hook; a hook
+/// that ignores `stop_hook_active` would otherwise loop for ever).
+const STOP_CONTINUATION_LIMIT: u32 = 8;
 const MAX_OUTPUT_EXHAUSTED_NOTICE: &str = "[mixdog-runtime] The model hit its output limit and the response stayed truncated after 3 recovery attempts.";
 const MAX_OUTPUT_RESUME_PROMPT: &str = "[mixdog-runtime] Output token limit hit. Resume directly — no apology, no recap. Pick up exactly where you left off, and break the remaining work into smaller pieces.";
 const STREAM_CUT_RESUME_PROMPT: &str = "[mixdog-runtime] The previous response was cut off by a network interruption mid-stream. Resume directly — no apology, no recap. Pick up exactly where the previous text stopped.";
@@ -51,6 +57,10 @@ pub struct NoToolState {
     output_escalation_used: bool,
     refusal_retry_used: bool,
     empty_nudge_streak: u32,
+    /// Turn continuations a Stop hook's block has made.
+    stop_continuations: u32,
+    /// The Stop hooks were asked for the ending the turn is taking (B-5: once for every completed turn).
+    pub(crate) stop_asked: bool,
     provider_continuation_count: u32,
     /// Bounds a text-only continuation runaway.
     continuations_since_tool_batch: u32,
@@ -235,7 +245,46 @@ impl Run {
             self.push(AgentMessage::user(reminder)).await?;
             return Ok(Outcome::Continue);
         }
+        if self.hold_stop(Some((&response, has_content))).await? {
+            return Ok(Outcome::Continue);
+        }
         Ok(self.finish_turn(response))
+    }
+
+    /// The Stop hooks, asked when the model ends its turn (Node asks them at settle and reads
+    /// nothing; owner-approved difference). A block with a reason keeps the answer and goes on with
+    /// the reason as a note, up to [`STOP_CONTINUATION_LIMIT`] times a turn. `true`: the turn goes on.
+    /// `ended` is the answer the turn would end with; `None` for an ending that cannot go on (output
+    /// limit exhausted, refusal, empty-nudge exhaustion, turn limit), where a block is ignored with a
+    /// warning.
+    pub(crate) async fn hold_stop(&mut self, ended: Option<(&ModelResponse, bool)>) -> Result<bool, AgentError> {
+        let Some(hooks) = self.env.hooks.clone() else { return Ok(false) };
+        let active = self.no_tool.stop_continuations > 0;
+        let verdict = or_cancelled(&self.cancel, hooks.on_stop(active)).await.ok_or(AgentError::Aborted)?;
+        let warning = match (verdict, ended) {
+            (StopVerdict::Proceed, _) => {
+                self.no_tool.stop_asked = true;
+                return Ok(false);
+            }
+            (StopVerdict::Ignored(warning), _) => warning,
+            (StopVerdict::Continue(reason), None) => {
+                format!("A Stop hook blocked the stop of a turn that cannot go on; it is ignored: {reason}")
+            }
+            (StopVerdict::Continue(_), Some(_)) if self.no_tool.stop_continuations >= STOP_CONTINUATION_LIMIT => {
+                format!("A Stop hook blocked the stop again after {STOP_CONTINUATION_LIMIT} continuations in this turn; the turn ends.")
+            }
+            (StopVerdict::Continue(reason), Some((response, has_content))) => {
+                self.no_tool.stop_continuations += 1;
+                if self.keep_ended_answer(response, has_content).await? {
+                    self.no_tool.report_stands = true;
+                }
+                self.push(AgentMessage::sourced(Source::Hook, format!("<system-reminder>\nStop hook: {reason}\n</system-reminder>"))).await?;
+                return Ok(true);
+            }
+        };
+        self.no_tool.stop_asked = true;
+        self.emit(RunEvent::Stage(Stage::Notice { message: warning, tone: Tone::Warn }));
+        Ok(false)
     }
 
     /// The single rule for every turn the provider cut at its output ceiling,

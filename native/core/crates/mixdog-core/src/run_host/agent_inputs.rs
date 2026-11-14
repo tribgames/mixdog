@@ -270,9 +270,9 @@ mod tests {
             moved(&format!("DefaultProviderBuilder::build {name}"), before, 3);
         }
         for (name, cfg) in [
-            ("custom-one-wire", json!({ "type": "custom", "protocol": "openai-chat", "baseURL": "http://127.0.0.1:1/v1", "auth": "none" })),
-            ("custom-anthropic", json!({ "type": "custom", "protocol": "anthropic", "baseURL": "http://127.0.0.1:1", "auth": "none" })),
-            ("custom-two-wires", json!({ "type": "custom", "protocol": "openai-chat", "wires": ["chat", "responses"], "baseURL": "http://127.0.0.1:1/v1", "auth": "none" })),
+            ("custom-one-wire", json!({ "type": "custom", "schemaVersion": 2, "name": "Custom", "protocol": "openai-chat", "baseURL": "http://127.0.0.1:1/v1", "auth": "none" })),
+            ("custom-anthropic", json!({ "type": "custom", "schemaVersion": 2, "name": "Custom", "protocol": "anthropic", "baseURL": "http://127.0.0.1:1", "auth": "none" })),
+            ("custom-two-wires", json!({ "type": "custom", "schemaVersion": 2, "name": "Custom", "protocol": "openai-chat", "wires": ["chat", "responses"], "baseURL": "http://127.0.0.1:1/v1", "auth": "none" })),
         ] {
             let (before, credentials) = (forbidden_work(), mixdog_ai::work::credential_reads());
             builder.build_custom_parts(name, &cfg).unwrap_or_else(|error| panic!("{name}: {error}"));

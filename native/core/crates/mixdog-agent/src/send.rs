@@ -1045,12 +1045,13 @@ impl Run {
             self.retry.store(state);
         }
         self.retry.store(next.clone());
-        // The loop's connection and recovery replays call `sendWithRecovery` again, and each call
-        // runs the provider's whole `withRetry` (`send-with-recovery.mjs:229`; recorded: every lap
-        // of `refused`, `dns` and `cut` repeats the provider ladder). The request and stream
-        // rows are the provider's own ladder, so only these replays refill them.
+        // The loop's connection replays call `sendWithRecovery` again, and each call runs the provider's whole
+        // `withRetry` (`send-with-recovery.mjs:229`; recorded: every lap of `refused`, `dns` and `cut` repeats the
+        // provider ladder). The request and stream rows are the provider's own ladder, so only these replays refill
+        // them. A recovery lap sends once: the provider rows stay spent (B-11, a decided difference from Node, whose
+        // recovery cycle re-runs the provider's whole ladder).
         let loop_replay = matches!(next.class(), RetryClass::Connection | RetryClass::Recovery);
-        if loop_replay {
+        if next.class() == RetryClass::Connection {
             self.retry.restart_provider_rows(next.model());
             // The provider's whole send runs again, its re-issue included.
             self.reissue = None;
@@ -1063,19 +1064,27 @@ impl Run {
             self.emit(RunEvent::Stage(Stage::ModelFallback { model }));
         }
         if let Some((delay, reason)) = wait {
-            let max = policy
-                .row(next.class())
-                .map_or(0, |row| row.schedule.max_retries);
-            // Node's attempt is the one about to run, of the row's attempts.
+            let row_max = |class| policy.row(class).map_or(0, |row| row.schedule.max_retries);
+            // A failure that goes on to the recovery ladder counts its provider row and the recovery laps as one
+            // run (B-11: the user reads one rising n/N); any other wait counts its own row.
+            let first = first_class(midstream);
+            let (used, max) = match escalate(first, &decide_on) {
+                Some(RetryClass::Recovery) if policy.recovery.is_some() => (
+                    self.retry.get(first).count(None).retries + self.retry.get(RetryClass::Recovery).count(None).retries,
+                    row_max(first) + row_max(RetryClass::Recovery),
+                ),
+                _ => (next.count(None).retries, row_max(next.class())),
+            };
+            // Node's attempt is the one about to run, of the run's attempts.
             let payload = mixdog_ai::retry::stage::reconnecting(
                 &decide_on,
-                next.count(None).retries + 1,
+                used + 1,
                 max.saturating_add(1),
                 delay,
                 u64::try_from(self.env.clock.now_ms()).unwrap_or(0),
             );
             self.emit(RunEvent::Stage(Stage::Reconnecting {
-                attempt: next.count(None).retries,
+                attempt: used,
                 max,
                 delay,
                 reason,

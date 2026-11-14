@@ -221,6 +221,25 @@ fn creation_composes_the_blocks_and_fields_nodes_session_starts_with() {
     }
 }
 
+/// A delegated worker gets no workflow pack, wherever the pack text comes from (owner-approved difference from
+/// Node, which leads every session with it: B-12): the worker composes the same prompt as with an empty workflow.
+#[test]
+fn a_delegated_worker_gets_no_workflow_pack() {
+    let mut checked = 0;
+    for case in scenarios().into_iter().filter(|case| case["input"]["ownerIsAgent"] == true) {
+        let name = case["name"].as_str().unwrap();
+        let mut with_pack = case.clone();
+        with_pack["input"]["workflowContext"] = Value::from("# Active Workflow: Solo
+
+Work alone.");
+        let prompt = compose(&with_pack);
+        assert_eq!(prompt.blocks, compose(&case).blocks, "{name}: the blocks");
+        assert_eq!(prompt.sections.workflow, "", "{name}: the workflow section");
+        checked += 1;
+    }
+    assert!(checked > 0, "a worker scenario is replayed");
+}
+
 #[test]
 fn the_request_reads_the_blocks_from_the_header_in_nodes_order_and_tiers() {
     for case in scenarios() {

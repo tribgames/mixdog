@@ -11,7 +11,8 @@ use serde_json::Value;
 use crate::channels::running::WorkGuard;
 use crate::webhooks::{WebhookConfig, WebhookService};
 
-/// The webhook receiver's settings (`channels.webhook`), defaults filled in.
+/// The webhook receiver's settings (`channels.webhook`), defaults filled in. Off by default (owner-approved difference from
+/// Node, which defaults on); a stored `enabled: true` keeps it running.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WebhookSettings {
@@ -25,7 +26,7 @@ pub struct WebhookSettings {
 
 impl Default for WebhookSettings {
     fn default() -> Self {
-        Self { enabled: true, port: Value::from(3333), domain: None }
+        Self { enabled: false, port: Value::from(3333), domain: None }
     }
 }
 
@@ -293,7 +294,8 @@ mod tests {
         for (given, kept) in [(json!(70000), json!(70000)), (json!("3.5"), json!(3.5)), (json!(-5), json!(-5)), (json!("1e3"), json!(1000)), (json!("Infinity"), Value::Null)] {
             assert_eq!(WebhookPatch::from_params(&json!({ "port": given })).port, Some(kept), "{given}");
         }
-        let applied = WebhookPatch { enabled: Some(false), ..Default::default() }.apply(WebhookSettings::default());
-        assert_eq!(applied, WebhookSettings { enabled: false, port: json!(3333), domain: None });
+        assert!(!WebhookSettings::default().enabled, "the receiver is off until it is turned on");
+        let applied = WebhookPatch { enabled: Some(true), ..Default::default() }.apply(WebhookSettings::default());
+        assert_eq!(applied, WebhookSettings { enabled: true, port: json!(3333), domain: None });
     }
 }

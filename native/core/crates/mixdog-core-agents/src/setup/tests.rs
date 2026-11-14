@@ -829,3 +829,14 @@ async fn list_models_shapes_the_catalog_as_the_recorded_node_executor_did() {
     }
     assert_eq!((answered, refused), (29, 6));
 }
+/// A saved `lead` permission row is Mixy's policy: its receipt names where it applies; another agent's keeps the generic one
+/// (a deliberate difference from Node, which promised "every session").
+#[test]
+fn the_lead_permission_receipt_does_not_promise_the_coding_lead() {
+    let lead: Value = serde_json::from_str(&receipt("set_agent_permission", json!({ "agent": "lead", "permissions": [] }))).unwrap();
+    assert_eq!(lead["saved"], json!(true));
+    let applies = lead["appliesTo"].as_str().unwrap();
+    assert!(applies.contains("Mixy") && applies.contains("coding Lead sessions have no outbound rule"), "{applies}");
+    let other: Value = serde_json::from_str(&receipt("set_agent_permission", json!({ "agent": "alpha", "permissions": [] }))).unwrap();
+    assert_eq!(other["appliesTo"], json!(applies_to("set_agent_permission")));
+}

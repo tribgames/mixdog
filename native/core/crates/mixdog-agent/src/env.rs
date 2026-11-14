@@ -559,6 +559,20 @@ pub struct CompactOutput {
     pub pipeline_ms: f64,
     /// Whole milliseconds the summary request took (`pipeline.generated.durationMs`); none when no summary was written.
     pub summary_ms: Option<f64>,
+    /// The route that wrote the summary; `None` when no summary was written.
+    pub summary_route: Option<SummaryRouteUsed>,
+}
+
+/// The route a pass's summary was written on (`pipeline.summaryRoute`, `freshContextResult.summaryProvider` and
+/// `summaryModel`): not always the conversation's own, when a maintenance or lighter route took the summary.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SummaryRouteUsed {
+    /// `session`, `maintenance` or `lighter`.
+    pub step: &'static str,
+    pub provider: String,
+    pub model: String,
+    /// The summary was a fork of the cached request (`pipeline.generated.mode === 'shared-prefix'`).
+    pub forked: bool,
 }
 
 impl CompactOutput {
@@ -593,6 +607,12 @@ pub struct SessionPressure {
     /// proactive pass until a provider send re-anchors it (`shouldCompactForSession`); a reactive retry, an expired cache
     /// and request media still do.
     pub unanchored: bool,
+    /// `compaction.singleShotConsumed`: a reserve with no headroom already took its one proactive pass.
+    pub single_shot_consumed: bool,
+    /// The last actual prompt size no compaction has invalidated since (`providerReadingBelowTrigger`'s reading).
+    pub reading: Option<u64>,
+    /// `contextPressureBaselineMessageCount`: the transcript length the session's provider reading was anchored at.
+    pub reading_count: Option<usize>,
 }
 
 /// The provider and model of the summary route a compaction failed on.
@@ -783,6 +803,12 @@ pub trait ToolGate: Send + Sync {
     /// card carry.
     async fn check_call(&self, call_id: &str, call: &GateCall) -> GateDecision;
 
+    /// Brings the policies a call is judged by up to date with what was saved since, before [`Self::pre_dispatch_deny`] reads them
+    /// (Node reads them stat-checked at each judgement, `cachedRead`): a connector switched back on mid-turn admits the next call.
+    async fn refresh_policy(&self, call: &GateCall) {
+        let _ = call;
+    }
+
     /// The session-surface denial of a call (schema allowlist, read-only
     /// surface, disabled feature), judged before any dedup stub or cached
     /// result can answer the call: they must not bypass the current surface.
@@ -828,6 +854,24 @@ pub trait ToolHooks: Send + Sync {
         let _ = tool_count;
         None
     }
+    /// Stop: the model ended its turn. `stop_hook_active` is `true` on every continuation a Stop
+    /// block already made in this turn. The default lets the turn end.
+    async fn on_stop(&self, stop_hook_active: bool) -> StopVerdict {
+        let _ = stop_hook_active;
+        StopVerdict::Proceed
+    }
+}
+
+/// What the Stop hooks decided for a turn the model ended.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum StopVerdict {
+    /// The turn ends.
+    Proceed,
+    /// A hook blocked the stop with this reason: the turn goes on with it as a note to the model.
+    Continue(String),
+    /// A block that is not honoured (no reason, or a session nobody is attending); the text is the
+    /// warning shown.
+    Ignored(String),
 }
 
 /// A cached tool result that still describes the world (the tool layer owns
@@ -1145,6 +1189,11 @@ impl ToolGate for PolicyGate {
                 }
             }
         }
+    }
+
+    async fn refresh_policy(&self, call: &GateCall) {
+        let schema = call.schema_name.as_deref().unwrap_or(&call.name);
+        self.connectors.refresh(&self.session.connector_agent_id(), Some(schema)).await;
     }
 
     fn pre_dispatch_deny(&self, call: &GateCall) -> Option<String> {

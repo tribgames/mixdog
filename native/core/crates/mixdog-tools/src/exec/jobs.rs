@@ -575,6 +575,9 @@ pub struct Job {
     pub cwd: String,
     pub owner: ThreadId,
     pub handle: ProcessHandle,
+    /// The job's own process (`record.pid` of `shell-job-records.mjs`; 0 for a job with none: survivors, a recovered record
+    /// naming none), which the restart reconcile asks the operating system about.
+    pub pid: u32,
     pub started_ms: u64,
     /// The run limit (0: none), to say how much of it was left when the task was promoted.
     pub time_limit_ms: u64,
@@ -930,6 +933,7 @@ impl Job {
             fields.insert("ownerSessionId".into(), self.owner.as_str().into());
             fields.insert("command".into(), self.command.clone().into());
             fields.insert("cwd".into(), self.cwd.clone().into());
+            fields.insert("pid".into(), self.pid.into());
             fields.insert("startedAtMs".into(), now_ms.into());
             logs.describe(fields);
         }
@@ -977,6 +981,27 @@ impl Job {
     pub fn spilled(&self) -> bool {
         let state = self.state();
         state.stdout.base > 0 || state.stderr.base > 0
+    }
+
+    /// The bytes both streams produced, those memory dropped included.
+    pub fn captured_bytes(&self) -> usize {
+        let state = self.state();
+        (state.stdout.end() + state.stderr.end()) as usize
+    }
+
+    /// Both streams whole, read from their logs, for a capture whose start memory dropped (Node reads a spilled capture
+    /// back from disk). `None` when a log lacks output or is not as long as its stream.
+    pub async fn captured_from_logs(&self, lane: InteractiveIo, cancel: &CancellationToken) -> Option<(String, String)> {
+        if self.log_note().is_some() {
+            return None;
+        }
+        let (ends, oems) = {
+            let state = self.state();
+            ([state.stdout.end(), state.stderr.end()], [state.stdout.oem, state.stderr.oem])
+        };
+        let logs = spill::read_log_tails(lane, cancel, [self.stdout_log.clone(), self.stderr_log.clone()], usize::MAX).await;
+        let whole = |index: usize| (logs[index].0 == 0 && logs[index].1.len() as u64 == ends[index]).then(|| decode_shell_bytes(&logs[index].1, oems[index]));
+        Some((whole(0)?, whole(1)?))
     }
 
     /// Each stream whose start memory dropped, in the delivery shape of a foreground capture that spilled to its log
@@ -1323,8 +1348,13 @@ impl KeptJob {
         self.record.get("background").and_then(serde_json::Value::as_bool) == Some(true)
     }
 
-    /// The process that wrote the record.
+    /// The process that wrote the record (`clientHostPid`).
     fn writer(&self) -> u32 {
+        self.number("clientHostPid").and_then(|pid| u32::try_from(pid).ok()).unwrap_or(0)
+    }
+
+    /// The job's own process (`record.pid`): 0 when the record names none.
+    fn job_pid(&self) -> u32 {
         self.number("pid").and_then(|pid| u32::try_from(pid).ok()).unwrap_or(0)
     }
 
@@ -1518,14 +1548,15 @@ impl ExecRuntime {
         // reader back). The job's writer creates the logs on its own io-pty thread (`collect`
         // opens it); output that comes first waits in the writer's queue. The call's only
         // io-spawn job is the spawn.
-        let (handle, source) = match claimed {
+        let (handle, source, pid) = match claimed {
             Some(parked) => {
                 let source = processes.subscribe(&parked, Some(0))?;
-                (parked, source)
+                let pid = processes.list().into_iter().find(|info| info.handle == parked).map_or(0, |info| info.pid);
+                (parked, source, pid)
             }
             None => {
-                let (_, source) = processes.spawn_subscribed(request).await?;
-                (handle, source)
+                let (spawned, source) = processes.spawn_subscribed(request).await?;
+                (handle, source, spawned.pid)
             }
         };
         let (settled, _) = watch::channel(false);
@@ -1537,6 +1568,7 @@ impl ExecRuntime {
             cwd: cwd.clone(),
             owner: owner.clone(),
             handle: handle.clone(),
+            pid,
             started_ms,
             time_limit_ms,
             review,
@@ -1603,6 +1635,7 @@ impl ExecRuntime {
             cwd: job.cwd.clone(),
             owner: job.owner.clone(),
             handle: job.handle.clone(),
+            pid: 0,
             // The command's own start: Node's `trackSurvivingDescendants` hands its `startedAtMs` to the task.
             started_ms: job.started_ms,
             time_limit_ms: 0,
@@ -1768,6 +1801,7 @@ impl ExecRuntime {
             cwd: kept.text("cwd"),
             owner: ThreadId::from(kept.text("ownerSessionId").as_str()),
             handle: ProcessHandle(kept.id.clone()),
+            pid: 0,
             started_ms: kept.number("startedAtMs").unwrap_or(0),
             time_limit_ms: 0,
             review: None,
@@ -1784,18 +1818,18 @@ impl ExecRuntime {
     }
 
     /// `reconcileRecoveredShellJobCompletions`, once at start: every background job a runtime that is gone left running
-    /// (its record says it runs, this runtime does not hold it, and the process that wrote the record is gone) ends as
+    /// (its record says it runs, this runtime does not hold it, and the job's own process is gone) ends as
     /// failed, its record says so, and its owner gets the failed completion the way a finished background job's owner
-    /// does. A record naming this process's pid that this runtime does not hold was left by a gone process the pid
-    /// belonged to: a job of this runtime is held before its record is written. `alive` is whether a process exists.
+    /// does, unless the job's own process still exists (`isPidAlive(record.pid)`: it survived the restart); a job of this
+    /// runtime is held before its record is written. `alive` is whether a process exists.
     pub async fn reconcile_lost_jobs(&self, alive: &(dyn Fn(u32) -> bool + Sync)) {
         let cancel = CancellationToken::new();
         let records = spill::read_records(self.config.lanes.maintenance, &cancel, &self.config.spill_dir, None).await;
         for (id, record) in records {
             let mut kept = KeptJob { id, record };
             let held = lock(&self.jobs).contains_key(&kept.id);
-            let elsewhere = kept.writer() != std::process::id() && alive(kept.writer());
-            if !kept.left_running() || held || elsewhere {
+            let survived = kept.job_pid() > 0 && alive(kept.job_pid());
+            if !kept.left_running() || held || survived {
                 continue;
             }
             let end = ExitFacts::failed(Some(OUTCOME_LOST.to_owned()));
@@ -1932,6 +1966,14 @@ mod tests {
         stream.push(&b"a".repeat(MEMORY_CAP));
         assert!(stream.base > 0, "memory dropped the stream's start");
         assert_eq!(stream.probe(&mut sniffer, false), Some("euc-kr"));
+    }
+
+    /// A stream's end counts the bytes memory dropped, which is what `captured_bytes` compares to the output cap.
+    #[test]
+    fn a_stream_ends_where_its_output_does_whatever_memory_dropped() {
+        let mut stream = Stream::new(None);
+        stream.push(&b"a".repeat(MEMORY_CAP + 10));
+        assert_eq!((stream.base, stream.end()), (10, MEMORY_CAP as u64 + 10));
     }
 
     #[test]

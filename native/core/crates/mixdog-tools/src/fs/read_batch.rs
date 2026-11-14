@@ -54,6 +54,9 @@ pub(super) struct BEntry {
     pub orig_limit: Option<f64>,
     /// `tail: N` until it is read off the file (`ReadTool::resolve_tail`).
     pub tail: Option<u64>,
+    /// The window is the public guard's default (the caller named neither an offset nor a limit), so a notebook,
+    /// which refuses a named range, still reads.
+    pub injected: bool,
 }
 
 impl BEntry {

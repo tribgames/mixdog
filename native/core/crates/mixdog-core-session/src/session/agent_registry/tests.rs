@@ -932,6 +932,73 @@ async fn a_rows_reap_deadline_tombstones_it_on_the_registry_clock_with_no_event(
     tokio::time::timeout(std::time::Duration::from_secs(10), timer).await.expect("the timer ends with its registry").unwrap();
 }
 
+/// B-15: a close that stopped a running turn leaves the session reading `cancelled` after a restart too: the mark is on its worker
+/// row, so the next process's scan builds the closed agent no open idle row; a turn that starts on it takes the mark off the row.
+#[tokio::test]
+async fn a_close_that_stopped_a_turn_is_still_read_cancelled_by_the_next_process() {
+    let rig = Rig::new();
+    rig.live.headers.lock().unwrap().insert("s1".to_owned(), session("s1", "t1", &at(NOW), json!({})));
+    rig.store.write("s1", Some(worker_row("s1", "t1", json!({}))));
+    let state = |row: &Row| (row.get("status").cloned(), row.get("stage").cloned());
+    let cancelled = (Some(json!("cancelled")), Some(json!("cancelled")));
+
+    let first = rig.registry();
+    first.refresh_tags_from_sessions(false, &lead("lead-a")).await;
+    assert_ne!(state(&first.session_of("s1").expect("the session")), cancelled);
+    first.set_cancelled("s1", true);
+    assert_eq!(state(&first.session_of("s1").expect("the session")), cancelled);
+
+    let next = rig.registry();
+    next.refresh_tags_from_sessions(false, &lead("lead-a")).await;
+    assert_eq!(state(&next.session_of("s1").expect("the session")), cancelled, "the next process reads the mark off the row");
+    crate::session::TurnStarts::turn_started(&next, &mixdog_core_api::ids::ThreadId::from("s1"));
+    assert_ne!(state(&next.session_of("s1").expect("the session")), cancelled, "a turn started on it");
+    let after = rig.registry();
+    after.refresh_tags_from_sessions(false, &lead("lead-a")).await;
+    assert_ne!(state(&after.session_of("s1").expect("the session")), cancelled, "and the row no longer holds the mark");
+}
+
+#[derive(Default)]
+struct CountedSweeps(std::sync::atomic::AtomicUsize);
+
+#[async_trait::async_trait]
+impl restart::RestartSweep for CountedSweeps {
+    async fn sweep(&self) {
+        self.0.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+/// `sweepRestartFailures`, the first step of the maintenance pass: a row written (an agent event) asks for a pass, whose sweep runs
+/// one event delay later and not before; with no event it does not run.
+#[tokio::test]
+async fn a_row_write_runs_the_restart_sweep_one_event_delay_later() {
+    let rig = Rig::new();
+    let clock = Arc::new(Virtual(tokio::sync::watch::channel(NOW).0));
+    let registry = Arc::new(AgentRegistry::new(rig.store.clone(), rig.live.clone(), Arc::new(Hour), clock.clone()));
+    let sweeps = Arc::new(CountedSweeps::default());
+    assert!(registry.bind_sweeper(sweeps.clone()).is_ok());
+    assert!(registry.bind_sweeper(sweeps.clone()).is_err(), "a second bind is refused");
+    let timer = tokio::spawn(AgentRegistry::keep_deadlines(Arc::downgrade(&registry)));
+    let swept = || sweeps.0.load(Ordering::SeqCst);
+    clock.advance(1_000);
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    assert_eq!(swept(), 0, "no event, no sweep");
+    // A write is an event only for a timer already waiting, so it is repeated until the sweep has run.
+    let wait = async {
+        while swept() == 0 {
+            {
+                let mut st = registry.lock();
+                let row = worker_row("s-new", "new", json!({ "status": "running", "stage": "streaming", "createdAt": at(NOW), "updatedAt": at(NOW) }));
+                registry.persist(&mut st, "s-new", Some(row));
+            }
+            clock.advance(1_000);
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(10), wait).await.expect("the event's pass swept");
+    timer.abort();
+}
+
 /// `fixtures/agent-row-deadline` (record-agent-row-deadline.mjs): a Lead's settled worker rows leave the index at their
 /// retention deadlines, on the registry's clock, as Node's maintenance pass removed them, and what the Lead's clients are
 /// told is what Node's were: the status the thread publishes (`thread/agents/updated`, Node's `agentStatusState` after an

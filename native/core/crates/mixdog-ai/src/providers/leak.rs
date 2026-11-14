@@ -505,7 +505,7 @@ pub fn dedupe_list(calls: Vec<ToolCall>) -> Vec<ToolCall> {
     out
 }
 
-fn random_id(prefix: &str) -> String {
+pub(crate) fn random_id(prefix: &str) -> String {
     let bytes: [u8; 8] = crate::random::bytes();
     format!("{prefix}{:016x}", u64::from_be_bytes(bytes))
 }

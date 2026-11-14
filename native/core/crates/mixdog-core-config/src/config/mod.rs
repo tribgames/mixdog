@@ -515,11 +515,7 @@ impl Config {
         if lead_fill {
             changes = patch::guard_lead_fill(changes);
         }
-        if !changes.is_empty() {
-            let seeds = patch::seed_changes(after, &changes);
-            changes.extend(seeds);
-        }
-        self.save_agent_patch(changes).await
+        self.save_agent_patch(patch::with_seeds(after, changes)).await
     }
 
     /// Applies `changes` to the agent section (`saveConfigPatchAsync`); an empty patch writes

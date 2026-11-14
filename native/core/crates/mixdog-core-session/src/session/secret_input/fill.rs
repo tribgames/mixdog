@@ -104,8 +104,8 @@ impl SecretFill {
         Self { slots, sessions: SessionSecrets::new(), gates, computer, channel, timing: None }
     }
 
-    /// Also hands the `browser_timing` row of each `host/browser/command` it sends (`secret_bind`, `secret_precheck`,
-    /// `secret_fill`) to `timing`, as Node's bridge client traced its `secret_bind` and `secret_input` requests.
+    /// Also hands the `browser_timing` row of each `host/browser/command` it sends (`secret_bind`, and one `secret_input`
+    /// for a fill's two phases) to `timing`, as Node's bridge client traced its `secret_bind` and `secret_input` requests.
     pub fn with_timing(self, timing: BrowserTimingLog) -> Self {
         Self { timing: Some(timing), ..self }
     }
@@ -191,14 +191,22 @@ impl SecretFill {
         let Some(binding) = binding.filter(|b| b.session == session && self.gates.browser_free(thread)) else {
             return self.refuse(request_id, SecretOutcome::Blocked);
         };
+        // Node sends one `secret_input` request and traces one row for it; the two phases below are the core's, so the clock
+        // runs across both and stops with the answer that ends the fill.
+        let clock = BrowserCommandClock::start(self.timing.as_ref());
+        let stop = |answer: &Result<JsonValue, HostError>| {
+            if let Some(clock) = clock {
+                clock.stop(thread, "secret_input", None, answer.as_ref());
+            }
+        };
         // Phase one: the bound desktop checks the page, with no value on the wire. It answers
         // `ready` and its own host id, or the outcome that refuses the fill.
-        let check = self.channel.request_to(&binding.claim, HostCapability::Browser, BROWSER_COMMAND, command_params(thread, "secret_precheck", json!({ "request_id": request_id })));
-        let check = self.browser_command(thread, "secret_precheck", check, |answer| answer).await;
-        let answer = check.ok();
+        let check = self.channel.request_to(&binding.claim, HostCapability::Browser, BROWSER_COMMAND, command_params(thread, "secret_precheck", json!({ "request_id": request_id }))).await;
+        let answer = check.as_ref().ok();
         let text = answer.as_ref().and_then(|a| a.get("text")).and_then(Value::as_str).unwrap_or_default();
         let from_bound_host = answer.as_ref().and_then(|a| a.get("hostId")).and_then(Value::as_str) == Some(binding.claim.host.as_str());
         if text != "ready" || !from_bound_host {
+            stop(&check);
             let refusal = SecretOutcome::from_text(text).filter(|o| *o != SecretOutcome::Entered).unwrap_or(SecretOutcome::Blocked);
             return self.refuse(request_id, refusal);
         }
@@ -207,6 +215,7 @@ impl SecretFill {
         let value = self.slots.take(request_id);
         // The deadline can pass between the check and the take (a Node turn cannot interleave).
         if value.is_empty() {
+            stop(&check);
             return self.refuse(request_id, SecretOutcome::Expired);
         }
         let username = self.slots.take(&format!("{request_id}{SECRET_USERNAME_SUFFIX}"));
@@ -214,8 +223,9 @@ impl SecretFill {
         self.slots.discard(request_id);
         self.sessions.remember(session, &value);
         let input = json!({ "request_id": request_id, "value": value, "username": username, "save": save });
-        let sent = self.channel.request_to(&binding.claim, HostCapability::Browser, BROWSER_COMMAND, command_params(thread, "secret_fill", input));
-        match self.browser_command(thread, "secret_fill", sent, |answer| answer).await {
+        let sent = self.channel.request_to(&binding.claim, HostCapability::Browser, BROWSER_COMMAND, command_params(thread, "secret_fill", input)).await;
+        stop(&sent);
+        match sent {
             Ok(answer) => answer.get("text").and_then(Value::as_str).and_then(SecretOutcome::from_text).unwrap_or(SecretOutcome::Blocked),
             Err(_) => SecretOutcome::Blocked,
         }

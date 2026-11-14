@@ -293,6 +293,13 @@ impl RestartNotices for crate::session::SessionDirectory {
     }
 }
 
+/// `sweepRestartFailures` (`agent-tool.mjs:107`), the first step of the maintenance pass: the rows whose worker died are settled and
+/// their owners told. The registry cannot reach the processes and the owners' queues by itself; the host that can binds it.
+#[async_trait]
+pub trait RestartSweep: Send + Sync {
+    async fn sweep(&self);
+}
+
 /// How far this process has taken one restart notice (`queued` of `restart-notify.mjs`): a notice is queued under its id once
 /// per process. The owner's queue knows an id only while it holds the entry, so a notice queued again after its owner took the
 /// entry is delivered again.

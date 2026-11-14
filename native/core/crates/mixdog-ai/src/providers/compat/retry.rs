@@ -7,8 +7,9 @@
 //! (`withRetry` around both), so both phases spend the same budget. The
 //! profile's `backoffMs[0]` is a duplicate nobody reads, so a ladder starts at
 //! `backoffMs[1]` and `max_retries` is `maxAttempts - 1`. Session-level rows
-//! (transport, connection) stay the shared ladders and `recovery` is off
-//! (`COMPAT_RETRY_POLICY.recoveryCycles = false`).
+//! (transport, connection) stay the shared ladders. `recovery` is off for
+//! a profile (`COMPAT_RETRY_POLICY.recoveryCycles = false`) and for a local server
+//! (`providers/local`); an unprofiled provider keeps the shared recovery ladder.
 //!
 //! Not carried over, because each is a content or wall-clock timer (SPEC
 //! §4.9): `maxFailedAttemptMs` (command-code), `firstByteRetries` (mimo) and
@@ -57,7 +58,7 @@ fn in_full_to(ceiling: Duration) -> AdviceRule {
     }
 }
 
-/// A provider without a profile (custom endpoints, gateways, local servers,
+/// A provider without a profile (custom endpoints, gateways, local servers (without recovery: `providers/local`),
 /// OpenRouter): the shared default, and a `Retry-After` beyond a minute
 /// surfaces with its wait so the account pool can rotate and the notice can
 /// name when to try again (`COMPAT_DEFAULT_MAX_RETRY_AFTER_MS`).

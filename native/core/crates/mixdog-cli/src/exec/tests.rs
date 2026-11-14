@@ -300,6 +300,7 @@ fn options(dir: &Path) -> ExecOptions {
         model: Some("gpt-test".into()),
         effort: Some("high".into()),
         fast: true,
+        provider_config: None,
         web_search: false,
         json: false,
         cwd: PathBuf::from("/app"),
@@ -636,6 +637,7 @@ fn the_pristine_boundary_is_what_node_built() {
         model: "gpt-x",
         effort: Some("High"),
         fast: true,
+        provider_config: None,
         host_env: &host_env,
         host_data_dir: dir.path(),
         temp_dir: dir.path(),
@@ -650,6 +652,47 @@ fn the_pristine_boundary_is_what_node_built() {
     assert_eq!(boundary.env["OPENAI_API_KEY"], None);
     assert!(boundary.credential.is_none());
     std::fs::remove_dir_all(&boundary.root_dir).unwrap();
+}
+
+/// B-8 (a deliberate difference from Node): `--provider-config` defines the one custom provider, audited, its key read
+/// from the named variable and bound in memory; a custom provider without it is refused early.
+#[test]
+fn a_custom_provider_needs_the_explicit_provider_config() {
+    let dir = tempfile::tempdir().unwrap();
+    let host_env: BTreeMap<String, String> = [("MY_KEY", "sk-custom")].into_iter().map(|(name, value)| (name.to_owned(), value.to_owned())).collect();
+    let config = r#"{"custom-x": {"type": "custom", "schemaVersion": 2, "name": "X", "protocol": "openai-chat", "baseURL": "https://x.example/v1", "apiKeyEnv": "MY_KEY"}}"#;
+    let create = |provider: &str, provider_config: Option<&str>| {
+        Boundary::create(&BoundaryRequest {
+            provider,
+            model: "m",
+            effort: None,
+            fast: false,
+            provider_config,
+            host_env: &host_env,
+            host_data_dir: dir.path(),
+            temp_dir: dir.path(),
+            credentials: &Creds,
+        })
+    };
+    let refused = create("custom-x", None).err().unwrap();
+    assert!(refused.contains("--provider-config"), "{refused}");
+    let boundary = create("custom-x", Some(config)).unwrap();
+    assert_eq!(boundary.audit["providerConfigSource"], "explicit");
+    assert_eq!(boundary.audit["authMode"], "in-process-api-key");
+    assert_eq!(boundary.audit["personalState"]["hostConfigRead"], false);
+    let entry = &boundary.runtime_config["providers"]["custom-x"];
+    assert_eq!((entry["baseURL"].as_str(), entry["apiKey"].as_str(), entry.get("apiKeyEnv")), (Some("https://x.example/v1"), Some("sk-custom"), None));
+    assert_eq!(boundary.env["MY_KEY"], None);
+    let written = std::fs::read_to_string(boundary.data_dir.join("mixdog-config.json")).unwrap();
+    assert!(written.contains("\"apiKeyEnv\": \"MY_KEY\"") && !written.contains("sk-custom"));
+    std::fs::remove_dir_all(&boundary.root_dir).unwrap();
+    let secret = config.replace("\"apiKeyEnv\": \"MY_KEY\"", "\"apiKey\": \"sk-inline\"");
+    assert!(create("custom-x", Some(&secret)).err().unwrap().contains("inline apiKey"));
+    assert!(create("custom-y", Some(config)).err().unwrap().contains("custom-y"));
+    assert!(create("openai", Some(config)).err().unwrap().contains("--provider-config"));
+    let plain = create("openai", None).unwrap();
+    assert!(plain.audit.get("providerConfigSource").is_none());
+    std::fs::remove_dir_all(&plain.root_dir).unwrap();
 }
 
 #[derive(Parser)]
@@ -687,6 +730,8 @@ fn options_stand_anywhere_until_the_escape_and_refusals_are_nodes() {
     assert_eq!((opts.message.as_str(), opts.json, opts.effort.as_deref(), opts.fast), ("say hi", true, Some("high"), true));
     let opts = parse(&["say", "hi", "--provider", "anthropic", "--model", "claude-sonnet-4-6", "--tool-mode", "readonly"]).unwrap();
     assert_eq!((opts.provider.as_deref(), opts.model.as_deref(), opts.tool_mode), (Some("anthropic"), Some("claude-sonnet-4-6"), ToolMode::Readonly));
+    let opts = parse(&["--provider", "custom-x", "--model", "m", "--provider-config", "{}", "hi"]).unwrap();
+    assert_eq!((opts.message.as_str(), opts.provider_config.as_deref()), ("hi", Some("{}")));
     let opts = parse(&["--provider", "anthropic", "--provider", "openai", "--model", "m", "--json", "--json", "hi"]).unwrap();
     assert_eq!((opts.provider.as_deref(), opts.json), (Some("anthropic"), true));
     // `--` ends the options, one that comes first too; a flag is still read past it (`argv.includes`).
@@ -720,8 +765,16 @@ fn options_stand_anywhere_until_the_escape_and_refusals_are_nodes() {
     for (argv, refusal) in refusals {
         assert_eq!(parse(argv).unwrap_err(), refusal, "{argv:?}");
     }
-    // The interactive CLI's `--plain` (Node's readline REPL) is not an option of the core's exec.
-    assert_eq!(parse(&["--plain", "hi"]).unwrap_err(), "unknown option --plain");
+    // `--plain` and `--react` are Node's flags: the first asks for its REPL (help wins over it), the second is refused.
+    assert!(matches!(invocation(&["--plain", "hi"]), Ok(Invocation::Plain)));
+    assert!(matches!(invocation(&["--react", "hi"]), Ok(Invocation::React)));
+    assert!(matches!(invocation(&["--react", "--plain"]), Ok(Invocation::Plain)));
+    assert!(matches!(invocation(&["--react", "--help"]), Ok(Invocation::Help)));
+    // A `--react` line does not read the exec verb as a route value; a `--plain` one reads no values strictly.
+    assert!(matches!(invocation(&["--react", "--provider", "exec"]), Ok(Invocation::React)));
+    assert_eq!(invocation(&["--react", "--model"]).unwrap_err(), "option --model requires a non-option value");
+    assert!(matches!(invocation(&["--plain", "--model"]), Ok(Invocation::Plain)));
+    assert!(super::HELP_TEXT.starts_with("mixdog ") && super::HELP_TEXT.ends_with("recall previous inputs.\n"));
 
     // `--help` or `-h` anywhere asks for the usage, a missing value beside it included; an unknown option is still refused.
     for argv in [&["--help"][..], &["say", "hi", "-h"], &["--provider", "--help"], &["--", "--help"]] {

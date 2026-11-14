@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use mixdog_agent::env::GateCall;
+use mixdog_agent::env::StopVerdict;
 use mixdog_agent::env::ToolHooks;
 use mixdog_protocol::JsonValue;
 
@@ -26,6 +27,23 @@ pub struct PostToolEvent {
     pub result: String,
 }
 
+/// What the PostToolUse hooks decided: a replacement result, context for the model and, for a
+/// block, its feedback (the tool already ran; owner-approved difference from Node, which drops
+/// the last two).
+#[derive(Clone, PartialEq, Debug, Default)]
+pub struct PostToolAnswer {
+    pub updated_output: Option<JsonValue>,
+    pub context: Vec<String>,
+    pub feedback: Option<String>,
+}
+
+/// What the Stop hooks decided for a turn the model ended.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct StopDecision {
+    pub blocked: bool,
+    pub reason: Option<String>,
+}
+
 pub struct BatchDecision {
     pub blocked: bool,
     pub reason: Option<String>,
@@ -35,21 +53,24 @@ pub struct BatchDecision {
 /// swallow: a hook never breaks the loop, so these answer `None` on any failure.
 #[async_trait]
 pub trait PostToolDispatch: Send + Sync {
-    /// The hook's `updatedToolOutput`, if it set one.
-    async fn post_tool(&self, event: &PostToolEvent) -> Option<JsonValue>;
+    async fn post_tool(&self, event: &PostToolEvent) -> PostToolAnswer;
     async fn post_failure(&self, event: &PostToolEvent);
     async fn post_batch(&self, session_id: &str, cwd: &str, tool_count: usize) -> Option<BatchDecision>;
+    /// `Stop`, with `stop_hook_active` set on every continuation a block already made in the turn.
+    async fn stop(&self, session_id: &str, cwd: &str, stop_hook_active: bool) -> StopDecision;
 }
 
 pub struct SessionToolHooks {
     session_id: String,
     cwd: String,
     dispatch: Arc<dyn PostToolDispatch>,
+    /// Nobody attends the session (a hidden or delegated agent): a Stop block does not continue it.
+    unattended: bool,
 }
 
 impl SessionToolHooks {
-    pub fn new(session_id: &str, cwd: &Path, dispatch: Arc<dyn PostToolDispatch>) -> Self {
-        Self { session_id: session_id.to_owned(), cwd: cwd.to_string_lossy().into_owned(), dispatch }
+    pub fn new(session_id: &str, cwd: &Path, dispatch: Arc<dyn PostToolDispatch>, unattended: bool) -> Self {
+        Self { session_id: session_id.to_owned(), cwd: cwd.to_string_lossy().into_owned(), dispatch, unattended }
     }
 
     /// The event reports the folder the call was prepared in (`call.cwd = prepared.cwd`), not the session's folder at the time
@@ -127,8 +148,18 @@ fn updated_text(value: &JsonValue) -> Option<String> {
 #[async_trait]
 impl ToolHooks for SessionToolHooks {
     async fn after_tool(&self, call_id: &str, call: &GateCall, result: &str) -> Option<String> {
-        let answer = self.dispatch.post_tool(&self.event(call_id, call, result)).await?;
-        updated_text(&answer)
+        let answer = self.dispatch.post_tool(&self.event(call_id, call, result)).await;
+        let replaced = answer.updated_output.as_ref().and_then(updated_text);
+        let notes: Vec<String> = answer
+            .context
+            .into_iter()
+            .chain(answer.feedback.map(|reason| format!("PostToolUse hook: {reason}")))
+            .filter(|note| !mixdog_js::js_trim(note).is_empty())
+            .collect();
+        if notes.is_empty() {
+            return replaced;
+        }
+        Some(format!("{}\n\n{}", replaced.as_deref().unwrap_or(result), notes.join("\n\n")))
     }
 
     async fn after_failure(&self, call_id: &str, call: &GateCall, result: &str) {
@@ -148,6 +179,23 @@ impl ToolHooks for SessionToolHooks {
                 .unwrap_or_else(|| "PostToolBatch hook blocked continuation".to_owned())
         })
     }
+
+    /// A block with a reason continues an attended turn; a block without one, or in an unattended
+    /// session, is ignored with a warning.
+    async fn on_stop(&self, stop_hook_active: bool) -> StopVerdict {
+        let decision = self.dispatch.stop(&self.session_id, &self.cwd, stop_hook_active).await;
+        if !decision.blocked {
+            return StopVerdict::Proceed;
+        }
+        let reason = decision.reason.as_deref().map(mixdog_js::js_trim).unwrap_or_default();
+        if reason.is_empty() {
+            return StopVerdict::Ignored("A Stop hook blocked the stop without a reason; it is ignored.".to_owned());
+        }
+        if self.unattended {
+            return StopVerdict::Ignored(format!("A Stop hook blocked the stop of an unattended session; it is ignored: {reason}"));
+        }
+        StopVerdict::Continue(reason.to_owned())
+    }
 }
 
 #[cfg(test)]
@@ -160,16 +208,22 @@ mod tests {
 
     #[derive(Default)]
     struct Fake {
-        answer: Mutex<Option<JsonValue>>,
+        answer: Mutex<PostToolAnswer>,
+        stop: Mutex<(StopDecision, Vec<bool>)>,
         seen: Mutex<Vec<PostToolEvent>>,
         decision: Mutex<Option<(bool, Option<String>)>>,
     }
 
     #[async_trait]
     impl PostToolDispatch for Fake {
-        async fn post_tool(&self, event: &PostToolEvent) -> Option<JsonValue> {
+        async fn post_tool(&self, event: &PostToolEvent) -> PostToolAnswer {
             self.seen.lock().unwrap().push(event.clone());
             self.answer.lock().unwrap().clone()
+        }
+        async fn stop(&self, _: &str, _: &str, stop_hook_active: bool) -> StopDecision {
+            let mut stop = self.stop.lock().unwrap();
+            stop.1.push(stop_hook_active);
+            stop.0.clone()
         }
         async fn post_failure(&self, event: &PostToolEvent) {
             self.seen.lock().unwrap().push(event.clone());
@@ -180,7 +234,7 @@ mod tests {
     }
 
     fn hooks(fake: &Arc<Fake>) -> SessionToolHooks {
-        SessionToolHooks::new("s1", Path::new("/work"), fake.clone())
+        SessionToolHooks::new("s1", Path::new("/work"), fake.clone(), false)
     }
 
     #[tokio::test]
@@ -192,14 +246,45 @@ mod tests {
         let seen = fake.seen.lock().unwrap()[0].clone();
         assert_eq!((seen.session_id.as_str(), seen.call_id.as_str(), seen.result.as_str()), ("s1", "c1", "out"));
         assert!(seen.cwd.ends_with("sub") && seen.cwd.contains("work"), "{}", seen.cwd);
-        *fake.answer.lock().unwrap() = Some(json!("replaced"));
+        let answer = |value: JsonValue| PostToolAnswer { updated_output: Some(value), ..PostToolAnswer::default() };
+        *fake.answer.lock().unwrap() = answer(json!("replaced"));
         assert_eq!(h.after_tool("c1", &call, "out").await.as_deref(), Some("replaced"));
-        *fake.answer.lock().unwrap() = Some(json!({"content": [{"type": "text", "text": "a"}, {"type": "x"}]}));
+        *fake.answer.lock().unwrap() = answer(json!({"content": [{"type": "text", "text": "a"}, {"type": "x"}]}));
         assert_eq!(h.after_tool("c1", &call, "out").await, None);
-        *fake.answer.lock().unwrap() = Some(json!({"content": [{"type": "text", "text": "a"}, {"text": "b"}]}));
+        *fake.answer.lock().unwrap() = answer(json!({"content": [{"type": "text", "text": "a"}, {"text": "b"}]}));
         assert_eq!(h.after_tool("c1", &call, "out").await.as_deref(), Some("a\n{\"text\":\"b\"}"));
-        *fake.answer.lock().unwrap() = Some(JsonValue::Null);
+        *fake.answer.lock().unwrap() = answer(JsonValue::Null);
         assert_eq!(h.after_tool("c1", &call, "out").await.as_deref(), Some(""));
+    }
+
+    /// Owner-approved difference from Node (B-5): a PostToolUse hook's context and block feedback reach the model, after
+    /// the result (a replacement included), which is kept.
+    #[tokio::test]
+    async fn post_tool_context_and_block_feedback_follow_the_result() {
+        let fake = Arc::new(Fake::default());
+        let h = hooks(&fake);
+        let call = GateCall::new("shell", json!({"command": "ls"}));
+        *fake.answer.lock().unwrap() = PostToolAnswer { context: vec!["ctx".into()], feedback: Some("why".into()), ..PostToolAnswer::default() };
+        assert_eq!(h.after_tool("c1", &call, "out").await.as_deref(), Some("out\n\nctx\n\nPostToolUse hook: why"));
+        *fake.answer.lock().unwrap() = PostToolAnswer { updated_output: Some(json!("new")), context: vec!["ctx".into()], ..PostToolAnswer::default() };
+        assert_eq!(h.after_tool("c1", &call, "out").await.as_deref(), Some("new\n\nctx"));
+    }
+
+    /// A Stop block with a reason continues an attended turn (and `stop_hook_active` is passed on); one without a reason, or in
+    /// an unattended session, is ignored with a warning.
+    #[tokio::test]
+    async fn a_stop_block_continues_only_an_attended_turn_and_only_with_a_reason() {
+        let fake = Arc::new(Fake::default());
+        let h = hooks(&fake);
+        assert_eq!(h.on_stop(false).await, StopVerdict::Proceed);
+        fake.stop.lock().unwrap().0 = StopDecision { blocked: true, reason: Some(" keep going ".into()) };
+        assert_eq!(h.on_stop(true).await, StopVerdict::Continue("keep going".into()));
+        assert_eq!(fake.stop.lock().unwrap().1, [false, true]);
+        fake.stop.lock().unwrap().0 = StopDecision { blocked: true, reason: Some("  ".into()) };
+        assert!(matches!(h.on_stop(false).await, StopVerdict::Ignored(_)));
+        fake.stop.lock().unwrap().0 = StopDecision { blocked: true, reason: Some("r".into()) };
+        let unattended = SessionToolHooks::new("s1", Path::new("/work"), fake.clone(), true);
+        assert!(matches!(unattended.on_stop(false).await, StopVerdict::Ignored(_)));
     }
 
     /// A call prepared in one folder and finished after the session moved to another reports the folder it ran in.

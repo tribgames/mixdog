@@ -89,7 +89,13 @@ async fn the_pre_tool_decision_matches_node_for_every_recorded_hook_output() {
             .pre_tool(&HookCall { call_id: &call_id, thread_id: &thread, name: tool, args: &args, cwd: dir.path() })
             .await
             .unwrap();
-        let expected = &case["decision"];
+        // Deliberate differences from Node (owner-approved, B-3): a top-level `decision: "block"` blocks a PreToolUse call.
+        let deliberate = match label {
+            "old style block" => Some(json!({"action": "deny", "reason": "old block"})),
+            "old style block without reason" => Some(json!({"action": "deny", "reason": "blocked by PreToolUse hook"})),
+            _ => None,
+        };
+        let expected = deliberate.as_ref().unwrap_or(&case["decision"]);
         match (got, expected.is_null()) {
             (None, true) => {}
             (Some(d), true) if d.action == HookAction::Allow && d.name.is_none() && d.args.is_none() => {}

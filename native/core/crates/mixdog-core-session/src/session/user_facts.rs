@@ -172,6 +172,19 @@ mod tests {
         assert_eq!(std::fs::read(&path).unwrap(), text);
     }
 
+    /// A Goal entry's prompt shows no row of its own but is listed, in the migration's output as in a live row: a failed end recorded on
+    /// it is restored from the history page that lists it.
+    #[test]
+    fn a_goal_prompt_is_listed_though_it_shows_no_row() {
+        for source in ["goal-continuation", "goal-closeout"] {
+            let mut body = json!({ "role": "user", "content": "", "meta": { "source": source } });
+            let facts = user_facts(&mut body, &NoBlobs);
+            assert_eq!((facts.visible, facts.prompt), (true, None), "{source}");
+        }
+        let mut hook = json!({ "role": "user", "content": "loaded", "meta": "hook" });
+        assert!(!user_facts(&mut hook, &NoBlobs).visible);
+    }
+
     #[test]
     fn a_live_row_equals_the_migrated_row_of_the_same_message() {
         for message in [

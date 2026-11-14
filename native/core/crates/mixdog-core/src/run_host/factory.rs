@@ -76,6 +76,8 @@ pub struct AssembleInput<'a> {
     pub request: &'a str,
     /// A runtime-injected turn (a completion notice, queued work), not a user's prompt.
     pub injected: bool,
+    /// No person is attached to the turn ([`RunStart::unattended`]): a Stop hook's block does not continue it.
+    pub unattended: bool,
     /// The worker turn's own completion hook (`AgentTurn.hooks.notify`): `assemble` puts it on the
     /// `ToolEnv`, so it reaches every tool call. `None` for a turn no job owns.
     pub notify: Option<mixdog_core_api::domain::tool::ToolNotify>,
@@ -1199,6 +1201,29 @@ impl mixdog_agent::env::ToolFailureLog for SensitiveFailures {
         self.inner.stall_abort(ctx);
     }
 
+    /// The `batch` row holds each call's id, tool name and array lengths, no argument: passed on as it is. Without this the
+    /// trait's no-op would drop the row.
+    fn batch(&self, batch: &mixdog_agent::env::ToolBatch) {
+        self.inner.batch(batch);
+    }
+
+    /// The `tool` row (and, for an error call, its failure row) holds the call's arguments and result: the arguments go through
+    /// the thread's projection and a text result has the thread's values replaced, as `traceAgentTool` does
+    /// (`agent-trace-format.mjs`: `redactSensitiveText` only when `resultText` is a string).
+    fn tool(&self, mut call: mixdog_agent::env::TracedCall) {
+        call.tool_args = self.context.redact_arguments(&call.tool_args);
+        call.result_text = self.context.redact_text(&call.result_text);
+        if let Value::String(text) = &call.result {
+            call.result = Value::String(self.context.redact_text(text));
+        }
+        self.inner.tool(call);
+    }
+
+    /// The `cache_break` row holds the prompt's cache facts, no call's text: passed on as it is.
+    fn cache_break(&self, record: serde_json::Map<String, Value>) {
+        self.inner.cache_break(record);
+    }
+
     /// The `loop` row holds no call's arguments or text: passed on as it is.
     fn provider_send(&self, send: mixdog_agent::env::ProviderSend) {
         self.inner.provider_send(send);
@@ -1329,10 +1354,22 @@ pub(crate) fn native_searches(messages: &[AgentMessage]) -> Vec<Value> {
 /// `session.messages`: the system blocks the session's requests lead with, then its stored conversation rows.
 pub(crate) fn session_messages(header: &mixdog_store::schema::record::Header, rows: &[Value]) -> Result<Vec<AgentMessage>, String> {
     let mut messages = system_messages(header);
+    let mut leading = true;
     for row in rows {
-        messages.push(super::message_row::message_of(row)?);
+        let message = super::message_row::message_of(row)?;
+        if leading && is_stale_system_row(&message) {
+            continue;
+        }
+        leading = false;
+        messages.push(message);
     }
     Ok(messages)
+}
+
+/// A system row an earlier build stored at the head of the context: the header's prompt is the request's system set, so the
+/// stored copy is dropped on load and the next rewrite does not change what the request leads with.
+fn is_stale_system_row(message: &AgentMessage) -> bool {
+    message.role() == Role::System
 }
 
 /// The request's system messages: the header's prompt fields, in Node's order and tiers (WP-PROMPT).
@@ -1432,14 +1469,14 @@ async fn drive(
         // The refusal throws before `askSession` (`turn-run.mjs` `runTurn`): `session.messages` never takes the prompt and
         // keeps a retry's stale copy, so the model context restarts at the rows it held before this turn.
         stored.extend(stale);
-        if let Err(error) = port.context_rewound(stored).await {
+        if let Err(error) = port.context_restored(stored).await {
             tracing::warn!("[session] the refused prompt could not be removed from the model context: {error:?}");
         }
         return failed(format!("prompt blocked by hook: {}", verdict.reason.as_deref().unwrap_or_default()), Value::Null);
     }
     let turn_context = super::lifecycle_hooks::turn_context(own_context.as_deref(), &verdict.context);
     let surface_now = surface.borrow().clone();
-    let assembled = match parts.assemble(AssembleInput { thread: &thread, turn: &turn, header: &header, surface: surface_now, port: &port, surface_rx: surface.clone(), slot, skill_selection, prior: &prior, request: &request, injected, notify, progress: tool_progress }).await {
+    let assembled = match parts.assemble(AssembleInput { thread: &thread, turn: &turn, header: &header, surface: surface_now, port: &port, surface_rx: surface.clone(), slot, skill_selection, prior: &prior, request: &request, injected, unattended, notify, progress: tool_progress }).await {
         Ok(assembled) => assembled,
         Err(error) => return RunOutcome::Failed(error),
     };
@@ -1541,12 +1578,17 @@ async fn drive(
     let mut messages = system_messages(&header);
     // The context before the input row with the item each message is, for the rewrite a cancelled turn ends with.
     let mut history: Vec<(ItemId, AgentMessage)> = Vec::new();
+    let mut leading = true;
     for (iid, body) in stored {
         // A stored row the codec cannot read fails the turn: dropping it would change the context.
         let message = match message_of(&body) {
             Ok(message) => message,
             Err(error) => return failed(format!("the model context holds a row this build cannot read: {error}"), body),
         };
+        if leading && is_stale_system_row(&message) {
+            continue;
+        }
+        leading = false;
         if let Some(id) = &message.message_id {
             lock(&sink.iids).insert(id.clone(), iid.clone());
         }
@@ -1744,12 +1786,8 @@ async fn drive(
             if let Some(turn_transcript) = &turn_transcript {
                 turn_transcript.final_text(output.response.history_content.as_deref().unwrap_or(&output.response.content));
             }
-            // `completeTurn` (`turn-settle.mjs:46-51`): the `Stop` hook, awaited before the turn reports its end; nothing it
-            // answers is read. The wait ends with the turn (`turn.awaitTurn`).
-            tokio::select! {
-                () = lifecycle.stop(&thread, &header) => {}
-                () = cancel.cancelled() => {}
-            }
+            // The `Stop` hook is no longer asked here: the agent loop asks it when the model ends its turn, so a block can
+            // continue the turn (owner-approved difference from Node's `completeTurn`).
             sink.live.clear();
             progress.done(output.response.content.trim().is_empty());
             if let Some(state) = output.provider_state.clone() {
@@ -1838,6 +1876,17 @@ mod tests {
     use super::*;
     use mixdog_core_session::session::testing::{Rig, eventually_on_awaiting};
     use mixdog_core_session::session::SessionDirectory;
+
+    /// A system row an earlier build stored at the head of the context is not read back: the header's prompt is the request's
+    /// system set, so the next rewrite leaves the request's lead as it was.
+    #[test]
+    fn a_stored_leading_system_row_is_not_part_of_the_loaded_context() {
+        let header = mixdog_store::schema::record::Header::new();
+        let rows = [json!({ "role": "system", "content": "old prompt" }), json!({ "role": "user", "content": "hello" }), json!({ "role": "system", "content": "later" })];
+        let loaded = session_messages(&header, &rows).expect("messages");
+        let roles: Vec<Role> = loaded.iter().skip(system_messages(&header).len()).map(|m| m.role()).collect();
+        assert_eq!(roles, [Role::User, Role::System]);
+    }
 
     /// The process died again after a recovery's rows landed and before its end record: the next recovery keeps the restart
     /// line where it stands and adds no second one.
@@ -2356,18 +2405,14 @@ mod tests {
             lock(&self.calls).push(format!("UserPromptSubmit:{}:{prompt}", header["cwd"].as_str().unwrap_or_default()));
             lock(&self.verdict).clone()
         }
-        async fn stop(&self, _: &ThreadId, _: &mixdog_store::schema::record::Header) {
-            lock(&self.calls).push("Stop".to_owned());
-        }
         async fn stop_failure(&self, _: &ThreadId, _: &mixdog_store::schema::record::Header, error_type: &str) {
             lock(&self.calls).push(format!("StopFailure:{error_type}"));
         }
     }
 
     /// A turn's hooks (`turn-run.mjs` `runTurn`): `UserPromptSubmit` with the prompt as submitted, before the model is asked;
-    /// the context it adds leads the prompt the model reads (`# Additional context` / `# Task`); `Stop` once the turn
-    /// completed. A handler's block refuses the turn with Node's message before any request, that turn fires
-    /// `StopFailure` instead of `Stop`, and the next turn's request does not carry the refused prompt.
+    /// the context it adds leads the prompt the model reads (`# Additional context` / `# Task`). A handler's block
+    /// refuses the turn with Node's message before any request, that turn fires `StopFailure`, and the next turn's request does not carry the refused prompt.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_turn_fires_its_prompt_and_stop_hooks_and_a_blocked_prompt_asks_no_model() {
         use mixdog_core_session::session::lifecycle_hooks::PromptVerdict;
@@ -2404,7 +2449,7 @@ mod tests {
 
         handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
         eventually_on_awaiting(|| "the first turn's end record".to_owned(), &[handle.stepped()], || (ended() >= 1).then_some(())).await;
-        assert_eq!(calls(), ["UserPromptSubmit:/ws:\"go\"", "Stop"]);
+        assert_eq!(calls(), ["UserPromptSubmit:/ws:\"go\""]);
         let requests = lock(&provider.requests).clone();
         assert_eq!(requests.len(), 1);
         let asked = format!("{:?}", requests[0].messages.iter().find(|m| m.role == Role::User).expect("the prompt").content);
@@ -2413,8 +2458,8 @@ mod tests {
 
         *lock(&hooks.verdict) = PromptVerdict { blocked: true, reason: Some("not now".to_owned()), context: vec!["never read".to_owned()] };
         handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-2", "input": { "prompt": "again" } }), "op-2")).await.expect("turn/start");
-        eventually_on_awaiting(|| "the refused turn's end record and its StopFailure".to_owned(), &[handle.stepped()], || (ended() >= 2 && calls().len() >= 4).then_some(())).await;
-        assert_eq!(calls()[2..], ["UserPromptSubmit:/ws:\"again\"", "StopFailure:unknown"]);
+        eventually_on_awaiting(|| "the refused turn's end record and its StopFailure".to_owned(), &[handle.stepped()], || (ended() >= 2 && calls().len() >= 3).then_some(())).await;
+        assert_eq!(calls()[1..], ["UserPromptSubmit:/ws:\"again\"", "StopFailure:unknown"]);
         assert_eq!(lock(&provider.requests).len(), 1, "a blocked prompt asks no model");
         let stored = format!("{:?}", rig.store.records(&id));
         assert!(stored.contains("prompt blocked by hook: not now"), "the turn failed with Node's message");
@@ -2425,6 +2470,19 @@ mod tests {
         let requests = lock(&provider.requests).clone();
         let roles: Vec<_> = requests[1].messages.iter().map(|m| m.role).collect();
         assert_eq!(roles, [Role::User, Role::Assistant, Role::User], "the refused prompt is not in the model history");
+        // The refusal leaves the rows the provider last saw: no new lineage, so the kept prefix guard still holds
+        // (Node's `session.messages` and guard are untouched by it). The first turn's context restart (its hook context joined
+        // the prompt) names the lineage the refused turn opens on; none is named after the refused turn started.
+        let mut started = 0;
+        let mut epochs_after_refusal = 0;
+        for (_, record) in rig.store.records(&id) {
+            match record {
+                Record::Run(run) if matches!(run.phase, mixdog_store::schema::record::RunPhase::Started) => started += 1,
+                Record::Meta(meta) if started >= 2 && matches!(&meta.change, Slot::Inline(change) if change.set.contains_key("transcriptEpoch")) => epochs_after_refusal += 1,
+                _ => {}
+            }
+        }
+        assert_eq!(epochs_after_refusal, 0, "a refused prompt names no new transcript lineage");
     }
 
     /// Compacts the first time it is asked, keeping what the session's compactor keeps first (`split_protected_context`: the
@@ -2448,7 +2506,7 @@ mod tests {
             let mut messages: Vec<AgentMessage> = request.messages.iter().take_while(|m| m.role() == Role::System).cloned().collect();
             messages.push(AgentMessage::user("[summary]"));
             messages.extend(request.messages.last().cloned());
-            Ok(CompactOutput { messages, usage: None, dropped_count: 0, dropped: None, skipped: false, pipeline_ms: 0.0, summary_ms: None })
+            Ok(CompactOutput { messages, usage: None, dropped_count: 0, dropped: None, skipped: false, pipeline_ms: 0.0, summary_ms: None, summary_route: None })
         }
     }
 

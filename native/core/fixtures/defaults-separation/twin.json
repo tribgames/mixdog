@@ -280,7 +280,12 @@
         "desktop": {
           "zoom": 1
         },
-        "defaultsVersion": 2
+        "defaultsVersion": 2,
+        "channels": {
+          "webhook": {
+            "enabled": true
+          }
+        }
       },
       "final": {
         "agent": {
@@ -345,7 +350,12 @@
         "desktop": {
           "zoom": 1
         },
-        "defaultsVersion": 2
+        "defaultsVersion": 2,
+        "channels": {
+          "webhook": {
+            "enabled": true
+          }
+        }
       },
       "backups": [
         {
@@ -417,9 +427,6 @@
           }
         },
         "channels": {
-          "webhook": {
-            "enabled": false
-          },
           "other": 1
         },
         "defaultsVersion": 2
@@ -456,9 +463,6 @@
           }
         },
         "channels": {
-          "webhook": {
-            "enabled": false
-          },
           "other": 1
         },
         "defaultsVersion": 2

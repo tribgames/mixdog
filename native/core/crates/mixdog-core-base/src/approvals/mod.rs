@@ -267,7 +267,8 @@ impl ApprovalBook {
         out
     }
 
-    /// P §8.4 step 2: still pending, decodes, allowed for this request. The decision is the card's canonical response
+    /// P §8.4 step 2: still pending, and allowed for this request. An answer is never refused for what it holds (Node's `resolve`):
+    /// what does not decode reads as the default ([`lenient_decision`]). The decision is the card's canonical response
     /// (`normalizeHumanResponse`), which words no reason: the session that takes it does ([`word_as_the_persons`]). `Ok(None)` is a
     /// decision for a request that is resolved or resolving (step 4: a no-op).
     pub fn validate(
@@ -286,13 +287,7 @@ impl ApprovalBook {
         if open.resolving {
             return Ok(None);
         }
-        let rejected = |detail: &str| CoreError::InvalidServerRequestResponse {
-            request_id: request.clone(),
-            detail: detail.into(),
-        };
-        let decision: ToolApprovalDecision =
-            serde_json::from_value(result.clone()).map_err(|_| rejected("result"))?;
-        let decision = normalize_decision(&open.request.ask, decision);
+        let decision = normalize_decision(&open.request.ask, lenient_decision(result));
         open.resolving = true;
         Ok(Some(Accepted {
             aid,
@@ -374,6 +369,33 @@ fn remember_name(scope: ApprovalRemember) -> &'static str {
         ApprovalRemember::Session => "session",
         ApprovalRemember::Agent => "agent",
         ApprovalRemember::Always => "always",
+    }
+}
+
+/// Node's `resolve(id, decision)` reads an answer without refusing it: `approved` is `decision === true || decision.approved === true`,
+/// a `response`, `remember` or `answers` entry it does not know is read as absent (the normalization then picks the default), and the
+/// reason is `String(reason)` when it is truthy.
+fn lenient_decision(result: &Value) -> ToolApprovalDecision {
+    let field = |key: &str| result.get(key);
+    let text = |key: &str| field(key).and_then(Value::as_str).map(str::to_owned);
+    let reason = match field("reason") {
+        Some(Value::Number(number)) if number.as_f64() != Some(0.0) => Some(number.to_string()),
+        Some(Value::Bool(true)) => Some("true".to_owned()),
+        _ => text("reason"),
+    };
+    ToolApprovalDecision {
+        approved: *result == Value::Bool(true) || field("approved") == Some(&Value::Bool(true)),
+        reason,
+        answers: field("answers").and_then(Value::as_array).map(|answers| {
+            answers.iter().map(|answer| serde_json::from_value(answer.clone()).ok()).collect()
+        }),
+        reply: text("reply"),
+        response: field("response").and_then(|value| serde_json::from_value(value.clone()).ok()),
+        edited_args: field("editedArgs").and_then(Value::as_object).map(|edits| {
+            edits.iter().filter_map(|(name, text)| Some((name.clone(), text.as_str()?.to_owned()))).collect()
+        }),
+        remember: field("remember").and_then(|value| serde_json::from_value(value.clone()).ok()),
+        scope: text("scope"),
     }
 }
 
@@ -552,7 +574,7 @@ mod tests {
     }
 
     #[test]
-    fn first_valid_decision_wins_and_invalid_ones_leave_it_pending() {
+    fn the_first_decision_wins() {
         let thread = ThreadId::from("t");
         let mut book = ApprovalBook::default();
         let aid = ApprovalId(7);
@@ -566,16 +588,10 @@ mod tests {
         book.insert(request, TurnId::from("r"), None);
         let id = aid.request_id();
 
-        let err = book
-            .validate(&id, &json!({"approved": "yes"}), device(), 1)
-            .unwrap_err();
-        assert!(matches!(err, CoreError::InvalidServerRequestResponse { .. }));
-        assert_eq!(book.decidable(), vec![aid]);
-
         let won = book
             .validate(&id, &json!({"approved": true, "remember": "session"}), device(), 5)
             .unwrap()
-            .expect("first valid decision");
+            .expect("first decision");
         assert_eq!(won.aid, aid);
         assert!(book.validate(&id, &json!({"approved": false}), device(), 6).unwrap().is_none());
         assert!(book.decidable().is_empty());
@@ -624,6 +640,28 @@ mod tests {
             .expect("the decision is taken");
         let ApprovalResolution::Decided { decision, .. } = accepted.resolution else { panic!("decided") };
         assert_eq!(serde_json::to_value(decision).unwrap(), json!({"approved": true, "response": "approve", "remember": "once"}));
+    }
+
+    /// Node never refuses an answer: `{approved: 'yes'}` is a denial, an unknown `response` or `remember` is the default.
+    #[test]
+    fn an_answer_that_does_not_decode_is_read_as_defaults() {
+        let thread = ThreadId::from("t");
+        let decided = |answer: Value| {
+            let mut book = ApprovalBook::default();
+            let aid = ApprovalId(9);
+            let mut card = ask(vec![ApprovalRemember::Session]);
+            card.payload = json!({"kind": "approval", "remember": ["once", "session"]});
+            book.insert(ApprovalBook::request(aid, &thread, &Lineage::top_level(&thread), card, 1000), TurnId::from("r"), None);
+            let accepted = book.validate(&aid.request_id(), &answer, device(), 1).unwrap().expect("never refused");
+            let ApprovalResolution::Decided { decision, .. } = accepted.resolution else { panic!("decided") };
+            serde_json::to_value(decision).unwrap()
+        };
+        assert_eq!(decided(json!({"approved": "yes"})), json!({"approved": false, "response": "deny", "remember": "once"}));
+        assert_eq!(
+            decided(json!({"approved": true, "response": "maybe", "remember": "forever"})),
+            json!({"approved": true, "response": "approve", "remember": "once"})
+        );
+        assert_eq!(decided(json!(true))["approved"], json!(true));
     }
 
     #[test]

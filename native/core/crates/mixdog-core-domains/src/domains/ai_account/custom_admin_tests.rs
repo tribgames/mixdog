@@ -118,6 +118,7 @@ impl AuthRefresh for CountingRefresh {
     fn after_credential_change(&self) {
         self.0.fetch_add(1, Ordering::SeqCst);
     }
+    fn custom_provider_removed(&self, _: &str) {}
     fn adopt_credentials(&self) {}
     fn after_usage_auth_change(&self) {}
     fn release_admission_cooldowns(&self) {}

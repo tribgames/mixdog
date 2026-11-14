@@ -39,9 +39,15 @@ use crate::webhooks::relay::{RelayTunnelStarter, hook_public_base};
 use crate::webhooks::signature::{Headers, hmac_hex};
 use crate::webhooks::{EndpointRecord, EndpointRecords, StateWebhookStore, WebhookConfig, WebhookService, WebhookStore};
 
-#[derive(Default)]
+/// The recordings' receiver is enabled; the default of the core's settings is off.
 struct FakeSettings {
     webhook: Mutex<WebhookSettings>,
+}
+
+impl Default for FakeSettings {
+    fn default() -> Self {
+        Self { webhook: Mutex::new(WebhookSettings { enabled: true, ..WebhookSettings::default() }) }
+    }
 }
 
 #[async_trait]

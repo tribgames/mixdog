@@ -631,6 +631,24 @@ pub fn unanchored_after_restart(session: &Header) -> bool {
     get(session, "contextPressureUnanchoredAfterRestart") == Some(&Value::Bool(true))
 }
 
+/// `sessionRef.compaction.singleShotConsumed === true`: the one compaction a reserve with no headroom permits was taken.
+pub fn single_shot_consumed(session: &Header) -> bool {
+    get(session, "compaction").and_then(Value::as_object).and_then(|c| get(c, "singleShotConsumed")) == Some(&Value::Bool(true))
+}
+
+/// `contextPressureBaselineMessageCount` when it is a count: the transcript length the provider's reading was taken at.
+pub fn baseline_message_count(session: &Header) -> Option<usize> {
+    let count = number(get(session, "contextPressureBaselineMessageCount"));
+    (count.fract() == 0.0 && count >= 0.0 && count <= usize::MAX as f64).then_some(count as usize)
+}
+
+/// `providerReadingBelowTrigger` without the trigger: `lastContextTokens` when no compaction has invalidated it since (its
+/// staleness test is `lastUsageIsStale`'s for a positive reading).
+pub fn current_provider_reading(session: &Header) -> Option<u64> {
+    let actual = positive_int(get(session, "lastContextTokens"))?;
+    (!last_usage_stale(session, actual)).then_some(actual as u64)
+}
+
 /// `resolveContextTokensWithSource`'s `provider_resume`: an unanchored session keeps its last actual reading.
 fn resume_tokens(session: &Header) -> Option<f64> {
     if !unanchored_after_restart(session) {

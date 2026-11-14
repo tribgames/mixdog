@@ -1308,6 +1308,10 @@ fn host_command(action: ComputerAction, input: &Map<String, Value>) -> Map<Strin
 #[async_trait]
 impl ComputerSecretHost for ProcessComputerBackend {
     async fn execute(&self, command: Map<String, Value>) -> Result<Map<String, Value>, String> {
+        // A handoff secret is typed through the host's router, which refuses input while "Observation only" is on (`find` is a read).
+        if let Err(ComputerError::Failed { message, .. }) = self.assert_observation_input_allowed(text(&command, "action")) {
+            return Err(message);
+        }
         self.call(command, &CancellationToken::new()).await.map_err(|error| match error {
             ComputerError::Failed { message, .. } => message,
             ComputerError::Unavailable { reason } | ComputerError::InvalidInput { reason } => reason,
@@ -1743,6 +1747,20 @@ mod tests {
         backend.run(read, CancellationToken::new()).await.unwrap();
         observing.store(false, Ordering::SeqCst);
         backend.run(write(), CancellationToken::new()).await.unwrap();
+    }
+
+    /// A secret typed by a handoff goes through `execute`, which `run` does not: "Observation only" refuses its `type` in Node's
+    /// words and still admits its `find`.
+    #[tokio::test]
+    async fn observation_only_refuses_a_secret_type_but_admits_its_find() {
+        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), Arc::new(Answering::default()))
+            .with_observe_only_setting(Arc::new(|| true));
+        let command = |action: &str| input(json!({"action": action}));
+        assert_eq!(
+            ComputerSecretHost::execute(&backend, command("type")).await,
+            Err("observation_only: Computer Use is observing only, so 'type' input is blocked. Turn off \"Observation only\" in Settings to allow input.".to_owned())
+        );
+        assert!(ComputerSecretHost::execute(&backend, command("find")).await.is_ok());
     }
 
     /// Node admits each `act` step again: "Observation only" turned on after the sequence was admitted refuses the next input

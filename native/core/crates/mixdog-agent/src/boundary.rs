@@ -361,7 +361,11 @@ impl Run {
         let cache_expired = compactor.cache_expired();
         let media_pressure = compactor.request_media(&self.messages);
         // `shouldCompactForSession`: an unanchored transcript's pressure arms nothing until a provider send re-anchors it.
-        let over = !session.unanchored && pressure >= trigger;
+        // A one-shot policy that took its pass arms nothing more, and a transcript the provider already measured below the
+        // trigger is not armed by a local estimate of the same transcript (`providerReadingBelowTrigger`).
+        let estimate_only = session.tokens.is_none() && self.baseline.is_none();
+        let measured_below = estimate_only && session.reading_count == Some(self.messages.len()) && session.reading.is_some_and(|reading| reading < trigger);
+        let over = !session.unanchored && !(policy.single_shot && session.single_shot_consumed) && !measured_below && pressure >= trigger;
         let mut should = !skip_proactive && (reactive || cache_expired || media_pressure || over);
         let budget = if should {
             policy.target_budget()

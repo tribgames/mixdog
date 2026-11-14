@@ -3,8 +3,9 @@
 //! to (`boot/config.mjs:23-27`, `resolveInitialConfigState`), or the route its creator passed,
 //! and a resume replaces it with the resumed session's (`resume.mjs`); here a thread's route is
 //! taken from the config the first time it is read, or from the route its creator or its record
-//! names ([`RouteCell::boot`], again at each open for use until a route is set on it); a route
-//! set on it is kept for the process's life, across the thread's unloads.
+//! names ([`RouteCell::boot`], again at each open for use until a route is set on it, which the effort
+//! refresh after that open does: `routePreparation`); a route set on it is kept for the process's life,
+//! across the thread's unloads.
 
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -86,9 +87,18 @@ impl RouteCell for SessionRoutes {
         self.with(thread, |cell| cell.generation)
     }
 
+    /// `resumedRouteFor` (`resume.mjs`): the record's own effort wins; a record with none takes the effort of the route the runtime
+    /// holds (`hasOwn(route, 'effort') ? route.effort`), not the one the config saves for the record's model.
     fn boot(&self, thread: &ThreadId, request: &Route) {
-        let Ok(route) = self.resolve.resolve(request) else { return };
         let mut cells = self.cells.lock().unwrap_or_else(|e| e.into_inner());
+        let mut request = request.clone();
+        if !request.contains_key("effort") {
+            let held = cells.get(thread).map(|cell| cell.route.clone()).unwrap_or_else(|| self.resolve.resolve(&Route::new()).unwrap_or_default());
+            if let Some(effort) = held.get("effort") {
+                request.insert("effort".to_owned(), effort.clone());
+            }
+        }
+        let Ok(route) = self.resolve.resolve(&request) else { return };
         match cells.entry(thread.clone()) {
             Entry::Vacant(slot) => {
                 slot.insert(Cell { route, generation: 0 });
@@ -187,5 +197,19 @@ mod tests {
         routes.adopt_held(&a, &route(json!({ "provider": "gone", "model": "x" })));
         assert_eq!(routes.route(&a)["model"], "opus");
         assert_eq!(routes.route_generation(&a), 1);
+    }
+
+    /// `resumedRouteFor`: a record with no effort of its own takes the effort of the route the runtime holds; its own wins.
+    #[test]
+    fn a_record_without_an_effort_boots_on_the_effort_of_the_held_route() {
+        let routes = SessionRoutes::new(|request: &Route| match request.get("provider") {
+            Some(_) => Ok(request.clone()),
+            None => Ok(route(json!({ "provider": "openai", "model": "gpt-5", "effort": "high" }))),
+        });
+        let (a, b) = (ThreadId::from("sess_a"), ThreadId::from("sess_b"));
+        routes.boot(&a, &route(json!({ "provider": "anthropic", "model": "m" })));
+        assert_eq!(routes.route(&a)["effort"], "high");
+        routes.boot(&b, &route(json!({ "provider": "anthropic", "model": "m", "effort": "low" })));
+        assert_eq!(routes.route(&b)["effort"], "low");
     }
 }

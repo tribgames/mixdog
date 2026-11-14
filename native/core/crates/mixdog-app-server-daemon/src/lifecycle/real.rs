@@ -45,7 +45,8 @@ fn locked<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 
 /// Cancellation tokens of registered work, by activity id. A registrant calls
 /// [`CancelRegistry::track`] with its guard's id and the token its work observes; the entry goes
-/// when the returned [`Tracked`] drops.
+/// when the returned [`Tracked`] drops. One activity can hold several (a busy session's turn and
+/// the manual compaction that runs beside it): each leaves on its own.
 ///
 /// An abort can run between `begin_activity` and `track`: it lists the activity but finds no
 /// token, and a second abort is refused once the first one started. So the first abort marks the
@@ -57,7 +58,8 @@ pub struct CancelRegistry {
 
 #[derive(Default)]
 struct Tokens {
-    by_activity: HashMap<u64, CancellationToken>,
+    by_activity: HashMap<u64, Vec<(u64, CancellationToken)>>,
+    next_key: u64,
     aborting: bool,
 }
 
@@ -67,11 +69,14 @@ impl CancelRegistry {
         if state.aborting {
             token.cancel();
         }
-        state.by_activity.insert(activity_id, token);
+        state.next_key += 1;
+        let key = state.next_key;
+        state.by_activity.entry(activity_id).or_default().push((key, token));
         drop(state);
         Tracked {
             registry: Arc::clone(self),
             activity_id,
+            key,
         }
     }
 
@@ -79,7 +84,7 @@ impl CancelRegistry {
         let mut state = locked(&self.state);
         state.aborting = true;
         for work in running {
-            if let Some(token) = state.by_activity.get(&work.id) {
+            for (_, token) in state.by_activity.get(&work.id).into_iter().flatten() {
                 token.cancel();
             }
         }
@@ -89,11 +94,18 @@ impl CancelRegistry {
 pub struct Tracked {
     registry: Arc<CancelRegistry>,
     activity_id: u64,
+    key: u64,
 }
 
 impl Drop for Tracked {
     fn drop(&mut self) {
-        locked(&self.registry.state).by_activity.remove(&self.activity_id);
+        let mut state = locked(&self.registry.state);
+        if let Some(tokens) = state.by_activity.get_mut(&self.activity_id) {
+            tokens.retain(|(key, _)| *key != self.key);
+            if tokens.is_empty() {
+                state.by_activity.remove(&self.activity_id);
+            }
+        }
     }
 }
 

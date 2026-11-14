@@ -411,6 +411,18 @@ impl RouteService {
         Ok(())
     }
 
+    /// `routePreparation` of a resume (`resume.mjs`): the route a thread booted from its record takes the effort fields the
+    /// provider's catalog gives it (`effectiveEffort`, `fastCapable`, `effortOptions`), unless the route moved while it loaded. A
+    /// provider that cannot be readied leaves the route as it is.
+    pub async fn prepare_route(&self, thread: &ThreadId) {
+        if self.route_lacks_model(thread) {
+            return;
+        }
+        if let Err(error) = self.writer.refresh_route_effort(thread, None, true, None).await {
+            tracing::warn!("thread {}: its resumed route's effort was not refreshed: {error:?}", thread.as_str());
+        }
+    }
+
     /// The route of the desktop's control session, which is created before any model is chosen (`ensureControlSession`; only a
     /// turn needs one, `resolveMissingRouteModelForFirstTurn`). Its runtime's route is the one the config resolves to
     /// (`resolveRoute(config, {})`; a route with no model takes it at every config adoption, `syncEmptyMainRoute`), so its

@@ -4683,6 +4683,7 @@ dependencies = [
  "tokio-util",
  "tracing",
  "tracing-subscriber",
+ "url",
  "uuid",
 ]
 
@@ -5314,6 +5315,7 @@ dependencies = [
  "mixdog-tools",
  "mixdog-workspace",
  "mixdog-workspace-hack",
+ "nucleo-matcher",
  "rayon",
  "regex",
  "regress",

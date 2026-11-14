@@ -342,14 +342,38 @@ fn goals_schedules_and_channels_keep_it_alive() {
     }
 }
 
+/// Node's hold lapses by itself (`daemon-work-gate.mjs`: 120 s by default), so an installer that died never leaves the core refusing
+/// work; a release before that drops the timer, and a hold taken while work runs is not taken.
+#[test]
+fn a_hold_lapses_after_its_ttl_and_a_release_drops_the_timer() {
+    let timer = super::testing::ManualTimer::new();
+    let fx = super::testing::fixture_with_grace(ClientGrace::immediate(), timer.clone());
+    fx.lifecycle.set_serving().unwrap();
+    fx.lifecycle.hold(true, None).unwrap();
+    assert_eq!(*fx.lifecycle.hold_gate().borrow(), StartHold::Held);
+    timer.advance(std::time::Duration::from_secs(119));
+    assert_eq!(*fx.lifecycle.hold_gate().borrow(), StartHold::Held);
+    timer.advance(std::time::Duration::from_secs(1));
+    assert_eq!(*fx.lifecycle.hold_gate().borrow(), StartHold::Open, "the TTL released the hold");
+    assert!(!fx.lifecycle.status().hold);
+
+    fx.lifecycle.hold(true, None).unwrap();
+    fx.lifecycle.hold(false, None).unwrap();
+    assert!(timer.armed().is_empty(), "a release drops the timer");
+
+    let _work = fx.lifecycle.begin_activity(turn());
+    fx.lifecycle.hold(true, None).unwrap();
+    assert_eq!(*fx.lifecycle.hold_gate().borrow(), StartHold::Open, "running work keeps admission open");
+}
+
 #[test]
 fn an_update_stop_waits_for_running_work_and_nothing_times_it() {
     let fx = fixture();
     fx.lifecycle.set_serving().unwrap();
     let _client = fx.lifecycle.connection(ClientKind::Session);
-    let work = fx.lifecycle.begin_activity(turn());
-    fx.lifecycle.hold(true).unwrap();
+    fx.lifecycle.hold(true, None).unwrap();
     assert_eq!(*fx.lifecycle.hold_gate().borrow(), StartHold::Held);
+    let work = fx.lifecycle.begin_activity(turn());
 
     fx.lifecycle.stop(StopMode::WhenIdle, StopReason::Update, None).unwrap();
     // Commit: admission sees the drain, deferred starts are released into it, which refuses them.
@@ -460,6 +484,19 @@ fn terminate_answers_before_it_exits_and_records_the_stall() {
     let exit = last_exit(fx.runtime_root.path());
     assert_eq!(exit["reason"], "userTerminated");
     assert_eq!(exit["stalledMs"], 4200);
+}
+
+#[test]
+fn terminate_withdraws_the_discovery_file_it_names_and_leaves_another_cores() {
+    for (named, left) in [("instance-1", false), ("instance-2", true)] {
+        let fx = fixture();
+        fx.lifecycle.set_serving().unwrap();
+        let file = crate::discovery::path(fx.runtime_root.path());
+        std::fs::write(&file, serde_json::json!({ "core": { "instanceId": named } }).to_string()).unwrap();
+        let token = fx.lifecycle.status().terminate_token.clone();
+        fx.lifecycle.terminate(&token, || {}).unwrap();
+        assert_eq!(file.exists(), left, "{named}");
+    }
 }
 
 #[test]

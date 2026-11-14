@@ -451,7 +451,14 @@ async fn a_jobs_log_record_shows_it_running_until_it_ends() {
     writer.close(super::spill::LOG_STALL).await;
     let record = || std::fs::read_to_string(rig.dir.path().join("task-r.owner.json")).unwrap();
     assert!(out.exists() && err.exists() && record().contains(r#""state":"running""#), "{}", record());
+    // The writer is `clientHostPid`; `pid` is the job's own process, which the job describes when it moves to the background.
+    let written: serde_json::Value = serde_json::from_str(&record()).unwrap();
+    assert_eq!(written["clientHostPid"], std::process::id());
+    assert!(written.get("pid").is_none(), "{written}");
+    writer.describe(serde_json::json!({"pid": 4242}).as_object().cloned().unwrap());
     writer.mark_finished(super::spill::LOG_STALL, serde_json::Map::new()).await;
+    let written: serde_json::Value = serde_json::from_str(&record()).unwrap();
+    assert_eq!((written["pid"].clone(), written["clientHostPid"].clone()), (serde_json::json!(4242), serde_json::json!(std::process::id())));
     assert!(record().contains(r#""state":"finished""#), "{}", record());
 }
 

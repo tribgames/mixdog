@@ -341,8 +341,11 @@ impl Fetcher {
         unreachable!("the redirect loop returns or errors")
     }
 
-    pub async fn fetch_text(&self, url: &Url) -> Result<String, FetchError> {
-        read_text(self.follow(url, false).await?).await
+    /// The body text and its `Content-Type` header (lower-cased).
+    pub async fn fetch_text(&self, url: &Url) -> Result<(String, String), FetchError> {
+        let response = self.follow(url, false).await?;
+        let content_type = header_text(response.headers(), CONTENT_TYPE).to_lowercase();
+        Ok((read_text(response).await?, content_type))
     }
 
     /// Returns `(mime, bytes)` of a png/jpeg/gif/webp image on the same host.

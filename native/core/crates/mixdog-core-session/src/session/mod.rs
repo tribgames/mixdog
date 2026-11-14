@@ -344,17 +344,16 @@ impl PromptIntake for AdmitAll {
     }
 }
 
-/// The core's hold on new turn starts as the sessions read it (`hold{on}`, LR §5.1; Node's `daemonWorkGate`).
+/// The core's hold on new turn starts as the sessions read it (`hold{on}`; Node's `daemonWorkGate`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum StartHold {
     #[default]
     Open,
-    /// Starts are deferred, not refused (step 1): a client's prompt is queued and an in-core start waits before it is admitted
-    /// (Node's `deferring`), until the hold is released.
+    /// A client's prompt or retry is refused (Node's `callRefusal`) and an in-core start waits before it is admitted (Node's
+    /// `deferring`), until the hold is released or its TTL lapses.
     Held,
-    /// The drain commit dropped the hold (step 2, Node's `daemonWorkGate.shutdown()`), or a confirmed abort closed the starts: what
-    /// it held is refused as admission refuses a start once the core drains, and nothing it queued starts unless the drain is
-    /// cancelled, which opens it again.
+    /// The drain commit dropped the hold (Node's `daemonWorkGate.shutdown()`), or a confirmed abort closed the starts: what it held is
+    /// refused as admission refuses a start once the core drains, until the drain is cancelled, which opens it again.
     Closed(mixdog_protocol::DrainReason),
 }
 

@@ -91,13 +91,13 @@ impl AgentRuntime for Agent {
     }
 }
 
-/// The receiver's settings as the recording's receiver had them: the defaults (`enabled`).
+/// The receiver's settings as the recording's receiver had them: the defaults, enabled.
 struct Settings;
 
 #[async_trait]
 impl ChannelSettings for Settings {
     async fn webhook(&self) -> Result<WebhookSettings, String> {
-        Ok(WebhookSettings::default())
+        Ok(WebhookSettings { enabled: true, ..WebhookSettings::default() })
     }
     async fn update_webhook(&self, _patch: &WebhookPatch) -> Result<WebhookSettings, String> {
         unreachable!("no recorded step changes the webhook settings")
