@@ -483,7 +483,7 @@ mod tests {
         let ingest = SessionIngest::new(db.clone(), Arc::new(RawEmbedFlush::new(db.clone(), None)), None, Arc::new(|| 0), lane);
         let memory = LocalMemory::new(db, pg.dir.path().join("data"), recall, ingest, lane);
         let unknown = memory.memory_reply(&json!({ "action": "format_disk" })).await;
-        assert!(unknown.is_error && unknown.text.starts_with("unknown memory action: format_disk; valid: core, status,"), "{}", unknown.text);
+        assert!(unknown.is_error && unknown.text == "unknown memory action: format_disk; valid: core, status. Mutation verbs belong in op.", "{}", unknown.text);
         let unattached = memory.memory_reply(&json!({ "action": "backfill" })).await;
         assert_eq!((unattached.is_error, unattached.text.as_str()), (true, "memory maintenance is not available in this process"));
         let purge = memory.memory_reply(&json!({ "action": "purge" })).await;
