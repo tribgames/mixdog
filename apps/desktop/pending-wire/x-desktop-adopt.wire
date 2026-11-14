@@ -1,0 +1,19 @@
+# x-desktop-adopt: apps/desktop/src/main/index.ts (hot file, applied by the wiring task)
+
+Import, beside `import { onProtocolAttached, publishScreenSessions } from './protocol/screen-sessions-publish';`:
+
+    import { adoptProfileIfBehind } from './protocol/profile-adopt';
+
+Place: next to `onProtocolAttached(localProtocol, refreshCorePageOrigin);` (the line that runs a function at each attach of
+the local core's link). Add, for the local protocol only (a server's core is not this PC's profile):
+
+    onProtocolAttached(localProtocol, () => {
+      void adoptProfileIfBehind(localProtocol, app.getPath('userData'));
+    });
+
+`localProtocol` must offer `call(method, params)` (ProtocolConnection's `call`; `ProfileAdoptClient` needs only that).
+adoptProfileIfBehind logs its failures at error level and never throws, so no catch is needed. After a successful
+adopt the core reads the moved files (ssh hosts) itself: no core restart.
+
+Core side: nothing. `migrate/profile/status` and `migrate/profile/adopt` are served by the migrate_profile domain already
+(registered in compose_flip.rs).
