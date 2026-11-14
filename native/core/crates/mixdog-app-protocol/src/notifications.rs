@@ -343,6 +343,10 @@ pub enum ClientNotification {
     #[serde(rename = "host/screen/displaysChanged")]
     #[cfg_attr(feature = "codegen", ts(rename = "host/screen/displaysChanged"))]
     HostScreenDisplaysChanged(crate::v2::host::ScreenDisplaysParams),
+    /// The pill's Stop was pressed: the core ends the screen session of `screenId` (the desktop sends one per session the pill shows).
+    #[serde(rename = "host/screen/indicator/stop")]
+    #[cfg_attr(feature = "codegen", ts(rename = "host/screen/indicator/stop"))]
+    HostScreenIndicatorStop(crate::v2::screen_indicator::ScreenIndicatorStopParams),
     /// What a viewed browser page shows now: its document and locked geometry (`null` = ended).
     #[serde(rename = "host/browser/page")]
     #[cfg_attr(feature = "codegen", ts(rename = "host/browser/page"))]
@@ -457,6 +461,11 @@ pub static CLIENT_NOTIFICATIONS: &[crate::common::NotificationSpec] = &[
     crate::common::NotificationSpec {
         method: "host/screen/displaysChanged",
         params: "ScreenDisplaysParams",
+        delivery: None,
+    },
+    crate::common::NotificationSpec {
+        method: "host/screen/indicator/stop",
+        params: "ScreenIndicatorStopParams",
         delivery: None,
     },
     crate::common::NotificationSpec {

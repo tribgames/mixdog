@@ -10917,7 +10917,7 @@
         "local"
       ],
       "params": "RemoteHostRedeemParams",
-      "result": "RemoteHost",
+      "result": "RemoteHostRedeemed",
       "scope": {
         "kind": "none"
       }
@@ -12284,6 +12284,11 @@
     },
     {
       "delivery": null,
+      "method": "host/screen/indicator/stop",
+      "params": "ScreenIndicatorStopParams"
+    },
+    {
+      "delivery": null,
       "method": "host/browser/page",
       "params": "HostBrowserPageParams"
     },
@@ -13154,10 +13159,10 @@
       "result": "HostBrowserTurnResult"
     },
     {
-      "method": "host/screen/displays",
-      "params": "ScreenDisplaysParams",
+      "method": "host/screen/indicator",
+      "params": "crate::v2::screen_indicator::ScreenIndicatorParams",
       "requires": "host.browser",
-      "result": "JsonValue"
+      "result": "crate::v2::screen_indicator::ScreenIndicatorResult"
     },
     {
       "method": "host/computer/capture",

@@ -83,7 +83,6 @@ const CAPTURE_UPDATER_STATE = { status: 'ready', version: '0.2.0' } as const;
 const CAPTURE_EMPTY_HOST_REPLIES: ReadonlyArray<readonly [string, unknown]> = [
   [DESKTOP_IPC.computerReadiness, { platform: process.platform, screen_capture: 'granted', accessibility: 'granted', input: 'granted' }],
   [DESKTOP_IPC.listRemoteHosts, []],
-  [DESKTOP_IPC.takeoverReady, false],
   [DESKTOP_IPC.serverTrashInfo, { available: false, path: '' }],
   [DESKTOP_IPC.browserProfileImportSources, []],
   [DESKTOP_IPC.browserCookieAutoImportStatus, { enabled: false, profileId: '', keySaved: false, keyStorageAvailable: false, running: false }],

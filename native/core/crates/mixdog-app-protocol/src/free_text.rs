@@ -186,7 +186,6 @@ pub static FREE_TEXT: &[(Kind, &str, &[&str])] = &[
     (Kind::Request, "host/state/set", &["/value/tabs/*/title", "/value/*/title", "/value/error"]),
     (Kind::Notification, "host/update/report", &["/state/message"]),
     (Kind::Answer, "host/update/command", &["/message"]),
-    (Kind::Answer, "host/screen/displays", &["/*/label"]),
     (Kind::Answer, "host/computer/displays", &["/*/label"]),
     // The text of a Computer Use screen capture reply: the model reads it as the tool's result.
     (Kind::Answer, "host/computer/capture", &["/text"]),

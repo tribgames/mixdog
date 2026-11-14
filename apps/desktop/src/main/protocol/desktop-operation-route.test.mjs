@@ -448,7 +448,7 @@ test('the routed operations are the spec map targets with params the Rust schema
       row.target.kind === 'method' ? [row.target.target] : row.target.kind === 'methods' ? row.target.target : null,
     ])
   );
-  assert.equal(operations.length, 172);
+  assert.equal(operations.length, 173);
   // Two operations have a core method the desktop never sends: `visualizeRemoteViewing` is read from a section, and
   // `browserRemoteWebrtcSignal` was the relay's own call into the desktop service (Node `main/index.ts`
   // `invokeDesktopOperation('browserRemoteWebrtcSignal', [clientId, signal])`); the phone now sends
@@ -502,7 +502,8 @@ test('an operation with no Rust op is unknownMethod and one the schema cannot ca
     .map((row) => row.name);
   // 37: 38 since the two announcements became the core methods `ui/settings/announce` and `ui/providerModels/announce`, and the
   // notification `browserRemoteOpen` is gone (the browser host's surface changes reach the core as `host/browser/surface` by themselves).
-  assert.equal(unknown.length, 37);
+  // 38 with relayPayloadRefused: a notification of the app feed, like terminalRemoteOpen.
+  assert.equal(unknown.length, 38);
   for (const name of unknown) {
     assert.throws(() => routeDesktopOperation(name, []), { code: 'unknownMethod' }, name);
   }

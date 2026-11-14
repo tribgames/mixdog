@@ -1326,7 +1326,8 @@ async fn a_code_saves_the_host_and_answers_the_address_the_window_loads() {
     assert_eq!(*locked(&rig.relay.redeemed), vec![("https://relay.example".to_owned(), "123456".to_owned())]);
     assert_eq!((host["name"].clone(), host["open"].clone()), (json!("Studio PC"), json!(true)));
     // The one-time ticket rides this answer's address only; what is saved has none.
-    assert!(host["url"].as_str().expect("an address").ends_with("#pair=tkt"));
+    assert!(!host["url"].as_str().expect("an address").contains("#pair="));
+    assert_eq!(host["ticket"], "tkt");
     let saved = rig.remote_hosts.list();
     assert_eq!(saved.len(), 1);
     assert!(!saved[0].url.contains('#'));

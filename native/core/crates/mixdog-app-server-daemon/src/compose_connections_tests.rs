@@ -164,7 +164,7 @@ fn focus(windows: Vec<WindowFocusEntry>) -> HostWindowFocus {
 }
 
 fn entry(connection_id: &str, visible: bool, focused: bool, session_id: Option<&str>) -> WindowFocusEntry {
-    WindowFocusEntry { connection_id: connection_id.to_owned(), visible, focused, session_id: session_id.map(str::to_owned) }
+    WindowFocusEntry { connection_id: connection_id.to_owned(), visible, focused, session_ids: session_id.map(str::to_owned).into_iter().collect() }
 }
 
 #[test]

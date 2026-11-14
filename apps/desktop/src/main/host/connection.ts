@@ -12,6 +12,7 @@ export const HOST_METHOD = {
   browserFrame: 'host/browser/frame',
   systemProxyResolve: 'host/systemProxy/resolve',
   notificationShow: 'host/notification/show',
+  notificationClose: 'host/notification/close',
   notificationClicked: 'host/notification/clicked',
   notificationStatus: 'host/notification/status',
   power: 'host/power',
@@ -77,6 +78,8 @@ export const HOST_CAPABILITIES = {
   computer: true,
   // `host/window/open|close|focus` (connections/window-host.ts); a core without the connections service never calls them.
   windows: true,
+  // `host/browser/*` engine methods (host/browser-engine/index.ts). A core that does not compose the engine ignores it.
+  browserEngine: { version: 1, features: ['inputBatch', 'snapshot', 'lease', 'blob'] },
 } as const satisfies HostCapabilities;
 
 /** The fields of a generated protocol params type, each still to be checked (a wire value is unknown). */

@@ -38,8 +38,6 @@ const SERVICE_PENDING: &[&str] = &[
     // The browser engine composed into mixdogd; the test hook only with MIXDOGD_TEST_HOOKS=1 (a `test-hooks` build), so an ordinary
     // start leaves it unclaimed.
     "test/browserEngine/run",
-    // g9-screen-switch: the display-change notification of the desktop; the host service takes it when phone screen control is composed.
-    "host/screen/displaysChanged",
     // s3-13 (registered by G2.5-WIRE): DevComputerRun, served only by a `test-hooks` build started with MIXDOGD_TEST_HOOKS=1,
     // so an ordinary start leaves the name unclaimed.
     "dev/computer/run",
@@ -1189,6 +1187,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let visualize_panes = Arc::new(mixdog_exthost::VisualizePanes::default());
     // The desktop's screen reports (a display changed, the pill's Stop), bound to the phone's screen sessions once they are composed (below).
     let screen_events = Arc::new(crate::compose_screen::ScreenEventsCell::default());
+    let connections_power: Arc<crate::compose_connections::LateConnectionsPower> = Arc::default();
     let seams = DomainSeams {
         provider_roster: provider_admin.clone(),
         quota_resume: quota_store.clone(),
@@ -1218,6 +1217,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         },
         user_activity: user_activity.clone(),
         remote: built_remote.runtime.clone(),
+        connections_power: connections_power.clone(),
         local_target: late_dialer.clone(), // bound by `serving::start` once the connection hub exists (true cycle: hub is built after compose)
         notification_clicks: Arc::new(crate::domain_seams::notification_clicks::LoggedClicks),
         screen_events: screen_events.clone(),
@@ -3660,6 +3660,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     })
     .await?;
     builder.register(connections.service().clone())?;
+    connections_power.bind(connections.service().clone()).map_err(|_| ComposeError::AlreadyBound("connections power"))?;
     // browser/stream, browser/webrtcSignal, browser/screenDisplays, browser/streamAck, host/browser/page, host/browser/frame: the phone's live
     // view of Browser Use (SPEC R36) and its JPEG view.
     let live_view = Arc::new(crate::live_view::LiveViewService::new(b.host.clone(), b.notifier.clone(), b.host_media.clone(), built_remote.runtime.clone(), b.tokens.media_thread, Arc::new(crate::live_view::PairedScreenAccess::new(crate::domain_seams::remote::phone_credential(built_remote.registry.clone()), crate::domain_seams::remote::screen_revoked(built_remote.registry.clone()), crate::domain_seams::remote::peer_attached(built_remote.registry.clone())))));

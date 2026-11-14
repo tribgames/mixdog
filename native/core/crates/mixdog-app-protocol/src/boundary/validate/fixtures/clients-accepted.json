@@ -1587,6 +1587,32 @@
   },
   {
     "client": "desktop",
+    "method": "connections/ssh/list",
+    "params": {},
+    "source": "apps/desktop/src/main/connections/server-host-settings.ts:connections/ssh/list",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "connections/endpoint",
+    "params": {
+      "connectionId": "connectionId-1"
+    },
+    "source": "apps/desktop/src/main/connections/server-window-record.ts:connections/endpoint",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "connections/ssh/openEphemeral",
+    "params": {
+      "name": "name-1",
+      "target": "target-1"
+    },
+    "source": "apps/desktop/src/main/connections/server-window-record.ts:connections/ssh/openEphemeral",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
     "method": "terminal/attach",
     "params": {
       "tabId": "tabId-1"
@@ -1786,6 +1812,15 @@
     "method": "host/screen/displaysChanged",
     "params": {},
     "source": "apps/desktop/src/main/host/screen-displays.ts:host/screen/displaysChanged",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "host/screen/indicator/stop",
+    "params": {
+      "screenId": "screenId-1"
+    },
+    "source": "apps/desktop/src/main/host/screen-indicator.ts:host/screen/indicator/stop",
     "case": "required fields"
   },
   {
@@ -1997,6 +2032,77 @@
   },
   {
     "client": "desktop",
+    "method": "remoteHosts/list",
+    "params": {},
+    "source": "apps/desktop/src/main/remote-host-windows.ts:remoteHosts/list",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "remoteHosts/presence",
+    "params": {
+      "ids": [
+        "ids-1"
+      ]
+    },
+    "source": "apps/desktop/src/main/remote-host-windows.ts:remoteHosts/presence",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "remoteHosts/touch",
+    "params": {
+      "id": "id-1"
+    },
+    "source": "apps/desktop/src/main/remote-host-windows.ts:remoteHosts/touch",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "remoteHosts/redeemCode",
+    "params": {
+      "code": "code-1"
+    },
+    "source": "apps/desktop/src/main/remote-host-windows.ts:remoteHosts/redeemCode",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "remoteHosts/rename",
+    "params": {
+      "id": "id-1",
+      "name": "name-1"
+    },
+    "source": "apps/desktop/src/main/remote-host-windows.ts:remoteHosts/rename",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "remoteHosts/forget",
+    "params": {
+      "id": "id-1"
+    },
+    "source": "apps/desktop/src/main/remote-host-windows.ts:remoteHosts/forget",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "connections/subscribe",
+    "params": {},
+    "source": "apps/desktop/src/main/remote-hosts.ts:connections/subscribe",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
+    "method": "connections/unsubscribe",
+    "params": {
+      "subscriptionId": "subscriptionId-1"
+    },
+    "source": "apps/desktop/src/main/remote-hosts.ts:connections/unsubscribe",
+    "case": "required fields"
+  },
+  {
+    "client": "desktop",
     "method": "thread/items/list",
     "params": {
       "threadId": "threadId-1"
@@ -2026,29 +2132,6 @@
       "takeoverId": "takeoverId-1"
     },
     "source": "apps/desktop/src/main/takeover-gate.ts:takeover/ready",
-    "case": "required fields"
-  },
-  {
-    "client": "desktop",
-    "method": "connections/subscribe",
-    "params": {},
-    "source": "apps/desktop/src/renderer/connections-core-api.ts:connections/subscribe",
-    "case": "required fields"
-  },
-  {
-    "client": "desktop",
-    "method": "connections/unsubscribe",
-    "params": {
-      "subscriptionId": "subscriptionId-1"
-    },
-    "source": "apps/desktop/src/renderer/connections-core-api.ts:connections/unsubscribe",
-    "case": "required fields"
-  },
-  {
-    "client": "desktop",
-    "method": "connections/ssh/list",
-    "params": {},
-    "source": "apps/desktop/src/renderer/connections-core-api.ts:connections/ssh/list",
     "case": "required fields"
   },
   {
@@ -5550,6 +5633,32 @@
   },
   {
     "client": "desktop",
+    "method": "connections/ssh/list",
+    "params": {},
+    "source": "apps/desktop/src/main/connections/server-host-settings.ts:connections/ssh/list",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
+    "method": "connections/endpoint",
+    "params": {
+      "connectionId": "connectionId-1"
+    },
+    "source": "apps/desktop/src/main/connections/server-window-record.ts:connections/endpoint",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
+    "method": "connections/ssh/openEphemeral",
+    "params": {
+      "name": "name-1",
+      "target": "target-1"
+    },
+    "source": "apps/desktop/src/main/connections/server-window-record.ts:connections/ssh/openEphemeral",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
     "method": "host/window/closed",
     "params": {
       "byUser": true,
@@ -5786,6 +5895,15 @@
   },
   {
     "client": "desktop",
+    "method": "host/screen/indicator/stop",
+    "params": {
+      "screenId": "screenId-1"
+    },
+    "source": "apps/desktop/src/main/host/screen-indicator.ts:host/screen/indicator/stop",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
     "method": "desktop/attachment/resolve",
     "params": {
       "attachmentId": "attachmentId-1",
@@ -5888,6 +6006,79 @@
   },
   {
     "client": "desktop",
+    "method": "remoteHosts/list",
+    "params": {},
+    "source": "apps/desktop/src/main/remote-host-windows.ts:remoteHosts/list",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
+    "method": "remoteHosts/presence",
+    "params": {
+      "ids": [
+        "ids-1"
+      ]
+    },
+    "source": "apps/desktop/src/main/remote-host-windows.ts:remoteHosts/presence",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
+    "method": "remoteHosts/touch",
+    "params": {
+      "id": "id-1"
+    },
+    "source": "apps/desktop/src/main/remote-host-windows.ts:remoteHosts/touch",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
+    "method": "remoteHosts/redeemCode",
+    "params": {
+      "code": "code-1"
+    },
+    "source": "apps/desktop/src/main/remote-host-windows.ts:remoteHosts/redeemCode",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
+    "method": "remoteHosts/rename",
+    "params": {
+      "id": "id-1",
+      "name": "name-1"
+    },
+    "source": "apps/desktop/src/main/remote-host-windows.ts:remoteHosts/rename",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
+    "method": "remoteHosts/forget",
+    "params": {
+      "id": "id-1"
+    },
+    "source": "apps/desktop/src/main/remote-host-windows.ts:remoteHosts/forget",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
+    "method": "connections/subscribe",
+    "params": {
+      "connectionId": "connectionId-1"
+    },
+    "source": "apps/desktop/src/main/remote-hosts.ts:connections/subscribe",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
+    "method": "connections/unsubscribe",
+    "params": {
+      "subscriptionId": "subscriptionId-1"
+    },
+    "source": "apps/desktop/src/main/remote-hosts.ts:connections/unsubscribe",
+    "case": "every optional field"
+  },
+  {
+    "client": "desktop",
     "method": "config/read",
     "params": {
       "keys": [
@@ -5916,31 +6107,6 @@
       "takeoverId": "takeoverId-1"
     },
     "source": "apps/desktop/src/main/takeover-gate.ts:takeover/ready",
-    "case": "every optional field"
-  },
-  {
-    "client": "desktop",
-    "method": "connections/subscribe",
-    "params": {
-      "connectionId": "connectionId-1"
-    },
-    "source": "apps/desktop/src/renderer/connections-core-api.ts:connections/subscribe",
-    "case": "every optional field"
-  },
-  {
-    "client": "desktop",
-    "method": "connections/unsubscribe",
-    "params": {
-      "subscriptionId": "subscriptionId-1"
-    },
-    "source": "apps/desktop/src/renderer/connections-core-api.ts:connections/unsubscribe",
-    "case": "every optional field"
-  },
-  {
-    "client": "desktop",
-    "method": "connections/ssh/list",
-    "params": {},
-    "source": "apps/desktop/src/renderer/connections-core-api.ts:connections/ssh/list",
     "case": "every optional field"
   },
   {

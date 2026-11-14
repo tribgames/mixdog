@@ -109,6 +109,7 @@ import { notifyHostListsChanged } from './host-lists-changed';
 import { watchHostListsFeed } from './remote-hosts';
 import { createProtocolConnection } from './protocol/connection';
 import { readOrCreateHostId, createLocalHostRole } from './protocol/desktop-host-wiring';
+import { showRemoteScreenIndicator } from './remote-screen/screen-indicator';
 import { openCore } from './protocol/open-core';
 import type { WsEndpoint } from './protocol/ws-connector';
 import { type CoreProcess, coreBinaryPath, coreEnvironment, coreExit, coreLaunchPath, requestCoreStop, resolveLocalCore } from './protocol/local-core';
@@ -1042,6 +1043,7 @@ onProtocolAttached(localProtocol, () => {
   void adoptProfileIfBehind(localProtocol, app.getPath('userData'));
 });
 const hostRole = createLocalHostRole({
+  showScreenIndicator: showRemoteScreenIndicator,
   protocol: localProtocol,
   hostId: readOrCreateHostId(desktopUserData),
   browser: () => {
@@ -1164,12 +1166,12 @@ function publishWindowFocus(): void {
   const windows: WindowFocusEntry[] = [];
   for (const [connectionId, window] of connectionWindows) {
     if (window.isDestroyed()) continue;
-    const sessionId = screenSessionIds(window)[0];
+    const sessionIds = screenSessionIds(window);
     windows.push({
       connectionId,
       visible: window.isVisible() && !window.isMinimized(),
       focused: window.isFocused(),
-      ...(sessionId ? { sessionId } : {}),
+      sessionIds,
     });
   }
   windowHost.publishFocus(windows);

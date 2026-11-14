@@ -844,6 +844,17 @@ pub struct RemoteHost {
     pub online: Option<bool>,
 }
 
+/// The answer to `remoteHosts/redeemCode`: the saved host and the one-time proof the relay redeemed the code (it rides the
+/// first claim of the host's page; it is never stored and never in a list).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteHostRedeemed {
+    #[serde(flatten)]
+    pub host: RemoteHost,
+    pub ticket: String,
+}
+
 // ---- params and results of the connections/* and remoteHosts/* methods
 
 /// Params of a method that takes nothing.

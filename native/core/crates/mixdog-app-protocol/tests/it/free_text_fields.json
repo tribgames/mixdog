@@ -2110,15 +2110,6 @@
      "fields": []
     }
    },
-   "host/screen/displays": {
-    "": {
-     "source": "native/core/crates/mixdog-app-server-daemon/src/live_view.rs; apps/desktop/src/shared/remote-webrtc.ts RemoteScreenDisplaySummary (renderer/remote-screen-state.ts readScreenDisplays)",
-     "fields": [
-      "/*/screenId",
-      "/*/label"
-     ]
-    }
-   },
    "host/update/command": {
     "": {
      "source": "native/core/crates/mixdog-core-domains/src/domains/update.rs; apps/desktop/src/shared/contract-session.ts DesktopUpdaterState",
@@ -2575,7 +2566,6 @@
     "answer host/computer/command /error",
     "answer host/computer/command /text",
     "answer host/computer/displays /*/label",
-    "answer host/screen/displays /*/label",
     "answer host/update/command /message",
     "notification host/update/report /state/message",
     "request browser/bridge/run /command/**",
@@ -3751,7 +3741,6 @@
     "answer host/computer/pixels /blob/digest",
     "answer host/computer/pixels /source/displayId",
     "answer host/computer/pixels /source/windowId",
-    "answer host/screen/displays /*/screenId",
     "answer item/browser/requestApproval /answers/*/selected/*",
     "answer item/computer/requestApproval /answers/*/selected/*",
     "answer item/permissions/requestApproval /answers/*/selected/*",
@@ -3770,6 +3759,7 @@
     "notification host/browser/surface /tabId",
     "notification host/notification/clicked /connectionId",
     "notification host/notification/clicked /threadId",
+    "notification host/screen/indicator/stop /screenId",
     "notification host/window/closed /connectionId",
     "notification model/proxy/event /event/accountId",
     "notification model/proxy/event /event/call/id",

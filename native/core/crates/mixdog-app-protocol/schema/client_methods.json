@@ -14579,6 +14579,55 @@
       ],
       "type": "object"
     },
+    "RemoteHostRedeemed": {
+      "description": "The answer to `remoteHosts/redeemCode`: the saved host and the one-time proof the relay redeemed the code (it rides the first claim of the host's page; it is never stored and never in a list).",
+      "properties": {
+        "addedAt": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "id": {
+          "type": "string"
+        },
+        "lastConnectedAt": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "online": {
+          "description": "Whether the host's desktop is connected to its relay right now. Absent when the relay could not be asked.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "open": {
+          "description": "Whether its window is open right now (the core answers `false`; the desktop fills it).",
+          "type": "boolean"
+        },
+        "ticket": {
+          "type": "string"
+        },
+        "url": {
+          "description": "The host's pairing link: the relay origin plus its device route.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "addedAt",
+        "id",
+        "name",
+        "open",
+        "ticket",
+        "url"
+      ],
+      "type": "object"
+    },
     "RequestId": {
       "anyOf": [
         {
@@ -25542,7 +25591,7 @@
         "$ref": "#/definitions/RemoteHostRedeemParams"
       },
       "result": {
-        "$ref": "#/definitions/RemoteHost"
+        "$ref": "#/definitions/RemoteHostRedeemed"
       }
     },
     "remoteHosts/rename": {

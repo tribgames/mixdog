@@ -20,6 +20,7 @@ pub mod model_proxy;
 pub mod op;
 pub mod params;
 pub mod pc_access;
+pub mod screen_indicator;
 pub mod relay_payload;
 pub mod takeover;
 pub mod takeover_state;

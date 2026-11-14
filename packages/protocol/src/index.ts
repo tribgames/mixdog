@@ -790,7 +790,7 @@ version: string, kind: ConnectionKind, build?: string, };
 /**
  * Client notifications (X11): they take no in-flight slot.
  */
-export type ClientNotification = { "method": "initialized" } | { "method": "terminal/input", "params": TerminalInputParams } | { "method": "terminal/resize", "params": TerminalResizeParams } | { "method": "process/input", "params": ProcessInputParams } | { "method": "client/activity", "params": ClientActivityParams } | { "method": "client/perfLog", "params": ClientPerfLogParams } | { "method": "host/power", "params": HostPowerParams } | { "method": "host/update/report", "params": HostUpdateReportParams } | { "method": "host/browser/surface", "params": HostBrowserSurfaceParams } | { "method": "host/screen/displaysChanged", "params": ScreenDisplaysParams } | { "method": "host/browser/page", "params": HostBrowserPageParams } | { "method": "host/browser/frame", "params": HostBrowserFrameParams } | { "method": "host/browser/events", "params": HostBrowserEventsParams } | { "method": "host/browser/page/facts", "params": HostBrowserPageFactsParams } | { "method": "host/browser/userInput", "params": HostBrowserUserInputParams } | { "method": "browser/streamAck", "params": BrowserStreamAckParams } | { "method": "host/notification/clicked", "params": HostNotificationClickedParams } | { "method": "host/window/closed", "params": HostWindowClosedParams } | { "method": "computer/pointerReleased", "params": ComputerPointerReleasedParams } | { "method": "model/proxy/event", "params": ModelProxyEventParams } | { "method": "model/proxy/heartbeat", "params": ModelProxyHeartbeatParams } | { "method": "modelProxy/cancel", "params": ModelProxyRunCancelParams } | { "method": "ui/newTab/created", "params": UiNewTabCreatedParams } | { "method": "ui/terminalRun/claimed", "params": UiTerminalRunClaimedParams } | { "method": "ui/screenSessions/changed", "params": UiScreenSessionsChangedParams } | { "method": "remote/connectionTimeline", "params": RemoteConnectionTimelineParams };
+export type ClientNotification = { "method": "initialized" } | { "method": "terminal/input", "params": TerminalInputParams } | { "method": "terminal/resize", "params": TerminalResizeParams } | { "method": "process/input", "params": ProcessInputParams } | { "method": "client/activity", "params": ClientActivityParams } | { "method": "client/perfLog", "params": ClientPerfLogParams } | { "method": "host/power", "params": HostPowerParams } | { "method": "host/update/report", "params": HostUpdateReportParams } | { "method": "host/browser/surface", "params": HostBrowserSurfaceParams } | { "method": "host/screen/displaysChanged", "params": ScreenDisplaysParams } | { "method": "host/screen/indicator/stop", "params": ScreenIndicatorStopParams } | { "method": "host/browser/page", "params": HostBrowserPageParams } | { "method": "host/browser/frame", "params": HostBrowserFrameParams } | { "method": "host/browser/events", "params": HostBrowserEventsParams } | { "method": "host/browser/page/facts", "params": HostBrowserPageFactsParams } | { "method": "host/browser/userInput", "params": HostBrowserUserInputParams } | { "method": "browser/streamAck", "params": BrowserStreamAckParams } | { "method": "host/notification/clicked", "params": HostNotificationClickedParams } | { "method": "host/window/closed", "params": HostWindowClosedParams } | { "method": "computer/pointerReleased", "params": ComputerPointerReleasedParams } | { "method": "model/proxy/event", "params": ModelProxyEventParams } | { "method": "model/proxy/heartbeat", "params": ModelProxyHeartbeatParams } | { "method": "modelProxy/cancel", "params": ModelProxyRunCancelParams } | { "method": "ui/newTab/created", "params": UiNewTabCreatedParams } | { "method": "ui/terminalRun/claimed", "params": UiTerminalRunClaimedParams } | { "method": "ui/screenSessions/changed", "params": UiScreenSessionsChangedParams } | { "method": "remote/connectionTimeline", "params": RemoteConnectionTimelineParams };
 
 export type ClientPerfLogParams = { line: string, };
 
@@ -5270,6 +5270,24 @@ offline: Array<string>, };
 export type RemoteHostRedeemParams = { code: string, };
 
 /**
+ * The answer to `remoteHosts/redeemCode`: the saved host and the one-time proof the relay redeemed the code (it rides the
+ * first claim of the host's page; it is never stored and never in a list).
+ */
+export type RemoteHostRedeemed = { ticket: string, id: string, name: string,
+/**
+ * The host's pairing link: the relay origin plus its device route.
+ */
+url: string, addedAt: number, lastConnectedAt: number | null,
+/**
+ * Whether its window is open right now (the core answers `false`; the desktop fills it).
+ */
+open: boolean,
+/**
+ * Whether the host's desktop is connected to its relay right now. Absent when the relay could not be asked.
+ */
+online?: boolean, };
+
+/**
  * The `pairCode` member of the `remote` section (today's `DesktopRemotePairCode`):
  * the relay code of an open Settings → Connection screen. `remoteAccess/pairCode`
  * issues or renews it; the section carries it, `null` once it expires or is released.
@@ -5452,6 +5470,31 @@ export type ScopedFeedKind = "fs" | "search" | "process" | "login" | "git" | "ls
  */
 export type ScreenDisplaysParams = Record<string, never>;
 
+/**
+ * Params of `host/screen/indicator` (core to desktop): one session's place on the pill. `screen_id` names the session (one per
+ * display) and is the key of its later `update` and `hide`; `client_label` and `controlling` are absent on `hide`.
+ */
+export type ScreenIndicatorParams = { state: ScreenIndicatorState, screenId: string,
+/**
+ * The phone's name, shown as the pill's tooltip.
+ */
+clientLabel?: string, controlling?: boolean, };
+
+/**
+ * The answer of `host/screen/indicator`: nothing.
+ */
+export type ScreenIndicatorResult = Record<string, never>;
+
+/**
+ * What the pill does for one session.
+ */
+export type ScreenIndicatorState = "show" | "update" | "hide";
+
+/**
+ * Params of `host/screen/indicator/stop` (desktop to core): the pill's Stop was pressed for the session of `screen_id`.
+ */
+export type ScreenIndicatorStopParams = { screenId: string, };
+
 export type SearchCompletedParams = { sessionId: SearchSessionId, query: string, };
 
 /**
@@ -5545,7 +5588,7 @@ suggested: Array<number>, };
 /**
  * Request from the core to a client.
  */
-export type ServerRequest = { "method": "item/tool/requestApproval", id: RequestId, params: ToolApprovalRequestParams, } | { "method": "item/tool/requestUserInput", id: RequestId, params: UserInputRequestParams, } | { "method": "item/permissions/requestApproval", id: RequestId, params: PermissionsRequestParams, } | { "method": "item/browser/requestApproval", id: RequestId, params: BrowserApprovalRequestParams, } | { "method": "item/computer/requestApproval", id: RequestId, params: ComputerApprovalRequestParams, } | { "method": "host/browser/command", id: RequestId, params: HostCommandParams, } | { "method": "host/browser/liveControl", id: RequestId, params: HostBrowserLiveControlParams, } | { "method": "host/browser/pages/resolve", id: RequestId, params: HostBrowserPagesResolveParams, } | { "method": "host/browser/pages/list", id: RequestId, params: HostBrowserPagesListParams, } | { "method": "host/browser/pages/close", id: RequestId, params: HostBrowserPagesCloseParams, } | { "method": "host/browser/pages/surface", id: RequestId, params: HostBrowserPagesSurfaceParams, } | { "method": "host/browser/page/navigate", id: RequestId, params: HostBrowserPageNavigateParams, } | { "method": "host/browser/page/stop", id: RequestId, params: HostBrowserPageStopParams, } | { "method": "host/browser/page/eval", id: RequestId, params: HostBrowserPageEvalParams, } | { "method": "host/browser/page/read", id: RequestId, params: HostBrowserPageReadParams, } | { "method": "host/browser/page/renderCheckpoint", id: RequestId, params: HostBrowserPageRenderCheckpointParams, } | { "method": "host/browser/page/domQuiet", id: RequestId, params: HostBrowserPageDomQuietParams, } | { "method": "host/browser/page/dialog/answer", id: RequestId, params: HostBrowserPageDialogAnswerParams, } | { "method": "host/browser/page/sync", id: RequestId, params: HostBrowserPageSyncParams, } | { "method": "host/browser/snapshot", id: RequestId, params: HostBrowserSnapshotParams, } | { "method": "host/browser/revision", id: RequestId, params: HostBrowserRevisionParams, } | { "method": "host/browser/ref/call", id: RequestId, params: HostBrowserRefCallParams, } | { "method": "host/browser/ref/mint", id: RequestId, params: HostBrowserRefMintParams, } | { "method": "host/browser/input/batch", id: RequestId, params: HostBrowserInputBatchParams, } | { "method": "host/browser/screenshot", id: RequestId, params: HostBrowserScreenshotParams, } | { "method": "host/browser/cdp/send", id: RequestId, params: HostBrowserCdpSendParams, } | { "method": "host/browser/cookies", id: RequestId, params: HostBrowserCookiesParams, } | { "method": "host/browser/storage", id: RequestId, params: HostBrowserStorageParams, } | { "method": "host/browser/initScripts", id: RequestId, params: HostBrowserInitScriptsParams, } | { "method": "host/browser/intercept", id: RequestId, params: HostBrowserInterceptParams, } | { "method": "host/browser/performance", id: RequestId, params: HostBrowserPerformanceParams, } | { "method": "host/browser/emulation", id: RequestId, params: HostBrowserEmulationParams, } | { "method": "host/browser/downloads", id: RequestId, params: HostBrowserDownloadsParams, } | { "method": "host/browser/upload", id: RequestId, params: HostBrowserUploadParams, } | { "method": "host/browser/upload/receiver", id: RequestId, params: HostBrowserUploadReceiverParams, } | { "method": "host/browser/signIn", id: RequestId, params: HostBrowserSignInParams, } | { "method": "host/browser/credentials/fill", id: RequestId, params: HostBrowserCredentialsFillParams, } | { "method": "host/browser/turn", id: RequestId, params: HostBrowserTurnParams, } | { "method": "host/screen/displays", id: RequestId, params: ScreenDisplaysParams, } | { "method": "host/computer/capture", id: RequestId, params: HostComputerCaptureParams, } | { "method": "host/computer/displays", id: RequestId, params: HostComputerDisplaysParams, } | { "method": "host/computer/foregroundLease", id: RequestId, params: HostComputerForegroundLeaseParams, } | { "method": "host/computer/internalWindows", id: RequestId, params: HostComputerInternalWindowsParams, } | { "method": "host/computer/pointerFeedback", id: RequestId, params: HostComputerPointerFeedbackParams, } | { "method": "host/computer/pixels", id: RequestId, params: HostComputerPixelsParams, } | { "method": "host/computer/appWindows", id: RequestId, params: HostComputerAppWindowsParams, } | { "method": "host/computer/appInput", id: RequestId, params: HostComputerAppInputParams, } | { "method": "host/computer/cursorPrepare", id: RequestId, params: HostComputerCursorPrepareParams, } | { "method": "host/computer/permissions", id: RequestId, params: HostComputerPermissionsParams, } | { "method": "host/computer/command", id: RequestId, params: HostComputerCommandParams, } | { "method": "host/visualize/command", id: RequestId, params: HostVisualizeCommandParams, } | { "method": "host/systemProxy/resolve", id: RequestId, params: HostSystemProxyResolveParams, } | { "method": "host/notification/status", id: RequestId, params: HostNotificationStatusParams, } | { "method": "host/update/command", id: RequestId, params: HostUpdateCommandParams, } | { "method": "host/capture/fileSnapshot", id: RequestId, params: HostFileSnapshotParams, } | { "method": "host/localPage/url", id: RequestId, params: HostLocalPageUrlParams, } | { "method": "host/files/trashItem", id: RequestId, params: HostFilesTrashItemParams, } | { "method": "host/window/open", id: RequestId, params: HostWindowOpenParams, } | { "method": "host/window/close", id: RequestId, params: HostWindowCloseParams, } | { "method": "host/window/focus", id: RequestId, params: HostWindowFocusParams, } | { "method": "model/proxy/execute", id: RequestId, params: ModelProxyExecuteParams, };
+export type ServerRequest = { "method": "item/tool/requestApproval", id: RequestId, params: ToolApprovalRequestParams, } | { "method": "item/tool/requestUserInput", id: RequestId, params: UserInputRequestParams, } | { "method": "item/permissions/requestApproval", id: RequestId, params: PermissionsRequestParams, } | { "method": "item/browser/requestApproval", id: RequestId, params: BrowserApprovalRequestParams, } | { "method": "item/computer/requestApproval", id: RequestId, params: ComputerApprovalRequestParams, } | { "method": "host/browser/command", id: RequestId, params: HostCommandParams, } | { "method": "host/browser/liveControl", id: RequestId, params: HostBrowserLiveControlParams, } | { "method": "host/browser/pages/resolve", id: RequestId, params: HostBrowserPagesResolveParams, } | { "method": "host/browser/pages/list", id: RequestId, params: HostBrowserPagesListParams, } | { "method": "host/browser/pages/close", id: RequestId, params: HostBrowserPagesCloseParams, } | { "method": "host/browser/pages/surface", id: RequestId, params: HostBrowserPagesSurfaceParams, } | { "method": "host/browser/page/navigate", id: RequestId, params: HostBrowserPageNavigateParams, } | { "method": "host/browser/page/stop", id: RequestId, params: HostBrowserPageStopParams, } | { "method": "host/browser/page/eval", id: RequestId, params: HostBrowserPageEvalParams, } | { "method": "host/browser/page/read", id: RequestId, params: HostBrowserPageReadParams, } | { "method": "host/browser/page/renderCheckpoint", id: RequestId, params: HostBrowserPageRenderCheckpointParams, } | { "method": "host/browser/page/domQuiet", id: RequestId, params: HostBrowserPageDomQuietParams, } | { "method": "host/browser/page/dialog/answer", id: RequestId, params: HostBrowserPageDialogAnswerParams, } | { "method": "host/browser/page/sync", id: RequestId, params: HostBrowserPageSyncParams, } | { "method": "host/browser/snapshot", id: RequestId, params: HostBrowserSnapshotParams, } | { "method": "host/browser/revision", id: RequestId, params: HostBrowserRevisionParams, } | { "method": "host/browser/ref/call", id: RequestId, params: HostBrowserRefCallParams, } | { "method": "host/browser/ref/mint", id: RequestId, params: HostBrowserRefMintParams, } | { "method": "host/browser/input/batch", id: RequestId, params: HostBrowserInputBatchParams, } | { "method": "host/browser/screenshot", id: RequestId, params: HostBrowserScreenshotParams, } | { "method": "host/browser/cdp/send", id: RequestId, params: HostBrowserCdpSendParams, } | { "method": "host/browser/cookies", id: RequestId, params: HostBrowserCookiesParams, } | { "method": "host/browser/storage", id: RequestId, params: HostBrowserStorageParams, } | { "method": "host/browser/initScripts", id: RequestId, params: HostBrowserInitScriptsParams, } | { "method": "host/browser/intercept", id: RequestId, params: HostBrowserInterceptParams, } | { "method": "host/browser/performance", id: RequestId, params: HostBrowserPerformanceParams, } | { "method": "host/browser/emulation", id: RequestId, params: HostBrowserEmulationParams, } | { "method": "host/browser/downloads", id: RequestId, params: HostBrowserDownloadsParams, } | { "method": "host/browser/upload", id: RequestId, params: HostBrowserUploadParams, } | { "method": "host/browser/upload/receiver", id: RequestId, params: HostBrowserUploadReceiverParams, } | { "method": "host/browser/signIn", id: RequestId, params: HostBrowserSignInParams, } | { "method": "host/browser/credentials/fill", id: RequestId, params: HostBrowserCredentialsFillParams, } | { "method": "host/browser/turn", id: RequestId, params: HostBrowserTurnParams, } | { "method": "host/screen/indicator", id: RequestId, params: ScreenIndicatorParams, } | { "method": "host/computer/capture", id: RequestId, params: HostComputerCaptureParams, } | { "method": "host/computer/displays", id: RequestId, params: HostComputerDisplaysParams, } | { "method": "host/computer/foregroundLease", id: RequestId, params: HostComputerForegroundLeaseParams, } | { "method": "host/computer/internalWindows", id: RequestId, params: HostComputerInternalWindowsParams, } | { "method": "host/computer/pointerFeedback", id: RequestId, params: HostComputerPointerFeedbackParams, } | { "method": "host/computer/pixels", id: RequestId, params: HostComputerPixelsParams, } | { "method": "host/computer/appWindows", id: RequestId, params: HostComputerAppWindowsParams, } | { "method": "host/computer/appInput", id: RequestId, params: HostComputerAppInputParams, } | { "method": "host/computer/cursorPrepare", id: RequestId, params: HostComputerCursorPrepareParams, } | { "method": "host/computer/permissions", id: RequestId, params: HostComputerPermissionsParams, } | { "method": "host/computer/command", id: RequestId, params: HostComputerCommandParams, } | { "method": "host/visualize/command", id: RequestId, params: HostVisualizeCommandParams, } | { "method": "host/systemProxy/resolve", id: RequestId, params: HostSystemProxyResolveParams, } | { "method": "host/notification/status", id: RequestId, params: HostNotificationStatusParams, } | { "method": "host/update/command", id: RequestId, params: HostUpdateCommandParams, } | { "method": "host/capture/fileSnapshot", id: RequestId, params: HostFileSnapshotParams, } | { "method": "host/localPage/url", id: RequestId, params: HostLocalPageUrlParams, } | { "method": "host/files/trashItem", id: RequestId, params: HostFilesTrashItemParams, } | { "method": "host/window/open", id: RequestId, params: HostWindowOpenParams, } | { "method": "host/window/close", id: RequestId, params: HostWindowCloseParams, } | { "method": "host/window/focus", id: RequestId, params: HostWindowFocusParams, } | { "method": "model/proxy/execute", id: RequestId, params: ModelProxyExecuteParams, };
 
 /**
  * To every eligible connection, losers included (P §8.4 step 4); to the claimant alone, with an empty threadId and resolution cancelled, for a `host/*` request the core stopped waiting for without its answer (DS §12).
@@ -8075,7 +8118,7 @@ export type ClientMethods = {
   "connections/restore/progress": { params: ConnectionsNoParams; result: Array<ServerRestoreProgress> };
   "connections/endpoint": { params: ConnectionIdParams; result: ConnectionEndpoint };
   "remoteHosts/list": { params: ConnectionsNoParams; result: Array<RemoteHost> };
-  "remoteHosts/redeemCode": { params: RemoteHostRedeemParams; result: RemoteHost };
+  "remoteHosts/redeemCode": { params: RemoteHostRedeemParams; result: RemoteHostRedeemed };
   "remoteHosts/rename": { params: ConnectionsRenameParams; result: RemoteHost };
   "remoteHosts/forget": { params: ConnectionsIdParams; result: EmptyResult };
   "remoteHosts/touch": { params: ConnectionsIdParams; result: EmptyResult };
@@ -8187,7 +8230,7 @@ export type ServerRequestMethods = {
   "host/browser/signIn": { params: HostBrowserSignInParams; result: HostBrowserSignInResult };
   "host/browser/credentials/fill": { params: HostBrowserCredentialsFillParams; result: HostBrowserCredentialsFillResult };
   "host/browser/turn": { params: HostBrowserTurnParams; result: HostBrowserTurnResult };
-  "host/screen/displays": { params: ScreenDisplaysParams; result: JsonValue };
+  "host/screen/indicator": { params: ScreenIndicatorParams; result: ScreenIndicatorResult };
   "host/computer/capture": { params: HostComputerCaptureParams; result: HostComputerCaptureResult };
   "host/computer/displays": { params: HostComputerDisplaysParams; result: Array<HostComputerDisplay> };
   "host/computer/foregroundLease": { params: HostComputerForegroundLeaseParams; result: HostComputerForegroundLeaseResult };
@@ -19244,7 +19287,7 @@ export const methodTable = {
         "local"
       ],
       "params": "RemoteHostRedeemParams",
-      "result": "RemoteHost",
+      "result": "RemoteHostRedeemed",
       "scope": {
         "kind": "none"
       }
@@ -20611,6 +20654,11 @@ export const methodTable = {
     },
     {
       "delivery": null,
+      "method": "host/screen/indicator/stop",
+      "params": "ScreenIndicatorStopParams"
+    },
+    {
+      "delivery": null,
       "method": "host/browser/page",
       "params": "HostBrowserPageParams"
     },
@@ -21481,10 +21529,10 @@ export const methodTable = {
       "result": "HostBrowserTurnResult"
     },
     {
-      "method": "host/screen/displays",
-      "params": "ScreenDisplaysParams",
+      "method": "host/screen/indicator",
+      "params": "crate::v2::screen_indicator::ScreenIndicatorParams",
       "requires": "host.browser",
-      "result": "JsonValue"
+      "result": "crate::v2::screen_indicator::ScreenIndicatorResult"
     },
     {
       "method": "host/computer/capture",
