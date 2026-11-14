@@ -18,7 +18,15 @@ use super::pc_access::PcAccessInstaller;
 /// in-flight latch covers every caller.
 #[cfg(windows)]
 pub fn production_installer(exe: PathBuf) -> Arc<dyn PcAccessInstaller> {
-    Arc::new(windows::BridgeInstaller { helper: mixdog_tools::desktop::pc_access_helper::PcAccessHelper::new(exe) })
+    production_installer_with_helper(exe).0
+}
+
+/// The installer and the one helper it drives, so the phone's screen control installs through the same instance (one admin action
+/// at a time across the phone's install request and PC access).
+#[cfg(windows)]
+pub fn production_installer_with_helper(exe: PathBuf) -> (Arc<dyn PcAccessInstaller>, Arc<mixdog_tools::desktop::pc_access_helper::PcAccessHelper>) {
+    let helper = Arc::new(mixdog_tools::desktop::pc_access_helper::PcAccessHelper::new(exe));
+    (Arc::new(windows::BridgeInstaller { helper: helper.clone() }), helper)
 }
 
 #[cfg(not(windows))]
@@ -71,7 +79,7 @@ mod windows {
     use super::*;
 
     pub(super) struct BridgeInstaller {
-        pub(super) helper: PcAccessHelper,
+        pub(super) helper: Arc<PcAccessHelper>,
     }
 
     pub(super) fn helper_state(state: InstallState) -> HelperState {
