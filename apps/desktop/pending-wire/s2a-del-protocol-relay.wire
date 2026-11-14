@@ -1,0 +1,19 @@
+# s2a-del-protocol-relay: apps/desktop/src/main/protocol/section-relay.ts and window-ipc.ts are deleted (git rm in this
+# task). Nothing in the preload or the renderer calls the mixdog:sections:* / mixdog:protocol:* channels any more (the
+# renderer reads the core through core-direct); only src/main/ipc.ts still registers them. Apply, in src/main/ipc.ts:
+
+1. Delete the import line
+     import { registerNoProtocolWindowIpc, registerProtocolWindowIpc } from './protocol/window-ipc';
+2. Delete the whole statement `const disposeProtocolIpc = protocol ? registerProtocolWindowIpc({ ... }) : registerNoProtocolWindowIpc({ ... });`
+   (the block right after `const stateBridge = new DesktopStateBridge({...});`).
+3. Delete the call `disposeProtocolIpc();` in the window's dispose function.
+4. `coreErrorForWindow` (import from './protocol/core-error') stays if ipc.ts still uses it elsewhere; check with tsc.
+
+# After that, in files this task does not own (no importer is left once ipc.ts is applied):
+- apps/desktop/src/shared/contract-sections.ts: SECTIONS_IPC, RENDERER_PROTOCOL_METHODS, RendererProtocolMethod,
+  isRendererProtocolMethod and the DesktopSectionsApi surface `core/call/subscribeFsChanged/subscribeLoginUpdated/
+  subscribeLoginFeedLost` belong to the removed window IPC; DesktopSectionsApi is still the renderer core-direct
+  sections source's type (renderer/core-direct/sections.ts), so remove only what that file does not implement.
+- apps/desktop/src/shared/core-lanes/desktop-operation-route.ts line ~223: the comment names protocol/window-ipc.ts.
+- apps/desktop/src/main/protocol/open-core.ts: its only import from './connection' is `type ConnectionClient`, which main's own
+  connection still exports, so the import stays.
