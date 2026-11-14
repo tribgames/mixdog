@@ -7,8 +7,8 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
 use async_trait::async_trait;
-use mixdog_core_api::domain::tool::Tool;
 use mixdog_browser_engine::limits::MAX_CONCURRENT;
+use mixdog_core_api::domain::tool::Tool;
 use mixdog_core_api::domain::tool::ToolContext;
 use mixdog_core_api::domain::tool::ToolError;
 use mixdog_core_api::domain::tool::ToolErrorCode;
@@ -1047,7 +1047,7 @@ mod tests {
             let started = tokio::time::Instant::now();
             let thread = mixdog_protocol::ThreadId::from("s1");
             let command = engine.run(&thread, "snapshot", &Map::new(), &mixdog_rt::CancellationToken::new());
-            let outcome = tokio::time::timeout(COMMAND_TIMEOUT + Duration::from_secs(1), command).await.expect("the command ended by itself");
+            let outcome = mixdog_rt::time::timeout(COMMAND_TIMEOUT + Duration::from_secs(1), command).await.expect("the command ended by itself");
             let failure = outcome.err().expect("the command failed");
             assert!(failure.error.message_for_model.contains("timed out after 42000ms"), "{}", failure.error.message_for_model);
             assert!(started.elapsed() <= COMMAND_TIMEOUT + Duration::from_millis(500), "{:?}", started.elapsed());
