@@ -7,6 +7,7 @@ use mixdog_core_api::domain::computer::ComputerError;
 use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
+use std::collections::HashSet;
 use std::sync::OnceLock;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
@@ -14,6 +15,8 @@ use std::time::UNIX_EPOCH;
 use super::computer_backend::HelperFailure;
 use super::computer_command::text;
 use super::computer_env::RETAIN_REF_ACTIONS;
+use super::computer_frames::FrameStore;
+use super::computer_internal_windows;
 use super::computer_launch_policy::AuthorizationSettings;
 use super::computer_launch_policy::LaunchPolicy;
 use super::computer_launch_policy::LIFECYCLE_ACTIONS;
@@ -58,20 +61,20 @@ const OBSERVE_ONLY_ALLOWED_ACTIONS: [&str; 31] = [
 
 /// The launch policy and the narrowing the harness sets on it, read once from the environment the core was started with. The harness
 /// narrows it through `authorization()`; nothing a tool call carries can reach it.
-pub(super) fn authorization() -> &'static AuthorizationSettings {
+pub fn authorization() -> &'static AuthorizationSettings {
     static SETTINGS: OnceLock<AuthorizationSettings> = OnceLock::new();
     SETTINGS.get_or_init(|| AuthorizationSettings::new(LaunchPolicy::load(&|name| std::env::var(name).ok())))
 }
 
 /// The wall clock the policy's expiry is read against, in milliseconds since the epoch.
-pub(super) fn now_ms() -> f64 {
+pub fn now_ms() -> f64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0.0, |elapsed| elapsed.as_millis() as f64)
 }
 
 /// The host's admission of the helper command a call became, before anything is spawned or sent: `assertObservationInputAllowed`
 /// first (while observation-only mode is on, a command that is not a read is refused in the desktop host's words), then the launch
 /// policy (`assertPolicyAdmits`), which with no policy file admits everything.
-pub(super) fn admit(command: &Map<String, Value>, observe_only: bool) -> Result<(), ComputerError> {
+pub(super) fn admit(command: &Map<String, Value>, observe_only: bool, frames: &FrameStore) -> Result<(), ComputerError> {
     let action = text(command, "action");
     if observe_only && !OBSERVE_ONLY_ALLOWED_ACTIONS.contains(&action) {
         let refusal = format!(
@@ -79,18 +82,25 @@ pub(super) fn admit(command: &Map<String, Value>, observe_only: bool) -> Result<
         );
         return Err(HelperFailure { text: refusal, result: None }.into_error());
     }
-    admit_launch(authorization(), command, now_ms())
+    admit_launch(authorization(), command, frames, now_ms())
 }
 
 /// `assertAction` and `assertWindow` for the helper command a call became: refused when the launch policy (and its narrowing) does
 /// not admit its action, its window or its launch target. A step of a sequence carries no window of its own: the sequence it
-/// belongs to was admitted with its window.
-fn admit_launch(settings: &AuthorizationSettings, command: &Map<String, Value>, now_ms: f64) -> Result<(), ComputerError> {
+/// belongs to was admitted with its window. A zoom names a frame, not a window: it is judged on the window its frame was cut from
+/// (`assertPolicyAdmits` reads it from `framesBySession`); a frame that is gone is the stale frame the zoom itself would report, and a
+/// display frame has no window to name.
+fn admit_launch(settings: &AuthorizationSettings, command: &Map<String, Value>, frames: &FrameStore, now_ms: f64) -> Result<(), ComputerError> {
     if !settings.restricted() {
         return Ok(());
     }
     let action = text(command, "action");
-    let window_id = text(command, "window_id");
+    let mut window_id = text(command, "window_id");
+    let of_frame;
+    if window_id.is_empty() && action == "zoom" && !text(command, "frame_id").is_empty() {
+        of_frame = frames.lookup(Some(text(command, "frame_id")), std::time::Instant::now())?.and_then(|frame| frame.window_id).unwrap_or_default();
+        window_id = &of_frame;
+    }
     if window_id.is_empty() && STEP_ACTIONS.contains(&action) {
         return settings.admit_step(action, now_ms);
     }
@@ -122,6 +132,47 @@ fn decorate_with(settings: &AuthorizationSettings, command: &mut Map<String, Val
         let authority = settings.dispatch_authority((!window_id.is_empty()).then_some(window_id));
         command.extend(authority);
     }
+}
+
+/// The session whose replies carry every window (`CHROME_SETUP_SESSION_ID`): the setup of the browser's own Chrome.
+const CHROME_SETUP_SESSION_ID: &str = "__mixdog_browser_chrome_setup__";
+
+/// `visibleWindowRecords`: the window rows a restricted session may see, each judged as a capture of it (the launch policy and the
+/// narrowing name its id and the process that owns it, and have not ended); the rest, titles included, never reach its replies.
+/// An unrestricted session, and the browser's Chrome setup, see every row.
+fn visible_rows(settings: &AuthorizationSettings, session_id: &str, rows: &mut Vec<Value>, now_ms: f64) {
+    if !settings.restricted() || session_id == CHROME_SETUP_SESSION_ID {
+        return;
+    }
+    rows.retain(|row| {
+        let window = WindowFacts { id: text(row.as_object().unwrap_or(&Map::new()), "id").to_owned(), pid: row.get("pid").and_then(Value::as_u64) };
+        settings.admit("capture", Some(&window), None, now_ms).is_ok()
+    });
+}
+
+/// A `list_windows` or `window_snapshot` result narrowed to the windows its session may see; the list text keeps their lines.
+pub(super) fn narrow_window_list(session_id: &str, result: &mut Map<String, Value>) {
+    let Some(Value::Array(windows)) = result.get_mut("windows") else { return };
+    let before = windows.len();
+    visible_rows(authorization(), session_id, windows, now_ms());
+    if windows.len() == before {
+        return;
+    }
+    let visible: HashSet<String> = windows.iter().filter_map(|window| window.get("id").and_then(Value::as_str)).map(computer_internal_windows::normalized).collect();
+    if let Some(Value::String(listed)) = result.get_mut("text") {
+        *listed = computer_internal_windows::list_text(listed, &visible);
+    }
+}
+
+/// A `window_transition` as a restricted session reads it: the windows it opened, closed or changed are only those the session may see
+/// (the successor, `next_target`, is authorized on its own).
+pub(super) fn narrow_transition(session_id: &str, mut transition: Value) -> Value {
+    for key in ["opened_windows", "closed_windows", "changed_windows"] {
+        if let Some(Value::Array(windows)) = transition.get_mut(key) {
+            visible_rows(authorization(), session_id, windows, now_ms());
+        }
+    }
+    transition
 }
 
 /// Input from the in-process screen half (`ComputerBackend::inject`) is denied while observation-only mode is on.
@@ -164,7 +215,7 @@ mod tests {
     #[test]
     fn observing_only_admits_reads_and_refuses_every_input() {
         for read in ["list_windows", "list_apps", "list_history", "capture", "zoom", "verify", "diagnose", "wait_for_user", "clipboard_read"] {
-            assert_eq!(admit(&command(read), true), Ok(()), "{read}");
+            assert_eq!(admit(&command(read), true, &FrameStore::default()), Ok(()), "{read}");
         }
         let inputs = [
             "sequence",
@@ -182,8 +233,8 @@ mod tests {
             "key",
         ];
         for input in inputs {
-            assert_eq!(admit(&command(input), true), Err(refusal(input)), "{input}");
-            assert_eq!(admit(&command(input), false), Ok(()), "{input}");
+            assert_eq!(admit(&command(input), true, &FrameStore::default()), Err(refusal(input)), "{input}");
+            assert_eq!(admit(&command(input), false, &FrameStore::default()), Ok(()), "{input}");
         }
     }
 
@@ -223,22 +274,69 @@ mod tests {
     #[test]
     fn a_launch_policy_admits_what_it_names() {
         let open = AuthorizationSettings::new(None);
-        assert_eq!(admit_launch(&open, &on_window("focus_window", "hwnd:0x9"), 0.0), Ok(()));
+        assert_eq!(admit_launch(&open, &on_window("focus_window", "hwnd:0x9"), &FrameStore::default(), 0.0), Ok(()));
         let mut plain = command("click");
         decorate_with(&open, &mut plain, false, true);
         assert_eq!(Value::Object(plain), json!({"action":"click","allow_elevated_input":true}));
 
         let settings = restricted(json!({}));
         let now = 1.0;
-        assert_eq!(admit_launch(&settings, &on_window("sequence", "hwnd:0x1"), now), Ok(()));
-        assert_eq!(admit_launch(&settings, &on_window("zoom", "hwnd:0x1"), now), Ok(()));
-        assert_eq!(admit_launch(&settings, &command("click"), now), Ok(()), "a step has no window of its own");
-        assert_eq!(admit_launch(&settings, &command("execution_end"), now), Ok(()));
-        refused_with(admit_launch(&settings, &on_window("sequence", "hwnd:0x2"), now), "computer_policy_denied");
-        refused_with(admit_launch(&settings, &command("sequence"), now), "computer_policy_denied");
-        refused_with(admit_launch(&settings, &command("list_windows"), now), "computer_policy_denied");
-        refused_with(admit_launch(&settings, &command("launch"), now), "computer_policy_denied");
-        refused_with(admit_launch(&settings, &on_window("sequence", "hwnd:0x1"), 5e12), "computer_policy_expired");
+        assert_eq!(admit_launch(&settings, &on_window("sequence", "hwnd:0x1"), &FrameStore::default(), now), Ok(()));
+        assert_eq!(admit_launch(&settings, &on_window("zoom", "hwnd:0x1"), &FrameStore::default(), now), Ok(()));
+        assert_eq!(admit_launch(&settings, &command("click"), &FrameStore::default(), now), Ok(()), "a step has no window of its own");
+        assert_eq!(admit_launch(&settings, &command("execution_end"), &FrameStore::default(), now), Ok(()));
+        refused_with(admit_launch(&settings, &on_window("sequence", "hwnd:0x2"), &FrameStore::default(), now), "computer_policy_denied");
+        refused_with(admit_launch(&settings, &command("sequence"), &FrameStore::default(), now), "computer_policy_denied");
+        refused_with(admit_launch(&settings, &command("list_windows"), &FrameStore::default(), now), "computer_policy_denied");
+        refused_with(admit_launch(&settings, &command("launch"), &FrameStore::default(), now), "computer_policy_denied");
+        refused_with(admit_launch(&settings, &on_window("sequence", "hwnd:0x1"), &FrameStore::default(), 5e12), "computer_policy_expired");
+    }
+
+    fn frame_of(window_id: Option<&str>) -> FrameStore {
+        let frames = FrameStore::default();
+        frames.remember(super::super::computer_frames::Frame {
+            id: "frame-1".into(),
+            window_id: window_id.map(str::to_owned),
+            related_window_ids: None,
+            origin_x: 0,
+            origin_y: 0,
+            physical_width: 100,
+            physical_height: 100,
+            capture_width: 100,
+            capture_height: 100,
+            idle: None,
+        });
+        frames
+    }
+
+    /// A zoom names a frame: it is judged on the window the frame was cut from, never refused for naming none.
+    #[test]
+    fn a_zoom_is_admitted_on_the_window_of_its_frame() {
+        let settings = restricted(json!({}));
+        let zoom = json!({"action": "zoom", "frame_id": "frame-1", "region": [0, 0, 10, 10]}).as_object().cloned().unwrap();
+        assert_eq!(admit_launch(&settings, &zoom, &frame_of(Some("hwnd:0x1")), 1.0), Ok(()));
+        refused_with(admit_launch(&settings, &zoom, &frame_of(Some("hwnd:0x2")), 1.0), "computer_policy_denied");
+        refused_with(admit_launch(&settings, &zoom, &frame_of(None), 1.0), "computer_policy_denied");
+        let other = json!({"action": "zoom", "frame_id": "frame-9"}).as_object().cloned().unwrap();
+        assert!(matches!(admit_launch(&settings, &other, &frame_of(Some("hwnd:0x1")), 1.0), Err(ComputerError::Failed { message, .. }) if message.starts_with("stale_frame")));
+    }
+
+    /// A restricted session's window rows are those it may capture, by id and owning process; an open one sees every row.
+    #[test]
+    fn a_restricted_session_sees_only_its_windows() {
+        let rows = || vec![json!({"id": "hwnd:0x1", "pid": 42}), json!({"id": "hwnd:0x1", "pid": 7}), json!({"id": "hwnd:0x2", "pid": 42})];
+        let mut seen = rows();
+        visible_rows(&restricted(json!({})), "s1", &mut seen, 1.0);
+        assert_eq!(seen, vec![json!({"id": "hwnd:0x1", "pid": 42})]);
+        let mut all = rows();
+        visible_rows(&AuthorizationSettings::new(None), "s1", &mut all, 1.0);
+        assert_eq!(all, rows());
+        let mut setup = rows();
+        visible_rows(&restricted(json!({})), CHROME_SETUP_SESSION_ID, &mut setup, 1.0);
+        assert_eq!(setup, rows());
+        let mut ended = rows();
+        visible_rows(&restricted(json!({})), "s1", &mut ended, 5e12);
+        assert!(ended.is_empty());
     }
 
     /// The request names the window and process the helper may reach, and says elevation is not authorized.
