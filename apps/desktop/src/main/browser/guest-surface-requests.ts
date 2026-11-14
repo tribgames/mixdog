@@ -6,6 +6,7 @@
 import type { BrowserWindow, WebContents } from 'electron';
 
 import { DESKTOP_IPC, type DesktopBrowserOpenRequest } from '../../shared/contract';
+import type { BrowserSurfaceChange } from '../host/browser-surface-report';
 import type { BrowserGuestStateStore } from './guest-state';
 import { type BrowserOpenDetail, browserOpenRequest, revealBrowserPage } from './page-reveal';
 import type { BrowserSessionRegistry } from './session-registry';
@@ -27,6 +28,7 @@ interface BrowserSurfaceRequestsHost {
 
 export function createBrowserSurfaceRequests(host: BrowserSurfaceRequestsHost) {
   const { window, sessions, state } = host;
+  const surfaceListeners = new Set<(change: BrowserSurfaceChange) => void>();
 
   /** `handoff`: a takeover needs the user on the page, so the panel opens even
    *  where they closed it. `detail`: what an agent's `open` showed, or why it
@@ -43,6 +45,16 @@ export function createBrowserSurfaceRequests(host: BrowserSurfaceRequestsHost) {
     window.webContents.send(DESKTOP_IPC.browserOpenRequested, request);
     // An explicit reveal or hide is an agent handoff paired clients must see too.
     host.onSurfaceRequest?.(request);
+    // A failed open reveals nothing, so the core is not told.
+    if (request.hide || (request.reveal === true && !request.error)) {
+      for (const listener of surfaceListeners) listener({ sessionId, tabId: request.tabId, surface: request });
+    }
+  }
+
+  /** Reveals and hides as `host/browser/surface` (registerBrowserSurfaceReport's source). */
+  function onSurfaceChanged(listener: (change: BrowserSurfaceChange) => void): () => void {
+    surfaceListeners.add(listener);
+    return () => surfaceListeners.delete(listener);
   }
 
   /** `open`: `shown` once a panel on screen displays the page; `pending` when
@@ -76,5 +88,5 @@ export function createBrowserSurfaceRequests(host: BrowserSurfaceRequestsHost) {
     }
   }
 
-  return { requestBrowserSurface, revealPage, reportOpenFailure };
+  return { requestBrowserSurface, revealPage, reportOpenFailure, onSurfaceChanged };
 }
