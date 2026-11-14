@@ -272,7 +272,7 @@ impl LinkMachine {
         }
     }
 
-    /// The view, current at every read; it changes whenever the machine does (once started).
+    /// The view, current at every read; receivers are told of each change once the machine started.
     pub fn view(&self) -> watch::Receiver<LinkViewState> {
         self.inner.view.subscribe()
     }
@@ -498,10 +498,15 @@ impl Inner {
         matches!(core.state, LinkState::Lost { terminal: true, .. })
     }
 
+    /// The view always holds the machine's current state (a read before `start`, or after `dispose`, sees it); receivers are
+    /// told of a change only while started and not disposed.
     fn emit(&self, core: &Core) {
-        if core.started && !core.disposed {
-            self.view.send_replace(LinkMachine::view_of(&self.connection_id, core));
-        }
+        let view = LinkMachine::view_of(&self.connection_id, core);
+        let notify = core.started && !core.disposed;
+        self.view.send_if_modified(|current| {
+            *current = view;
+            notify
+        });
     }
 
     fn set_state(&self, core: &mut Core, state: LinkState) {
