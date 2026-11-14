@@ -369,7 +369,8 @@ pub fn pet_position_on(display: &PetDisplay, prefs: &DesktopPetPrefs, geometry: 
 
 pub struct DesktopPetService {
     file: PathBuf,
-    /// The Electron profile's pet file, when a profile is known (read when the data dir has no pet file yet).
+    /// The Electron profile's pet file, when a profile is known (asked on the lane, when a read runs: the answer may
+    /// come from a file).
     legacy: Arc<dyn Fn() -> Option<PathBuf> + Send + Sync>,
     /// Told the stored prefs after each write (`desktopPet/state/changed`).
     changed: Arc<dyn Fn(&DesktopPetPrefs) + Send + Sync>,
@@ -403,10 +404,10 @@ impl DomainService for DesktopPetService {
         match req.method.as_str() {
             "desktopPet/state/read" => {
                 let _params: DesktopPetStateReadParams = decode(&req)?;
-                let legacy = (self.legacy)();
+                let legacy = self.legacy.clone();
                 let prefs = on_lane_wait(self.durability, &req.ctx.cancel, move |lane| {
                     let _one = one.lock().unwrap_or_else(PoisonError::into_inner);
-                    if let Some(legacy) = legacy {
+                    if let Some(legacy) = legacy() {
                         import_legacy(lane, &file, &legacy)?;
                     }
                     Ok::<_, String>(read_prefs(&file))
