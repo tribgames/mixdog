@@ -1,0 +1,35 @@
+# s2b-electron-host: for the DESKTOP-WIRE task of G2 (nothing below is applied yet)
+
+[host/connection.ts]
+HOST_METHOD, after humanOnlyEnd, add:
+  hostWindowOpen: 'host/window/open',
+  hostWindowClose: 'host/window/close',
+  hostWindowFocus: 'host/window/focus',
+  hostWindowClosed: 'host/window/closed',
+HOST_CAPABILITIES: `windows: false` becomes `windows: true` (and the comment above it is dropped).
+(connections/window-host.ts keeps its own WINDOW_HOST_METHOD constants with the same strings, because host/connection.ts
+ does not have the rows until this applies; once applied, window-host.ts may import HOST_METHOD instead.)
+
+[host/index.ts]
+In createDesktopHost options add `windows: WindowHostDeps` (type from '../connections/window-host') and, after
+`registerNotificationHost(connection, options.notifications);` add:
+  const windowHost = registerWindowHost(connection, options.windows);
+and return `windowHost` beside `reports` (so main can call windowHost.windowClosed(connectionId, byUser) and
+windowHost.publishFocus(windows)).
+
+[main/index.ts] at the createDesktopHost call:
+  windows: {
+    open: async ({ connectionId, name }) => { /* build the DesktopConnection for the ssh connection `connectionId` named `name`, then */ await showConnectionWindow(connection); return true; },
+    close: (connectionId) => connectionWindows.get(connectionId)?.close(),
+    focus: (connectionId, sessionId) => { /* same body as the showConnectionWindow focus(); `local` is the main window; with sessionId open that session in it (openDesktopNotificationSession) */ },
+    report: (method, params) => method === 'host/state/set' ? void connection.request(method, params).catch(() => {}) : connection.notify(method, params),
+  },
+  In installWindowCloseCleanup 'closed': windowHost.windowClosed(connection.id, !quitApproved) (the same rule the 'closed' handler already uses for serverWindowRestore.forget: byUser false while quitting).
+  Right after createDesktopHost returns (each new host connection starts with nothing reported), call windowHost.publishFocus(...) once with the current windows.
+  On window show/hide/focus/blur/minimize/restore (each connection window and the main window): windowHost.publishFocus(every live window as {connectionId, visible: isVisible() && !isMinimized(), focused: isFocused(), sessionId: its shown session}).
+
+[notification presenter in main/index.ts options.notifications]
+add `focusConnection: (connectionId, threadId) => { /* show that connection's window (showConnectionWindow / connectionWindows.get(connectionId)), and with threadId open the thread in it */ }`.
+
+[protocol side]
+Nothing here for SERVICE_PENDING: the Rust side of host/window/* is another task's.
