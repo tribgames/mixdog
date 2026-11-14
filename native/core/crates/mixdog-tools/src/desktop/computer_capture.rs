@@ -173,10 +173,14 @@ impl ProcessComputerBackend {
     /// `finishCapture`'s bookkeeping over the rows the read returned: the change summary against the session's last capture of this
     /// window, and the observation delta that stands in for the full list when the command asked for one (`observation_delta`: the
     /// capture that follows an action). Marks, OCR rows and pages always go in full. A cached or failed read, and a `vision` one,
-    /// has no rows to record.
+    /// has no rows to record and drops the delta list the session held.
     #[allow(clippy::too_many_arguments)]
     fn observe(&self, parts: &mut [ToolPart], command: &Map<String, Value>, mode: &str, window_id: &str, related: &[String], read: &Accessibility, resolved: &Resolved, budget: i64, ocr_content: bool) {
-        let Some(snapshot) = read.result.as_ref().filter(|_| mode != "vision" && read.error.is_empty() && !resolved.hit) else { return };
+        let Some(snapshot) = read.result.as_ref().filter(|_| mode != "vision" && read.error.is_empty() && !resolved.hit) else {
+            // A read that is no baseline (`recordable: false` in `finishCapture`) ends the list the model holds: the next one is full.
+            self.shared.delta.forget_delta(&self.config.session_id);
+            return;
+        };
         let rows = snapshot.get("elements").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
         let session = &self.config.session_id;
         let key = capture_baseline_key(command, mode, budget.max(0) as u64);

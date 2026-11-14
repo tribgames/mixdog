@@ -460,7 +460,8 @@ pub struct ProcessComputerBackend {
     /// Tags the input this backend's helpers inject, so their observer tells it from the person's: one value for the resident
     /// helper, each respawn of it and its `--abort-cleanup` run (`MIXDOG_COMPUTER_INPUT_MARKER`).
     marker: u32,
-    shared: ComputerShared,
+    /// What the sessions share (the lane, the pause, the budget, the observation lists, the pointer holds, the blob store).
+    pub(super) shared: ComputerShared,
     /// The frames this backend's captures issued, which frame-bound coordinates are mapped through.
     pub(super) frames: FrameStore,
     /// What an `--abort-cleanup` run restores the pointer and focus to.
@@ -1410,8 +1411,9 @@ impl ProcessComputerBackend {
             return Ok(held);
         }
         let issued = command.clone();
-        // One physical pointer: another session's blanked cursor ends before this one's foreground command (`pointerHold.claim`).
-        let hold = self.shared.pointer_hold.as_ref().filter(|_| kind == computer_lane::Kind::Command);
+        // One physical pointer: another session's blanked cursor ends before this one's command on the lane (`requiresForegroundLane`,
+        // `pointerHold.claim`).
+        let hold = self.shared.pointer_hold.as_ref().filter(|_| kind != computer_lane::Kind::Background);
         if let Some(hold) = hold {
             hold.other_session(&self.config.session_id).await;
         }
@@ -2319,13 +2321,13 @@ mod tests {
         assert_eq!(*locked(&pointers.released), ["s1", "s2"], "the turn's end gives the pointer back at once");
     }
 
-    /// A read-only command is no foreground one: it neither arms a hold nor ends another's.
+    /// A command off the lane (`requiresForegroundLane` false) neither arms a hold nor ends another's.
     #[tokio::test]
-    async fn a_read_holds_no_pointer() {
+    async fn a_command_off_the_lane_holds_no_pointer() {
         let pointers = Arc::new(Pointers::default());
         let shared = ComputerShared { pointer_hold: Some(Arc::new(PointerHold::new(pointers.clone()))), ..ComputerShared::default() };
         let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), Arc::new(Answering::default())).with_shared(shared);
-        backend.run(ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation": "read"}) }, CancellationToken::new()).await.unwrap();
+        backend.run(list_history(5), CancellationToken::new()).await.unwrap();
         assert!(backend.end_execution().await);
         assert!(locked(&pointers.released).is_empty());
     }

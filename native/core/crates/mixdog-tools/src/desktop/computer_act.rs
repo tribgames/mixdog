@@ -532,7 +532,7 @@ impl ProcessComputerBackend {
     /// desktop that does not serve the methods or does not own the window.
     async fn app_owned_input(&self, step: &Map<String, Value>, window_id: &str, cancel: &CancellationToken) -> Result<Option<Map<String, Value>>, ComputerError> {
         let Some((_, op)) = APP_OWNED.route(step, window_id) else { return Ok(None) };
-        let desktop = self.desktop()?;
+        let Ok(desktop) = self.desktop() else { return Ok(None) };
         match app_input(desktop.as_ref(), &self.config.session_id, window_id, op, cancel).await {
             Ok(Value::Object(result)) => Ok(Some(result)),
             Ok(_) => Ok(None),
