@@ -33,7 +33,9 @@ let warnedWindowScope = false;
 let serverWindow = false;
 
 /** `connection.window` of an initialize reply, or undefined (said once, at warn level, that the core predates it). */
-export function windowOfReply(reply: InitializeResponse | undefined): CoreWindowInfo | undefined {
+// Only the connection is read: the client library's reply type comes from @mixdog/protocol, which may be an older copy
+// of the generated types than packages/protocol (its capabilities lack fields this file does not read).
+export function windowOfReply(reply: Pick<InitializeResponse, 'connection'> | undefined): CoreWindowInfo | undefined {
   const window = (reply?.connection as { window?: CoreWindowInfo } | undefined)?.window;
   if (window) return window;
   if (!warnedWindowScope) {
