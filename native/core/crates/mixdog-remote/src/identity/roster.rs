@@ -248,6 +248,36 @@ impl Roster {
         OwedAccess { keys: self.state.owed_access_keys.clone(), unknown: self.state.owed_access_unknown }
     }
 
+    /// Takes over revocations another store owed (the desktop's old pending-revokes file): the keys join the owed
+    /// access; past the cap, or with `unknown`, the revocations count as unknown (at least 1, so folding the same
+    /// record twice owes nothing twice). Nothing is written when all of it is held already; a failed write keeps
+    /// the state as it was.
+    pub fn owe_access<L: WriteLane>(&mut self, lane: &InLane<L>, keys: &[String], unknown: bool) -> Result<(), SecretError> {
+        let before = (self.state.owed_access_keys.clone(), self.state.owed_access_unknown);
+        let mut lost = unknown;
+        for key in keys {
+            if self.state.owed_access_keys.contains(key) {
+                continue;
+            }
+            if self.state.owed_access_keys.len() >= MAX_OWED_KEYS {
+                lost = true;
+            } else {
+                self.state.owed_access_keys.push(key.clone());
+            }
+        }
+        if lost && self.state.owed_access_unknown == 0 {
+            self.state.owed_access_unknown = 1;
+        }
+        if before == (self.state.owed_access_keys.clone(), self.state.owed_access_unknown) {
+            return Ok(());
+        }
+        if let Err(error) = self.persist(lane) {
+            (self.state.owed_access_keys, self.state.owed_access_unknown) = before;
+            return Err(error);
+        }
+        Ok(())
+    }
+
     /// The desktop app holds `keys` (and the `unknown` it read) durably now.
     pub fn settle_owed_access<L: WriteLane>(
         &mut self,
