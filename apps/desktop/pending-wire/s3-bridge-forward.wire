@@ -12,10 +12,14 @@ tests stay only for the TypeScript host and are deleted with it (s3-31/s3-32), t
        const computerBridge = createBridgeServer({
          dataDirectory: bridgeDiscoveryDirectory,
          isBridgeWanted: () => computerControlEnabled,
-         isDisposed: () => quitting,            // whatever flag index.ts already uses for "the app is closing"
-         diagnose: (event, data) => <the same sink computerHost's onDiagnostic uses>,
-         callCore: (method, params) => hostConnection.request(method, params),   // the host-role connection index.ts already holds
+         isDisposed: () => quitApproved || quitAfterDispose,
+         diagnose: (event, data) => diagnostics?.write(event, data),
+         // The host-role connection (localProtocol, the one createLocalHostRole claims host with): the core serves
+         // computer/bridge/run and /abort only to the host claimant.
+         callCore: (method, params) => localProtocol.call(method, params),
        });
+
+   (Place it after `const localProtocol = localConnection.protocol;`, since it reads localProtocol.)
 
 3. In `applyComputerControlSetting` (and where `computerHost?.setBridgeEnabled(computerControlEnabled)` is called after the host is
    created and after settings load): replace the call with `computerControlEnabled ? computerBridge.startBridge() : void computerBridge.stopBridge().catch(...)`
