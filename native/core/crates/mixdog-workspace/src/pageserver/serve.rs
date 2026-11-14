@@ -24,8 +24,8 @@ use tokio_util::sync::CancellationToken;
 
 use super::lease::{LOCAL_PAGE_TTL, Lease, Leases, PageScope};
 use super::policy::{page_asset_type, page_location};
-use super::virtual_pages::{INDEX, VirtualFile};
 use super::shim::with_sandbox_storage_shim;
+use super::virtual_pages::{INDEX, VirtualFile};
 use crate::error::{WsError, WsResult};
 use crate::lanes::{self, Lanes};
 use crate::openedpath::{open_page_file, opened_location};

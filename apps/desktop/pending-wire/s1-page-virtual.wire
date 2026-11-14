@@ -5,8 +5,10 @@ place: the "local pages served by the core page server" block, after `localPageU
 add: localPageVirtualIn: positional('projectFs/localPage/virtual', ['files', 'ownerId']),
      files is the array [{ path, dataBase64 | text, type }]; the caller (visualize host-pane-preview / host-export-path, via CoreLocalPages)
      maps each VirtualPageFile { type, body: Buffer } of a Record<string, ...> to { path: <key>, dataBase64: body.toString('base64'), type }.
-place: the list that ends `'localPageUrlIn', 'localPageOrigin'` (string-reply operations)
-edit: add 'localPageVirtualIn' (the core answers {url}: the route unwraps the url as it does for localPageUrlIn)
+place: CUSTOM_REPLY (next to `projectEntryPathIn`)
+add: localPageVirtualIn: (reply) => record(reply).url,
+     the core answers {url}; Node's localVirtualPageUrl returned the URL string, so the route unwraps it (not SAME_REPLY: that passes the
+     core's JSON through unchanged, which is right for localPageUrlIn only because projectFs/localPageUrl answers a bare string).
 
 file: apps/desktop/src/main/core-local-pages.ts (task that moves the visualize callers to the core)
 place: interface CoreLocalPages
