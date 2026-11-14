@@ -1,5 +1,8 @@
 //! `Number(value)` and `String(number)` as V8 computes them.
 
+mod radix;
+pub use radix::{number_to_radix, parse_int_radix};
+
 use serde_json::Value;
 
 use crate::text::js_trim;

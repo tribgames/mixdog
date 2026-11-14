@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "oracle": {
+    "node": "22.20.0",
+    "v8": "12.4.254.21-node.33",
+    "platform": "win32",
+    "arch": "x64"
+  },
+  "upstream": "https://github.com/nodejs/node/tree/v22.20.0/deps/v8",
+  "recorder": "benchmarks/rust-core/recorders/record-js-math-primitives.mjs",
+  "sourceFiles": [
+    {
+      "file": "ieee754.cc",
+      "sha256": "da01a54955911cfc550117988de91516c6f1aac343af28142dce619b433a67fc",
+      "bytes": 103259
+    },
+    {
+      "file": "LICENSE.v8",
+      "sha256": "81680185f0cb339021e3b73714499264de72f33b17cfdb0c14f400de6d95cf0e",
+      "bytes": 3098
+    },
+    {
+      "file": "math-random.cc",
+      "sha256": "2c0f20ae87ce4eacf7af7093b15abff559a88d872685626184f4be4185ab8f6e",
+      "bytes": 2763
+    },
+    {
+      "file": "random-number-generator.h",
+      "sha256": "62c0c3c69a0b92920e3bc422169c9f769130555e3a2bac02ca1d5df2d9948ad5",
+      "bytes": 6278
+    }
+  ],
+  "files": [
+    {
+      "path": "golden.json",
+      "sha256": "9ac137abc439131a7af50a3b65d9a3c1b30809fa5ecc60734fe0dd49090cfc02",
+      "bytes": 2899691
+    }
+  ],
+  "caseCount": 56919,
+  "functions": [
+    "abs",
+    "floor",
+    "ceil",
+    "sqrt",
+    "acos",
+    "asin",
+    "atan",
+    "sin",
+    "cos",
+    "tan",
+    "log",
+    "atan2",
+    "min",
+    "max",
+    "random"
+  ]
+}

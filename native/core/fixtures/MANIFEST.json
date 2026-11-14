@@ -434,6 +434,15 @@
       "totalBytes": 360488
     },
     {
+      "command": "node benchmarks/rust-core/recorders/record-js-math-primitives.mjs",
+      "fileCount": 1,
+      "manifest": "js-math-primitives/MANIFEST.json",
+      "manifestSha256": "2f02013a0c0bc83790b205d54429f191591a9d1dae7a9e7352a298396478e301",
+      "recorder": "benchmarks/rust-core/recorders/record-js-math-primitives.mjs",
+      "set": "js-math-primitives",
+      "totalBytes": 2899691
+    },
+    {
       "command": "node benchmarks/rust-core/recorders/record-ladder-rows.mjs --tree <tree>",
       "fileCount": 1,
       "manifest": "ladder-rows/MANIFEST.json",

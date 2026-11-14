@@ -5157,6 +5157,7 @@ dependencies = [
  "libc",
  "mixdog-js",
  "mixdog-testkit",
+ "rand 0.9.5",
  "regress",
  "serde_json",
  "sha2 0.10.9",

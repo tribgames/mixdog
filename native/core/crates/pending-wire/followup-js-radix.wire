@@ -1,0 +1,58 @@
+# followup-js-radix
+
+## Lead-owned re-export
+
+File: native/core/crates/mixdog-js/src/lib.rs
+Anchor: existing pub use number re-export. Add these names, retaining all others:
+
+    pub use number::{number_to_radix, parse_int_radix};
+
+Owned number.rs already declares mod radix and re-exports these helpers into number.
+No Cargo/dependency/workspace or Value/coerce changes are needed.
+
+Exact interfaces:
+
+    pub fn number_to_radix(number: f64, radix: f64) -> Result<String, String>;
+    pub fn parse_int_radix(text: &str, radix: f64) -> f64;
+
+number_to_radix applies ToIntegerOrInfinity, validates 2..36 BEFORE inspecting the
+number, and preserves the exact error "toString() radix argument must be between
+2 and 36" (one line). Explicit NaN radix is invalid. The caller must supply 10 for
+an undefined radix; this API intentionally receives only explicit f64 arguments.
+
+parse_int_radix applies ToInt32 to radix, uses radix 10 for zero/NaN/infinity,
+recognizes only 0x automatically, permits sign/trailing junk, and preserves -0.
+Bases 2/4/8/16/32 reuse radix_literal, base 10 uses correctly-rounded decimal
+parsing, and other bases use V8's u32 chunks (multiplier <= u32::MAX / 36).
+No naive digit-by-digit f64 approximation is used.
+
+## Provenance and evidence
+
+Official nodejs/node v22.20.0 sources and BSD-style license are retained under
+src/number/reference; PROVENANCE.md contains URLs and hashes. Lead-provided files
+were not modified. number.tq was additionally fetched from the same official tag
+for wrapper argument conversion and validation order. No package was downloaded.
+
+Recorder: native/core/crates/mixdog-js/src/number/record-radix.mjs
+Fixture: native/core/crates/mixdog-js/src/number/radix-golden.json
+Fixture SHA-256: d5e6ae57e979196ccc2130e29657aafce01c9839c4f00ec5e8249d1c3af55499
+Executed oracle: Node v22.20.0, V8 12.4.254.21-node.33.
+Counts: 10929 stringify, 3006 parse,
+302 explicit witnesses differing from naive per-digit rounding.
+
+Corpus covers every radix 2..36, deterministic random float bits, signed zero,
+subnormal and binade-adjacent values, fractional carry, huge integer strings,
+Unicode whitespace, ToInt32 wraps, explicit NaN/infinite radices and exact errors.
+
+## Verification gate (not executed)
+
+Rust was not compiled/run. rustfmt parsed/formatted the new helper and tests.
+After lib re-export, run offline:
+
+    cargo test -p mixdog-js number::radix --offline
+    cargo test -p mixdog-js number::tests --offline
+    cargo clippy -p mixdog-js --all-targets --offline -- -D warnings
+
+number/radix_tests.rs compares every string/error and f64 bit with no tolerance.
+Existing number_to_string is reused for radix 10; any such mismatch must be fixed,
+never excluded. Source translation and Node recording are not a Rust pass claim.

@@ -49,6 +49,7 @@ pub use locale_compare::locale_compare_en_base;
 pub use locale_compare::locale_compare_en_numeric;
 pub use number::json_number;
 pub use number::number_to_string;
+pub use number::{number_to_radix, parse_int_radix};
 pub use number::string_to_number;
 pub use number::to_number;
 pub use number::to_number_of;
