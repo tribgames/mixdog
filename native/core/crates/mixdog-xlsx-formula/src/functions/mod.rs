@@ -10,4 +10,16 @@ mod statistical;
 // Library modules, one line each: `mod math;`
 
 /// The tables of the library modules, one line each: `math::FUNCTIONS,`
-pub const TABLES: &[Table] = &[statistical::FUNCTIONS];
+pub mod math;
+pub mod logical;
+pub mod information;
+mod text;
+mod datetime;
+mod lookup;
+mod database;
+
+pub const TABLES: &[Table] = &[
+    statistical::FUNCTIONS,
+    math::FUNCTIONS, logical::FUNCTIONS, information::FUNCTIONS,
+    text::FUNCTIONS, datetime::FUNCTIONS, lookup::FUNCTIONS, database::FUNCTIONS,
+];

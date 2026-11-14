@@ -378,9 +378,9 @@ fn run(name: &str, args: &[Value]) -> Result<Value, Failure> {
             for (i, &x) in a.iter().enumerate() {
                 let product = (x - am) * (at(&b, i) - bm);
                 products.push(product);
-                numerator = js_add(numerator, product);
-                d1 = js_add(d1, math::pow(x - am, 2.0));
-                d2 = js_add(d2, math::pow(at(&b, i) - bm, 2.0));
+                numerator = math::add(numerator, product);
+                d1 = math::add(d1, math::pow(x - am, 2.0));
+                d2 = math::add(d2, math::pow(at(&b, i) - bm, 2.0));
             }
             Value::Number(match name {
                 "COVARIANCE.P" => numerator / n,
@@ -682,16 +682,6 @@ fn slice_index(index: f64, length: usize) -> usize {
         index.trunc().min(n).max(0.0) as usize
     }
 }
-// V8's numeric addition propagates the right NaN when both operands are NaN.
-// LLVM may commute native addition, so preserve this observable oracle bit pattern explicitly.
-fn js_add(left: f64, right: f64) -> f64 {
-    if right.is_nan() {
-        f64::from_bits(right.to_bits() | (1u64 << 51))
-    } else {
-        left + right
-    }
-}
-
 fn regression_call(name: &str, args: &[Value]) -> Result<Value, Failure> {
     let offset = usize::from(name == "FORECAST");
     let forecast_x = if offset == 1 {
