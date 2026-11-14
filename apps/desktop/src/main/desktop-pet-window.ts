@@ -14,6 +14,7 @@ import { DESKTOP_PET_WINDOW_IPC } from '../shared/desktop-pet-bridge';
 import {
   DESKTOP_PET_IPC as DESKTOP_PET_APP_IPC,
   DESKTOP_PET_ISLAND_CLEARANCE,
+  DESKTOP_PET_SCALE,
   type DesktopPetAppLayout,
   type DesktopPetCommand,
   type DesktopPetComposer,
@@ -221,7 +222,7 @@ const PREFS_UNREAD: DesktopPetPrefs = {
   pinned: true,
   pinnedHere: false,
   onScreen: false,
-  scale: 100,
+  scale: DESKTOP_PET_SCALE.default,
   positions: {},
   hereAnchor: null,
 };
