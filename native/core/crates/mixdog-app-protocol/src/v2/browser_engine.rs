@@ -165,6 +165,9 @@ pub struct BrowserDismissedDialog {
     pub message: String,
     #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub at: i64,
+    /// Why nobody saw it: `unreachable` (its bridge request never reached the host) or `early` (it fired before the bridge was installed). Absent from an older host.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

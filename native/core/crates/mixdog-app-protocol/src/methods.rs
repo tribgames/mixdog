@@ -3212,6 +3212,15 @@ crate::client_request_definitions! {
         mutation: none,
         origins: [Local],
     },
+    /// The mime the core page server serves `file` as from under `root` (`type` is empty when it would not): Node's `pageAssetType`, used by the visualize version snapshot to decide which page assets to keep.
+    ProjectFsLocalPageAssetType => "projectFs/localPage/assetType" {
+        params: v2::desktop_files::ProjectFsLocalPageAssetTypeParams,
+        result: JsonValue,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Local],
+    },
     /// What a paired device's file preview reads first: kind, mime, size, modification time and the media lease (Node's `previewProjectFile`).
     ProjectFsPreviewFile => "projectFs/previewFile" {
         params: ProjectFsPreviewFileParams,

@@ -7600,6 +7600,28 @@
       ],
       "type": "object"
     },
+    "ProjectFsLocalPageAssetTypeParams": {
+      "description": "Params of `projectFs/localPage/assetType` (Node's `pageAssetType`): `root` and `file` are absolute; `dataRoot` (inside root, default root) is where data and document types are served.",
+      "properties": {
+        "dataRoot": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "file": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "file",
+        "root"
+      ],
+      "type": "object"
+    },
     "ProjectFsLocalPageOriginParams": {
       "description": "Params of `projectFs/localPage/origin` (local-page-server.ts `localPageOrigin`): none; answers the page server's origin.",
       "type": "object"
@@ -21947,6 +21969,29 @@
         },
         "params": {
           "$ref": "#/definitions/ProjectFsLocalPageOriginParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "The mime the core page server serves `file` as from under `root` (`type` is empty when it would not): Node's `pageAssetType`, used by the visualize version snapshot to decide which page assets to keep.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "projectFs/localPage/assetType"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ProjectFsLocalPageAssetTypeParams"
         }
       },
       "required": [

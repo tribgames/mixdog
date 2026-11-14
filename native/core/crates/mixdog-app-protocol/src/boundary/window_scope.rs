@@ -95,7 +95,7 @@ mod tests {
             }
         }
         for method in ["projectFs/listDir", "projectFs/readText", "projectFs/writeText", "projectFs/localPageUrl", "projectFs/localPage/origin",
-            "connections/ssh/connect", "connections/subscribe", "initialize", "app/subscribe", "blob/read",
+            "projectFs/localPage/assetType", "connections/ssh/connect", "connections/subscribe", "initialize", "app/subscribe", "blob/read",
             // The renderer reaches these through main today (Connection settings, the PC access row, the remote host list,
             // the takeover card and the link, attachment and font lanes): a window keeps them.
             "connections/ssh/open", "connections/link/get", "connections/ports/forward", "remoteHosts/list", "remoteHosts/redeemCode",
