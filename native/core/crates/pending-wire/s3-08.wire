@@ -1,0 +1,31 @@
+# s3-08 core wire (pointer hold, cursor-prepare round trip, computer/pointerReleased)
+
+## native/core/crates/mixdog-tools/src/desktop/mod.rs
+After `mod computer_lease;` (alphabetical, before `pub mod computer_linux;`) add:
+    pub mod computer_pointer;
+(`pub`: the daemon's service names `PointerHold`, and s3-18 calls `prepare_cursor` and the hold from act/run.)
+`computer_feedback.rs` already calls `super::computer_pointer::mark_ready`; without this line mixdog-tools does not compile.
+
+## native/core/crates/mixdog-app-server-daemon/src/lib.rs
+Next to `mod computer_control;` add:
+    mod computer_pointer_service;
+and next to the `pub use computer_control::...` line (or where ComputerUserControlService is exported, if it is) add:
+    pub use computer_pointer_service::ComputerPointerService;
+
+## compose call (compose_computer.rs of s3-19 / CORE-WIRE-G3, beside the ComputerUserControlService registration)
+    builder.register(Arc::new(crate::computer_pointer_service::ComputerPointerService::new(pointer_hold.clone())))?;
+where `pointer_hold: Option<Arc<mixdog_tools::desktop::computer_pointer::PointerHold>>` is built where the computer sessions' pool is
+(None where no computer helper is installed) from an `Arc<dyn PointerHost>` over the pool: `release_pointer` = the presence
+snapshot's `releasedPointerSessionIds` entry for the session, `is_running` = the session has a command in flight,
+`release_cursor_theme` = send `{"action":"release_cursor_theme","session_id":<session>,"read_only":false}` to that session's
+existing helper only (never start one; swallow errors). The same hold is called by s3-18 (act/run): `other_session` before a
+foreground command, `command_ended` after it, `turn_ended` at a turn's end, `paused` when UserControlState latches a pause.
+
+## SERVICE_PENDING (compose_flip.rs)
+`computer/pointerReleased` is not in SERVICE_PENDING today; the PROTO-WIRE row (s3-02 `[notifications]`) makes it a protocol method, so
+the wiring that applies the row must also register this service in the same wave, or list "computer/pointerReleased" in
+SERVICE_PENDING until the compose call above lands, and the task that registers it removes the name.
+
+## Cargo
+No new dependency edge: mixdog-tools already has async-trait, futures, tokio, tokio-util, serde_json, mixdog-rt; the daemon already
+depends on mixdog-tools, serde, async-trait, mixdog-rt (dev: tokio test-util not needed).

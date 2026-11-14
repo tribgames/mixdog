@@ -101,6 +101,7 @@ fn event(body: &str) -> Option<Value> {
 /// One helper's pointer relay. The events leave in the order the helper wrote them, from one task.
 pub(super) struct Pointer {
     desktop: Option<Arc<dyn HostChannel>>,
+    session: String,
     /// None where there is no runtime to run the relay on: the events are dropped.
     inbox: Option<mpsc::UnboundedSender<Value>>,
 }
@@ -113,7 +114,7 @@ impl Pointer {
             runtime.spawn(serve(receive, desktop, session.to_owned()));
             send
         });
-        Self { desktop, inbox }
+        Self { desktop, session: session.to_owned(), inbox }
     }
 
     /// One pointer line, without its prefix. A line that is not a pointer event, or one nobody can draw, is dropped without a word:
@@ -123,6 +124,8 @@ impl Pointer {
             return;
         }
         if let (Some(event), Some(inbox)) = (event(body), &self.inbox) {
+            // The overlay draws the arrow for an event it is sent: the next pointer action needs no prepare round trip.
+            super::computer_pointer::mark_ready(&self.session);
             let _ = inbox.send(event);
         }
     }
@@ -271,6 +274,16 @@ mod tests {
             seen.extend(params["events"].as_array().unwrap().iter().map(|event| (event["x"].clone(), event["phase"].clone())));
         }
         assert_eq!(seen, [(json!(1), json!("move")), (json!(3), json!("press"))]);
+    }
+
+    #[tokio::test]
+    async fn a_relayed_event_marks_the_sessions_arrow_live_and_a_dropped_line_does_not() {
+        let (serving, _asked) = desktop(true);
+        let pointer = Pointer::new(Some(serving), "feedback-live");
+        pointer.on_line("garbage");
+        assert!(!super::super::computer_pointer::is_ready("feedback-live"));
+        pointer.on_line(r#"{"id":1,"x":1,"y":2,"held":false,"phase":"move"}"#);
+        assert!(super::super::computer_pointer::is_ready("feedback-live"));
     }
 
     #[tokio::test]
