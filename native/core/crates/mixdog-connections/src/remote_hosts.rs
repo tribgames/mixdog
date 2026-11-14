@@ -1,7 +1,7 @@
 //! "Connect to another PC": the hosts this machine has saved, the pairing link that names one, the redeeming of a
 //! pairing code at the relay, and the presence of the saved hosts. The windows of the hosts are not here.
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -63,7 +63,8 @@ pub fn parse_remote_host_link(text: &str) -> Option<ParsedRemoteHostLink> {
     if !url.username().is_empty() || url.password().is_some() {
         return None;
     }
-    let route = url.path().strip_prefix("/d/")?;
+    let path = url.path();
+    let route = path.get(..3).filter(|prefix| prefix.eq_ignore_ascii_case("/d/")).map(|_| &path[3..])?;
     let device_id = device_id_of(route.strip_suffix('/').unwrap_or(route))?;
     Some(ParsedRemoteHostLink { url: format!("{}/d/{device_id}/", url.origin().ascii_serialization()), device_id })
 }
@@ -166,8 +167,9 @@ pub struct PresenceQuery {
     pub url: String,
 }
 
-/// Which of these hosts are connected to their relay right now. A host on a relay that cannot answer is absent.
-pub async fn fetch_host_presence(hosts: &[PresenceQuery]) -> HashSet<String> {
+/// Which of these hosts are connected to their relay right now (`true`) or not (`false`). A host on a relay that
+/// cannot answer is absent: its state is unknown.
+pub async fn fetch_host_presence(hosts: &[PresenceQuery]) -> HashMap<String, bool> {
     let mut by_origin: Vec<(String, Vec<(String, String)>)> = Vec::new();
     for host in hosts {
         let Some(link) = parse_remote_host_link(&host.url) else { continue };
@@ -183,15 +185,15 @@ pub async fn fetch_host_presence(hosts: &[PresenceQuery]) -> HashSet<String> {
         let client = client.clone();
         asks.spawn(async move { ask_presence(&client, &origin, group).await });
     }
-    let mut online = HashSet::new();
+    let mut online = HashMap::new();
     while let Some(answer) = asks.join_next().await {
         online.extend(answer.unwrap_or_default());
     }
     online
 }
 
-/// The hosts of one relay that it reports online; none when it cannot answer.
-async fn ask_presence(client: &reqwest::Client, origin: &str, group: Vec<(String, String)>) -> Vec<String> {
+/// Whether the relay reports each host of the group online; none when it cannot answer.
+async fn ask_presence(client: &reqwest::Client, origin: &str, group: Vec<(String, String)>) -> Vec<(String, bool)> {
     let ids: Vec<&str> = group.iter().map(|(_, device_id)| device_id.as_str()).take(PRESENCE_IDS).collect();
     let response = client
         .post(format!("{origin}/pair-code/presence"))
@@ -205,9 +207,9 @@ async fn ask_presence(client: &reqwest::Client, origin: &str, group: Vec<(String
         return Vec::new();
     }
     let Ok(bytes) = response.bytes().await else { return Vec::new() };
-    let body: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
-    let Some(reported) = body.get("online").and_then(Value::as_object) else { return Vec::new() };
-    group.into_iter().filter(|(_, device_id)| reported.get(device_id) == Some(&Value::Bool(true))).map(|(id, _)| id).collect()
+    let Ok(body) = serde_json::from_slice::<Value>(&bytes) else { return Vec::new() };
+    let reported = body.get("online");
+    group.into_iter().map(|(id, device_id)| (id, reported.and_then(|online| online.get(&device_id)) == Some(&Value::Bool(true)))).collect()
 }
 
 /// A saved host as the list reports it: the user's alias, when there is one, is the name.
