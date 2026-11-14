@@ -54,10 +54,10 @@ test('a live card the Stop ended is Node\'s recorded card, whole (aggregate-resu
   const member = (node.toolMembers as Obj[])[0]!;
   const call = (status: string): Obj => ({
     type: 'toolCall',
-    id: node.id,
-    name: member.name,
-    input: member.args,
-    output: member.rawResult,
+    id: node.id!,
+    name: member.name!,
+    input: member.args!,
+    output: member.rawResult!,
     run: { live: true, callId: member.id, isError: true, completedAt: member.completedAt },
     meta: { status, at: member.startedAt },
   });
