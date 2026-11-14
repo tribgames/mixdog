@@ -148,6 +148,7 @@ test('scoped_feed_held_for_late_watcher_and_removed', async () => {
   assert.equal(a.pushes[0].changes[0].entry.value.s, 1);
   await connection.watchFeed(b, 'media:j1');
   assert.equal(b.pushes[0].changes[0].entry.value.s, 1, 'a late watcher is given what the feed holds');
+  assert.ok(connection.snapshot().entries.some((e) => e.section === 'mediaJobs' && e.key === 'j1'), 'a replaced mirror keeps the held sections');
   assert.equal(client.calls.filter((c) => c.method === 'feed/subscribe').length, 1, 'the first watcher subscribes');
   await connection.unwatchFeed(a, 'media:j1');
   assert.equal(a.pushes.at(-1).changes[0].entry, null, 'leaving removes the held sections from its mirror');

@@ -348,7 +348,10 @@ export function createRendererConnection({ open, send: initialSend }: RendererCo
     snapshot(): DesktopSectionsSnapshot {
       if (!client) return { status, entries: [] };
       const { store } = client;
-      return { status, entries: SECTION_NAMES.flatMap((name) => store.sections(name)), epoch: store.appFeed()?.epoch };
+      // The store folds no scoped feed: what the watched feeds hold is part of the window's state, so a mirror replaced
+      // from this snapshot keeps it (the main connection put it into the replace itself).
+      const held = [...feedWatches.values()].flatMap((route) => [...route.held.values()]);
+      return { status, entries: [...SECTION_NAMES.flatMap((name) => store.sections(name)), ...held], epoch: store.appFeed()?.epoch };
     },
     attach(window) {
       windows.add(window);
