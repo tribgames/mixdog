@@ -60,10 +60,10 @@ use super::router::ScreenInputRouter;
 use super::router::SendError;
 use super::router::SwitchHooks;
 use super::router::next_turn;
+use super::super::computer_screen_input::InputDesktop;
 use super::switch::HelperIssue;
 use super::switch::HelperOffer;
 use super::switch::HelperView;
-use super::switch::LocalDesktop;
 use super::switch::ScreenHelperFacts;
 use super::switch::SourceDecision;
 use super::switch::SourceMode;
@@ -367,10 +367,10 @@ pub(super) trait ScreenHost: Send + Sync {
     fn start(&self) -> BoxFuture<Result<(), String>>;
     /// The `ok` fields of the answer; the error code otherwise.
     fn command(&self, command: HostCommand) -> BoxFuture<Result<Vec<String>, String>>;
-    fn desktop(&self) -> Option<LocalDesktop>;
+    fn desktop(&self) -> Option<InputDesktop>;
     /// The Windows session the process runs in.
     fn session(&self) -> Option<u32>;
-    fn on_desktop(&self, listener: Listener<LocalDesktop>) -> Unsub;
+    fn on_desktop(&self, listener: Listener<InputDesktop>) -> Unsub;
     /// An exit this side did not ask for.
     fn on_exit(&self, listener: Listener<()>) -> Unsub;
     /// Releases what the process holds, then ends it.
@@ -382,7 +382,7 @@ pub(super) trait ScreenHost: Send + Sync {
 /// Where a command through the host lands now: its session and the input desktop's name, lower-cased.
 fn screen_host_identity(host: &dyn ScreenHost) -> Option<DesktopIdentity> {
     let session = host.session()?;
-    let name = host.desktop()?.input_desktop.filter(|name| !name.is_empty())?;
+    let name = host.desktop()?.name.filter(|name| !name.is_empty())?;
     Some(DesktopIdentity { session, desktop: name.to_lowercase() })
 }
 
@@ -628,7 +628,7 @@ struct State {
     capture_source_id: Option<String>,
     mapping: Option<PointerMapping>,
     host: Option<Arc<dyn ScreenHost>>,
-    local: Option<LocalDesktop>,
+    local: Option<InputDesktop>,
     decision: Option<SourceDecision>,
     helper_active: bool,
     /// The helper's video reaches this viewer (`set_helper_video`).
@@ -1081,7 +1081,7 @@ impl Inner {
                 let created = (self.deps.create_input_host)();
                 self.state().host = Some(created.clone());
                 let me = self.me.clone();
-                self.subscribe(created.on_desktop(Arc::new(move |desktop: &LocalDesktop| {
+                self.subscribe(created.on_desktop(Arc::new(move |desktop: &InputDesktop| {
                     if let Some(inner) = me.upgrade() {
                         inner.entry(|| {
                             inner.state().local = Some(desktop.clone());

@@ -12,6 +12,8 @@ use mixdog_core_api::domain::computer::DesktopIdentity;
 use serde::Deserialize;
 use serde::Serialize;
 
+use super::super::computer_screen_input::InputDesktop;
+
 /// The helper's capture cadence: `CAPTURE_INTERVAL` in `native/mixdog-secure-desktop/src/helper.rs` (a frame
 /// every 66 ms at most, and only once its previous one was written out).
 pub(super) const HELPER_FRAME_INTERVAL_MS: u64 = 66;
@@ -33,16 +35,6 @@ pub(super) fn helper_video_stall_ms(intervals: &[f64]) -> f64 {
 /// Desktop names compare case-insensitively (Windows object names do).
 fn normalize_desktop_name(name: &str) -> String {
     name.to_lowercase()
-}
-
-/// The local input watcher's report: `input_desktop` is `None` when the input desktop cannot be opened
-/// (the secure desktop).
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(super) struct LocalDesktop {
-    pub input_desktop: Option<String>,
-    pub consent: bool,
-    pub logon_ui: bool,
 }
 
 /// The helper client as the switch reads it. Not installed, it reports nothing and is never driven.
@@ -124,7 +116,7 @@ pub(super) struct SourceDecision {
 #[serde(rename_all = "camelCase")]
 pub(super) struct SwitchInputs {
     /// The local watcher's last report (`None` before the first).
-    pub local: Option<LocalDesktop>,
+    pub local: Option<InputDesktop>,
     pub helper_installed: bool,
     pub helper_connected: bool,
     pub helper_desktop: Option<String>,
@@ -164,7 +156,7 @@ pub(super) fn decide_screen_source(inputs: &SwitchInputs) -> SourceDecision {
     let usable = inputs.helper_connected && !inputs.helper_owned_elsewhere;
     let local = inputs.local.as_ref();
     let on_secure = local.is_some_and(|local| {
-        local.input_desktop.as_deref().is_none_or(|name| normalize_desktop_name(name) == "winlogon")
+        local.name.as_deref().is_none_or(|name| normalize_desktop_name(name) == "winlogon")
     });
     let lock_screen = local.is_some_and(|local| inputs.helper_locked.unwrap_or(local.logon_ui));
     let locked = lock_screen && !on_secure;

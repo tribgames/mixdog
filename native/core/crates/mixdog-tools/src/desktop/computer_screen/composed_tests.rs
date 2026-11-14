@@ -44,7 +44,7 @@ use super::session::ScreenIndicator;
 use super::session::ScreenSession;
 use super::session::SessionDeps;
 use super::session::ViewerAuthorization;
-use super::switch::LocalDesktop;
+use super::super::computer_screen_input::InputDesktop;
 use super::testing::Log;
 use super::testing::Replay;
 use super::testing::VirtualTimers;
@@ -172,8 +172,8 @@ impl InstallPort for Installer {
 
 struct Host {
     log: Log,
-    local: Mutex<LocalDesktop>,
-    desktop: Arc<ListenerSet<LocalDesktop>>,
+    local: Mutex<InputDesktop>,
+    desktop: Arc<ListenerSet<InputDesktop>>,
 }
 
 impl ScreenHost for Host {
@@ -188,13 +188,13 @@ impl ScreenHost for Host {
         note(&self.log, "host", "command", json!({"command": {"op": "key", "vk": vk, "scan": scan, "extended": extended, "down": down}}));
         answer(Ok(Vec::new()))
     }
-    fn desktop(&self) -> Option<LocalDesktop> {
+    fn desktop(&self) -> Option<InputDesktop> {
         Some(lock(&self.local).clone())
     }
     fn session(&self) -> Option<u32> {
         Some(1)
     }
-    fn on_desktop(&self, listener: Listener<LocalDesktop>) -> Unsub {
+    fn on_desktop(&self, listener: Listener<InputDesktop>) -> Unsub {
         self.desktop.add(listener)
     }
     fn on_exit(&self, _listener: Listener<()>) -> Unsub {
@@ -259,7 +259,7 @@ impl ScreenIndicator for Indicator {
     }
 }
 
-fn local_of(value: &Value) -> LocalDesktop {
+fn local_of(value: &Value) -> InputDesktop {
     serde_json::from_value(value.clone()).expect("a local desktop")
 }
 
