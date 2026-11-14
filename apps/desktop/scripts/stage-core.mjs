@@ -2,6 +2,8 @@
 // Stages the `mixdogd` binaries a desktop build ships (electron-builder.yml
 // extraResources):
 //   .runtime/core/mixdogd[.exe]        the core this app starts, for its own platform
+//   .runtime/core/mixdog-askpass[.exe] the ssh askpass helper, beside mixdogd (not in the server bundles: it runs
+//                                      on the machine the app runs on)
 //   .runtime/server-cores/<os>-<arch>/bundle.tgz + servers.json
 //                                      what the SSH install uploads (LR §8.1): mixdogd and its
 //                                      JS runtime (scripts/stage-js-bundle.mjs)
@@ -33,7 +35,9 @@ const coreRoot = resolve(desktopDir, '../../native/core');
 /** Rust targets of the desktop's own platforms. */
 export const HOST_TARGETS = CORE_PLATFORM_TARGETS;
 
-const binaryName = (platform) => (platform === 'win32' ? 'mixdogd.exe' : 'mixdogd');
+const exeName = (name, platform) => (platform === 'win32' ? `${name}.exe` : name);
+const binaryName = (platform) => exeName('mixdogd', platform);
+const askpassName = (platform) => exeName('mixdog-askpass', platform);
 
 /** `js-runtime.json`, read by `mixdogd` (mixdog-app-server-daemon `js_runtime`) beside the binary. The layout it
  *  names (the app in node mode as interpreter, the real-file package root in `runtime.asar.unpacked`, the ONNX
@@ -46,12 +50,12 @@ export const ortLibraryPath = desktopOrtLibraryPath;
  *  again with the same check (verify-staged-package.mjs). */
 export { verifyRemotePayload };
 
-async function builtBinary(targetDir, target, platform) {
-  const file = join(targetDir, target, 'release', binaryName(platform));
+async function builtBinary(targetDir, target, platform, name = binaryName(platform)) {
+  const file = join(targetDir, target, 'release', name);
   try {
     await access(file);
   } catch (error) {
-    throw new Error(`mixdogd for ${target} is not built: ${file} (${error.code ?? error.message})`);
+    throw new Error(`${name} for ${target} is not built: ${file} (${error.code ?? error.message})`);
   }
   return file;
 }
@@ -65,16 +69,19 @@ async function sha256Of(file) {
 export { workspaceVersion };
 
 /**
- * Stages the core this app starts: `.runtime/core/mixdogd[.exe]` and its `js-runtime.json`. A local deploy
+ * Stages the core this app starts: `.runtime/core/mixdogd[.exe]`, the `mixdog-askpass[.exe]` beside it and its
+ * `js-runtime.json`. A local deploy
  * stages only this (`--binary`, or `--host-only` over a triple build); the server bundles need the other platforms' builds.
  * @param {object} options
  * @param {string} options.binary      the built `mixdogd` of the host platform
+ * @param {string} [options.askpass]   the built `mixdog-askpass` (default: the one beside `binary`, where one cargo build puts both)
  */
 export async function stageHostCore({
   binary,
   runtimeDir,
   version,
   host,
+  askpass = join(dirname(binary), askpassName(host.platform)),
   hostRunnable = host.platform === process.platform && host.arch === process.arch,
   reportedVersion = hostReportedVersion,
 }) {
@@ -84,10 +91,16 @@ export async function stageHostCore({
       throw new Error(`mixdogd reports version ${reported}, but the release is ${version}`);
     }
   }
+  try {
+    await access(askpass);
+  } catch (error) {
+    throw new Error(`mixdog-askpass is not built: ${askpass} (${error.code ?? error.message})`);
+  }
   const coreDir = join(runtimeDir, 'core');
   await rm(coreDir, { recursive: true, force: true });
   await mkdir(coreDir, { recursive: true });
   await copyFile(binary, join(coreDir, binaryName(host.platform)));
+  await copyFile(askpass, join(coreDir, askpassName(host.platform)));
   await writeFile(join(coreDir, JS_RUNTIME_MANIFEST), `${JSON.stringify(jsRuntimeManifest(host.platform, host.arch), null, 2)}\n`);
 }
 
@@ -123,6 +136,7 @@ export async function stageCore({
   await rm(serversDir, { recursive: true, force: true });
   await stageHostCore({
     binary: await builtBinary(targetDir, hostTarget, host.platform),
+    askpass: await builtBinary(targetDir, hostTarget, host.platform, askpassName(host.platform)),
     runtimeDir,
     version,
     host,
@@ -163,7 +177,7 @@ if (invokedPath === import.meta.url) {
     // out the server bundles, so the other platforms' binaries are not demanded.
     const binary = argument('binary');
     if (binary) {
-      // Local deploy: the host core only, from `cargo build --release -p mixdog-cli` (no `<triple>` directory).
+      // Local deploy: the host core only, from `cargo build --release -p mixdog-cli -p mixdog-askpass` (no `<triple>` directory).
       await stageHostCore({
         binary: resolve(binary),
         runtimeDir: join(desktopDir, '.runtime'),

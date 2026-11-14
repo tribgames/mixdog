@@ -67,6 +67,8 @@ function packedPackageFiles({ resources, bundles }) {
 export function verifyStagedResources({ resources, platform, arch, hostOnly = false, deleted = parseDeletionList(readFileSync(DEFAULT_DELETION_LIST, 'utf8')) }) {
   const exe = join(resources, 'core', platform === 'win32' ? 'mixdogd.exe' : 'mixdogd');
   if (!existsSync(exe) || !statSync(exe).isFile()) throw new Error(`the Rust core ${exe} is not in the package`);
+  const askpass = join(resources, 'core', platform === 'win32' ? 'mixdog-askpass.exe' : 'mixdog-askpass');
+  if (!existsSync(askpass) || !statSync(askpass).isFile()) throw new Error(`the ssh askpass helper ${askpass} is not in the package`);
   if (platform === 'win32') {
     const helper = join(resources, 'native-tools', 'mixdog-computer.exe');
     if (!existsSync(helper) || !statSync(helper).isFile()) throw new Error(`the Computer Use helper ${helper} is not in the package`);

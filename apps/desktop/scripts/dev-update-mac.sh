@@ -156,7 +156,7 @@ build() {
 		npm run build
 		npm run prepare:runtime
 		# The core cargo builds here; prepare:runtime recreated .runtime, so it is staged after it.
-		cargo build --release --locked -p mixdog-cli --manifest-path "$repo_root/native/core/Cargo.toml"
+		cargo build --release --locked -p mixdog-cli -p mixdog-askpass --manifest-path "$repo_root/native/core/Cargo.toml"
 		node scripts/stage-core.mjs "--binary=$repo_root/native/core/target/release/mixdogd"
 		# Dev builds never see the Developer ID secrets.
 		if dev_identity_ready; then
@@ -174,6 +174,7 @@ build() {
 assert_artifact() {
 	[ -d "$dist_app" ] || fail "Build artifact missing: $dist_app"
 	[ -f "$dist_app/Contents/Resources/core/mixdogd" ] || fail "Desktop artifact is missing the core: $dist_app"
+	[ -f "$dist_app/Contents/Resources/core/mixdog-askpass" ] || fail "Desktop artifact is missing the askpass helper: $dist_app"
 	[ -f "$dist_app/Contents/Resources/core/js-runtime.json" ] || fail "Desktop artifact is missing js-runtime.json: $dist_app"
 	[ -f "$dist_app/Contents/Resources/runtime.asar" ] || fail "Desktop artifact is missing runtime.asar: $dist_app"
 }
