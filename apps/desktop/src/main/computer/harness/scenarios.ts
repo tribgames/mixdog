@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { app, BrowserWindow } from 'electron';
 import { createComputerUseOverlay, type ComputerUseOverlay } from '../overlay';
 import { createComputerPillControls, createCoreUserControl } from '../../host/computer-user-control';
-import { compileNativeTextFixture } from '../backend/native-fixture';
+import { compileNativeTextFixture } from './reliability-fixtures';
 import { type ComputerCore, openComputerCore } from './core-transport';
 import { createTurnEndHelpers, type ScenarioContext, type ScenarioGroup } from './scenario-context';
 import { externalFixtureProgram } from './scenario-fixture-html';
