@@ -240,10 +240,10 @@ fn read_state_update(params: &Map<String, Value>) -> Verdict {
 
 fn write_text(params: &Map<String, Value>) -> Verdict {
     if let Some(content) = params.get("content") {
-        text_file_content(Some(content), "/content", "content")?;
+        text_file_content(Some(content), "/content", "file content")?;
     }
     if let Some(expected) = params.get("expectedContent") {
-        text_file_content(Some(expected), "/expectedContent", "expectedContent")?;
+        text_file_content(Some(expected), "/expectedContent", "expected file content")?;
     }
     Ok(())
 }
@@ -530,10 +530,10 @@ mod tests {
         let at_limit = "a".repeat(MAX_TEXT_FILE_LENGTH);
         assert!(verdict("projectFs/writeText", &json!({"content": at_limit, "expectedContent": ""})).is_ok());
         let over = "a".repeat(MAX_TEXT_FILE_LENGTH + 1);
-        assert_eq!(refused("projectFs/writeText", json!({"content": over})), ("/content".into(), "content is invalid.".into()));
+        assert_eq!(refused("projectFs/writeText", json!({"content": over})), ("/content".into(), "file content is invalid.".into()));
         assert_eq!(
             refused("projectFs/writeText", json!({"content": "", "expectedContent": over})),
-            ("/expectedContent".into(), "expectedContent is invalid.".into())
+            ("/expectedContent".into(), "expected file content is invalid.".into())
         );
         // Each astral character is two UTF-16 units.
         let astral = "\u{1F600}".repeat(MAX_TEXT_FILE_LENGTH / 2 + 1);
