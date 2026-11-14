@@ -57,12 +57,12 @@ pub(crate) fn takeover_hold<'a>(asks: impl Iterator<Item = (ApprovalId, &'a Appr
         }
         hold.held = true;
         let takeover = ask.payload.get("takeover");
+        let surface = takeover.and_then(|takeover| takeover.get("surface")).and_then(|surface| surface.as_str());
         if hold.step.is_none() {
             hold.step = Some(takeover_step(takeover));
             hold.id = Some(id.0.to_string());
-            hold.names_screen = takeover.and_then(|takeover| takeover.get("surface")).and_then(|surface| surface.as_str()) == Some("computer");
+            hold.names_screen = surface == Some("computer");
         }
-        let surface = takeover.and_then(|takeover| takeover.get("surface")).and_then(|surface| surface.as_str());
         if surface == Some("computer") && hold.screen.is_none() {
             hold.screen = Some(takeover_step(takeover));
         }
