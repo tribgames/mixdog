@@ -1,0 +1,15 @@
+# nl-startup-1: a serving core republishes a deleted daemon.json
+
+discovery/mod.rs now has `OwnedDiscovery` (start(root), publish(&Discovery), release(instance_id)); it keeps the last published
+document and a thread (250 ms stat) writes it back when the file is missing. It is not used yet: apply this in
+native/core/crates/mixdog-app-server-daemon/src/lifecycle/real.rs (DiscoveryPublication), no Cargo or protocol change.
+
+1. `write: WriteDocument` is `Box<dyn Fn(&Path, &Discovery)>` today. In `DiscoveryPublication::new` build
+   `let owned = discovery::OwnedDiscovery::start(root.clone());` and use
+   `let write: WriteDocument = Box::new(move |_root, document| owned.publish(document));`
+   (`with_writer` keeps its signature for the tests that inject a writer).
+2. The same `owned` is needed by the barrier: in the `mixdog-discovery` thread replace
+   `discovery::withdraw(&root, &instance_id)` by `owned.release(&instance_id)`, so the watcher stops putting the file back once the
+   release withdraws it. Concretely: give `with_writer` a second closure/Arc, or hold `Arc<OwnedDiscovery>` in the thread and make
+   `new` pass `Box::new(move |_, d| owned.publish(d))` plus the Arc for the barrier arm.
+3. Test to add beside real_tests.rs: publish Serving, delete daemon.json, assert it returns, `withdraw()` then asserts it stays gone.
