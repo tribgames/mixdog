@@ -58,6 +58,9 @@ export const DIRECT_KEYS = {
     'termAttach', 'termAcknowledge', 'subscribeTermData', 'subscribeTermSizeOwner', 'termActivity',
     'subscribeTermActivity', 'onTerminalRunRequested',
   ] as const,
+  // The secret card's value goes to the core's one secret slot (`approval/provideSecret`) and a takeover card asks the core
+  // (`takeover/ready`) whether the person may act: core-direct/api-takeover.ts.
+  secrets: ['provideSecretInput', 'takeoverReady'] as const,
   settings: [
     'readSettings', 'updateSetting', 'subscribeSettingsChanged', 'readActivityRailPins',
     'updateActivityRailPins', 'subscribeActivityRailPins', 'notifyProviderModelsChanged',
@@ -127,7 +130,7 @@ export const HOST_KEYS = {
   otherArea: [
     'listServerDirectories', 'serverUploadBegin', 'serverUploadChunk', 'serverUploadCommit',
     'serverUploadAbort', 'serverDownloadBegin', 'serverDownloadStep', 'serverDownloadFinish',
-    'serverDownloadAbort', 'serverTrashInfo', 'provideSecretInput', 'takeoverReady',
+    'serverDownloadAbort', 'serverTrashInfo',
   ] as const,
   ssh: [
     'subscribeShowConnectionSettings', 'closeConnectionWindow', 'openConnectionSettings', 'subscribeHostListsChanged',

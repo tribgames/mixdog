@@ -94,6 +94,11 @@ pub trait TakeoverHolds: Send + Sync {
     fn hold(&self, thread: &ThreadId) -> TakeoverHold;
     /// The step of a screen takeover some session holds, if any does.
     fn screen(&self) -> Option<String>;
+    /// Every session this process hosts whose takeover is open, with its hold (what `takeover/state` publishes). An implementer that
+    /// cannot enumerate its sessions reports none.
+    fn holding(&self) -> Vec<(ThreadId, TakeoverHold)> {
+        Vec::new()
+    }
 }
 
 impl TakeoverHolds for SessionDirectory {
@@ -103,6 +108,10 @@ impl TakeoverHolds for SessionDirectory {
 
     fn screen(&self) -> Option<String> {
         self.loaded_ids().iter().find_map(|thread| self.hold(thread).screen)
+    }
+
+    fn holding(&self) -> Vec<(ThreadId, TakeoverHold)> {
+        self.loaded_ids().into_iter().map(|thread| { let hold = self.hold(&thread); (thread, hold) }).filter(|(_, hold)| hold.held).collect()
     }
 }
 
@@ -171,6 +180,9 @@ mod tests {
         }
         fn screen(&self) -> Option<String> {
             self.0.lock().unwrap().values().find_map(|hold| hold.screen.clone())
+        }
+        fn holding(&self) -> Vec<(ThreadId, TakeoverHold)> {
+            self.0.lock().unwrap().iter().map(|(session, hold)| (ThreadId::from(session.as_str()), hold.clone())).collect()
         }
     }
 

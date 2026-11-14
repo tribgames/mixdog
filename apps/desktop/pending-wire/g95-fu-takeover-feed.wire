@@ -1,0 +1,17 @@
+# g95-fu-takeover-feed desktop wiring (the core half is native/core/crates/pending-wire/g95-fu-takeover-feed.wire)
+
+1. preload/host-api.ts (hot): delete the two members
+       provideSecretInput: (requestId, value) => invokeIpc(DESKTOP_IPC.provideSecretInput, requestId, value),
+       takeoverReady: (sessionId, id) => invokeIpc(DESKTOP_IPC.takeoverReady, sessionId, id),
+   (line ~190). desktop-api-split.ts now lists both in DIRECT_KEYS.secrets (composed by renderer/core-direct/api-takeover.ts over the
+   window's core connection), so `DesktopHostApi` no longer has them: until this edit `tsc -p tsconfig.node.json` fails at host-api.ts:190-191.
+   Then main/ipc-sessions.ts (~240-245) loses the two `handle(DESKTOP_IPC.provideSecretInput ...)` / `handle(DESKTOP_IPC.takeoverReady ...)`
+   handlers and shared/contract-ipc.ts the two DESKTOP_IPC keys (nothing calls them any more).
+
+2. The mirrors, for SINGLETONS-DELETE (main/takeover-gate.ts `createTakeoverMirror`, main/secret-requests.ts `createSecretSlotMirror`, both
+   fed by the core's `takeover/state` once the rows of g95-fu-takeover-feed.rows are applied and packages/protocol is regenerated):
+   a TakeoverStateReader is `(ids) => coreClient.call('takeover/state', ids?.length ? { secretRequestIds: ids } : {})`. In main/index.ts build
+   it once beside `takeoverGate` (line ~1126) and pass `createTakeoverMirror(read)` where `takeoverGate.assertFree` is read (browser/host-agent.ts
+   `host.assertFree`, which becomes async) and `createSecretSlotMirror(read).has` where `secretInputs.has` is read. The gate's own drain,
+   expiry and ready() (takeoverGate.onSessionState/onExpire/ready, takeover-feed.ts, takeover-state.ts) are then the deletion of
+   SINGLETONS-DELETE: the core owns them (CoreTakeover::begin/ready, the card's own `expires_after`).

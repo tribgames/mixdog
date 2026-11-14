@@ -12,6 +12,9 @@
 //!   session's commands drained (no agent capture lands after it); a screen takeover also waits for the running Computer Use
 //!   operations to drain (`withHumanOnlyApproval`'s wait); false when it ends first, or when it is not held within
 //!   [`UNSEEN_READY`].
+//! - `takeover/state` publishes what the core holds for takeovers and secret slots: the sessions with an open takeover (id, step,
+//!   surface), the step of a screen takeover, and which of the secret request ids a client names hold a value (never the value).
+//!   The desktop's takeover gate and secret request slots are read-only mirrors of it.
 //! - The screen takeover's hold on Computer Use is the human-only lock's own read of the same state, and the hold the core takes
 //!   for the cards it raises is `CardHolds`, both in `mixdog_core_session::session::secret_input`.
 
@@ -25,6 +28,10 @@ use std::time::Duration;
 use async_trait::async_trait;
 use mixdog_app_protocol::v2::takeover::TakeoverReadyParams;
 use mixdog_app_protocol::v2::takeover::TakeoverReadyResult;
+use mixdog_app_protocol::v2::takeover_state::HeldTakeover;
+use mixdog_app_protocol::v2::takeover_state::TakeoverStateParams;
+use mixdog_app_protocol::v2::takeover_state::TakeoverStateResult;
+use mixdog_app_protocol::v2::takeover_state::TakeoverSurface;
 use mixdog_browser_engine::port::TakeoverPort;
 use mixdog_browser_engine::types::TakeoverGuard;
 use mixdog_core_api::CoreError;
@@ -38,6 +45,7 @@ use mixdog_core_api::service::Admit;
 use mixdog_core_base::support::decode;
 use mixdog_core_base::support::wrong_method;
 use mixdog_core_session::session::secret_input::HumanOnlyLock;
+use mixdog_core_session::session::secret_input::SecretSlots;
 use mixdog_core_session::session::secret_input::TakeoverHold;
 use mixdog_core_session::session::secret_input::TakeoverHolds;
 use serde_json::Value;
@@ -45,6 +53,7 @@ use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
 pub const TAKEOVER_READY: &str = "takeover/ready";
+pub const TAKEOVER_STATE: &str = "takeover/state";
 
 /// `UNSEEN_READY_MS`: how long a card may ask about a takeover the core has not seen held yet.
 pub const UNSEEN_READY: Duration = Duration::from_secs(30);
@@ -134,6 +143,25 @@ impl CoreTakeover {
     pub fn running(&self, session: &str) -> usize {
         self.shared.running(session)
     }
+
+    /// What the sessions' open takeovers hold, in session id order: the part of `takeover/state` the sessions publish.
+    pub fn state(&self) -> TakeoverStateResult {
+        let mut held: Vec<HeldTakeover> = self
+            .shared
+            .holds
+            .holding()
+            .into_iter()
+            .filter(|(_, hold)| hold.held)
+            .map(|(session, hold)| HeldTakeover {
+                session_id: session.as_str().to_owned(),
+                takeover_id: hold.id.unwrap_or_default(),
+                step: hold.step.unwrap_or_default(),
+                surface: if hold.names_screen { TakeoverSurface::Computer } else { TakeoverSurface::Browser },
+            })
+            .collect();
+        held.sort_by(|a, b| a.session_id.cmp(&b.session_id));
+        TakeoverStateResult { held, screen: self.shared.holds.screen(), secret_slots: Vec::new() }
+    }
 }
 
 /// Node's `browserRefusal`.
@@ -187,24 +215,39 @@ impl TakeoverPort for CoreTakeover {
     }
 }
 
-/// `takeover/ready` (client -> core): answered once the takeover is ready or never will be.
+/// `takeover/ready` (client -> core): answered once the takeover is ready or never will be; `takeover/state`: what the core holds.
 pub struct TakeoverReadyService {
     takeover: Arc<CoreTakeover>,
+    slots: Option<Arc<SecretSlots>>,
 }
 
 impl TakeoverReadyService {
     pub fn new(takeover: Arc<CoreTakeover>) -> Self {
-        Self { takeover }
+        Self { takeover, slots: None }
+    }
+
+    /// The secret slots `takeover/state` reports the presence of (the one `SecretSlots` of `approval/provideSecret`).
+    pub fn with_secret_slots(mut self, slots: Arc<SecretSlots>) -> Self {
+        self.slots = Some(slots);
+        self
     }
 }
 
 #[async_trait]
 impl DomainService for TakeoverReadyService {
     fn methods(&self) -> &'static [&'static str] {
-        &[TAKEOVER_READY]
+        &[TAKEOVER_READY, TAKEOVER_STATE]
     }
 
     async fn call(&self, request: CoreRequest) -> Result<Reply, CoreError> {
+        if request.method.as_str() == TAKEOVER_STATE {
+            let TakeoverStateParams { secret_request_ids } = decode(&request)?;
+            let mut state = self.takeover.state();
+            if let Some(slots) = &self.slots {
+                state.secret_slots = secret_request_ids.into_iter().filter(|id| slots.has(id)).collect();
+            }
+            return Ok(Reply::Value(json!(state)));
+        }
         if request.method.as_str() != TAKEOVER_READY {
             return Err(wrong_method("takeover", request.method.as_str()));
         }
@@ -261,6 +304,9 @@ mod tests {
         }
         fn screen(&self) -> Option<String> {
             self.0.lock().unwrap().values().find_map(|hold| hold.screen.clone())
+        }
+        fn holding(&self) -> Vec<(ThreadId, TakeoverHold)> {
+            self.0.lock().unwrap().iter().map(|(session, hold)| (ThreadId::from(session.as_str()), hold.clone())).collect()
         }
     }
 
@@ -434,5 +480,33 @@ mod tests {
         let answer = value(&service, request(TAKEOVER_READY, json!({ "sessionId": "s1", "takeoverId": "t1" }), None)).await.unwrap();
         assert_eq!(answer, json!({ "ready": false }), "never seen held within the unseen wait");
         assert!(value(&service, request(TAKEOVER_READY, json!({ "sessionId": "s1" }), None)).await.is_err());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn takeover_state_publishes_the_open_takeovers_and_the_slots_that_hold_a_value() {
+        let (holds, owner) = owner();
+        holds.take_with("s2", None, "7");
+        holds.take_with("s1", Some("sign-in on a.com"), "4");
+        let slots = Arc::new(SecretSlots::new(Duration::from_secs(120)));
+        assert!(slots.provide("secret_abcdefgh1234", "hunter2"));
+        let service = TakeoverReadyService::new(owner).with_secret_slots(slots);
+        let params = json!({ "secretRequestIds": ["secret_abcdefgh1234", "secret_zzzzzzzz9999"] });
+        let answer = value(&service, request(TAKEOVER_STATE, params, None)).await.unwrap();
+        assert_eq!(
+            answer,
+            json!({
+                "held": [
+                    { "sessionId": "s1", "takeoverId": "4", "step": "sign-in on a.com", "surface": "computer" },
+                    { "sessionId": "s2", "takeoverId": "7", "step": "a step only the user can do", "surface": "browser" },
+                ],
+                "screen": "sign-in on a.com",
+                "secretSlots": ["secret_abcdefgh1234"],
+            })
+        );
+        assert!(!answer.to_string().contains("hunter2"), "the value never leaves the slot");
+        holds.end("s1");
+        holds.end("s2");
+        let empty = value(&service, request(TAKEOVER_STATE, json!({}), None)).await.unwrap();
+        assert_eq!(empty, json!({ "held": [], "secretSlots": [] }));
     }
 }
