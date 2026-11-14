@@ -88,10 +88,27 @@ function harness({ onResolveNode } = {}) {
   const invalidated = [];
   registerUpload(connection, ctx, { host, invalidateInteractionState: (g) => invalidated.push(g) });
   const call = (params) => handlers.get('host/browser/upload')(params, new AbortController().signal);
-  return { call, state, sent, counts, files, invalidated, file, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+  const receiver = (params) => handlers.get('host/browser/upload/receiver')(params, new AbortController().signal);
+  return { call, receiver, state, sent, counts, files, invalidated, file, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
 }
 
 const expectOf = (extra = {}) => ({ documentId: 'p1:1', ...extra });
+
+test('the receiver of a ref is the frame document key an approval binds, and the same key the upload then compares', async () => {
+  const h = harness();
+  try {
+    const answer = await h.receiver({ pageId: 'p1', snapshotId: 's1', ref: 'e1', expect: expectOf() });
+    assert.deepEqual({ key: answer.key, url: answer.url }, { key: DOCUMENT_KEY, url: 'https://a.example/' });
+    const out = await h.call({
+      pageId: 'p1', route: 'fileInput', snapshotId: 's1', ref: 'e1', files: [h.file], receiverKey: answer.key, expect: expectOf(),
+    });
+    assert.equal(out.dispatched, true);
+    await assert.rejects(h.receiver({ pageId: 'p1', snapshotId: 'old', ref: 'e1' }), { code: -32013 });
+    await assert.rejects(h.receiver({ pageId: 'p1', ref: 'e1' }), { code: -32602 });
+  } finally {
+    h.cleanup();
+  }
+});
 
 test('a file input ref takes the files once the receiver and the page state both hold, and the page is asked what it holds', async () => {
   const h = harness();

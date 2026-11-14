@@ -9,6 +9,7 @@ function harness({ policy, loadURL, dialog = null } = {}) {
   const handlers = new Map();
   const log = [];
   const sent = [];
+  const extracted = [];
   const connection = {
     request: async () => ({}),
     handleRequest: (method, handler) => handlers.set(method, handler),
@@ -77,7 +78,10 @@ function harness({ policy, loadURL, dialog = null } = {}) {
         unfilteredTotal: 5,
         offset: Math.min(offset, 5),
       }),
-      extractPage: async () => ({ rows: [{ text: 'x' }], total: 3, columns: '' }),
+      extractPage: async (...args) => {
+        extracted.push(args.slice(1, 4));
+        return { rows: [{ text: 'x' }], total: 3, columns: '' };
+      },
       renderCheckpoint: async () => true,
       revision: async () => `0:1:1:1:0:0:${++revisions * 4}:0`,
       collect: Object.assign(async () => [], {
@@ -104,7 +108,7 @@ function harness({ policy, loadURL, dialog = null } = {}) {
   };
   registerPage(connection, ctx, host);
   const call = (method, params) => handlers.get(`host/browser/page/${method}`)(params, new AbortController().signal);
-  return { call, log, sent, ctx, state, host };
+  return { call, log, sent, ctx, state, host, extracted };
 }
 
 test('navigate to a url the policy refuses is -32015 with the reason, and nothing loads', async () => {
@@ -293,6 +297,15 @@ test('read answers text, a selector, a frame, documents and frames', async () =>
     ]
   );
   await assert.rejects(h.call('read', { pageId: 'p1', kind: 'nope' }), (e) => e.code === -32602);
+});
+
+test('a selector read brings back the attributes the command names, up to twelve, and takes the limit', async () => {
+  const h = harness();
+  const names = Array.from({ length: 15 }, (_, index) => `data-a${index}`);
+  await h.call('read', { pageId: 'p1', kind: 'text', options: { selector: 'a', attributes: [...names, 3, ' '], limit: 7 } });
+  assert.deepEqual(h.extracted[0], ['a', names.slice(0, 12), 7]);
+  await h.call('read', { pageId: 'p1', kind: 'text', options: { selector: 'a' } });
+  assert.deepEqual(h.extracted[1][1], ['href', 'src', 'alt', 'title', 'name', 'value']);
 });
 
 test('renderCheckpoint and domQuiet answer with the facts', async () => {

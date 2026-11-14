@@ -24,6 +24,7 @@ import { HOST_INVALID_PARAMS, type HostConnection, HostRpcError } from '../conne
 import type { EngineContext } from './context';
 import { preconditionFailed } from './errors';
 import { checkPrecondition, receiverKeyOf } from './precondition';
+import { requireCurrentSnapshot } from './ref-call';
 import { registerEngineMethod } from './registry';
 
 type UploadHost = Parameters<typeof createRefUpload>[0];
@@ -108,7 +109,26 @@ async function readReceiver(
   }
 }
 
+/**
+ * `host/browser/upload/receiver`: the frame document that would receive an upload now, as `ref-upload.ts` `receiver()` reads it
+ * from the element itself: `key` (CDP session, frame id, loader id and URL) is what an approval binds and `upload` compares again
+ * before it dispatches; `url` is what the approval card shows. Without a `ref` it names the picker the page already opened.
+ */
+function registerUploadReceiver(connection: HostConnection, ctx: EngineContext, deps: UploadDeps): void {
+  registerEngineMethod(connection, ctx, 'host/browser/upload/receiver', async (params, signal, page) => {
+    const ref = typeof params.ref === 'string' && params.ref ? params.ref : undefined;
+    if (ref) {
+      if (typeof params.snapshotId !== 'string' || !params.snapshotId) throw invalid('upload/receiver needs a snapshotId');
+      requireCurrentSnapshot(page.state, params.snapshotId);
+    }
+    const expect = (params.expect ?? undefined) as Precondition | undefined;
+    const { key, url } = await page.guarded(expect, () => createRefUpload(deps.host).receiver(page.guest, ref, signal));
+    return { key, url };
+  });
+}
+
 export function registerUpload(connection: HostConnection, ctx: EngineContext, deps: UploadDeps): void {
+  registerUploadReceiver(connection, ctx, deps);
   registerEngineMethod(connection, ctx, 'host/browser/upload', async (params, signal, page) => {
     const route = ROUTES.find((candidate) => candidate === params.route);
     if (!route) throw invalid(`upload route must be ${ROUTES.join(', ')}`);

@@ -16,6 +16,7 @@ use mixdog_app_protocol::v2::browser_engine::BrowserPendingFileChooser;
 use mixdog_app_protocol::v2::browser_engine::BrowserUploadReceiver;
 use mixdog_app_protocol::v2::browser_engine::BrowserUploadRoute;
 use mixdog_app_protocol::v2::browser_engine::HostBrowserUploadParams;
+use mixdog_app_protocol::v2::browser_engine::HostBrowserUploadReceiverParams;
 use mixdog_app_protocol::v2::browser_engine::PageFacts;
 use mixdog_app_protocol::v2::browser_engine::Precondition;
 use mixdog_rt::CancellationToken;
@@ -45,13 +46,9 @@ const NEEDS_REF_OR_CHOOSER: &str = "upload requires ref unless the page has open
 /// The chooser mode of a picker that takes one file.
 const CHOOSER_SINGLE: &str = "selectSingle";
 
-/// Read in the page, as the ref's element: the document that receives the files (its URL) and whether the element is a file input.
-const RECEIVER_PROBE: &str = "function() {
-  const doc = this.ownerDocument || this;
-  return {
-    url: String((doc.location && doc.location.href) || ''),
-    fileInput: (this.tagName || '').toLowerCase() === 'input' && String(this.type || '').toLowerCase() === 'file',
-  };
+/// Read in the page, as the ref's element: whether it is a file input.
+const ELEMENT_PROBE: &str = "function() {
+  return { fileInput: (this.tagName || '').toLowerCase() === 'input' && String(this.type || '').toLowerCase() === 'file' };
 }";
 
 /// Why an upload was not dispatched or did not finish.
@@ -103,8 +100,7 @@ pub struct UploadTarget<'a> {
 /// The frame document that receives an upload's files.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Receiver {
-    /// What an approval binds. Empty when the document could not be told apart from the page's others (a ref's frame has no
-    /// key the engine can read; the document and URL precondition still binds the step).
+    /// What an approval binds: the frame document's key (a ref's, as the host reads it from the element) or the open chooser's.
     pub key: String,
     /// What the card shows (the frame document's URL); empty when it is not known.
     pub url: String,
@@ -138,9 +134,7 @@ impl UploadOutcome {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct ReceiverProbe {
-    #[serde(default)]
-    url: String,
+struct ElementProbe {
     #[serde(default)]
     file_input: bool,
 }
@@ -178,23 +172,40 @@ fn chooser_of(facts: &PageFacts) -> Result<&BrowserPendingFileChooser, UploadErr
     facts.pending_file_chooser.as_ref().ok_or_else(|| UploadError::Invalid(NEEDS_REF_OR_CHOOSER.to_owned()))
 }
 
-async fn probe(host: &dyn BrowserHost, target: &RefTarget<'_>, cancel: &CancellationToken) -> Result<ReceiverProbe, UploadError> {
-    let value = call_ref(host, target, RECEIVER_PROBE, Vec::new(), cancel).await?;
+async fn probe(host: &dyn BrowserHost, target: &RefTarget<'_>, cancel: &CancellationToken) -> Result<ElementProbe, UploadError> {
+    let value = call_ref(host, target, ELEMENT_PROBE, Vec::new(), cancel).await?;
     serde_json::from_value(value).map_err(|_| UploadError::Failed(UNIDENTIFIED_RECEIVER.to_owned()))
 }
 
-/// The frame document that would receive an upload to the target now (`receiver`): the open chooser's key, or the URL of the
-/// document the ref's element lives in. A document whose URL cannot be read is [`UNIDENTIFIED_RECEIVER`].
+/// The frame document that would receive an upload to the target now (`receiver`). The host reads it from the element itself
+/// (`host/browser/upload/receiver`: CDP session, frame id, loader id and URL of the document the element lives in, so a frame of
+/// the same origin and a cross-origin one are told apart, and a reload to the same URL is a new document), and that key is what
+/// the approval binds and `host/browser/upload` compares again before it dispatches. A document that cannot be identified is
+/// [`UNIDENTIFIED_RECEIVER`]. Without a ref the key is the open chooser's own (the page facts carry it) and the host only adds the
+/// URL the approval card shows, when it can read it.
 pub async fn receiver(host: &dyn BrowserHost, target: &UploadTarget<'_>, facts: &PageFacts, cancel: &CancellationToken) -> Result<Receiver, UploadError> {
-    let Some(ref_id) = target.ref_id else {
-        return Ok(Receiver { key: chooser_of(facts)?.receiver_key.clone(), url: String::new() });
+    let params = HostBrowserUploadReceiverParams {
+        page_id: target.page_id.to_owned(),
+        snapshot_id: target.ref_id.map(|_| target.snapshot_id.to_owned()),
+        ref_id: target.ref_id.map(str::to_owned),
+        expect: None,
     };
-    let ref_target = RefTarget { page_id: target.page_id, snapshot_id: target.snapshot_id, ref_id, expect: None };
-    let read = probe(host, &ref_target, cancel).await?;
-    if read.url.is_empty() {
+    if target.ref_id.is_none() {
+        let key = chooser_of(facts)?.receiver_key.clone();
+        return match host.upload_receiver(params, cancel).await {
+            Ok(read) => Ok(Receiver { key, url: read.url }),
+            Err(HostCallError::Cancelled) => Err(UploadError::Host(HostCallError::Cancelled)),
+            Err(_) => Ok(Receiver { key, url: String::new() }),
+        };
+    }
+    let read = host.upload_receiver(params, cancel).await.map_err(|error| match error {
+        HostCallError::Failed { message } => UploadError::Failed(message),
+        other => UploadError::Host(other),
+    })?;
+    if read.key.is_empty() || read.url.is_empty() {
         return Err(UploadError::Failed(UNIDENTIFIED_RECEIVER.to_owned()));
     }
-    Ok(Receiver { key: String::new(), url: read.url })
+    Ok(Receiver { key: read.key, url: read.url })
 }
 
 /// What the dispatch is decided against when no approval bound it: the page as the engine sees it now.
@@ -322,8 +333,12 @@ mod tests {
         list.iter().map(|path| (*path).to_owned()).collect()
     }
 
-    fn probe_answer(url: &str, file_input: bool) -> Expect {
-        Expect::ok("host/browser/ref/call", json!({"value": {"url": url, "fileInput": file_input}, "facts": page_facts("p1", 4)}))
+    fn probe_answer(file_input: bool) -> Expect {
+        Expect::ok("host/browser/ref/call", json!({"value": {"fileInput": file_input}, "facts": page_facts("p1", 4)}))
+    }
+
+    fn receiver_answer(key: &str, url: &str) -> Expect {
+        Expect::ok("host/browser/upload/receiver", json!({"key": key, "url": url, "facts": page_facts("p1", 4)}))
     }
 
     fn upload_answer(verified: bool) -> Expect {
@@ -358,7 +373,7 @@ mod tests {
     #[tokio::test]
     async fn a_file_input_ref_takes_the_files_directly_and_the_page_confirms_them() {
         let host = FakeHost::scripted(vec![
-            probe_answer("https://a.test/", true).with_params(json!({"snapshotId": "p1-s2", "ref": "p1-s2-e1"})),
+            probe_answer(true).with_params(json!({"snapshotId": "p1-s2", "ref": "p1-s2-e1"})),
             upload_answer(true).with_params(json!({
                 "pageId": "p1", "route": "fileInput", "snapshotId": "p1-s2", "ref": "p1-s2-e1", "files": [A], "receiverKey": "",
                 "expect": {"documentId": "p1:1", "url": "https://a.test/", "origin": "https://a.test", "snapshotId": "p1-s2"}
@@ -374,7 +389,7 @@ mod tests {
     #[tokio::test]
     async fn any_other_ref_is_clicked_open_and_an_unconfirmed_upload_says_so() {
         let host = FakeHost::scripted(vec![
-            probe_answer("https://a.test/", false),
+            probe_answer(false),
             upload_answer(false).with_params(json!({"route": "pickerClick", "files": [A, B]})),
         ]);
         let outcome = run(&host, target(Some("p1-s2-e9")), &[A, B], &facts_with(None), None).await.expect("uploaded");
@@ -387,7 +402,7 @@ mod tests {
     #[tokio::test]
     async fn an_approved_ref_upload_carries_the_approved_frame_and_page_on_the_wire() {
         let host = FakeHost::scripted(vec![
-            probe_answer("https://a.test/", true),
+            probe_answer(true),
             upload_answer(true).with_params(json!({
                 "route": "fileInput", "receiverKey": "S1\nF1\nL1\nhttps://a.test/",
                 "expect": {"documentId": "p1:1", "url": "https://a.test/", "snapshotId": "p1-s2"}
@@ -459,7 +474,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_page_that_moved_on_is_the_hosts_refusal_and_a_stale_ref_is_a_failure() {
-        let moved = FakeHost::scripted(vec![probe_answer("https://a.test/", true), Expect::err("host/browser/upload", HostCallError::StaleSnapshot)]);
+        let moved = FakeHost::scripted(vec![probe_answer(true), Expect::err("host/browser/upload", HostCallError::StaleSnapshot)]);
         let error = run(&moved, target(Some("r")), &[A], &facts_with(None), None).await.expect_err("stale");
         assert_eq!(error, UploadError::Host(HostCallError::StaleSnapshot));
         let stale = FakeHost::scripted(vec![Expect::ok(
@@ -479,20 +494,42 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_receiver_is_the_chooser_key_or_the_document_url_of_the_ref() {
+    async fn the_receiver_of_a_ref_is_the_frame_document_key_the_host_reads_from_the_element() {
+        let cancel = CancellationToken::new();
+        let facts = facts_with(None);
+        let by_ref = FakeHost::scripted(vec![
+            receiver_answer("S1
+F1
+L1
+https://pay.example/embed", "https://pay.example/embed")
+                .with_params(json!({"pageId": "p1", "snapshotId": "p1-s2", "ref": "r"})),
+            receiver_answer("", "https://pay.example/embed"),
+            Expect::err("host/browser/upload/receiver", HostCallError::Failed { message: UNIDENTIFIED_RECEIVER.into() }),
+        ]);
+        assert_eq!(
+            receiver(&by_ref, &target(Some("r")), &facts, &cancel).await,
+            Ok(Receiver { key: "S1
+F1
+L1
+https://pay.example/embed".into(), url: "https://pay.example/embed".into() })
+        );
+        assert_eq!(receiver(&by_ref, &target(Some("r")), &facts, &cancel).await, Err(UploadError::Failed(UNIDENTIFIED_RECEIVER.into())));
+        assert_eq!(receiver(&by_ref, &target(Some("r")), &facts, &cancel).await, Err(UploadError::Failed(UNIDENTIFIED_RECEIVER.into())));
+    }
+
+    #[tokio::test]
+    async fn the_receiver_of_the_open_chooser_is_its_own_key_with_the_url_when_the_host_can_read_it() {
         let cancel = CancellationToken::new();
         let facts = facts_with(Some(chooser("selectMultiple", "S|F|7")));
-        let host = FakeHost::scripted(vec![]);
+        let host = FakeHost::scripted(vec![
+            receiver_answer("other", "https://a.test/frame").with_params(json!({"pageId": "p1"})),
+            Expect::err("host/browser/upload/receiver", HostCallError::Failed { message: "gone".into() }),
+        ]);
+        assert_eq!(receiver(&host, &target(None), &facts, &cancel).await, Ok(Receiver { key: "S|F|7".into(), url: "https://a.test/frame".into() }));
         assert_eq!(receiver(&host, &target(None), &facts, &cancel).await, Ok(Receiver { key: "S|F|7".into(), url: String::new() }));
         assert_eq!(
             receiver(&host, &target(None), &facts_with(None), &cancel).await,
             Err(UploadError::Invalid("upload requires ref unless the page has opened a file chooser".into()))
         );
-        let by_ref = FakeHost::scripted(vec![probe_answer("https://pay.example/embed", false), probe_answer("", false)]);
-        assert_eq!(
-            receiver(&by_ref, &target(Some("r")), &facts, &cancel).await,
-            Ok(Receiver { key: String::new(), url: "https://pay.example/embed".into() })
-        );
-        assert_eq!(receiver(&by_ref, &target(Some("r")), &facts, &cancel).await, Err(UploadError::Failed(UNIDENTIFIED_RECEIVER.into())));
     }
 }

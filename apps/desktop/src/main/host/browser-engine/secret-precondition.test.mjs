@@ -239,6 +239,7 @@ const PARAMS = {
   'host/browser/emulation': { pageId: 'p1', overrides: null },
   'host/browser/downloads': { sessionId: 's1', op: 'list' },
   'host/browser/upload': { pageId: 'p1', paths: ['x'], expect: { documentId: DOC } },
+  'host/browser/upload/receiver': { pageId: 'p1', snapshotId: 's', ref: 'e1', expect: { documentId: DOC } },
 };
 
 const SESSION_DEPS = ['partitionSession', 'evaluate', 'invalidateInteractionState', 'applyFetchPatterns', 'tracesByGuest', 'processMemoryMb', 'pause', 'emulation', 'downloads', 'urlPolicy'];

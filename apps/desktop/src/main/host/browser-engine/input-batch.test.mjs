@@ -192,6 +192,12 @@ test('press with modifiers and repeat sends the chord repeat times', async () =>
   assert.equal(result.completedSteps, 1);
 });
 
+test('ControlOrMeta is the shortcut modifier of the host machine', async () => {
+  const h = harness();
+  await h.call({ steps: [{ op: 'press', key: 'a', modifiers: ['ControlOrMeta'] }] });
+  assert.equal(h.sent[0].modifiers, process.platform === 'darwin' ? 4 : 2);
+});
+
 test('a batch bound to no state is refused as document in engine mode, and nothing is sent', async () => {
   const h = harness();
   await assert.rejects(h.call({ steps: [{ op: 'press', key: 'Enter' }], expect: undefined }), (e) => e.code === -32010 && e.data.reason === 'document');
