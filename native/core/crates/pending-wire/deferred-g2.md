@@ -6,18 +6,22 @@ s3-07, s3-08 module lines, s3-09, s3-10, s3-11, s3-12, s3-13 except the registra
 x-migrate-adopt-core, x-notify-parity) and the G2 items of deferred-g1.md (pageserver module line, mixdog-askpass member,
 pcAccess registration) is applied; the fragment files are deleted. The lines below are kept for the task named.
 
-## s3-04 -> CORE-WIRE-G3 (once jpeg-encoder is in the local registry cache)
+## s3-04 -> CORE-WIRE-G3 (once jpeg-encoder 0.6 is in the local registry cache)
 
-jpeg-encoder 0.6 is not in the local registry cache (`~/.cargo/registry/cache`), so an offline `--locked` build cannot take it
-(png 0.18.1, fdeflate 0.3.7 and miniz_oxide 0.8.9 are cached). `computer_marks_draw.rs` calls `jpeg_encoder::Encoder`, so its
-module line waits with the dependencies. Needed first: the lead fetches jpeg-encoder 0.6 into the cache (owner direction 12 keeps it).
+g25-fu-cu-c replaced the `png` crate with a PNG reader/writer on flate2 (in Cargo.lock), but nothing in the lock encodes JPEG:
+`computer_marks_draw.rs` `encode()` answers an error naming jpeg-encoder 0.6 for a JPEG frame, and every real capture is JPEG
+(som-overlay.ts toJPEG), so set-of-marks burn-in would be off in use. The module stays unwired until the crate exists offline.
+Needed first: the lead fetches **jpeg-encoder 0.6** (crates.io `jpeg-encoder = "0.6"`, no default features needed) into the
+registry cache (owner direction 12 keeps it). Not in the cache as of G2.5-WIRE (cached and also not in the lock: image 0.25.9,
+zune-jpeg 0.4.21/0.5.12, png 0.17/0.18). Then:
 
-- `native/core/Cargo.toml` `[workspace.dependencies]`, next to `jpeg-decoder`:
-  `jpeg-encoder = "0.6"` and `png = { version = "0.18", default-features = false }`
-- `native/core/crates/mixdog-tools/Cargo.toml` `[dependencies]`: `jpeg-decoder = { workspace = true }`, `jpeg-encoder = { workspace = true }`, `png = { workspace = true }`
+- `native/core/Cargo.toml` `[workspace.dependencies]`, next to `jpeg-decoder`: `jpeg-encoder = "0.6"`
+- `native/core/crates/mixdog-tools/Cargo.toml` `[dependencies]`: `flate2 = { workspace = true }`, `jpeg-decoder = { workspace = true }`, `jpeg-encoder = { workspace = true }`
+- `computer_marks_draw.rs` `encode()`: the JPEG arm takes the one `jpeg_encoder::Encoder::new(&mut out, quality).encode(..)` call back
 - `native/core/crates/mixdog-tools/src/desktop/mod.rs`, after `pub mod computer_linux;`: `mod computer_marks_draw;` (`pub mod` if its caller sits outside mixdog-tools)
 - then `cargo update --workspace --offline` and `cargo hakari generate`.
   (`pub mod computer_image_output;` is applied, `pub` because nothing calls it before s3-18.)
+- Compose call: none; the capture reply (SOM mode, `image_output: "file"`) is s3-03's / s3-17's wiring.
 
 ## s2b-install-wire -> CORE-WIRE-G5 (with the mixdog-ssh workspace member)
 
