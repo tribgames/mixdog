@@ -18,6 +18,11 @@ the workspace uses them yet); move them into the table if a later crate shares t
     md-5 = "0.10.6"          # already in Cargo.lock (0.10.6); the library name is `md5`
     quick-xml = { version = "0.38.4", default-features = false }   # cached, NOT yet in Cargo.lock
 
+The fragment of nr-exthost-pdf-codec adds `aes = "0.8"` and `md-5 = "0.10"` to [workspace.dependencies]. When that
+fragment is applied (before or with this one), write the two lines of crates/mixdog-office-crypto/Cargo.toml as
+`aes = { workspace = true }` and `md-5 = { workspace = true }`, as mixdog-pdf-codec does; both resolve to the same locked
+versions (aes 0.8.4, md-5 0.10.6), so the direct versions also build if it is not.
+
 ## native/core/Cargo.lock
 
 A new package `mixdog-office-crypto` with dependencies: aes, base64, md-5, mixdog-fsio, mixdog-workspace-hack, quick-xml,
