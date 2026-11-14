@@ -432,7 +432,7 @@ pub struct ComputerPointerReleasedParams {
 }
 
 /// Params of `dev/computer/run` (client -> core): one command through the harness, refused with -32601 unless the core
-/// was started with `MIXDOG_DEV_COMPUTER_RUN=1`.
+/// was started with `MIXDOGD_TEST_HOOKS=1`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]

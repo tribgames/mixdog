@@ -12651,6 +12651,12 @@
       "result": "HostBrowserRefCallResult"
     },
     {
+      "method": "host/browser/ref/mint",
+      "params": "HostBrowserRefMintParams",
+      "requires": "host.browserEngine",
+      "result": "HostBrowserRefMintResult"
+    },
+    {
       "method": "host/browser/input/batch",
       "params": "HostBrowserInputBatchParams",
       "requires": "host.browserEngine",

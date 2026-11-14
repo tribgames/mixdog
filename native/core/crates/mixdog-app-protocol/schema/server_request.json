@@ -284,6 +284,15 @@
             "null"
           ]
         },
+        "offset": {
+          "description": "Where a text read starts, in UTF-16 units: a text longer than one read returns is read in parts.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "selector": {
           "type": [
             "string",
@@ -310,18 +319,29 @@
       "type": "string"
     },
     "BrowserPointerKind": {
-      "enum": [
-        "move",
-        "click",
-        "dblclick",
-        "hover",
-        "down",
-        "up",
-        "wheel",
-        "tap",
-        "dragTo"
-      ],
-      "type": "string"
+      "oneOf": [
+        {
+          "enum": [
+            "move",
+            "click",
+            "dblclick",
+            "hover",
+            "down",
+            "up",
+            "wheel",
+            "tap",
+            "dragTo"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "A touch drag: a contact at (x, y) moved to (toX, toY) and lifted (`swipeAt` of the touch input driver). Takes `toX` and `toY` like `dragTo`.",
+          "enum": [
+            "swipe"
+          ],
+          "type": "string"
+        }
+      ]
     },
     "BrowserScreenshotClip": {
       "anyOf": [
@@ -888,6 +908,13 @@
             "null"
           ]
         },
+        "checkUnchanged": {
+          "description": "The caller holds refs it would keep if the script left the page alone: the host reads the page's observation revision (after a render checkpoint) before and after the script and answers `unchanged`.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "expect": {
           "anyOf": [
             {
@@ -1240,6 +1267,43 @@
         "functionDeclaration",
         "pageId",
         "ref",
+        "snapshotId"
+      ],
+      "type": "object"
+    },
+    "HostBrowserRefMintParams": {
+      "description": "`host/browser/ref/mint` (core to host): the refs of the top-document nodes a CSS selector names, on a page whose refs come from the accessibility tree. A node the snapshot lists keeps its ref; any other gets one minted in the host's ref table, bound like a listed one, so `ref/call` and the pointer resolve it the same way.",
+      "properties": {
+        "expect": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Precondition"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "limit": {
+          "description": "More matches than this answer only their count.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "pageId": {
+          "type": "string"
+        },
+        "selector": {
+          "type": "string"
+        },
+        "snapshotId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "limit",
+        "pageId",
+        "selector",
         "snapshotId"
       ],
       "type": "object"
@@ -3965,6 +4029,29 @@
         },
         "params": {
           "$ref": "#/definitions/HostBrowserRefCallParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Mint refs for the nodes a CSS selector names in the top document.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "host/browser/ref/mint"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostBrowserRefMintParams"
         }
       },
       "required": [

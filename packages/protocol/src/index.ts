@@ -450,6 +450,11 @@ export type BrowserEvalWorld = "main" | "utility";
 export type BrowserExceptionDetails = { text: string, line?: number, column?: number, };
 
 /**
+ * The offset of a cross-origin frame in the top viewport.
+ */
+export type BrowserFrameOffset = { x: number, y: number, };
+
+/**
  * The `browser/frame` push (Node's `browserRemoteFrame` event): its params are Node's payload itself, one frame of a session the
  * phone streams (`DesktopRemoteBrowserStreamFrame`: `frameId`, `sessionId`, `seq`, `documentId`, the page facts and, unless
  * withheld, `image` `{mimeType, data}` as base64), field for field and in the order Node's relay built it. At most one is
@@ -477,6 +482,8 @@ export type BrowserListOp = "add" | "remove" | "list" | "clear";
 
 export type BrowserMailLink = { url: string, expiresAt: number, };
 
+export type BrowserMintedRef = { ref: string, role: string, name: string, };
+
 export type BrowserNavigateKind = "url" | "reload" | "back" | "forward";
 
 export type BrowserNavigateRefusal = { reason: string, };
@@ -489,7 +496,11 @@ export type BrowserPageCloseReason = "agent" | "turnEnd" | "idle";
 
 export type BrowserPageReadKind = "text" | "documents" | "frames";
 
-export type BrowserPageReadOptions = { maxChars?: number, frame?: FrameRef, selector?: string, includeHidden?: boolean, };
+export type BrowserPageReadOptions = { maxChars?: number, frame?: FrameRef, selector?: string, includeHidden?: boolean,
+/**
+ * Where a text read starts, in UTF-16 units: a text longer than one read returns is read in parts.
+ */
+offset?: number, };
 
 /**
  * A JavaScript dialog the page is blocked on.
@@ -511,7 +522,7 @@ export type BrowserPlacement = "shown" | "pending";
 
 export type BrowserPointerButton = "left" | "right" | "middle";
 
-export type BrowserPointerKind = "move" | "click" | "dblclick" | "hover" | "down" | "up" | "wheel" | "tap" | "dragTo";
+export type BrowserPointerKind = "move" | "click" | "dblclick" | "hover" | "down" | "up" | "wheel" | "tap" | "dragTo" | "swipe";
 
 export type BrowserPointerStep = { kind: BrowserPointerKind, x: number, y: number, button?: BrowserPointerButton, modifiers?: Array<string>, deltaX?: number, deltaY?: number, toX?: number, toY?: number, hitGuard?: BrowserHitGuard, };
 
@@ -1305,7 +1316,7 @@ export type DesktopLinkResolvePathParams = { path: string, cwd?: string, };
 
 /**
  * Params of `desktopPet/placement/resolve`: one of the rules that place the pet window, by `op`. Every answer is a plain
- * document: `geometry` -> `{ window, sprite, coreWidth }`; `pinned`, `clamp`, `clampFree`, `herePosition`, `positionOn` ->
+ * document: `geometry` -> `{ window, sprite, coreWidth, pinInset }`; `pinned`, `clamp`, `clampFree`, `herePosition`, `positionOn` ->
  * a point; `hereAnchor` -> the anchor; `displayFor` -> the display's id, or null for no display.
  */
 export type DesktopPetPlacementResolveParams = { "op": "geometry" } & PlacementScale | { "op": "pinned" } & PlacementPinned | { "op": "clamp" } & PlacementClamp | { "op": "clampFree" } & PlacementClampFree | { "op": "hereAnchor" } & PlacementHereAnchor | { "op": "herePosition" } & PlacementHerePosition | { "op": "displayFor" } & PlacementDisplayFor | { "op": "positionOn" } & PlacementPositionOn;
@@ -1350,7 +1361,7 @@ export type DevComputerRunError = { code: string, message: string, };
 
 /**
  * Params of `dev/computer/run` (client -> core): one command through the harness, refused with -32601 unless the core
- * was started with `MIXDOG_DEV_COMPUTER_RUN=1`.
+ * was started with `MIXDOGD_TEST_HOOKS=1`.
  */
 export type DevComputerRunParams = { sessionThreadId: ThreadId, command: JsonValue,
 /**
@@ -1993,9 +2004,19 @@ export type HostBrowserPageDomQuietResult = { quiet: boolean, mutations: number,
 /**
  * `host/browser/page/eval`.
  */
-export type HostBrowserPageEvalParams = { pageId: string, expression: string, frame?: FrameRef, awaitPromise?: boolean, returnByValue?: boolean, world?: BrowserEvalWorld, timeoutMs: number, expect?: Precondition, };
+export type HostBrowserPageEvalParams = { pageId: string, expression: string, frame?: FrameRef, awaitPromise?: boolean, returnByValue?: boolean, world?: BrowserEvalWorld, timeoutMs: number, expect?: Precondition,
+/**
+ * The caller holds refs it would keep if the script left the page alone: the host reads the page's observation revision (after a render checkpoint)
+ * before and after the script and answers `unchanged`.
+ */
+checkUnchanged?: boolean, };
 
-export type HostBrowserPageEvalResult = { value?: JsonValue, exception?: BrowserExceptionDetails, facts: PageFacts, };
+export type HostBrowserPageEvalResult = { value?: JsonValue, exception?: BrowserExceptionDetails,
+/**
+ * With `checkUnchanged`: the script left the document, URL, DOM, scroll and input as they were, opened no popup and raised no dialog. Absent when it
+ * was not asked, or the page could not be read before or after (a frame that never confirmed its render checkpoint is unknown, not unchanged).
+ */
+unchanged?: boolean, facts: PageFacts, };
 
 /**
  * `host/browser/page/facts` (host to core notification).
@@ -2113,7 +2134,36 @@ export type HostBrowserPerformanceResult = { metrics?: JsonValue, summary?: Json
  */
 export type HostBrowserRefCallParams = { pageId: string, snapshotId: string, ref: string, functionDeclaration: string, args?: Array<JsonValue>, returnByValue?: boolean, timeoutMs?: number, expect?: Precondition, };
 
-export type HostBrowserRefCallResult = { value?: JsonValue, exception?: BrowserExceptionDetails, facts: PageFacts, };
+export type HostBrowserRefCallResult = { value?: JsonValue, exception?: BrowserExceptionDetails,
+/**
+ * Where the cross-origin frame the ref lives in sits in the top viewport (absent in the top document, whose points need no offset).
+ */
+frameOffset?: BrowserFrameOffset, facts: PageFacts, };
+
+/**
+ * `host/browser/ref/mint` (core to host): the refs of the top-document nodes a CSS selector names, on a page whose refs come from the accessibility
+ * tree. A node the snapshot lists keeps its ref; any other gets one minted in the host's ref table, bound like a listed one, so `ref/call` and the
+ * pointer resolve it the same way.
+ */
+export type HostBrowserRefMintParams = { pageId: string, snapshotId: string, selector: string,
+/**
+ * More matches than this answer only their count.
+ */
+limit: number, expect?: Precondition, };
+
+export type HostBrowserRefMintResult = {
+/**
+ * How many nodes the selector matched.
+ */
+count: number,
+/**
+ * In document order; empty past the limit.
+ */
+matches: Array<BrowserMintedRef>,
+/**
+ * The page's own message when the selector is not valid CSS.
+ */
+invalid?: string, facts: PageFacts, };
 
 /**
  * `host/browser/screenshot`.
@@ -2135,7 +2185,12 @@ partial?: boolean, facts: PageFacts, };
  */
 export type HostBrowserSnapshotParams = { pageId: string, mode: BrowserSnapshotMode, query?: string, maxElements?: number, textChars?: number, frame?: FrameRef, };
 
-export type HostBrowserSnapshotResult = { snapshotId: string, documentId: string, revision: number, payload: BrowserSnapshotPayload, warnings: Array<string>, facts: PageFacts, };
+export type HostBrowserSnapshotResult = { snapshotId: string, documentId: string, revision: number,
+/**
+ * The whole observation revision of the page (every frame's document, viewport, scroll position, DOM-change counter and scroller counters,
+ * `|`-separated); the core judges "no observable change" by it. Absent from an older host.
+ */
+observation?: string, payload: BrowserSnapshotPayload, warnings: Array<string>, facts: PageFacts, };
 
 /**
  * `host/browser/storage`.
@@ -5162,7 +5217,7 @@ suggested: Array<number>, };
 /**
  * Request from the core to a client.
  */
-export type ServerRequest = { "method": "item/tool/requestApproval", id: RequestId, params: ToolApprovalRequestParams, } | { "method": "item/tool/requestUserInput", id: RequestId, params: UserInputRequestParams, } | { "method": "item/permissions/requestApproval", id: RequestId, params: PermissionsRequestParams, } | { "method": "item/browser/requestApproval", id: RequestId, params: BrowserApprovalRequestParams, } | { "method": "item/computer/requestApproval", id: RequestId, params: ComputerApprovalRequestParams, } | { "method": "host/browser/command", id: RequestId, params: HostCommandParams, } | { "method": "host/browser/liveControl", id: RequestId, params: HostBrowserLiveControlParams, } | { "method": "host/browser/pages/resolve", id: RequestId, params: HostBrowserPagesResolveParams, } | { "method": "host/browser/pages/list", id: RequestId, params: HostBrowserPagesListParams, } | { "method": "host/browser/pages/close", id: RequestId, params: HostBrowserPagesCloseParams, } | { "method": "host/browser/pages/surface", id: RequestId, params: HostBrowserPagesSurfaceParams, } | { "method": "host/browser/page/navigate", id: RequestId, params: HostBrowserPageNavigateParams, } | { "method": "host/browser/page/stop", id: RequestId, params: HostBrowserPageStopParams, } | { "method": "host/browser/page/eval", id: RequestId, params: HostBrowserPageEvalParams, } | { "method": "host/browser/page/read", id: RequestId, params: HostBrowserPageReadParams, } | { "method": "host/browser/page/renderCheckpoint", id: RequestId, params: HostBrowserPageRenderCheckpointParams, } | { "method": "host/browser/page/domQuiet", id: RequestId, params: HostBrowserPageDomQuietParams, } | { "method": "host/browser/page/dialog/answer", id: RequestId, params: HostBrowserPageDialogAnswerParams, } | { "method": "host/browser/page/sync", id: RequestId, params: HostBrowserPageSyncParams, } | { "method": "host/browser/snapshot", id: RequestId, params: HostBrowserSnapshotParams, } | { "method": "host/browser/ref/call", id: RequestId, params: HostBrowserRefCallParams, } | { "method": "host/browser/input/batch", id: RequestId, params: HostBrowserInputBatchParams, } | { "method": "host/browser/screenshot", id: RequestId, params: HostBrowserScreenshotParams, } | { "method": "host/browser/cdp/send", id: RequestId, params: HostBrowserCdpSendParams, } | { "method": "host/browser/cookies", id: RequestId, params: HostBrowserCookiesParams, } | { "method": "host/browser/storage", id: RequestId, params: HostBrowserStorageParams, } | { "method": "host/browser/initScripts", id: RequestId, params: HostBrowserInitScriptsParams, } | { "method": "host/browser/intercept", id: RequestId, params: HostBrowserInterceptParams, } | { "method": "host/browser/performance", id: RequestId, params: HostBrowserPerformanceParams, } | { "method": "host/browser/emulation", id: RequestId, params: HostBrowserEmulationParams, } | { "method": "host/browser/downloads", id: RequestId, params: HostBrowserDownloadsParams, } | { "method": "host/browser/upload", id: RequestId, params: HostBrowserUploadParams, } | { "method": "host/screen/displays", id: RequestId, params: ScreenDisplaysParams, } | { "method": "host/computer/capture", id: RequestId, params: HostComputerCaptureParams, } | { "method": "host/computer/displays", id: RequestId, params: HostComputerDisplaysParams, } | { "method": "host/computer/foregroundLease", id: RequestId, params: HostComputerForegroundLeaseParams, } | { "method": "host/computer/internalWindows", id: RequestId, params: HostComputerInternalWindowsParams, } | { "method": "host/computer/pointerFeedback", id: RequestId, params: HostComputerPointerFeedbackParams, } | { "method": "host/computer/pixels", id: RequestId, params: HostComputerPixelsParams, } | { "method": "host/computer/appWindows", id: RequestId, params: HostComputerAppWindowsParams, } | { "method": "host/computer/appInput", id: RequestId, params: HostComputerAppInputParams, } | { "method": "host/computer/cursorPrepare", id: RequestId, params: HostComputerCursorPrepareParams, } | { "method": "host/computer/permissions", id: RequestId, params: HostComputerPermissionsParams, } | { "method": "host/computer/command", id: RequestId, params: HostComputerCommandParams, } | { "method": "host/visualize/command", id: RequestId, params: HostVisualizeCommandParams, } | { "method": "host/systemProxy/resolve", id: RequestId, params: HostSystemProxyResolveParams, } | { "method": "host/notification/status", id: RequestId, params: HostNotificationStatusParams, } | { "method": "host/update/command", id: RequestId, params: HostUpdateCommandParams, } | { "method": "host/capture/fileSnapshot", id: RequestId, params: HostFileSnapshotParams, } | { "method": "host/localPage/url", id: RequestId, params: HostLocalPageUrlParams, } | { "method": "host/files/trashItem", id: RequestId, params: HostFilesTrashItemParams, } | { "method": "host/window/open", id: RequestId, params: HostWindowOpenParams, } | { "method": "host/window/close", id: RequestId, params: HostWindowCloseParams, } | { "method": "host/window/focus", id: RequestId, params: HostWindowFocusParams, } | { "method": "model/proxy/execute", id: RequestId, params: ModelProxyExecuteParams, };
+export type ServerRequest = { "method": "item/tool/requestApproval", id: RequestId, params: ToolApprovalRequestParams, } | { "method": "item/tool/requestUserInput", id: RequestId, params: UserInputRequestParams, } | { "method": "item/permissions/requestApproval", id: RequestId, params: PermissionsRequestParams, } | { "method": "item/browser/requestApproval", id: RequestId, params: BrowserApprovalRequestParams, } | { "method": "item/computer/requestApproval", id: RequestId, params: ComputerApprovalRequestParams, } | { "method": "host/browser/command", id: RequestId, params: HostCommandParams, } | { "method": "host/browser/liveControl", id: RequestId, params: HostBrowserLiveControlParams, } | { "method": "host/browser/pages/resolve", id: RequestId, params: HostBrowserPagesResolveParams, } | { "method": "host/browser/pages/list", id: RequestId, params: HostBrowserPagesListParams, } | { "method": "host/browser/pages/close", id: RequestId, params: HostBrowserPagesCloseParams, } | { "method": "host/browser/pages/surface", id: RequestId, params: HostBrowserPagesSurfaceParams, } | { "method": "host/browser/page/navigate", id: RequestId, params: HostBrowserPageNavigateParams, } | { "method": "host/browser/page/stop", id: RequestId, params: HostBrowserPageStopParams, } | { "method": "host/browser/page/eval", id: RequestId, params: HostBrowserPageEvalParams, } | { "method": "host/browser/page/read", id: RequestId, params: HostBrowserPageReadParams, } | { "method": "host/browser/page/renderCheckpoint", id: RequestId, params: HostBrowserPageRenderCheckpointParams, } | { "method": "host/browser/page/domQuiet", id: RequestId, params: HostBrowserPageDomQuietParams, } | { "method": "host/browser/page/dialog/answer", id: RequestId, params: HostBrowserPageDialogAnswerParams, } | { "method": "host/browser/page/sync", id: RequestId, params: HostBrowserPageSyncParams, } | { "method": "host/browser/snapshot", id: RequestId, params: HostBrowserSnapshotParams, } | { "method": "host/browser/ref/call", id: RequestId, params: HostBrowserRefCallParams, } | { "method": "host/browser/ref/mint", id: RequestId, params: HostBrowserRefMintParams, } | { "method": "host/browser/input/batch", id: RequestId, params: HostBrowserInputBatchParams, } | { "method": "host/browser/screenshot", id: RequestId, params: HostBrowserScreenshotParams, } | { "method": "host/browser/cdp/send", id: RequestId, params: HostBrowserCdpSendParams, } | { "method": "host/browser/cookies", id: RequestId, params: HostBrowserCookiesParams, } | { "method": "host/browser/storage", id: RequestId, params: HostBrowserStorageParams, } | { "method": "host/browser/initScripts", id: RequestId, params: HostBrowserInitScriptsParams, } | { "method": "host/browser/intercept", id: RequestId, params: HostBrowserInterceptParams, } | { "method": "host/browser/performance", id: RequestId, params: HostBrowserPerformanceParams, } | { "method": "host/browser/emulation", id: RequestId, params: HostBrowserEmulationParams, } | { "method": "host/browser/downloads", id: RequestId, params: HostBrowserDownloadsParams, } | { "method": "host/browser/upload", id: RequestId, params: HostBrowserUploadParams, } | { "method": "host/screen/displays", id: RequestId, params: ScreenDisplaysParams, } | { "method": "host/computer/capture", id: RequestId, params: HostComputerCaptureParams, } | { "method": "host/computer/displays", id: RequestId, params: HostComputerDisplaysParams, } | { "method": "host/computer/foregroundLease", id: RequestId, params: HostComputerForegroundLeaseParams, } | { "method": "host/computer/internalWindows", id: RequestId, params: HostComputerInternalWindowsParams, } | { "method": "host/computer/pointerFeedback", id: RequestId, params: HostComputerPointerFeedbackParams, } | { "method": "host/computer/pixels", id: RequestId, params: HostComputerPixelsParams, } | { "method": "host/computer/appWindows", id: RequestId, params: HostComputerAppWindowsParams, } | { "method": "host/computer/appInput", id: RequestId, params: HostComputerAppInputParams, } | { "method": "host/computer/cursorPrepare", id: RequestId, params: HostComputerCursorPrepareParams, } | { "method": "host/computer/permissions", id: RequestId, params: HostComputerPermissionsParams, } | { "method": "host/computer/command", id: RequestId, params: HostComputerCommandParams, } | { "method": "host/visualize/command", id: RequestId, params: HostVisualizeCommandParams, } | { "method": "host/systemProxy/resolve", id: RequestId, params: HostSystemProxyResolveParams, } | { "method": "host/notification/status", id: RequestId, params: HostNotificationStatusParams, } | { "method": "host/update/command", id: RequestId, params: HostUpdateCommandParams, } | { "method": "host/capture/fileSnapshot", id: RequestId, params: HostFileSnapshotParams, } | { "method": "host/localPage/url", id: RequestId, params: HostLocalPageUrlParams, } | { "method": "host/files/trashItem", id: RequestId, params: HostFilesTrashItemParams, } | { "method": "host/window/open", id: RequestId, params: HostWindowOpenParams, } | { "method": "host/window/close", id: RequestId, params: HostWindowCloseParams, } | { "method": "host/window/focus", id: RequestId, params: HostWindowFocusParams, } | { "method": "model/proxy/execute", id: RequestId, params: ModelProxyExecuteParams, };
 
 /**
  * To every eligible connection, losers included (P §8.4 step 4); to the claimant alone, with an empty threadId and resolution cancelled, for a `host/*` request the core stopped waiting for without its answer (DS §12).
@@ -7696,6 +7751,7 @@ export type ServerRequestMethods = {
   "host/browser/page/sync": { params: HostBrowserPageSyncParams; result: HostBrowserPageSyncResult };
   "host/browser/snapshot": { params: HostBrowserSnapshotParams; result: HostBrowserSnapshotResult };
   "host/browser/ref/call": { params: HostBrowserRefCallParams; result: HostBrowserRefCallResult };
+  "host/browser/ref/mint": { params: HostBrowserRefMintParams; result: HostBrowserRefMintResult };
   "host/browser/input/batch": { params: HostBrowserInputBatchParams; result: HostBrowserInputBatchResult };
   "host/browser/screenshot": { params: HostBrowserScreenshotParams; result: HostBrowserScreenshotResult };
   "host/browser/cdp/send": { params: HostBrowserCdpSendParams; result: HostBrowserCdpSendResult };
@@ -20493,6 +20549,12 @@ export const methodTable = {
       "params": "HostBrowserRefCallParams",
       "requires": "host.browserEngine",
       "result": "HostBrowserRefCallResult"
+    },
+    {
+      "method": "host/browser/ref/mint",
+      "params": "HostBrowserRefMintParams",
+      "requires": "host.browserEngine",
+      "result": "HostBrowserRefMintResult"
     },
     {
       "method": "host/browser/input/batch",
