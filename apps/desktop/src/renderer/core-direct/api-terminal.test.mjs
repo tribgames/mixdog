@@ -35,6 +35,7 @@ function setup({ answers = {}, sections = {} } = {}) {
   const api = createTerminalApi(ctx);
   return {
     api,
+    connection,
     calls,
     notes,
     sections,
@@ -240,4 +241,15 @@ test('a terminal run reveal reaches the page without its kind; the claim goes to
   assert.deepEqual(rig.notes, [{ method: 'ui/terminalRun/claimed', params: { requestId: 'run-1' } }]);
   for (const bad of ['', 7, null, 'x'.repeat(129)]) await assert.rejects(rig.api.claimTerminalRun(bad));
   assert.equal(rig.notes.length, 1);
+});
+
+test('claimTerminalRun with no open core link resolves false and sends nothing; a bad id still rejects', async () => {
+  const rig = setup();
+  rig.api = createTerminalApi({
+    connection: { ...rig.connection, notify: () => { throw new Error('The core connection is not open.'); } },
+    call: async () => ({}),
+  });
+  assert.equal(await rig.api.claimTerminalRun('run-1'), false);
+  assert.equal(rig.notes.length, 0);
+  await assert.rejects(rig.api.claimTerminalRun(''));
 });
