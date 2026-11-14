@@ -4,7 +4,7 @@
  * their discovery files; there is no listener, token or heartbeat here.
  */
 import { screen } from 'electron';
-import type { HostClaimParams } from '../../../../../packages/protocol/src/index.ts';
+import type { HostClaimParams, HostClaimResources } from '../../../../../packages/protocol/src/index.ts';
 import type { DesktopRemoteBrowserStreamFrame } from '../../shared/contract';
 import { createBrowserCommandHost, type BrowserCommandRunner, type BrowserInputControl } from './browser-command';
 import { type BrowserEnginePorts, serveBrowserEngine } from './browser-engine';
@@ -30,6 +30,8 @@ export interface DesktopHostOptions {
   connection: HostConnection;
   /** Generated once per install. */
   hostId: string;
+  /** `host/claim` `resources`: where this desktop keeps the server cores and the askpass helper (host/claim-resources.ts). */
+  resources?: HostClaimResources;
   /** The Electron pill of a phone's screen session (remote-screen/screen-indicator.ts); absent in a harness without one. */
   showScreenIndicator?: ShowScreenIndicator;
   /** The in-app browser, resolved when first used (it is built after the connection). */
@@ -166,6 +168,7 @@ export function createDesktopHost(options: DesktopHostOptions) {
       // `serves`: the host/* methods this desktop answers, so the core routes only those here.
       await connection.request(HOST_METHOD.claim, {
         hostId: options.hostId,
+        ...(options.resources ? { resources: options.resources } : {}),
         serves: connection.servedMethods(),
       } satisfies HostClaimParams);
       claimed = true;

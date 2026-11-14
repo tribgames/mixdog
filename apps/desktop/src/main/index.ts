@@ -119,8 +119,9 @@ import type { VisualizeHostEvent } from '../shared/visualize';
 import { createBootTimeline } from './boot-timeline';
 import { reportDefaultsSeparation } from './protocol/defaults-separation';
 import { resolveRuntimeRoot } from '../shared/core-src/runtime/shared/runtime-root.mjs';
-import { createBrowserHost, type BrowserHost } from './browser/host';
-import { BROWSER_PARTITION } from './browser/command';
+import { createBrowserHost } from './browser/host';
+import { BROWSER_PARTITION, type BrowserHost } from './browser/host-types';
+import { claimResources } from './host/claim-resources';
 import { browserUrlPolicyFromEnvironment } from './browser/host-policy';
 import { createBrowserLoginPopup } from './browser/login-popup';
 import { loginTakeoverOf } from './browser/login-takeover';
@@ -1044,6 +1045,8 @@ onProtocolAttached(localProtocol, () => {
 });
 const hostRole = createLocalHostRole({
   showScreenIndicator: showRemoteScreenIndicator,
+  // Where this desktop keeps what the core launches for ssh (server cores, the askpass helper): sent with host/claim.
+  resources: claimResources(app.isPackaged, process.resourcesPath, existsSync),
   protocol: localProtocol,
   hostId: readOrCreateHostId(desktopUserData),
   browser: () => {
