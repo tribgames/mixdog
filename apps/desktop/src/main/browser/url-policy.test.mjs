@@ -1,17 +1,25 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-import { browserUrlPolicyFromEnvironment } from './host-policy.ts';
-import { restorablePages } from './restore-pages.ts';
-import {
-  assertResolvedAddressAllowed,
-  MAIL_LINK_WINDOW_MS,
-  normalizeAgentUrl,
-  normalizePageUrl,
-} from './url-policy.ts';
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
-test('a local session allows LAN and Tailscale addresses, a remote session blocks them, metadata is always blocked', (t) => {
+import { micaLibraryPath } from '../window-mica.ts';
+
+// The rules are Rust, served by mixdog_window.node: these tests run against the built module and are skipped, not
+// failed, while it is absent (cargo build --release in native/mixdog-window; they never build it).
+const built = existsSync(
+  micaLibraryPath({ isPackaged: false, resourcesPath: '', appPath: fileURLToPath(new URL('../../..', import.meta.url)) })
+);
+const skip = built ? false : 'mixdog_window.node is not built (cargo build --release in native/mixdog-window)';
+
+const { browserUrlPolicyFromEnvironment } = built ? await import('./host-policy.ts') : {};
+const { restorablePages } = built ? await import('./restore-pages.ts') : {};
+const { assertResolvedAddressAllowed, MAIL_LINK_WINDOW_MS, normalizeAgentUrl, normalizePageUrl } = built
+  ? await import('./url-policy.ts')
+  : {};
+
+test('a local session allows LAN and Tailscale addresses, a remote session blocks them, metadata is always blocked', { skip }, (t) => {
   const saved = process.env.MIXDOG_BROWSER_ALLOW_PRIVATE_NETWORK;
   t.after(() => {
     if (saved === undefined) delete process.env.MIXDOG_BROWSER_ALLOW_PRIVATE_NETWORK;
@@ -35,7 +43,7 @@ test('a local session allows LAN and Tailscale addresses, a remote session block
   }
 });
 
-test('browser URL policy blocks credentials, metadata, and private networks but keeps loopback', () => {
+test('browser URL policy blocks credentials, metadata, and private networks but keeps loopback', { skip }, () => {
   assert.equal(normalizeAgentUrl('example.com'), 'https://example.com/');
   assert.equal(normalizeAgentUrl('http://localhost:3000/app'), 'http://localhost:3000/app');
   assert.throws(() => normalizeAgentUrl('https://user:pass@example.com'), /embedded credentials/);
@@ -61,7 +69,7 @@ test('browser URL policy blocks credentials, metadata, and private networks but 
   assert.throws(() => normalizePageUrl('file:///C:/Users/example/secrets.txt'), /only http\(s\)/);
 });
 
-test('a token link opens only as the runtime read it in a mail: exact, https, recent, on the sender’s domain', () => {
+test('a token link opens only as the runtime read it in a mail: exact, https, recent, on the sender’s domain', { skip }, () => {
   const LINK =
     'https://alternativeto.net/api/auth/verify-email?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl&callbackURL=https%3A%2F%2Falternativeto.net%2F';
   const read = (fields = {}) => ({ url: LINK, from_domain: 'alternativeto.net', read_at: Date.now(), ...fields });
@@ -92,7 +100,7 @@ test('a token link opens only as the runtime read it in a mail: exact, https, re
   );
 });
 
-test('session restoration recreates admitted web pages only, without relaxing navigation admission', () => {
+test('session restoration recreates admitted web pages only, without relaxing navigation admission', { skip }, () => {
   const policy = { allowedDomains: ['gamerscroll.com'] };
   const restored = (urls, restorePolicy = policy) =>
     restorablePages(
@@ -118,35 +126,4 @@ test('session restoration recreates admitted web pages only, without relaxing na
     []
   );
   assert.deepEqual(restored(['http://192.168.1.1', 'http://169.254.169.254/latest/meta-data'], {}), []);
-});
-
-/** The corpus the Rust crate mixdog-browser-policy replays as well (native/core/fixtures/browser-parity). */
-const corpus = JSON.parse(
-  readFileSync(new URL('../../../../../native/core/fixtures/browser-parity/url-policy.json', import.meta.url), 'utf8')
-);
-
-test('every case of the shared corpus gets the same verdict as the Rust twin', () => {
-  assert.ok(corpus.length > 100);
-  for (const { case: name, input, expect } of corpus) {
-    let got;
-    try {
-      if (input.fn === 'resolved') {
-        assertResolvedAddressAllowed(input.address, input.hostname, input.policy);
-        got = { ok: true };
-      } else if (input.fn === 'page') {
-        got = { ok: normalizePageUrl(input.url, input.policy) };
-      } else {
-        let link;
-        if (input.mailLink) {
-          const { ageMs, ...rest } = input.mailLink;
-          link = { ...rest };
-          if (ageMs !== null && ageMs !== undefined) link.read_at = Date.now() - ageMs;
-        }
-        got = { ok: normalizeAgentUrl(input.url, input.policy, link) };
-      }
-    } catch (error) {
-      got = { error: error.message };
-    }
-    assert.deepEqual(got, expect, name);
-  }
 });
