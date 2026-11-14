@@ -1,0 +1,6 @@
+# s1-dl-core
+crate: mixdog-workspace
+file: native/core/crates/mixdog-workspace/src/lib.rs
+add the module line `pub mod serverdownload;` in the `pub mod` list, directly after `pub mod servertrash;`.
+No Cargo dependency change: the module uses only async-trait, base64, bytes, serde_json, tokio, tokio-util, uuid and mixdog-rt, all already dependencies of mixdog-workspace.
+Nothing calls the module yet: s1-dl-wire builds ServerDownloads::new(SERVER_DOWNLOAD_MAX_BYTES, lanes) and a RemoteFileReader over the window session connection.
