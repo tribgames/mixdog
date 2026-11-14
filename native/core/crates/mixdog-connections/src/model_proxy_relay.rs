@@ -19,7 +19,7 @@ use async_trait::async_trait;
 use mixdog_app_protocol::v2::host::{
     ModelProxyCancelParams, ModelProxyEventParams, ModelProxyExecuteParams, ModelProxyHeartbeatParams, ModelProxyResult,
 };
-use mixdog_app_protocol::v2::model_proxy::{ProxyAnswer, ProxyCall, ProxyEvent};
+use mixdog_app_protocol::v2::model_proxy::{ProxyAnswer, ProxyCall, ProxyEvent, ProxyFailure};
 use mixdog_app_protocol::{RequestId, ServerRequest};
 use mixdog_app_server_client::{ClientEvent, ConnectionStatus, ProtocolClient, ServerRequestAnswer};
 use tokio::sync::{broadcast, mpsc};
@@ -59,9 +59,31 @@ pub trait LocalModelProxy: Send + Sync {
 /// `allowedProvidersForHost`): the host's saved list, `None` for every provider enabled here.
 pub type AllowedProviders = Arc<dyn Fn() -> Option<Vec<String>> + Send + Sync>;
 
+/// How a call the relay took up ended (Node's `onCallSettled` outcome).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CallOutcome {
+    Answered,
+    /// The error reached the server.
+    Failed,
+    /// The server link went, or the relay was given up, before it ended.
+    Abandoned,
+}
+
+/// A call that ended, for the connection that owns the relay (the reattach report counts the abandoned ones; a failed
+/// one on this PC's sign-in names the provider to sign in again).
+#[derive(Debug, Clone)]
+pub struct ProxyCallSettled {
+    /// The provider the call named, empty for one that names none (`providerConfig`).
+    pub provider: String,
+    pub outcome: CallOutcome,
+    /// The failure record of a call that failed with one; `None` when the local core could not answer at all.
+    pub failure: Option<ProxyFailure>,
+}
+
 struct Run {
     id: RequestId,
     generation: u64,
+    provider: String,
     cancel: CancellationToken,
 }
 
@@ -79,6 +101,7 @@ pub struct ModelProxyRelay {
     serving: AtomicBool,
     generations: AtomicU64,
     state: Mutex<State>,
+    settled: broadcast::Sender<ProxyCallSettled>,
 }
 
 struct ChannelSink(mpsc::UnboundedSender<ProxyEvent>);
@@ -99,7 +122,18 @@ impl ModelProxyRelay {
             serving: AtomicBool::new(true),
             generations: AtomicU64::new(0),
             state: Mutex::new(State::default()),
+            settled: broadcast::channel(64).0,
         })
+    }
+
+    /// Every call that ends from now on: answered, failed or abandoned.
+    pub fn settled(&self) -> broadcast::Receiver<ProxyCallSettled> {
+        self.settled.subscribe()
+    }
+
+    fn settle(&self, provider: String, outcome: CallOutcome, failure: Option<ProxyFailure>) {
+        // Nobody watching is no failure.
+        let _ = self.settled.send(ProxyCallSettled { provider, outcome, failure });
     }
 
     fn state(&self) -> MutexGuard<'_, State> {
@@ -158,12 +192,16 @@ impl ModelProxyRelay {
     /// The server gave these calls up (its link is gone, or its model login changed): stopped, forgotten and left
     /// unanswered. None of them reads or sends anything of this PC's from now on.
     pub fn abandon_all(&self) {
-        let mut state = self.state();
-        if let Some(beat) = state.beat.take() {
-            beat.abort();
-        }
-        for run in state.runs.drain(..) {
+        let abandoned: Vec<Run> = {
+            let mut state = self.state();
+            if let Some(beat) = state.beat.take() {
+                beat.abort();
+            }
+            state.runs.drain(..).collect()
+        };
+        for run in abandoned {
             run.cancel.cancel();
+            self.settle(run.provider, CallOutcome::Abandoned, None);
         }
     }
 
@@ -179,9 +217,16 @@ impl ModelProxyRelay {
         }
         let generation = self.generations.fetch_add(1, Ordering::SeqCst);
         let cancel = CancellationToken::new();
+        let provider = match &params.call {
+            ProxyCall::Send { provider, .. }
+            | ProxyCall::ListModels { provider, .. }
+            | ProxyCall::QuotaUsable { provider, .. }
+            | ProxyCall::ResolveWireRoute { provider, .. } => provider.clone(),
+            ProxyCall::ProviderConfig => String::new(),
+        };
         {
             let mut state = self.state();
-            state.runs.push(Run { id: id.clone(), generation, cancel: cancel.clone() });
+            state.runs.push(Run { id: id.clone(), generation, provider, cancel: cancel.clone() });
             if state.beat.is_none() {
                 state.beat = Some(self.start_beat());
             }
@@ -255,25 +300,40 @@ impl ModelProxyRelay {
         if !self.live(generation) {
             return;
         }
-        let answer = match outcome {
-            Ok(ProxyAnswer::Failed { failure }) => ServerRequestAnswer::Error {
-                code: FAILED_CODE,
-                message: failure.message.clone(),
-                data: serde_json::to_value(&failure).ok(),
-            },
+        let (answer, settled, failure) = match outcome {
+            Ok(ProxyAnswer::Failed { failure }) => (
+                ServerRequestAnswer::Error {
+                    code: FAILED_CODE,
+                    message: failure.message.clone(),
+                    data: serde_json::to_value(&failure).ok(),
+                },
+                CallOutcome::Failed,
+                Some(failure),
+            ),
             Ok(result) => match serde_json::to_value(ModelProxyResult { result }) {
-                Ok(value) => ServerRequestAnswer::Result(value),
-                Err(error) => ServerRequestAnswer::Error { code: FAILED_CODE, message: error.to_string(), data: None },
+                Ok(value) => (ServerRequestAnswer::Result(value), CallOutcome::Answered, None),
+                Err(error) => (
+                    ServerRequestAnswer::Error { code: FAILED_CODE, message: error.to_string(), data: None },
+                    CallOutcome::Failed,
+                    None,
+                ),
             },
-            Err(message) => ServerRequestAnswer::Error { code: FAILED_CODE, message, data: None },
+            Err(message) => (ServerRequestAnswer::Error { code: FAILED_CODE, message, data: None }, CallOutcome::Failed, None),
         };
         let _ = self.client.respond(id, answer).await;
-        let mut state = self.state();
-        state.runs.retain(|run| run.generation != generation);
-        if state.runs.is_empty() {
-            if let Some(beat) = state.beat.take() {
-                beat.abort();
+        let ended = {
+            let mut state = self.state();
+            let ended = state.runs.iter().position(|run| run.generation == generation).map(|at| state.runs.remove(at));
+            if state.runs.is_empty() {
+                if let Some(beat) = state.beat.take() {
+                    beat.abort();
+                }
             }
+            ended
+        };
+        // Abandoned while the answer was going out: settled as abandoned already.
+        if let Some(run) = ended {
+            self.settle(run.provider, settled, failure);
         }
     }
 }
