@@ -1,0 +1,98 @@
+# s1-dl-wire: the protocol rows of "download to this PC" (workspace service, mixdog-workspace service.rs `transfer/serverDownload/*`).
+# The desktop's main process calls them on this PC's core; a server window's renderer never does.
+
+[methods]
+Beside TransferBeginZip (after it; params and answers live in the new module v2/server_download.rs, see [type_edits]):
+
+    /// "Download to this PC", begin: stat the file `rel` of the server folder `root` through this PC's link to server `serverId`, refuse it when it is over the 2 GiB limit, and open a part file in `downloadsDir`. Answers the download, the plain name it will take and its size.
+    TransferServerDownloadBegin => "transfer/serverDownload/begin" {
+        params: v2::server_download::TransferServerDownloadBeginParams,
+        result: v2::server_download::TransferServerDownloadBeginResponse,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Moves one ranged read (at most 4 MiB) of a download into its part file; a download nobody steps for two minutes is discarded.
+    TransferServerDownloadStep => "transfer/serverDownload/step" {
+        params: v2::server_download::TransferServerDownloadIdParams,
+        result: v2::server_download::TransferServerDownloadStepResponse,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Publishes a complete download under the first free "name", "name (2)", ... in the download folder and answers its path; only a file fetched here may then be opened (`/check`).
+    TransferServerDownloadFinish => "transfer/serverDownload/finish" {
+        params: v2::server_download::TransferServerDownloadIdParams,
+        result: v2::server_download::TransferServerDownloadFinishResponse,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Cancels a download and removes its part file; answers `true` when there was one, `false` otherwise.
+    TransferServerDownloadAbort => "transfer/serverDownload/abort" {
+        params: v2::server_download::TransferServerDownloadIdParams,
+        result: JsonValue,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Whether `path` is a file this core finished downloading (a boolean): only such a file may be handed to the OS.
+    TransferServerDownloadCheck => "transfer/serverDownload/check" {
+        params: v2::server_download::TransferServerDownloadCheckParams,
+        result: JsonValue,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Local],
+    },
+
+[server_requests]
+# none
+
+[notifications]
+# none
+
+[inventory]
+# src/inventory.rs, beside the (InventoryList::Operations, "serverUploadAbort", ...) rows, these five operation names of the desktop's operation lane
+# (apps/desktop/src/shared/core-lanes/desktop-operation-route.ts routes them; the lane count asserted in
+# apps/desktop/src/main/protocol/desktop-operation-route.test.mjs `operations.length` goes 166 -> 171; regenerate schema/operations_map.json and tests/fixtures/parity-inventory.json):
+#     (InventoryList::Operations, "serverDownloadBegin", Target::Method("transfer/serverDownload/begin")),
+#     (InventoryList::Operations, "serverDownloadStep", Target::Method("transfer/serverDownload/step")),
+#     (InventoryList::Operations, "serverDownloadFinish", Target::Method("transfer/serverDownload/finish")),
+#     (InventoryList::Operations, "serverDownloadAbort", Target::Method("transfer/serverDownload/abort")),
+#     (InventoryList::Operations, "serverDownloadCheck", Target::Method("transfer/serverDownload/check")),
+# and the same five names with their params in the CASES table of desktop-operation-route.test.mjs:
+#     ['serverDownloadBegin', ['s1', '/dl', '/srv/p', 'a.bin'], 'transfer/serverDownload/begin', { serverId: 's1', downloadsDir: '/dl', root: '/srv/p', rel: 'a.bin' }],
+#     ['serverDownloadStep', ['d1'], 'transfer/serverDownload/step', { downloadId: 'd1' }],
+#     ['serverDownloadFinish', ['d1'], 'transfer/serverDownload/finish', { downloadId: 'd1' }],
+#     ['serverDownloadAbort', ['d1'], 'transfer/serverDownload/abort', { downloadId: 'd1' }],
+#     ['serverDownloadCheck', ['/dl/a.bin'], 'transfer/serverDownload/check', { path: '/dl/a.bin' }],
+
+[free_text]
+# none in src/free_text.rs: every string is a path or an id the service compares. tests/it/free_text_fields.json names them as refused when lone, in its sorted place:
+#     "request transfer/serverDownload/begin /serverId", "request transfer/serverDownload/begin /downloadsDir", "request transfer/serverDownload/begin /root",
+#     "request transfer/serverDownload/begin /rel", "request transfer/serverDownload/step /downloadId", "request transfer/serverDownload/finish /downloadId",
+#     "request transfer/serverDownload/abort /downloadId", "request transfer/serverDownload/check /path"
+# (the contract test lists every string field of every method; follow the neighbouring "request transfer/..." lines for the exact line form.)
+
+[type_edits]
+# 1. native/core/crates/mixdog-app-protocol/src/v2/mod.rs: beside `pub mod desktop_residual_b;` (any sorted place) add `pub mod server_download;`
+# 2. native/core/crates/mixdog-app-protocol/src/methods.rs: nothing (the rows above spell the path v2::server_download::...).
+# 3. NEW FILE native/core/crates/mixdog-app-protocol/src/v2/server_download.rs is created by this task (already in the tree).
+
+[remove]
+# none
+
+[window]
+# window_methods.json "methods" (sorted place, after "process/writeStdin" would put them out of order: insert in alphabetical order among the transfer/ names or at the end of the list as the file sorts): add
+#   transfer/serverDownload/abort, transfer/serverDownload/begin, transfer/serverDownload/check, transfer/serverDownload/finish, transfer/serverDownload/step
+# and the host-role list in src/boundary/window_scope.rs as for desktop/launchVersion/record.
+transfer/serverDownload/begin deny: only the desktop's main process downloads (it holds the window's server id and this PC's download folder); the renderer goes through its main-process handlers
+transfer/serverDownload/step deny: same
+transfer/serverDownload/finish deny: same
+transfer/serverDownload/abort deny: same
+transfer/serverDownload/check deny: same

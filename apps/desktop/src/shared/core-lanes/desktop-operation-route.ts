@@ -210,6 +210,12 @@ const OPERATION_ROUTES: Readonly<Record<string, Mapper>> = {
   serverUploadCommit: positional('transfer/commit', ['transferId']),
   serverUploadAbort: positional('transfer/abort', ['transferId']),
   serverTrashInfo: positional('transfer/trash/info', ['path']),
+  // "Download to this PC": this PC's core copies the server file through its own link to the server (the window's id).
+  serverDownloadBegin: positional('transfer/serverDownload/begin', ['serverId', 'downloadsDir', 'root', 'rel']),
+  serverDownloadStep: positional('transfer/serverDownload/step', ['downloadId']),
+  serverDownloadFinish: positional('transfer/serverDownload/finish', ['downloadId']),
+  serverDownloadAbort: positional('transfer/serverDownload/abort', ['downloadId']),
+  serverDownloadCheck: positional('transfer/serverDownload/check', ['path']),
 };
 
 /** Operations with a Rust op that the window serves over its own connection, so no operation call carries them. */
@@ -342,6 +348,7 @@ const SAME_REPLY: readonly string[] = [
   'remoteAccessRotate', 'remoteAccessRevokeClient', 'serverUploadCommit', 'serverTrashInfo',
   'replaceWorkspaceTextIn', 'projectRecoveryIn', 'lspDocument', 'lspRequest', 'remoteAccessResolveClaim',
   'remoteAccessPairCode', 'serverFileReadRange', 'serverTrashEntry',
+  'serverDownloadBegin', 'serverDownloadStep', 'serverDownloadFinish',
   'grantDescribe', 'grantRedeem', 'listProjectDirIn', 'createProjectEntryIn', 'renameProjectEntryIn',
   'moveProjectEntryIn', 'copyProjectEntryIn', 'localPageUrlIn', 'localPageOrigin', 'pcAccessReadiness',
   'pcAccessApprove',
@@ -385,6 +392,9 @@ const CUSTOM_REPLY: Readonly<Record<string, Reply>> = {
   }),
   // Node answered false for an unknown upload: the core says so with { aborted }.
   serverUploadAbort: (reply) => record(reply).aborted === true,
+  // The core answers a bare boolean: whether a download was cancelled, whether a path is a finished download.
+  serverDownloadAbort: (reply) => reply === true,
+  serverDownloadCheck: (reply) => reply === true,
   // Node: { uploadId, chunkBytes, maxBytes }.
   serverUploadBegin: (reply) => {
     const { uploadId, chunkBytes, maxBytes } = record(reply);

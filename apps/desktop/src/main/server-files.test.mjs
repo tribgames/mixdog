@@ -1,19 +1,6 @@
 // Server-window file lanes: uploads into the server's staging folder, ranged
 // previews and downloads, the server trash, and what stays gated.
 import assert from 'node:assert/strict';
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  utimesSync,
-  writeFileSync,
-} from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { setTimeout as delay } from 'node:timers/promises';
 import test from 'node:test';
 
 import { DESKTOP_IPC } from '../shared/contract.ts';
@@ -22,9 +9,9 @@ import { registerServerFileIpc } from './ipc-server-files.ts';
 import {
   createServerDownloads,
   createServerFilePreviews,
-  localDownloadName,
   ServerFileGrants,
   serverByteStream,
+  serverCoreInvoke,
   uploadServerBytes,
 } from './server-file-access.ts';
 async function stage(f, payload, name, scope) {
@@ -139,81 +126,78 @@ test('a preview refuses a server file size that is not a non-negative integer', 
   }
 });
 
-test('a download validates the server size and every chunk before writing', async (t) => {
-  const root = mkdtempSync(join(tmpdir(), 'mixdog-server-download-'));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
-  const downloadsDir = join(root, 'downloads');
-  for (const info of [
-    { size: -1, mtimeMs: 1 },
-    { size: 1.5, mtimeMs: 1 },
-    { size: Number.POSITIVE_INFINITY, mtimeMs: 1 },
-    { size: Number.NaN, mtimeMs: 1 },
-    { size: '10', mtimeMs: 1 },
-    { size: 10, mtimeMs: Number.NaN },
-    { size: 10 },
-    null,
-  ]) {
-    const server = hostile({ statProjectFileIn: info });
-    const downloads = createServerDownloads({ invoke: server.invoke, downloadsDir: () => downloadsDir });
-    await assert.rejects(downloads.begin('/srv', 'a.bin'), /invalid response/, JSON.stringify(info));
-  }
-  assert.equal(existsSync(downloadsDir), false, 'nothing is created for a bad size');
-  // Within the cap only; the cap is checked on the validated integer.
-  const huge = hostile({ statProjectFileIn: { size: 2 ** 40, mtimeMs: 1 } });
-  await assert.rejects(
-    createServerDownloads({ invoke: huge.invoke, downloadsDir: () => downloadsDir }).begin('/srv', 'a.bin'),
-    /download limit/
-  );
+function fakeCore(answers) {
+  const calls = [];
+  return {
+    calls,
+    core: { call: async (method, params) => (calls.push([method, params]), answers[method]?.(params)) },
+  };
+}
 
-  const cases = [
-    [(offset) => ({ data: bytes(11).toString('base64'), offset, size: 10, mtimeMs: 1 }), /longer than the 10 bytes/],
-    [(offset) => ({ data: bytes(4).toString('base64'), offset: offset + 1, size: 10, mtimeMs: 1 }), /offset 1, not 0/],
-    [(offset) => ({ data: bytes(4).toString('base64'), offset, size: -5, mtimeMs: 1 }), /the file size/],
-    [(offset) => ({ data: '', offset, size: 10, mtimeMs: 1 }), /changed while it was downloading/],
-    [
-      (offset) => ({ data: bytes(4).toString('base64'), offset, size: 11, mtimeMs: 1 }),
-      /changed while it was downloading/,
-    ],
-  ];
-  for (const [answer, error] of cases) {
-    const server = hostile({
-      statProjectFileIn: { size: 10, mtimeMs: 1 },
-      serverFileReadRange: (_r, _p, offset) => answer(offset),
-    });
-    const downloads = createServerDownloads({ invoke: server.invoke, downloadsDir: () => downloadsDir });
-    const begun = await downloads.begin('/srv', 'a.bin');
-    await assert.rejects(downloads.step(begun.downloadId), error);
-    await assert.rejects(downloads.step(begun.downloadId), /download is gone/);
-    assert.deepEqual(readdirSync(downloadsDir), [], 'the partial file is removed');
-  }
+test("a download is this PC's core's: the window's server id and this PC's download folder go with every begin", async () => {
+  const { core, calls } = fakeCore({
+    'transfer/serverDownload/begin': () => ({ downloadId: 'd1', name: 'a.bin', size: 10 }),
+    'transfer/serverDownload/step': () => ({ received: 10, size: 10, done: true }),
+    'transfer/serverDownload/finish': () => ({ path: '/dl/a.bin' }),
+    'transfer/serverDownload/abort': () => true,
+  });
+  const downloads = createServerDownloads({ core: serverCoreInvoke(core), serverId: 'srv-1', downloadsDir: () => '/dl' });
+  assert.deepEqual(await downloads.begin('/srv', 'x/a.bin'), { downloadId: 'd1', name: 'a.bin', size: 10 });
+  assert.deepEqual(await downloads.step('d1'), { received: 10, size: 10, done: true });
+  assert.deepEqual(await downloads.finish('d1'), { path: '/dl/a.bin' });
+  assert.equal(await downloads.abort('d1'), true);
+  assert.deepEqual(calls, [
+    ['transfer/serverDownload/begin', { serverId: 'srv-1', downloadsDir: '/dl', root: '/srv', rel: 'x/a.bin' }],
+    ['transfer/serverDownload/step', { downloadId: 'd1' }],
+    ['transfer/serverDownload/finish', { downloadId: 'd1' }],
+    ['transfer/serverDownload/abort', { downloadId: 'd1' }],
+  ]);
 });
 
-test('a download name from a server path can never leave the download folder', async (t) => {
-  for (const [name, expected] of [
-    ['..', 'download'],
-    ['.', 'download'],
-    ['../../evil.sh', '_.._evil.sh'],
-    ['..\\..\\evil.bat', '_.._evil.bat'],
-    ['C:\\Windows\\x.dll', 'C_Windows_x.dll'],
-    ['.bashrc', 'bashrc'],
-    ['CON', '_CON'],
-    ['nul.txt', '_nul.txt'],
-    ['report.pdf', 'report.pdf'],
-  ]) {
-    assert.equal(localDownloadName(name), expected, name);
-  }
-  const root = mkdtempSync(join(tmpdir(), 'mixdog-server-download-'));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
-  const downloadsDir = join(root, 'downloads');
-  const server = hostile({
-    statProjectFileIn: { size: 3, mtimeMs: 1 },
-    serverFileReadRange: (_r, _p, offset) => ({ data: bytes(3).toString('base64'), offset, size: 3, mtimeMs: 1 }),
+test('a download the core refuses, or answers wrongly, is an error and holds nothing', async () => {
+  const refused = fakeCore({
+    'transfer/serverDownload/begin': () => {
+      throw new Error('This SSH server is not connected. Connect it from the SSH server dialog.');
+    },
   });
-  const downloads = createServerDownloads({ invoke: server.invoke, downloadsDir: () => downloadsDir });
-  const begun = await downloads.begin('/srv', '..\\..\\evil.bat');
-  while (!(await downloads.step(begun.downloadId)).done);
-  assert.equal((await downloads.finish(begun.downloadId)).path, join(downloadsDir, '_.._evil.bat'));
-  assert.deepEqual(readdirSync(root), ['downloads']);
+  const downloads = createServerDownloads({ core: serverCoreInvoke(refused.core), serverId: 'srv-1', downloadsDir: () => '/dl' });
+  await assert.rejects(downloads.begin('/srv', 'a'), /not connected/);
+  for (const answer of [null, 'x', { downloadId: 1, name: 'a', size: 1 }, { downloadId: 'd', name: 'a' }]) {
+    const wrong = fakeCore({ 'transfer/serverDownload/begin': () => answer });
+    const guarded = createServerDownloads({ core: serverCoreInvoke(wrong.core), serverId: 's', downloadsDir: () => '/dl' });
+    await assert.rejects(guarded.begin('/srv', 'a'), TypeError, JSON.stringify(answer));
+    await guarded.dispose();
+    assert.deepEqual(wrong.calls.map(([method]) => method), ['transfer/serverDownload/begin']);
+  }
+  await assert.rejects(
+    createServerDownloads({ core: serverCoreInvoke(null), serverId: 's', downloadsDir: () => '/dl' }).begin('/srv', 'a'),
+    /not available/
+  );
+});
+
+test('closing the window cancels the downloads still open and only those', async () => {
+  let next = 0;
+  const { core, calls } = fakeCore({
+    'transfer/serverDownload/begin': () => ({ downloadId: `d${++next}`, name: 'a', size: 1 }),
+    'transfer/serverDownload/finish': () => ({ path: '/dl/a' }),
+    'transfer/serverDownload/abort': () => true,
+  });
+  const downloads = createServerDownloads({ core: serverCoreInvoke(core), serverId: 's', downloadsDir: () => '/dl' });
+  await downloads.begin('/srv', 'a');
+  await downloads.begin('/srv', 'b');
+  await downloads.finish('d1');
+  calls.length = 0;
+  await downloads.dispose();
+  assert.deepEqual(calls, [['transfer/serverDownload/abort', { downloadId: 'd2' }]]);
+});
+
+test('only a file the core finished downloading may be opened', async () => {
+  const { core, calls } = fakeCore({ 'transfer/serverDownload/check': ({ path }) => path === '/dl/a.bin' });
+  const downloads = createServerDownloads({ core: serverCoreInvoke(core), serverId: 's', downloadsDir: () => '/dl' });
+  assert.equal(await downloads.requireDownloaded('/dl/a.bin'), '/dl/a.bin');
+  await assert.rejects(downloads.requireDownloaded('/dl/other.bin'), /Only a file downloaded from the server/);
+  await assert.rejects(downloads.requireDownloaded(42), /Only a file downloaded from the server/);
+  assert.equal(calls.length, 2, 'a value that is no path is refused without asking');
 });
 
 test('described server entries take their name from the path and validated metadata', async () => {

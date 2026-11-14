@@ -57,6 +57,9 @@ use crate::recovery::Action;
 use crate::recovery::RecoveryStore;
 use crate::search::SearchSessions;
 use crate::search::SessionConfig;
+use crate::serverdownload::RemoteFileReader;
+use crate::serverdownload::SERVER_DOWNLOAD_MAX_BYTES;
+use crate::serverdownload::ServerDownloads;
 use crate::textsearch::TextQuery;
 use crate::transfer::Owner;
 use crate::transfer::Transfers;
@@ -212,6 +215,12 @@ pub trait CodeGraph: Send + Sync + 'static {
     async fn query(&self, cwd: &Path, args: Value, cancel: &tokio_util::sync::CancellationToken) -> WsResult<String>;
 }
 
+/// The links to the servers this PC is connected to, as far as a download to this PC needs them: the reader of one server's
+/// files (`None` when no link to it is held).
+pub trait RemoteFileReaders: Send + Sync {
+    fn reader(&self, server_id: &str) -> Option<Arc<dyn RemoteFileReader>>;
+}
+
 struct Owned {
     connection: String,
     publisher: Arc<Publisher>,
@@ -288,6 +297,9 @@ pub struct WorkspaceService {
     /// Where a path inside a managed worktree is resolved to its owner Project (see [`ManagedProjects`]).
     managed: OnceLock<Arc<dyn ManagedProjects>>,
     releases: Arc<crate::release::FolderReleases>,
+    /// "Download to this PC" of a server window's files (`transfer/serverDownload/*`); the bytes come through [`Self::set_remote_files`].
+    server_downloads: Arc<ServerDownloads>,
+    remote_files: OnceLock<Arc<dyn RemoteFileReaders>>,
 }
 
 /// Node's `resolveManagedWorktree`, which the worktree manager owns: the registered Project that owns the ready managed
@@ -419,6 +431,8 @@ impl WorkspaceService {
             user_markdown_view: OnceLock::new(),
             managed: OnceLock::new(),
             releases: deps.releases,
+            server_downloads: ServerDownloads::new(SERVER_DOWNLOAD_MAX_BYTES, deps.lanes),
+            remote_files: OnceLock::new(),
         });
         let _ = service.me.set(Arc::downgrade(&service));
         Ok(service)
@@ -481,6 +495,12 @@ impl WorkspaceService {
     /// registered Project's own path is accepted. Set once.
     pub fn set_managed_projects(&self, managed: Arc<dyn ManagedProjects>) {
         let _ = self.managed.set(managed);
+    }
+
+    /// Connects the links to the servers, the source of the files `transfer/serverDownload/begin` copies. Without it every
+    /// begin answers that the server is not connected. Set once.
+    pub fn set_remote_files(&self, readers: Arc<dyn RemoteFileReaders>) {
+        let _ = self.remote_files.set(readers);
     }
 
     /// `projectDirectory`: the managed worktree's folder, else the Project's real path. `owner` asks for the Project's real path even for
@@ -1481,6 +1501,23 @@ impl WorkspaceService {
                 value(json!({ "size": size, "absolutePath": path.to_string_lossy(), "name": name, "dir": false }))
             }
             "transfer/abort" => value(json!({ "aborted": self.transfers.abort(&Self::owner(req), s(params, "transferId")?) })),
+            "transfer/serverDownload/begin" => {
+                let not_connected = || WsError::plain("This SSH server is not connected. Connect it from the SSH server dialog.");
+                let server = s(params, "serverId")?;
+                let reader = self.remote_files.get().and_then(|links| links.reader(server)).ok_or_else(not_connected)?;
+                let begun = self.server_downloads.begin(reader, Path::new(s(params, "downloadsDir")?), s(params, "root")?, s(params, "rel")?).await?;
+                value(json!({ "downloadId": begun.download_id, "name": begun.name, "size": begun.size }))
+            }
+            "transfer/serverDownload/step" => {
+                let stepped = self.server_downloads.step(s(params, "downloadId")?).await?;
+                value(json!({ "received": stepped.received, "size": stepped.size, "done": stepped.done }))
+            }
+            "transfer/serverDownload/finish" => {
+                let path = self.server_downloads.finish(s(params, "downloadId")?).await?;
+                value(json!({ "path": path.to_string_lossy() }))
+            }
+            "transfer/serverDownload/abort" => value(json!(self.server_downloads.abort(s(params, "downloadId")?))),
+            "transfer/serverDownload/check" => value(json!(self.server_downloads.was_downloaded(Path::new(s(params, "path")?)))),
             "transfer/trash/info" => {
                 // `serverTrashInfo` is handed `projectDirectory` of a registered project (ipc-server-files.ts:132), whatever the
                 // connection: a path that names none is the registry's refusal, and a relative one is read by the registry's rule.
@@ -1860,6 +1897,11 @@ impl DomainService for WorkspaceService {
             "transfer/writeChunk",
             "transfer/commit",
             "transfer/abort",
+            "transfer/serverDownload/begin",
+            "transfer/serverDownload/step",
+            "transfer/serverDownload/finish",
+            "transfer/serverDownload/abort",
+            "transfer/serverDownload/check",
             "transfer/trash/info",
             "transfer/trash/entry",
             "transfer/grant/mint",
@@ -1872,5 +1914,149 @@ impl DomainService for WorkspaceService {
 
     fn notify(&self, _method: Method, _params: Value, _from: ConnectionId) -> Admit {
         Admit::Accepted
+    }
+}
+
+#[cfg(test)]
+mod serverdownload_calls {
+    use std::collections::HashMap;
+
+    use base64::Engine;
+    use mixdog_core_api::call::CallContext;
+    use mixdog_core_api::domain::mock::MockProcessManager;
+    use mixdog_core_api::mock::MockLimits;
+    use mixdog_core_api::mock::MockScopedFeeds;
+
+    use super::*;
+
+    struct NoGit;
+
+    #[async_trait]
+    impl crate::zip::TrackedFiles for NoGit {
+        async fn files(&self, _: &Path, _: &CancellationToken) -> Option<Vec<String>> {
+            None
+        }
+        async fn ignored(&self, _: &Path, _: &CancellationToken) -> Option<u64> {
+            None
+        }
+    }
+
+    struct Server(Vec<u8>);
+
+    #[async_trait]
+    impl RemoteFileReader for Server {
+        async fn stat(&self, _: &str, _: &str) -> WsResult<Value> {
+            Ok(json!({ "size": self.0.len(), "mtimeMs": 1700.5 }))
+        }
+        async fn read_range(&self, _: &str, _: &str, offset: u64, length: u64) -> WsResult<Value> {
+            let start = (offset as usize).min(self.0.len());
+            let end = (start + length as usize).min(self.0.len());
+            Ok(json!({
+                "offset": offset,
+                "size": self.0.len(),
+                "mtimeMs": 1700.5,
+                "data": base64::engine::general_purpose::STANDARD.encode(&self.0[start..end]),
+            }))
+        }
+    }
+
+    struct Links(HashMap<String, Vec<u8>>);
+
+    impl RemoteFileReaders for Links {
+        fn reader(&self, server_id: &str) -> Option<Arc<dyn RemoteFileReader>> {
+            self.0.get(server_id).map(|bytes| Arc::new(Server(bytes.clone())) as Arc<dyn RemoteFileReader>)
+        }
+    }
+
+    fn service(dir: &Path) -> Arc<WorkspaceService> {
+        let tokens = mixdog_rt::testing::tokens();
+        let (state, _) = mixdog_store::state::CoreState::open(tokens.sqlite_writer_thread, tokens.interactive_io, &dir.join("core.sqlite")).unwrap();
+        WorkspaceService::new(Deps {
+            lanes: Lanes { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io, cpu_bulk: tokens.cpu_bulk },
+            feeds: Arc::new(MockScopedFeeds::new(MockLimits::default())),
+            processes: Arc::new(MockProcessManager::default()),
+            tracked: Arc::new(NoGit),
+            state,
+            recovery_dir: dir.join("recovery"),
+            user_data_dir: dir.join("userData"),
+            sources: Vec::new(),
+            code_graph: None,
+            turn_review: None,
+            releases: crate::release::FolderReleases::new(),
+        })
+        .unwrap()
+    }
+
+    async fn call(service: &WorkspaceService, method: &'static str, params: Value) -> Result<Value, CoreError> {
+        let ctx = CallContext::connection(ConnectionId(2), mixdog_protocol::Origin::Local, CancellationToken::new());
+        match service.call(CoreRequest { method: Method(method), params, op: None, ctx }).await? {
+            Reply::Value(value) => Ok(value),
+            Reply::Subscribe(_) => panic!("unexpected subscribe"),
+        }
+    }
+
+    fn begin_params(downloads: &Path, server: &str, rel: &str) -> Value {
+        json!({ "serverId": server, "downloadsDir": downloads.to_string_lossy(), "root": "/srv", "rel": rel })
+    }
+
+    fn parts(dir: &Path) -> usize {
+        std::fs::read_dir(dir).map_or(0, |rows| rows.filter(|row| row.as_ref().unwrap().file_name().to_string_lossy().ends_with(".part")).count())
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_server_that_is_not_linked_is_not_connected() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = service(dir.path());
+        let downloads = dir.path().join("downloads");
+        let refused = |error: CoreError| format!("{error:?}").contains("This SSH server is not connected");
+        assert!(refused(call(&service, "transfer/serverDownload/begin", begin_params(&downloads, "s1", "a.txt")).await.unwrap_err()));
+        service.set_remote_files(Arc::new(Links(HashMap::new())));
+        assert!(refused(call(&service, "transfer/serverDownload/begin", begin_params(&downloads, "s1", "a.txt")).await.unwrap_err()));
+        assert!(!downloads.exists());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_download_runs_to_this_pcs_folder_under_a_free_name_and_may_then_be_opened() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = service(dir.path());
+        service.set_remote_files(Arc::new(Links(HashMap::from([("s1".to_owned(), b"0123456789".to_vec())]))));
+        let downloads = dir.path().join("downloads");
+        let mut paths = Vec::new();
+        for _ in 0..2 {
+            let begun = call(&service, "transfer/serverDownload/begin", begin_params(&downloads, "s1", "a/report.txt")).await.unwrap();
+            assert_eq!((begun["name"].as_str(), begun["size"].as_u64()), (Some("report.txt"), Some(10)));
+            let id = begun["downloadId"].as_str().unwrap().to_owned();
+            let stepped = call(&service, "transfer/serverDownload/step", json!({ "downloadId": id })).await.unwrap();
+            assert_eq!((stepped["received"].as_u64(), stepped["size"].as_u64(), stepped["done"].as_bool()), (Some(10), Some(10), Some(true)));
+            let finished = call(&service, "transfer/serverDownload/finish", json!({ "downloadId": id })).await.unwrap();
+            paths.push(finished["path"].as_str().unwrap().to_owned());
+        }
+        assert_eq!(paths[0], downloads.join("report.txt").to_string_lossy());
+        assert_eq!(paths[1], downloads.join("report (2).txt").to_string_lossy());
+        assert_eq!(std::fs::read(&paths[1]).unwrap(), b"0123456789");
+        assert_eq!(parts(&downloads), 0);
+        assert_eq!(call(&service, "transfer/serverDownload/check", json!({ "path": paths[0] })).await.unwrap(), json!(true));
+        let other = downloads.join("other.txt").to_string_lossy().into_owned();
+        assert_eq!(call(&service, "transfer/serverDownload/check", json!({ "path": other })).await.unwrap(), json!(false));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn an_aborted_download_leaves_no_part_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = service(dir.path());
+        service.set_remote_files(Arc::new(Links(HashMap::from([("s1".to_owned(), b"abc".to_vec())]))));
+        let downloads = dir.path().join("downloads");
+        let begun = call(&service, "transfer/serverDownload/begin", begin_params(&downloads, "s1", "x.bin")).await.unwrap();
+        let id = begun["downloadId"].as_str().unwrap();
+        assert_eq!(parts(&downloads), 1);
+        assert_eq!(call(&service, "transfer/serverDownload/abort", json!({ "downloadId": id })).await.unwrap(), json!(true));
+        assert_eq!(call(&service, "transfer/serverDownload/abort", json!({ "downloadId": id })).await.unwrap(), json!(false));
+        for _ in 0..100 {
+            if parts(&downloads) == 0 {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        panic!("the part file is still there");
     }
 }

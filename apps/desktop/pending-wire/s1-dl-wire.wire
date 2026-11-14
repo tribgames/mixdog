@@ -1,0 +1,27 @@
+# s1-dl-wire (desktop half): a server window's downloads are this PC's core's. server-file-access.ts createServerFiles now takes
+# `core` (an operation of this PC's core) and `serverId` (the window's connection id, which names the core's link to the server);
+# until these two hot-file edits are applied apps/desktop `tsc -p tsconfig.node.json` fails at ipc.ts (createServerFiles call).
+
+## apps/desktop/src/main/index.ts, installWindowIpc: the registerDesktopIpc(window, connection.client, { ... }) options
+Beside `connectionKind: connection.kind,` add:
+    serverId: connection.id,
+
+## apps/desktop/src/main/ipc.ts
+1. import: `import { createServerFiles, uploadServerBytes } from './server-file-access';` becomes
+   `import { createServerFiles, serverCoreInvoke, uploadServerBytes } from './server-file-access';`
+2. DesktopIpcDependencies, beside `connectionKind?: ConnectionKind;`:
+     /** The window's connection id (a server window's: the id of this PC's link to the server, which its downloads go through). */
+     serverId?: string;
+3. registerDesktopIpc destructuring: after `connectionKind = 'local',` add `serverId,`.
+4. The `server` constant (connectionKind === 'ssh'): createServerFiles({...}) gets two more options, after `invoke: invokeDesktopOperation,`:
+          core: serverCoreInvoke(pcCore ?? protocol),
+          serverId: serverId ?? '',
+   (an ssh window always has its id from index.ts; `pcCore` is this PC's core connection for a server window, `localProtocol` in index.ts.)
+   Nothing else in ipc.ts changes: registerServerFileIpc keeps its options (ipc-server-files.ts reads server.downloads).
+
+## Tests that follow the protocol rows (PROTO-WIRE; see pending-rows/s1-dl-wire.rows [inventory])
+apps/desktop/src/main/protocol/desktop-operation-route.test.mjs: `operations.length` 166 -> 171 and the five CASES rows listed there. Until the
+inventory rows land, 'the routed operations are the spec map targets with params the Rust schema declares' fails (it holds the routed names to the map).
+
+## Not changed here (not mine): shared/server-files.ts keeps SERVER_DOWNLOAD_MAX_BYTES, no TypeScript reader remains (the 2 GiB limit is the core's
+SERVER_DOWNLOAD_MAX_BYTES in mixdog-workspace serverdownload.rs); delete the constant with the next edit of that file if no caller appears.

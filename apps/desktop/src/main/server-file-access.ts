@@ -1,27 +1,42 @@
 // A server (ssh) window's file access, on THIS PC's side of the connection.
 // Its paths are POSIX paths on the server: nothing here touches this PC's
-// filesystem except a download the user explicitly asked for. Bytes cross the
-// window's own session connection through the daemon's server-file operations
-// (server-file-operations.ts), never through a second ssh/scp channel.
+// filesystem. Upload and preview bytes cross the window's own session
+// connection through the daemon's server-file operations, never through a
+// second ssh/scp channel; a download the user asked for is this PC's core's
+// (`transfer/serverDownload/*`) and lands in the download folder.
 import { randomUUID } from 'node:crypto';
-import { link, mkdir, open, rm, type FileHandle } from 'node:fs/promises';
-import { dirname, extname, join, posix, resolve } from 'node:path';
+import { posix } from 'node:path';
 
 import { mediaResponsePlan } from '../../../relay/lib/media-http.mjs';
 import type { DesktopLocalPathEntry } from '../shared/contract';
-import { SERVER_DOWNLOAD_MAX_BYTES, SERVER_UPLOAD_CHUNK_BYTES, SERVER_UPLOAD_MAX_BYTES } from '../shared/server-files';
+import { SERVER_UPLOAD_CHUNK_BYTES, SERVER_UPLOAD_MAX_BYTES } from '../shared/server-files';
 import { filePreviewTypeForPath, type DesktopFilePreviewKind } from '../shared/file-preview';
 import { FILE_PREVIEW_SCHEME } from './file-preview';
 import { requiredString } from './ipc-validation';
 import { SELECTED_FILE_GRANT_UNAVAILABLE } from '../shared/file-error-codes';
 import { LocalAccessDeniedError } from './local-access-denied';
+import { coreErrorForWindow } from '../shared/core-lanes/core-error';
+import { routeDesktopOperation } from '../shared/core-lanes/desktop-operation-route';
 
 export type ServerInvoke = <T>(method: string, args: unknown[]) => Promise<T>;
 
+/** A desktop operation of this PC's core (the downloads' `serverDownload*`), over the connection to it. */
+export function serverCoreInvoke(
+  pcCore: { call(method: string, params: unknown): Promise<unknown> } | null | undefined
+): ServerInvoke {
+  return async <T>(name: string, args: unknown[]) => {
+    if (!pcCore) throw new Error('The core connection is not available.');
+    const { method, params } = routeDesktopOperation(name, args);
+    // The core's refusal reaches the window as the operation lane hands it over (its message, its public code).
+    return (await pcCore.call(method, params).catch((error: unknown) => {
+      throw coreErrorForWindow(error);
+    })) as T;
+  };
+}
+
 /** Raw bytes per ranged read (the daemon's own ceiling). */
 const SERVER_READ_CHUNK_BYTES = 4 * 1024 * 1024;
-export { SERVER_DOWNLOAD_MAX_BYTES, SERVER_UPLOAD_CHUNK_BYTES };
-const DOWNLOAD_IDLE_MS = 2 * 60 * 1000;
+export { SERVER_UPLOAD_CHUNK_BYTES };
 const MAX_GRANTS = 1_000;
 const MAX_PREVIEWS = 256;
 
@@ -445,176 +460,75 @@ export async function uploadServerBytes(
   }
 }
 
-interface Download {
-  id: string;
-  root: string;
-  rel: string;
-  name: string;
-  size: number;
-  mtimeMs: number;
-  received: number;
-  dir: string;
-  temp: string;
-  handle: FileHandle;
-  busy: boolean;
-  timer: NodeJS.Timeout | null;
-}
-
-/** A plain file name this PC's filesystem accepts: no separators, no
- *  traversal, no Windows device names. */
-export function localDownloadName(name: string): string {
-  const clean = name
-    // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what is stripped.
-    .replace(/[\u0000-\u001f<>:"/\\|?*]+/g, '_')
-    .replace(/[\s.]+$/g, '')
-    .replace(/^\.+/, '')
-    .slice(0, 200)
-    .replace(/[\s.]+$/g, '');
-  if (!clean) return 'download';
-  return /^(?:con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])(?:\.|$)/i.test(clean) ? `_${clean}` : clean;
-}
-
-/** `name` inside `dir`, refusing anything that would land elsewhere. */
-function downloadTarget(dir: string, name: string): string {
-  const target = resolve(dir, name);
-  if (dirname(target) !== resolve(dir)) throw new Error('The download name leaves the download folder.');
-  return target;
-}
-
-/** "Download to this PC": a stepwise, cancellable copy of one server file into
- *  this PC's download folder. Each step moves one ranged read, so the renderer
- *  owns progress and cancel. Only files fetched here may then be opened. */
+/** "Download to this PC" of one server window: the stepwise, cancellable copy of a server file into this PC's download
+ *  folder is this PC's core (`transfer/serverDownload/*`, over its own link to the server `serverId`); this holds the
+ *  window's downloads so that closing the window cancels them. Only files the core fetched may then be opened. */
 export function createServerDownloads({
-  invoke,
+  core,
+  serverId,
   downloadsDir,
-  maxBytes = SERVER_DOWNLOAD_MAX_BYTES,
-  idleMs = DOWNLOAD_IDLE_MS,
 }: {
-  invoke: ServerInvoke;
+  /** An operation of this PC's core (not the window's own connection, which is the server's). */
+  core: ServerInvoke;
+  /** The id of the window's connection, which names this PC's link to the server. */
+  serverId: string;
   downloadsDir: () => string;
-  maxBytes?: number;
-  idleMs?: number;
 }) {
-  const downloads = new Map<string, Download>();
-  const finished = new Set<string>();
-
-  const discard = async (download: Download): Promise<void> => {
-    downloads.delete(download.id);
-    if (download.timer) clearTimeout(download.timer);
-    await download.handle.close().catch(() => {});
-    await rm(download.temp, { force: true });
+  const unfinished = new Set<string>();
+  const answer = (value: unknown, what: string): Record<string, unknown> => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError(`The core sent no ${what}.`);
+    return value as Record<string, unknown>;
   };
-  const arm = (download: Download): void => {
-    if (download.timer) clearTimeout(download.timer);
-    download.timer = setTimeout(() => void discard(download).catch(() => {}), idleMs);
-    download.timer.unref?.();
-  };
-  const required = (id: unknown): Download => {
-    const download = downloads.get(typeof id === 'string' ? id : '');
-    if (!download) throw new Error('The download is gone: it was cancelled or sat idle too long.');
-    return download;
+  const required = (id: unknown): string => {
+    if (typeof id !== 'string' || !id) throw new TypeError('downloadId is invalid.');
+    return id;
   };
 
   return {
-    async begin(root: string, rel: string) {
-      const info = serverFileStat(await invoke<unknown>('statProjectFileIn', [root, rel]));
-      if (info.size > maxBytes) {
-        throw new Error(`The file is larger than the ${Math.round(maxBytes / 1024 / 1024)} MB download limit.`);
+    async begin(root: string, rel: string): Promise<{ downloadId: string; name: string; size: number }> {
+      const { downloadId, name, size } = answer(
+        await core('serverDownloadBegin', [serverId, downloadsDir(), root, rel]),
+        'download'
+      );
+      if (typeof downloadId !== 'string' || typeof name !== 'string' || typeof size !== 'number') {
+        throw new TypeError('The core sent an invalid download.');
       }
-      const dir = downloadsDir();
-      if (!dir) throw new Error('This PC has no download folder.');
-      await mkdir(dir, { recursive: true });
-      const id = randomUUID();
-      const temp = join(dir, `.mixdog-${id}.part`);
-      const handle = await open(temp, 'wx');
-      const download: Download = {
-        id,
-        root,
-        rel,
-        name: localDownloadName(posix.basename(rel)),
-        size: info.size,
-        mtimeMs: info.mtimeMs,
-        received: 0,
-        dir,
-        temp,
-        handle,
-        busy: false,
-        timer: null,
-      };
-      downloads.set(id, download);
-      arm(download);
-      return { downloadId: id, name: download.name, size: download.size };
+      unfinished.add(downloadId);
+      return { downloadId, name, size };
     },
-    async step(id: unknown) {
-      const download = required(id);
-      if (download.busy) throw new Error('The download is already reading.');
-      if (download.received >= download.size) return { received: download.received, size: download.size, done: true };
-      download.busy = true;
-      try {
-        const requested = Math.min(SERVER_READ_CHUNK_BYTES, download.size - download.received);
-        const chunk = serverReadRange(
-          await invoke<unknown>('serverFileReadRange', [download.root, download.rel, download.received, requested]),
-          download.received,
-          requested
-        );
-        const { bytes } = chunk;
-        if (chunk.size !== download.size || chunk.mtimeMs !== download.mtimeMs || !bytes.length) {
-          throw new Error('The server file changed while it was downloading.');
-        }
-        await download.handle.write(bytes, 0, bytes.length, download.received);
-        download.received += bytes.length;
-      } catch (error) {
-        await discard(download);
-        throw error;
-      } finally {
-        download.busy = false;
+    async step(id: unknown): Promise<{ received: number; size: number; done: boolean }> {
+      const { received, size, done } = answer(await core('serverDownloadStep', [required(id)]), 'download step');
+      if (typeof received !== 'number' || typeof size !== 'number' || typeof done !== 'boolean') {
+        throw new TypeError('The core sent an invalid download step.');
       }
-      arm(download);
-      return { received: download.received, size: download.size, done: download.received >= download.size };
+      return { received, size, done };
     },
     async finish(id: unknown): Promise<{ path: string }> {
-      const download = required(id);
-      if (download.busy || download.received !== download.size) throw new Error('The download is incomplete.');
-      downloads.delete(download.id);
-      if (download.timer) clearTimeout(download.timer);
-      try {
-        await download.handle.close();
-        const extension = extname(download.name);
-        const stem = extension ? download.name.slice(0, -extension.length) : download.name;
-        for (let attempt = 1; attempt < 1000; attempt += 1) {
-          const candidate = downloadTarget(
-            download.dir,
-            attempt === 1 ? download.name : `${stem} (${attempt})${extension}`
-          );
-          try {
-            await link(download.temp, candidate);
-          } catch (error) {
-            if ((error as NodeJS.ErrnoException).code === 'EEXIST') continue;
-            throw error;
-          }
-          finished.add(candidate);
-          return { path: candidate };
-        }
-        throw new Error('Too many downloads with this name.');
-      } finally {
-        await rm(download.temp, { force: true });
-      }
+      const downloadId = required(id);
+      const { path } = answer(await core('serverDownloadFinish', [downloadId]), 'download path');
+      unfinished.delete(downloadId);
+      if (typeof path !== 'string') throw new TypeError('The core sent an invalid download path.');
+      return { path };
     },
     async abort(id: unknown): Promise<boolean> {
-      const download = downloads.get(typeof id === 'string' ? id : '');
-      if (!download) return false;
-      await discard(download);
-      return true;
+      // An id that is no string names no download.
+      if (typeof id !== 'string' || !id) return false;
+      const downloadId = id;
+      unfinished.delete(downloadId);
+      return (await core('serverDownloadAbort', [downloadId])) === true;
     },
-    /** Only a file this window downloaded may be handed to the OS. */
-    requireDownloaded(path: unknown): string {
+    /** Only a file this PC's core downloaded from the server may be handed to the OS. */
+    async requireDownloaded(path: unknown): Promise<string> {
       const file = typeof path === 'string' ? path : '';
-      if (!finished.has(file))
+      if (!file || (await core('serverDownloadCheck', [file])) !== true) {
         throw new LocalAccessDeniedError('Only a file downloaded from the server can be opened.');
+      }
       return file;
     },
     async dispose(): Promise<void> {
-      await Promise.all([...downloads.values()].map((download) => discard(download).catch(() => {})));
+      const pending = [...unfinished];
+      unfinished.clear();
+      await Promise.all(pending.map((id) => core('serverDownloadAbort', [id]).catch(() => {})));
     },
   };
 }
@@ -628,11 +542,17 @@ export interface ServerFiles {
 
 export function createServerFiles({
   invoke,
+  core,
+  serverId,
   listProjects,
   session,
   downloadsDir,
 }: {
   invoke: ServerInvoke;
+  /** An operation of this PC's core, which does the downloads (see createServerDownloads). */
+  core: ServerInvoke;
+  /** The window's connection id. */
+  serverId: string;
   listProjects: () => Promise<Array<{ path: string }>>;
   /** Read only when the first preview registers (the window's partition). */
   session: () => ProtocolSession;
@@ -647,7 +567,7 @@ export function createServerFiles({
     handle: (request) => (previews ? previews.handle(request) : Promise.resolve(textResponse(404, 'Not found.'))),
     dispose: () => previews?.dispose(),
   };
-  const downloads = createServerDownloads({ invoke, downloadsDir });
+  const downloads = createServerDownloads({ core, serverId, downloadsDir });
   return {
     grants: new ServerFileGrants(invoke, listProjects),
     previews: lazyPreviews,
