@@ -1,0 +1,37 @@
+# s2b-reattach-notifier -> CORE-WIRE-G7
+
+## native/core/crates/mixdog-connections/Cargo.toml
+
+lib.rs already declares `pub mod reattach;` and `pub mod notifier;` (nothing to add there; the test module of notifier.rs is declared inside it
+through `#[path = "notifier_tests.rs"]`).
+
+Two new dependency edges, in `[dependencies]` after `mixdog-statefile = { workspace = true }`:
+
+    mixdog-core-domains = { workspace = true }
+    mixdog-services = { workspace = true }
+
+- `mixdog-core-domains`: `notify::decision::{decide, DecisionInput, Conversation, SessionFields, PreferencesView, LocalClock, Event, Origin,
+  allows_device_notice}` (the one notification rule) and `notify::preview::notification_preview`.
+- `mixdog-services`: `bots::routine::is_routine_quiet_reply` (the routine quiet sentinel, so a quiet routine reply is not told) and
+  `task_reports::chain::sessions_with_pending_work` (the Lead sessions still waiting on their agents).
+- No cycle: no crate depends on mixdog-connections yet (the daemon wiring of s2b-service is the first). Cargo.lock: the `mixdog-connections`
+  package entry gains `"mixdog-core-domains"` and `"mixdog-services"` in its dependency list (alphabetical), via `cargo update --workspace --offline`.
+  mixdog-workspace-hack needs nothing (no new external crate or feature: tokio features rt/sync/macros/time are already enabled).
+  The tests use the existing dev-dependencies (tokio with test-util, mixdog-protocol through [dependencies]).
+
+## SERVICE_PENDING (compose_flip.rs)
+The notifier serves no protocol method; nothing to remove.
+
+## For the daemon wiring (s2b-service, CORE-WIRE-G9)
+When a link attaches (`LinkPool::on_attach()`, and again for the replacement `Arc<ServerLink>` after a version refusal), the service holds, per link:
+- `ReattachReport::attach(&link)`: writes `ConnectionNotice::Reattached` / `OutcomeUnknown` to `link.notices()`.
+- `ServerNotifier::attach(&link, sink, prefs, focus, texts)`; drop the value when the link is closed or replaced. Adapters (one of each per daemon):
+  - `NotifySink`: `supported()` is the host's `notificationStatus.supported`; `show` sends `host/notification/show` to the host claimant
+    (`host.notify(HostCapability::Notifications, Method("host/notification/show"), params)`). Sound and volume are left `None` by the notifier:
+    the adapter fills them from the same `ToastStyleReader` the `notify` domain uses, so a server toast sounds like this PC's own.
+  - `NotifyPrefs`: `view()` is the `PreferencesView` the `notify` domain's `AudienceSource` reads for this PC (`Audience::pc`).
+  - `WindowFocusSource`: reads the `windowFocus` value (`WindowFocusValue.windows`, `connection_id`, `visible && focused`, `session_id`) from the
+    host state the `host/state/set` handler stores.
+  - `NotifyTexts`: this PC's UI-language strings (the core has no i18n of its own); the desktop's existing server-notifier texts are the source.
+- Double notification risk: the `notify` domain's `NotificationEngine` plans host toasts for this PC's own sessions only; a server's thread events must
+  not be fed to it as well, or the desktop would show two toasts for one final answer.
