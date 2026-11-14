@@ -12,6 +12,7 @@ pub use todo_wording::todo_wording;
 pub mod provider_fields;
 mod fixture;
 pub mod mcp_server;
+pub mod parity;
 mod fs;
 mod process;
 
