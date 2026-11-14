@@ -1,0 +1,10 @@
+{
+  "name": "sample",
+  "cases": [
+    { "id": "add-small", "input": { "op": "add", "args": [1, 2] }, "expect": 3 },
+    { "id": "upper-ascii", "input": { "op": "upper", "args": ["mixdog"] }, "expect": "MIXDOG" },
+    { "id": "join-list", "input": { "op": "join", "args": [["a", "b", "c"], "-"] }, "expect": "a-b-c" },
+    { "id": "empty-join", "input": { "op": "join", "args": [[], "-"] }, "expect": "" },
+    { "id": "object-result", "input": { "op": "pair", "args": ["k", null] }, "expect": { "k": null } }
+  ]
+}
