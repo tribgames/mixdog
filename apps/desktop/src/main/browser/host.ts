@@ -49,6 +49,9 @@ import {
 import { type BrowserRemoteMethod, runBrowserRemoteRequest } from '../remote-browser-methods';
 import { createRemoteWebrtcHost, type RemoteWebrtcHost } from '../remote-webrtc/host';
 import { createRemoteWebrtcSenderWindow, type RemoteWebrtcSenderPage } from '../remote-webrtc/sender-window';
+import type { BrowserLiveControl } from '../host/browser-live-control';
+import type { StreamedPage } from '../host/browser-page-report';
+import type { BrowserSurfaceSource } from '../host/browser-surface-report';
 import type { BrowserApprovalRequest } from './action-approval';
 import type { createBrowserCommandRunner } from './agent-bridge';
 import { BACKGROUND_RECLAIM_INTERVAL_MS } from './command';
@@ -119,10 +122,16 @@ export interface BrowserHost {
     view: {
       remoteBrowserStream(sessionId: string, options: DesktopRemoteBrowserStreamOptions | null): Promise<void>;
       remoteBrowserControl(sessionId: string, control: DesktopRemoteBrowserControl): Promise<unknown>;
+      /** The streamed page's document and locked geometry (`host/browser/page`); null when not streamed. */
+      streamedPage(sessionId: string): StreamedPage | null;
     };
     tabs: { remoteTabsWatch(on: boolean): DesktopRemoteBrowserTab[] };
     /** The window-process end of a paired client's non-tool browser request (history, tabs, credentials, import). */
     remote(method: BrowserRemoteMethod, args: unknown[]): Promise<unknown>;
+    /** The streamed page's resize and video limit (a phone's resize-request and ready.videoLimit). */
+    liveControl: BrowserLiveControl;
+    /** A session's surface revealed or hidden (`host/browser/surface`). */
+    surfaces: BrowserSurfaceSource;
   };
   releaseSession(sessionId: string, options?: { restore?: boolean }): void;
   /** Takeover `id` starts: the page it hands over (`tab` of the request, else
@@ -232,6 +241,8 @@ export function createBrowserHost(
     onGuest?: (guest: WebContents) => void;
     /** One live frame of a remotely streamed session, handed to the service. */
     publishRemoteFrame?: (frame: DesktopRemoteBrowserStreamFrame) => Promise<void>;
+    /** A streamed page's document or locked geometry changed, or its stream ended (read with hostRole().view.streamedPage). */
+    onStreamedPageChanged?: (sessionId: string) => void;
     /** The main-workspace tab list changed, for watching paired clients. */
     publishRemoteTabs?: (tabs: DesktopRemoteBrowserTab[]) => Promise<void>;
     /** Profile-import progress, for the paired client that may have started it. */
@@ -303,6 +314,7 @@ export function createBrowserHost(
     chooseBrowserFiles: options.chooseBrowserFiles,
     publishRemoteFrame: options.publishRemoteFrame,
     publishRemoteTabs: options.publishRemoteTabs,
+    onStreamedPageChanged: options.onStreamedPageChanged,
     remoteMedia: {
       geometryChanged: (sessionId, geometry) =>
         webrtc?.geometryChanged(remoteWebrtcSourceKey({ kind: 'browser', sessionId }), geometry),
@@ -454,9 +466,12 @@ export function createBrowserHost(
       view: {
         remoteBrowserStream: (sessionId, streamOptions) => browserHost.remoteBrowserStream(sessionId, streamOptions),
         remoteBrowserControl: (sessionId, control) => browserHost.remoteBrowserControl(sessionId, control),
+        streamedPage: (sessionId) => shown.remote.streamedPage(sessionId),
       },
       tabs: { remoteTabsWatch: (on) => browserHost.remoteTabsWatch(on) },
       remote: (method, args) => runBrowserRemoteRequest(browserHost, method, args),
+      liveControl: { resize: shown.remote.resize, widenVideo: shown.remote.widenVideo },
+      surfaces: { onSurfaceChanged: (listener) => lifecycle.onSurfaceChanged(listener) },
     }),
     ...createBrowserHostLifecycleMethods({
       bridge: agent.bridge,
