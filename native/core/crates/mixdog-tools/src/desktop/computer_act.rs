@@ -860,8 +860,8 @@ mod tests {
 
         let routed = with_desk.app_owned_input(&step, "hwnd:0x777", &CancellationToken::new()).await.unwrap().expect("the renderer took the step");
         assert_eq!((routed["path"].clone(), routed["delivery"].clone()), (json!("electron_key_event"), json!("background")));
-        let sent = desk.asked.lock().unwrap().clone();
-        assert!(sent.iter().any(|(method, params)| method == "host/computer/appInput" && params["op"] == "key" && params["windowId"] == "hwnd:0x777"), "{sent:?}");
+        let asked = desk.asked.lock().unwrap().clone();
+        assert!(asked.iter().any(|(method, params)| method == "host/computer/appInput" && params["op"] == "key" && params["windowId"] == "hwnd:0x777"), "{asked:?}");
 
         assert!(with_desk.app_owned_input(&step, "hwnd:0x2", &CancellationToken::new()).await.unwrap().is_none(), "a native window is the helper's");
         assert!(backend(&manager).app_owned_input(&step, "hwnd:0x777", &CancellationToken::new()).await.unwrap().is_none(), "no desktop, no renderer");

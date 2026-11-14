@@ -248,7 +248,8 @@ mod tests {
         let key = lane("session:owner:foreground", Some("p1"));
         let started = CancellationToken::new();
         let events = log();
-        let active = queue.run(&key, Kind::Write, &deadline(), &CancelSource::new(), |context| {
+        let (active_deadline, active_parent) = (deadline(), CancelSource::new());
+        let active = queue.run(&key, Kind::Write, &active_deadline, &active_parent, |context| {
             let (started, events) = (started.clone(), events.clone());
             async move {
                 push(&events, "wait");
@@ -301,14 +302,16 @@ mod tests {
         let key = lane("foreground", None);
         let release = CancellationToken::new();
         let dispatches = log();
-        let previous = queue.run(&key, Kind::Write, &deadline(), &CancelSource::new(), |_| async {
+        let (previous_deadline, previous_parent) = (deadline(), CancelSource::new());
+        let previous = queue.run(&key, Kind::Write, &previous_deadline, &previous_parent, |_| async {
             release.cancelled().await;
             push(&dispatches, "previous");
         });
         let caller = CancelSource::new();
         let cancelled = async {
             settle().await;
-            let pending = queue.run(&key, Kind::Write, &deadline(), &caller, |_| async { push(&dispatches, "unexpected") });
+            let pending_deadline = deadline();
+            let pending = queue.run(&key, Kind::Write, &pending_deadline, &caller, |_| async { push(&dispatches, "unexpected") });
             let cancelling = async {
                 settle().await;
                 caller.cancel("fixture cancelled");
@@ -316,7 +319,8 @@ mod tests {
             let (outcome, ()) = tokio::join!(pending, cancelling);
             assert_eq!(outcome, Err(QueueError::Cancelled { reason: Some("fixture cancelled".into()) }));
             assert!(entries(&dispatches).is_empty(), "nothing dispatched while behind the previous one");
-            let next = queue.run(&key, Kind::Write, &deadline(), &CancelSource::new(), |_| async { push(&dispatches, "next") });
+            let (next_deadline, next_parent) = (deadline(), CancelSource::new());
+            let next = queue.run(&key, Kind::Write, &next_deadline, &next_parent, |_| async { push(&dispatches, "next") });
             let releasing = async {
                 settle().await;
                 assert!(entries(&dispatches).is_empty(), "the next one still waits for the previous");
