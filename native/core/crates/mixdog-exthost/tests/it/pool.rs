@@ -40,6 +40,11 @@ fn host_dir() -> PathBuf {
     root.join("src").join("ext-host").join("test")
 }
 
+/// The browsers that never publish an endpoint, kept with this crate's tests.
+fn browser_fixtures() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/browser")
+}
+
 fn config(workers: usize, extra: &[&str]) -> ExtHostConfig {
     let mut args = vec![host_dir().join("fake-worker.mjs").into_os_string()];
     args.extend(extra.iter().map(Into::into));
@@ -362,19 +367,19 @@ async fn close_ends_every_worker() {
     }
 }
 
-/// `pid_file`'s helper pid, once the scripted worker has written it.
+/// `pid_file`'s helper pid, once the scripted worker has written it. The wait is on the wall clock and ends the test by name: a
+/// script that never starts (a missing file, no runtime) would otherwise leave it waiting for ever.
 async fn helper_pid(pid_file: &Path) -> u32 {
-    within(async {
-        loop {
-            if let Ok(text) = std::fs::read_to_string(pid_file)
-                && let Ok(pid) = text.parse()
-            {
-                return pid;
-            }
-            mixdog_rt::time::sleep(Duration::from_millis(10)).await;
+    let deadline = std::time::Instant::now() + Duration::from_secs(60);
+    loop {
+        if let Ok(text) = std::fs::read_to_string(pid_file)
+            && let Ok(pid) = text.parse()
+        {
+            return pid;
         }
-    })
-    .await
+        assert!(std::time::Instant::now() < deadline, "{} was not written within 60 s: the scripted process did not start", pid_file.display());
+        mixdog_rt::time::sleep(Duration::from_millis(10)).await;
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -422,7 +427,7 @@ async fn close_ends_a_browser_that_never_publishes_its_endpoint() {
     config.render_browser.command = Some((
         "node".into(),
         vec![
-            host_dir().join("silent-browser.mjs").into_os_string(),
+            browser_fixtures().join("silent-browser.mjs").into_os_string(),
             pid_file.clone().into_os_string(),
         ],
     ));
@@ -450,7 +455,7 @@ async fn close_racing_a_failed_endpoint_channel_still_waits_for_the_browser() {
         config.render_browser.command = Some((
             "node".into(),
             vec![
-                host_dir().join("stderr-closed-browser.mjs").into_os_string(),
+                browser_fixtures().join("stderr-closed-browser.mjs").into_os_string(),
                 pid_file.clone().into_os_string(),
             ],
         ));
