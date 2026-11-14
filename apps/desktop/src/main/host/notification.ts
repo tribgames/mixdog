@@ -21,6 +21,8 @@ export interface NotificationPresenter {
   playSound?(volume: number | undefined): Promise<unknown>;
   /** Brings this PC's window forward (the session itself is routed by the core). */
   activate(): void;
+  /** Brings a server connection's window forward and shows the thread in it (a click on that server's notification). */
+  focusConnection?(connectionId: string, threadId: string | undefined): void;
   /** Whether the OS can show toasts at all. */
   isSupported(): boolean;
   /** The OS's own idle time in seconds: input anywhere on the PC counts. */
@@ -36,7 +38,7 @@ export function registerNotificationHost(connection: HostConnection, presenter: 
     idleSeconds: presenter.idleSeconds(),
   }));
   connection.handleNotification(HOST_METHOD.notificationShow, (params) => {
-    const { title, body, threadId, sound, volume } = objectParams<HostNotificationShowParams>(
+    const { title, body, threadId, connectionId, sound, volume } = objectParams<HostNotificationShowParams>(
       params,
       HOST_METHOD.notificationShow
     );
@@ -46,9 +48,15 @@ export function registerNotificationHost(connection: HostConnection, presenter: 
     const notification = presenter.createNotification({ title, body });
     retainNotification(live, notification);
     notification.on('click', () => {
-      presenter.activate();
-      if (typeof threadId === 'string' && threadId) {
-        const clicked: HostNotificationClickedParams = { threadId: threadId as HostNotificationClickedParams['threadId'] };
+      const server = typeof connectionId === 'string' && connectionId ? connectionId : undefined;
+      const thread = typeof threadId === 'string' && threadId ? threadId : undefined;
+      if (server && presenter.focusConnection) presenter.focusConnection(server, thread);
+      else presenter.activate();
+      if (thread) {
+        const clicked: HostNotificationClickedParams = {
+          threadId: thread as HostNotificationClickedParams['threadId'],
+          ...(server ? { connectionId: server } : {}),
+        };
         connection.notify(HOST_METHOD.notificationClicked, clicked);
       }
     });
