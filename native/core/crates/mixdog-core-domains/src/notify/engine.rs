@@ -167,6 +167,13 @@ impl NotificationEngine {
     /// notify. With no host attached the toast waits for the next one (`host_attached`); a toast shown now makes an older one
     /// for the thread no longer owed.
     pub fn toasts_of(&self, event: &ThreadEvent, audience: &Audience) -> Vec<(String, HostToast)> {
+        self.toasts_with_queue(event, audience).0
+    }
+
+    /// Returns the deliveries and whether this event replaced the hostless pending toast.
+    /// A producer can associate cancellation with exactly the event the queue accepted.
+    pub fn toasts_with_queue(&self, event: &ThreadEvent, audience: &Audience) -> (Vec<(String, HostToast)>, bool) {
+        let mut queued = false;
         let body = notification_preview(&event.body_markdown);
         let clock = LocalClock::at(event.now_ms);
         let decide_for = |foreground: bool| {
@@ -186,6 +193,7 @@ impl NotificationEngine {
             if decide_for(false) == Decision::Notify {
                 let toast = self.toast(&event.thread_id, &event.title, &body);
                 self.pending.lock().unwrap_or_else(|e| e.into_inner()).insert(event.thread_id.clone(), toast);
+                queued = true;
             }
         } else {
             for host in &audience.hosts {
@@ -198,7 +206,7 @@ impl NotificationEngine {
                 self.pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&event.thread_id);
             }
         }
-        toasts
+        (toasts, queued)
     }
 
     /// The relay pushes of one event: each paired device decides for itself (`sendPush` through `deliveryGate`).

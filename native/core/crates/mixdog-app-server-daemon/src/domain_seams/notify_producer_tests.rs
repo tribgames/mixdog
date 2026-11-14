@@ -44,11 +44,14 @@ struct Listeners {
     supported: AtomicBool,
     desktop_active: AtomicBool,
     devices: Mutex<Vec<PairedDevice>>,
+    audience_gate: Mutex<Option<Arc<AsyncGate>>>,
 }
 
 #[async_trait]
 impl AudienceSource for Listeners {
     async fn audience(&self, thread_id: &str) -> Audience {
+        let gate = self.audience_gate.lock().unwrap().clone();
+        if let Some(gate) = gate { gate.wait().await; }
         let hosts = if self.supported.load(Ordering::SeqCst) {
             let shown = self.on_screen.lock().unwrap().contains(thread_id);
             vec![HostConnection { connection_id: "host".into(), foreground_thread: shown.then(|| thread_id.to_owned()) }]
@@ -166,6 +169,7 @@ fn rig() -> Rig {
         supported: AtomicBool::new(true),
         desktop_active: AtomicBool::new(false),
         devices: Mutex::new(Vec::new()),
+        audience_gate: Mutex::default(),
     });
     let answers = Arc::new(Answers::default());
     let engine = Arc::new(NotificationEngine::new(Arc::new(|| ToastStyle::for_volume(100))));
@@ -628,6 +632,7 @@ async fn answers_are_read_one_at_a_time() {
         supported: AtomicBool::new(true),
         desktop_active: AtomicBool::new(false),
         devices: Mutex::new(Vec::new()),
+        audience_gate: Mutex::default(),
     });
     let notifier = SessionNotifier::start(ProducerEnv {
         engine: Arc::new(NotificationEngine::new(Arc::new(|| ToastStyle::for_volume(100)))),
@@ -918,4 +923,260 @@ fn a_blocked_goal_is_identified_by_its_id_and_blocker() {
     assert_eq!(blocked_goal_key(Some(&json!({ "id": "g1", "status": "active" }))), None);
     assert_eq!(blocked_goal_key(Some(&Value::Null)), None);
     assert_eq!(blocked_goal_key(None), None);
+}
+
+#[tokio::test(start_paused = true)]
+async fn independent_approval_and_goal_updates_preserve_each_other_and_deduplicate() {
+    let rig = rig_with_chats();
+    rig.phone("phone", DevicePreferences::default());
+    let key = Some("g1:blocked:key".to_owned());
+    rig.input.approval_state("code", Some(shell()), false);
+    rig.input.goal_state("code", key.clone());
+    advance(0).await;
+    assert_eq!(rig.pushes().len(), 2);
+    rig.input.approval_state("code", Some(shell()), false);
+    rig.input.goal_state("code", key.clone());
+    advance(0).await;
+    assert_eq!(rig.pushes().len(), 2, "neither source resets the other's identity");
+    rig.input.goal_state("code", None);
+    rig.input.approval_state("code", Some(shell()), false);
+    advance(0).await;
+    assert_eq!(rig.pushes().len(), 2, "clearing a goal preserves the approval");
+    rig.input.goal_state("code", key.clone());
+    advance(0).await;
+    assert_eq!(rig.pushes().len(), 3, "a goal that blocks again is new");
+    rig.input.approval_state("code", None, false);
+    rig.input.goal_state("code", key);
+    advance(0).await;
+    assert_eq!(rig.pushes().len(), 3, "clearing approval preserves the blocked goal");
+    rig.input.approval_state("code", Some(shell()), false);
+    advance(0).await;
+    assert_eq!(rig.pushes().len(), 4);
+    assert_eq!(rig.pushes().iter().filter(|push| push.event == Event::Approval).count(), 2);
+}
+
+#[tokio::test(start_paused = true)]
+async fn clearing_one_wait_during_the_hold_keeps_the_other_due() {
+    for clear_approval in [true, false] {
+        let rig = rig_with_chats();
+        rig.phone("phone", DevicePreferences::default());
+        rig.listeners.desktop_active.store(true, Ordering::SeqCst);
+        rig.input.goal_state("code", Some("g1:blocked:key".to_owned()));
+        rig.input.approval_state("code", Some(shell()), false);
+        advance(0).await;
+        assert!(rig.pushes().is_empty());
+        if clear_approval {
+            rig.input.approval_state("code", None, false);
+        } else {
+            rig.input.goal_state("code", None);
+        }
+        advance(DESKTOP_HOLD_MS).await;
+        assert_eq!(rig.pushes().len(), 1);
+        assert_eq!(rig.pushes()[0].event, if clear_approval { Event::Question } else { Event::Approval });
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn removing_a_session_cancels_both_held_waits() {
+    let rig = rig_with_chats();
+    rig.phone("phone", DevicePreferences::default());
+    rig.listeners.desktop_active.store(true, Ordering::SeqCst);
+    rig.input.approval_state("code", Some(shell()), false);
+    rig.input.goal_state("code", Some("g1:blocked:key".to_owned()));
+    advance(0).await;
+    rig.input.row_gone("code");
+    advance(DESKTOP_HOLD_MS).await;
+    assert!(rig.pushes().is_empty());
+}
+
+
+#[derive(Default)]
+struct AsyncGate {
+    entered: tokio::sync::Notify,
+    release: tokio::sync::Notify,
+}
+
+impl AsyncGate {
+    async fn wait(&self) {
+        self.entered.notify_one();
+        self.release.notified().await;
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn reused_wait_identity_gets_a_new_hold_deadline() {
+    for approval in [true, false] {
+        let rig = rig_with_chats();
+        rig.phone("phone", DevicePreferences::default());
+        rig.listeners.desktop_active.store(true, Ordering::SeqCst);
+        let update = |active: bool| {
+            if approval {
+                rig.input.approval_state("code", active.then(shell), false);
+            } else {
+                rig.input.goal_state("code", active.then(|| "g1:blocked:key".to_owned()));
+            }
+        };
+        update(true);
+        advance(DESKTOP_HOLD_MS / 2).await;
+        update(false);
+        update(true);
+        advance(DESKTOP_HOLD_MS / 2).await;
+        assert!(rig.pushes().is_empty(), "the first occurrence's timer cannot deliver the second");
+        advance(DESKTOP_HOLD_MS / 2).await;
+        assert_eq!(rig.pushes().len(), 1);
+        advance(DESKTOP_HOLD_MS).await;
+        assert_eq!(rig.pushes().len(), 1);
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_deleted_completed_thread_does_not_push_at_its_hold_deadline() {
+    let rig = rig();
+    rig.phone("phone", DevicePreferences::default());
+    rig.listeners.desktop_active.store(true, Ordering::SeqCst);
+    rig.answer("a", Ok(Some(done("Done."))));
+    rig.input.row(row_with("a", "Task", true, json!({ "messageCount": 4, "readMessageCount": 4 })));
+    settle().await;
+    rig.input.row(row_with("a", "Task", false, json!({ "messageCount": 6, "readMessageCount": 4 })));
+    advance(LEAD_FINISHED_MS + 50).await;
+    rig.input.row_gone("a");
+    advance(DESKTOP_HOLD_MS).await;
+    assert!(rig.pushes().is_empty());
+}
+
+#[tokio::test(start_paused = true)]
+async fn deletion_while_audience_is_pending_cannot_send_or_queue_a_stale_toast() {
+    for supported in [true, false] {
+        let rig = rig_with_chats();
+        rig.phone("phone", DevicePreferences::default());
+        rig.listeners.supported.store(supported, Ordering::SeqCst);
+        let gate = Arc::new(AsyncGate::default());
+        *rig.listeners.audience_gate.lock().unwrap() = Some(gate.clone());
+        rig.input.approval_state("code", Some(shell()), false);
+        gate.entered.notified().await;
+        rig.input.row_gone("code");
+        settle().await;
+        gate.release.notify_one();
+        advance(0).await;
+        *rig.listeners.audience_gate.lock().unwrap() = None;
+        rig.listeners.supported.store(true, Ordering::SeqCst);
+        rig.input.host_attached();
+        advance(DESKTOP_HOLD_MS).await;
+        assert!(rig.toasts().is_empty());
+        assert!(rig.pushes().is_empty());
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn clearing_an_approval_also_cancels_a_toast_already_waiting_for_a_host() {
+    let rig = rig_with_chats();
+    rig.listeners.supported.store(false, Ordering::SeqCst);
+    rig.input.approval_state("code", Some(shell()), false);
+    advance(0).await;
+    rig.input.approval_state("code", None, false);
+    rig.listeners.supported.store(true, Ordering::SeqCst);
+    rig.input.host_attached();
+    advance(0).await;
+    assert!(rig.toasts().is_empty());
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_skipped_question_does_not_reassign_an_older_approvals_queued_toast() {
+    for cancel_approval in [true, false] {
+        let rig = rig_with_chats();
+        rig.listeners.supported.store(false, Ordering::SeqCst);
+        rig.preferences(|view| view.preferences.events.question = false);
+        rig.input.approval_state("code", Some(shell()), false);
+        advance(0).await;
+        if cancel_approval {
+            rig.input.approval_state("code", None, false);
+        }
+        rig.input.approval_state("sub", Some(json!({ "id": "q-after-approval", "kind": "question", "surfaceSessionId": "code" })), false);
+        advance(0).await;
+        rig.listeners.supported.store(true, Ordering::SeqCst);
+        rig.input.host_attached();
+        advance(0).await;
+        assert_eq!(rig.toasts().len(), usize::from(!cancel_approval), "a skipped question must preserve the original toast's cancellation");
+    }
+}
+
+struct InitialGoal {
+    value: Option<Value>,
+    gate: Option<Arc<AsyncGate>>,
+}
+
+#[async_trait]
+impl GoalSnapshots for InitialGoal {
+    async fn snapshot(&self, _: &str) -> Result<Option<Value>, String> {
+        if let Some(gate) = &self.gate { gate.wait().await; }
+        Ok(self.value.clone())
+    }
+}
+
+fn attach_initial_goal(rig: &Rig, gate: Option<Arc<AsyncGate>>) -> Arc<GoalFollower> {
+    let follower = Arc::new(GoalFollower {
+        source: Arc::new(InitialGoal { value: Some(json!({ "id": "g1", "status": "blocked", "blocker": "key" })), gate }),
+        sender: rig.input.0.clone(), revisions: Mutex::default(),
+        stopped: CancellationToken::new(), log: Arc::new(|_| {}),
+    });
+    *rig.input.1.lock().unwrap() = Some(follower.clone());
+    follower
+}
+
+#[tokio::test(start_paused = true)]
+async fn first_catalog_observation_seeds_an_existing_blocked_goal_once() {
+    let rig = rig();
+    rig.phone("phone", DevicePreferences::default());
+    let _follower = attach_initial_goal(&rig, None);
+    rig.input.row(row("code", "Task", false));
+    rig.input.row(row("code", "Task", false));
+    advance(0).await;
+    assert_eq!(rig.pushes().len(), 1);
+    assert_eq!(rig.pushes()[0].event, Event::Question);
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_initial_goal_snapshot_cannot_overwrite_a_newer_change_or_deletion() {
+    for deleted in [true, false] {
+        let rig = rig();
+        rig.phone("phone", DevicePreferences::default());
+        let gate = Arc::new(AsyncGate::default());
+        let follower = attach_initial_goal(&rig, Some(gate.clone()));
+        rig.input.row(row("code", "Task", false));
+        gate.entered.notified().await;
+        if deleted { rig.input.row_gone("code"); }
+        else { follower.changed("code", None); }
+        settle().await;
+        gate.release.notify_one();
+        advance(DESKTOP_HOLD_MS).await;
+        assert!(rig.pushes().is_empty());
+    }
+}
+
+
+#[tokio::test]
+async fn a_real_goal_subscription_seeds_existing_state_and_remains_live_after_binding() {
+    use mixdog_core_goal::goal::{GoalConfig, GoalEnv, GoalRuntime};
+    let dir = tempfile::tempdir().unwrap();
+    let goals = Arc::new(GoalRuntime::new(
+        GoalConfig::new(dir.path().to_string_lossy().into_owned()),
+        GoalEnv::system(mixdog_rt::testing::tokens().durability_io),
+    ));
+    goals.tool_create("code", "Finish the task".into(), None).await.unwrap();
+    goals.tool_settle("code", "block", Some("Need a key".into())).await.unwrap();
+    let mut rig = rig();
+    rig.phone("phone", DevicePreferences::default());
+    rig._notifier.follow_goals(goals.clone());
+    rig.input.row(row("code", "Task", false));
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while rig.pushes().is_empty() { tokio::task::yield_now().await; }
+    }).await.unwrap();
+    assert_eq!(rig.pushes().len(), 1, "no mutation was needed to discover the saved blocked goal");
+    goals.tool_settle("code", "block", Some("Need another key".into())).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while rig.pushes().len() < 2 { tokio::task::yield_now().await; }
+    }).await.unwrap();
+    assert_eq!(rig.pushes().len(), 2, "the binding retained its subscription");
+    drop(rig);
+    goals.close().await;
 }
