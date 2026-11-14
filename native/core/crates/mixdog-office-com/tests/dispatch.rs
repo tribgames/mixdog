@@ -472,7 +472,7 @@ fn attempts_until_failure(hresult: i32, run: impl Fn(&ManualClock, &dyn Fn() -> 
 #[test]
 fn excel_retries_its_three_codes_fifty_times_then_reports_busy() {
     for hresult in retry::EXCEL_TRANSIENT {
-        let (attempts, result, clock) = attempts_until_failure(hresult, |clock, operation| retry::excel(clock, "Excel chart proxy", &[], || operation()));
+        let (attempts, result, clock) = attempts_until_failure(hresult, |clock, operation| retry::excel(clock, "Excel chart proxy", &[], operation));
         assert_eq!(attempts, 50);
         assert_eq!(clock.pauses(), vec![Duration::from_millis(100); 50]);
         assert_eq!(
@@ -484,12 +484,12 @@ fn excel_retries_its_three_codes_fifty_times_then_reports_busy() {
 
 #[test]
 fn a_code_outside_the_list_is_thrown_at_once_and_the_callers_extra_codes_are_retried() {
-    let (attempts, result, clock) = attempts_until_failure(-1, |clock, operation| retry::excel(clock, "x", &[], || operation()));
+    let (attempts, result, clock) = attempts_until_failure(-1, |clock, operation| retry::excel(clock, "x", &[], operation));
     assert_eq!(attempts, 1);
     assert!(clock.pauses().is_empty());
     assert_eq!(result.expect_err("thrown").message(), "busy -1");
 
-    let (attempts, _, _) = attempts_until_failure(-1, |clock, operation| retry::excel(clock, "x", &[-1], || operation()));
+    let (attempts, _, _) = attempts_until_failure(-1, |clock, operation| retry::excel(clock, "x", &[-1], operation));
     assert_eq!(attempts, 50);
 
     let host = Cell::new(0);
@@ -503,10 +503,10 @@ fn a_code_outside_the_list_is_thrown_at_once_and_the_callers_extra_codes_are_ret
 #[test]
 fn powerpoint_retries_two_codes_and_not_excels_third() {
     for hresult in retry::POWERPOINT_TRANSIENT {
-        let (attempts, _, _) = attempts_until_failure(hresult, |clock, operation| retry::powerpoint(clock, "PowerPoint chart series", || operation()));
+        let (attempts, _, _) = attempts_until_failure(hresult, |clock, operation| retry::powerpoint(clock, "PowerPoint chart series", operation));
         assert_eq!(attempts, 50);
     }
-    let (attempts, _, _) = attempts_until_failure(retry::EXCEL_TRANSIENT[0], |clock, operation| retry::powerpoint(clock, "x", || operation()));
+    let (attempts, _, _) = attempts_until_failure(retry::EXCEL_TRANSIENT[0], |clock, operation| retry::powerpoint(clock, "x", operation));
     assert_eq!(attempts, 1);
 }
 
@@ -529,7 +529,7 @@ fn retry_compares_the_outer_hresult_the_corpus_recorded() {
     for entry in corpus_entries() {
         let error = errtext::com_error(access_of(&entry), &Raw { hresult: entry["innerHResult"].as_i64().expect("innerHResult") as i32, description: None }, &|_: i32| None);
         let outer = entry["hresult"].as_i64().expect("hresult") as i32;
-        let (attempts, _, _) = attempts_until_failure(outer, |clock, operation| retry::excel(clock, "x", &[], || operation()));
+        let (attempts, _, _) = attempts_until_failure(outer, |clock, operation| retry::excel(clock, "x", &[], operation));
         let expected = if retry::EXCEL_TRANSIENT.contains(&outer) { 50 } else { 1 };
         assert_eq!(attempts, expected, "{}", entry["id"]);
         assert_eq!(error.hresult, outer, "{}", entry["id"]);
