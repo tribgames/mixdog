@@ -1,0 +1,46 @@
+{
+  "bytes": 312,
+  "file": "files/page-without-mediabox.pdf",
+  "group": "assembled",
+  "name": "page-without-mediabox",
+  "outcome": {
+    "numPages": 1,
+    "ok": true,
+    "pages": [
+      {
+        "number": 1,
+        "rotate": 0,
+        "text": {
+          "items": [],
+          "styles": {}
+        },
+        "userUnit": 1,
+        "view": [
+          0,
+          0,
+          612,
+          792
+        ],
+        "viewport": {
+          "height": 792,
+          "offsetX": 0,
+          "offsetY": 0,
+          "rotation": 0,
+          "transform": [
+            1,
+            0,
+            0,
+            -1,
+            0,
+            792
+          ],
+          "width": 612
+        }
+      }
+    ]
+  },
+  "sha256": "6bcfd5804238867c6e0f67274b84c071258aa8f1194a3c51bef7a47301254223",
+  "withReadableDataUrls": {
+    "sameAsReference": true
+  }
+}

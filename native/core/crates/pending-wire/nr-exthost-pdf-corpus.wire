@@ -1,0 +1,16 @@
+# nr-exthost-pdf-corpus: recorders and fixtures only, no Rust, no Cargo, no protocol row.
+#
+# File: native/core/fixtures/MANIFEST.json (the index of fixture sets; hot file of the lead)
+# Anchor: the "sets" array, in the order verify-manifests.mjs writes it.
+# Text: run, in the integration tree after the wave is merged,
+#   node benchmarks/rust-core/recorders/verify-manifests.mjs --write-index
+# which adds the two new sets below to the index (their MANIFEST.json files are in this commit):
+#   pdf-reader   recorder benchmarks/rust-core/recorders/record-pdf-reader.mjs
+#   pdf-codec    recorder benchmarks/rust-core/recorders/record-pdf-codec.mjs
+#
+# Replay tasks of the PDF track read:
+#   native/core/fixtures/pdf-reader/goldens/<name>.json   outcome (numPages, per-page view/rotate/viewport/text) and
+#                                                         withReadableDataUrls (the same file with CMap and font data urls pdf.js can read)
+#   native/core/fixtures/pdf-reader/files/<name>.pdf and samples/<name>.pdf   the bytes
+#   native/core/fixtures/pdf-codec/goldens/<name>.json    attempts[] (password label, opened, strings or exception)
+#   native/core/fixtures/pdf-codec/files/<name>.pdf

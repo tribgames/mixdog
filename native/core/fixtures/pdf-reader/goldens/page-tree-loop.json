@@ -1,0 +1,24 @@
+{
+  "bytes": 336,
+  "file": "files/page-tree-loop.pdf",
+  "group": "assembled",
+  "name": "page-tree-loop",
+  "outcome": {
+    "numPages": 1,
+    "ok": true,
+    "pages": [
+      {
+        "error": {
+          "code": null,
+          "message": "Pages tree contains circular reference.",
+          "name": "UnknownErrorException"
+        },
+        "number": 1
+      }
+    ]
+  },
+  "sha256": "25c9a5edd38aeeb526047d091520524941b1b1766ad2adc4b67dee16077b0809",
+  "withReadableDataUrls": {
+    "sameAsReference": true
+  }
+}

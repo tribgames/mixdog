@@ -1,0 +1,18 @@
+{
+  "bytes": 4096,
+  "file": "files/binary-junk.pdf",
+  "group": "assembled",
+  "name": "binary-junk",
+  "outcome": {
+    "error": {
+      "code": null,
+      "message": "Invalid PDF structure.",
+      "name": "InvalidPDFException"
+    },
+    "ok": false
+  },
+  "sha256": "edc9983a5f8a590052203d12c58e8d367f7c694a8746b7b9ef87bcc8f5af9e9f",
+  "withReadableDataUrls": {
+    "sameAsReference": true
+  }
+}

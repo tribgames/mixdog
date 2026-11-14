@@ -1,0 +1,46 @@
+{
+  "bytes": 336,
+  "file": "files/pages-count-wrong.pdf",
+  "group": "assembled",
+  "name": "pages-count-wrong",
+  "outcome": {
+    "numPages": 1,
+    "ok": true,
+    "pages": [
+      {
+        "number": 1,
+        "rotate": 0,
+        "text": {
+          "items": [],
+          "styles": {}
+        },
+        "userUnit": 1,
+        "view": [
+          0,
+          0,
+          200,
+          200
+        ],
+        "viewport": {
+          "height": 200,
+          "offsetX": 0,
+          "offsetY": 0,
+          "rotation": 0,
+          "transform": [
+            1,
+            0,
+            0,
+            -1,
+            0,
+            200
+          ],
+          "width": 200
+        }
+      }
+    ]
+  },
+  "sha256": "8d91327c0b41ce5429cd562be1b2c4b53b6962d1aff0f4d931256d113eff6d60",
+  "withReadableDataUrls": {
+    "sameAsReference": true
+  }
+}

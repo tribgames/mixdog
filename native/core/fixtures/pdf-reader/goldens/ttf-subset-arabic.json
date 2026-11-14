@@ -1,0 +1,70 @@
+{
+  "bytes": 5238,
+  "file": "files/ttf-subset-arabic.pdf",
+  "group": "pdf-lib",
+  "name": "ttf-subset-arabic",
+  "outcome": {
+    "numPages": 1,
+    "ok": true,
+    "pages": [
+      {
+        "number": 1,
+        "rotate": 0,
+        "text": {
+          "items": [
+            {
+              "dir": "rtl",
+              "fontName": "g_d#_f1",
+              "hasEOL": false,
+              "height": 16,
+              "str": "مرحبا بالعالم",
+              "transform": [
+                16,
+                0,
+                0,
+                16,
+                20,
+                250
+              ],
+              "width": 77.72800000000001
+            }
+          ],
+          "styles": {
+            "g_d#_f1": {
+              "ascent": 1.374,
+              "descent": -0.738,
+              "fontFamily": "sans-serif",
+              "vertical": false
+            }
+          }
+        },
+        "userUnit": 1,
+        "view": [
+          0,
+          0,
+          420,
+          300
+        ],
+        "viewport": {
+          "height": 300,
+          "offsetX": 0,
+          "offsetY": 0,
+          "rotation": 0,
+          "transform": [
+            1,
+            0,
+            0,
+            -1,
+            0,
+            300
+          ],
+          "width": 420
+        }
+      }
+    ]
+  },
+  "sha256": "85efe606fa5b18aca0b36bb7ddbfa3677726541f93959fecb83d6d4f8386b807",
+  "withReadableDataUrls": {
+    "sameAsReference": true
+  }
+}

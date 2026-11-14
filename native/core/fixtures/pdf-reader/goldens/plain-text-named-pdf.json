@@ -1,0 +1,18 @@
+{
+  "bytes": 49,
+  "file": "files/plain-text-named-pdf.pdf",
+  "group": "assembled",
+  "name": "plain-text-named-pdf",
+  "outcome": {
+    "error": {
+      "code": null,
+      "message": "Invalid PDF structure.",
+      "name": "InvalidPDFException"
+    },
+    "ok": false
+  },
+  "sha256": "5233567ad58d319a5a12a2488434f221efdb06ee30e47aca41e7d00f839eb21e",
+  "withReadableDataUrls": {
+    "sameAsReference": true
+  }
+}

@@ -1,0 +1,124 @@
+{
+  "bytes": 1054,
+  "file": "files/linearized.pdf",
+  "group": "assembled",
+  "name": "linearized",
+  "outcome": {
+    "numPages": 2,
+    "ok": true,
+    "pages": [
+      {
+        "number": 1,
+        "rotate": 0,
+        "text": {
+          "items": [
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f1",
+              "hasEOL": false,
+              "height": 18,
+              "str": "Linearized first page",
+              "transform": [
+                18,
+                0,
+                0,
+                18,
+                40,
+                700
+              ],
+              "width": 162.07200000000003
+            }
+          ],
+          "styles": {
+            "g_d#_f1": {
+              "ascent": 0.718,
+              "descent": -0.207,
+              "fontFamily": "sans-serif",
+              "vertical": false
+            }
+          }
+        },
+        "userUnit": 1,
+        "view": [
+          0,
+          0,
+          612,
+          792
+        ],
+        "viewport": {
+          "height": 792,
+          "offsetX": 0,
+          "offsetY": 0,
+          "rotation": 0,
+          "transform": [
+            1,
+            0,
+            0,
+            -1,
+            0,
+            792
+          ],
+          "width": 612
+        }
+      },
+      {
+        "number": 2,
+        "rotate": 0,
+        "text": {
+          "items": [
+            {
+              "dir": "ltr",
+              "fontName": "g_d#_f1",
+              "hasEOL": false,
+              "height": 18,
+              "str": "Linearized second page",
+              "transform": [
+                18,
+                0,
+                0,
+                18,
+                40,
+                700
+              ],
+              "width": 191.10600000000005
+            }
+          ],
+          "styles": {
+            "g_d#_f1": {
+              "ascent": 0.718,
+              "descent": -0.207,
+              "fontFamily": "sans-serif",
+              "vertical": false
+            }
+          }
+        },
+        "userUnit": 1,
+        "view": [
+          0,
+          0,
+          612,
+          792
+        ],
+        "viewport": {
+          "height": 792,
+          "offsetX": 0,
+          "offsetY": 0,
+          "rotation": 0,
+          "transform": [
+            1,
+            0,
+            0,
+            -1,
+            0,
+            792
+          ],
+          "width": 612
+        }
+      }
+    ]
+  },
+  "sha256": "1e13fa115413077da3326c183691c8539046f348bd6ff476d1697736299353c3",
+  "withReadableDataUrls": {
+    "sameAsReference": true
+  }
+}

@@ -1,0 +1,106 @@
+{
+  "bytes": 608,
+  "file": "files/page-tree-nested.pdf",
+  "group": "assembled",
+  "name": "page-tree-nested",
+  "outcome": {
+    "numPages": 3,
+    "ok": true,
+    "pages": [
+      {
+        "number": 1,
+        "rotate": 0,
+        "text": {
+          "items": [],
+          "styles": {}
+        },
+        "userUnit": 1,
+        "view": [
+          0,
+          0,
+          200,
+          100
+        ],
+        "viewport": {
+          "height": 100,
+          "offsetX": 0,
+          "offsetY": 0,
+          "rotation": 0,
+          "transform": [
+            1,
+            0,
+            0,
+            -1,
+            0,
+            100
+          ],
+          "width": 200
+        }
+      },
+      {
+        "number": 2,
+        "rotate": 90,
+        "text": {
+          "items": [],
+          "styles": {}
+        },
+        "userUnit": 1,
+        "view": [
+          0,
+          0,
+          200,
+          100
+        ],
+        "viewport": {
+          "height": 200,
+          "offsetX": 0,
+          "offsetY": 0,
+          "rotation": 90,
+          "transform": [
+            0,
+            1,
+            1,
+            0,
+            0,
+            0
+          ],
+          "width": 100
+        }
+      },
+      {
+        "number": 3,
+        "rotate": 0,
+        "text": {
+          "items": [],
+          "styles": {}
+        },
+        "userUnit": 1,
+        "view": [
+          0,
+          0,
+          100,
+          300
+        ],
+        "viewport": {
+          "height": 300,
+          "offsetX": 0,
+          "offsetY": 0,
+          "rotation": 0,
+          "transform": [
+            1,
+            0,
+            0,
+            -1,
+            0,
+            300
+          ],
+          "width": 100
+        }
+      }
+    ]
+  },
+  "sha256": "05fe2e4c46599b8f318a414b6f61df6ea698a9a5a1580e81ecc971bc096d0a65",
+  "withReadableDataUrls": {
+    "sameAsReference": true
+  }
+}
