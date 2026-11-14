@@ -36,6 +36,7 @@ use crate::compose_mcp::BridgeFeatures;
 use crate::computer_gate::HostPresence;
 use crate::computer_gate::computer_feature_present;
 use mixdog_core_api::HostCapability;
+use mixdog_core_api::ids::Method;
 use mixdog_core_config::config::DesktopSettings;
 
 /// `DISCOVERY_MAX_AGE_MS`: the bridge heartbeat touches the file every 60 s; anything older is a
@@ -406,9 +407,25 @@ fn feature_up(feature: &str, serves: &dyn Fn(HostCapability) -> bool, desktop: &
     }
 }
 
+/// The method a claimant must take for a feature's capability to count: a claim that declared the capability but lists other
+/// methods in its `serves` does not serve the feature (`host/browser/command`, `host/visualize/command`, and the screen read
+/// `host/computer/capture` of Computer Use).
+fn feature_method(capability: HostCapability) -> Option<Method> {
+    match capability {
+        HostCapability::Browser => Some(Method("host/browser/command")),
+        HostCapability::Visualize => Some(Method("host/visualize/command")),
+        HostCapability::Computer => Some(Method("host/computer/capture")),
+        _ => None,
+    }
+}
+
 impl BridgeFeatures for ToolBridges {
     fn present(&self, feature: &str) -> bool {
-        feature_up(feature, &|capability| self.host.serves(capability), &(self.desktop)(), self.computer.registered())
+        let serves = |capability| match feature_method(capability) {
+            Some(method) => self.host.serves_method(capability, method),
+            None => self.host.serves(capability),
+        };
+        feature_up(feature, &serves, &(self.desktop)(), self.computer.registered())
     }
 
     fn registered(&self, feature: &str) -> bool {
@@ -751,5 +768,14 @@ mod tests {
         assert!(feature_up("computer", &others, &desktop(true), true));
         assert!(!feature_up("computer", &others, &desktop(true), false));
         assert!(!feature_up("computer", &claims, &desktop(false), true));
+    }
+
+    /// A feature's claim is checked at the method that feature sends, not at the capability alone.
+    #[test]
+    fn a_feature_is_checked_at_the_method_it_sends() {
+        assert_eq!(feature_method(HostCapability::Browser), Some(Method("host/browser/command")));
+        assert_eq!(feature_method(HostCapability::Visualize), Some(Method("host/visualize/command")));
+        assert_eq!(feature_method(HostCapability::Computer), Some(Method("host/computer/capture")));
+        assert_eq!(feature_method(HostCapability::Notifications), None);
     }
 }
