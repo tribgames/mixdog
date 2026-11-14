@@ -1,0 +1,22 @@
+[package]
+name = "mixdog-imaging"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "The image codec behind the image.* methods and the read tool: decode, colour-convert, resize, re-encode and the token gate"
+
+[lints]
+workspace = true
+
+[dependencies]
+base64 = { workspace = true }
+image = { workspace = true }
+moxcms = { workspace = true }
+sha2 = { workspace = true }
+zune-core = { workspace = true }
+zune-jpeg = { workspace = true }
+mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
+
+[dev-dependencies]
+mixdog-testkit = { workspace = true }
+serde_json = { workspace = true }
