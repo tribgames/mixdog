@@ -281,7 +281,9 @@ fn merge_project_branch(params: &Value) -> Checked {
 fn request_worktree(params: &Value) -> Checked {
     let name = "requestWorktree input";
     with_object(params, "input", name, false, |input| {
-        allow_keys(input, &["name", "expectedRevision", "confirmLarge", "provision", "carryChanges"], name)?;
+        // `prompt` and `txId` are the New Task worktree choice the core reads (worktree_service.rs request_input): the prompt it
+        // names the worktree after and the transaction id. The desktop's IPC check never saw them; the protocol's clients send them.
+        allow_keys(input, &["name", "expectedRevision", "confirmLarge", "provision", "carryChanges", "prompt", "txId"], name)?;
         if input.map.get("name").is_some_and(|value| !value.is_null()) {
             ref_text(input, "name", "requestWorktree input.name")?;
         }
