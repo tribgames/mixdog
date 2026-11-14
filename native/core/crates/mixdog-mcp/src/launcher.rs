@@ -1,8 +1,7 @@
 //! The `mixdog-skill-node` launcher (T §5). Skill scripts are run by the model through `shell`;
-//! this module generates, per installation, the small launcher files that run the bundled JS
-//! runtime on the skill-script entry, and puts their directory first on a model shell's PATH.
-//! Where no bundled runtime exists the `jsRuntime` feature is off and no launcher is written —
-//! a script that needs Node then fails with the shell's own "command not found".
+//! this module generates, per installation, the small launcher files that run `mixdogd skill-run`
+//! (the interpreter is the daemon's own binary, the entry is the word `skill-run`), and puts their
+//! directory first on a model shell's PATH.
 //! Launchers carry two paths and nothing else: no credentials, no daemon identity.
 
 use std::collections::HashMap;
@@ -44,15 +43,15 @@ impl Platform {
 pub struct SkillRuntime {
     pub platform: Platform,
     pub interpreter: String,
-    /// `src/skill-script-entry.mjs` of the bundled runtime.
+    /// The word the interpreter is started with: `skill-run` for `mixdogd`.
     pub entry: String,
-    /// The interpreter is an Electron binary that needs node mode.
+    /// The interpreter is an Electron binary that needs node mode (never `mixdogd`).
     pub electron: bool,
 }
 
 impl SkillRuntime {
-    /// The runtime of this host: `interpreter` runs `entry` (`src/skill-script-entry.mjs` of the
-    /// bundled runtime); `electron` when the interpreter is an Electron binary that needs node mode.
+    /// The runtime of this host: `interpreter` (the current `mixdogd`) is started with `entry`
+    /// (`skill-run`); `electron` only when the interpreter is an Electron binary that needs node mode.
     pub fn new(interpreter: impl Into<String>, entry: impl Into<String>, electron: bool) -> Self {
         Self { platform: Platform::current(), interpreter: interpreter.into(), entry: entry.into(), electron }
     }
@@ -269,8 +268,8 @@ mod tests {
     fn runtime(electron: bool) -> SkillRuntime {
         SkillRuntime {
             platform: Platform::Posix,
-            interpreter: "/opt/it's/node".to_owned(),
-            entry: "/opt/app/src/skill-script-entry.mjs".to_owned(),
+            interpreter: "/opt/it's/mixdogd".to_owned(),
+            entry: "skill-run".to_owned(),
             electron,
         }
     }
@@ -279,17 +278,18 @@ mod tests {
     fn posix_launcher_quotes_and_scopes_electron_mode() {
         let text = render_posix(&runtime(true));
         assert!(text.contains("export ELECTRON_RUN_AS_NODE"));
-        assert!(text.contains("exec '/opt/it'\\''s/node' '/opt/app/src/skill-script-entry.mjs' \"$@\""));
-        assert!(!render_posix(&runtime(false)).contains("ELECTRON"));
+        assert!(text.contains("exec '/opt/it'\\''s/mixdogd' 'skill-run' \"$@\""));
+        let plain = render_posix(&runtime(false));
+        assert!(!plain.contains("ELECTRON") && plain.contains("exec '/opt/it'\\''s/mixdogd' 'skill-run' \"$@\""));
     }
 
     #[test]
     fn windows_launcher_switches_code_page_only_for_non_ascii() {
         let mut r = runtime(false);
-        r.interpreter = "C:\\Program Files\\node.exe".to_owned();
-        r.entry = "C:\\app\\entry.mjs".to_owned();
-        assert!(!render_windows(&r).contains("chcp"));
-        r.entry = "C:\\앱\\entry.mjs".to_owned();
+        r.interpreter = "C:\\Program Files\\Mixdog\\mixdogd.exe".to_owned();
+        let ascii = render_windows(&r);
+        assert!(!ascii.contains("chcp") && ascii.contains("\"C:\\Program Files\\Mixdog\\mixdogd.exe\" \"skill-run\" %*"));
+        r.interpreter = "C:\\앱\\mixdogd.exe".to_owned();
         let text = render_windows(&r);
         assert!(text.contains("chcp 65001") && text.ends_with("exit /b %MIXDOG_SKILL_EXIT%\r\n"));
     }

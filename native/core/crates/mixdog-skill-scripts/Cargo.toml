@@ -7,6 +7,15 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+# The test build of `skill-run` (src/bin/skill_run_probe.rs), which tests/launch.rs starts through real launchers.
+test-support = []
+
+[[bin]]
+name = "skill-run-probe"
+path = "src/bin/skill_run_probe.rs"
+required-features = ["test-support"]
+
 [dependencies]
 mixdog-fsio = { workspace = true }
 mixdog-js = { workspace = true }
@@ -15,6 +24,11 @@ base64 = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
+
+[target.'cfg(unix)'.dependencies]
+# `skill-run` forwards SIGINT and SIGTERM to the interpreter it waits on.
+libc = { workspace = true }
+signal-hook = { workspace = true }
 
 [dev-dependencies]
 mixdog-testkit = { workspace = true }
