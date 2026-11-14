@@ -2,12 +2,13 @@
 //! `recordStandaloneStatusTelemetry` (`session/manager/status-telemetry.mjs`) after the ask's usage
 //! reached the session, and read by the statusline footer for route spend and local budgets.
 
-mod event;
+pub(crate) mod event;
 mod store;
 
 #[cfg(test)]
 mod asks_tests;
 
+pub use event::RouteSection;
 pub use store::GatewayUsage;
 pub use store::LEGACY_FILE;
 pub use store::STORE_FILE;
