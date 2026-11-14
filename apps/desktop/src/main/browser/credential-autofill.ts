@@ -1,5 +1,10 @@
 import type { WebContents } from 'electron';
 
+import type { PageFacts, Precondition } from '../../../../../packages/protocol/src/index.ts';
+import { HostRpcError } from '../host/connection';
+import type { EnginePage } from '../host/browser-engine/context';
+import { ENGINE_ERROR, preconditionFailed } from '../host/browser-engine/errors';
+import { checkPrecondition } from '../host/browser-engine/precondition';
 import type { BrowserCdpPort } from './cdp';
 import type { BrowserCredentialValue } from './profile-import';
 
@@ -9,6 +14,57 @@ export interface BrowserCredentialFillResult {
   /** page-changed: a login takeover's bound page left its address or origin
    *  before the login reached it (host-agent.ts fillBoundLogin). */
   reason?: 'no-password-field' | 'password-field-unavailable' | 'page-changed';
+}
+
+/** What a fill needs of the engine lane to hold a call to the page state the core decided it against
+ *  (the `EngineContext` of host/browser-engine/context.ts, narrowed to these three). */
+export interface FillEngine {
+  /** The core drives the browser through the engine lane (it claimed `browserEngine`). */
+  isEngineMode(): boolean;
+  page(pageId: string): EnginePage | undefined;
+  facts(pageId: string): PageFacts;
+}
+
+/** The check a bound fill runs right before every CDP dispatch it makes (the last one, the write itself,
+ *  included): it throws the -32010 refusal when the page no longer is what the call was bound to. */
+export type FillGuard = () => void;
+
+function documentRefusal(engine: FillEngine | undefined, pageId: string): HostRpcError {
+  try {
+    if (engine) return preconditionFailed('document', engine.facts(pageId));
+  } catch {
+    // The page is gone: the refusal goes without facts.
+  }
+  return new HostRpcError(ENGINE_ERROR.preconditionFailed, 'precondition failed: document', { reason: 'document' });
+}
+
+/** The page a document id (`pageId:generation`, host/browser-engine/precondition.ts documentIdOf) names. */
+export function pageOfDocument(documentId: unknown): string {
+  const id = typeof documentId === 'string' ? documentId : '';
+  return id.slice(0, Math.max(0, id.lastIndexOf(':')));
+}
+
+/**
+ * The guard of a secret, vault or saved-login write that came with `expect` (the call's `input.expect`).
+ * Synchronous throughout: it refuses with -32010 reason `document` when, in engine mode, the call carries no
+ * `expect` (it was bound to no state), or when an `expect` cannot be held to a live page; the returned guard
+ * throws for the first part of `expect` that no longer holds (session children, https origin and main-frame
+ * document included, checkPrecondition). `undefined` is the legacy forward path: no engine lane, no `expect`,
+ * and the fill is bound by its own request binding alone.
+ */
+export function fillGuard(
+  engine: FillEngine | undefined,
+  pageId: string,
+  expect: unknown
+): FillGuard | undefined {
+  if (expect === undefined || expect === null) {
+    if (engine?.isEngineMode()) throw documentRefusal(engine, pageId);
+    return undefined;
+  }
+  const bound = expect as Partial<Precondition>;
+  const page = typeof expect === 'object' && typeof bound.documentId === 'string' ? engine?.page(pageId) : undefined;
+  if (!engine || !page || page.guest.isDestroyed()) throw documentRefusal(engine, pageId);
+  return () => checkPrecondition(bound as Precondition, page, () => engine.facts(pageId));
 }
 
 /** Runs only in a CDP-created isolated world. Credentials arrive as a
@@ -405,13 +461,15 @@ function createIsolatedWorldOpener(cdp: BrowserCdpPort, redactText: BrowserCrede
   async function openIsolatedWorld(
     guest: WebContents,
     signal: AbortSignal | undefined,
-    bound: { url?: string; document?: string; pin?: boolean } = {}
+    bound: { url?: string; document?: string; pin?: boolean; guard?: FillGuard } = {}
   ) {
     signal?.throwIfAborted();
     const url = bound.url || guest.getURL();
     const check = () => {
       signal?.throwIfAborted();
       if (guest.isDestroyed() || guest.getURL() !== url) throw new BrowserPageChangedError();
+      // The call's own binding (its `expect`), in the same synchronous step as the dispatch that follows.
+      bound.guard?.();
     };
     const dispatch = <R>(method: string, params: Record<string, unknown>): Promise<R> => {
       check();
@@ -514,12 +572,14 @@ export function createBrowserCredentialFill(host: BrowserCredentialFillHost) {
     /** A sign-in's username-only first step: only the username is typed. */
     usernameOnly = false,
     /** The main-frame document (pageDocument) the step was bound to. */
-    boundDocument?: string
+    boundDocument?: string,
+    /** The call's `expect` (fillGuard), checked before every dispatch. */
+    guard?: FillGuard
   ): Promise<BrowserCredentialFillResult> {
     // The world is pinned to the main frame's document (frame id + loader id)
     // as it is looked up, and to `boundDocument` when the caller has one: a
     // same-address navigation in between sends nothing to the new document.
-    const world = await openIsolatedWorld(guest, signal, { url: boundUrl, document: boundDocument, pin: true });
+    const world = await openIsolatedWorld(guest, signal, { url: boundUrl, document: boundDocument, pin: true, guard });
     if (credential.password) rememberSecret(guest, credential.password);
     let result: BrowserCredentialFillResult | undefined;
     try {
@@ -628,12 +688,14 @@ function createSecretFieldFill(
       document: string;
       /** The page address the caller checked (before it read the vault, say). */
       url?: string;
+      /** The call's `expect` (fillGuard), checked before every dispatch: a refusal types nothing. */
+      guard?: FillGuard;
     },
     signal?: AbortSignal
   ): Promise<BrowserSecretFillResult> {
     const stale: BrowserSecretFillResult = { filled: false, stale: true };
     if (!request.document || !request.targets.length) return stale;
-    const world = await openIsolatedWorld(guest, signal, { document: request.document, url: request.url });
+    const world = await openIsolatedWorld(guest, signal, { document: request.document, url: request.url, guard: request.guard });
     try {
       const elements: Array<{ objectId: string }> = [];
       for (const target of request.targets) {
@@ -646,9 +708,9 @@ function createSecretFieldFill(
           });
           objectId = String(resolved.object?.objectId || '');
         } catch (error) {
-          // The node is gone, unless the page itself moved (said as such).
+          // The node is gone, unless the page itself moved (said as such) or the call's binding refused.
           const failure = await world.failure(error);
-          if (failure instanceof BrowserPageChangedError || signal?.aborted) throw failure;
+          if (failure instanceof BrowserPageChangedError || failure instanceof HostRpcError || signal?.aborted) throw failure;
         }
         if (!objectId) return stale;
         elements.push({ objectId });
