@@ -12,7 +12,7 @@ import { spawn } from 'node:child_process';
 
 import { desktopCapturer, screen } from 'electron';
 
-import { mixdogDataDirectory } from '../computer/shared/common';
+import { mixdogDataDirectory } from '../data-directory';
 import type { ScreenDisplay } from './screen-geometry';
 import { showRemoteScreenIndicator, type RemoteScreenIndicatorHandle } from './screen-indicator';
 import { createScreenInputHost, type ScreenInputHost } from './screen-input-host';

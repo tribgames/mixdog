@@ -5,8 +5,10 @@
  * the host back, and nothing here touches Electron: pure observation code can
  * import these constants inside a plain Node test.
  */
-import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { mixdogDataDirectory } from '../../data-directory';
+import { DEFAULT_CAPTURE_AFTER_DELAY_MS } from '../../computer-helper-binary';
+
+export { DEFAULT_CAPTURE_AFTER_DELAY_MS, mixdogDataDirectory };
 
 /** Line marker the resident PowerShell host prefixes on every response line. */
 export const RESPONSE_MARKER = '@@MIXCU@@';
@@ -19,8 +21,6 @@ export const DEFAULT_SCREENSHOT_MAX_WIDTH = 1280;
 export const MIN_SCREENSHOT_MAX_WIDTH = 256;
 
 export const MAX_SCREENSHOT_MAX_WIDTH = 3840;
-
-export const DEFAULT_CAPTURE_AFTER_DELAY_MS = 150;
 
 export const MAX_CAPTURE_AFTER_DELAY_MS = 2_000;
 
@@ -77,11 +77,6 @@ export function evictOldest(entries: Map<string, unknown>, maxEntries: number): 
 
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/** Where the host publishes its script, its discovery file, and run history. */
-export function mixdogDataDirectory(): string {
-  return process.env.MIXDOG_DATA_DIR || join(process.env.MIXDOG_HOME || join(homedir(), '.mixdog'), 'data');
 }
 
 export async function withTimeout<T>(operation: Promise<T>, timeoutMs: number, label: string): Promise<T> {
