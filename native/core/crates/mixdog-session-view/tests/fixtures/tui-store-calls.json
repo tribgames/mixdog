@@ -1,0 +1,1587 @@
+{
+ "about": "Reviewed audit of every member the Node terminal UI calls or reads on its session store (src/tui outside session/, src/repl*, src/app.mjs). Built from ripgrep passes over C:/Project/mixdog/src: the direct member forms (store.x, store?.x?.(), props.store.x), the dynamic forms (createStoreServiceCall(store)(name), store[method], readStatus(store, name)) and the destructured-state reads. tests/recorders/collect-tui-calls.mjs is the collector for a fresh run.",
+ "classes": {
+  "local": "answered inside the UI process, no protocol request",
+  "action": "a session action: the router (src/action_route.rs) gives its v2 method; `target` names the v2 method or section the operations map (inventory.rs) gives where the router has none",
+  "serverRequest": "answers a pending server request",
+  "lifecycle": "opens, drives or ends the session through thread/* and turn/* methods",
+  "inProcessNode": "code the Node UI ran in its own process: see inProcessNode"
+ },
+ "members": [
+  {
+   "name": "abort",
+   "class": "lifecycle",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/prompt-handlers/use-prompt-interrupt.mjs"
+   ],
+   "siteCount": 1,
+   "methods": [
+    "turn/interrupt"
+   ],
+   "note": "Esc during a turn cancels unless a steering prompt is queued"
+  },
+  {
+   "name": "abortAsync",
+   "class": "lifecycle",
+   "kinds": [
+    "call",
+    "read"
+   ],
+   "sites": [
+    "app/prompt-handlers/use-prompt-interrupt.mjs"
+   ],
+   "siteCount": 1,
+   "args": "options) : store.abort?.(options)",
+   "methods": [
+    "turn/interrupt"
+   ],
+   "note": "the awaited form of abort"
+  },
+  {
+   "name": "addMcpServer",
+   "class": "action",
+   "kinds": [
+    "dynamic"
+   ],
+   "sites": [
+    "app/prompt-submit/settings-prompts.mjs"
+   ],
+   "siteCount": 1,
+   "args": "(dynamic: serviceCall / store[method] / readStatus name)"
+  },
+  {
+   "name": "addPlugin",
+   "class": "action",
+   "kinds": [
+    "dynamic"
+   ],
+   "sites": [
+    "app/prompt-submit/settings-prompts.mjs"
+   ],
+   "siteCount": 1,
+   "args": "(dynamic: serviceCall / store[method] / readStatus name)"
+  },
+  {
+   "name": "addProject",
+   "class": "action",
+   "kinds": [
+    "dynamic"
+   ],
+   "sites": [
+    "app/project-picker/project-service.mjs"
+   ],
+   "siteCount": 1,
+   "args": "(dynamic: serviceCall / store[method] / readStatus name)",
+   "target": {
+    "method": "project/create"
+   }
+  },
+  {
+   "name": "addSkill",
+   "class": "action",
+   "kinds": [
+    "dynamic"
+   ],
+   "sites": [
+    "app/prompt-submit/settings-prompts.mjs"
+   ],
+   "siteCount": 1,
+   "args": "(dynamic: serviceCall / store[method] / readStatus name)"
+  },
+  {
+   "name": "beginMcpOAuthLogin",
+   "class": "action",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/extension-pickers/mcp-login.mjs"
+   ],
+   "siteCount": 1,
+   "args": "name, { openBrowser: true })"
+  },
+  {
+   "name": "beginOAuthProviderLogin",
+   "class": "action",
+   "kinds": [
+    "read"
+   ],
+   "sites": [
+    "app/provider-setup/oauth-actions.mjs"
+   ],
+   "siteCount": 1
+  },
+  {
+   "name": "cancelMcpOAuthLogin",
+   "class": "action",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/extension-pickers/mcp-login.mjs"
+   ],
+   "siteCount": 1,
+   "args": "flow.id)).catch(() => {})"
+  },
+  {
+   "name": "checkForUpdate",
+   "class": "action",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/maintenance-pickers/update-picker.mjs"
+   ],
+   "siteCount": 1,
+   "args": "{ force: true }))"
+  },
+  {
+   "name": "clear",
+   "class": "action",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/slash-dispatch/session-commands.mjs"
+   ],
+   "siteCount": 1,
+   "args": ").catch((e) => store.pushNotice(`clear failed: ${e?.message || e}`, 'e"
+  },
+  {
+   "name": "completeMcpOAuthLogin",
+   "class": "action",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/extension-pickers/mcp-login.mjs"
+   ],
+   "siteCount": 1,
+   "args": "flow.id, text)"
+  },
+  {
+   "name": "contextStatus",
+   "class": "action",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/usage-context-panels.mjs"
+   ],
+   "siteCount": 1,
+   "args": "{ inspect: true })).catch(() => null),"
+  },
+  {
+   "name": "createSession",
+   "class": "lifecycle",
+   "sites": [
+    "index.jsx"
+   ],
+   "args": "{ provider, model, toolMode, remote, worktree }",
+   "methods": [
+    "thread/start",
+    "thread/resume"
+   ],
+   "note": "createSessionRuntime(options) of tui/session.mjs: provider/model/toolMode/remote/worktree become thread/start params; /resume uses thread/resume"
+  },
+  {
+   "name": "dispose",
+   "class": "local",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/use-prompt-queue-history.mjs",
+    "index.jsx"
+   ],
+   "siteCount": 2,
+   "args": "reason), EXIT_WAIT_TIMEOUT_MS)",
+   "note": "closes the store (EXIT_WAIT 2500 ms)"
+  },
+  {
+   "name": "ensureProjectDirectory",
+   "class": "action",
+   "kinds": [
+    "dynamic"
+   ],
+   "sites": [
+    "app/prompt-submit/settings-prompts.mjs"
+   ],
+   "siteCount": 1,
+   "args": "(dynamic: serviceCall / store[method] / readStatus name)",
+   "target": {
+    "method": "project/ensureDirectory"
+   }
+  },
+  {
+   "name": "forceRenderRepaint",
+   "class": "local",
+   "kinds": [
+    "call",
+    "read"
+   ],
+   "sites": [
+    "app/slash-dispatch/session-commands.mjs",
+    "app/use-mouse-input.mjs",
+    "index.jsx"
+   ],
+   "siteCount": 3,
+   "args": ")",
+   "note": "the terminal repaint, the UI process own"
+  },
+  {
+   "name": "forgetProviderAuth",
+   "class": "action",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/provider-setup/provider-items.mjs"
+   ],
+   "siteCount": 1,
+   "args": "providerItem._providerId))"
+  },
+  {
+   "name": "getAutoClear",
+   "class": "action",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/maintenance-pickers/auto-clear-picker.mjs",
+    "app/slash-dispatch/panel-commands.mjs"
+   ],
+   "siteCount": 2,
+   "args": ")) || null"
+  },
+  {
+   "name": "getDeveloperSettings",
+   "class": "action",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/maintenance-pickers/developer-picker.mjs"
+   ],
+   "siteCount": 1,
+   "args": "), so a new section or option needs no code here."
+  },
+  {
+   "name": "getDisabledSkills",
+   "class": "action",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/use-disabled-skills.mjs"
+   ],
+   "siteCount": 1,
+   "args": "))"
+  },
+  {
+   "name": "getLineRectAt",
+   "class": "local",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/mouse-input/button-gestures.mjs",
+    "app/use-selection-geometry.mjs"
+   ],
+   "siteCount": 2,
+   "args": "row)",
+   "note": "render-selection geometry, the UI process own"
+  },
+  {
+   "name": "getMcpOAuthLoginStatus",
+   "class": "action",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/extension-pickers/mcp-login.mjs"
+   ],
+   "siteCount": 1,
+   "args": "flow.id)"
+  },
+  {
+   "name": "getOnboardingStatus",
+   "class": "action",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/use-onboarding-start.mjs",
+    "index.jsx"
+   ],
+   "siteCount": 2,
+   "args": ")",
+   "target": {
+    "section": "config"
+   }
+  },
+  {
+   "name": "getOutputStyle",
+   "class": "action",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/slash-dispatch/route-commands.mjs"
+   ],
+   "siteCount": 1,
+   "args": "))"
+  },
+  {
+   "name": "getProfile",
+   "class": "action",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/maintenance-pickers/profile-picker.mjs"
+   ],
+   "siteCount": 1,
+   "args": ")) || null"
+  },
+  {
+   "name": "getProviderSetup",
+   "class": "action",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/model-options.mjs",
+    "app/onboarding-steps.mjs",
+    "app/provider-setup-picker.mjs",
+    "app/use-welcome-prompt-hint.mjs"
+   ],
+   "siteCount": 4,
+   "args": ")",
+   "target": {
+    "section": "providerSetup"
+   }
+  },
+  {
+   "name": "getRenderSelectionRows",
+   "class": "local",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/use-selection-stitch.mjs"
+   ],
+   "siteCount": 1,
+   "args": ")",
+   "note": "render-selection accessor, the UI process own"
+  },
+  {
+   "name": "getRenderSelectionText",
+   "class": "local",
+   "kinds": [
+    "call",
+    "read"
+   ],
+   "sites": [
+    "app/use-copy-selection.mjs",
+    "app/use-global-key-input/copy-first.mjs",
+    "app/use-selection-paint.mjs"
+   ],
+   "siteCount": 3,
+   "args": ")",
+   "note": "render-selection accessor, the UI process own"
+  },
+  {
+   "name": "getSessionUsage",
+   "class": "action",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/usage-context-panels.mjs"
+   ],
+   "siteCount": 1,
+   "args": ")).catch(() => null),"
+  },
+  {
+   "name": "getSettingsSnapshot",
+   "class": "action",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/settings-picker.mjs"
+   ],
+   "siteCount": 1,
+   "args": "{ heavy: !heavyCache })) || {}"
+  },
+  {
+   "name": "getState",
+   "class": "local",
+   "kinds": [
+    "call",
+    "read"
+   ],
+   "sites": [
+    "app/message-selector.mjs",
+    "app/prompt-handlers/use-prompt-interrupt.mjs",
+    "app/use-transcript-scroll.mjs",
+    "hooks/useSession.mjs",
+    "index.jsx"
+   ],
+   "siteCount": 5,
+   "args": ").items ?? state.items",
+   "note": "the store snapshot (the projected state, read synchronously)"
+  },
+  {
+   "name": "getTheme",
+   "class": "action",
+   "kinds": [
+    "call",
+    "read"
+   ],
+   "sites": [
+    "app/settings-picker/settings-rows.mjs",
+    "app/settings-picker/settings-toggles/theme-cycler.mjs",
+    "app/slash-dispatch/route-commands.mjs",
+    "app/theme-effort-pickers.mjs",
+    "index.jsx"
+   ],
+   "siteCount": 5,
+   "args": ") || themes.find((t) => t.current)?.id || themes[0]?.id"
+  },
+  {
+   "name": "getUpdateSettings",
+   "class": "action",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/maintenance-pickers/update-picker.mjs"
+   ],
+   "siteCount": 1,
+   "args": ")) || {}"
+  },
+  {
+   "name": "getUpdateStatus",
+   "class": "action",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/maintenance-pickers/update-picker.mjs"
+   ],
+   "siteCount": 1,
+   "args": ")) || { phase: 'idle' }"
+  },
+  {
+   "name": "getWebSearchRoute",
+   "class": "action",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/route-pickers.mjs",
+    "app/use-welcome-prompt-hint.mjs"
+   ],
+   "siteCount": 2,
+   "args": ")) || null",
+   "target": {
+    "section": "webSearch"
+   }
+  },
+  {
+   "name": "getWordRectAt",
+   "class": "local",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/mouse-input/button-gestures.mjs",
+    "app/use-selection-geometry.mjs"
+   ],
+   "siteCount": 2,
+   "args": "x, y) : g.store.getLineRectAt?.(y)",
+   "note": "render-selection geometry, the UI process own"
+  },
+  {
+   "name": "goalControl",
+   "class": "action",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/slash-dispatch/session-commands.mjs"
+   ],
+   "siteCount": 1,
+   "args": "{ command: arg }))"
+  },
+  {
+   "name": "inheritSession",
+   "class": "action",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/slash-dispatch/session-commands.mjs"
+   ],
+   "siteCount": 1,
+   "args": "))",
+   "target": {
+    "method": "thread/fork"
+   }
+  },
+  {
+   "name": "inspectProjectPath",
+   "class": "action",
+   "kinds": [
+    "dynamic"
+   ],
+   "sites": [
+    "app/prompt-submit/settings-prompts.mjs"
+   ],
+   "siteCount": 1,
+   "args": "(dynamic: serviceCall / store[method] / readStatus name)"
+  },
+  {
+   "name": "isRemoteSession",
+   "class": "local",
+   "kinds": [
+    "read"
+   ],
+   "sites": [
+    "index.jsx"
+   ],
+   "siteCount": 1,
+   "note": "read: whether the store runs against a remote core (theme methods are then bound locally)"
+  },
+  {
+   "name": "listAgents",
+   "class": "action",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/onboarding/step-data.mjs",
+    "app/route-pickers/agents-picker.mjs"
+   ],
+   "siteCount": 2,
+   "args": ")) || []).map(agentRosterEntry)",
+   "target": {
+    "section": "agents"
+   }
+  },
+  {
+   "name": "listOutputStyles",
+   "class": "action",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/route-pickers/output-style-picker.mjs",
+    "app/settings-picker/settings-toggles/listed-cyclers.mjs"
+   ],
+   "siteCount": 2,
+   "args": ")) || null"
+  },
+  {
+   "name": "listProjects",
+   "class": "action",
+   "kinds": [
+    "dynamic"
+   ],
+   "sites": [
+    "app/project-picker.mjs"
+   ],
+   "siteCount": 1,
+   "args": "(dynamic: serviceCall / store[method] / readStatus name)",
+   "target": {
+    "method": "project/list"
+   }
+  },
+  {
+   "name": "listProviderModels",
+   "class": "action",
+   "kinds": [
+    "call",
+    "read"
+   ],
+   "sites": [
+    "app/model-picker/catalog-load.mjs",
+    "app/onboarding/step-data.mjs",
+    "app/use-model-catalog-cache.mjs",
+    "app/use-welcome-prompt-hint.mjs"
+   ],
+   "siteCount": 4,
+   "args": ")"
+  },
+  {
+   "name": "listSessions",
+   "class": "action",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/resume-picker.mjs"
+   ],
+   "siteCount": 1,
+   "args": "{ refreshFromStorage: true })",
+   "target": {
+    "method": "thread/list"
+   }
+  },
+  {
+   "name": "listShellJobs",
+   "class": "action",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/slash-dispatch/session-commands.mjs"
+   ],
+   "siteCount": 1,
+   "args": "))"
+  },
+  {
+   "name": "listStoppableShellJobs",
+   "class": "action",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/slash-dispatch/session-commands.mjs"
+   ],
+   "siteCount": 1,
+   "args": "))"
+  },
+  {
+   "name": "listThemes",
+   "class": "local",
+   "kinds": [
+    "call",
+    "read"
+   ],
+   "sites": [
+    "app/settings-picker/settings-rows.mjs",
+    "app/settings-picker/settings-toggles/theme-cycler.mjs",
+    "app/slash-dispatch/route-commands.mjs",
+    "app/theme-effort-pickers.mjs",
+    "index.jsx"
+   ],
+   "siteCount": 5,
+   "args": ") || []",
+   "note": "the palette catalog is the UI process own (bindLocalThemeMethods binds getTheme/setTheme/listThemes locally)"
+  },
+  {
+   "name": "listWebSearchModels",
+   "class": "action",
+   "kinds": [
+    "call",
+    "read"
+   ],
+   "sites": [
+    "app/onboarding/role-model-picker.mjs",
+    "app/route-pickers.mjs",
+    "app/use-model-catalog-cache.mjs"
+   ],
+   "siteCount": 3,
+   "args": ") || [])"
+  },
+  {
+   "name": "listWorkflows",
+   "class": "action",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/app-format.mjs",
+    "app/route-pickers/workflow-picker.mjs",
+    "app/settings-picker/settings-toggles/listed-cyclers.mjs",
+    "app/workflow-cycle.mjs"
+   ],
+   "siteCount": 4,
+   "args": ")) || []",
+   "target": {
+    "section": "workflows"
+   }
+  },
+  {
+   "name": "loginOAuthProvider",
+   "class": "action",
+   "kinds": [
+    "read"
+   ],
+   "sites": [
+    "app/provider-setup/oauth-actions.mjs"
+   ],
+   "siteCount": 1
+  },
+  {
+   "name": "mcpStatus",
+   "class": "action",
+   "kinds": [
+    "call",
+    "dynamic"
+   ],
+   "sites": [
+    "app/extension-pickers/mcp-servers-picker.mjs",
+    "app/usage-context-panels.mjs"
+   ],
+   "siteCount": 2,
+   "args": ")).catch(() => null),"
+  },
+  {
+   "name": "memoryControl",
+   "class": "action",
+   "kinds": [
+    "read"
+   ],
+   "sites": [
+    "app/input-parsers.mjs"
+   ],
+   "siteCount": 1
+  },
+  {
+   "name": "pluginsStatus",
+   "class": "action",
+   "kinds": [
+    "call",
+    "dynamic"
+   ],
+   "sites": [
+    "app/extension-pickers/plugins-pickers.mjs",
+    "app/usage-context-panels.mjs"
+   ],
+   "siteCount": 2,
+   "args": ")).catch(() => null),"
+  },
+  {
+   "name": "pushNotice",
+   "class": "local",
+   "kinds": [
+    "call",
+    "read"
+   ],
+   "sites": [
+    "App.jsx",
+    "app/core-memory-picker.mjs",
+    "app/core-memory-picker/list-panels.mjs",
+    "app/extension-pickers/mcp-login.mjs",
+    "app/extension-pickers/mcp-servers-picker.mjs",
+    "app/extension-pickers/plugins-pickers.mjs",
+    "app/extension-pickers/scope-note.mjs",
+    "app/extension-pickers/skills-pickers.mjs"
+   ],
+   "siteCount": 50,
+   "args": "...a) },",
+   "note": "a notice shown by the UI itself (StoreEvent::Notice); thread/pushNotice is the broadcast variant"
+  },
+  {
+   "name": "releaseShellJob",
+   "class": "action",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/slash-dispatch/session-commands.mjs"
+   ],
+   "siteCount": 1,
+   "args": "taskId))"
+  },
+  {
+   "name": "rememberPromptHistory",
+   "class": "action",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/use-prompt-handlers.mjs"
+   ],
+   "siteCount": 1,
+   "args": "text)"
+  },
+  {
+   "name": "renameProject",
+   "class": "action",
+   "kinds": [
+    "dynamic"
+   ],
+   "sites": [
+    "app/prompt-submit/settings-prompts.mjs"
+   ],
+   "siteCount": 1,
+   "args": "(dynamic: serviceCall / store[method] / readStatus name)",
+   "target": {
+    "method": "project/update"
+   }
+  },
+  {
+   "name": "resolveToolApproval",
+   "class": "serverRequest",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/app-view/floating-panel.jsx",
+    "app/use-global-key-input.mjs"
+   ],
+   "siteCount": 2,
+   "args": "toolApproval.id, { approved: true, reason: 'answered by user', answers",
+   "method": "thread/approval/answer",
+   "note": "answers the pending approval or question server request by the card id"
+  },
+  {
+   "name": "restoreNewerTranscript",
+   "class": "action",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/use-transcript-scroll.mjs"
+   ],
+   "siteCount": 1
+  },
+  {
+   "name": "restoreOlderTranscript",
+   "class": "action",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/use-transcript-scroll.mjs"
+   ],
+   "siteCount": 1,
+   "args": ") : store.restoreNewerTranscript?.()"
+  },
+  {
+   "name": "restoreQueued",
+   "class": "lifecycle",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/use-prompt-queue-history/restore-to-prompt.mjs"
+   ],
+   "siteCount": 1,
+   "args": "'')",
+   "methods": [
+    "thread/queue/delete"
+   ],
+   "note": "Esc while idle hands a queued submission back to the draft (operations map: thread/queue/delete)"
+  },
+  {
+   "name": "rewindToItem",
+   "class": "action",
+   "kinds": [
+    "call",
+    "read"
+   ],
+   "sites": [
+    "app/message-selector.mjs"
+   ],
+   "siteCount": 1,
+   "args": "value, { restoreFiles: false })"
+  },
+  {
+   "name": "runDoctor",
+   "class": "action",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/create-app-pickers.mjs"
+   ],
+   "siteCount": 1,
+   "args": "...a),"
+  },
+  {
+   "name": "runUpdateNow",
+   "class": "action",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/maintenance-pickers/update-picker.mjs"
+   ],
+   "siteCount": 1,
+   "args": "))"
+  },
+  {
+   "name": "saveOpenAIUsageSessionKey",
+   "class": "action",
+   "kinds": [
+    "dynamic"
+   ],
+   "sites": [
+    "app/prompt-submit/provider-prompts.mjs"
+   ],
+   "siteCount": 1,
+   "args": "(dynamic: serviceCall / store[method] / readStatus name)"
+  },
+  {
+   "name": "saveProviderApiKey",
+   "class": "action",
+   "kinds": [
+    "dynamic"
+   ],
+   "sites": [
+    "app/prompt-submit/provider-prompts.mjs"
+   ],
+   "siteCount": 1,
+   "args": "(dynamic: serviceCall / store[method] / readStatus name)"
+  },
+  {
+   "name": "setAgentRoute",
+   "class": "action",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/route-pickers/agents-picker.mjs"
+   ],
+   "siteCount": 1,
+   "args": "agent.id, routeInput)",
+   "target": {
+    "method": "route/set"
+   }
+  },
+  {
+   "name": "setAutoClear",
+   "class": "action",
+   "kinds": [
+    "call",
+    "dynamic"
+   ],
+   "sites": [
+    "app/maintenance-pickers/auto-clear-picker.mjs",
+    "app/prompt-submit/settings-prompts.mjs",
+    "app/settings-picker/settings-toggles/store-toggles.mjs",
+    "app/slash-dispatch/panel-commands.mjs"
+   ],
+   "siteCount": 4,
+   "args": "patch))"
+  },
+  {
+   "name": "setAutoUpdate",
+   "class": "action",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/maintenance-pickers/update-picker.mjs"
+   ],
+   "siteCount": 1,
+   "args": "enabled))"
+  },
+  {
+   "name": "setCompactionSettings",
+   "class": "action",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/settings-picker/settings-toggles/store-toggles.mjs"
+   ],
+   "siteCount": 1,
+   "args": "{ auto: view.compaction.auto === false }))"
+  },
+  {
+   "name": "setCwd",
+   "class": "action",
+   "kinds": [
+    "dynamic"
+   ],
+   "sites": [
+    "app/project-picker/project-service.mjs",
+    "app/prompt-submit/settings-prompts.mjs"
+   ],
+   "siteCount": 2,
+   "args": "(dynamic: serviceCall / store[method] / readStatus name)",
+   "target": {
+    "method": "thread/setCwd"
+   }
+  },
+  {
+   "name": "setDeveloperOption",
+   "class": "action",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/maintenance-pickers/developer-picker.mjs"
+   ],
+   "siteCount": 1,
+   "args": "option.id, enabled))"
+  },
+  {
+   "name": "setDisabledSkills",
+   "class": "action",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/use-disabled-skills.mjs"
+   ],
+   "siteCount": 1,
+   "args": "[...set])"
+  },
+  {
+   "name": "setFast",
+   "class": "action",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/slash-dispatch/route-commands.mjs"
+   ],
+   "siteCount": 1
+  },
+  {
+   "name": "setMcpServerEnabled",
+   "class": "action",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/extension-pickers/mcp-servers-picker.mjs"
+   ],
+   "siteCount": 1,
+   "args": "name, target))"
+  },
+  {
+   "name": "setMemoryToolsEnabled",
+   "class": "action",
+   "kinds": [
+    "read"
+   ],
+   "sites": [
+    "app/settings-picker/settings-toggles/store-toggles.mjs"
+   ],
+   "siteCount": 1
+  },
+  {
+   "name": "setProfile",
+   "class": "action",
+   "kinds": [
+    "call",
+    "dynamic"
+   ],
+   "sites": [
+    "app/maintenance-pickers/profile-picker.mjs",
+    "app/prompt-submit/settings-prompts.mjs"
+   ],
+   "siteCount": 2,
+   "args": "patch))"
+  },
+  {
+   "name": "setProgressHint",
+   "class": "action",
+   "kinds": [
+    "read"
+   ],
+   "sites": [
+    "app/settings-picker/settings-toggles/store-toggles.mjs"
+   ],
+   "siteCount": 1
+  },
+  {
+   "name": "setRenderSelection",
+   "class": "local",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/use-selection-paint/paint-queue.mjs"
+   ],
+   "siteCount": 1,
+   "args": "nextRect)",
+   "note": "render-selection accessor, the UI process own"
+  },
+  {
+   "name": "setRoute",
+   "class": "action",
+   "kinds": [
+    "read"
+   ],
+   "sites": [
+    "app/model-picker/provider-models-list.mjs"
+   ],
+   "siteCount": 1
+  },
+  {
+   "name": "setSystemShell",
+   "class": "action",
+   "kinds": [
+    "dynamic"
+   ],
+   "sites": [
+    "app/prompt-submit/settings-prompts.mjs"
+   ],
+   "siteCount": 1,
+   "args": "(dynamic: serviceCall / store[method] / readStatus name)"
+  },
+  {
+   "name": "setTheme",
+   "class": "action",
+   "kinds": [
+    "call",
+    "read"
+   ],
+   "sites": [
+    "app/settings-picker/settings-toggles/theme-cycler.mjs",
+    "app/slash-dispatch/route-commands.mjs",
+    "app/theme-effort-pickers.mjs",
+    "index.jsx"
+   ],
+   "siteCount": 4,
+   "args": "id, { persist })"
+  },
+  {
+   "name": "setWebSearchEnabled",
+   "class": "action",
+   "kinds": [
+    "read"
+   ],
+   "sites": [
+    "app/settings-picker/settings-toggles/store-toggles.mjs"
+   ],
+   "siteCount": 1
+  },
+  {
+   "name": "setWebSearchRoute",
+   "class": "action",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/route-pickers.mjs"
+   ],
+   "siteCount": 1,
+   "args": "routeInput)"
+  },
+  {
+   "name": "setWorkflow",
+   "class": "action",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/workflow-cycle.mjs"
+   ],
+   "siteCount": 1,
+   "args": "next.id)"
+  },
+  {
+   "name": "signOutMcpServer",
+   "class": "action",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/extension-pickers/mcp-login.mjs"
+   ],
+   "siteCount": 1,
+   "args": "name)"
+  },
+  {
+   "name": "skillsStatus",
+   "class": "action",
+   "kinds": [
+    "call",
+    "dynamic"
+   ],
+   "sites": [
+    "app/extension-pickers/skills-pickers.mjs",
+    "app/skill-mention-palette.mjs",
+    "app/usage-context-panels.mjs"
+   ],
+   "siteCount": 3,
+   "args": ") round-trip per keypress."
+  },
+  {
+   "name": "skipOnboarding",
+   "class": "action",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/onboarding/persist.mjs"
+   ],
+   "siteCount": 1,
+   "args": "))"
+  },
+  {
+   "name": "stopShellJobs",
+   "class": "action",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/slash-dispatch/session-commands.mjs"
+   ],
+   "siteCount": 1,
+   "args": "))"
+  },
+  {
+   "name": "submit",
+   "class": "lifecycle",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "App.jsx",
+    "app/prompt-submit.mjs"
+   ],
+   "siteCount": 2,
+   "args": ") (or handles a slash command locally). The whole tree is live",
+   "methods": [
+    "turn/start",
+    "turn/steer"
+   ],
+   "note": "a prompt starts a turn, or steers the running one (Node intake rules)"
+  },
+  {
+   "name": "submitAsync",
+   "class": "lifecycle",
+   "kinds": [
+    "call",
+    "read"
+   ],
+   "sites": [
+    "app/prompt-submit.mjs"
+   ],
+   "siteCount": 1,
+   "args": "prompt, options))",
+   "methods": [
+    "turn/start",
+    "turn/steer"
+   ],
+   "note": "the awaited form of submit"
+  },
+  {
+   "name": "subscribe",
+   "class": "local",
+   "kinds": [
+    "read"
+   ],
+   "sites": [
+    "hooks/useSession.mjs"
+   ],
+   "siteCount": 1,
+   "note": "state subscription of useSession"
+  },
+  {
+   "name": "toggleFast",
+   "class": "action",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/slash-dispatch/route-commands.mjs"
+   ],
+   "siteCount": 1,
+   "args": ") : store.setFast?.(setTo)",
+   "target": {
+    "method": "fast/set"
+   }
+  },
+  {
+   "name": "toolsStatus",
+   "class": "action",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "app/usage-context-panels.mjs"
+   ],
+   "siteCount": 1,
+   "args": ")).catch(() => null),"
+  },
+  {
+   "name": "touchProjectSelected",
+   "class": "action",
+   "kinds": [
+    "call"
+   ],
+   "sites": [
+    "index.jsx"
+   ],
+   "siteCount": 1,
+   "args": "store.getState?.()?.cwd || process.cwd())",
+   "target": {
+    "method": "project/touch"
+   }
+  }
+ ],
+ "repl": {
+  "about": "src/repl.mjs drives mixdog-session-runtime.mjs (not the TUI store): the plain REPL runtime handle",
+  "members": [
+   {
+    "name": "ask",
+    "class": "lifecycle",
+    "methods": [
+     "turn/start"
+    ],
+    "note": "one prompt is one turn; onToolCall/onTextDelta/onTextReset/onUsageDelta are item and delta notifications of the thread feed"
+   },
+   {
+    "name": "clear",
+    "class": "action",
+    "sites": [
+     "repl/slash-commands.mjs"
+    ]
+   },
+   {
+    "name": "compact",
+    "class": "action",
+    "sites": [
+     "repl/slash-commands.mjs"
+    ]
+   },
+   {
+    "name": "setRoute",
+    "class": "action",
+    "sites": [
+     "repl/slash-commands.mjs"
+    ],
+    "args": "(request, { validateOnly | switchEstablished })"
+   },
+   {
+    "name": "getCompactionSettings",
+    "class": "action",
+    "sites": [
+     "repl/slash-commands.mjs"
+    ]
+   },
+   {
+    "name": "getOutputStyle",
+    "class": "action",
+    "sites": [
+     "repl/slash-commands.mjs"
+    ]
+   },
+   {
+    "name": "listOutputStyles",
+    "class": "action",
+    "sites": [
+     "repl/slash-commands.mjs"
+    ]
+   },
+   {
+    "name": "setOutputStyle",
+    "class": "action",
+    "sites": [
+     "repl/slash-commands.mjs"
+    ]
+   },
+   {
+    "name": "setToolMode",
+    "class": "action",
+    "sites": [
+     "repl/slash-commands.mjs"
+    ]
+   },
+   {
+    "name": "close",
+    "class": "lifecycle",
+    "methods": [
+     "thread/unsubscribe"
+    ],
+    "sites": [
+     "repl/runtime-handle.mjs"
+    ],
+    "note": "closeRuntime drains the process writes (\"cli-eof\")"
+   },
+   {
+    "name": "statusline",
+    "class": "action",
+    "target": {
+     "method": "statusline/read"
+    },
+    "sites": [
+     "repl/turn-output.mjs"
+    ],
+    "note": "the footer reads provider, model, contextWindow, rawContextWindow of the runtime"
+   }
+  ]
+ },
+ "inProcessNode": [
+  {
+   "module": "runtime/channels/lib/voice-setup.mjs",
+   "imports": [
+    "toggleVoice",
+    "isVoiceInstallBusy",
+    "isVoiceEnabled",
+    "getVoiceStatus"
+   ],
+   "from": [
+    "app/settings-picker/settings-toggles/store-toggles.mjs",
+    "app/settings-picker/settings-rows.mjs",
+    "app/doctor.mjs"
+   ],
+   "disposition": "core call",
+   "methods": [
+    "voice/toggleVoice",
+    "voice/getVoiceStatus"
+   ]
+  },
+  {
+   "module": "app/doctor.mjs (diagnostics, runDoctor)",
+   "imports": [
+    "runDoctor"
+   ],
+   "from": [
+    "app/create-app-pickers.mjs"
+   ],
+   "disposition": "core call",
+   "methods": [
+    "diagnostics/runDoctor"
+   ]
+  },
+  {
+   "module": "runtime/shared/update-checker.mjs",
+   "imports": [
+    "localPackageVersion",
+    "compareSemver"
+   ],
+   "from": [
+    "index.jsx",
+    "app/app-view/welcome-banner.jsx",
+    "app/doctor.mjs"
+   ],
+   "disposition": "crate version and a ported compareSemver (view-model helper)"
+  },
+  {
+   "module": "runtime/shared/plugin-paths.mjs",
+   "imports": [
+    "resolvePluginData"
+   ],
+   "from": [
+    "prompt-history-store.mjs",
+    "app/doctor.mjs"
+   ],
+   "disposition": "core call or a path helper of the TUI crate"
+  },
+  {
+   "module": "runtime/shared/read-image-resize.mjs",
+   "imports": [
+    "(paste image resize)"
+   ],
+   "from": [
+    "paste-attachments.mjs"
+   ],
+   "disposition": "core call",
+   "methods": [
+    "thread/resizeImage"
+   ]
+  },
+  {
+   "module": "runtime/agent/orchestrator/session/store/session-log-migration.mjs",
+   "imports": [
+    "(session log migration)"
+   ],
+   "from": [
+    "app/doctor-session-log.mjs"
+   ],
+   "disposition": "core call (doctor)",
+   "methods": [
+    "diagnostics/runDoctor"
+   ]
+  },
+  {
+   "module": "runtime/shared/atomic-file.mjs",
+   "imports": [
+    "readJsonStateSync",
+    "writeFileAtomicAsync",
+    "writeFileAtomicSync"
+   ],
+   "from": [
+    "prompt-history-store.mjs"
+   ],
+   "disposition": "the prompt history file of the UI: an atomic-file helper of the TUI crate"
+  },
+  {
+   "module": "runtime/shared/open-url.mjs",
+   "imports": [
+    "canOpenBrowser",
+    "openInBrowser"
+   ],
+   "from": [
+    "app/provider-setup/oauth-actions.mjs",
+    "app/provider-setup/api-key-actions.mjs"
+   ],
+   "disposition": "the UI process opens the browser itself"
+  },
+  {
+   "module": "standalone/folder-dialog.mjs",
+   "imports": [
+    "pickFolder"
+   ],
+   "from": [
+    "App.jsx"
+   ],
+   "disposition": "the UI process shows the folder dialog itself"
+  },
+  {
+   "module": "runtime/shared/process-shutdown.mjs, process-lifecycle.mjs",
+   "imports": [
+    "installProcessSignalCleanup",
+    "finishProcessLifecycle"
+   ],
+   "from": [
+    "index.jsx"
+   ],
+   "disposition": "the UI process own signal handling"
+  },
+  {
+   "module": "lib/mixdog-debug.cjs",
+   "imports": [
+    "rotateBoundedLog",
+    "PLUGIN_LOG_MAX_BYTES",
+    "PLUGIN_LOG_KEEP_BYTES"
+   ],
+   "from": [
+    "index.jsx"
+   ],
+   "disposition": "the UI process own log rotation"
+  },
+  {
+   "module": "runtime/shared/{tool-surface,tool-card-model*,clean,err-text,time-format,model-display,model-alias,error-presentation,provider-display-name,llm/openai-daybreak,statusline/*,context-measurement,context-inspection,quiet-progress,skill-mentions,read-row-numbers,env}.mjs",
+   "imports": [
+    "(pure display helpers)"
+   ],
+   "from": [
+    "components/**",
+    "app/**"
+   ],
+   "disposition": "pure helpers: mixdog-view-model (the view-model tasks own them)"
+  },
+  {
+   "module": "runtime/agent/orchestrator/runtime-core/builtin-features.mjs, providers/openrouter-provider-routing.mjs, runtime/shared/automation-presence.mjs",
+   "imports": [
+    "builtinFeatureActive",
+    "OPENROUTER_SORT_PARAMETER",
+    "hasEnabledAutomation"
+   ],
+   "from": [
+    "app/doctor.mjs",
+    "app/model-picker/route-selection/fast-parameters.mjs"
+   ],
+   "disposition": "core facts read through diagnostics/runDoctor and the route section"
+  },
+  {
+   "module": "session-runtime/services/usage-dashboard-model.mjs",
+   "imports": [
+    "compactNumber",
+    "money"
+   ],
+   "from": [
+    "components/UsagePanel.jsx"
+   ],
+   "disposition": "pure display helpers: mixdog-view-model"
+  }
+ ]
+}

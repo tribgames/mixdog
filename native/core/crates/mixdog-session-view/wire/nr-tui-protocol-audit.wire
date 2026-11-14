@@ -1,0 +1,30 @@
+# nr-tui-protocol-audit: what the lead applies (nothing here is applied by the task)
+
+## native/core/Cargo.toml
+
+[workspace] members: add, after "crates/mixdog-core-review" (anchor: that line):
+    "crates/mixdog-session-view",
+
+[workspace.dependencies]: add, after `mixdog-core-review = { path = "crates/mixdog-core-review" }`:
+mixdog-session-view = { path = "crates/mixdog-session-view" }
+(Only later tasks name it as a dependency: nr-tui-sv-store, mixdog-tui, mixdog-repl. Skip this line until one does if a workspace dependency with no user is not wanted.)
+
+## native/core/Cargo.lock (offline, --locked)
+
+A new `[[package]] name = "mixdog-session-view"` entry; every dependency is a crate already in the lock file:
+    dependencies = ["mixdog-app-protocol", "mixdog-app-server-client", "mixdog-workspace-hack", "serde_json", "thiserror", "tokio"]
+Regenerate with `cargo metadata --offline` or `cargo update --offline -p mixdog-session-view`, whichever the lead uses for a new member.
+
+## native/core/crates/mixdog-workspace-hack
+
+mixdog-session-view lists `mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }`: regenerate the hack as for any new member (the crate's own features: tokio "sync" only).
+
+## mixdog-app-server-daemon/src/compose_flip.rs SERVICE_PENDING
+
+Nothing to remove: this task registers no service and adds no protocol method.
+
+## For the tasks after this one
+
+- nr-tui-sv-reducer: owns src/reducer.rs, src/rows.rs, src/state.rs; replaces the placeholder bodies (the fold is the snapshot until then) and adds mixdog-view-model to Cargo.toml. state.rs::PROJECTED_FIELDS is the list tests/protocol_coverage.rs proves tui-state-fields.json against: keep it equal to the fields the projection sets.
+- nr-tui-sv-store: owns src/store.rs, src/connect.rs; adds mixdog-app-server-client's connection, async-trait, mixdog-protocol and mixdog-js as it needs them. tests/fixtures/tui-store-calls.json is the member list it implements (class lifecycle gives the thread/start|resume and turn/start|steer|interrupt mapping; `target` gives the v2 method or section of an action the router has no row for).
+- nr-tui-core-gaps: implements each entry of tests/fixtures/core-gaps.json in the core and empties the file.
