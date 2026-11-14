@@ -1,0 +1,45 @@
+# s4-bridge-core: browser/bridge/run, browser/bridge/turn and browser/bridge/abort, served by mixdog-tools
+# desktop::browser_bridge_run::BrowserBridgeRun (created by this task) over the engine's host commands, the engine, the one secret
+# guard and the session approval gates. Not compiled by this task: read every line against the tree.
+# The protocol rows are native/core/crates/mixdog-app-protocol/pending-rows/s4-bridge-core.rows (PROTO-WIRE).
+
+# 1. The module line.
+file: native/core/crates/mixdog-tools/src/desktop/mod.rs
+place: after `pub mod browser_approval;`
+add: pub mod browser_bridge_run;
+
+# 2. No Cargo.toml, Cargo.lock or workspace-hack change: the module uses only crates mixdog-tools already depends on (mixdog-browser-engine,
+#    mixdog-browser-policy, mixdog-app-protocol, mixdog-core-api, mixdog-protocol, mixdog-rt, mixdog-js, async-trait, serde, serde_json,
+#    tokio, tokio-util; tests: bytes and the engine's test-support, both already dev-dependencies of the crate).
+
+# 3. The approval port of the engine: the bridge's own rules in front of the one approval path (BridgeApprovals passes every step of a
+#    session the core hosts, which carries no unattended or life field, straight to the inner port).
+file: native/core/crates/mixdog-app-server-daemon/src/compose_flip.rs
+place: fn real_core, the `approvals:` field of `EnginePorts` (the `BrowserApprovals::new(grants.clone(), Arc::new(BrowserApprovalContext {..}), engine_files.clone())` call)
+edit: approvals: mixdog_tools::desktop::browser_bridge_run::BridgeApprovals::new(
+edit:     <the existing BrowserApprovals::new(..) call, unchanged>,
+edit:     grants.clone(),
+edit:     session_grants.clone(),
+edit: ),
+
+# 4. The service, registered where the browser engine service is (it needs the same engine and host commands the tools are built over).
+file: native/core/crates/mixdog-app-server-daemon/src/compose_flip.rs
+place: fn real_core, right after `builder.register(browser_engine.clone())?;`
+edit: builder.register(Arc::new(mixdog_tools::desktop::browser_bridge_run::BrowserBridgeRun::new(
+edit:     pool_host.clone(),
+edit:     engine.clone(),
+edit:     b.host.clone(),
+edit:     Arc::new(crate::compose_browser_engine::FillSecretGuard { fill: fill.clone(), redactor: redactor.clone() }),
+edit:     <the BridgeApprovalGates below>,
+edit: )))?;
+#   `pool_host` is moved into `engine_tool_host` under cfg(test-hooks) by a clone, so it is still usable here. `b.host` is the Arc<dyn HostChannel>
+#   the engine host commands were built over (`serves(BrowserEngine)` decides engine or `host/browser/command`).
+#   BridgeApprovalGates (a trait of the module: `fn gate(&self, session: &str) -> Option<Arc<dyn ApprovalGate>>`): the approval gate of the
+#   session a bridge command runs in. For a session the core hosts it is that thread's session port put through `RunApprovals::gate_for`
+#   (as the turn's own tool calls are); a session the core does not host has none, and the step is answered "approval required but no
+#   approval UI is available" as for any step with no one to ask. The lead decides the source of the gate when applying this line; a
+#   `struct NoGates; impl BridgeApprovalGates for NoGates { fn gate(&self, _: &str) -> Option<Arc<dyn ApprovalGate>> { None } }` in
+#   compose_browser_engine.rs is the floor.
+
+# 5. SERVICE_PENDING (compose_flip.rs): the three names are registered by line 4, so nothing is added to it. If the lead registers the
+#    service only under a condition, the names go into SERVICE_PENDING with the reason, as computer/bridge/run does.
