@@ -8,7 +8,7 @@ import type {
   DesktopSshHostKeyCheck,
   DesktopSshProgress,
 } from '../../shared/contract-ssh';
-import type { CapabilityApi } from './capability-data';
+import { sshCancel, sshConfigHosts, sshConnect, sshInspectHostKey, subscribeSshProgress } from '../connections-core-api';
 import type { SshHostRequest } from './connection-intent';
 import { useSshAskpass } from './ssh-askpass-prompt';
 import { START_VIEW, type View, viewForFailure, viewForHostKey } from './ssh-connect-view';
@@ -34,12 +34,10 @@ function withProgress(current: View, progress: DesktopSshProgress): View {
  *  inspection/connect calls to main, and the attempt main holds for it. A saved
  *  `host` starts connecting on mount; the attempt is released on unmount. */
 export function useSshConnectAttempt({
-  api,
   host,
   onConnected,
   onClose,
 }: {
-  api: CapabilityApi;
   host: SshHostRequest | null;
   onConnected?(host: DesktopSshHost): void;
   onClose(): void;
@@ -65,14 +63,14 @@ export function useSshConnectAttempt({
   const releaseAttempt = (): void => {
     const id = attemptId.current;
     attemptId.current = '';
-    if (id) void api.sshCancel?.(id)?.catch(() => undefined);
+    if (id) void sshCancel(id).catch(() => undefined);
   };
   const cancelAttempt = (): void => {
     attempt.current += 1;
     releaseAttempt();
   };
 
-  const { question, answer } = useSshAskpass(api, (id) => id === attemptId.current);
+  const { question, answer } = useSshAskpass((id) => id === attemptId.current);
 
   /** Connects the inspected attempt. `trust` is the user's confirmation of its
    *  key, `replace` the server name typed to replace a changed key, `restart`
@@ -84,7 +82,7 @@ export function useSshConnectAttempt({
     const live = () => mine === attempt.current;
     setView(START_VIEW);
     try {
-      const result = await api.sshConnect?.({
+      const result = await sshConnect({
         attemptId: attemptId.current,
         trustHostKey: options.trust === true,
         ...(options.replace ? { replaceHostKey: options.replace } : {}),
@@ -142,10 +140,10 @@ export function useSshConnectAttempt({
     setSummary(null);
     setView(START_VIEW);
     try {
-      const inspection = await api.sshInspectHostKey?.(target);
+      const inspection = await sshInspectHostKey(target);
       if (!inspection) return;
       if (!live()) {
-        void api.sshCancel?.(inspection.attemptId)?.catch(() => undefined);
+        void sshCancel(inspection.attemptId).catch(() => undefined);
         return;
       }
       attemptId.current = inspection.attemptId;
@@ -193,18 +191,17 @@ export function useSshConnectAttempt({
   };
 
   useEffect(() => {
-    const unsubscribe = api.subscribeSshProgress?.((progress) => {
+    const unsubscribe = subscribeSshProgress((progress) => {
       if (progress.attemptId !== attemptId.current) return;
       setView((current) => withProgress(current, progress));
     });
     return unsubscribe;
-  }, [api]);
+  }, []);
   // biome-ignore lint/correctness/useExhaustiveDependencies: runs once for the dialog's lifetime; `host` is its initial server.
   useEffect(() => {
     let live = true;
-    void api
-      .sshConfigHosts?.()
-      ?.then((hosts) => live && setConfigHosts(hosts))
+    void sshConfigHosts()
+      .then((hosts) => live && setConfigHosts(hosts))
       .catch(() => undefined);
     if (host) void runRef.current(host.target, host.name);
     return () => {

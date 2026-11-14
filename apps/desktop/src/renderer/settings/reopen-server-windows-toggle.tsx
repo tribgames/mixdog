@@ -2,31 +2,29 @@
 // were open at quit when the app starts. On by default.
 import { useEffect, useState } from 'react';
 
-import type { DesktopApi } from '../../shared/contract';
+import { getReopenServerWindows, setReopenServerWindows } from '../connections-core-api';
 import { t } from '../i18n';
 import { ToggleRow } from './capability-controls';
 
-export function ReopenServerWindowsToggle({ api }: { api: Partial<DesktopApi> }) {
+export function ReopenServerWindowsToggle() {
   const [enabled, setEnabled] = useState<boolean | null>(null);
   useEffect(() => {
     let live = true;
-    void api
-      .getReopenServerWindows?.()
+    void getReopenServerWindows()
       .then((value) => live && setEnabled(value))
       .catch(() => undefined);
     return () => {
       live = false;
     };
-  }, [api]);
-  if (enabled === null || !api.setReopenServerWindows) return null;
+  }, []);
+  if (enabled === null) return null;
   return (
     <ToggleRow
       title={t('Reopen server windows when the app starts')}
       checked={enabled}
       onChange={(next) => {
         setEnabled(next);
-        void api
-          .setReopenServerWindows?.(next)
+        void setReopenServerWindows(next)
           .then((saved) => setEnabled(saved))
           .catch(() => setEnabled(!next));
       }}
