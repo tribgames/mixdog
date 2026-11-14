@@ -246,8 +246,10 @@ fn prompt_content(value: Option<&Value>, path: &str) -> Checked {
                 if file_count > MAX_PROMPT_FILES {
                     return Err(invalid(&part_path, "too many prompt files."));
                 }
-                // The host refused every type but PDF and Office documents; the runtime reads any inline file by
-                // its content and a phone sends other types (`text/plain`), so only the type's shape is checked.
+                // DECISION (owner direction: open rather than restrictive): the old host refused every type but PDF
+                // and Office documents. That refusal is dropped on purpose. The runtime reads any inline file by its
+                // content, and a phone or a relay caller sends other types (`text/plain`), so only the type's shape
+                // is checked here. The composer still offers only the supported types (`canonical_prompt_file_mime`).
                 required_string(
                     part.get("mimeType").unwrap_or(&Value::Null),
                     &format!("{part_path}/mimeType"),
@@ -592,6 +594,8 @@ mod validate_prompt {
 #[cfg(test)]
 mod canonical_file_mime {
     use super::canonical_prompt_file_mime;
+    use crate::error::ErrorData;
+    use serde_json::Value;
 
     #[test]
     fn pdf_and_office_types_take_their_canonical_case_and_lose_parameters() {
@@ -606,5 +610,25 @@ mod canonical_file_mime {
     #[test]
     fn any_other_type_is_none() {
         assert_eq!(canonical_prompt_file_mime("text/plain"), None);
+    }
+
+    /// The boundary does not refuse a file part for its type (the loosening is intended): a phone sends `text/plain`.
+    #[test]
+    fn the_boundary_accepts_a_file_part_of_any_type_with_a_well_formed_type() {
+        let turn = |mime: Value| {
+            serde_json::json!({"threadId": "t", "opId": "o", "input": {"prompt": [
+                {"type": "file", "mimeType": mime, "data": "aGVsbG8="}
+            ]}})
+        };
+        for mime in ["text/plain", "application/json", "application/x-unknown", "TEXT/PLAIN; charset=utf-8"] {
+            assert_eq!(super::check("turn/start", Some(&turn(mime.into()))), Some(Ok(())), "{mime}");
+        }
+        assert_eq!(
+            super::check("turn/start", Some(&turn("".into()))),
+            Some(Err(ErrorData::InvalidParams {
+                path: "/input/prompt/0/mimeType".to_owned(),
+                expected: "file mime type is invalid.".to_owned()
+            }))
+        );
     }
 }
