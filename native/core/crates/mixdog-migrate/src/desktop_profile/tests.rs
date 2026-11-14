@@ -354,7 +354,7 @@ fn the_electron_profile_corpus_migrates_verified_and_leaves_electron_files_alone
     let backups = files_of(&corpus.join("electron-profile").join("editor-backups"));
     assert_eq!(backups.len(), 1);
     for (name, path) in backups {
-        let moved = data.join("desktop/editor-backups").join(name);
+        let moved = data.join("userdata/editor-backups").join(name);
         assert_eq!(hash_of(&moved), hash_of(&path));
         assert!(fsx::is_owner_only(&moved).unwrap());
     }
@@ -409,6 +409,84 @@ fn a_receipt_in_each_phase_is_carried_over_and_what_is_no_receipt_retires() {
     assert_eq!(files_of(&run.data.path().join("userdata/new-task-receipts")).len(), 3, "no empty or misnamed file comes across");
     assert_eq!(report.retired, 2);
 }
+/// The old app's unsaved-draft backup comes across to the folder the core reads, and the core offers it for the file it was taken of.
+#[test]
+fn an_editor_backup_of_the_old_app_is_offered_by_the_core_after_the_move() {
+    let project = TempDir::new().unwrap();
+    let source = project.path().join("notes.md").to_string_lossy().into_owned();
+    // Electron editor-backups.ts hashes the resolved path, lowercased on Windows.
+    // Compute its filename independently of the core reader being tested.
+    use sha2::Digest as _;
+    let old_key = if cfg!(windows) { source.to_lowercase() } else { source.clone() };
+    let old_name = format!("{:x}.json", sha2::Sha256::digest(old_key.as_bytes()));
+    let draft = serde_json::json!({ "content": "unsaved words", "expectedContent": "on disk", "updatedAt": mixdog_workspace::editorcfg::now_ms() }).to_string();
+    let run = Run::new(None, &[(&format!("editor-backups/{old_name}"), draft.as_bytes())], &BTreeSet::new());
+    let report = run.migrate_all();
+    assert!(report.quarantined.is_empty(), "{:?}", report.quarantined);
+    let offered = mixdog_workspace::editorcfg::Backups::new(&run.data.path().join("userdata")).read(&source).unwrap();
+    assert_eq!(offered["content"], "unsaved words");
+    assert!(!run.data.path().join("desktop").exists(), "nothing is put where the core does not look");
+}
+
+/// The old app's journal of an interrupted multi-file save comes across to the core's recovery store, which finds it for its project.
+#[test]
+fn an_interrupted_save_of_the_old_app_is_found_by_the_core_after_the_move() {
+    use mixdog_workspace::recovery::PreparedFile;
+    use mixdog_workspace::recovery::RecoveryStore;
+    let project = TempDir::new().unwrap();
+    let root = mixdog_workspace::pathguard::canonical(project.path()).unwrap();
+    let scratch = TempDir::new().unwrap();
+    let old = RecoveryStore::new(scratch.path().join("editor-recovery"));
+    let file = PreparedFile {
+        rel_path: "a.txt".to_owned(),
+        destination: root.join("a.txt"),
+        parent: mixdog_workspace::recovery::identity_of(&root).unwrap(),
+        mode: 0o644,
+        before: b"before".to_vec(),
+        after: b"after".to_vec(),
+    };
+    let journal = old.begin(&root, vec![file]).unwrap();
+    // The app that began it is gone: its journal carries the plain id.
+    let store_dir = old.store_path(&root);
+    let plain = store_dir.join(&journal.id);
+    std::fs::rename(&journal.directory, &plain).unwrap();
+    let key = store_dir.file_name().unwrap().to_string_lossy().into_owned();
+    let recorded: Vec<(String, Vec<u8>)> = files_of(&plain)
+        .into_iter()
+        .map(|(name, path)| (format!("editor-recovery/{key}/{}/{name}", journal.id), std::fs::read(path).unwrap()))
+        .collect();
+    assert!(recorded.len() >= 3);
+    let borrowed: Vec<(&str, &[u8])> = recorded.iter().map(|(name, bytes)| (name.as_str(), bytes.as_slice())).collect();
+    let run = Run::new(None, &borrowed, &BTreeSet::new());
+    let report = run.migrate_all();
+    assert!(report.quarantined.is_empty(), "{:?}", report.quarantined);
+    let found = RecoveryStore::new(run.data.path().join(mixdog_workspace::recovery::JOURNALS_DIR)).list(&root).unwrap();
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].id, journal.id);
+    assert_eq!(serde_json::to_value(&found[0]).unwrap()["phase"], "interrupted");
+    assert!(!run.data.path().join("desktop").exists(), "nothing is put where the core does not look");
+}
+
+/// The person's own editor settings (a JSONC file: comments stay) come across to where the core reads them and apply to every file.
+#[test]
+fn the_user_editor_settings_of_the_old_app_apply_after_the_move() {
+    let text = "{
+  // my tabs
+  \"editor.tabSize\": 2,
+  \"editor.insertSpaces\": false,
+}
+";
+    let run = Run::new(None, &[("User/settings.json", text.as_bytes())], &BTreeSet::new());
+    let report = run.migrate_all();
+    assert!(report.quarantined.is_empty(), "{:?}", report.quarantined);
+    let moved = run.data.path().join("userdata/User/settings.json");
+    assert_eq!(std::fs::read(&moved).unwrap(), text.as_bytes());
+    let folder = TempDir::new().unwrap();
+    let settings = mixdog_workspace::editorcfg::read_editor_settings(&run.data.path().join("userdata"), folder.path(), "a.ts", None, None).unwrap();
+    assert_eq!(settings["tabSize"], 2);
+    assert_eq!(settings["insertSpaces"], false);
+}
+
 #[test]
 fn titles_and_names_equal_what_the_desktops_own_functions_produce() {
     #[derive(serde::Deserialize)]

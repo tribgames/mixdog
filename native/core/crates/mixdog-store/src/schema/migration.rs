@@ -204,6 +204,8 @@ pub enum ItemKind {
     SelectedFileGrants,
     EditorBackups,
     EditorRecovery,
+    /// `User/settings.json` (the user-level editor settings, JSONC) → `<D>/userdata/User/settings.json`, where the core reads it.
+    UserEditorSettings,
     // ── group `desktopProfile`, moved by generation 2 (`migration/profile-gen.json`) ──
     /// `ssh-hosts.json` (+ `.bak`) → `<D>/desktop/ssh-hosts.json`.
     SshHosts,
