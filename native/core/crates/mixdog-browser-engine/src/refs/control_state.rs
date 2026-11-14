@@ -3,6 +3,7 @@
 //! accessibility tree hides until it opens), and a checkbox or radio button's checked state, changed by clicking it once and
 //! then read back, never toggled blindly.
 
+use mixdog_browser_policy::timing::Phase;
 use serde::Deserialize;
 
 use super::access::ActionabilityReason;
@@ -12,6 +13,7 @@ use super::points::ref_point;
 use super::points::with_covered_guidance;
 use super::probes::Point;
 use super::ref_actions::RefActions;
+use crate::runner::timing_rows::timed;
 use crate::settle::actionability::ACTIONABILITY_TIMEOUT;
 use crate::settle::actionability::ActionableError;
 use crate::settle::actionability::ActionabilityError;
@@ -111,7 +113,8 @@ impl RefActions {
                 Err(error) => Err(ProbeFailure::Other(error)),
             }
         };
-        let error = match wait_for_actionable(probe, &self.cancel, ACTIONABILITY_TIMEOUT).await {
+        let waited = timed(self.timer.as_deref(), Phase::Actionability, wait_for_actionable(probe, &self.cancel, ACTIONABILITY_TIMEOUT)).await;
+        let error = match waited {
             Ok(point) => return Ok(point),
             Err(ActionableError::Cancelled(_)) => return Err(crate::error::HostCallError::Cancelled.into()),
             Err(ActionableError::Failed(error)) => return Err(error),

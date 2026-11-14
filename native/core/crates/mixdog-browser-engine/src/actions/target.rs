@@ -18,6 +18,7 @@ use mixdog_app_protocol::v2::browser_engine::HostBrowserPageEvalParams;
 use mixdog_app_protocol::v2::browser_engine::HostBrowserSnapshotResult;
 use mixdog_app_protocol::v2::browser_engine::PageFacts;
 use mixdog_app_protocol::v2::browser_engine::Precondition;
+use mixdog_browser_policy::timing::Phase;
 use mixdog_js::to_number_of;
 use mixdog_js::value_to_string;
 use mixdog_rt::CancelView;
@@ -41,6 +42,8 @@ use crate::refs::target_resolve::ResolvedTarget;
 use crate::refs::target_resolve::TargetContext;
 use crate::refs::target_resolve::TargetError;
 use crate::refs::target_resolve::resolve_targets;
+use crate::runner::timing_rows::CommandTimer;
+use crate::runner::timing_rows::timed;
 use crate::settle::actionability::ACTIONABILITY_TIMEOUT;
 use crate::settle::actionability::ActionabilityError;
 use crate::settle::actionability::ActionableError;
@@ -149,6 +152,11 @@ pub trait ActionPage: Send + Sync {
     async fn document_revision(&self, cancel: &CancellationToken) -> Option<u32>;
     /// The page report of a snapshot, for the refusal of a covered element (`formatSnapshot` with the page's diagnostics).
     fn format_snapshot(&self, snapshot: &HostBrowserSnapshotResult) -> String;
+    /// The timing row of the command running on the page: its target and actionability phases are entered on it. `None` where no
+    /// command keeps one.
+    fn timer(&self) -> Option<&CommandTimer> {
+        None
+    }
 }
 
 /// What a handler runs with: the host, the page, the command, its cancellation, and the two things a target resolution moves.
@@ -245,16 +253,20 @@ async fn resolve_command_targets(cx: &mut ActionContext<'_>, raw: &[Value]) -> R
     let expect = cx.page.precondition();
     let (host, cancel) = (cx.host, cx.cancel);
     let (page_id_ref, expect_ref) = (&page_id, &expect);
-    let resolved = wait_for_actionable(
-        move || async move {
-            let target = TargetContext { host, page_id: page_id_ref, expect: Some(expect_ref), cancel: cancel.token() };
-            resolve_targets(&target, raw).await.map_err(|error| match error {
-                TargetError::Missing(message) => ProbeFailure::NotActionable(ActionabilityError::new(message, ActionabilityReason::Missing)),
-                other => ProbeFailure::Other(other),
-            })
-        },
-        cancel,
-        ACTIONABILITY_TIMEOUT,
+    let resolved = timed(
+        cx.page.timer(),
+        Phase::Target,
+        wait_for_actionable(
+            move || async move {
+                let target = TargetContext { host, page_id: page_id_ref, expect: Some(expect_ref), cancel: cancel.token() };
+                resolve_targets(&target, raw).await.map_err(|error| match error {
+                    TargetError::Missing(message) => ProbeFailure::NotActionable(ActionabilityError::new(message, ActionabilityReason::Missing)),
+                    other => ProbeFailure::Other(other),
+                })
+            },
+            cancel,
+            ACTIONABILITY_TIMEOUT,
+        ),
     )
     .await?;
     adopt_resolved_targets(cx, &resolved);
@@ -306,6 +318,10 @@ fn retire(cx: &ActionContext<'_>, refused: GroundingRefused) -> ActionError {
 /// A screenshot coordinate as a CSS point in the current viewport (`visualPoint`): accepted only while the visual snapshot the
 /// command names is current (same id, within its lifetime, same document revision, same URL and viewport).
 pub async fn visual_point(cx: &ActionContext<'_>, x: Option<&Value>, y: Option<&Value>, label: &str) -> Result<Point, ActionError> {
+    timed(cx.page.timer(), Phase::Actionability, visual_point_of(cx, x, y, label)).await
+}
+
+async fn visual_point_of(cx: &ActionContext<'_>, x: Option<&Value>, y: Option<&Value>, label: &str) -> Result<Point, ActionError> {
     let command_snapshot = cx.field("snapshotId").and_then(Value::as_str);
     let Some(grounding) = cx.page.visual_grounding() else {
         return Err(ActionError::Failed(format!("{label} requires snapshotId from the latest snapshot(mode=both) or locate result")));

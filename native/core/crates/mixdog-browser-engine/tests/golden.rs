@@ -233,19 +233,19 @@ async fn golden_texts_match_recorded_host() {
         let answer = engine.run(&thread, action, &input, &CancellationToken::new()).await;
         let (got_ok, got, image_mime, has_timing) = match &answer {
             Ok(reply) => (true, reply.text.clone(), reply.image.as_ref().map(|image| image.mime_type.clone()), reply.timing.is_some()),
-            Err(error) => (false, error.message_for_model.clone(), None, false),
+            Err(failure) => (false, failure.error.message_for_model.clone(), None, failure.timing.is_some()),
         };
 
         let wanted = corpus.text(wanted);
         let got = engine_run.text(&got);
         // A trace's durations are wall-clock: it is held to the full text apart from them.
         let shape = if ok && got_ok && wanted.starts_with(TRACE_STOPPED) { trace_shape(&got).err() } else { None };
-        // The product attached a failure's timing to the error's data; the engine's failure carries none, so it is compared on success.
+        // A failure carries the timing of the command that ran, as the product attached it to the error's data.
         let same = got_ok == ok
             && got == wanted
             && shape.is_none()
             && image_mime.as_deref() == step["imageMime"].as_str()
-            && (!ok || has_timing == step["hasTiming"].as_bool().unwrap_or(false));
+            && has_timing == step["hasTiming"].as_bool().unwrap_or(false);
         if !same {
             mismatches.push(format!(
                 "{name}\n  corpus: {:?}\n  engine: {:?}{}",

@@ -18,6 +18,7 @@ use mixdog_app_protocol::v2::browser_engine::HostBrowserPageEvalParams;
 use mixdog_app_protocol::v2::browser_engine::HostBrowserSnapshotResult;
 use mixdog_app_protocol::v2::browser_engine::InputStep;
 use mixdog_browser_policy::redaction::redact_browser_text;
+use mixdog_browser_policy::timing::Phase;
 use mixdog_js::js_to_lowercase;
 use mixdog_js::js_trim;
 use mixdog_js::value_to_string;
@@ -40,6 +41,7 @@ use crate::refs::points::with_covered_guidance;
 use crate::refs::probes::Point;
 use crate::refs::reply_recovery::with_ref_recovery;
 use crate::reply::reply::json_string;
+use crate::runner::timing_rows::timed;
 use crate::settle::actionability::ACTIONABILITY_TIMEOUT;
 use crate::settle::actionability::ActionabilityError;
 use crate::settle::actionability::ActionableError;
@@ -158,15 +160,19 @@ async fn ref_point_waiting(host: &dyn BrowserHost, page: &dyn ActionPage, cancel
     let expect = expect_for(page, Some(&ref_id));
     let target = RefTarget { page_id: &page_id, snapshot_id: snapshot_of_ref(&ref_id), ref_id: &ref_id, expect: Some(&expect) };
     let target_ref = &target;
-    let waited = wait_for_actionable(
-        move || async move {
-            ref_point(host, target_ref, cancel.token()).await.map_err(|error| match error.reason() {
-                Some(reason) => ProbeFailure::NotActionable(ActionabilityError::new(error.to_string(), reason)),
-                None => ProbeFailure::Other(error),
-            })
-        },
-        cancel,
-        ACTIONABILITY_TIMEOUT,
+    let waited = timed(
+        page.timer(),
+        Phase::Actionability,
+        wait_for_actionable(
+            move || async move {
+                ref_point(host, target_ref, cancel.token()).await.map_err(|error| match error.reason() {
+                    Some(reason) => ProbeFailure::NotActionable(ActionabilityError::new(error.to_string(), reason)),
+                    None => ProbeFailure::Other(error),
+                })
+            },
+            cancel,
+            ACTIONABILITY_TIMEOUT,
+        ),
     )
     .await;
     let error = match waited {

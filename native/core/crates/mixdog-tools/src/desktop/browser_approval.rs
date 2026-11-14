@@ -7,7 +7,9 @@
 //! Outcome parity with the desktop's `approval-dialog.ts` for the same caller: a session that is no bot's own runs unasked; a bot's
 //! own session asks unless it holds a standing or session allowance for EVERY kind of the step; "Allow all actions" lets a bot's
 //! step run unasked (an operator `confirm` too) unless the bot blocks one of its kinds, which refuses it; a `confirm` or a payment
-//! (the page holds payment evidence) asks once, every time, and no grant of any kind covers it. A core-hosted session sent no
+//! (the page holds payment evidence) asks once, every time, and no grant of any kind covers it (an operator `confirm` of an unattended run asks in every
+//! session, a session that is no bot's own included). A command that carries the life mark of its session (the bridge's: the Node
+//! runtime hosts the session) is offered "allow for this session" under that mark. A core-hosted session sent no
 //! `turn_id`, `session_life` or `unattended_*` field to the desktop, so its decisions were an attended turn's: this port reads the
 //! session's facts as an attended turn's whatever run owns the session, so it never asks where that did not and never refuses a
 //! step that was only asked. What the session's allowances (the registry the core knows) cover may only remove a repeat ask.
@@ -326,17 +328,28 @@ impl ApprovalPort for BrowserApprovals {
         // A standing allow is a bot's own (its home chat or room seat, read from the session id alone); nothing else (a sub-agent, a
         // task session, a coding session, a session a run owns) is asked.
         let bot = own_bot_of_session(&prompt.session_id);
-        if bot.is_empty() {
+        // An operator `confirm` of a schedule or webhook run asks a person in every session: no allowance, option or kind of session
+        // lets it through (`approval-dialog.ts` raises its card where a run's other steps ask nothing).
+        let run_confirm = prompt.unattended && prompt.kinds.contains(&BrowserApprovalRememberKind::Confirm);
+        if bot.is_empty() && !run_confirm {
             return Ok(ApprovalAnswer::Allow { remember: Remember::Once });
         }
         let mut facts = self.context.facts(&thread);
         // What a core-hosted session sent the desktop made it an attended turn: the run that owns the session changes nothing here.
         facts.run = None;
         facts.agent_id = bot.clone();
-        facts.acting_bot = Some(bot);
+        facts.acting_bot = Some(bot).filter(|bot| !bot.is_empty());
+        // A session the Node runtime hosts has no life mark in the core: the one its command carried is the session's, and "allow for
+        // this session" is offered and stored under it (`request.sessionLife`).
+        if !prompt.session_life.is_empty() {
+            facts.life = Some(prompt.session_life.clone());
+        }
         let kinds: Vec<ActionKind> = prompt.kinds.iter().filter_map(|kind| action_kind_of(*kind)).collect();
         let grants = self.context.session_grants(&thread);
         let settings = self.context.settings();
+        if run_confirm {
+            return self.raise(&thread, &facts, &grants, &prompt, &[], vec![ApprovalRemember::Once]).await;
+        }
         match self.judge(&facts, &grants, settings, &prompt, &kinds).await {
             Verdict::Run => Ok(ApprovalAnswer::Allow { remember: Remember::Once }),
             Verdict::Refuse => Err(ToolError::new(ToolErrorCode::DeniedByPolicy { rule: "blocked".to_owned() }, BLOCKED_BY_PERMISSION)),
@@ -738,6 +751,47 @@ mod tests {
         let _ = rig.ask(step(MARKETER, &[Post]), decided(true, Some(ApprovalRemember::Session), None)).await;
         let (shown, outcome) = rig.ask(step(MARKETER, &[Post]), decided(false, None, None)).await;
         assert!(!shown && allowed(&outcome));
+    }
+
+    /// `approval-dialog.ts`: an unattended run's operator `confirm` raises its card in every session, "Allow all actions" and a saved
+    /// allow included, and the card offers nothing to remember.
+    #[tokio::test]
+    async fn an_operator_confirm_of_an_unattended_run_always_raises_the_card() {
+        let rig = rig();
+        let confirm = |session: &str| BrowserApprovalPrompt { unattended: true, unattended_agent: "marketer".to_owned(), ..step(session, &[Confirm]) };
+        let (shown, outcome) = rig.ask(confirm("sess_task"), decided(true, Some(ApprovalRemember::Agent), None)).await;
+        assert!(shown, "a session that is no bot's own is asked too");
+        assert_eq!(outcome.unwrap(), ApprovalAnswer::Allow { remember: Remember::Once });
+        let card = &rig.ctx.gate.asked()[0];
+        assert!(card.payload["request"]["remember"].is_null() && card.remember.is_empty() && card.action_kind.is_none());
+        assert_eq!(card.payload["request"]["agentId"], "");
+
+        rig.ctx.allow_all.store(true, Ordering::SeqCst);
+        rig.allow("marketer", ActionKind::BrowserSubmit, PermissionMode::Allow);
+        let (shown, denied) = rig.ask(confirm(MARKETER), decided(false, None, Some("not this"))).await;
+        assert!(shown, "'Allow all actions' does not let it through");
+        assert_eq!(denied.unwrap(), ApprovalAnswer::Deny { reason: "not this".to_owned() });
+        assert_eq!(rig.ctx.gate.asked()[1].payload["request"]["agentId"], "marketer");
+        assert!(rig.store.audit().is_empty(), "a step with no kind that can be remembered leaves no audit line");
+        assert_eq!(rig.ctx.held.load(Ordering::SeqCst), rig.ctx.released.load(Ordering::SeqCst));
+    }
+
+    /// `request.sessionLife`: a session the Node runtime hosts has no life mark in the core, and its bridge card offers and stores
+    /// "allow for this session" under the mark its command carried.
+    #[tokio::test]
+    async fn allow_for_this_session_uses_the_life_mark_the_command_carried() {
+        let rig = rig();
+        let with_life = |life: &str| BrowserApprovalPrompt { session_life: life.to_owned(), ..step(MARKETER, &[Submit]) };
+        let (_, granted) = rig.ask(with_life("5:0"), decided(true, Some(ApprovalRemember::Session), None)).await;
+        assert_eq!(granted.unwrap(), ApprovalAnswer::Allow { remember: Remember::Session });
+        assert_eq!(rig.ctx.gate.asked()[0].payload["request"]["remember"], json!({ "kinds": ["submit"], "session": true }));
+        let grants = rig.ctx.session_grants(&ThreadId::from(MARKETER));
+        assert!(grants.has("marketer", &GrantKey::Kind(ActionKind::BrowserSubmit), "5:0"), "stored under the command's mark");
+        assert!(rig.decisions().contains(&"session-granted".to_owned()));
+        // The same prompt without a mark offers no session choice, as a session with no life does.
+        let (_, bare) = rig.ask(step(MARKETER, &[Submit]), decided(true, Some(ApprovalRemember::Session), None)).await;
+        assert_eq!(bare.unwrap(), ApprovalAnswer::Allow { remember: Remember::Once });
+        assert_eq!(rig.ctx.gate.asked()[1].payload["request"]["remember"], json!({ "kinds": ["submit"] }));
     }
 
     #[tokio::test]
