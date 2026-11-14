@@ -128,7 +128,8 @@ pub struct LaneFiles<'a, P: mixdog_fsio::ReadProof>(pub &'a P);
 
 impl<P: mixdog_fsio::ReadProof> ConfigFiles for LaneFiles<'_, P> {
     fn read_text(&self, path: &Path) -> Option<String> {
-        mixdog_fsio::read_to_string(self.0, path).ok()
+        // Invalid UTF-8 is replaced, as Node's utf8 read did, so one odd byte does not hide the whole file.
+        mixdog_fsio::read(self.0, path).ok().map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
     }
 
     fn list_names(&self, directory: &Path) -> Vec<String> {
@@ -223,4 +224,5 @@ impl SshEnv {
 }
 
 #[cfg(test)]
+#[path = "base_tests.rs"]
 mod base_tests;

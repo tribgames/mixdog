@@ -46,7 +46,7 @@ pub fn resolve_ssh_tool(name: &str, env: &SshEnv) -> Option<PathBuf> {
     let platform = env.platform;
     let windows = platform.is_windows();
     let file = if windows { format!("{name}.exe") } else { name.to_owned() };
-    let path_var = env.var("Path").or_else(|| env.var("PATH")).unwrap_or("");
+    let path_var = if windows { env.var("Path").or_else(|| env.var("PATH")) } else { env.var("PATH") }.unwrap_or("");
     let mut directories: Vec<String> = path_var.split(if windows { ';' } else { ':' }).map(str::to_owned).collect();
     if windows {
         let root = env.var("SystemRoot").or_else(|| env.var("windir")).unwrap_or(r"C:\Windows");
