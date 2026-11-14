@@ -1,0 +1,12 @@
+{
+ "about": "What the Node terminal UI needs that the v2 protocol or the projection does not provide yet, found by tests/protocol_coverage.rs over tui-store-calls.json and tui-state-fields.json. The test asserts the missing set equals this file, so the file only shrinks: nr-tui-core-gaps implements each entry in the core and empties it.",
+ "methods": [
+  { "name": "getSettingsSnapshot", "node": "src/tui/session/session-api (settings snapshot)", "usedBy": ["app/settings-picker.mjs"], "note": "one read of the settings picker's rows (autoClear, toolModules, compaction, systemShell, outputStyle, mcp, plugins, skills, webSearchRoute, profile, updateSettings); the operations map lists the action as caller-less, the TUI calls it" },
+  { "name": "inspectProjectPath", "node": "project service", "usedBy": ["app/prompt-submit/settings-prompts.mjs"], "note": "classifies a typed path (exists, is a folder, is registered) before the project picker adds it; not in the operations map" },
+  { "name": "rememberPromptHistory", "node": "session store", "usedBy": ["app/use-prompt-handlers.mjs"], "note": "the prompt just submitted joins the up-arrow list; the core's thread/promptHistory/updated `added` change exists, a method to record one does not" },
+  { "name": "restoreNewerTranscript", "node": "session store transcript window", "usedBy": ["app/use-transcript-scroll.mjs"], "note": "pages the transcript window toward newer rows; the core keeps the whole log and the snapshot carries hasOlder: a page read of items or an inert answer is needed" },
+  { "name": "restoreOlderTranscript", "node": "session store transcript window", "usedBy": ["app/use-transcript-scroll.mjs"], "note": "pages the transcript window toward older rows (thread/items/list pages it; the store task decides whether this is that call)" },
+  { "name": "setProgressHint", "node": "session store", "usedBy": ["app/settings-picker/settings-toggles/store-toggles.mjs"], "note": "the progress-hint toggle of the settings picker; the hint is a runtime section field (progressHint) with no setter method" }
+ ],
+ "stateFields": []
+}
