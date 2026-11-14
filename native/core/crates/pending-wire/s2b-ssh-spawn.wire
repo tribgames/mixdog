@@ -1,0 +1,11 @@
+# s2b-ssh-spawn -> the lead
+# New dependency edges of crate mixdog-ssh (native/core/crates/mixdog-ssh/Cargo.toml), both workspace members already in Cargo.lock:
+# spawn.rs builds the process manager's SpawnRequest (mixdog_core_api::domain::{process,common}) and names ProcessHandle (mixdog_protocol).
+# Add to [dependencies], after the mixdog-spawn line:
+mixdog-core-api = { workspace = true }
+mixdog-protocol = { workspace = true }
+# Cargo.lock: mixdog-ssh gains "mixdog-core-api" and "mixdog-protocol" in its dependency list (no new package).
+# mixdog-workspace-hack: nothing to add (no new external crate; tokio features rt, sync, macros, time, net, io-util are already on mixdog-ssh).
+# SERVICE_PENDING (compose_flip.rs): nothing to remove; this task registers no protocol service.
+# Callers (other s2b tasks): spawn::spawn_ssh(env, "ssh", &args, ctx) is the one spawn-and-trace entry (prepare_spawn + env.spawner + diagnostics ring);
+# production env.spawner = spawn::ProcessSpawner::new(Arc<LocalProcessManager>, <DurabilityIo lane token>).
