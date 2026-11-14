@@ -322,6 +322,8 @@ async fn an_uninstalled_embedding_model_answers_no_vector_at_once_then_installs_
 #[tokio::test(flavor = "multi_thread")]
 async fn a_download_routed_by_the_network_proxy_policy_still_lands() {
     let policy = mixdog_ai::netproxy::NetworkProxy::new(Arc::new(mixdog_ai::netproxy::ProcessEnv), mixdog_ai::netproxy::SystemProxy::default());
+    // Nothing goes out before the setting is read from the config once; this config names no proxy.
+    policy.adopt(&serde_json::json!({ "mode": "off" }));
     let clients = mixdog_ai::netproxy::clients::RoutedClients::new(policy, |_| reqwest::Client::builder().no_proxy().build());
     crate::model_install::route_downloads(Arc::new(clients));
     let body = big(3, 5_000);

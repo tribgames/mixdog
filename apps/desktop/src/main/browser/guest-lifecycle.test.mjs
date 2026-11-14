@@ -126,13 +126,15 @@ registerHooks({
 
 const { createBrowserGuestLifecycle, offscreenWindowOptions } = await import('./guest-lifecycle.ts');
 
+const { BrowserGuestStateStore } = await import('./guest-state.ts');
+const { BrowserSessionRegistry } = await import('./session-registry.ts');
+const { DESKTOP_IPC } = await import('../../shared/contract.ts');
+
+// Every top-level await ends before the first test is registered: the runner force-exits once the registered tests finish.
 test('offscreen pages render at the primary display scale, not the Electron 42+ default of 1', () => {
   assert.deepEqual(offscreenWindowOptions().webPreferences.offscreen, { deviceScaleFactor: 1.5 });
   assert.equal(offscreenWindowOptions(true).webPreferences.offscreen, false);
 });
-const { BrowserGuestStateStore } = await import('./guest-state.ts');
-const { BrowserSessionRegistry } = await import('./session-registry.ts');
-const { DESKTOP_IPC } = await import('../../shared/contract.ts');
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
