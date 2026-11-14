@@ -121,8 +121,11 @@ test('sender_hook_and_reopen', async () => {
   assert.deepEqual(seen, [[true, 'a/b', { n: 1 }]]);
   let replaced = 0;
   connection.onReplaced(() => replaced++);
+  const reopening = [];
+  connection.onReopening(() => reopening.push(connection.status));
   await connection.reopen();
   assert.equal(replaced, 1);
+  assert.deepEqual(reopening, ['reconnecting']);
   assert.equal(connection.protocolClient(), clients[1]);
 });
 

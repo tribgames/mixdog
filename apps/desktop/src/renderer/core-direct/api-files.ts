@@ -8,19 +8,17 @@
 import type { DesktopApi, SessionSnapshot } from '../../shared/contract.ts';
 import type { DirectKey } from '../../shared/desktop-api-split.ts';
 import { createOperationLane } from '../../shared/core-lanes/desktop-operation-route.ts';
-import { createServiceLane } from '../../shared/core-lanes/service-route.ts';
 import type { DesktopSectionsPush } from '../../shared/contract-sections.ts';
 import { isSshConnectionWindow } from '../desktop-connection.ts';
 import type { DirectContext } from './context.ts';
+import { sessionLanesOf } from './api-sessions.ts';
 import { withDirectErrors } from './errors.ts';
 
 export type FilesApi = Pick<DesktopApi, DirectKey<'files'>>;
 
-/** The URL form of the desktop media lane (preload mediaUrl): a file lease the core minted for a preview. */
-const mediaAssetUrl = (assetId: string): string => `mixdog-media://asset/${encodeURIComponent(assetId)}?variant=original`;
 /** Raw bytes asked per `projectFs/previewRange` (the core allows 4 MiB). */
 const PREVIEW_CHUNK_BYTES = 2 * 1024 * 1024;
-/** PDF blobs a window keeps: the oldest is revoked past this. */
+/** Preview blobs a window keeps: the oldest is revoked past this. */
 const PDF_BLOB_LIMIT = 48;
 /** Node's `path.isAbsolute` on the PC (a Windows host also takes the POSIX form). */
 const isAbsolutePath = (path: string): boolean => /^([\\/]|[A-Za-z]:[\\/])/.test(path);
@@ -45,15 +43,9 @@ export function createFilesApi(ctx: DirectContext): FilesApi {
   const diagnosticListeners = new Set<(event: never) => void>();
   const statusListeners = new Set<(event: never) => void>();
 
-  const remoteSessionId = (): string | undefined => {
-    const held = ctx.connection.snapshot().entries.find((e) => e.section === 'hostState' && e.key === 'remoteSession');
-    const id = (held?.value as { sessionId?: unknown } | null | undefined)?.sessionId;
-    return typeof id === 'string' ? id : undefined;
-  };
-  const service = createServiceLane({
-    protocol: ctx.connection,
-    snapshot: () => ({ remoteSessionId: remoteSessionId() }) as unknown as SessionSnapshot,
-  });
+  // The window's one service lane and shell state (api-sessions): a start call's blank snapshot reaches `subscribeState`
+  // listeners as main's startShell published it.
+  const { service, shell } = sessionLanesOf(ctx);
   const operations = createOperationLane({
     platform: hostPlatform(),
     protocol: ctx.connection,
@@ -66,6 +58,12 @@ export function createFilesApi(ctx: DirectContext): FilesApi {
   });
 
   const svc = <T = never>(method: string, args: unknown[]): Promise<T> => service.call<T>(method, args);
+  /** A start call: the blank snapshot it answers is also the window's shell snapshot. */
+  const startShell = async (method: string, args: unknown[]): Promise<SessionSnapshot> => {
+    const snapshot = await svc<SessionSnapshot>(method, args);
+    shell.publish(snapshot);
+    return snapshot;
+  };
   const op = <T = never>(name: string, args: unknown[]): Promise<T> => operations.invoke(name, args) as Promise<T>;
   /** One key's work, its failure shown as the IPC path showed it. */
   const direct = <T>(run: () => Promise<T>): Promise<T> => withDirectErrors(Promise.resolve().then(run));
@@ -118,10 +116,11 @@ export function createFilesApi(ctx: DirectContext): FilesApi {
     return result;
   };
 
-  // A PDF's bytes are read in ranges and held as a blob URL: nothing in the page can open a file lease for a document.
+  // A previewed file's bytes (a PDF, image, audio or video) are read in ranges and held as a blob URL: a file lease the core
+  // minted is not something the media protocol resolves, and the ranges travel this window's connection, a server window's too.
   const pdfBlobs = new Map<string, string>();
-  const pdfUrl = async (target: FileTarget, version: string): Promise<string> => {
-    const key = `${target.root}\0${target.rel}\0${target.accessToken ?? ''}\0${version}`;
+  const pdfUrl = async (target: FileTarget, version: string, mime = 'application/pdf'): Promise<string> => {
+    const key = `${target.root}\0${target.rel}\0${target.accessToken ?? ''}\0${version}\0${mime}`;
     const held = pdfBlobs.get(key);
     if (held) {
       pdfBlobs.delete(key);
@@ -142,7 +141,7 @@ export function createFilesApi(ctx: DirectContext): FilesApi {
       parts.push(bytes);
       offset += bytes.length;
     }
-    const url = URL.createObjectURL(new Blob(parts as BlobPart[], { type: 'application/pdf' }));
+    const url = URL.createObjectURL(new Blob(parts as BlobPart[], { type: mime }));
     pdfBlobs.set(key, url);
     while (pdfBlobs.size > PDF_BLOB_LIMIT) {
       const [oldest, oldUrl] = pdfBlobs.entries().next().value as [string, string];
@@ -184,9 +183,9 @@ export function createFilesApi(ctx: DirectContext): FilesApi {
         const workspace = typeof workspaceFile === 'string' && workspaceFile.trim() ? workspaceFile : undefined;
         return op('readScopedEditorSettings', [null, root, relPath, workspace]);
       }),
-    startProject: (projectPath) => direct(() => svc('startProject', [projectPath])),
-    startProjectTask: (projectPath) => direct(() => svc('startProjectTask', [projectPath])),
-    startTask: () => direct(() => svc('startTask', [])),
+    startProject: (projectPath) => direct(() => startShell('startProject', [projectPath])),
+    startProjectTask: (projectPath) => direct(() => startShell('startProjectTask', [projectPath])),
+    startTask: () => direct(() => startShell('startTask', [])),
     listProjects: () => direct(() => svc('listProjects', [])),
     addProject: (projectPath) => direct(async () => announceProjectsChanged(await svc('addProject', [projectPath]))),
     renameProject: (projectPath, alias) =>
@@ -235,8 +234,8 @@ export function createFilesApi(ctx: DirectContext): FilesApi {
           size: number;
           mediaAssetId?: string;
         };
-        const { mediaAssetId, ...info } = preview;
-        const url = mediaAssetId ? mediaAssetUrl(mediaAssetId) : await pdfUrl(target, `${info.mtimeMs}:${info.size}`);
+        const { mediaAssetId: _lease, ...info } = preview;
+        const url = await pdfUrl(target, `${info.mtimeMs}:${info.size}`, info.kind === 'pdf' ? 'application/pdf' : info.mime);
         return { url, ...info };
       }),
     captureFileSnapshot: (projectPath, relPath, accessToken) =>
