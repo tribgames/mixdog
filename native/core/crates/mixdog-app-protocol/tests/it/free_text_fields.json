@@ -1947,6 +1947,17 @@
      }
     }
    },
+   "computer/bridge/run": {
+    "/command": {
+     "source": "native/core/crates/mixdog-tools/src/desktop/computer_bridge_run.rs (the desktop bridge's computer command)",
+     "open": {
+      "": {
+       "class": "free",
+       "reason": "the bridge's Computer Use command: its text and keys are what the model typed"
+      }
+     }
+    }
+   },
    "desktopPet/state/write": {
     "/prefs": {
      "source": "native/core/crates/mixdog-core-domains/src/domains/desktop_pet.rs normalize (desktop-pet-store.ts normalizeDesktopPetPrefs): booleans, numbers and the here-anchor read by fixed field; the only strings are the keys of positions (display ids, digits only; any other key is dropped)",
@@ -2555,6 +2566,7 @@
     "answer host/screen/displays /*/label",
     "answer host/update/command /message",
     "notification host/update/report /state/message",
+    "request computer/bridge/run /command/**",
     "request dev/computer/run /command/**",
     "request host/humanOnly/begin /label",
     "request host/state/set /value/*/title",
@@ -2570,6 +2582,21 @@
     "request desktop/link/resolve /href",
     "request desktop/link/resolvePath /cwd",
     "request desktop/link/resolvePath /path"
+   ]
+  },
+  {
+   "class": "free",
+   "reason": "A file name, path or text the desktop hands to the PC's file system as given: a chat link to a file under a project (the project folder, the href, the path the user confirmed), an attachment written from a data URL and its name, the launch record file, a user file and the text written into it. Node's fs and path calls took them without refusing a lone unit.",
+   "fields": [
+    "request desktop/attachment/write /dataUrl",
+    "request desktop/attachment/write /name",
+    "request desktop/launchVersion/acknowledge /path",
+    "request desktop/launchVersion/record /path",
+    "request desktop/localLink/open /confirmedPath",
+    "request desktop/localLink/open /href",
+    "request desktop/localLink/open /projectPath",
+    "request desktop/userFile/write /path",
+    "request desktop/userFile/write /text"
    ]
   },
   {
@@ -2845,6 +2872,8 @@
     "request config/value/write /announce",
     "request config/value/write /mode",
     "request connections/ssh/updateSettings /settings/modelLogin",
+    "request desktop/launchVersion/record /argv/*",
+    "request desktop/nativeToolCache/gc /bundledKinds/*",
     "request desktopPet/placement/resolve /op",
     "request feedback/upload /input/kind",
     "request feedback/upload /input/replyTo",
@@ -3636,6 +3665,8 @@
     "request channel/saveSchedule /entry/time",
     "request channel/saveSchedule /entry/timezone",
     "request config/completeOnboarding /payload/version",
+    "request desktop/launchVersion/acknowledge /version",
+    "request desktop/launchVersion/record /version",
     "request git/createTag /at",
     "request initialize /clientInfo/build",
     "request initialize /clientInfo/version",
@@ -3917,6 +3948,10 @@
     "request channel/setWebhookEnabled /threadId",
     "request channel/testWebhook /opId",
     "request channel/testWebhook /threadId",
+    "request computer/bridge/abort /sessionKey",
+    "request computer/bridge/abort /signalId",
+    "request computer/bridge/run /sessionKey",
+    "request computer/bridge/run /signalId",
     "request computer/userControl /sessionThreadId",
     "request config/batchWrite /opId",
     "request config/claimSetupRequest /id",
@@ -4060,6 +4095,7 @@
     "request desktop/attachment/resolve /sessionId",
     "request desktop/attachment/stage /attachmentId",
     "request desktop/attachment/stage /sessionId",
+    "request desktop/attachment/thumbnail /attachmentRef",
     "request dev/computer/run /sessionThreadId",
     "request diagnostics/runDoctor /opId",
     "request diagnostics/runDoctor /threadId",
@@ -4703,6 +4739,7 @@
     "request browser/webrtcSignal /signal/fingerprints/*",
     "request browser/webrtcSignal /signal/receiveCodecs/*",
     "request browser/webrtcSignal /signal/sdp",
+    "request desktop/userFile/write /dataBase64",
     "request feedback/upload /input/attachments/*/data",
     "request feedback/upload /input/attachments/*/mimeType",
     "request host/state/set /value/*/tabs/*/restoreAssets/*",
@@ -5052,7 +5089,14 @@
     "answer host/browser/ref/mint /facts/title",
     "answer host/browser/ref/mint /matches/*/role",
     "answer host/browser/ref/mint /matches/*/name",
-    "answer host/browser/ref/mint /invalid"
+    "answer host/browser/ref/mint /invalid",
+    "answer host/browser/upload/receiver /facts/dismissedDialog/message",
+    "answer host/browser/upload/receiver /facts/fault",
+    "answer host/browser/upload/receiver /facts/pendingDialog/defaultPrompt",
+    "answer host/browser/upload/receiver /facts/pendingDialog/message",
+    "answer host/browser/upload/receiver /facts/title",
+    "answer host/browser/upload/receiver /key",
+    "answer host/browser/upload/receiver /url"
    ]
   },
   {
@@ -5261,7 +5305,15 @@
     "answer host/browser/ref/mint /facts/pendingDialog/sessionId",
     "answer host/browser/ref/mint /facts/pendingFileChooser/receiverKey",
     "answer host/browser/ref/mint /matches/*/ref",
-    "answer host/browser/snapshot /observation"
+    "answer host/browser/snapshot /observation",
+    "answer host/browser/upload/receiver /facts/childSessions/*/frameId",
+    "answer host/browser/upload/receiver /facts/childSessions/*/sessionId",
+    "answer host/browser/upload/receiver /facts/documentId",
+    "answer host/browser/upload/receiver /facts/loadId",
+    "answer host/browser/upload/receiver /facts/openedPopups/*",
+    "answer host/browser/upload/receiver /facts/pageId",
+    "answer host/browser/upload/receiver /facts/pendingDialog/sessionId",
+    "answer host/browser/upload/receiver /facts/pendingFileChooser/receiverKey"
    ]
   },
   {
@@ -5340,7 +5392,10 @@
     "notification host/browser/page/facts /facts/url",
     "answer host/browser/ref/mint /facts/childSessions/*/url",
     "answer host/browser/ref/mint /facts/refusedRequests/*/url",
-    "answer host/browser/ref/mint /facts/url"
+    "answer host/browser/ref/mint /facts/url",
+    "answer host/browser/upload/receiver /facts/childSessions/*/url",
+    "answer host/browser/upload/receiver /facts/refusedRequests/*/url",
+    "answer host/browser/upload/receiver /facts/url"
    ]
   },
   {
@@ -5502,7 +5557,14 @@
     "answer host/browser/ref/mint /facts/dismissedDialog/reason",
     "answer host/browser/ref/mint /facts/pendingDialog/type",
     "answer host/browser/ref/mint /facts/pendingFileChooser/mode",
-    "answer host/browser/ref/mint /facts/refusedRequests/*/reason"
+    "answer host/browser/ref/mint /facts/refusedRequests/*/reason",
+    "answer host/browser/upload/receiver /facts/actor",
+    "answer host/browser/upload/receiver /facts/dismissedDialog/type",
+    "answer host/browser/upload/receiver /facts/dismissedDialog/reason",
+    "answer host/browser/upload/receiver /facts/pendingDialog/type",
+    "answer host/browser/upload/receiver /facts/pendingFileChooser/mode",
+    "answer host/browser/upload/receiver /facts/refusedRequests/*/reason",
+    "answer host/browser/emulation /labels/*"
    ]
   },
   {

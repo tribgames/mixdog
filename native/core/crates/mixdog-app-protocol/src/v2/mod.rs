@@ -8,6 +8,7 @@ pub mod connections;
 pub mod desktop_files;
 pub mod desktop_pet;
 pub mod desktop_residual;
+pub mod desktop_residual_b;
 pub mod domain;
 pub mod feed;
 pub mod host;

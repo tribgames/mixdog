@@ -4752,6 +4752,87 @@ crate::client_request_definitions! {
         mutation: none,
         origins: [Local, Ssh, Relay],
     },
+    /// The decision for a chat link to a file or folder under a project (`openLocalFileLink` up to the OS hand-off): `{result: "editor"}` hands the file to Mixdog's editor, `{result: "file" | "folder", path}` asks the caller to open `path` with the OS, `{confirmationPath}` asks the user first (an executable target; ask again with `confirmedPath` set to it). A link that escapes the project (lexically or through a junction or symlink), names a network path, a missing file or a device name is refused with the old texts.
+    DesktopLocalLinkOpen => "desktop/localLink/open" {
+        params: v2::desktop_residual_b::DesktopLocalLinkOpenParams,
+        result: JsonValue,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Local],
+    },
+    /// A `data:` attachment written under `<temp>/mixdog-attachments/<stem>-<digest16>.<ext>` on the PC (owner-only), only for an inert type; answers `{path}`.
+    DesktopAttachmentWrite => "desktop/attachment/write" {
+        params: v2::desktop_residual_b::DesktopAttachmentWriteParams,
+        result: JsonValue,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// The thumbnail of a stored attachment image by content hash, `{dataUrl: string | null}`: a JPEG scaled to 320 pixels when the picture decodes, else the original while it is at most 512 KiB.
+    DesktopAttachmentThumbnail => "desktop/attachment/thumbnail" {
+        params: v2::desktop_residual_b::DesktopAttachmentThumbnailParams,
+        result: JsonValue,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Local, Ssh, Relay],
+    },
+    /// Records `version` as launched in the profile's launch record and answers `{announce, writeError?}`: whether its update is still to be announced.
+    DesktopLaunchVersionRecord => "desktop/launchVersion/record" {
+        params: v2::desktop_residual_b::DesktopLaunchVersionRecordParams,
+        result: JsonValue,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// The renderer showed (or could never show) `version`'s update notice: stop retrying it. Answers `{writeError?}`.
+    DesktopLaunchVersionAcknowledge => "desktop/launchVersion/acknowledge" {
+        params: v2::desktop_residual_b::DesktopLaunchVersionAcknowledgeParams,
+        result: JsonValue,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// The persisted model route of the config file for the first renderer snapshot, `{snapshot: object | null}`.
+    DesktopModelBootstrapRead => "desktop/modelBootstrap/read" {
+        params: v2::desktop_residual_b::DesktopModelBootstrapReadParams,
+        result: JsonValue,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Removes the caches of the native tool kinds (`graph`, `patch`, `spawn`, `supervisor`) a bundled copy superseded; answers `{removed: string[], failed: {kind, error}[]}`.
+    DesktopNativeToolCacheGc => "desktop/nativeToolCache/gc" {
+        params: v2::desktop_residual_b::DesktopNativeToolCacheGcParams,
+        result: JsonValue,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Writes a user-owned file (`text` or `dataBase64`) so a crash cannot leave it NUL-filled: an existing file is rewritten in place and flushed (identity and mode kept; a symlink stays a link), a new one is created through a temp file. Answers `{bytes}`.
+    DesktopUserFileWrite => "desktop/userFile/write" {
+        params: v2::desktop_residual_b::DesktopUserFileWriteParams,
+        result: JsonValue,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Computer Use on Linux needs write access to /dev/uinput: installs the uaccess udev rule with one polkit prompt when access is missing (one prompt at a time) and answers `{ok: true}` or `{ok: false, reason, message?, exitCode?, detail?}`; `{ok: false, reason: "failed"}` off Linux.
+    DesktopComputerInputAccessRequest => "desktop/computer/inputAccess/request" {
+        params: v2::desktop_residual_b::DesktopComputerInputAccessRequestParams,
+        result: JsonValue,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
     /// The desktop pet's per-device settings (desktop-pet-store.ts `readDesktopPetPrefs`), every field normalized: anything malformed reads as the default for that field. The first read of a data dir without the file copies the profile's `desktop-pet.json` once.
     DesktopPetStateRead => "desktopPet/state/read" {
         params: v2::desktop_pet::DesktopPetStateReadParams,
@@ -4805,6 +4886,24 @@ crate::client_request_definitions! {
         class: C2,
         mutation: none,
         origins: [Local, Ssh],
+    },
+    /// One command the desktop's loopback computer bridge accepted (the bridge's wire shape: the helper's vocabulary plus `session_id`, `turn_id`, `runtime_id`), run through the core's computer service with the bridge's own semantics: per-session serialisation, the allowance of concurrent requests, abort, the runtime-only actions (secret bind and input, turn settlement, session abort, execution end, session release), saved-login owners by process fate, redaction and the reply limits. `signalId` names this call for `computer/bridge/abort`. The answer is the bridge's own (`ok`, `value` or `error`, and the HTTP `status` it would have been: 400 invalid request, 429 allowance spent).
+    ComputerBridgeRun => "computer/bridge/run" {
+        params: v2::host::ComputerBridgeRunParams,
+        result: v2::host::ComputerBridgeRunResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Ends the work of one bridge call (`signalId`: its caller's connection dropped) or, without one, aborts the session (the helper is stopped and its input cleaned up, as `session_abort` does).
+    ComputerBridgeAbort => "computer/bridge/abort" {
+        params: v2::host::ComputerBridgeAbortParams,
+        result: v2::host::ComputerBridgeAbortResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
     },
     /// One Computer Use command through the live helper pool outside a model turn (test hook: served only by a `test-hooks` build started with MIXDOGD_TEST_HOOKS=1; the handler calls DevComputerRunParams::validate).
     DevComputerRun => "dev/computer/run" {

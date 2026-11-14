@@ -1653,6 +1653,47 @@
       ],
       "type": "object"
     },
+    "ComputerBridgeAbortParams": {
+      "description": "Params of `computer/bridge/abort` (desktop -> core).",
+      "properties": {
+        "sessionKey": {
+          "type": "string"
+        },
+        "signalId": {
+          "description": "The call to end; absent: the whole session is aborted.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "sessionKey"
+      ],
+      "type": "object"
+    },
+    "ComputerBridgeRunParams": {
+      "description": "Params of `computer/bridge/run` (desktop -> core): one command of the loopback computer bridge, for the session it names.",
+      "properties": {
+        "command": {
+          "description": "The bridge's wire command (`ComputerCommand`): an object with `action` and the action's fields; `session_id`, `turn_id` and `runtime_id` ride in it."
+        },
+        "sessionKey": {
+          "description": "The session the command runs in (the bridge's `session_id`, `default` when it names none).",
+          "type": "string"
+        },
+        "signalId": {
+          "description": "Names this call for `computer/bridge/abort`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command",
+        "sessionKey",
+        "signalId"
+      ],
+      "type": "object"
+    },
     "ComputerTakeoverReason": {
       "description": "Why a `takeover` of the user's hold is raised (`computer/userControl`).",
       "enum": [
@@ -3021,9 +3062,86 @@
       ],
       "type": "object"
     },
+    "DesktopAttachmentThumbnailParams": {
+      "additionalProperties": false,
+      "description": "Params of `desktop/attachment/thumbnail`: the attachment's content hash (anything else answers `dataUrl: null`).",
+      "properties": {
+        "attachmentRef": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "attachmentRef"
+      ],
+      "type": "object"
+    },
+    "DesktopAttachmentWriteParams": {
+      "additionalProperties": false,
+      "description": "Params of `desktop/attachment/write`: a `data:` URL and the attachment's name (any text; its extension is checked against an allowlist).",
+      "properties": {
+        "dataUrl": {
+          "type": "string"
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "dataUrl"
+      ],
+      "type": "object"
+    },
+    "DesktopComputerInputAccessRequestParams": {
+      "additionalProperties": false,
+      "description": "Params of `desktop/computer/inputAccess/request`: none.",
+      "type": "object"
+    },
     "DesktopFontsListParams": {
       "additionalProperties": false,
       "description": "Params of `desktop/fonts/list`: none. Answers `{families: string[]}`.",
+      "type": "object"
+    },
+    "DesktopLaunchVersionAcknowledgeParams": {
+      "additionalProperties": false,
+      "description": "Params of `desktop/launchVersion/acknowledge`: the record file and the version whose notice was shown.",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "version"
+      ],
+      "type": "object"
+    },
+    "DesktopLaunchVersionRecordParams": {
+      "additionalProperties": false,
+      "description": "Params of `desktop/launchVersion/record`: the record file, the launched version and the process arguments (`--updated` marks a relaunch after an update).",
+      "properties": {
+        "argv": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "path": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "version"
+      ],
       "type": "object"
     },
     "DesktopLinkResolveParams": {
@@ -3061,6 +3179,50 @@
       },
       "required": [
         "path"
+      ],
+      "type": "object"
+    },
+    "DesktopLocalLinkOpenParams": {
+      "additionalProperties": false,
+      "description": "Params of `desktop/localLink/open`: the project folder (absolute), the link's href, and the path the user confirmed (an executable target).",
+      "properties": {
+        "confirmedPath": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "href": {
+          "type": "string"
+        },
+        "projectPath": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "href",
+        "projectPath"
+      ],
+      "type": "object"
+    },
+    "DesktopModelBootstrapReadParams": {
+      "additionalProperties": false,
+      "description": "Params of `desktop/modelBootstrap/read`: none.",
+      "type": "object"
+    },
+    "DesktopNativeToolCacheGcParams": {
+      "additionalProperties": false,
+      "description": "Params of `desktop/nativeToolCache/gc`: the kinds of native tool a bundled copy now serves (`graph`, `patch`, `spawn`, `supervisor`; others are ignored).",
+      "properties": {
+        "bundledKinds": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "bundledKinds"
       ],
       "type": "object"
     },
@@ -3359,6 +3521,31 @@
       },
       "required": [
         "prefs"
+      ],
+      "type": "object"
+    },
+    "DesktopUserFileWriteParams": {
+      "additionalProperties": false,
+      "description": "Params of `desktop/userFile/write`: the file and exactly one of `text` (UTF-8) and `dataBase64`.",
+      "properties": {
+        "dataBase64": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "type": "string"
+        },
+        "text": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "path"
       ],
       "type": "object"
     },
@@ -25912,6 +26099,213 @@
       "type": "object"
     },
     {
+      "description": "The decision for a chat link to a file or folder under a project (`openLocalFileLink` up to the OS hand-off): `{result: \"editor\"}` hands the file to Mixdog's editor, `{result: \"file\" | \"folder\", path}` asks the caller to open `path` with the OS, `{confirmationPath}` asks the user first (an executable target; ask again with `confirmedPath` set to it). A link that escapes the project (lexically or through a junction or symlink), names a network path, a missing file or a device name is refused with the old texts.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "desktop/localLink/open"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/DesktopLocalLinkOpenParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A `data:` attachment written under `<temp>/mixdog-attachments/<stem>-<digest16>.<ext>` on the PC (owner-only), only for an inert type; answers `{path}`.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "desktop/attachment/write"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/DesktopAttachmentWriteParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "The thumbnail of a stored attachment image by content hash, `{dataUrl: string | null}`: a JPEG scaled to 320 pixels when the picture decodes, else the original while it is at most 512 KiB.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "desktop/attachment/thumbnail"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/DesktopAttachmentThumbnailParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Records `version` as launched in the profile's launch record and answers `{announce, writeError?}`: whether its update is still to be announced.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "desktop/launchVersion/record"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/DesktopLaunchVersionRecordParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "The renderer showed (or could never show) `version`'s update notice: stop retrying it. Answers `{writeError?}`.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "desktop/launchVersion/acknowledge"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/DesktopLaunchVersionAcknowledgeParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "The persisted model route of the config file for the first renderer snapshot, `{snapshot: object | null}`.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "desktop/modelBootstrap/read"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/DesktopModelBootstrapReadParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Removes the caches of the native tool kinds (`graph`, `patch`, `spawn`, `supervisor`) a bundled copy superseded; answers `{removed: string[], failed: {kind, error}[]}`.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "desktop/nativeToolCache/gc"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/DesktopNativeToolCacheGcParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Writes a user-owned file (`text` or `dataBase64`) so a crash cannot leave it NUL-filled: an existing file is rewritten in place and flushed (identity and mode kept; a symlink stays a link), a new one is created through a temp file. Answers `{bytes}`.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "desktop/userFile/write"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/DesktopUserFileWriteParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Computer Use on Linux needs write access to /dev/uinput: installs the uaccess udev rule with one polkit prompt when access is missing (one prompt at a time) and answers `{ok: true}` or `{ok: false, reason, message?, exitCode?, detail?}`; `{ok: false, reason: \"failed\"}` off Linux.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "desktop/computer/inputAccess/request"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/DesktopComputerInputAccessRequestParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
       "description": "The desktop pet's per-device settings (desktop-pet-store.ts `readDesktopPetPrefs`), every field normalized: anything malformed reads as the default for that field. The first read of a data dir without the file copies the profile's `desktop-pet.json` once.",
       "properties": {
         "id": {
@@ -26040,6 +26434,52 @@
         },
         "params": {
           "$ref": "#/definitions/ComputerUserControlParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "One command the desktop's loopback computer bridge accepted (the bridge's wire shape: the helper's vocabulary plus `session_id`, `turn_id`, `runtime_id`), run through the core's computer service with the bridge's own semantics: per-session serialisation, the allowance of concurrent requests, abort, the runtime-only actions (secret bind and input, turn settlement, session abort, execution end, session release), saved-login owners by process fate, redaction and the reply limits. `signalId` names this call for `computer/bridge/abort`. The answer is the bridge's own (`ok`, `value` or `error`, and the HTTP `status` it would have been: 400 invalid request, 429 allowance spent).",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "computer/bridge/run"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ComputerBridgeRunParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Ends the work of one bridge call (`signalId`: its caller's connection dropped) or, without one, aborts the session (the helper is stopped and its input cleaned up, as `session_abort` does).",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "computer/bridge/abort"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ComputerBridgeAbortParams"
         }
       },
       "required": [

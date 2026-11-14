@@ -210,6 +210,12 @@ crate::server_request_definitions! {
         result: HostBrowserUploadResult,
         requires: Some("host.browserEngine"),
     },
+    /// The frame document an upload would land in now: the one the ref's element lives in, or the picker the page already opened (no ref).
+    HostBrowserUploadReceiver => "host/browser/upload/receiver" {
+        params: HostBrowserUploadReceiverParams,
+        result: HostBrowserUploadReceiverResult,
+        requires: Some("host.browserEngine"),
+    },
     /// The displays of this PC's screen, for the phone's remote-screen picker.
     HostScreenDisplays => "host/screen/displays" {
         params: ScreenDisplaysParams,

@@ -11430,6 +11430,170 @@
       }
     },
     {
+      "class": "C1",
+      "method": "desktop/localLink/open",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "v2::desktop_residual_b::DesktopLocalLinkOpenParams",
+      "result": "JsonValue",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "desktop/attachment/write",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "v2::desktop_residual_b::DesktopAttachmentWriteParams",
+      "result": "JsonValue",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C1",
+      "method": "desktop/attachment/thumbnail",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local",
+        "ssh",
+        "relay"
+      ],
+      "params": "v2::desktop_residual_b::DesktopAttachmentThumbnailParams",
+      "result": "JsonValue",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "desktop/launchVersion/record",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "v2::desktop_residual_b::DesktopLaunchVersionRecordParams",
+      "result": "JsonValue",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "desktop/launchVersion/acknowledge",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "v2::desktop_residual_b::DesktopLaunchVersionAcknowledgeParams",
+      "result": "JsonValue",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C1",
+      "method": "desktop/modelBootstrap/read",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "v2::desktop_residual_b::DesktopModelBootstrapReadParams",
+      "result": "JsonValue",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "desktop/nativeToolCache/gc",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "v2::desktop_residual_b::DesktopNativeToolCacheGcParams",
+      "result": "JsonValue",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "desktop/userFile/write",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "v2::desktop_residual_b::DesktopUserFileWriteParams",
+      "result": "JsonValue",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "desktop/computer/inputAccess/request",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "v2::desktop_residual_b::DesktopComputerInputAccessRequestParams",
+      "result": "JsonValue",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
       "class": "C2",
       "method": "desktopPet/state/read",
       "mutation": {
@@ -11538,6 +11702,42 @@
       ],
       "params": "v2::host::ComputerUserControlParams",
       "result": "v2::host::ComputerUserControlResult",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "computer/bridge/run",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "v2::host::ComputerBridgeRunParams",
+      "result": "v2::host::ComputerBridgeRunResult",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
+      "method": "computer/bridge/abort",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local"
+      ],
+      "params": "v2::host::ComputerBridgeAbortParams",
+      "result": "v2::host::ComputerBridgeAbortResult",
       "scope": {
         "kind": "none"
       }
@@ -12721,6 +12921,12 @@
       "params": "HostBrowserUploadParams",
       "requires": "host.browserEngine",
       "result": "HostBrowserUploadResult"
+    },
+    {
+      "method": "host/browser/upload/receiver",
+      "params": "HostBrowserUploadReceiverParams",
+      "requires": "host.browserEngine",
+      "result": "HostBrowserUploadReceiverResult"
     },
     {
       "method": "host/screen/displays",

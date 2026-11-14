@@ -260,6 +260,16 @@
     },
     "BrowserPageReadOptions": {
       "properties": {
+        "attributes": {
+          "description": "With a `selector`: the attributes of each match to bring back (at most 12; the host's own six when none is named).",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
         "frame": {
           "anyOf": [
             {
@@ -273,6 +283,15 @@
         "includeHidden": {
           "type": [
             "boolean",
+            "null"
+          ]
+        },
+        "limit": {
+          "description": "With a `selector`: how many matches to take rows of (the count of all of them is still answered).",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
             "null"
           ]
         },
@@ -1474,6 +1493,41 @@
         "pageId",
         "receiverKey",
         "route"
+      ],
+      "type": "object"
+    },
+    "HostBrowserUploadReceiverParams": {
+      "description": "`host/browser/upload/receiver`: the frame document that would receive an upload now. With a `ref`, the document the element lives in, read from the element itself (the same frame of the same origin and a cross-origin one are told apart; a reload to the same URL is a new document); without one, the document of the picker the page already opened. `key` is what an approval binds and `host/browser/upload` compares again before it dispatches; `url` is what the approval card shows. A document that cannot be identified is a -32000 failure.",
+      "properties": {
+        "expect": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Precondition"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pageId": {
+          "type": "string"
+        },
+        "ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "snapshotId": {
+          "description": "The snapshot the ref belongs to; read only with a ref.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "pageId"
       ],
       "type": "object"
     },
@@ -4305,6 +4359,29 @@
         },
         "params": {
           "$ref": "#/definitions/HostBrowserUploadParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "The frame document an upload would land in now: the one the ref's element lives in, or the picker the page already opened (no ref).",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "host/browser/upload/receiver"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostBrowserUploadReceiverParams"
         }
       },
       "required": [

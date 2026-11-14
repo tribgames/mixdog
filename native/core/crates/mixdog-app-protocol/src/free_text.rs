@@ -85,6 +85,13 @@ pub static FREE_TEXT: &[(Kind, &str, &[&str])] = &[
     // desktop's transcript-file-links.ts resolved it, which never refused a lone unit.
     (Kind::Request, "desktop/link/resolve", &["/href", "/cwd"]),
     (Kind::Request, "desktop/link/resolvePath", &["/path", "/cwd"]),
+    // A link to a file under a project, an attachment written from a data URL, the launch record file, a user file written as
+    // the user typed it: file names, paths and attachment text may carry any UTF-16 unit.
+    (Kind::Request, "desktop/localLink/open", &["/projectPath", "/href", "/confirmedPath"]),
+    (Kind::Request, "desktop/attachment/write", &["/dataUrl", "/name"]),
+    (Kind::Request, "desktop/launchVersion/record", &["/path"]),
+    (Kind::Request, "desktop/launchVersion/acknowledge", &["/path"]),
+    (Kind::Request, "desktop/userFile/write", &["/path", "/text"]),
     // Text stored as written: notes, personas, definitions, instructions, prompts, descriptions.
     (Kind::Request, "thread/pushNotice", &["/text"]),
     (Kind::Request, "agent/saveLeadPersona", &["/text"]),
@@ -189,6 +196,8 @@ pub static FREE_TEXT: &[(Kind, &str, &[&str])] = &[
     (Kind::Answer, "host/computer/appInput", &["/text"]),
     // The Computer Use command the live harness sends (dev/computer/run, a test hook): its text and keys are what the model typed.
     (Kind::Request, "dev/computer/run", &["/command/**"]),
+    // The Computer Use command the desktop's bridge forwards (computer/bridge/run): its text and keys are what the model typed.
+    (Kind::Request, "computer/bridge/run", &["/command/**"]),
     // What a human-only hold is for: the model reads it in Computer Use's refusal.
     (Kind::Request, "host/humanOnly/begin", &["/label"]),
     // Language-server params, per field (tests/it/free_text_fields.json `payloads` lsp/request): document text, messages,
@@ -414,6 +423,11 @@ pub static FREE_TEXT: &[(Kind, &str, &[&str])] = &[
         Kind::Answer,
         "host/browser/upload",
         &["/facts/title", "/facts/fault", "/facts/pendingDialog/message", "/facts/pendingDialog/defaultPrompt", "/facts/dismissedDialog/message"],
+    ),
+    (
+        Kind::Answer,
+        "host/browser/upload/receiver",
+        &["/key", "/url", "/facts/title", "/facts/fault", "/facts/pendingDialog/message", "/facts/pendingDialog/defaultPrompt", "/facts/dismissedDialog/message"],
     ),
     (
         Kind::Notification,
