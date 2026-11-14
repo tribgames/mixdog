@@ -1,9 +1,8 @@
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import * as nodeModule from 'node:module';
-import { constants as osConstants, freemem, homedir, hostname, setPriority, totalmem } from 'node:os';
+import { constants as osConstants, freemem, hostname, setPriority, totalmem } from 'node:os';
 import { join, resolve } from 'node:path';
-import { createNetworkWatcher, networkSignature } from './network-watch';
 import { inlineBootScriptHash, withInlineBootScript } from './renderer-csp';
 import { pathToFileURL } from 'node:url';
 
@@ -14,7 +13,6 @@ import {
   crashReporter,
   dialog,
   ipcMain,
-  net,
   Notification,
   powerMonitor,
   powerSaveBlocker,
@@ -80,7 +78,6 @@ import {
   retainNotification,
 } from './notification-window';
 import { createDesktopPet, type DesktopPet, type PetWindow } from './desktop-pet-window';
-import { resolveToolApprovalAnnouncingGrant } from './approval-grant-change';
 import { hostDeviceName } from './session-device';
 import { endBrowserApprovalSession, setBrowserApprovalHooks } from './browser/approval-dialog';
 import { approvalSurfaceSessionId, createApprovalRequesterResolver } from './browser/approval-requester';
@@ -154,7 +151,6 @@ import { nativeT, refreshNativeUiLanguage } from './native-i18n';
 import { readHostWindowDisplayPreferences } from './host-display-preferences';
 import { DesktopSettingsStore, desktopSettingsPort } from './settings-store';
 import { desktopUpdater, startAutoUpdater } from './updater';
-import { gcSupersededNativeToolCaches } from './native-runtime-cache-gc.mjs';
 import {
   DESKTOP_WINDOW_OPTIONS,
   configureTitleBarThemePersistence,
@@ -321,6 +317,8 @@ function startCrashHandlerWatch(): void {
 }
 
 const executableSuffix = process.platform === 'win32' ? '.exe' : '';
+/** The kinds of native tool a bundled copy serves in this build: the core removes the copies an earlier version cached in the profile. */
+const bundledNativeToolKinds: string[] = [];
 if (app.isPackaged) {
   const nativeToolsDir = join(process.resourcesPath, 'native-tools');
   const graphPath = join(nativeToolsDir, `mixdog-graph${executableSuffix}`);
@@ -337,21 +335,13 @@ if (app.isPackaged) {
       path: join(nativeToolsDir, `mixdog-spawn${executableSuffix}`),
     },
   ];
-  const bundledKinds = [];
   for (const { kind, names, path } of nativeOverrides) {
     if (!existsSync(path)) continue;
     for (const name of names) {
       if (!process.env[name]) process.env[name] = path;
     }
-    if (names.every((name) => process.env[name] === path)) bundledKinds.push(kind);
+    if (names.every((name) => process.env[name] === path)) bundledNativeToolKinds.push(kind);
   }
-  const mixdogHome = process.env.MIXDOG_HOME || join(homedir(), '.mixdog');
-  const dataDir = process.env.MIXDOG_DATA_DIR || join(mixdogHome, 'data');
-  void gcSupersededNativeToolCaches(dataDir, bundledKinds).then(({ failed }) => {
-    for (const { kind, error } of failed) {
-      console.warn(`Could not remove superseded ${kind} runtime cache:`, error);
-    }
-  });
 }
 
 // The native Computer Use helper (mixdog-computer[.exe]): bundled with packaged
@@ -1039,6 +1029,16 @@ unsubscribeServiceSettings = localService.subscribeDesktopEvents(({ name, value 
 const localProtocol = localConnection.protocol;
 if (!localProtocol) throw new Error('This PC\'s connection has no protocol link.');
 onProtocolAttached(localProtocol, refreshCorePageOrigin);
+if (bundledNativeToolKinds.length > 0) {
+  void localProtocol
+    .call('desktop/nativeToolCache/gc', { bundledKinds: bundledNativeToolKinds })
+    .then((result) => {
+      for (const { kind, error } of (result as { failed: Array<{ kind: string; error: string }> }).failed) {
+        console.warn(`Could not remove superseded ${kind} runtime cache:`, error);
+      }
+    })
+    .catch((error: unknown) => console.warn('Could not remove the superseded runtime caches:', error));
+}
 // This PC's core adopts the Electron profile's moved files once (local core only: a server's core is not this PC's profile).
 onProtocolAttached(localProtocol, () => {
   void adoptProfileIfBehind(localProtocol, app.getPath('userData'));
@@ -2157,13 +2157,7 @@ function createDesktopPetController(): DesktopPet {
       (await localService.submitToSession(sessionId, text, { submittedAt: Date.now() })) === true,
     // The approval card's own answer path (ipc-sessions.ts).
     decideApproval: (sessionId, id, decision) =>
-      resolveToolApprovalAnnouncingGrant(
-        localService,
-        (name, args) => localService.invokeDesktopOperation(name, args),
-        sessionId,
-        id,
-        { ...decision, device: hostDeviceName() }
-      ),
+      localService.resolveToolApprovalForSession(sessionId, id, { ...decision, device: hostDeviceName() }),
     openApp: (sessionId) => {
       if (!mainWindow || mainWindow.isDestroyed()) {
         void showConnectionWindow(localConnection).catch(() => {});
@@ -2817,13 +2811,6 @@ function watchPowerAndNetwork(): void {
   // The core pauses the server links (host/power): no attempts, no failure shown; on resume each probes before it touches its tunnel.
   powerMonitor.on('suspend', () => {
     hostRole.host.reports.power('suspend');
-  });
-  // A dead network is otherwise noticed only by the ping cycle: redial the
-  // relay leg the moment the machine is back online or its network changes.
-  createNetworkWatcher({
-    isOnline: () => net.isOnline(),
-    signature: () => networkSignature(),
-    onChange: () => hostRole.host.reports.power('resume'),
   });
   diagnosticsMemoryTimer = setInterval(
     () => {

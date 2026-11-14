@@ -105,6 +105,7 @@ pub mod system_proxy_claim;
 pub mod terminal_folder_release;
 pub mod startup;
 pub mod stop_watch;
+pub mod statusline_port;
 pub mod takeover_port;
 pub mod sweep_store;
 pub mod update_installer;

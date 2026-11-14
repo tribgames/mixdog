@@ -24,4 +24,5 @@ pub mod screen_indicator;
 pub mod relay_payload;
 pub mod takeover;
 pub mod takeover_state;
+pub mod statusline;
 pub mod thread;

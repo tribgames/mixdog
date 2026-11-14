@@ -1976,6 +1976,35 @@
       }
      }
     }
+   },
+   "statusline/read": {
+    "/currentRoute": {
+     "source": "native/core/crates/mixdog-app-server-daemon/src/statusline_port.rs StatuslineService (read as route, provider and usage values)",
+     "open": {
+      "": {
+       "class": "refused",
+       "reason": "a route row the front end holds: provider and model ids, effort names and numbers, matched against the catalog and the route store; no typed text"
+      }
+     }
+    },
+    "/providerOut": {
+     "source": "native/core/crates/mixdog-app-server-daemon/src/statusline_port.rs StatuslineService (read as route, provider and usage values)",
+     "open": {
+      "": {
+       "class": "refused",
+       "reason": "the provider's last output descriptor: ids, kinds and numbers"
+      }
+     }
+    },
+    "/usageSnapshot": {
+     "source": "native/core/crates/mixdog-app-server-daemon/src/statusline_port.rs StatuslineService (read as route, provider and usage values)",
+     "open": {
+      "": {
+       "class": "refused",
+       "reason": "a usage snapshot: token and cost numbers keyed by ids"
+      }
+     }
+    }
    }
   },
   "notification": {
@@ -4488,6 +4517,7 @@
     "request skills/setDisabledSkills /threadId",
     "request skills/skillContent /threadId",
     "request skills/skillsStatus /threadId",
+    "request statusline/read /sessionId",
     "request takeover/ready /sessionId",
     "request takeover/ready /takeoverId",
     "request takeover/state /secretRequestIds/*",
@@ -5666,6 +5696,15 @@
    "reason": "the desktop's readiness probe (capability states and detail words), never typed text",
    "fields": [
     "answer host/computer/permissions /linux/**"
+   ]
+  },
+  {
+   "class": "refused",
+   "reason": "the route, provider-output and usage rows a front end hands back for its footer: provider and model ids, effort names and numbers, matched against the catalog and the route store; never typed text",
+   "fields": [
+    "request statusline/read /currentRoute/**",
+    "request statusline/read /providerOut/**",
+    "request statusline/read /usageSnapshot/**"
    ]
   }
  ]

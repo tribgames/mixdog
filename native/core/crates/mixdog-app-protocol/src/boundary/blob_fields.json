@@ -14,6 +14,8 @@
     "projectFs/backup/write": ["/content", "/expectedContent"],
     "projectFs/replaceText": ["/replacement"],
     "lsp/document": ["/document/content"],
-    "git/applyPatch": ["/patch"]
+    "git/applyPatch": ["/patch"],
+    "desktop/attachment/write": ["/dataUrl"],
+    "desktop/userFile/write": ["/dataBase64"]
   }
 }

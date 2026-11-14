@@ -17275,6 +17275,57 @@
       ],
       "type": "object"
     },
+    "StatuslineReadParams": {
+      "description": "Params of `statusline/read`.",
+      "properties": {
+        "activeContextTokens": {
+          "description": "Tokens the active context holds now, for the context share of the status.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "clientHostPid": {
+          "description": "The process id of the front end showing it: routes are kept per host, so two front ends on one machine do not read each other's.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "currentRoute": {
+          "description": "The route the front end shows right now, when it knows one the stored routes do not (`options.currentRoute`)."
+        },
+        "providerOut": {
+          "description": "What the last provider answer reported of usage (`providerOut`), for the limits' quota windows."
+        },
+        "sessionId": {
+          "description": "The thread whose footer is read.",
+          "type": "string"
+        },
+        "usageSnapshot": {
+          "description": "The cached quota snapshot the front end holds (`usageSnapshot`: `quotaWindows`, `balance`)."
+        }
+      },
+      "required": [
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "StatuslineReadResult": {
+      "description": "Result of `statusline/read`. `status` is null when no route resolves; `limits` is null with it.",
+      "properties": {
+        "limits": {
+          "default": null
+        },
+        "status": {
+          "default": null
+        }
+      },
+      "type": "object"
+    },
     "StorageState": {
       "oneOf": [
         {
@@ -25735,6 +25786,14 @@
         "$ref": "#/definitions/SkillsSkillsStatusParams"
       },
       "result": true
+    },
+    "statusline/read": {
+      "params": {
+        "$ref": "#/definitions/StatuslineReadParams"
+      },
+      "result": {
+        "$ref": "#/definitions/StatuslineReadResult"
+      }
     },
     "system/ports/subscribe": {
       "params": {

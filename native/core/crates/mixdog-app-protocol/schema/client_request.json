@@ -10975,6 +10975,45 @@
       ],
       "type": "object"
     },
+    "StatuslineReadParams": {
+      "description": "Params of `statusline/read`.",
+      "properties": {
+        "activeContextTokens": {
+          "description": "Tokens the active context holds now, for the context share of the status.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "clientHostPid": {
+          "description": "The process id of the front end showing it: routes are kept per host, so two front ends on one machine do not read each other's.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "currentRoute": {
+          "description": "The route the front end shows right now, when it knows one the stored routes do not (`options.currentRoute`)."
+        },
+        "providerOut": {
+          "description": "What the last provider answer reported of usage (`providerOut`), for the limits' quota windows."
+        },
+        "sessionId": {
+          "description": "The thread whose footer is read.",
+          "type": "string"
+        },
+        "usageSnapshot": {
+          "description": "The cached quota snapshot the front end holds (`usageSnapshot`: `quotaWindows`, `balance`)."
+        }
+      },
+      "required": [
+        "sessionId"
+      ],
+      "type": "object"
+    },
     "SubmitOptions": {
       "additionalProperties": false,
       "description": "Caller options of `turn/start` (today's `DesktopSubmitOptions` without the host-only fields `device`, `hop`, `roomRow`, `origin`; a request carrying any of them is `invalidParams`, P §4.3).",
@@ -15322,6 +15361,29 @@
         },
         "params": {
           "$ref": "#/definitions/ThreadContextStatusParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "What a front end's footer shows of a thread's route: the route with its cached quota windows and context share (`loadGatewayStatus`), and the limits of that route: quota windows, balance and the route's spend (`buildGatewayLimits`). Both are null when the thread has no route.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "statusline/read"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/StatuslineReadParams"
         }
       },
       "required": [
