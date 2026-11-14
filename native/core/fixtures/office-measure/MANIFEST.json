@@ -1,0 +1,60 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-office-measure.mjs --tree <dir with node_modules>",
+  "fileCount": 6,
+  "files": [
+    {
+      "bytes": 557,
+      "path": "faces/LICENSE.txt",
+      "sha256": "2162c15731673534bf1da9965e55a09a0cf13af588149fc5775dcb314eafc624"
+    },
+    {
+      "bytes": 64252,
+      "path": "faces/MiriamLibre-Regular.otf",
+      "sha256": "6c366f3f075dedfd88824caba785ab5374c1c45eb5d97994137e5fdbe982a635"
+    },
+    {
+      "bytes": 66156,
+      "path": "faces/NotoSansHebrew-Regular.ttf",
+      "sha256": "671951828bd5c95db818e5bb12dcea2d0c0dda00311888522be061ee6835125e"
+    },
+    {
+      "bytes": 54280,
+      "path": "faces/NotoSansLisu-Bold.ttf",
+      "sha256": "2940c8397a096f2bb295a869a318a5d91fbbf3b70e09995308febe9c483eb9e2"
+    },
+    {
+      "bytes": 54508,
+      "path": "faces/NotoSansLisu-Regular.ttf",
+      "sha256": "7aa2279848cc8647198185807616555759bd68b8a3edb21ecc467d071aa7a6a4"
+    },
+    {
+      "bytes": 584160,
+      "path": "golden.json",
+      "sha256": "0f0688f7eed8e0c986377199de4e905322f5c9fa19e54fdee2d82b8ecb0a5868"
+    }
+  ],
+  "product": {
+    "appsSha256": "f6aaeb0dd31cd9b025798c61563ad6b3ad60497d6d5d5998904369416465c377",
+    "commit": "81d4194f776a31a5584b6f2a980ff27eb4a2174a",
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 5287,
+    "refComparison": {
+      "closestCommit": "81d4194f776a31a5584b6f2a980ff27eb4a2174a",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "250b176c809f52d5fe1ee3168593adb6e68f2642f93ab6ecb1542b75487820e3",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.5.0"
+  },
+  "provenance": {
+    "inputs": [],
+    "nodeVersion": "v22.20.0",
+    "recorderSha256": "1784269f20037237b0086468859f159b1fcd58585a1b684603c0424754136cb5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-office-measure.mjs",
+  "set": "office-measure",
+  "totalBytes": 823913
+}
