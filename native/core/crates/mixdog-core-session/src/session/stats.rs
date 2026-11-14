@@ -8,20 +8,32 @@ use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
 
-/// A token count of the event: a non-negative integer, else 0.
-fn count(usage: &Value, key: &str) -> u64 {
-    usage.get(key).and_then(Value::as_u64).unwrap_or(0)
+/// `num(v)` of `ui/session-stats.mjs`: `Number(v)` when finite, else 0. A numeric string, a fraction and a
+/// negative delta count as they do there.
+fn num(usage: &Value, key: &str) -> f64 {
+    let n = mixdog_js::to_number_of(usage.get(key));
+    if n.is_finite() { n } else { 0.0 }
+}
+
+/// `num(v)` of `runtime/shared/usage-readout-totals.mjs`: the same, positive values only.
+fn positive(usage: &Value, key: &str) -> f64 {
+    num(usage, key).max(0.0)
+}
+
+/// A count as the JSON number `JSON.stringify` makes of it.
+fn number(value: f64) -> Value {
+    mixdog_js::json_number(value)
 }
 
 /// `foldUsageReadout`'s totals record.
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Readout {
-    input: u64,
-    cache_read: u64,
-    cache_write: u64,
-    output: u64,
-    request_output_tokens: u64,
-    request_ms: u64,
+    input: f64,
+    cache_read: f64,
+    cache_write: f64,
+    output: f64,
+    request_output_tokens: f64,
+    request_ms: f64,
 }
 
 /// What the last model call measured of the prompt (`sessionContextMeasurement`).
@@ -33,21 +45,21 @@ enum Measurement {
     /// The call reported no usage.
     Unavailable(i64),
     /// The prompt tokens of the last API request and when they were read.
-    Known(u64, i64),
+    Known(f64, i64),
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct SessionStats {
-    input: u64,
-    output: u64,
-    cached: u64,
-    cache_write: u64,
-    prompt: u64,
-    latest_input: u64,
-    latest_output: u64,
-    latest_cached: u64,
-    latest_cache_write: u64,
-    latest_prompt: u64,
+    input: f64,
+    output: f64,
+    cached: f64,
+    cache_write: f64,
+    prompt: f64,
+    latest_input: f64,
+    latest_output: f64,
+    latest_cached: f64,
+    latest_cache_write: f64,
+    latest_prompt: f64,
     cost_usd: f64,
     measurement: Measurement,
     readout: Option<Readout>,
@@ -56,8 +68,8 @@ pub(crate) struct SessionStats {
 impl SessionStats {
     /// One model call's usage event (`usage_delta`).
     pub(crate) fn fold(&mut self, usage: &Value) {
-        let (input, output) = (count(usage, "deltaInput"), count(usage, "deltaOutput"));
-        let (cached, cache_write, prompt) = (count(usage, "deltaCachedRead"), count(usage, "deltaCacheWrite"), count(usage, "deltaPrompt"));
+        let (input, output) = (num(usage, "deltaInput"), num(usage, "deltaOutput"));
+        let (cached, cache_write, prompt) = (num(usage, "deltaCachedRead"), num(usage, "deltaCacheWrite"), num(usage, "deltaPrompt"));
         self.input += input;
         self.output += output;
         self.cached += cached;
@@ -68,27 +80,30 @@ impl SessionStats {
         self.latest_cached = cached;
         self.latest_cache_write = cache_write;
         self.latest_prompt = prompt;
-        self.cost_usd += usage.get("costUsd").and_then(Value::as_f64).filter(|cost| cost.is_finite()).unwrap_or(0.0);
+        self.cost_usd += num(usage, "costUsd");
         let known = usage.get("promptKnown") != Some(&Value::Bool(false));
         let at = usage.get("ts").and_then(Value::as_i64).unwrap_or(0);
-        let measured = count(usage, "contextPromptTokens");
+        let measured = positive(usage, "contextPromptTokens");
         self.measurement = if !known {
             Measurement::Unavailable(at)
-        } else if measured > 0 {
+        } else if measured > 0.0 {
             Measurement::Known(measured, at)
         } else {
             Measurement::Pending
         };
         let mut readout = self.readout.take().unwrap_or_default();
         if known {
-            let whole = if prompt > 0 { prompt } else { input + cached + cache_write };
-            readout.input += whole.saturating_sub(cached + cache_write);
+            let (cached, cache_write) = (positive(usage, "deltaCachedRead"), positive(usage, "deltaCacheWrite"));
+            let prompt = positive(usage, "deltaPrompt");
+            let whole = if prompt > 0.0 { prompt } else { positive(usage, "deltaInput") + cached + cache_write };
+            readout.input += (whole - cached - cache_write).max(0.0);
             readout.cache_read += cached;
             readout.cache_write += cache_write;
         }
+        let output = positive(usage, "deltaOutput");
         readout.output += output;
-        let request_ms = count(usage, "requestMs");
-        if request_ms > 0 && output > 0 {
+        let request_ms = positive(usage, "requestMs");
+        if request_ms > 0.0 && output > 0.0 {
             readout.request_output_tokens += output;
             readout.request_ms += request_ms;
         }
@@ -96,8 +111,9 @@ impl SessionStats {
     }
 
     /// The running input and output token totals (`stats.inputTokens`, `stats.outputTokens`).
+    /// The spinner counts whole non-negative tokens, so a fraction or a net negative total reads as its floor or 0.
     pub(crate) fn tokens(&self) -> (u64, u64) {
-        (self.input, self.output)
+        (self.input.max(0.0) as u64, self.output.max(0.0) as u64)
     }
 
     /// `state.stats` as the session publishes it, with the closed turns counted by the session (`stats.turns`).
@@ -115,12 +131,12 @@ impl SessionStats {
             ("latestCacheWriteTokens", self.latest_cache_write),
             ("latestPromptTokens", self.latest_prompt),
         ] {
-            stats.insert(key.into(), json!(value));
+            stats.insert(key.into(), number(value));
         }
-        stats.insert("costUsd".into(), if self.cost_usd.fract() == 0.0 { json!(self.cost_usd as i64) } else { json!(self.cost_usd) });
+        stats.insert("costUsd".into(), number(self.cost_usd));
         stats.insert("turns".into(), json!(turns));
         let (tokens, source, at) = match self.measurement {
-            Measurement::Known(tokens, at) => (json!(tokens), "last_api_request", json!(at)),
+            Measurement::Known(tokens, at) => (number(tokens), "last_api_request", json!(at)),
             Measurement::Unavailable(at) => (Value::Null, "unavailable", json!(at)),
             Measurement::Pending => (Value::Null, "pending", Value::Null),
         };
@@ -132,12 +148,12 @@ impl SessionStats {
             "usageReadout".into(),
             self.readout.as_ref().map_or(Value::Null, |readout| {
                 json!({
-                    "input": readout.input,
-                    "cacheRead": readout.cache_read,
-                    "cacheWrite": readout.cache_write,
-                    "output": readout.output,
-                    "requestOutputTokens": readout.request_output_tokens,
-                    "requestMs": readout.request_ms,
+                    "input": number(readout.input),
+                    "cacheRead": number(readout.cache_read),
+                    "cacheWrite": number(readout.cache_write),
+                    "output": number(readout.output),
+                    "requestOutputTokens": number(readout.request_output_tokens),
+                    "requestMs": number(readout.request_ms),
                 })
             }),
         );
@@ -180,5 +196,18 @@ mod tests {
         assert_eq!(stats["currentContextTokens"], Value::Null);
         assert_eq!(stats["usageReadout"], Value::Null);
         assert_eq!(stats["inputTokens"], 0);
+    }
+
+    /// `num()` is `Number(v)` with a finite check: a numeric string, a fraction and a negative delta are
+    /// added; a non-numeric value, `NaN` and a non-finite cost count 0.
+    #[test]
+    fn deltas_count_as_nodes_num_does() {
+        let mut stats = SessionStats::default();
+        stats.fold(&json!({ "deltaInput": "12", "deltaOutput": 2.5, "deltaCachedRead": -3, "deltaPrompt": "x", "costUsd": "0.25" }));
+        stats.fold(&json!({ "deltaInput": 8, "costUsd": "oops" }));
+        let json = stats.json(2);
+        assert_eq!((json["inputTokens"].clone(), json["outputTokens"].clone()), (json!(20), json!(2.5)));
+        assert_eq!((json["cachedTokens"].clone(), json["promptTokens"].clone(), json["costUsd"].clone()), (json!(-3), json!(0), json!(0.25)));
+        assert_eq!((json["latestInputTokens"].clone(), json["latestOutputTokens"].clone()), (json!(8), json!(0)));
     }
 }

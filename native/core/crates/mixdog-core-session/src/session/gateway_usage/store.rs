@@ -194,6 +194,12 @@ impl GatewayUsage {
         &self.inner.store
     }
 
+    /// Runs `read` over the route section of this process (`routeSectionKey` / `routeSectionStartedAt` of
+    /// `route-meta.mjs`): the one section the summaries and the footer's route spend (`buildGatewayLimits`) share.
+    pub fn with_route_section<R>(&self, read: impl FnOnce(&mut RouteSection) -> R) -> R {
+        read(&mut lock(&self.inner.state).section)
+    }
+
     /// `summarizeGatewayUsage(..)` merged with `extra`, then `recordGatewayUsageEvent(..)`: the event is
     /// buffered; the twentieth flushes at once, the first schedules the flush.
     pub fn record(&self, route: &Value, provider_out: &Value, compact: &Value, duration_ms: Option<f64>, extra: Map<String, Value>) {
