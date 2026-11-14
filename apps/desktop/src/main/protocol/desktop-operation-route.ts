@@ -345,8 +345,9 @@ const NULL_REPLY: readonly string[] = [
 ];
 
 const CUSTOM_REPLY: Readonly<Record<string, Reply>> = {
-  // The folder's path, as the rooted service route answers `projectDirectory`; the path of an entry likewise.
-  standaloneRoot: (reply) => record(reply).path,
+  // The folder's path when the core classified it standalone; null for a registered Project (Node's `standaloneFolder`).
+  standaloneRoot: (reply) => (record(reply).standalone === true ? record(reply).path : null),
+  // The path of an entry, as the rooted service route answers `projectEntryPath`.
   projectEntryPathIn: (reply) => record(reply).path,
   // The core stats a list; Node answered the one entry, or threw the stat's error: a slot { error } is that error.
   statLocalEntryAbs: (reply) => {
