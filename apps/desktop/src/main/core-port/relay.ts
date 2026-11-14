@@ -80,12 +80,16 @@ export class CorePortRelay {
   private readonly live = new Map<string, Live>();
   private readonly watched = new Set<number>();
   private loggedNoScope = false;
+  /** Bumped by every open: the port a window receives says which open it answers. */
+  private generation = 0;
   private disposed = false;
 
   constructor(private readonly options: CorePortRelayOptions) {}
 
-  async open(webContents: RelayWebContents, slot: CoreSlot = 'primary'): Promise<void> {
+  /** Resolves with the generation the delivered port carries; an open superseded before its port is delivered rejects. */
+  async open(webContents: RelayWebContents, slot: CoreSlot = 'primary'): Promise<{ generation: number }> {
     if (this.disposed) throw new Error('The core relay is closed.');
+    const generation = ++this.generation;
     const windowId = windowIdFor(webContents);
     const key = `${webContents.id}:${slot}`;
     this.watch(webContents);
@@ -93,16 +97,17 @@ export class CorePortRelay {
     const entry: Live = { socket: null, port: null, ended: false };
     this.live.set(key, entry);
     const current = (): boolean => !this.disposed && this.live.get(key) === entry;
+    const superseded = (): Error => new Error(`The core port open ${generation} was superseded.`);
     try {
       const scope = await this.options.coreWindowScope();
       if (scope === null && !this.loggedNoScope) {
         this.loggedNoScope = true;
         this.log('[mixdog] core-lacks-window-scope: opening the window port without it');
       }
-      if (!current()) return;
+      if (!current()) throw superseded();
       const endpoint = (await this.options.endpointFor(webContents.id)).find((candidate) => candidate.slot === slot);
       if (!endpoint) throw new Error(`No core endpoint for slot "${slot}".`);
-      if (!current()) return;
+      if (!current()) throw superseded();
       const socket = (this.options.createSocket ?? defaultSocket)(endpoint.url, {
         Authorization: `Bearer ${endpoint.token}`,
         'Mixdog-Window': windowId,
@@ -121,13 +126,13 @@ export class CorePortRelay {
       socket.on('error', () => {});
       if (!current()) {
         socket.close(1000, 'superseded');
-        return;
+        throw superseded();
       }
       const channel = await (this.options.createChannel ?? defaultChannel)();
       if (!current()) {
         socket.close(1000, 'superseded');
         channel.port1.close();
-        return;
+        throw superseded();
       }
       entry.port = channel.port1;
       socket.on('message', (data, isBinary) => {
@@ -141,7 +146,10 @@ export class CorePortRelay {
         if (entry.ended) return;
         entry.ended = true;
         if (this.live.get(key) === entry) this.live.delete(key);
-        channel.port1.postMessage({ t: 'closed', code, reason: reason.toString('utf8') });
+        const text = reason.toString('utf8');
+        // Why the link went is known here and nowhere after.
+        this.log(`[mixdog] core socket closed window=${windowId} slot=${slot} code=${code} reason=${JSON.stringify(text.slice(0, 300))}`);
+        channel.port1.postMessage({ t: 'closed', code, reason: text });
         channel.port1.close();
       });
       channel.port1.on('message', ({ data }) => {
@@ -153,7 +161,10 @@ export class CorePortRelay {
         if (!entry.ended) socket.close(1000, 'window port closed');
       });
       channel.port1.start();
-      webContents.postMessage(CORE_PORT_CHANNEL, { slot, role: endpoint.role, target: endpoint.target }, [channel.port2]);
+      webContents.postMessage(CORE_PORT_CHANNEL, { generation, slot, role: endpoint.role, target: endpoint.target }, [
+        channel.port2,
+      ]);
+      return { generation };
     } catch (error) {
       if (this.live.get(key) === entry) this.live.delete(key);
       entry.ended = true;
