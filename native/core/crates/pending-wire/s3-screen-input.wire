@@ -32,8 +32,8 @@ No protocol method, so nothing to remove from SERVICE_PENDING (compose_flip.rs).
 
 Errors: `ScreenInputError.code` is the host error code the session already reads (`host_unavailable`, `host_unresponsive`, ...).
 
-`ScreenGeometry { generation(), to_physical((x, y)) }` is implemented by the screen source of s3-screen-source over its locked pointer
-mapping (`PointerMapping`: `generation`, and the same clamp/round as `map_screen_pointer`); the live view passes that one object to
-`ScreenInput::apply_remote(input, &geometry, viewer_generation, live)` for a phone's input, so stale-geometry input is refused as before.
+A phone's input is mapped and its holds are kept by the screen session (`computer_screen/session.rs` `screen_input_commands`,
+`router.rs`): `ScreenInput` is the host process only (the one pointer mapping and the one hold tracking live there; the earlier
+`ScreenGeometry`, `RemoteInput`, `apply_remote`, `release_all` copies of them were removed from this module).
 When the helper binary is missing (`MIXDOG_COMPUTER_BIN` unset), `ScreenInput::start()` fails with `start_failed`: the wiring reports the
 reason once at error level and leaves phone screen control off; there is no other implementation.

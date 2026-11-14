@@ -16,8 +16,8 @@ import { startCore } from '../../../scripts/rust-core/lib/core-session.mjs';
 export const COMPUTER_CORE_RUNTIME_ROOT = 'MIXDOG_COMPUTER_CORE_RUNTIME_ROOT';
 
 /**
- * Runs `work({ env })` against a fresh core; `env` is what the Electron harness process needs to reach it (pass it to
- * `electronProcessEnv`). The core and its profile are removed afterwards, whatever `work` did.
+ * Runs `work({ env, dataDir })` against a fresh core; `env` is what the Electron harness process needs to reach it (pass it to
+ * `electronProcessEnv`) and `dataDir` is the data directory the core runs on (its computer-failures bundles are read from it). The core and its profile are removed afterwards, whatever `work` did.
  */
 export async function withComputerCore(work, { clientName = 'computer-core-harness' } = {}) {
   const bin = process.env.MIXDOGD_TEST_BIN || process.env.MIXDOGD_BIN;
@@ -37,7 +37,7 @@ export async function withComputerCore(work, { clientName = 'computer-core-harne
       },
       clientName,
     });
-    return await work({ env: { [COMPUTER_CORE_RUNTIME_ROOT]: core.paths.runtimeRoot } });
+    return await work({ env: { [COMPUTER_CORE_RUNTIME_ROOT]: core.paths.runtimeRoot }, dataDir: core.paths.dataDir });
   } finally {
     // The core's own stop, else its tree ended by handle; a failed stop is reported, not thrown over the run's outcome.
     if (core) await core.stop().catch((error) => console.error(error.message));

@@ -53,7 +53,7 @@ pub(super) trait ProcessRunner: Send + Sync {
 }
 
 /// Children on their own threads: the one that waits on a UAC prompt may take as long as the person does.
-struct ChildProcesses;
+pub(super) struct ChildProcesses;
 
 impl ProcessRunner for ChildProcesses {
     fn run(&self, program: PathBuf, args: Vec<String>, stdin: Option<String>) -> BoxFuture<Result<Exit, String>> {

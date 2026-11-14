@@ -13,7 +13,7 @@ export const SCENARIO_IDS: readonly string[] = Object.freeze(
     .sort((left, right) => Number(left.slice(1)) - Number(right.slice(1)))
 );
 
-/** Declaration order of a full run. It is not numeric: S30 precedes S29, and the bridge restart (S35) runs last. */
+/** Declaration order of a full run. It is not numeric: S30 precedes S29, and the helper kill and respawn cycles (S35) run last. */
 export const SCENARIO_RUN_ORDER: readonly string[] = Object.freeze(
   (
     'S01 S02 S03 S04 S05 S06 S07 S08 S09 S10 S11 S12 S13 S14 S15 S16 S17 S18 S19 S20 S21 S22 S23 S24 S25 S26 S27 S28 ' +

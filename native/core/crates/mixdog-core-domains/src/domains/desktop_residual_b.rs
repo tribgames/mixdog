@@ -485,9 +485,15 @@ fn data_url_of(mime: &str, bytes: &[u8]) -> String {
     format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes))
 }
 
-/// A JPEG picture scaled to fit 320 pixels on its longest side and encoded at quality 82; `None` when it does not decode.
-fn downscaled_jpeg(bytes: &[u8]) -> Option<Vec<u8>> {
-    let decoded = image::load_from_memory_with_format(bytes, image::ImageFormat::Jpeg).ok()?.to_rgb8();
+/// A JPEG or PNG picture scaled to fit 320 pixels on its longest side and encoded as a JPEG at quality 82; `None` when it does not
+/// decode (nativeImage scaled both).
+fn downscaled_jpeg(bytes: &[u8], mime: &str) -> Option<Vec<u8>> {
+    let decoded = if mime == "image/png" {
+        let (width, height, rgb) = mixdog_tools::desktop::computer_marks_draw::decode_rgb(bytes, mime).ok()?;
+        image::RgbImage::from_raw(width, height, rgb)?
+    } else {
+        image::load_from_memory_with_format(bytes, image::ImageFormat::Jpeg).ok()?.to_rgb8()
+    };
     let (width, height) = decoded.dimensions();
     if width == 0 || height == 0 {
         return None;
@@ -505,15 +511,15 @@ fn downscaled_jpeg(bytes: &[u8]) -> Option<Vec<u8>> {
     Some(out)
 }
 
-/// `readAttachmentThumbnail` over stored bytes: a downscaled JPEG when the picture decodes, else the original (bounded) which the phone's
-/// renderer downscales before caching, else nothing. Only JPEG decodes here: no PNG, GIF or WebP decoder is in the build.
+/// `readAttachmentThumbnail` over stored bytes: a downscaled JPEG when a JPEG or PNG picture decodes, else the original (bounded) which
+/// the phone's renderer downscales before caching, else nothing. GIF and WebP have no decoder in the build.
 pub fn thumbnail_of(bytes: &[u8], fallback_max_bytes: usize) -> Option<String> {
     if bytes.is_empty() {
         return None;
     }
     let mime = sniff_image_mime(bytes);
-    if mime == Some("image/jpeg")
-        && let Some(jpeg) = downscaled_jpeg(bytes)
+    if let Some(mime @ ("image/jpeg" | "image/png")) = mime
+        && let Some(jpeg) = downscaled_jpeg(bytes, mime)
     {
         return Some(data_url_of("image/jpeg", &jpeg));
     }
