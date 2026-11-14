@@ -644,7 +644,9 @@ export const inputScenarios: ScenarioGroup = {
     });
   },
   S38: async (ctx) => {
-    const { fixture, fixtureWindowId, command, host } = ctx;
+    const { fixture, fixtureWindowId, command, core } = ctx;
+    const setObserveOnly = (enabled: boolean) =>
+      core.call('config/value/write', { path: 'desktop.computerObserveOnly', value: enabled });
     await runScenario('S38', 'observation-only allows capture and blocks input before dispatch', 'safety', async () => {
       const clickCountBefore = Number(
         await fixture.webContents.executeJavaScript('globalThis.mixdogMotorState().clickCount')
@@ -694,7 +696,8 @@ export const inputScenarios: ScenarioGroup = {
       } finally {
         await command({ action: 'session_release' }, invalidOptionsSession);
       }
-      host.setObserveOnly(true);
+      // The core reads `desktop.computerObserveOnly` afresh on every command.
+      await setObserveOnly(true);
       try {
         const capture = capturePayload(
           await command(
@@ -736,7 +739,7 @@ export const inputScenarios: ScenarioGroup = {
           clickCountBefore
         );
       } finally {
-        host.setObserveOnly(false);
+        await setObserveOnly(false);
         await command({ action: 'session_release' }, 'observation-only');
       }
     });
@@ -757,12 +760,15 @@ export const inputScenarios: ScenarioGroup = {
           (error: unknown) => ({ value: null, error })
         );
         await sleep(200);
-        const aborted = await command({ action: 'session_abort' }, sessionId);
-        assert.match(aborted.text, /session aborted/i);
+        const abortedAt = performance.now();
+        const aborted = actionPayload(await command({ action: 'session_abort' }, sessionId));
+        assert.equal(aborted.confirmed, true, JSON.stringify(aborted));
         const stopped = await pendingWait;
-        assert.match(
-          String((stopped.error as Error | null)?.message || ''),
-          /computer_session_aborted|computer host exited/i
+        // The wait ends with the abort instead of running its thirty seconds out.
+        assert.ok(performance.now() - abortedAt < 15_000, 'the aborted wait kept running');
+        assert.ok(
+          stopped.error !== null || (stopped.value !== null && stopped.value.text !== 'waited 30s'),
+          'the aborted wait completed as if nothing stopped it'
         );
         const recovered = await command(
           {
@@ -998,12 +1004,10 @@ export const inputScenarios: ScenarioGroup = {
           for (const { step, reply } of runs) {
             if (reply.activation_protection === 'unavailable') {
               // The sentinel was verified in front before the first action, so
-              // this process, hosting the bridge, was the foreground process and
-              // its lease thread could take the lock for a refused worker
-              // (foreground-lock-host.ts). The reply's facts say who was asked
-              // and what each answered.
+              // the helper's own lease could take the lock for a refused worker.
+              // The reply's facts say who was asked and what each answered.
               const cause = /foreground lock was unavailable/.test(String(reply.message))
-                ? 'neither the worker nor the bridge host could take the foreground lock'
+                ? 'neither the worker nor the helper lease could take the foreground lock'
                 : 'the target refused the no-activate hold';
               throw new Error(
                 `${step.action}: ${cause}, so this run cannot prove background input keeps the user's window in front: ` +

@@ -1,9 +1,8 @@
 import assert from 'node:assert/strict';
-import { writeFileSync } from 'node:fs';
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { app, BrowserWindow } from 'electron';
-import { createComputerHost } from '../index';
-import { harnessForegroundLease } from './harness-foreground-lock';
+import { openComputerCore } from './core-transport';
 import {
   authorizationLiveDispatch,
   electronBackgroundEdit,
@@ -21,7 +20,7 @@ import {
   eventually,
   payload,
   progress,
-  readDiscovery,
+  type AuthorizationWindow,
   type ReliabilityContext,
   results,
   type ScenarioOutcome,
@@ -32,7 +31,6 @@ import {
 async function run() {
   await app.whenReady();
   app.setAccessibilitySupportEnabled(true);
-  const host = createComputerHost({ foregroundLease: harnessForegroundLease() });
   const sentinel = new BrowserWindow({
     width: 640,
     height: 420,
@@ -43,23 +41,40 @@ async function run() {
     'data:text/html,<title>Mixdog Reliability Fixture</title><label>Fixture editor<input aria-label="Fixture editor" value="fixture"></label>'
   );
   sentinel.show();
+  // The core runs on this data directory (the runner starts it there), so its failure bundles are read from it.
   const dataDir = process.env.MIXDOG_DATA_DIR;
   if (!dataDir) throw new Error('MIXDOG_DATA_DIR is required');
-  const discovery = await readDiscovery(join(dataDir, 'computer-bridge.json'), 45_000);
+  const core = await openComputerCore();
+  // Every session a scenario touched, so its end can release them as the host's stopAllSessions did.
+  const sessions = new Set<string>();
   const command = async (input: Record<string, unknown>, session = 'reliability') => {
-    const response = await fetch(`http://127.0.0.1:${discovery.port}/command`, {
-      method: 'POST',
-      headers: { authorization: `Bearer ${discovery.token}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ ...input, session_id: session }),
-      signal: AbortSignal.timeout(45_000),
-    });
-    const result = (await response.json()) as { ok?: boolean; error?: string; value?: { text: string } };
-    if (!result.ok) throw new Error(result.error);
-    return result.value as { text: string };
+    sessions.add(session);
+    const result = await core.runCommand({ ...input }, session);
+    return { ...result, helperPid: core.helperPid(session) };
+  };
+  const authorizationWindows = async (session = 'reliability') =>
+    (JSON.parse((await command({ action: 'authorization_windows' }, session)).text) as { windows: AuthorizationWindow[] })
+      .windows;
+  const updateAuthorization = async (authorization: Record<string, unknown>) => {
+    await command({ action: 'update_authorization', authorization });
+  };
+  const failureBundles = () => {
+    const folder = join(dataDir, 'computer-failures');
+    try {
+      return readdirSync(folder)
+        .filter((name) => /^failure-[0-9a-f-]+\.json$/.test(name))
+        .map((name) => JSON.parse(readFileSync(join(folder, name), 'utf8')) as { records: unknown[] });
+    } catch {
+      return [];
+    }
+  };
+  const stopAllSessions = async () => {
+    for (const session of sessions) await command({ action: 'session_release' }, session).catch(() => {});
+    sessions.clear();
   };
   const ownedWindow = async (pid: number) => {
     const windows = await eventually(
-      () => host.authorizationWindows(),
+      () => authorizationWindows(),
       (candidates) => candidates.some((window) => window.pid === pid)
     );
     const owned = windows.find((window) => window.pid === pid);
@@ -121,13 +136,22 @@ async function run() {
         ms: Math.round(performance.now() - start),
       });
     } finally {
-      await host.stopAllSessions();
+      await stopAllSessions();
       sentinel.show();
       sentinel.focus();
       progress(`END ${name} ${String(results.at(-1)?.status)}`);
     }
   };
-  const ctx: ReliabilityContext = { host, sentinel, command, ownedWindow, edit, holdForeground };
+  const ctx: ReliabilityContext = {
+    sentinel,
+    command,
+    authorizationWindows,
+    updateAuthorization,
+    failureBundles,
+    ownedWindow,
+    edit,
+    holdForeground,
+  };
   try {
     await scenario('Electron background edit', () => electronBackgroundEdit(ctx));
     await scenario('Win32 native background edit', () => win32NativeBackgroundEdit(ctx));
@@ -147,8 +171,8 @@ async function run() {
     await scenario('Explorer rename touches only its own item', () => explorerRename(ctx));
     await scenario('Authorization live dispatch', () => authorizationLiveDispatch(ctx));
   } finally {
-    await host.stopAllSessions();
-    await host.dispose();
+    await stopAllSessions();
+    await core.dispose();
     sentinel.destroy();
     writeFileSync(
       join(directory, 'report.json'),
