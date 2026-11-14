@@ -47,3 +47,7 @@ export function filterComputerUseWindowListText(value: unknown, windows: readonl
   });
   return visibleLines.length > 0 ? ['Windows:', ...visibleLines].join(newline) : 'No windows found.';
 }
+
+export function listComputerUseInternalWindowIds(): string[] {
+  return [...internalWindowIds];
+}

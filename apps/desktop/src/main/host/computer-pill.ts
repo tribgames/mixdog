@@ -14,6 +14,8 @@ export interface ComputerSectionValue {
   /** Every session with an open execution, oldest first; the overlay draws one activity each. */
   sessions: { sessionThreadId: string; observeOnly: boolean }[];
   cleanupState?: 'pending' | 'failed' | 'ready';
+  /** The user's hold on the desktop, which the pill offers to resume or stop; absent while the user holds none. */
+  userControl?: { active: boolean; reason: string; resumeMode: 'idle' | 'manual' } | null;
 }
 
 export function snapshotFromComputerSection(
@@ -22,9 +24,15 @@ export function snapshotFromComputerSection(
   now: number
 ): ComputerUseSnapshot {
   const sessions = section.active ? section.sessions : [];
+  const sessionIds = sessions.map((session) => session.sessionThreadId);
+  const hold = section.userControl;
   return {
     revision,
-    userControlActive: false,
+    // A takeover holds every session open; a yield (`active: false`) holds the sessions that wait for the user to be idle,
+    // and the pill offers Resume only for a manual one (`idleResumeSeconds` 0; any other value reads as an automatic resume, `model.ts`).
+    userControlActive: hold?.active === true,
+    ...(hold?.active ? { takeoverReason: hold.reason, pausedSessionIds: sessionIds } : {}),
+    ...(hold && !hold.active ? { yieldedSessionIds: sessionIds, idleResumeSeconds: hold.resumeMode === 'manual' ? 0 : 1 } : {}),
     // Carried as the coordinator's snapshot carries it; a section without a
     // latch is settled, as an idle coordinator is ('ready').
     cleanupState: section.cleanupState ?? 'ready',

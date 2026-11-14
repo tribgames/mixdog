@@ -3,9 +3,7 @@
  * its streams and lifecycle events are routed back to the pool.
  */
 import type { spawn, ChildProcessWithoutNullStreams } from 'node:child_process';
-import { join } from 'node:path';
 
-import { HOST_ASSEMBLY_CACHE_DIRECTORY, type createHostScriptPublisher } from './host-script';
 import { FOREGROUND_LOCK_LINE_PREFIX } from './foreground-lock-host';
 import { RESPONSE_MARKER } from './program';
 import { computerNativeBinary, computerNativeEnvironment } from './native-host';
@@ -14,11 +12,11 @@ import { createComputerLineDecoder } from '../../../shared/core-src/runtime/comp
 
 const POINTER_LINE_PREFIX = '@@MIXDOG_POINTER@@';
 
-/** Windows runs the PowerShell host program; macOS and Linux run the
- *  native backend, which speaks the same line protocol. */
+/** Every platform runs the native `mixdog-computer` backend, which speaks the
+ *  host's line protocol. On Windows it also journals the windows it holds
+ *  inactive into its own ledger and leases the foreground lock from the bridge
+ *  host (MixForegroundLockHost, MixWin32InactiveLedger in the retired PowerShell host). */
 export function launchHostProcess(options: {
-  dataDirectory: () => string;
-  hostScript: ReturnType<typeof createHostScriptPublisher>;
   ledgers: WorkerLedgers;
   inputMarker: string;
   nativeEnvironment: () => Record<string, string> | undefined;
@@ -26,34 +24,18 @@ export function launchHostProcess(options: {
   /** The bridge host leases the foreground lock to a worker that asks. */
   hostForegroundLock: boolean;
 }): ChildProcessWithoutNullStreams {
-  const { dataDirectory, hostScript, ledgers, inputMarker, spawnProcess } = options;
-  if (process.platform !== 'win32') {
-    return spawnProcess(computerNativeBinary(), [], {
-      env: computerNativeEnvironment(inputMarker, options.nativeEnvironment()),
-    });
-  }
-  // The program runs from a temp .ps1 via -File, NOT piped through -Command -:
-  // with -Command - PowerShell consumes stdin as the command text, colliding
-  // with the per-command JSON we also write to stdin. -File leaves stdin
-  // dedicated to runtime commands.
-  const scriptPath = hostScript.ensure();
-  const ledgerPath = ledgers.newPath();
-  const child = spawnProcess(
-    'powershell.exe',
-    ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', scriptPath],
-    {
-      windowsHide: true,
-      env: {
-        ...process.env,
-        MIXDOG_COMPUTER_HOST_CACHE: join(dataDirectory(), HOST_ASSEMBLY_CACHE_DIRECTORY),
-        MIXDOG_COMPUTER_HOST_BUILD: hostScript.build(),
-        MIXDOG_COMPUTER_INPUT_MARKER: inputMarker,
-        MIXDOG_COMPUTER_INACTIVE_LEDGER: ledgerPath,
-        MIXDOG_COMPUTER_HOST_FOREGROUND_LOCK: options.hostForegroundLock ? '1' : '',
-      },
-    }
-  );
-  ledgers.assign(child, ledgerPath);
+  const { ledgers, inputMarker, spawnProcess } = options;
+  const windows = process.platform === 'win32';
+  const ledgerPath = windows ? ledgers.newPath() : null;
+  const child = spawnProcess(computerNativeBinary(), [], {
+    windowsHide: true,
+    env: computerNativeEnvironment(inputMarker, {
+      ...options.nativeEnvironment(),
+      ...(ledgerPath ? { MIXDOG_COMPUTER_INACTIVE_LEDGER: ledgerPath } : {}),
+      ...(windows && options.hostForegroundLock ? { MIXDOG_COMPUTER_HOST_FOREGROUND_LOCK: '1' } : {}),
+    }),
+  });
+  if (ledgerPath) ledgers.assign(child, ledgerPath);
   return child;
 }
 

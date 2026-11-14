@@ -102,7 +102,7 @@ export function createComputerUseOverlay(
     ensureShortcut();
     const currentRender = ++renderRevision;
     const revision = latestSnapshot.revision;
-    const presentation = computerUseOverlayPresentation(latestSnapshot, locale, controller.state());
+    const presentation = computerUseOverlayPresentation(latestSnapshot, locale, { ...controller.state(), shortcutUnavailable });
     latestPresentation = presentation;
     const shellDraws = indicator ? await helperReady() : false;
     // Disposal may have happened while readiness was pending: nothing below
@@ -159,7 +159,7 @@ export function createComputerUseOverlay(
   };
 
   let shortcutRegistered = false;
-  let shortcutWarned = false;
+  let shortcutUnavailable = false;
   let stopWatcher: (() => void) | null = null;
   const onStopShortcut = (): void => {
     // The pill leaves between commands, but a turn that used the computer can
@@ -182,11 +182,11 @@ export function createComputerUseOverlay(
       return;
     }
     shortcutRegistered = globalShortcut.register(STOP_SHORTCUT, onStopShortcut);
-    if (shortcutRegistered) shortcutWarned = false;
-    else if (!shortcutWarned) {
+    if (shortcutRegistered) shortcutUnavailable = false;
+    else if (!shortcutUnavailable) {
       // The pill's Stop control still works, but the documented emergency exit
-      // does not, so the failure stays visible (once per state change).
-      shortcutWarned = true;
+      // does not: the pill says so (once per state change), besides the log.
+      shortcutUnavailable = true;
       console.warn('[computer-overlay] stop_shortcut_unavailable', STOP_SHORTCUT);
     }
   };
