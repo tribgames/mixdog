@@ -1,7 +1,0 @@
-# s2a-core-transport-window: one line in a hot file.
-file: native/core/crates/mixdog-app-server-transport/src/lib.rs
-place: the `pub use connection::...` block, after `pub use connection::Transport;`
-add:
-pub use connection::WindowRole;
-reason: ConnectionOrigin::Window carries a WindowRole; callers and tests/window_header.rs name it as mixdog_app_server_transport::WindowRole.
-cargo dependencies: none added.
