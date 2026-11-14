@@ -29,7 +29,6 @@ import { requiredAgentMemoryEntry } from './agent-memory';
 import { secretInputs } from './secret-input';
 import { takeoverGate } from './takeover-gate';
 import { resolveToolApprovalAnnouncingGrant } from './approval-grant-change';
-import { unpairWithPcAccess, type PcAccess } from './pc-access';
 
 interface SessionIpcOptions {
   handle: Handle;
@@ -41,8 +40,6 @@ interface SessionIpcOptions {
   revokeRemoteAccessClient?: (clientId: string) => Promise<DesktopRemoteAccessInfo | null>;
   /** "Connect to another PC": saved hosts and their windows. */
   remoteHosts?: RemoteHostWindows;
-  /** Windows "PC access": an unpaired phone's key is revoked from the helper. */
-  pcAccess?: Pick<PcAccess, 'unpair'> | null;
 }
 
 export function registerSessionIpc({
@@ -54,7 +51,6 @@ export function registerSessionIpc({
   rotateRemoteAccess,
   revokeRemoteAccessClient,
   remoteHosts,
-  pcAccess,
 }: SessionIpcOptions): void {
   handle(DESKTOP_IPC.listSessions, () => host.listSessions());
   handle(DESKTOP_IPC.readSessionAttachment, async (_event, sessionId, attachmentId) => {
@@ -94,7 +90,6 @@ export function registerSessionIpc({
     rotateRemoteAccess,
     revokeRemoteAccessClient,
     remoteHosts,
-    pcAccess,
   });
   handle(DESKTOP_IPC.renameSession, (_event, sessionId, title) =>
     host.renameSession(requiredSessionId(sessionId), sessionDisplayName(title))
@@ -142,7 +137,6 @@ function registerRemoteAccessIpc({
   rotateRemoteAccess,
   revokeRemoteAccessClient,
   remoteHosts,
-  pcAccess,
 }: Pick<
   SessionIpcOptions,
   | 'handle'
@@ -151,7 +145,6 @@ function registerRemoteAccessIpc({
   | 'rotateRemoteAccess'
   | 'revokeRemoteAccessClient'
   | 'remoteHosts'
-  | 'pcAccess'
 >): void {
   // Settings → Connection: pairing card (null while the bridge is off).
   handle(
@@ -160,10 +153,10 @@ function registerRemoteAccessIpc({
       remoteAccessInfo?.({ activate: (options as { activate?: unknown } | undefined)?.activate !== false }) ?? null
   );
   handle(DESKTOP_IPC.rotateRemoteAccess, () => rotateRemoteAccess?.() ?? null);
+  // The core's roster records the owed PC access revoke in the same write as the removal.
   handle(DESKTOP_IPC.revokeRemoteAccessClient, (_event, clientId) => {
     const id = requiredString(clientId, 'clientId');
-    if (!revokeRemoteAccessClient) return null;
-    return unpairWithPcAccess(pcAccess, id, () => revokeRemoteAccessClient(id));
+    return revokeRemoteAccessClient ? revokeRemoteAccessClient(id) : null;
   });
   // The 6-digit code lives only while Settings → Connection is open.
   handle(DESKTOP_IPC.remotePairCode, (_event, action) =>

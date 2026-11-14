@@ -1,22 +1,28 @@
 // Computer Use readiness reads and the one-press fixes the detail dialog offers.
 import type { Shell } from 'electron';
-import { DESKTOP_IPC, type DesktopComputerPermissionPane, type DesktopComputerReadiness } from '../shared/contract';
+import type { PcAccessApproval, PcAccessReadiness } from '@mixdog/protocol';
+import {
+  DESKTOP_IPC,
+  type DesktopComputerPermissionPane,
+  type DesktopComputerReadiness,
+  type DesktopPcAccessApproval,
+  type DesktopPcAccessReadiness,
+} from '../shared/contract';
 import type { ComputerPermissions } from './computer/shared/permissions';
 import type { IpcHandle as Handle } from './ipc';
-import type { PcAccess } from './pc-access';
 
 export interface ComputerIpcHost {
   readPermissions(): ComputerPermissions | Promise<ComputerPermissions>;
   /** Shows macOS's own grant prompts for whatever is still undecided. */
   requestPermissions(): void;
-  /** Windows: the secure-desktop helper ("PC access") Computer Use setup grants. */
-  pcAccess?: PcAccess | null;
 }
 
 interface ComputerIpcOptions {
   handle: Handle;
   shell: Pick<Shell, 'openExternal'>;
   computer?: ComputerIpcHost;
+  /** The core's desktop operations: `pcAccessReadiness` and `pcAccessApprove` are its `pcAccess/*` requests. */
+  invokeDesktopOperation: <T>(method: string, args: unknown[]) => Promise<T>;
 }
 
 const PERMISSION_PANES: Record<DesktopComputerPermissionPane, string> = {
@@ -24,13 +30,32 @@ const PERMISSION_PANES: Record<DesktopComputerPermissionPane, string> = {
   accessibility: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility',
 };
 
-export function registerComputerIpc({ handle, shell, computer }: ComputerIpcOptions): void {
+/** The core's readiness as the row reads it. */
+export function pcAccessRowOf(readiness: PcAccessReadiness): DesktopPcAccessReadiness {
+  if (!readiness.supported) return { state: 'unavailable' };
+  if (readiness.otherUser) return { state: 'other-user' };
+  if (!readiness.installed || readiness.outdated) return { state: 'not-installed' };
+  if (readiness.owed.unknown > 0) return { state: 'revocations-unknown' };
+  return { state: readiness.needsEnroll ? 'needs-enroll' : 'ready' };
+}
+
+/** The core's approval as the row reads it. */
+export function pcAccessApprovalOf({ outcome, detail, exitCode }: PcAccessApproval): DesktopPcAccessApproval {
+  const extra = { ...(detail ? { detail } : {}), ...(exitCode === undefined ? {} : { exitCode }) };
+  if (outcome === 'installed' || outcome === 'updated' || outcome === 'enrolled') return { outcome: 'done' };
+  if (outcome === 'nothing') return { outcome: 'nothing-to-do' };
+  return { outcome, ...extra };
+}
+
+export function registerComputerIpc({ handle, shell, computer, invokeDesktopOperation }: ComputerIpcOptions): void {
   handle(DESKTOP_IPC.computerReadiness, async () => {
     if (!computer) throw new Error('Computer Use is not available in this host.');
     const [permissions, pcAccess] = await Promise.all([
       computer.readPermissions(),
-      // A failed read leaves the row out until the next read.
-      computer.pcAccess?.readiness().catch(() => undefined),
+      // PC access exists on Windows only; a failed read leaves the row out until the next read.
+      process.platform === 'win32'
+        ? invokeDesktopOperation<PcAccessReadiness>('pcAccessReadiness', []).then(pcAccessRowOf, () => undefined)
+        : undefined,
     ]);
     return {
       platform: process.platform,
@@ -39,9 +64,8 @@ export function registerComputerIpc({ handle, shell, computer }: ComputerIpcOpti
     } as DesktopComputerReadiness;
   });
   handle(DESKTOP_IPC.approvePcAccess, async () => {
-    const pcAccess = computer?.pcAccess;
-    if (!pcAccess) throw new Error('PC access is not available on this PC.');
-    return pcAccess.approve();
+    if (process.platform !== 'win32') throw new Error('PC access is not available on this PC.');
+    return pcAccessApprovalOf(await invokeDesktopOperation<PcAccessApproval>('pcAccessApprove', []));
   });
   handle(DESKTOP_IPC.openComputerPermissionSettings, async (_event, pane) => {
     if (process.platform !== 'darwin') return;
