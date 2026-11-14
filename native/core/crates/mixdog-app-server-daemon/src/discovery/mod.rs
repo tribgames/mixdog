@@ -308,6 +308,92 @@ pub fn withdraw(root: &Path, instance_id: &str) -> io::Result<bool> {
     }
 }
 
+/// How often a serving core looks for its discovery file (Node's `watchOwnedFiles` reacted to the deletion event; a stat of one file is the
+/// same answer without missing a deletion that lands right after the core's own publish).
+const WATCH_INTERVAL: std::time::Duration = std::time::Duration::from_millis(250);
+
+struct Held {
+    document: Option<Discovery>,
+    /// Whether the last republish failed, so a file that cannot be written is reported once per streak, not on every look.
+    failing: bool,
+}
+
+/// The discovery file of a serving core, kept: [`OwnedDiscovery::publish`] writes the document and remembers it, and a thread puts the
+/// remembered document back when something deletes the file (a temp cleaner, a user, another tool), so the next client attaches to this core
+/// instead of starting a second one that finds the lock held and publishes `blocked`. Publishes and republishes share one lock, so a
+/// republish never lands over a newer state. [`OwnedDiscovery::release`] forgets the document and withdraws the file; dropping stops the thread.
+pub struct OwnedDiscovery {
+    root: PathBuf,
+    held: std::sync::Arc<std::sync::Mutex<Held>>,
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl OwnedDiscovery {
+    pub fn start(root: PathBuf) -> Self {
+        Self::start_with(root, WATCH_INTERVAL)
+    }
+
+    fn start_with(root: PathBuf, interval: std::time::Duration) -> Self {
+        let held = std::sync::Arc::new(std::sync::Mutex::new(Held { document: None, failing: false }));
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let watcher = (root.clone(), std::sync::Arc::downgrade(&held), stop.clone());
+        std::thread::Builder::new()
+            .name("mixdog-discovery-watch".into())
+            .spawn(move || {
+                let (root, held, stop) = watcher;
+                while !stop.load(std::sync::atomic::Ordering::Acquire) {
+                    std::thread::sleep(interval);
+                    let Some(held) = held.upgrade() else { return };
+                    let mut held = held.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                    republish_if_deleted(&root, &mut held);
+                }
+            })
+            .expect("the OS refused a discovery watch thread");
+        Self { root, held, stop }
+    }
+
+    /// Writes `document` and keeps it as the one to put back.
+    pub fn publish(&self, document: &Discovery) -> io::Result<()> {
+        let mut held = self.held.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        publish(&self.root, document)?;
+        held.document = Some(document.clone());
+        held.failing = false;
+        Ok(())
+    }
+
+    /// Stops keeping the file and removes it when it names `instance_id`.
+    pub fn release(&self, instance_id: &str) -> io::Result<bool> {
+        let mut held = self.held.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        held.document = None;
+        withdraw(&self.root, instance_id)
+    }
+}
+
+impl Drop for OwnedDiscovery {
+    fn drop(&mut self) {
+        self.stop.store(true, std::sync::atomic::Ordering::Release);
+    }
+}
+
+fn republish_if_deleted(root: &Path, held: &mut Held) {
+    let Some(document) = held.document.as_ref() else { return };
+    if !std::fs::symlink_metadata(path(root)).is_err_and(|error| error.kind() == io::ErrorKind::NotFound) {
+        return;
+    }
+    match publish(root, document) {
+        Ok(()) => {
+            held.failing = false;
+            tracing::warn!("the discovery file was deleted while this core serves: published it again");
+        }
+        Err(error) => {
+            if !held.failing {
+                tracing::error!(%error, "the discovery file was deleted and cannot be published again");
+            }
+            held.failing = true;
+        }
+    }
+}
+
 #[cfg(unix)]
 mod sys {
     use std::fs::File;

@@ -266,3 +266,58 @@ fn a_file_names_a_running_core_only_while_its_process_runs() {
     assert!(!names_running_core(me.pid, &(me.start_ms + 1).to_string()).unwrap(), "a reused pid");
     assert!(!names_running_core(0, "0").unwrap(), "no process");
 }
+
+fn wait_until(what: &str, mut done: impl FnMut() -> bool) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while !done() {
+        assert!(std::time::Instant::now() < deadline, "timed out waiting for {what}");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
+fn running_discovery(instance_id: &str, state: CoreState) -> Discovery {
+    let mut document = discovery(instance_id, state);
+    let info = OsProcessTable.query(u64::from(document.pid)).unwrap().expect("this process runs");
+    document.core.process_start_time = info.identity.start_ms.to_string();
+    document
+}
+
+#[test]
+fn a_serving_core_publishes_a_deleted_discovery_file_again_and_a_second_client_attaches_to_its_pid() {
+    let root = tempfile::tempdir().unwrap();
+    let owned = OwnedDiscovery::start_with(root.path().to_path_buf(), std::time::Duration::from_millis(5));
+    let document = running_discovery("inst-1", CoreState::Serving);
+    owned.publish(&document).unwrap();
+
+    // Deleted right after the core's own publish, and again after it came back.
+    for _ in 0..2 {
+        std::fs::remove_file(path(root.path())).unwrap();
+        wait_until("the discovery file to come back", || path(root.path()).is_file());
+        let back = mixdog_app_server_client::discovery::Discovery::read(&path(root.path())).unwrap();
+        assert_eq!(back.pid, document.pid, "a second client attaches to the serving core");
+        assert_eq!(back.core.instance_id, "inst-1");
+        assert!(names_running_core(back.pid, &back.core.process_start_time).unwrap());
+    }
+}
+
+#[test]
+fn the_state_published_last_is_the_one_put_back() {
+    let root = tempfile::tempdir().unwrap();
+    let owned = OwnedDiscovery::start_with(root.path().to_path_buf(), std::time::Duration::from_millis(5));
+    owned.publish(&running_discovery("inst-1", CoreState::Serving)).unwrap();
+    owned.publish(&running_discovery("inst-1", CoreState::Draining)).unwrap();
+    std::fs::remove_file(path(root.path())).unwrap();
+    wait_until("the discovery file to come back", || path(root.path()).is_file());
+    let value: serde_json::Value = serde_json::from_slice(&std::fs::read(path(root.path())).unwrap()).unwrap();
+    assert_eq!(value["core"]["state"], "draining");
+}
+
+#[test]
+fn a_released_core_does_not_put_its_file_back() {
+    let root = tempfile::tempdir().unwrap();
+    let owned = OwnedDiscovery::start_with(root.path().to_path_buf(), std::time::Duration::from_millis(5));
+    owned.publish(&running_discovery("inst-1", CoreState::Serving)).unwrap();
+    assert!(owned.release("inst-1").unwrap());
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    assert!(!path(root.path()).exists());
+}
