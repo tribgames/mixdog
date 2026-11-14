@@ -35,7 +35,7 @@ pub(super) fn spawn_accept_loop(listener: StdListener, server: Weak<PageServer>,
                 Ok((stream, _)) => stream,
                 // Out of descriptors or an aborted handshake: wait a moment, the listener itself is fine.
                 Err(_) => {
-                    tokio::time::sleep(Duration::from_millis(50)).await;
+                    mixdog_rt::time::sleep(Duration::from_millis(50)).await;
                     continue;
                 }
             };
