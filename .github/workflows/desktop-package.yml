@@ -178,11 +178,12 @@ jobs:
         with:
           path: apps/desktop/.cache/window-library
           key: desktop-window-library-v1-${{ inputs.arch }}-${{ hashFiles('native/mixdog-window/**', '!native/mixdog-window/dist/**', '!native/mixdog-window/target/**') }}
-      # macOS bundles the native Computer Use backend, which prepare-runtime
-      # builds from native/mixdog-computer for the target. Linux packages the
-      # glibc 2.28 build instead (MIXDOG_COMPUTER_NATIVE_BIN below), and
-      # prepare-runtime returns before any cargo call when that is set, so
-      # Linux needs no toolchain.
+      # macOS and Windows bundle the native Computer Use helper, which
+      # prepare-runtime builds from native/mixdog-computer for the target
+      # (Windows with the runner's cargo, like the other in-repo helpers).
+      # Linux packages the glibc 2.28 build instead (MIXDOG_COMPUTER_NATIVE_BIN
+      # below), and prepare-runtime returns before any cargo call when that is
+      # set, so Linux needs no toolchain.
       # Every source change misses the prepared-runtime key above, and the
       # backend's release build then ran again although its own crate had not
       # changed. prepare-runtime keeps a source-hash marker beside the built
@@ -192,7 +193,7 @@ jobs:
       - name: Restore built Computer Use backend
         id: computer-native
         if: >-
-          inputs.platform == 'darwin'
+          (inputs.platform == 'darwin' || inputs.platform == 'win32')
           && steps.prepared-runtime.outputs.cache-hit != 'true'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -299,7 +300,7 @@ jobs:
           key: ${{ steps.window-library.outputs.cache-primary-key }}
       - name: Save built Computer Use backend
         if: >-
-          inputs.platform == 'darwin'
+          (inputs.platform == 'darwin' || inputs.platform == 'win32')
           && steps.prepared-runtime.outputs.cache-hit != 'true'
           && steps.computer-native.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
