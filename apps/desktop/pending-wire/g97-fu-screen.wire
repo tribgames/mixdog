@@ -1,0 +1,28 @@
+# g97-fu-screen: desktop wire
+
+The core now captures the phone's screen per monitor in process, at the display's own size and thirty pictures a second (the Electron
+track's rate and size), so the gap that held the Electron screen sources back (deferred-g96.md) is closed. Apply with the live smoke of
+the core wire; one switch, no flag. The Electron screen source is removed, all of it:
+
+- apps/desktop/src/main/browser/host.ts: `createRemoteScreenSources`, `parseRemoteScreenAccess`, `RemoteScreenSources`,
+  `RemoteScreenSourcesDeps` and `RemoteScreenDisplaySummary` imports; the `screens` let and the option `remoteWebrtc.screens`; the
+  `if (options.remoteWebrtc.screens) { ... }` block (sink, `browserHost.remoteScreenDisplays`, `browserHost.remoteScreenAccess`); the
+  screen branch of `sources:` (`if (source.kind === 'screen') return screens?.resolve(...)`); `screens?.dispose()` of `dispose`; the
+  `stopRemoteScreens` member and its line (`screens?.stopForQuit()`); the interface members `remoteScreenDisplays`, `remoteScreenAccess`,
+  `stopRemoteScreens`.
+- apps/desktop/src/main/index.ts (hot): the line `screens: process.platform === 'win32' ? windowsRemoteScreens() : undefined,` and
+  `windowsRemoteScreens` with its imports; `const screensStopped = browserHost?.stopRemoteScreens() ?? Promise.resolve();` and its use in
+  the quit sequence (the core stops the sessions first: `Screens::stop_step`).
+- apps/desktop/src/main/remote-browser-methods.ts: the `remoteScreenDisplays` and `remoteScreenAccess` members (the core answers
+  `browser/screenDisplays` itself and grants access to a paired connection itself).
+- apps/desktop/src/main/remote-screen/screen-webrtc-sources.ts, screen-webrtc-source.ts (+ their tests) and the parts of
+  remote-webrtc/{host,viewer,source,sender-window}.ts that only a screen source used: with the Electron WebRTC host and sender window
+  themselves they are the Electron live view, removed by the live-view deletion task once nothing reaches them.
+- Kept: the input host and injector, the indicator pill (`screen-indicator*.ts`, `host/screen-indicator.ts`) and the display list of the
+  desktop (`host/computer/displays`, `host/computer/pixels`): the core drives them (the pixels are the fallback where the core reads no
+  monitor at a listed display's place).
+
+Also, delete apps/desktop/pending-wire/g96-screen-viewer.kept and s4-harness-rebase-a.kept and the two "NOT applied" bullets of
+deferred-g96.md: the first is this fragment; the second is done in apps/desktop/scripts/run-browser-host-integration.mjs (this commit:
+host, golden-twin run through run-browser-core-integration.mjs in host and core modes, popup-blank and user-dialogs in host mode; the
+--native / --action-continuation flags reach the suites as MIXDOG_BROWSER_NATIVE_VIEW / MIXDOG_BROWSER_CONTINUATION_ONLY).

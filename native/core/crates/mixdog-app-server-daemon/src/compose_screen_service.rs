@@ -291,11 +291,6 @@ impl ScreenIndicatorPort for DesktopIndicator {
 // ---------------------------------------------------------------------------------------------------------------
 // Input
 
-/// The desktop watcher's reading of the input desktop as the session reads it.
-fn input_desktop(desktop: &mixdog_tools::desktop::computer_screen_input::InputDesktop) -> InputDesktop {
-    InputDesktop { input_desktop: desktop.name.clone(), consent: desktop.consent, logon_ui: desktop.logon_ui }
-}
-
 /// One session's input host: its own `mixdog-computer --screen-input` process.
 struct InputHost {
     input: Arc<ScreenInput>,
@@ -318,7 +313,7 @@ impl ScreenInputHost for InputHost {
     }
 
     fn desktop(&self) -> Option<InputDesktop> {
-        self.input.desktop_watch().borrow().as_ref().map(input_desktop)
+        self.input.desktop_watch().borrow().clone()
     }
 
     fn session(&self) -> Option<u32> {
@@ -329,7 +324,7 @@ impl ScreenInputHost for InputHost {
         let mut watch = self.input.desktop_watch();
         let task = mixdog_rt::spawn("screen-input-desktop", TaskClass::Work, async move {
             while watch.changed().await.is_ok() {
-                let current = watch.borrow_and_update().as_ref().map(input_desktop);
+                let current = watch.borrow_and_update().clone();
                 if let Some(current) = current {
                     listener(&current);
                 }
