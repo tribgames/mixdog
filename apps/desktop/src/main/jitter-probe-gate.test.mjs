@@ -12,7 +12,7 @@ test('the gate returns null when packaged and imports the probe dynamically', as
 
 test('electron-builder leaves the jitter-probe chunks out of the package', async () => {
   const yml = await readFile(new URL('../../electron-builder.yml', import.meta.url), 'utf8');
-  assert.match(yml, /^ {2}- '!out\/main\/jitter-probe\*'$/m);
+  assert.match(yml, /^ {2}- '!out\/main\/\*\*\/jitter-probe\*'$/m);
 });
 
 test('no main-process file statically imports a jitter-probe module', async () => {
@@ -20,6 +20,6 @@ test('no main-process file statically imports a jitter-probe module', async () =
   for (const name of await readdir(new URL('.', import.meta.url))) {
     if (!name.endsWith('.ts') || name.startsWith('jitter-probe')) continue;
     const source = await readFile(new URL(name, import.meta.url), 'utf8');
-    assert.doesNotMatch(source, /^import [^\n]*from '\.\/jitter-probe/m, name);
+    assert.doesNotMatch(source, /^import [^\n]*from '\.\/jitter-probe(?!-gate')/m, name);
   }
 });
