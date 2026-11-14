@@ -820,7 +820,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             ledger: { let ledger_source = ledger_source.clone(); Arc::new(move || (ledger_source.sink())()) },
             log: warm_log,
         }),
-        warm_touches,
+        warm_touches.clone(),
         warm_gaps,
         warm_ledger.clone(), // the ONE `WarmLedger` the registry's warm use reads
     );
@@ -1598,6 +1598,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // connected desktop serves `browserEngine` (`EngineHostCommands`); any other desktop is sent `host/browser/command` as before.
     let session_grants = mixdog_tools::policy::SessionGrantRegistry::new(); // the one "allow for this session" registry: the sessions' gates and the browser cards
     let definition_names = Arc::new(mixdog_core::run_host::member_names::DefinitionNames::new(agents.clone())); // the room labels, the thread list's room rows and the browser card's requester share it
+    let run_gates = Arc::new(crate::compose_browser_engine::RunGates::new(Arc::new(crate::held_requests::HeldGates(held_requests.clone())))); // every run's approval gate (the held layer in front of the session's port), kept while the run holds it: a bridge command raises its card on its session's running turn
     let engine_catalog: Arc<std::sync::OnceLock<Arc<mixdog_store::sqlite::SqliteStore>>> = Arc::default(); // bound once the session catalog is opened (below)
     let engine_blobs: Arc<dyn mixdog_browser_engine::BlobPort> = Arc::new(crate::compose_browser_engine::StoreBlobPort { blobs: blobs.clone(), lane: b.tokens.interactive_io });
     let engine_files: Arc<dyn mixdog_browser_engine::FilePort> = Arc::new(crate::compose_browser_engine::EngineFiles { lane: b.tokens.interactive_io });
@@ -1617,6 +1618,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                     card_holds: card_holds.clone(),
                     names: definition_names.clone(),
                     catalog: engine_catalog.clone(),
+                    run_gates: run_gates.clone(),
                 }),
                 engine_files.clone(),
             ),
@@ -2276,7 +2278,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             data_dir: b.data_dir.clone(),
             blobs: store_blobs.clone(),
             reuses: reuses.clone(),
-        }));
+        })
+        .with_warm_uses(warm_touches.clone())); // the cache warmer's record: the idle auto-clear measures idleness from the last use of the prompt cache, warms included
     let snapshot_source = side_wiring.next();
     let inheritance_fit: Arc<dyn mixdog_core_session::session::inheritance::InheritanceFit> = Arc::new(mixdog_core::run_host::inheritance_fit::HostInheritanceFit::process(b.catalog.clone(), config_seams.clone(), side_wiring.next(), compaction_world.clone()));
     // `onSessionTurnStart(store.clearReleased)`: a turn of any origin clears the owner's release mark and its parked flag in the worker index.
@@ -2341,7 +2344,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let agent_names: Arc<dyn mixdog_core_session::session::delegation::AgentNames> =
         Arc::new(mixdog_core::run_host::tool_pool::session_send::DefinitionNames { definitions: agents.clone(), data_dir: b.data_dir.clone(), io: b.tokens.interactive_io });
     let owed = Owed {
-        approvals: Arc::new(crate::held_requests::HeldGates(held_requests.clone())),
+        approvals: run_gates.clone(),
         liveness: liveness.clone(),
         search_usage,
         reuses: reuses.clone(),
