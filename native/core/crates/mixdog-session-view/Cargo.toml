@@ -1,0 +1,16 @@
+[package]
+name = "mixdog-session-view"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+mixdog-app-protocol = { workspace = true }
+mixdog-app-server-client = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["sync"] }
+mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
