@@ -15,15 +15,6 @@ export interface SessionTerminalTab {
   cwd: string | null;
 }
 
-/** One tab of a session's terminal, as the agent `terminal` bridge sees it. */
-export interface SessionTerminalTab {
-  tab: number;
-  id: string;
-  shell: string;
-  running: boolean;
-  cwd: string | null;
-}
-
 export interface TerminalBridgeBackendDeps {
   invoke(name: string, args: unknown[]): Promise<unknown>;
   /** The session's working directory, where its first terminal starts. */

@@ -32,7 +32,7 @@ export interface DesktopTerminalHost {
   subscribeReset?(listener: (event: { id: string; replay: string }) => void): () => void;
   /** A phone claimed, released or lost the PTY size; the PC window follows or re-fits. */
   subscribeSizeOwner?(listener: (event: TerminalSizeOwnerEvent) => void): () => void;
-  /** Command activity (shared/terminal-activity.ts): this window focused or left a tab. */
+  /** Command activity (terminal-activity.ts): this window focused or left a tab. */
   focus?(id: string, focused: boolean): void;
   activity?(): Promise<TerminalActivityEvent[]>;
   subscribeActivity?(listener: (event: TerminalActivityEvent) => void): () => void;
