@@ -30,6 +30,7 @@ import type { createBrowserTabs } from './tabs';
 import { createBrowserTargetResolver } from './target-resolve';
 import type { createBrowserTaskLifecycle } from './task-lifecycle';
 import { HostRpcError } from '../host/connection';
+import type { SignInDeps } from '../host/browser-engine/signin';
 import { takeoverGate } from '../takeover-gate';
 import {
   type SecretFillOutcome,
@@ -591,6 +592,28 @@ export function createBrowserHostAgent(options: {
     autoSignIn.forgetSession(sessionId);
     base.linkedSignIns.forgetSession(sessionId);
   });
+  const linkedSignIn: NonNullable<Parameters<typeof createBrowserCommandRunner>[0]['linkedSignIn']> = {
+    // An input's own attributes, read through the snapshot's ref (no eval).
+    beforeAction: (guest, action, command, signal) =>
+      base.linkedSignIns.beforeAction(
+        guest,
+        action,
+        command,
+        async (ref) => {
+          const read = await services.snapshots.callAccessibilityRef<LinkedFieldFacts | null>(
+            guest,
+            ref,
+            LINKED_FIELD_READ,
+            [],
+            signal,
+            3_000
+          );
+          return read.handled ? read.value : null;
+        },
+        signal
+      ),
+    replyLine: base.linkedSignIns.replyLine,
+  };
   const runCommand = createBrowserCommandRunner({
     state,
     approvals: base.approvals,
@@ -601,28 +624,7 @@ export function createBrowserHostAgent(options: {
     taskLifecycle,
     retainGuest: options.retainGuest,
     autoSignIn,
-    linkedSignIn: {
-      // An input's own attributes, read through the snapshot's ref (no eval).
-      beforeAction: (guest, action, command, signal) =>
-        base.linkedSignIns.beforeAction(
-          guest,
-          action,
-          command,
-          async (ref) => {
-            const read = await services.snapshots.callAccessibilityRef<LinkedFieldFacts | null>(
-              guest,
-              ref,
-              LINKED_FIELD_READ,
-              [],
-              signal,
-              3_000
-            );
-            return read.handled ? read.value : null;
-          },
-          signal
-        ),
-      replyLine: base.linkedSignIns.replyLine,
-    },
+    linkedSignIn,
     // Every agent command reaches its page here, before acting on it: from
     // now on a veto answers the agent, not a person's earlier click or key.
     drivePage: (guest) => {
@@ -706,5 +708,16 @@ export function createBrowserHostAgent(options: {
       fillId,
       credentialId
     );
-  return { ...queue, bridge, loginFill };
+  /** What the core's engine asks the desktop about sign-ins and turns (host/browser-engine/signin.ts). */
+  const signIn: SignInDeps = {
+    beforeAction: (guest, action, command, signal) => linkedSignIn.beforeAction(guest, action, { ...command, action } as BrowserCommand, signal),
+    afterCommand: (input) => autoSignIn.afterCommand(input),
+    replyLine: (input) => linkedSignIn.replyLine(input),
+    fillStored: (guest, account, signal) => services.credentials.fillStored(guest, account, signal),
+    beginTurn: (sessionId, turn) => sessions.beginTurn(sessionId, turn),
+    finishTurn: (sessionId, turn, aborted) => finishBrowserTurn({ taskLifecycle, sessions, lifecycle }, sessionId, turn, { aborted }),
+    forget: (sessionId) => taskLifecycle.forget(sessionId),
+    onDiagnostic: options.onDiagnostic,
+  };
+  return { ...queue, bridge, loginFill, signIn };
 }

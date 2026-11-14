@@ -2739,6 +2739,7 @@ function installWindowIpc(
     shell,
     powerMonitor,
     connectionKind: connection.kind,
+    serverId: connection.id,
     // A server window's model calls run on this PC's sign-ins (model proxy,
     // filtered by the host's provider list): their quota is this PC's.
     pcHost: {

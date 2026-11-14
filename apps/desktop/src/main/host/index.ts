@@ -3,6 +3,7 @@
  * message of the protocol connection. It replaces the loopback bridges and
  * their discovery files; there is no listener, token or heartbeat here.
  */
+import { screen } from 'electron';
 import type { HostClaimParams } from '../../../../../packages/protocol/src/index.ts';
 import type { DesktopRemoteBrowserStreamFrame } from '../../shared/contract';
 import type { RemoteScreenDisplaySummary } from '../../shared/remote-webrtc';
@@ -23,7 +24,7 @@ import { type NotificationPresenter, registerNotificationHost } from './notifica
 import { registerSystemProxyHost } from './system-proxy';
 import { registerComputerHost, type ComputerHostWiring } from './register-s3';
 import { registerHumanOnlyHolds } from './human-only';
-import { registerScreenDisplaysHost } from './screen-displays';
+import { registerScreenDisplaysHost, reportScreenDisplayChanges } from './screen-displays';
 
 export interface DesktopHostOptions {
   connection: HostConnection;
@@ -116,6 +117,8 @@ export function createDesktopHost(options: DesktopHostOptions) {
   registerScreenDisplaysHost(connection, () => ({
     list: () => options.browser().remote('screenDisplays', []) as Promise<RemoteScreenDisplaySummary[]>,
   }));
+  // A display added, removed or rescaled is told to the core (host/screen/displaysChanged).
+  const stopDisplayReports = typeof screen?.on === 'function' ? reportScreenDisplayChanges(connection, screen) : () => {};
   const humanOnly = registerHumanOnlyHolds(connection);
   registerNotificationHost(connection, options.notifications);
   // host/state/set is a request, host/window/closed a notification.
@@ -132,6 +135,7 @@ export function createDesktopHost(options: DesktopHostOptions) {
   const reports = createHostReports(connection, options.updater, options.onUpdaterInstallFailed);
   let claimed = false;
   connection.onClose(() => {
+    stopDisplayReports();
     if (!claimed) return;
     claimed = false;
     tabs.stop();
