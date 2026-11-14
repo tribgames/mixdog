@@ -12,5 +12,7 @@
   "The server window is working again.",
   "The turn stopped with an error.",
   "Too many attempts. Try again in {{seconds}} seconds.",
-  "Video"
+  "Video",
+  "Waiting for your answer.",
+  "Waiting for your approval."
 ]

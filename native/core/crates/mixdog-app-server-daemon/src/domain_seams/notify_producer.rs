@@ -19,7 +19,8 @@
 //!   `DESKTOP_HOLD_MS` if the turn is still unread or the wait still open.
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use mixdog_rt::CancellationToken;
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -121,6 +122,8 @@ enum Msg {
     RowGone(String),
     Pool(Vec<Value>),
     State(Box<SessionWait>),
+    Approval { session_id: String, approval: Option<Value>, replay: bool },
+    Goal { session_id: String, key: Option<String> },
     HostAttached,
     /// The quiet period of a completion ended: read its answer.
     Deliver { session_id: String, generation: u64 },
@@ -128,21 +131,99 @@ enum Msg {
     /// The name of the bot a wait is told under was read.
     WaitNamed { tell: Box<WaitTell>, name: String },
     /// The hold of the devices that wait for this PC to be idle ended.
-    HoldDue { event: Box<ThreadEvent>, held: HashSet<String>, due: Due },
+    HoldDue { event: Box<ThreadEvent>, held: HashSet<String>, due: Delivery },
 }
 
 /// What feeds the producer. Cloned freely; sending after the producer ended is a no-op.
 #[derive(Clone)]
-pub struct NotifierInput(mpsc::UnboundedSender<Msg>);
+pub struct NotifierInput(mpsc::UnboundedSender<Msg>, Arc<Mutex<Option<Arc<GoalFollower>>>>);
+
+#[async_trait]
+trait GoalSnapshots: Send + Sync {
+    async fn snapshot(&self, session: &str) -> Result<Option<Value>, String>;
+}
+
+#[async_trait]
+impl GoalSnapshots for mixdog_core_goal::goal::GoalRuntime {
+    async fn snapshot(&self, session: &str) -> Result<Option<Value>, String> {
+        self.snapshot(session).await.map(|goal| goal.map(Value::Object)).map_err(|error| error.to_string())
+    }
+}
+
+/// Subscribe first, then seed each catalog session. A changed or deleted session increments its
+/// revision under the same lock as publication, so a slow snapshot can never overwrite it.
+struct GoalFollower {
+    source: Arc<dyn GoalSnapshots>,
+    sender: mpsc::UnboundedSender<Msg>,
+    revisions: Mutex<HashMap<String, (u64, bool)>>,
+    stopped: CancellationToken,
+    log: Arc<dyn Fn(&str) + Send + Sync>,
+}
+
+impl GoalFollower {
+    fn changed(&self, session: &str, goal: Option<&Value>) {
+        let mut revisions = self.revisions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let state = revisions.entry(session.to_owned()).or_default();
+        state.0 += 1;
+        state.1 = true;
+        let _ = self.sender.send(Msg::Goal { session_id: session.to_owned(), key: blocked_goal_key(goal) });
+    }
+
+    fn removed(&self, session: &str) {
+        let mut revisions = self.revisions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let state = revisions.entry(session.to_owned()).or_default();
+        state.0 += 1;
+        state.1 = false;
+    }
+
+    fn observe(self: &Arc<Self>, session: &str) {
+        let revision = {
+            let mut revisions = self.revisions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let state = revisions.entry(session.to_owned()).or_default();
+            if state.1 { return; }
+            state.1 = true;
+            state.0
+        };
+        let (this, session) = (self.clone(), session.to_owned());
+        drop(tokio::spawn(async move {
+            let snapshot = tokio::select! {
+                biased;
+                _ = this.stopped.cancelled() => return,
+                snapshot = this.source.snapshot(&session) => snapshot,
+            };
+            let mut revisions = this.revisions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if revisions.get(&session) != Some(&(revision, true)) { return; }
+            match snapshot {
+                Ok(goal) => {
+                    let _ = this.sender.send(Msg::Goal { session_id: session, key: blocked_goal_key(goal.as_ref()) });
+                }
+                Err(error) => {
+                    // A later roster publication retries a transient read failure.
+                    revisions.insert(session, (revision, false));
+                    (this.log)(&format!("[mixdog-turn-notification] goal snapshot failed: {error}"));
+                }
+            }
+        }));
+    }
+}
 
 impl NotifierInput {
     /// A roster row as the catalog publishes it (every send of a thread row).
     pub fn row(&self, row: ThreadSummary) {
+        let session = row.id.as_str().to_owned();
+        let follower = self.1.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let _ = self.0.send(Msg::Row(Box::new(row)));
+        if let Some(follower) = follower.as_ref() {
+            follower.observe(&session);
+        }
     }
 
     /// A thread left the catalog.
     pub fn row_gone(&self, session_id: &str) {
+        let follower = self.1.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(follower) = follower.as_ref() {
+            follower.removed(session_id);
+        }
         let _ = self.0.send(Msg::RowGone(session_id.to_owned()));
     }
 
@@ -155,6 +236,16 @@ impl NotifierInput {
         let _ = self.0.send(Msg::State(Box::new(update)));
     }
 
+    /// An approval source updates only its part of the session state; the blocked goal is preserved.
+    pub fn approval_state(&self, session_id: &str, approval: Option<Value>, replay: bool) {
+        let _ = self.0.send(Msg::Approval { session_id: session_id.to_owned(), approval, replay });
+    }
+
+    /// A goal source updates only its part of the session state; the shown approval is preserved.
+    pub fn goal_state(&self, session_id: &str, key: Option<String>) {
+        let _ = self.0.send(Msg::Goal { session_id: session_id.to_owned(), key });
+    }
+
     /// A desktop host attached: the toasts that waited for one are shown.
     pub fn host_attached(&self) {
         let _ = self.0.send(Msg::HostAttached);
@@ -165,15 +256,33 @@ impl NotifierInput {
 pub struct SessionNotifier {
     task: JoinHandle<()>,
     input: NotifierInput,
+    goal_subscription: Option<mixdog_core_goal::goal::Subscription>,
+    goal_log: Arc<dyn Fn(&str) + Send + Sync>,
 }
 
 impl SessionNotifier {
     /// Starts producing. Must be called inside a tokio runtime.
     pub fn start(env: ProducerEnv) -> Self {
         let (tx, rx) = mpsc::unbounded_channel();
+        let goal_log = env.log.clone();
         let ctx = Arc::new(Ctx::new(env, tx.clone()));
         let notifier = Notifier::new(ctx);
-        Self { task: tokio::spawn(notifier.run(rx)), input: NotifierInput(tx) }
+        Self { task: tokio::spawn(notifier.run(rx)), input: NotifierInput(tx, Arc::default()), goal_subscription: None, goal_log }
+    }
+
+    /// Keep the goal listener for this producer's lifetime. Rebinding drops the former listener.
+    pub fn follow_goals(&mut self, goals: Arc<mixdog_core_goal::goal::GoalRuntime>) {
+        let follower = Arc::new(GoalFollower {
+            source: goals.clone(), sender: self.input.0.clone(), revisions: Mutex::default(),
+            stopped: CancellationToken::new(), log: self.goal_log.clone(),
+        });
+        let listener = follower.clone();
+        self.goal_subscription = Some(goals.subscribe(move |event| {
+            let goal = event.goal.clone().map(Value::Object);
+            listener.changed(&event.session_id, goal.as_ref());
+        }));
+        let mut slot = self.input.1.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(previous) = slot.replace(follower) { previous.stopped.cancel(); }
     }
 
     pub fn input(&self) -> NotifierInput {
@@ -183,6 +292,9 @@ impl SessionNotifier {
 
 impl Drop for SessionNotifier {
     fn drop(&mut self) {
+        if let Some(follower) = self.input.1.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take() {
+            follower.stopped.cancel();
+        }
         self.task.abort();
     }
 }
@@ -318,20 +430,43 @@ impl Tracker {
 
 // ---- delivery
 
-/// Whether a phone that was held still has to be told once the hold ended.
-#[derive(Clone, Debug, PartialEq, Eq)]
-enum Due {
-    /// The turn is unread.
-    Unread(String),
-    /// The approval or question is still open in `origin`'s state.
-    Wait { origin: String, key: String },
-    /// The goal is still blocked on the same thing.
-    Goal { session: String, key: String },
+/// One occurrence of an event. Reusing a goal key or approval ID never revives an old delivery.
+#[derive(Clone)]
+struct Delivery {
+    target: String,
+    live: Arc<Mutex<bool>>,
+    cancel: CancellationToken,
+}
+
+impl Delivery {
+    fn new(target: String) -> Self {
+        Self { target, live: Arc::new(Mutex::new(true)), cancel: CancellationToken::new() }
+    }
+    fn invalidate(&self) {
+        *self.live.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = false;
+        self.cancel.cancel();
+    }
+    fn current(&self) -> bool {
+        *self.live.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+    async fn run(&self, future: impl std::future::Future<Output = ()>) {
+        tokio::select! {
+            biased;
+            _ = self.cancel.cancelled() => {},
+            _ = future => {},
+        }
+    }
+    /// Serialize synchronous host sends / pending-toast insertion with invalidation.
+    fn while_current<T>(&self, send: impl FnOnce() -> T) -> Option<T> {
+        let live = self.live.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if *live { Some(send()) } else { None }
+    }
 }
 
 /// One wait to tell: the approval of `origin`'s state, shown in the chat `target`.
 struct WaitTell {
     origin: String,
+    delivery: Delivery,
     target: String,
     key: String,
     wait: Wait,
@@ -345,6 +480,7 @@ struct WaitTell {
 struct Ctx {
     env: ProducerEnv,
     wake: mpsc::UnboundedSender<Msg>,
+    pending_toasts: Mutex<HashMap<String, Delivery>>,
 }
 
 fn placeholder_kind(title: &str) -> Option<AttachmentKind> {
@@ -366,7 +502,7 @@ fn english_label(kind: AttachmentKind) -> &'static str {
 
 impl Ctx {
     fn new(env: ProducerEnv, wake: mpsc::UnboundedSender<Msg>) -> Self {
-        Self { env, wake }
+        Self { env, wake, pending_toasts: Mutex::default() }
     }
 
     fn enabled(&self) -> bool {
@@ -415,17 +551,24 @@ impl Ctx {
 
     /// The pushes of `event` that are due now; the devices that hold while this PC is in use are returned. With `only`, just
     /// those devices are looked at, and this PC's activity is not asked again: they hear it now.
-    async fn pushes(&self, event: &ThreadEvent, audience: &mut Audience, only: Option<&HashSet<String>>) -> HashSet<String> {
+    async fn pushes(&self, event: &ThreadEvent, audience: &mut Audience, only: Option<&HashSet<String>>, due: &Delivery) -> HashSet<String> {
         if only.is_some() {
             audience.desktop_active = false;
         }
         let mut held = HashSet::new();
+        if !due.current() { return held; }
         for request in self.env.engine.pushes_of(event, audience) {
             if only.is_some_and(|only| !only.contains(&request.device_id)) {
                 continue;
             }
             match request.schedule {
-                PushSchedule::Now => self.send_push(&request).await,
+                PushSchedule::Now => {
+                    tokio::select! {
+                        biased;
+                        _ = due.cancel.cancelled() => return held,
+                        _ = self.send_push(&request) => {}
+                    }
+                },
                 PushSchedule::HoldUntil(_) => {
                     held.insert(request.device_id);
                 }
@@ -436,36 +579,55 @@ impl Ctx {
 
     /// Tells `toast` (when there is one) to this PC's host and `push` to the paired phones, then holds the phones that wait for
     /// this PC to be idle.
-    async fn tell(&self, toast: Option<&ThreadEvent>, push: ThreadEvent, due: Due) {
+    async fn tell(&self, toast: Option<&ThreadEvent>, push: ThreadEvent, due: Delivery) {
         if !self.enabled() {
             return;
         }
         let mut audience = self.env.audience.audience(&push.thread_id).await;
+        if !due.current() || !self.enabled() { return; }
         if let Some(toast) = toast {
-            for (_, shown) in self.env.engine.toasts_of(toast, &audience) {
-                self.show(&shown);
-            }
+            // LiveAudience exposes zero or one synthetic host, backed by HostChannel's current
+            // Notifications claimant (audience.rs); these are not independently addressable hosts.
+            due.while_current(|| {
+                let mut pending = self.pending_toasts.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                let (shown, queued) = self.env.engine.toasts_with_queue(toast, &audience);
+                if queued {
+                    pending.insert(toast.thread_id.clone(), due.clone());
+                } else if !shown.is_empty() {
+                    pending.remove(&toast.thread_id);
+                }
+                drop(pending);
+                for (_, shown) in shown {
+                    self.show(&shown);
+                }
+            });
         }
-        let held = self.pushes(&push, &mut audience, None).await;
+        let held = self.pushes(&push, &mut audience, None, &due).await;
         if held.is_empty() {
             return;
         }
-        mixdog_rt::time::sleep(Duration::from_millis(DESKTOP_HOLD_MS)).await;
-        let _ = self.wake.send(Msg::HoldDue { event: Box::new(push), held, due });
+        tokio::select! {
+            biased;
+            _ = due.cancel.cancelled() => return,
+            _ = mixdog_rt::time::sleep(Duration::from_millis(DESKTOP_HOLD_MS)) => {}
+        }
+        if due.current() {
+            let _ = self.wake.send(Msg::HoldDue { event: Box::new(push), held, due });
+        }
     }
 
     /// The second look at the devices that were held: they hear it now unless the turn was read or the wait was answered
     /// meanwhile (the notifier checked), and unless they show the thread themselves.
-    async fn tell_held(&self, event: ThreadEvent, held: HashSet<String>) {
+    async fn tell_held(&self, event: ThreadEvent, held: HashSet<String>, due: Delivery) {
         if !self.enabled() {
             return;
         }
         let mut audience = self.env.audience.audience(&event.thread_id).await;
-        self.pushes(&event, &mut audience, Some(&held)).await;
+        self.pushes(&event, &mut audience, Some(&held), &due).await;
     }
 
     /// A turn's answer: the toast in this PC's words and the push in English.
-    async fn result(&self, completion: Completion, event: Event, text: String) {
+    async fn result(&self, completion: Completion, event: Event, text: String, due: Delivery) {
         if !self.enabled() {
             return;
         }
@@ -486,7 +648,7 @@ impl Ctx {
             body_markdown: if failed { TURN_FAILED_PUSH_TEXT.to_owned() } else { text },
             ..toast.clone()
         };
-        self.tell(Some(&toast), push, Due::Unread(completion.session_id)).await;
+        self.tell(Some(&toast), push, due).await;
     }
 
     async fn wait(&self, tell: WaitTell, name: String) {
@@ -513,11 +675,11 @@ impl Ctx {
             approval,
             ..toast.clone()
         };
-        self.tell(Some(&toast), push, Due::Wait { origin: tell.origin, key: tell.key }).await;
+        self.tell(Some(&toast), push, tell.delivery).await;
     }
 
     /// A blocked goal waits for the user: a phone is told, this PC's window shows it itself.
-    async fn goal(&self, session_id: String, key: String, row: Option<(String, SessionFields)>) {
+    async fn goal(&self, session_id: String, row: Option<(String, SessionFields)>, due: Delivery) {
         let (title, fields) = row.unwrap_or_default();
         let conversation = self.conversation(&session_id, &fields).await;
         let push = ThreadEvent {
@@ -529,7 +691,7 @@ impl Ctx {
             body_markdown: QUESTION_PUSH_TEXT.to_owned(),
             now_ms: (self.env.now_ms)(),
         };
-        self.tell(None, push, Due::Goal { session: session_id, key }).await;
+        self.tell(None, push, due).await;
     }
 }
 
@@ -557,6 +719,17 @@ struct Notifier {
     told: HashSet<String>,
     /// The blocked goal each session's state shows now.
     goals: HashMap<String, String>,
+    results_live: HashMap<String, Delivery>,
+    waits_live: HashMap<String, Delivery>,
+    goals_live: HashMap<String, Delivery>,
+}
+
+impl Drop for Notifier {
+    fn drop(&mut self) {
+        for delivery in self.results_live.values().chain(self.waits_live.values()).chain(self.goals_live.values()) {
+            delivery.invalidate();
+        }
+    }
 }
 
 impl Notifier {
@@ -573,6 +746,9 @@ impl Notifier {
             waits: HashMap::new(),
             told: HashSet::new(),
             goals: HashMap::new(),
+            results_live: HashMap::new(),
+            waits_live: HashMap::new(),
+            goals_live: HashMap::new(),
         }
     }
 
@@ -592,9 +768,24 @@ impl Notifier {
             Msg::RowGone(id) => self.on_row_gone(&id),
             Msg::Pool(rows) => self.on_pool(&rows),
             Msg::State(update) => self.on_state(&update),
+            Msg::Approval { session_id, approval, replay } => self.on_approval(&SessionWait {
+                session_id, approval, replay, blocked_goal: None,
+            }),
+            Msg::Goal { session_id, key } => {
+                if !session_id.is_empty() {
+                    self.on_goal(&session_id, key.as_deref());
+                }
+            }
             Msg::HostAttached => {
-                for toast in self.ctx.env.engine.host_attached() {
-                    self.ctx.show(&toast);
+                let ready: Vec<_> = {
+                    let mut pending = self.ctx.pending_toasts.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                    self.ctx.env.engine.host_attached().into_iter()
+                        .filter_map(|toast| pending.remove(&toast.thread_id).map(|delivery| (toast, delivery)))
+                        .collect()
+                };
+                // Do not hold the queue lock while taking a delivery lock: tell takes them in the reverse order.
+                for (toast, delivery) in ready {
+                    delivery.while_current(|| self.ctx.show(&toast));
                 }
             }
             Msg::Deliver { session_id, generation } => self.on_deliver(session_id, generation),
@@ -605,26 +796,25 @@ impl Notifier {
             }
             Msg::WaitNamed { tell, name } => {
                 // Answered while the bot's name was read: nothing to tell.
-                if self.ctx.enabled() && self.waits.get(&tell.origin) == Some(&tell.key) {
+                if self.ctx.enabled() && tell.delivery.current() && self.waits.get(&tell.origin) == Some(&tell.key) {
                     let ctx = self.ctx.clone();
-                    drop(tokio::spawn(async move { ctx.wait(*tell, name).await }));
+                    drop(tokio::spawn(async move {
+                        let delivery = tell.delivery.clone();
+                        delivery.run(ctx.wait(*tell, name)).await;
+                    }));
                 }
             }
             Msg::HoldDue { event, held, due } => {
-                if self.ctx.enabled() && self.is_due(&due) {
+                if self.ctx.enabled() && due.current()
+                    && (!matches!(event.event, Event::Finished | Event::Error)
+                        || self.rows.get(&event.thread_id).is_some_and(Row::unread)) {
                     let ctx = self.ctx.clone();
-                    drop(tokio::spawn(async move { ctx.tell_held(*event, held).await }));
+                    drop(tokio::spawn(async move {
+                        let delivery = due.clone();
+                        delivery.run(ctx.tell_held(*event, held, due)).await;
+                    }));
                 }
             }
-        }
-    }
-
-    /// Whether the user still has to be told after the hold: the turn is unread, or the wait is still open.
-    fn is_due(&self, due: &Due) -> bool {
-        match due {
-            Due::Unread(session) => self.rows.get(session).is_none_or(Row::unread),
-            Due::Wait { origin, key } => self.waits.get(origin) == Some(key),
-            Due::Goal { session, key } => self.goals.get(session) == Some(key),
         }
     }
 
@@ -636,7 +826,8 @@ impl Notifier {
             return;
         }
         // A read thread owes no toast that waited for a host.
-        if !row.unread() {
+        if !row.unread() || row.working || row.archived {
+            if let Some(delivery) = self.results_live.remove(&row.id) { delivery.invalidate(); }
             self.ctx.env.engine.thread_read(&row.id);
         }
         let now = self.now();
@@ -646,9 +837,18 @@ impl Notifier {
     }
 
     fn on_row_gone(&mut self, id: &str) {
+        for deliveries in [&mut self.results_live, &mut self.waits_live, &mut self.goals_live] {
+            deliveries.retain(|origin, delivery| {
+                if origin == id || delivery.target == id { delivery.invalidate(); false } else { true }
+            });
+        }
         self.rows.remove(id);
         self.tracker.forget(id);
         self.pending.remove(id);
+        self.on_approval(&SessionWait { session_id: id.to_owned(), ..Default::default() });
+        self.goals.remove(id);
+        self.ctx.env.engine.thread_read(id);
+        self.ctx.pending_toasts.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(id);
     }
 
     fn on_pool(&mut self, pool: &[Value]) {
@@ -802,13 +1002,26 @@ impl Notifier {
             FinalAnswerStatus::Failed => (Event::Error, String::new()),
             FinalAnswerStatus::Done => (Event::Finished, answer.text),
         };
+        let due = Delivery::new(session_id.to_owned());
+        if let Some(previous) = self.results_live.insert(session_id.to_owned(), due.clone()) { previous.invalidate(); }
         let ctx = self.ctx.clone();
-        drop(tokio::spawn(async move { ctx.result(completion, event, text).await }));
+        drop(tokio::spawn(async move {
+            let delivery = due.clone();
+            delivery.run(ctx.result(completion, event, text, due)).await;
+        }));
     }
 
     // -- waits: a session that STARTS waiting on a tool approval or a question needs the user
 
     fn on_state(&mut self, update: &SessionWait) {
+        self.on_approval(update);
+        if !update.replay && !update.session_id.is_empty() {
+            self.on_goal(&update.session_id, update.blocked_goal.as_deref());
+        }
+    }
+
+    // Approval and goal changes share this actor but never clear each other's state.
+    fn on_approval(&mut self, update: &SessionWait) {
         let session_id = update.session_id.as_str();
         if session_id.is_empty() {
             return;
@@ -816,6 +1029,9 @@ impl Notifier {
         let key = update.approval.as_ref().map(approval_key).unwrap_or_default();
         let previous = (if key.is_empty() { self.waits.remove(session_id) } else { self.waits.insert(session_id.to_owned(), key.clone()) })
             .unwrap_or_default();
+        if previous != key {
+            if let Some(delivery) = self.waits_live.remove(session_id) { delivery.invalidate(); }
+        }
         // An approval no session shows any more is done with; its id is forgotten.
         if !previous.is_empty() && previous != key && !self.waits.values().any(|shown| *shown == previous) {
             self.told.remove(&previous);
@@ -823,7 +1039,6 @@ impl Notifier {
         if update.replay {
             return;
         }
-        self.on_goal(session_id, update.blocked_goal.as_deref());
         let Some(approval) = update.approval.as_ref().filter(|_| !key.is_empty()) else { return };
         if self.told.contains(&key) || key == previous {
             return;
@@ -833,8 +1048,11 @@ impl Notifier {
         // A sub-agent's request is answered in the top-level chat it shows in.
         let target = approval.get("surfaceSessionId").and_then(Value::as_str).filter(|id| !id.is_empty()).unwrap_or(session_id).to_owned();
         let row = self.rows.get(&target);
+        let delivery = Delivery::new(target.clone());
+        self.waits_live.insert(session_id.to_owned(), delivery.clone());
         let tell = WaitTell {
             origin: session_id.to_owned(),
+            delivery,
             target: target.clone(),
             key,
             wait,
@@ -846,11 +1064,14 @@ impl Notifier {
         let fallback = row.map_or_else(|| DEFAULT_TITLE.to_owned(), |row| row.title.clone());
         let ctx = self.ctx.clone();
         drop(tokio::spawn(async move {
-            let name = match ctx.bot_name(tell.agent_home.as_deref()).await {
-                Some(name) => name,
-                None => ctx.toast_title(&fallback),
-            };
-            let _ = ctx.wake.send(Msg::WaitNamed { tell: Box::new(tell), name });
+            let delivery = tell.delivery.clone();
+            delivery.run(async {
+                let name = match ctx.bot_name(tell.agent_home.as_deref()).await {
+                    Some(name) => name,
+                    None => ctx.toast_title(&fallback),
+                };
+                let _ = ctx.wake.send(Msg::WaitNamed { tell: Box::new(tell), name });
+            }).await;
         }));
     }
 
@@ -858,15 +1079,21 @@ impl Notifier {
     fn on_goal(&mut self, session_id: &str, key: Option<&str>) {
         let Some(key) = key.filter(|key| !key.is_empty()) else {
             self.goals.remove(session_id);
+            if let Some(delivery) = self.goals_live.remove(session_id) { delivery.invalidate(); }
             return;
         };
         if self.goals.get(session_id).map(String::as_str) == Some(key) {
             return;
         }
         self.goals.insert(session_id.to_owned(), key.to_owned());
+        let due = Delivery::new(session_id.to_owned());
+        if let Some(previous) = self.goals_live.insert(session_id.to_owned(), due.clone()) { previous.invalidate(); }
         let row = self.rows.get(session_id).map(|row| (row.push_title.clone(), row.fields.clone()));
-        let (ctx, session_id, key) = (self.ctx.clone(), session_id.to_owned(), key.to_owned());
-        drop(tokio::spawn(async move { ctx.goal(session_id, key, row).await }));
+        let (ctx, session_id) = (self.ctx.clone(), session_id.to_owned());
+        drop(tokio::spawn(async move {
+            let delivery = due.clone();
+            delivery.run(ctx.goal(session_id, row, due)).await;
+        }));
     }
 }
 

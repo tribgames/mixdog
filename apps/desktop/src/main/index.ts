@@ -61,9 +61,8 @@ import { createDesktopTray, type DesktopTray } from './desktop-tray';
 import { createDesktopQuitSequence, DESKTOP_DAEMON_STOP_TIMEOUT_MS } from './quit-sequence';
 import { loginShellOverrides, readLoginShellEnvironment, withHomebrewPath } from './login-shell-environment';
 import { createTurnAttention, type TurnAttention } from './turn-attention';
-import { createDesktopTurnNotifier } from './desktop-turn-notifier';
 import type { InitializeResponse, WindowFocusEntry } from '../../../../packages/protocol/src/index.ts';
-import { isSessionOnScreen, screenSessionIds } from './screen-sessions';
+import { screenSessionIds } from './screen-sessions';
 import { setForegroundLeaseLibrary } from './computer/backend/foreground-lock-host';
 import { micaLibraryPath } from './window-mica';
 import { onProtocolAttached, publishScreenSessions } from './protocol/screen-sessions-publish';
@@ -831,36 +830,6 @@ const playNotificationSound = async (): Promise<string> => {
 };
 /** An attachment-only session title (`[Image]` …) in this PC's UI language. */
 const nativeSessionTitleLabels = () => ({ image: nativeT('Image'), video: nativeT('Video'), file: nativeT('File') });
-const turnNotifier = createDesktopTurnNotifier({
-  preferences: pcNotificationView,
-  isSupported: () => Notification.isSupported(),
-  // The representative bot overlay showing that session's reply counts too.
-  isSessionOnScreen: (sessionId) =>
-    isSessionOnScreen(mainWindow, sessionId) || desktopPet?.showsSession(sessionId) === true,
-  createNotification: (content) =>
-    new Notification({
-      ...content,
-      // Windows already brands the header through the registered shortcut.
-      // An explicit icon adds a second, large image beside the body.
-      ...(process.platform === 'win32' ? {} : { icon: trayIconPath() ?? undefined }),
-      silent: process.platform === 'win32',
-    }),
-  ...(process.platform === 'win32' ? { playSound: playNotificationSound } : {}),
-  readFinalAnswer: (sessionId, startedAt, signal) => localService.readSessionFinalAnswer(sessionId, startedAt, signal),
-  diagnostic: (event, details) => {
-    diagnostics?.write(`turn-notification-${event}`, details);
-    if (event === 'failed' || event === 'read-failed') console.error(`[mixdog-turn-notification] ${event}`, details);
-  },
-  openSession: (sessionId) => {
-    primaryActivation.activate(sessionId);
-  },
-  turnFailedText: () => nativeT('The turn stopped with an error.'),
-  // "{name} · 승인을 기다리고 있습니다." / "{name} · 답변을 기다리고 있습니다."
-  waitingText: (wait) =>
-    wait === 'question' ? nativeT('Waiting for your answer.') : nativeT('Waiting for your approval.'),
-  titleLabels: nativeSessionTitleLabels,
-  agentName: (agentId) => browserApprovalGrants.agentName(agentId),
-});
 // A Browser Use approval raised while Mixdog is in the background: the card is
 // in the app; this notification (same toggle and look as turn notifications)
 // only points to it and opens the asking bot's chat when clicked.
@@ -921,7 +890,7 @@ setBrowserApprovalHooks({
     if (process.platform === 'win32') void playNotificationSound().catch(() => undefined);
   },
 });
-let unsubscribeTurnNotifier: (() => void) | null = null;
+let unsubscribeSessionSources: (() => void) | null = null;
 const applyDesktopSettings = (settings: DesktopSettings): void => {
   awakeService.setEnabled(settings.keepAwake !== false);
   notificationVolume = settings.notificationVolume;
@@ -1493,9 +1462,8 @@ function disposeDesktopResources(): Promise<void> {
   idleReclaim = null;
   unsubscribeAwake?.();
   unsubscribeAwake = null;
-  unsubscribeTurnNotifier?.();
-  unsubscribeTurnNotifier = null;
-  turnNotifier.dispose();
+  unsubscribeSessionSources?.();
+  unsubscribeSessionSources = null;
   unsubscribeServiceSettings?.();
   unsubscribeServiceSettings = null;
   unsubscribeTakeovers?.();
@@ -2746,23 +2714,17 @@ function subscribeSessionLanes(): void {
   });
   // Every session's roster and the agent pool, not just the active pane:
   // the final-answer rule needs background work as well as turn state.
-  const unsubscribeTurnSessions = localService.subscribeSessions((sessions) => {
+  const unsubscribeRoster = localService.subscribeSessions((sessions) => {
     latestSessions = sessions;
-    turnNotifier.onSessions(sessions);
     // Visualize holds the panel while a session's agent turn runs.
     void visualize.observeTurns(sessions);
   });
-  const unsubscribeTurnAgents = localService.subscribeAgentPool((agents) => {
+  const unsubscribeAgents = localService.subscribeAgentPool((agents) => {
     latestAgentPool = agents;
-    turnNotifier.onAgentPool(agents);
   });
-  // A session starting to wait on a tool approval or a question, while it
-  // is not on screen, is told like a finished turn.
-  const unsubscribeTurnWaits = localService.subscribeSessionStates((update) => turnNotifier.onSessionState(update));
-  unsubscribeTurnNotifier = () => {
-    unsubscribeTurnSessions();
-    unsubscribeTurnAgents();
-    unsubscribeTurnWaits();
+  unsubscribeSessionSources = () => {
+    unsubscribeRoster();
+    unsubscribeAgents();
   };
 }
 

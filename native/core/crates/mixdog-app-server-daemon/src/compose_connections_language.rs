@@ -102,7 +102,7 @@ mod tests {
     use super::*;
 
     /// The phrases the core asks the catalogs for, which `core-native-keys.json` lists for the desktop's sync.
-    const ASKED: [&str; 14] = [
+    const ASKED: [&str; 16] = [
         "A tool is waiting for your approval.",
         "Codes are not available on this connection server yet. Use the QR code.",
         "Connection to {{name}} lost",
@@ -117,6 +117,8 @@ mod tests {
         "The turn stopped with an error.",
         "Too many attempts. Try again in {{seconds}} seconds.",
         "Video",
+        "Waiting for your answer.",
+        "Waiting for your approval.",
     ];
 
     fn language(tag: Option<&'static str>) -> UiLanguage {
