@@ -1,0 +1,64 @@
+# nr-office-formula-lib-stats-descriptive
+
+## Registration owned by the lead
+File: native/core/crates/mixdog-xlsx-formula/src/functions/mod.rs
+1. After `use crate::registry::Table;`, add `mod statistical;`.
+2. Add `statistical::FUNCTIONS,` inside the existing TABLES slice, alongside other
+   independently owned library tables. Do not replace the other tables.
+3. Remove the ignore attribute from
+   tests/twin_stats_descriptive.rs::descriptive_functions_are_registered_in_the_production_library
+   after that registration is applied. The main twin already compiles the actual
+   production statistical.rs via #[path] and needs no hot-file edit to run.
+
+No workspace/Cargo/dependency changes. Existing mixdog-js math, js_sort_by and
+formula-core coercions are reused. No dependency on the distribution task's
+jStat special-function module; do not register distribution functions here.
+
+## Delivered exports and references
+63 names, in installed formulajs source order. Full roster and SHA-256 provenance:
+native/core/fixtures/office-stats/MANIFEST.json
+Production: native/core/crates/mixdog-xlsx-formula/src/functions/statistical.rs
+Reference: installed @formulajs/formulajs 4.6.1 lib/esm/index.mjs (2448-5478).
+Elementary jStat reduction references: node_modules/jstat/dist/jstat.js
+sum 708, sumsqerr 728, mean 795, geomean 807, median 815, stdev 948,
+covariance 1079, corrcoeff 1094. These retain reverse accumulation where present.
+
+FORECAST has no .LINEAR property in this installed reference; only FORECAST is
+registered. Existing registry aliases (e.g. STDEV -> STDEV.S, RANK -> RANK.EQ)
+remain owned by formula-core and are not duplicate table entries.
+
+## Reference recording and tests
+Executed, read-only reference tree, output only inside this task worktree:
+node benchmarks/rust-core/recorders/record-office-stats.mjs --tree C:/Project/mixdog --out native/core/fixtures/office-stats/golden.json
+3,226 cases. The recorder rejects a package version other than 4.6.1.
+Golden outcomes compare f64 bits (including signed zero/NaN), errors, exception
+messages, arrays, undefined/null and dates. Cases include missing arguments,
+empty/nested/mixed arrays, numeric strings, whitespace, dates, booleans, multiple
+errors, nonfinite values, unequal paired ranges, ties, criterion wildcards,
+percentile/rank boundaries, and V8 sorting runs over 64 entries.
+
+Main test: every_descriptive_result_equals_the_recording_bit_for_bit
+Ignored opt-in reference recorder: twin_live_stats
+Initially ignored hot-registration gate: descriptive_functions_are_registered_in_the_production_library
+
+The source deliberately retains odd installed-library behavior: SMALL with bad k
+returns its parsed array; TRIMMEAN with zero trim removes one item per end;
+MODE.SNGL can throw on a second parse; AVERAGEIFS throws on an error-valued
+applyCriteria result whereas MAXIFS/MINIFS return infinity of the relevant sign.
+No textbook validation or precision tolerance was substituted.
+
+## Remaining acceptance work (not executed by implementer)
+No cargo, build, Rust tests, apps, commits or dependency downloads were run.
+A rustfmt pass parsed/formatted the new Rust source; this is not a typecheck.
+Lead must run offline check/clippy and the twin test, resolve any mismatch,
+then apply registration and run the production gate. Exact NaN/sign behavior
+is intentionally asserted, not waived. Integration is not declared verified.
+
+PERMUT uses the same ascending factorial products, stopping arithmetic once
+171 yields infinity. It avoids Node's incidental native-stack exhaustion for
+very large finite positive factorial arguments; negative/infinite nonterminating
+arguments retain the thrown message. The fixture is bounded to factorial 1000;
+no claim is made about reproducing Node's version/cache-dependent stack threshold.
+The four-library engine gate remains incomplete until the other tasks land.
+
+Lead correction: LOGEST reparses both numeric arrays through LINEST, including NaN x; non-progressing positive factorial recursion (n - 1 == n) retains Node's thrown error. Three new Node cases record these paths.
