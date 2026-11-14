@@ -212,6 +212,14 @@ pub(crate) fn is_image_body_dropped(error: &ProviderError) -> bool {
         .is_some_and(|name| matches!(name, "ECONNRESET" | "EPIPE"))
 }
 
+/// The Grok half of `imageStripEligible`: a stream error event with no status, code or transport fault behind it
+/// (`isRetryableStreamErrorEvent` of a bare wire error) on a Grok upload may be the image body being refused. Another provider's
+/// transient stream error says nothing about images and takes the transport retry.
+pub(crate) fn is_bare_stream_error(error: &ProviderError) -> bool {
+    use mixdog_core_api::domain::provider::ErrorKind;
+    error.kind == ErrorKind::Transient && error.status.is_none() && error.code.is_none() && error.transport.is_none()
+}
+
 /// `confirmedImageRejection`.
 fn confirmed_image_rejection(error: &ProviderError) -> bool {
     error.status == Some(400) && (is_invalid_image_code(&error_code(error)) || says_invalid_image(error))
@@ -420,6 +428,20 @@ mod tests {
             Content::Parts(vec![other, ContentPart::Text(IMAGE_STRIP_PLACEHOLDER.into(), None)])
         );
         assert!(strip.persist);
+    }
+
+    /// A stream error event with no status, code or transport fault is the bare error a Grok upload may end on.
+    #[test]
+    fn a_bare_stream_error_has_no_status_code_or_transport_behind_it() {
+        use mixdog_core_api::domain::provider::{DeliveryState, ErrorKind, TransportFault};
+        let mut error = ProviderError::new(ErrorKind::Transient, DeliveryState::Ambiguous);
+        assert!(is_bare_stream_error(&error));
+        error.status = Some(502);
+        assert!(!is_bare_stream_error(&error));
+        error.status = None;
+        error.transport = Some(TransportFault::Reset);
+        assert!(!is_bare_stream_error(&error));
+        assert!(!is_bare_stream_error(&ProviderError::new(ErrorKind::Overloaded, DeliveryState::Ambiguous)));
     }
 
     /// A dropped socket under a request with an image strips the image; one under a request without an image names
