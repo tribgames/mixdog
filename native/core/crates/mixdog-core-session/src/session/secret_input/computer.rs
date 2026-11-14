@@ -160,6 +160,8 @@ impl SavedLoginComputerBackend {
         shaped.insert("ok".to_owned(), json!(!refused));
         shaped.insert("message".to_owned(), message);
         shaped.extend(result);
+        // The reply names the tool's action, as `canonicalComputerResultText` rewrote it.
+        shaped.insert("action".to_owned(), json!(ComputerAction::SavedLogin.wire_name()));
         Ok(vec![ToolPart::Text(self.hide(&Value::Object(shaped).to_string()))])
     }
 

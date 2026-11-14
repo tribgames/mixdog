@@ -903,6 +903,7 @@ mod saved_login_backend {
         assert!(!text.contains("Pa55"), "the reply carries no value");
         let reply: Value = serde_json::from_str(text).unwrap();
         assert_eq!(reply["ok"], true);
+        assert_eq!(reply["action"], "saved_login");
         assert_eq!(reply["saved_login"], json!({ "account": "j•••e@example.com", "origin": "https://login.example.com", "field": "password" }));
         assert!(reply["message"].as_str().unwrap().starts_with("filled the saved password of j•••e@example.com"));
         assert_eq!(rig.inner.0.load(Ordering::SeqCst), 0, "the backend never saw the action");
