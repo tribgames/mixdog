@@ -1,0 +1,15 @@
+# s4-harness-rebase-a (review): the old runner's entries for the two re-based suites
+
+golden-twin.integration.ts and host.integration.ts now only default-export a CoreHarnessSuite (no app.whenReady of their own),
+so apps/desktop/scripts/run-browser-host-integration.mjs (no task owns it) must stop bundling them as standalone Electron
+entries; bundled there they never exit and fail on the 90 s limit. `npm run test:browser-host:integration` (package.json) runs
+the default entry `host`.
+
+In run-browser-host-integration.mjs, function integrationEntryName and the code after it:
+- remove 'golden-twin' from the list of standalone entries, and remove `process.argv.includes('--golden-twin')` from presentationRun;
+- the default entry (`host`, no flag) and `--golden-twin` run the core runner instead, once per mode:
+    node scripts/run-browser-core-integration.mjs --suite src/main/browser/host.integration.ts --engine host
+    node scripts/run-browser-core-integration.mjs --suite src/main/browser/host.integration.ts --engine core
+  (and the same with golden-twin.integration.ts for --golden-twin), keeping --action-continuation working
+  (MIXDOG_BROWSER_CONTINUATION_ONLY=1 passes through electronProcessEnv's process.env).
+- the core runner's SUITE_LIMIT_MS (90 s) is the limit the old runner had for the same suites; unchanged.

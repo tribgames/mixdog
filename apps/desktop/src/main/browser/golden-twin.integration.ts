@@ -22,7 +22,7 @@ import { join } from 'node:path';
 
 import { app, webContents } from 'electron';
 import { BROWSER_ACTIONS } from '../../shared/core-src/runtime/browser-bridge/browser-action-contract.mjs';
-import { traceTextsEqual } from './trace-compare';
+import { normalizeTraceDurations } from './trace-compare';
 import { createBrowserFrameFixture, createBrowserPageFixture, createBrowserSocketFixture } from './host-integration-fixtures';
 import { type CoreHarness, type CoreHarnessSuite, HARNESS_SESSION, progress } from './test-support/core-harness';
 
@@ -346,7 +346,8 @@ const suite: CoreHarnessSuite = async (harness) => {
       const recorded = corpus.steps[index];
       if (outcome.ok) covered.add(String(request.action));
       const expectedText = String(recorded.ok ? recorded.text : recorded.error);
-      // A trace result is held to the full text: names, counts and structure, with only the two wall-clock fields normalised.
+      // A trace result is held to the full text: names, counts and structure, with only the two wall-clock fields normalised (the
+      // corpus stores them already normalised, so only the run's text goes through the trace normaliser).
       const isTrace = outcome.text.startsWith(TRACE_STOPPED);
       if (isTrace) {
         for (const expected of RECORDED_TRACE_LINES) {
@@ -356,7 +357,7 @@ const suite: CoreHarnessSuite = async (harness) => {
       const same =
         outcome.ok === recorded.ok &&
         JSON.stringify(JSON.parse(normalize(JSON.stringify(request)))) === JSON.stringify(recorded.request) &&
-        (isTrace ? traceTextsEqual(expectedText, outcome.text) : canonCorpus(expectedText) === canonRun(outcome.text)) &&
+        (isTrace ? normalizeTraceDurations(outcome.text) === expectedText : canonCorpus(expectedText) === canonRun(outcome.text)) &&
         outcome.imageMime === recorded.imageMime &&
         (outcome.hasTiming === undefined || outcome.hasTiming === recorded.hasTiming);
       if (!same) {
