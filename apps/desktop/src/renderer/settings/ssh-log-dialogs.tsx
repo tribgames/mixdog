@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 
 import { errorMessage } from '../editor-pane-session-errors';
 import { t } from '../i18n';
-import type { CapabilityApi } from './capability-data';
+import { sshDiagnosticsCopy, sshDiagnosticsLog, sshServerLog } from '../connections-core-api';
 import { ConnDialog } from './connection-dialogs';
 
 type Mode = 'connection' | 'server';
@@ -16,7 +16,7 @@ interface Loaded {
 }
 
 /** Loads the log for `mode` (reloading when it changes) and owns the Copy feedback. */
-function useSshLog(api: CapabilityApi, reference: string, mode: Mode) {
+function useSshLog(reference: string, mode: Mode) {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [copied, setCopied] = useState('');
 
@@ -28,11 +28,11 @@ function useSshLog(api: CapabilityApi, reference: string, mode: Mode) {
       if (live) setLoaded(next);
     };
     if (mode === 'connection') {
-      void Promise.resolve(api.sshDiagnosticsLog?.(reference))
+      void Promise.resolve(sshDiagnosticsLog(reference))
         .then((view) => done({ text: view?.lines.join('\n') ?? '', copyText: view?.copyText ?? '', error: '' }))
         .catch((reason: unknown) => done({ text: '', copyText: '', error: errorMessage(reason) }));
     } else {
-      void Promise.resolve(api.sshServerLog?.(reference))
+      void Promise.resolve(sshServerLog(reference))
         .then((result) =>
           done(
             result?.ok
@@ -45,7 +45,7 @@ function useSshLog(api: CapabilityApi, reference: string, mode: Mode) {
     return () => {
       live = false;
     };
-  }, [api, reference, mode]);
+  }, [reference, mode]);
 
   const copy = (what: string, text: Promise<string> | string): void => {
     void Promise.resolve(text)
@@ -100,18 +100,16 @@ function copiedMessage(copied: string): string {
  * '' (main answers with that window's own server).
  */
 export function SshLogDialog({
-  api,
   reference,
   name,
   onClose,
 }: {
-  api: CapabilityApi;
   reference: string;
   name: string;
   onClose(): void;
 }) {
   const [mode, setMode] = useState<Mode>('connection');
-  const { loaded, copied, copy } = useSshLog(api, reference, mode);
+  const { loaded, copied, copy } = useSshLog(reference, mode);
 
   return (
     <ConnDialog
@@ -134,7 +132,7 @@ export function SshLogDialog({
             <button
               type="button"
               className="conn-btn"
-              onClick={() => copy('diagnostics', api.sshDiagnosticsCopy?.(reference) ?? '')}
+              onClick={() => copy('diagnostics', sshDiagnosticsCopy(reference))}
             >
               {t('Copy diagnostics')}
             </button>

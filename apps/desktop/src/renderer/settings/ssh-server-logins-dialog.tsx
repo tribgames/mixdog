@@ -11,8 +11,18 @@ import type {
   DesktopSshServerLoginFlow,
   DesktopSshServerLogins,
 } from '../../shared/contract-ssh';
+import {
+  sshServerLoginBegin,
+  sshServerLoginCancel,
+  sshServerLoginComplete,
+  sshServerLoginLogout,
+  sshServerLoginRemoveCustom,
+  sshServerLoginSaveKey,
+  sshServerLoginStatus,
+  sshServerLogins,
+  subscribeSshServerLoginUpdated,
+} from '../connections-core-api';
 import { t } from '../i18n';
-import type { CapabilityApi } from './capability-data';
 import { ConfirmDialog, ConnDialog } from './connection-dialogs';
 import { isConnectFirstError, sshErrorText } from './ssh-error-text';
 
@@ -26,19 +36,19 @@ const REDIRECT_EXAMPLE = 'http://localhost:…/callback?code=…';
 
 /** The logins stored on the server and its running sessions, as main reads
  *  them from the attached daemon; null while loading. */
-export function useServerLogins(api: CapabilityApi, hostId: string) {
+export function useServerLogins(hostId: string) {
   const [logins, setLogins] = useState<DesktopSshServerLogins | null>(null);
   const [version, setVersion] = useState(0);
   // biome-ignore lint/correctness/useExhaustiveDependencies: `version` asks for a fresh read.
   useEffect(() => {
     let live = true;
-    void Promise.resolve(api.sshServerLogins?.(hostId))
+    void Promise.resolve(sshServerLogins(hostId))
       .then((value) => live && setLogins(value ?? NO_SERVER_LOGINS))
       .catch(() => live && setLogins(NO_SERVER_LOGINS));
     return () => {
       live = false;
     };
-  }, [api, hostId, version]);
+  }, [hostId, version]);
   return { logins, refresh: () => setVersion((current) => current + 1) };
 }
 
@@ -216,15 +226,13 @@ function KeyForm({
 }
 
 export function SshServerLoginsDialog({
-  api,
   host,
   onClose,
 }: {
-  api: CapabilityApi;
   host: DesktopSshHost;
   onClose(): void;
 }) {
-  const { logins, refresh } = useServerLogins(api, host.id);
+  const { logins, refresh } = useServerLogins(host.id);
   const [flow, setFlow] = useState<DesktopSshServerLoginFlow | null>(null);
   const [flowName, setFlowName] = useState('');
   const [keyFor, setKeyFor] = useState<DesktopSshServerLogin | null>(null);
@@ -237,7 +245,7 @@ export function SshServerLoginsDialog({
   const mounted = useRef(true);
 
   const cancelFlow = (flowId: string): void => {
-    void Promise.resolve(api.sshServerLoginCancel?.(host.id, flowId)).catch(() => undefined);
+    void Promise.resolve(sshServerLoginCancel(host.id, flowId)).catch(() => undefined);
   };
   const cancelPending = (): void => {
     const pending = flowRef.current;
@@ -294,11 +302,11 @@ export function SshServerLoginsDialog({
     // The server pushes the login's progress (`login:<flowId>`, desktop-services.md §5.4); a read happens only
     // when the window returns from the browser sign-in, which is when a server without a push link can have
     // finished it. No timer.
-    const stopPush = api.subscribeSshServerLoginUpdated?.((update) => {
+    const stopPush = subscribeSshServerLoginUpdated((update) => {
       if (live && update.id === host.id) settle(update.flow);
     });
     const read = (): void => {
-      void Promise.resolve(api.sshServerLoginStatus?.(host.id, pendingId))
+      void Promise.resolve(sshServerLoginStatus(host.id, pendingId))
         .then((next) => {
           if (!live || !next) return;
           settle(next);
@@ -319,7 +327,7 @@ export function SshServerLoginsDialog({
       stopPush?.();
       window.removeEventListener('focus', read);
     };
-  }, [api, host.id, pendingId]);
+  }, [host.id, pendingId]);
 
   const act = (action: () => Promise<unknown>, after?: () => void): void => {
     setBusy(true);
@@ -344,7 +352,7 @@ export function SshServerLoginsDialog({
     setBusy(true);
     setError('');
     setPasteError('');
-    void Promise.resolve(api.sshServerLoginBegin?.(host.id, provider.id))
+    void Promise.resolve(sshServerLoginBegin(host.id, provider.id))
       .then((started) => {
         if (!started) return;
         if (!mounted.current) {
@@ -363,7 +371,7 @@ export function SshServerLoginsDialog({
     const pending = flowRef.current;
     if (!pending) return;
     setPasteError('');
-    void Promise.resolve(api.sshServerLoginComplete?.(host.id, pending.flowId, address))
+    void Promise.resolve(sshServerLoginComplete(host.id, pending.flowId, address))
       .then((next) => {
         if (!next) return;
         form.reset();
@@ -390,7 +398,7 @@ export function SshServerLoginsDialog({
             onLogOut={() => {
               // Removing a custom provider deletes it on the server: asked first, as in Settings.
               if (provider.custom) setRemoving(provider);
-              else act(() => Promise.resolve(api.sshServerLoginLogout?.(host.id, provider.id)));
+              else act(() => Promise.resolve(sshServerLoginLogout(host.id, provider.id)));
             }}
           />
         ))}
@@ -406,7 +414,7 @@ export function SshServerLoginsDialog({
         })}
         confirmLabel={t('Delete')}
         onClose={() => setRemoving(null)}
-        onConfirm={() => act(() => Promise.resolve(api.sshServerLoginRemoveCustom?.(host.id, removing.id)))}
+        onConfirm={() => act(() => Promise.resolve(sshServerLoginRemoveCustom(host.id, removing.id)))}
       />
     );
   }
@@ -451,7 +459,7 @@ export function SshServerLoginsDialog({
           onCancel={() => setKeyFor(null)}
           onSave={(key) =>
             act(
-              () => Promise.resolve(api.sshServerLoginSaveKey?.(host.id, keyFor.id, key)),
+              () => Promise.resolve(sshServerLoginSaveKey(host.id, keyFor.id, key)),
               () => setKeyFor(null)
             )
           }
