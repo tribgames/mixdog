@@ -8,7 +8,8 @@ import type { WebContents } from 'electron';
 
 import type { VisualizeInlineContent } from '../../shared/visualize';
 import { registerFilePreview } from '../file-preview';
-import { localPageUrl, localVirtualPageUrl } from '../local-page-server';
+import { coreLocalPages } from '../core-local-pages';
+import { localVirtualPageUrl } from '../local-page-server';
 import { inlinePageFiles } from './inline-page';
 import type { VisualizeServiceDeps } from './service';
 
@@ -47,7 +48,7 @@ export async function panePreviewUrl(
     if (contents) host.observe(contents);
     // The project scope serves the page's own styles, scripts and media
     // from its root (never above it); the lease dies with the window.
-    return localPageUrl(root, rel, { scope: 'project', owner: contents, authorize: authorizeOwned });
+    return coreLocalPages().url(root, rel, { owner: contents });
   }
   if (target.kind === 'document') {
     const converted = (await host.convertDocument(root, rel)) as {
