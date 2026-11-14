@@ -25,6 +25,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use super::*;
+use crate::host_store::SshHostRecord;
 use crate::model_proxy_relay::ProxyEventSink;
 use crate::paths::ConnectionsPaths;
 use crate::port_forwards::{ForwardTunnel, LocalPorts, TunnelFactory};
@@ -219,10 +220,13 @@ struct FakeDialer {
     net: Arc<MockNetwork>,
     seen: Arc<Mutex<Vec<WsEndpoint>>>,
     forwards: Arc<ForwardTunnels>,
+    /// The context of every session the link opened.
+    contexts: Arc<Mutex<Vec<AttemptContext>>>,
 }
 
 impl LinkDialer for FakeDialer {
-    fn session(&self, config: RemoteSessionConfig, _context: AttemptContext) -> Arc<RemoteSession> {
+    fn session(&self, config: RemoteSessionConfig, context: AttemptContext) -> Arc<RemoteSession> {
+        self.contexts.lock().unwrap_or_else(PoisonError::into_inner).push(context);
         Arc::new(RemoteSession::new(config, self.transport.clone()))
     }
 
@@ -257,6 +261,8 @@ impl LocalModelProxy for FakeLocal {
 
 struct Rig {
     pool: LinkPool,
+    hosts: Arc<SshHostStore>,
+    contexts: Arc<Mutex<Vec<AttemptContext>>>,
     transport: Arc<FakeTransport>,
     net: Arc<MockNetwork>,
     seen: Arc<Mutex<Vec<WsEndpoint>>>,
@@ -280,10 +286,11 @@ async fn rig() -> Rig {
     let net = Arc::new(MockNetwork::default());
     let seen = Arc::new(Mutex::new(Vec::new()));
     let forwards = Arc::new(ForwardTunnels::default());
-    let dialer = Arc::new(FakeDialer { transport: transport.clone(), net: net.clone(), seen: seen.clone(), forwards: forwards.clone() });
+    let contexts = Arc::new(Mutex::new(Vec::new()));
+    let dialer = Arc::new(FakeDialer { transport: transport.clone(), net: net.clone(), seen: seen.clone(), forwards: forwards.clone(), contexts: contexts.clone() });
     let (started, local_calls) = mpsc::unbounded_channel();
-    let pool = LinkPool::with_dialer(dialer, Platform::Linux, None, hosts, store, Arc::new(FakeLocal(started)));
-    Rig { pool, transport, net, seen, forwards, local_calls, _dir: dir }
+    let pool = LinkPool::with_dialer(dialer, Platform::Linux, None, hosts.clone(), store, Arc::new(FakeLocal(started)));
+    Rig { pool, hosts, contexts, transport, net, seen, forwards, local_calls, _dir: dir }
 }
 
 fn spec() -> LinkSpec {
@@ -461,6 +468,25 @@ async fn model_login_switch_revokes() {
     // Saying the login it already has is nothing to do.
     link.apply_model_login(ModelLogin::Server).await.unwrap();
     assert_eq!(count(&rig.transport.bootstraps), 2);
+}
+
+#[tokio::test]
+async fn model_login_switch_redials_under_the_settings_saved_now() {
+    let rig = rig().await;
+    let record = rig.hosts.ensure_for_target("me@server", "Box").unwrap();
+    let record = rig.hosts.save(SshHostRecord { id: "box".to_owned(), ..record }).await.unwrap();
+    let (link, _conn, _) = open_link(&rig).await;
+    // The settings change (a key file and the login) is saved, then applied to the attached link.
+    rig.hosts.update_settings(&record.id, &json!({ "modelLogin": "server", "identityFile": "/keys/new" })).await.unwrap();
+
+    link.apply_model_login(ModelLogin::Server).await.unwrap();
+
+    let contexts = rig.contexts.lock().unwrap_or_else(PoisonError::into_inner).clone();
+    assert_eq!(contexts.len(), 2);
+    let redial = contexts[1].settings.clone().expect("the saved settings");
+    assert_eq!(redial.identity_file.as_deref(), Some("/keys/new"));
+    // Batch mode: the redial may not prompt.
+    assert!(contexts[1].askpass.is_none());
 }
 
 #[tokio::test]
