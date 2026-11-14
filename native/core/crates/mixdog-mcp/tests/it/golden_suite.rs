@@ -12,6 +12,7 @@ use mixdog_mcp::result::cap_parts;
 use mixdog_mcp::result::map_call_result;
 use mixdog_mcp::result::normalize_parts;
 use serde_json::Value;
+use serde_json::json;
 
 fn golden() -> Value {
     serde_json::from_str(mixdog_testkit::fixture!("tests/golden/node.json")).unwrap()
@@ -184,4 +185,18 @@ async fn output_cap_equals_nodes() {
         }
     }
     drop(dir);
+}
+
+/// A result the server did not mark `isError` is declared a success (`explicitSuccess`), whatever its text starts with; one
+/// it marked is the call's error, not an output.
+#[tokio::test]
+async fn a_result_without_is_error_is_an_explicit_success() {
+    let (_dir, spiller) = spiller();
+    let ok = json!({ "content": [{ "type": "text", "text": "Error: only wording" }] });
+    let output = map_call_result(&ok, OutputPolicy::default(), &spiller).await.unwrap();
+    assert!(output.explicit_success);
+    let marked = json!({ "isError": false, "content": [{ "type": "text", "text": "Error: only wording" }] });
+    assert!(map_call_result(&marked, OutputPolicy::default(), &spiller).await.unwrap().explicit_success);
+    let failed = json!({ "isError": true, "content": [{ "type": "text", "text": "bad" }] });
+    assert!(map_call_result(&failed, OutputPolicy::default(), &spiller).await.is_err());
 }

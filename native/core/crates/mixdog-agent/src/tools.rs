@@ -1223,8 +1223,10 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>, cwd: &AbsPath, edit_
                 failed: false,
                 arg_failure: false,
                 conflict: false,
+                // `isValidNewMessage` (`tool-envelope.mjs`): an empty follow-up is no message.
                 follow_ups: follow_up_messages
                     .into_iter()
+                    .filter(|m| !mixdog_js::js_trim(&m.text).is_empty())
                     .map(|m| AgentMessage::sourced(Source::Skill, m.text))
                     .collect(),
                 cache_hit: None,

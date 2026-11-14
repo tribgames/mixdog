@@ -189,6 +189,10 @@ static SPECIAL: LazyLock<JsRegex> = LazyLock::new(|| {
 });
 static ERROR_COLON: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^error\s*:", "i"));
 static STRIP: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^Error:\s*", "i"));
+/// `LEGACY_BILLING_MESSAGE_RE` and `LEGACY_QUOTA_MESSAGE_RE` (`provider-error-kind.mjs`): the wordings `legacyQuotaWording`
+/// reads a usage limit from.
+static LEGACY_BILLING: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"\binsufficient_quota\b|exceeded your (?:current )?quota", "i"));
+static LEGACY_QUOTA: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"\bquota_exceeded\b|\busage_limit_reached\b|hit your usage limit", "i"));
 
 /// `errText(error)` of an `Error`: its message, else its name.
 fn error_text(error: &TurnError) -> &str {
@@ -201,13 +205,23 @@ pub(crate) fn failure_record(error: &TurnError, route: &Route<'_>) -> Result<Map
     let proof = facts.quota_exhausted.as_ref();
     let provider = error.provider_error.as_ref();
     // `providerErrorKind`: the pool's proof decides first (`provider-error-kind.mjs:674`).
-    let kind = if proof.is_some() { "quota_exhausted" } else { provider.map_or("unknown", |p| p.kind.as_str()) };
+    let mut kind = if proof.is_some() { "quota_exhausted" } else { provider.map_or("unknown", |p| p.kind.as_str()) };
     let status = provider.and_then(|p| p.status).map_or(0, u32::from);
     let code = facts.code.as_deref().map(|code| code.trim().to_lowercase()).unwrap_or_default();
     let retry_after_ms = facts.retry_after_ms.filter(|ms| *ms > 0);
+    // `legacyQuotaWording` (presentation only): a fully untyped error (no status, code or retry advice) may still read
+    // as a usage limit from unambiguous wording, e.g. a persisted failure's text.
+    if kind == "unknown" && status == 0 && code.is_empty() && retry_after_ms.is_none() {
+        if LEGACY_BILLING.is_match(&error.message) {
+            kind = "billing";
+        } else if LEGACY_QUOTA.is_match(&error.message) {
+            kind = "quota_exhausted";
+        }
+    }
     // `resetAtOf` (`provider-error-kind.mjs:601-609`): the error's own, else the proof's.
     let reset_at = facts.reset_at.filter(|at| *at > 0).or_else(|| proof.and_then(|p| p.reset_at).filter(|at| *at > 0));
     let mut out = Map::new();
+    out.insert("providerKind".into(), json!(kind));
     out.insert("errorKind".into(), json!({ "kind": kind, "code": code, "status": status, "retryAfterMs": retry_after_ms, "resetAt": reset_at }));
     // `turnFailureRecord`: a quota stop is the pool's proof, or an exhausted quota with the reset the provider named.
     if proof.is_some() || (kind == "quota_exhausted" && reset_at.is_some()) {
@@ -383,6 +397,24 @@ mod tests {
             assert_eq!(got["detail"], case["detail"], "{}", case["name"]);
             assert_eq!(got["errorDetails"], case["errorDetails"], "{}", case["name"]);
         }
+    }
+
+    /// `providerKind` is the classified kind; an untyped error's usage-limit or billing wording reads as that kind
+    /// (`legacyQuotaWording`), but never an error with a status, a code or retry advice.
+    #[test]
+    fn an_untyped_error_reads_a_usage_limit_from_its_wording() {
+        let route = Route { provider: "p", model: "m" };
+        let kind_of = |message: &str| {
+            let error = TurnError { message: message.into(), data: Value::Null, provider_error: None };
+            let record = failure_record(&error, &route).unwrap();
+            (record["providerKind"].clone(), record["errorKind"]["kind"].clone())
+        };
+        assert_eq!(kind_of("You hit your usage limit."), (json!("quota_exhausted"), json!("quota_exhausted")));
+        assert_eq!(kind_of("You exceeded your current quota"), (json!("billing"), json!("billing")));
+        assert_eq!(kind_of("boom"), (json!("unknown"), json!("unknown")));
+        let data = ProviderFacts { code: Some("x".into()), ..ProviderFacts::default() }.into_data(Value::Null);
+        let typed = TurnError { message: "You hit your usage limit.".into(), data, provider_error: None };
+        assert_eq!(failure_record(&typed, &route).unwrap()["providerKind"], json!("unknown"));
     }
 
     #[test]

@@ -198,3 +198,51 @@ async fn the_opening_sessions_tools_and_the_sources_media_are_read() {
         .unwrap();
     assert!(bare.used < empty.used, "no opening session, no tool schemas to reserve: {} vs {}", bare.used, empty.used);
 }
+
+/// A source and a heir that send the tools the test names for each.
+struct TwoSessions {
+    source: Vec<ToolDefinition>,
+    heir: Vec<ToolDefinition>,
+}
+
+#[async_trait]
+impl MeasuredThreads for TwoSessions {
+    async fn header(&self, _: &ThreadId) -> Option<Header> {
+        None
+    }
+    async fn tools(&self, thread: &ThreadId) -> Vec<ToolDefinition> {
+        if thread.as_str() == "source" { self.source.clone() } else { self.heir.clone() }
+    }
+    async fn media(&self, _: &ThreadId, _: &[Value]) -> Option<Arc<dyn MediaMeter>> {
+        None
+    }
+}
+
+/// `carryConversation` strips the thinking replay (`rebindToChangedPrefix`) when the heir's request prefix is not the
+/// source's: a different system prompt or a different tool set. The same prefix keeps the rows as they are.
+#[tokio::test]
+async fn a_heir_with_another_prefix_takes_the_conversation_without_thinking_replay() {
+    let golden = golden();
+    let (_dir, config) = seams().await;
+    let target = &golden["targets"]["anthropic_mid"];
+    let tools = tools_of(target);
+    let rows = vec![
+        json!({ "role": "user", "content": "hi" }),
+        json!({ "role": "assistant", "content": "a", "thinkingBlocks": [{ "type": "thinking", "thinking": "t", "signature": "s" }] }),
+        json!({ "role": "user", "content": "more" }),
+    ];
+    let bind = |source: Vec<ToolDefinition>, heir: Vec<ToolDefinition>, system_differs: bool| {
+        let fit = HostInheritanceFit::new(Arc::new(Windows(target.clone())), config.clone(), Arc::new(TwoSessions { source, heir }));
+        let rows = rows.clone();
+        async move {
+            fit.bind_to_heir_prefix(&ThreadId::from("source".to_owned()), &ThreadId::from("heir".to_owned()), system_differs, rows).await
+        }
+    };
+    assert_eq!(bind(tools.clone(), tools.clone(), false).await, rows, "the same prefix keeps the replay");
+    let stripped = bind(tools.clone(), tools.clone(), true).await;
+    assert!(stripped[1].get("thinkingBlocks").is_none(), "another system prompt strips it");
+    let mut fewer = tools.clone();
+    fewer.pop();
+    assert!(bind(tools.clone(), fewer, false).await[1].get("thinkingBlocks").is_none(), "another tool set strips it");
+    assert_eq!(bind(tools, Vec::new(), false).await, rows, "a session that sends no tools names no prefix to compare");
+}

@@ -49,6 +49,7 @@ use mixdog_core_api::domain::provider::ToolCall;
 use mixdog_core_api::domain::provider::TransportFault;
 use mixdog_core_api::domain::provider::WireCodec;
 use mixdog_core_api::domain::retry::RetryPolicy;
+use mixdog_core_api::domain::tool::FollowUpMessage;
 use mixdog_core_api::domain::tool::SurfaceKind;
 use mixdog_core_api::domain::tool::Tool;
 use mixdog_core_api::domain::tool::ToolAnnotations;
@@ -5249,6 +5250,67 @@ async fn the_failure_log_gets_the_executed_calls_that_ended_as_errors() {
         seen,
         [("boom".to_owned(), "Error: boom".to_owned()), ("agent".to_owned(), "Error: agent: unknown type \"x\"".to_owned())]
     );
+}
+
+/// Answers `Error: …` text the tool itself declares a success (an MCP result without `isError`).
+struct ExplicitSuccessText(ToolSpec);
+#[async_trait]
+impl Tool for ExplicitSuccessText {
+    fn spec(&self) -> &ToolSpec {
+        &self.0
+    }
+    async fn call(&self, _ctx: &ToolContext, _args: JsonValue) -> ToolOutcome {
+        Ok(ToolOutput { parts: vec![ToolPart::Text("Error: not a failure".into())], explicit_success: true, ..ToolOutput::default() })
+    }
+}
+
+/// `classifyToolReturn`: a tool's own `explicitSuccess` keeps text that starts `Error:` a normal result: not an error to
+/// the provider, nothing in the failure log.
+#[tokio::test]
+async fn an_explicit_success_is_not_classified_by_its_wording() {
+    let mut h = Harness::new(vec![
+        turn(vec![call("c1", "agent", json!({})), done(StopReason::ToolUse)]),
+        turn(vec![text("ok"), done(StopReason::EndTurn)]),
+    ]);
+    let log = Arc::new(FailureLog::default());
+    h.failures = Some(log.clone());
+    let mut agent = Echo(Echo::tool().spec().clone());
+    agent.0.name = "agent".into();
+    let output = finish(h.run(config(), vec![Arc::new(ExplicitSuccessText(agent.0))], vec![AgentMessage::user("go")])).await;
+    assert_eq!(dump(&output.transcript)[2..3], ["tool#c1(Normal):Error: not a failure".to_owned()]);
+    assert!(log.0.lock().unwrap().is_empty());
+}
+
+/// Answers `loaded` with the follow-up body `BODY` and an empty follow-up, as `Skill` answers.
+struct SkillBody(ToolSpec);
+#[async_trait]
+impl Tool for SkillBody {
+    fn spec(&self) -> &ToolSpec {
+        &self.0
+    }
+    async fn call(&self, _ctx: &ToolContext, _args: JsonValue) -> ToolOutcome {
+        let follow_up = |text: &str| FollowUpMessage { text: text.into(), meta: None };
+        Ok(ToolOutput {
+            parts: vec![ToolPart::Text("loaded".into())],
+            follow_up_messages: vec![follow_up("BODY"), follow_up("  ")],
+            ..ToolOutput::default()
+        })
+    }
+}
+
+/// `flushNewMessages` and `isValidNewMessage`: two Skill calls of one batch that inject the same body add it once, and
+/// an empty follow-up adds no message.
+#[tokio::test]
+async fn a_skill_body_already_in_the_messages_is_not_added_again() {
+    let h = Harness::new(vec![
+        turn(vec![call("c1", "skill", json!({"n": 1})), call("c2", "skill", json!({"n": 2})), done(StopReason::ToolUse)]),
+        turn(vec![text("ok"), done(StopReason::EndTurn)]),
+    ]);
+    let mut skill = Echo(Echo::tool().spec().clone());
+    skill.0.name = "skill".into();
+    let output = finish(h.run(config(), vec![Arc::new(SkillBody(skill.0))], vec![AgentMessage::user("go")])).await;
+    let injected: Vec<String> = output.transcript.iter().filter(|m| m.source == Some(Source::Skill)).map(AgentMessage::text).collect();
+    assert_eq!(injected, ["BODY".to_owned()]);
 }
 
 /// Answers `Error: ` and 100,000 more characters as a normal return.

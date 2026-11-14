@@ -553,7 +553,10 @@ pub async fn map_call_result(result: &Value, policy: OutputPolicy, spiller: &Spi
         parts = error_parts(parts);
     }
     let (parts, truncation) = cap_parts(parts, policy, spiller).await;
-    Ok(ToolOutput { parts: parts.into_iter().map(tool_part).collect(), truncation, ..ToolOutput::default() })
+    // A result the server did not mark `isError` is the server's own word that the call succeeded (`mcp/client.mjs`
+    // wraps it `explicitSuccess`), whatever its text starts with.
+    let explicit_success = result.get("isError").and_then(Value::as_bool) != Some(true);
+    Ok(ToolOutput { parts: parts.into_iter().map(tool_part).collect(), truncation, explicit_success, ..ToolOutput::default() })
 }
 
 #[cfg(test)]
