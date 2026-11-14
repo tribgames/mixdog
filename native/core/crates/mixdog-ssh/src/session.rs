@@ -10,10 +10,11 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use mixdog_rt::time::{timeout, Instant};
+use mixdog_rt::SerialChain;
 use serde_json::Value;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use tokio::sync::{watch, Mutex as AsyncMutex};
+use tokio::sync::watch;
 
 use crate::bootstrap::{bootstrap, BootstrapOptions, BootstrapPhase, RemoteReport, ServerPayloads};
 use crate::command::{FailureClass, SshError, SshTarget};
@@ -379,7 +380,7 @@ pub struct RemoteSession {
     config: RemoteSessionConfig,
     transport: Arc<dyn Transport>,
     state: Mutex<State>,
-    gate: AsyncMutex<()>,
+    gate: Arc<SerialChain>,
     held: AtomicBool,
 }
 
@@ -391,7 +392,7 @@ impl RemoteSession {
             config,
             transport,
             state: Mutex::new(state),
-            gate: AsyncMutex::new(()),
+            gate: SerialChain::new(),
             held: AtomicBool::new(false),
         }
     }
@@ -431,7 +432,7 @@ impl RemoteSession {
             }
             state.finished
         };
-        let _turn = self.gate.lock().await;
+        let _turn = self.gate.acquire().await;
         {
             let state = self.lock();
             if state.finished != seen {
