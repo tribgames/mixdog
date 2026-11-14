@@ -35,13 +35,6 @@ const ROOM_RECOVERY_REPUBLISH: std::time::Duration = std::time::Duration::from_s
 /// runs ahead of the domain services). Until then a call is answered as any unclaimed method is (`CapabilityUnavailable`),
 /// and none of them is used by a client today. Each wiring task that registers the service removes its names here.
 const SERVICE_PENDING: &[&str] = &[
-    // s1-ws-wire (wave 3): desktop file grants and the core page server in WorkspaceService.
-    "projectFs/grant/describe",
-    "projectFs/grant/redeem",
-    "projectFs/localPage/revokeOwner",
-    "projectFs/localPage/origin",
-    // s1-page-virtual (wave 3): the visualize page lease; s1-ws-wire registers its handler in WorkspaceService.
-    "projectFs/localPage/virtual",
     // s4-core-events-service (wave 5) / CORE-WIRE-G7: the browser engine composed into mixdogd.
     "test/browserEngine/run",
     "host/browser/events",
@@ -49,16 +42,9 @@ const SERVICE_PENDING: &[&str] = &[
     "host/browser/userInput",
     // s2b-service (wave 9): the connections service (window host notification included).
     "host/window/closed",
-    // s3-08 / s3-19 (wave 3): ComputerPointerService over the pool's pointer hold.
-    "computer/pointerReleased",
     // s3-13 (registered by G2.5-WIRE): DevComputerRun, served only by a `test-hooks` build started with MIXDOGD_TEST_HOOKS=1,
     // so an ordinary start leaves the name unclaimed.
     "dev/computer/run",
-    // SINGLETONS-CORE (wave 3, CORE-WIRE-G3): TakeoverReadyService over the core's takeover owner.
-    "takeover/ready",
-    // x-rs-desktop-pet (wave 3, CORE-WIRE-G3): DesktopPetService.
-    "desktopPet/state/read",
-    "desktopPet/state/write",
     // x-residual-moves (registered once an AttachmentHost implementation lands: x-residual-moves-client, wave 4):
     // DesktopResidualService.
     "desktop/link/resolve",
@@ -1047,8 +1033,22 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // The one bridge fact: the skill gate (`McpInputs.bridges`), `DomainSeams.feature_activity` and the feature probes all read this value.
     // wp-mcp-4: nothing is up until `bridge_files.start(watcher)` runs below, once the core's one FolderWatcher exists.
     let bridge_files = crate::mcp_surface::BridgeFiles::new(crate::mcp_surface::discovery_dir(&b.env, &home), b.tokens.maintenance_io);
-    let bridges: Arc<dyn crate::compose_mcp::BridgeFeatures> =
-        Arc::new(crate::mcp_surface::ToolBridges { files: crate::mcp_surface::SharedBridgeFiles(bridge_files.clone()), computer: late_computer_hosts.clone() });
+    // FEATURE-FACTS: the facts come from the host claims, `desktop.*` and the helper pool, not the bridge files (`bridge_files` is still
+    // built and watched for the golden bridge.json loading). s3-19: `computer` is the gate (`desktop.computerControl` and a claimed
+    // `host.computer`, or a resolvable helper), told by `compose_computer` below whether the helper resolved.
+    let computer_host = Arc::new(crate::compose_computer::ComputerHostPresence::new(b.host.clone()));
+    let bridges: Arc<dyn crate::compose_mcp::BridgeFeatures> = Arc::new(crate::compose_mcp::ComputerGatedBridges::new(
+        Arc::new(crate::mcp_surface::ToolBridges {
+            host: b.host.clone(),
+            desktop: {
+                let config = config.clone();
+                Arc::new(move || config.desktop_settings())
+            },
+            computer: late_computer_hosts.clone(),
+        }),
+        config.clone(),
+        computer_host.clone(),
+    ));
 
     // The media generator and its ledger (wp-svc-misc-12..-29, wp-ai-svc-18, wp-ws-2). One routed JSON post, one `FileAccountProbe`.
     let selected_accounts: Arc<dyn mixdog_services::media::SelectedAccounts> = Arc::new(crate::compose_mcp::AccountPoolSelected(account_store.clone())); // async trait (wp-svc-misc-13): read per call, no snapshot
@@ -1479,6 +1479,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // session's backend go through it.
     let takeover_holds: Arc<dyn mixdog_core_session::session::secret_input::TakeoverHolds> = Arc::new(crate::late_session::LateHolds(late.clone()));
     let human_only = Arc::new(mixdog_core_session::session::secret_input::HumanOnlyLock::new(takeover_holds.clone()));
+    // The core's takeover owner (the engine's `TakeoverPort`, `takeover/ready`): the takeover card and the sign-in window ask it whether the person may act.
+    let takeover = Arc::new(crate::takeover_port::CoreTakeover::new(takeover_holds.clone()));
     let tool_io = mixdog_core_api::domain::tool::ToolIo { interactive: b.tokens.interactive_io, durability: b.tokens.durability_io, maintenance: b.tokens.maintenance_io };
     // The agent trace and tool-failure log of this data directory: one buffer and file per kind, shared with every run's tool log.
     let agent_trace = mixdog_core_run::run_host::failure_log::FailureWriter::for_data_dir(&b.data_dir, tool_io, clock_agent.clone());
@@ -1514,8 +1516,13 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         Arc::new(mixdog_core::run_host::native_tools::FileServiceExists { files: b.files.clone(), lane: b.tokens.interactive_io }),
         None,
     ));
-    let computer_pool: Option<Arc<mixdog_core::run_host::native_tools::ComputerSessionPool>> = native_paths
-        .computer_sessions(b.process_manager.clone(), Arc::new({
+    // s3-19: the pool, the desktop channel binding and the GNOME extension follower in one call; `computer.register` (below) serves
+    // `computer/userControl`, `computer/pointerReleased` and, in a test-hooks build, `dev/computer/run`.
+    let computer = crate::compose_computer::compose_computer(crate::compose_computer::ComputerInputs {
+        env: b.env.clone(),
+        paths: native_paths.clone(),
+        manager: b.process_manager.clone(),
+        wrap: Arc::new({
             let (human_only, redactor, saved_logins, saved_login_turns, late_computer_hosts, host) =
                 (human_only.clone(), redactor.clone(), saved_logins.clone(), saved_login_turns.clone(), late_computer_hosts.clone(), b.host.clone());
             move |session: &str, inner: Arc<dyn mixdog_core_api::domain::computer::ComputerBackend>| {
@@ -1532,31 +1539,18 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                     saved_login_turns.clone(),
                 )) as Arc<dyn mixdog_core_api::domain::computer::ComputerBackend>
             }
-        }), pre.state.publisher.clone(), mixdog_core::run_host::native_tools::ComputerSettings::from_config(b.data_dir.clone(), config.clone()))
-        .await;
-    if let Some(pool) = &computer_pool {
-        // The desktop's computer host takes the screen captures and reports the displays (`host/computer/*`).
-        pool.attach_desktop(b.host.clone());
-    }
+        }),
+        publisher: pre.state.publisher.clone(),
+        data_dir: b.data_dir.clone(),
+        config: config.clone(),
+        presence: computer_host.clone(),
+        blobs: blobs.clone(),
+        tokens: &b.tokens,
+        cancel: b.cancel.clone(),
+    })
+    .await;
+    let computer_pool: Option<Arc<mixdog_core::run_host::native_tools::ComputerSessionPool>> = computer.pool.clone();
     late_computer_hosts.bind(computer_pool.clone()).map_err(|_| ComposeError::AlreadyBound("computer hosts"))?;
-    {
-        // GNOME window control comes from Mixdog's own shell extension: keep it installed and enabled exactly while Computer Use
-        // is on (port of the desktop's applyGnomeExtensionSetting; a no-op off GNOME).
-        let (config, manager, cancel) = (config.clone(), b.process_manager.clone(), b.cancel.clone());
-        let mut changes = config.changes();
-        tokio::spawn(async move {
-            use mixdog_tools::desktop::computer_gnome_extension::{apply_gnome_extension, bundled_dir};
-            let exe_dir = std::env::current_exe().ok().and_then(|exe| exe.parent().map(std::path::Path::to_path_buf)).unwrap_or_default();
-            loop {
-                let enabled = config.desktop_settings().computer_control;
-                let env: mixdog_tools::desktop::computer_linux::Env = std::env::vars().collect();
-                apply_gnome_extension(manager.clone(), enabled, &env, bundled_dir(&env, &exe_dir).as_deref(), &cancel).await;
-                if !matches!(cancel.run_until_cancelled(changes.changed()).await, Some(Ok(()))) {
-                    break;
-                }
-            }
-        });
-    }
     // Directory-side inputs of the pool, bound after `TurnPath::new` (true cycles, `flip-brief.md`): the `call_tool` dispatcher resolves through the pool it sits in, the session catalog reads the surface
     // host that holds the pool, the react tool's reactions open threads on the directory, and the `agent` tool needs the `AgentPort` of `assemble(AgentParts{..})` (flip-agent-worlds-15 `LateAgentPort`).
     let late_dispatcher = Arc::new(crate::late_session::LateDispatcher::default());
@@ -2802,6 +2796,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         .map_err(|()| ComposeError::AlreadyBound("thread deletions"))?;
     workspace.set_host(b.host.clone());
     workspace.set_phone_grants(phone_grants.clone(), crate::domain_seams::remote::phone_credential(built_remote.registry.clone()));
+    // s1-ws-wire: the desktop file grants and the core page server (`projectFs/grant/*`, `projectFs/localPage/*`).
+    crate::compose_desktop_files::compose_desktop_files(&workspace, &b.data_dir);
     // An unpair ends the device's grants, transfers and browser streams at once and, once the relay confirmed it, its notification
     // preferences. The live view is composed below and fills its slot then.
     let live_view_slot: Arc<std::sync::OnceLock<std::sync::Weak<crate::live_view::LiveViewService>>> = Arc::default();
@@ -2824,6 +2820,25 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         .map_err(|_| ComposeError::AlreadyBound("device cleanup"))?;
     builder.register(workspace.clone() as Arc<dyn mixdog_core_api::service::DomainService>)?;
     builder.register(Arc::new(mixdog_core_domains::domains::migrate_profile::MigrateProfileService::new(b.data_dir.clone(), mixdog_home.clone(), &b.tokens)))?; // `migrate/profile/*`
+    // `desktopPet/state/*`: the pet's stored settings at `<D>/desktop/desktop-pet.json`; the first read copies the recorded Electron
+    // profile's file there (create-only, the old file kept); a write is announced as `desktopPet/state/changed` on the app feed.
+    builder.register(Arc::new(mixdog_core_domains::domains::desktop_pet::DesktopPetService::new(
+        b.data_dir.clone(),
+        {
+            let data_dir = b.data_dir.clone();
+            Arc::new(move || mixdog_core_domains::domains::migrate_profile::recorded_profile_dir(&data_dir))
+        },
+        {
+            let config = config.clone();
+            Arc::new(move |prefs: &mixdog_app_protocol::v2::desktop_pet::DesktopPetPrefs| {
+                let params = mixdog_app_protocol::v2::desktop_pet::DesktopPetStateChangedParams { prefs: prefs.clone() };
+                if let Ok(params) = serde_json::to_value(params) {
+                    config.announce("desktopPet/state/changed", params);
+                }
+            })
+        },
+        &b.tokens,
+    )))?;
     // A phone's pages: a registered project's entry or its device's granted file (the workspace's catalog and grant
     // store), or a visualize pane's own file (the tabs the desktop set).
     builder.register(Arc::new(
@@ -2832,6 +2847,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     ))?;
     builder.register(secret.service.clone())?; // `approval/provideSecret`: the same `SecretSlots` as `SecretFill`
     builder.register(Arc::new(mixdog_core_session::session::secret_input::HumanOnlyService::new(human_only)))?; // `host/humanOnly/*`: the desktop's holds on the one human-only lock
+    builder.register(Arc::new(crate::takeover_port::TakeoverReadyService::new(takeover.clone())))?; // `takeover/ready`: the takeover card and the sign-in window ask whether the person may act
     builder.register(Arc::new(mixdog_tools::orch::status::ToolsService::new(tool_surface.clone())))?; // `tools/*`
     let scm_service = mixdog_scm::service::ScmService::new(
         scm.clone(),
@@ -2866,15 +2882,10 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         domain_inputs.scopes.scopes("remoteAccess").map_err(ComposeError::ComposeDomains)?,
     ).with_pc_access(pc_access.clone())))?;
     builder.register(pc_access)?;
-    // dev/computer/run (s3-13, g25-fu-cu-b): a `test-hooks` build started with MIXDOGD_TEST_HOOKS=1 serves the harness over the pool,
-    // which is both the sessions and the host (helper pid, abort, authorization windows). The name stays in SERVICE_PENDING: an
-    // ordinary start registers nothing for it.
-    #[cfg(feature = "test-hooks")]
-    if let Some(pool) = &computer_pool {
-        if let Some(service) = crate::dev_computer::DevComputerRun::if_enabled(&*b.env, pool.clone(), pool.clone(), blobs.clone(), &b.tokens) {
-            builder.register(service)?;
-        }
-    }
+    // computer/userControl (the Computer Use pill), computer/pointerReleased and dev/computer/run (s3-13, g25-fu-cu-b: a `test-hooks`
+    // build started with MIXDOGD_TEST_HOOKS=1 serves the harness over the pool; the name stays in SERVICE_PENDING: an ordinary start
+    // registers nothing for it).
+    computer.register(&mut builder)?;
     builder.register(screen.clone())?;
     builder.register(Arc::new(mixdog_core_domains::notify::timeline::ConnectionTimeline::new(built_remote.registry.clone(), {
         let log = b.log.clone();
@@ -3566,8 +3577,6 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let live_view = Arc::new(crate::live_view::LiveViewService::new(b.host.clone(), b.notifier.clone(), b.host_media.clone(), built_remote.runtime.clone(), b.tokens.media_thread, Arc::new(crate::live_view::PairedScreenAccess::new(crate::domain_seams::remote::phone_credential(built_remote.registry.clone()), crate::domain_seams::remote::screen_revoked(built_remote.registry.clone()), crate::domain_seams::remote::peer_attached(built_remote.registry.clone())))));
     let _ = live_view_slot.set(Arc::downgrade(&live_view));
     builder.register(live_view.clone())?;
-    // computer/userControl: the Computer Use pill's Resume and Stop.
-    builder.register(Arc::new(crate::computer_control::ComputerUserControlService::new(computer_pool.as_ref().map(|pool| pool.user_control()))))?;
     // host/claim is answered by the server itself (it owns the connection registry, ClientRequest::HostClaim), so no domain service claims it.
     let mut unclaimed = builder.unclaimed();
     unclaimed.retain(|method| *method != "host/claim");

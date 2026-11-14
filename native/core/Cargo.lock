@@ -3998,6 +3998,7 @@ dependencies = [
  "mixdog-app-server-client",
  "mixdog-app-server-daemon",
  "mixdog-app-server-transport",
+ "mixdog-browser-engine",
  "mixdog-core",
  "mixdog-core-agents",
  "mixdog-core-api",
@@ -4082,13 +4083,17 @@ dependencies = [
  "mixdog-app-protocol",
  "mixdog-browser-policy",
  "mixdog-core-api",
+ "mixdog-core-base",
+ "mixdog-js",
  "mixdog-protocol",
  "mixdog-rt",
  "mixdog-testkit",
  "mixdog-workspace-hack",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "tokio",
+ "url",
 ]
 
 [[package]]

@@ -17,6 +17,8 @@ pub mod ai_account;
 pub mod ai_admin;
 pub mod blob;
 pub mod client;
+pub mod desktop_pet;
+pub mod desktop_residual;
 pub mod diagnostics;
 pub mod feedback;
 pub mod host;

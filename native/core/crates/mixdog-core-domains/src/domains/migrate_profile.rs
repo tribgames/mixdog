@@ -103,6 +103,12 @@ fn recorded(data: &Path) -> Result<(u32, Option<String>), String> {
     Ok((FIRST_GENERATION, None))
 }
 
+/// The Electron profile directory the data dir has recorded (the one `migrate/profile/status` answers), if any; a file that
+/// cannot be read counts as none. Reads files: call it inside a lane job (the desktop pet's legacy copy does).
+pub fn recorded_profile_dir(data: &Path) -> Option<PathBuf> {
+    recorded(data).ok().and_then(|(_, profile)| profile).map(PathBuf::from)
+}
+
 /// The same directory, spelled alike or resolving to one place.
 fn same_directory(a: &Path, b: &Path) -> bool {
     a == b
