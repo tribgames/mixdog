@@ -32,6 +32,7 @@ import { createProcessFateReader } from './process-fate';
 import { createCaptureAuthorizer, listAuthorizationWindows } from './host-authorization';
 import { createSequenceHoldRelease, killSessionWorkers, retireBridgeWorkers } from './worker-control';
 import { nativeDisplayGeometry } from '../shared/native-coordinates';
+import type { WindowsWorker } from '../backend/host-worker-process';
 import { createWorkerPool } from '../backend/worker-pool';
 import {
   createHostForegroundLock,
@@ -241,6 +242,8 @@ export function createPowerShellComputerHost(
     /** Replaces the lease thread and fallback unlock of the host's foreground lock, for a host
      *  bundled outside the app. */
     foregroundLease?: ForegroundLeaseRuntime;
+    /** Which program a Windows worker runs; the helper by default. */
+    windowsWorker?: WindowsWorker;
   } = {}
 ): PowerShellComputerHost {
   let bridgeWanted = options.bridgeEnabled !== false;
@@ -280,6 +283,7 @@ export function createPowerShellComputerHost(
     onPointerProgress: publishPointerProgress,
     nativeEnvironment: desktopBoundsEnvironment,
     foregroundLock,
+    windowsWorker: options.windowsWorker,
   });
   const { callPowerShell, powerShellBySession, retirePowerShell } = workerPool;
 
