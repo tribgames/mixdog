@@ -106,12 +106,13 @@ impl PageLedgers {
 
     /// The document changed under the page, or its main frame finished loading.
     fn apply_facts(&mut self, facts: &PageFacts, now: i64) {
+        let load = facts.load_id.as_ref().unwrap_or(&facts.document_id);
         if let Some(previous) = &self.document_id
-            && *previous != facts.document_id
+            && previous != load
         {
             self.begin_document();
         }
-        self.document_id = Some(facts.document_id.clone());
+        self.document_id = Some(load.clone());
         if self.main_frame_loading && !facts.main_frame_loading {
             self.network.finish_document(&facts.url, now);
         }
@@ -514,6 +515,18 @@ mod tests {
         ingest.apply_facts_at(&facts("p", 4, json!({"documentId": "p:2"})), 100).unwrap();
         let ledgers = ingest.ledgers("p").unwrap();
         assert_eq!((ledgers.console.error_count(), ledgers.failures.len(), ledgers.network.get("r1").is_some()), (0, 0, true));
+    }
+
+    #[test]
+    fn an_in_document_navigation_keeps_the_log_and_failures() {
+        let mut ingest = Ingest::new();
+        ingest.apply_facts_at(&facts("p", 1, json!({"loadId": "p:1"})), 0).unwrap();
+        let batch = json!([event("Runtime.consoleAPICalled", json!({"type": "error", "args": [{"value": "kept"}]}), 5)]);
+        ingest.apply_events(events("p", 2, batch)).unwrap();
+        ingest.apply_facts_at(&facts("p", 3, json!({"documentId": "p:2", "loadId": "p:1"})), 6).unwrap();
+        assert_eq!(ingest.ledgers("p").unwrap().console.error_count(), 1);
+        ingest.apply_facts_at(&facts("p", 4, json!({"documentId": "p:3", "loadId": "p:2"})), 7).unwrap();
+        assert_eq!(ingest.ledgers("p").unwrap().console.error_count(), 0);
     }
 
     #[test]

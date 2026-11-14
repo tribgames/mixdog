@@ -89,6 +89,8 @@ interface BrowserGuestState extends BrowserDiagnostics {
   userInputAt?: number;
   snapshotGeneration: number;
   documentGeneration: number;
+  /** Counts the loads of a document: an in-document navigation advances `documentGeneration` and leaves this. */
+  loadGeneration: number;
   /** When a snapshot last told the caller about this page's downloads. */
   downloadsReportedAt: number;
   /** Names of pages this one opened that the caller has not been told about.
@@ -196,6 +198,7 @@ export class BrowserGuestStateStore {
       seq: 0,
       snapshotGeneration: 0,
       documentGeneration: 0,
+      loadGeneration: 0,
       // Downloads are shared by the session, so a page that opens with this at
       // zero announces every file the session ever saved — including ones saved
       // before it existed. A new page has already heard about all of them.
@@ -365,6 +368,7 @@ export class BrowserGuestStateStore {
     // page's failures forward reports them as faults of the page now loaded;
     // an in-document navigation keeps them, because nothing reloaded.
     if (!sameDocument) {
+      state.loadGeneration += 1;
       state.networkFailures.length = 0;
       state.reportedNetworkFailures.clear();
       state.console.clearDocument();

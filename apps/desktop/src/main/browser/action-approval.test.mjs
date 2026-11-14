@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -587,4 +587,49 @@ test('a request names its kinds: form submits, send/post clicks and operator-con
     ['confirm'],
     'with the default off, only the operator policy asks'
   );
+});
+
+test('the shared classification corpus asks the same kinds for the same commands as the engine does', async () => {
+  const corpus = JSON.parse(
+    readFileSync(new URL('../../../../../native/core/fixtures/browser-parity/approval-classification.json', import.meta.url), 'utf8')
+  );
+  const dir = mkdtempSync(join(tmpdir(), 'approval-corpus-'));
+  try {
+    const file = join(dir, 'a.txt');
+    writeFileSync(file, 'x');
+    for (const entry of corpus.cases) {
+      const command = JSON.parse(JSON.stringify(entry.command));
+      if (command.upload) {
+        delete command.upload;
+        command.paths = [file];
+      }
+      let asked;
+      const approval = createBrowserActionApproval({
+        ...entry.policy,
+        ask: async (request) => {
+          asked = request;
+          return true;
+        },
+      });
+      const run = () =>
+        approval.approve(
+          command,
+          target,
+          undefined,
+          command.action === 'upload' ? async () => ({ key: 'k', url: 'https://fixture.example/f' }) : undefined,
+          undefined,
+          async () => entry.paymentEvidence
+        );
+      if (entry.expect.outcome === 'refused') {
+        await assert.rejects(run(), entry.expect.error === 'denied' ? /denied/ : /invalid/, entry.name);
+        assert.equal(asked, undefined, entry.name);
+      } else {
+        await run();
+        if (entry.expect.outcome === 'none') assert.equal(asked, undefined, entry.name);
+        else assert.deepEqual([asked.kinds, asked.payment === true], [entry.expect.kinds, entry.expect.payment], entry.name);
+      }
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

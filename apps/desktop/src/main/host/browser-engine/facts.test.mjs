@@ -65,6 +65,21 @@ test('a document change sends facts after the queued events, with the next seq',
   assert.equal(log[1].params.facts.documentId, 'p1:1');
 });
 
+test('an in-document navigation changes the document id and keeps the load id', () => {
+  const { guest, state, log, publisher } = harness();
+  publisher.facts(guest);
+  state.beginDocument(guest, true);
+  state.beginDocument(guest, false);
+  const sent = log.filter((entry) => entry.method).map((entry) => entry.params.facts);
+  assert.deepEqual(
+    sent.map((facts) => [facts.documentId, facts.loadId]),
+    [
+      ['p1:1', 'p1:0'],
+      ['p1:2', 'p1:1'],
+    ]
+  );
+});
+
 test('load state, dialog, chooser and crash each send facts; an unchanged page sends none', () => {
   const { guest, state, log, publisher } = harness();
   const facts = () => log.filter((entry) => entry.method).map((entry) => entry.params.facts);

@@ -100,6 +100,7 @@ export function createPageFacts(options: PageFactsOptions): PageFactsPublisher {
       pageId: record.pageId,
       seq: record.seq,
       documentId: browserDocumentId(state, guest),
+      loadId: `${record.pageId}:${record.loadGeneration}`,
       url: destroyed ? '' : known(redactBrowserUrl(guest.getURL())),
       title: destroyed ? '' : known(guest.getTitle()),
       loading: !destroyed && guest.isLoading(),
