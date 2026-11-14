@@ -6,7 +6,9 @@
 //! [`download_once`] under its own loop.
 
 use std::path::Path;
+use std::sync::{Arc, OnceLock};
 
+use mixdog_ai::netproxy::clients::RoutedClients;
 use mixdog_rt::CpuBulk;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -43,6 +45,25 @@ impl DownloadError {
     }
 }
 
+/// The daemon's routed clients: every download follows the network proxy setting and the proxy
+/// the OS reports (the system proxy), like every other outbound request.
+static ROUTED: OnceLock<Arc<RoutedClients>> = OnceLock::new();
+
+/// Routes every later download through `clients`. Set once, by the composition; a download made
+/// before it (or in a process that never sets it) uses the environment's proxy variables only.
+pub fn route_downloads(clients: Arc<RoutedClients>) {
+    let _ = ROUTED.set(clients);
+}
+
+async fn send(url: &str, label: &str) -> Result<reqwest::Response, DownloadError> {
+    let network = |e: &dyn std::fmt::Display| DownloadError::Network(format!("{label}: {e}"));
+    match ROUTED.get() {
+        // A route the policy cannot decide fails the download; it never goes direct.
+        Some(clients) => clients.download_client_for(url).await.map_err(|e| network(&e))?.get(url).send().await.map_err(|e| network(&e)),
+        None => reqwest::get(url).await.map_err(|e| network(&e)),
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Spec<'a> {
     pub url: &'a str,
@@ -60,7 +81,7 @@ async fn attempt(spec: &Spec<'_>, progress: Option<&ProgressSink>, cancel: &Canc
     let label = spec.label;
     let mut response = tokio::select! {
         () = cancel.cancelled() => return Err(DownloadError::Cancelled),
-        sent = reqwest::get(spec.url) => sent.map_err(|e| DownloadError::Network(format!("{label}: {e}")))?,
+        sent = send(spec.url, label) => sent?,
     };
     if !response.status().is_success() {
         let status = response.status().as_u16();

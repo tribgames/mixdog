@@ -97,6 +97,20 @@ impl RoutedClients {
         &self.policy
     }
 
+    /// A client for one download from `url`: it rides the route the policy gives the origin (direct, or the
+    /// proxy, a system proxy included) and, unlike the pooled routed clients, follows redirects (a model
+    /// host answers with one to its CDN). Built for the request and kept nowhere.
+    pub async fn download_client_for(&self, url: &str) -> Result<reqwest::Client, ClientError> {
+        let target = Url::parse(url).map_err(|_| ClientError::Route(RouteError::InvalidTarget(url.to_owned())))?;
+        let route = self.policy.route_for_url(&target.origin().ascii_serialization()).await.map_err(ClientError::Route)?;
+        let builder = reqwest::Client::builder();
+        let builder = match route.proxy {
+            Some(uri) => builder.proxy(reqwest::Proxy::all(reqwest_proxy_uri(&uri)).map_err(ClientError::Build)?),
+            None => builder.no_proxy(),
+        };
+        builder.build().map_err(ClientError::Build)
+    }
+
     /// The client for a request to `url`.
     pub async fn client_for(&self, url: &str) -> Result<reqwest::Client, ClientError> {
         let epoch = self.policy.epoch();

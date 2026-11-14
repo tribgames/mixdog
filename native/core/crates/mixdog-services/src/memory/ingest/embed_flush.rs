@@ -196,6 +196,10 @@ impl RawEmbedFlush {
             }
             cursor = claimed[claimed.len() - 1];
             attempted += claimed.len();
+            // A backlog is being worked: the model is about to be needed again.
+            if let Some(provider) = &self.provider {
+                provider.hold_warm();
+            }
             match self.sync_batch(&client, &claimed, &mut pruned).await {
                 Ok(written) => {
                     embedded += written;
