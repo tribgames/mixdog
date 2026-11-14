@@ -172,6 +172,7 @@ impl PromptRebuild for FakePrompt {
             prompt_settings: json!({ "revision": "r1" }),
             sections: Default::default(),
             response_language: Value::Null,
+            profile_revision: "coding-lead".into(),
         })
     }
 }

@@ -191,7 +191,13 @@ impl PromptRebuild for ComposedPrompt {
         let job: ComposeJob<SessionPrompt> = Arc::new(move |lane, host, observed| {
             let paths = PromptPaths { plugin_root: host.plugin_root, data_dir: host.data_dir };
             let sources = RealSources::new(lane, host, observed);
-            compose_session_prompt(&owned.input(), &paths, &sources)
+            let mut prompt = compose_session_prompt(&owned.input(), &paths, &sources);
+            // The profile the prompt was composed from, read first: an edit landing during composition leaves the stamp
+            // behind, never ahead. An agent's own session keeps no stamp.
+            if let Some(agent) = owned.agent.as_deref().filter(|_| !owned.owner_is_agent) {
+                prompt.profile_revision = sources.agent_profile_revision(agent, owned.agent_mode);
+            }
+            prompt
         });
         let mut composed = compose(&self.io, &self.probes, &self.observed, self.facts.clone(), job).await?;
         composed.sections.workflow_name = workflow_name;
