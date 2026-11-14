@@ -3,14 +3,15 @@
 //! inside its job: prepared, its worker row flipped to running, and cancellation checked around
 //! the turn.
 //!
-//! Not ported: the internal deadline `prepareWithDeadline` puts on spawn preparation (it fails
-//! a spawn that has not finished preparing in time, and tears a late prepared session down).
-//! Nothing here stops a job for elapsed time; a spawn prepares for as long as it takes and the
-//! user cancels it.
+//! A spawn that has not finished preparing within `SPAWN_PREP_DEADLINE` fails
+//! (`prepareWithDeadline`); a session it prepares after that is closed.
 
+use std::future::Future;
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
+use mixdog_rt::TaskClass;
 use mixdog_ai::service::admin_route::Obj;
 use mixdog_ai::service::admin_route::resolve_route_context_state;
 use mixdog_ai::service::admin_route::truthy;
@@ -52,6 +53,33 @@ use crate::agent_tool::scope::resolve_path;
 use crate::agent_tool::stamp::iso_from_ms;
 use crate::agent_tool::views::JobViews;
 use crate::env::Clock;
+
+/// How long a spawn may prepare before it fails (`MIXDOG_AGENT_SPAWN_PREP_TIMEOUT_MS`, 120 s).
+const SPAWN_PREP_DEADLINE: Duration = Duration::from_secs(120);
+const SPAWN_PREP_TIMED_OUT: &str = "agent spawn prep timed out before session bind";
+
+/// `prepareWithDeadline`: `work`'s outcome, or the timeout's message once `deadline` passes. The
+/// work keeps running on its own task; what it produces after the caller stopped waiting (the
+/// deadline passed, or the caller was dropped) goes to `late`, which tears it down.
+async fn within_deadline<T, W, L, F>(deadline: Duration, work: W, late: L) -> Result<T, String>
+where
+    T: Send + 'static,
+    W: Future<Output = Result<T, String>> + Send + 'static,
+    L: FnOnce(T) -> F + Send + 'static,
+    F: Future<Output = ()> + Send + 'static,
+{
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    drop(mixdog_rt::spawn("agent-spawn-prep", TaskClass::Work, async move {
+        if let Err(Ok(value)) = tx.send(work.await) {
+            late(value).await;
+        }
+    }));
+    match mixdog_rt::time::timeout(deadline, rx).await {
+        Ok(Ok(outcome)) => outcome,
+        Ok(Err(_)) => Err("agent spawn prep ended without a result".into()),
+        Err(_) => Err(SPAWN_PREP_TIMED_OUT.into()),
+    }
+}
 
 /// What a spawn will be, before anything is created.
 #[derive(Clone, Debug)]
@@ -376,7 +404,16 @@ impl SpawnFlowImpl {
             if job.is_cancelled() {
                 return Ok(None);
             }
-            let prepared = flow.prepare_spawn(&args, Some(&caller_cwd), &context).await?;
+            let prepared = {
+                let (preparing, closing) = (flow.clone(), flow.clone());
+                let (args, caller_cwd, context) = (args.clone(), caller_cwd.clone(), context.clone());
+                within_deadline(
+                    SPAWN_PREP_DEADLINE,
+                    async move { preparing.prepare_spawn(&args, Some(&caller_cwd), &context).await },
+                    move |late: PreparedSpawn| async move { closing.close_prepared_spawn(&late, "agent-spawn-prep-timeout").await },
+                )
+                .await?
+            };
             let merged_meta = prepared_spawn_meta(&prepared.tag, &prepared.session_id(), &prepared.agent, &prepared.preset, &prepared.preset_name, respawned);
             flow.board.update_meta(job.task_id(), |current| *current = merge_prepared_meta(current, &merged_meta));
             let started = job.snapshot().map(|s| s.started_ms).unwrap_or_default();
@@ -487,5 +524,38 @@ impl SpawnFlow for Arc<SpawnFlowImpl> {
         let job = SpawnFlowImpl::start_deferred_spawn_job(self, args, caller_cwd, &caller.into(), &notify.into(), options).await?;
         let card = self.views.card(job.task_id(), &Scope::default(), false).await;
         card.ok_or_else(|| "agent job did not start".to_owned())
+    }
+}
+
+#[cfg(test)]
+mod deadline_tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    #[tokio::test(start_paused = true)]
+    async fn a_prepare_past_the_deadline_fails_and_its_session_is_closed() {
+        mixdog_rt::testing::tokens();
+        let closed = Arc::new(Mutex::new(Vec::new()));
+        let sink = closed.clone();
+        let work = async {
+            mixdog_rt::time::sleep(Duration::from_secs(200)).await;
+            Ok::<_, String>("session".to_owned())
+        };
+        let out = within_deadline(SPAWN_PREP_DEADLINE, work, move |late| async move { sink.lock().unwrap().push(late) }).await;
+        assert_eq!(out.unwrap_err(), SPAWN_PREP_TIMED_OUT);
+        assert!(closed.lock().unwrap().is_empty());
+        mixdog_rt::time::sleep(Duration::from_secs(100)).await;
+        assert_eq!(*closed.lock().unwrap(), vec!["session".to_owned()]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_prepare_in_time_is_returned_and_never_closed() {
+        mixdog_rt::testing::tokens();
+        let closed = Arc::new(Mutex::new(0));
+        let sink = closed.clone();
+        let out = within_deadline(SPAWN_PREP_DEADLINE, async { Ok::<_, String>(7) }, move |_| async move { *sink.lock().unwrap() += 1 }).await;
+        assert_eq!(out, Ok(7));
+        mixdog_rt::time::sleep(Duration::from_secs(1)).await;
+        assert_eq!(*closed.lock().unwrap(), 0);
     }
 }
