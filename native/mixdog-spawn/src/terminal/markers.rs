@@ -7,7 +7,11 @@
 //! stream before it is buffered or shown, so a replay trimmed mid-sequence can never expose
 //! marker text. It works on bytes, on the reader thread.
 
+use std::collections::BTreeMap;
 use std::collections::BTreeSet;
+use std::time::Duration;
+
+use mixdog_rt::TimerHandle;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Marker {
@@ -52,7 +56,7 @@ fn find<T: PartialEq>(haystack: &[T], needle: &[T], from: usize) -> Option<usize
 /// marker bound count UTF-16 units, as the Node twin counts string indices. A chunk ending where
 /// a marker may begin holds that tail back until the next chunk (or [`flush`](Self::flush))
 /// decides it; every complete marker is removed from the returned text. The tail is released on
-/// the next chunk or at the end of the stream, never by a timer.
+/// the next chunk, at the end of the stream, or by the tab's 50 ms flush ([`crate::terminal::HELD_FLUSH`]).
 #[derive(Default)]
 pub struct MarkerScanner {
     carry: Vec<u16>,
@@ -62,6 +66,11 @@ impl MarkerScanner {
     /// Release held-back text as output.
     pub fn flush(&mut self) -> String {
         String::from_utf16_lossy(&std::mem::take(&mut self.carry))
+    }
+
+    /// Text is held back, waiting for the chunk that decides whether it starts a marker.
+    pub fn is_holding(&self) -> bool {
+        !self.carry.is_empty()
     }
 
     pub fn scan(&mut self, data: &str) -> (String, Vec<Marker>) {
@@ -180,12 +189,32 @@ impl ActivityState {
     }
 }
 
+/// How long a view's focus holds without being renewed (`TERMINAL_FOCUS_LEASE_MS`): the renderer renews it every 10 s while it
+/// shows the tab, so a window that vanished without closing its connection cannot keep the tab focused.
+pub const FOCUS_LEASE: Duration = Duration::from_secs(30);
+
+/// The lease of one view's focus: which arming is current, and its timer.
+struct FocusLease {
+    epoch: u64,
+    timer: Option<TimerHandle>,
+}
+
+impl FocusLease {
+    fn cancel(self) {
+        if let Some(timer) = self.timer {
+            let _ = timer.cancel();
+        }
+    }
+}
+
 /// One tab's activity state. Starts unknown (`None`); only markers move it, so a shell without
-/// integration never leaves unknown. A view's focus lasts until it unfocuses or its connection
-/// closes: no lease, so no timer.
+/// integration never leaves unknown. A view's focus lasts until it unfocuses, its connection
+/// closes, or its lease ([`FOCUS_LEASE`]) lapses unrenewed.
 pub struct ActivityTracker {
     current: Option<ActivityState>,
     focus: BTreeSet<String>,
+    leases: BTreeMap<String, FocusLease>,
+    last_epoch: u64,
     infer_start_from_submit: bool,
 }
 
@@ -196,6 +225,8 @@ impl ActivityTracker {
         Self {
             current: None,
             focus: BTreeSet::new(),
+            leases: BTreeMap::new(),
+            last_epoch: 0,
             infer_start_from_submit,
         }
     }
@@ -247,6 +278,9 @@ impl ActivityTracker {
     pub fn set_focus(&mut self, client: &str, focused: bool) -> Option<Option<ActivityState>> {
         if !focused {
             self.focus.remove(client);
+            if let Some(lease) = self.leases.remove(client) {
+                lease.cancel();
+            }
             return None;
         }
         self.focus.insert(client.to_owned());
@@ -256,9 +290,93 @@ impl ActivityTracker {
         None
     }
 
+    /// Starts (or renews) the lease of `client`'s focus: `arm` is given the arming's number and returns the timer that, at the end of the
+    /// lease, calls [`Self::lapse_focus`] with it. A renewal replaces the earlier timer.
+    pub fn lease_focus(&mut self, client: &str, arm: impl FnOnce(u64) -> Option<TimerHandle>) {
+        self.last_epoch += 1;
+        let epoch = self.last_epoch;
+        let timer = arm(epoch);
+        if let Some(old) = self.leases.insert(client.to_owned(), FocusLease { epoch, timer }) {
+            old.cancel();
+        }
+    }
+
+    /// The lease numbered `epoch` of `client`'s focus ran out: the focus ends. A lease renewed since (another number) or ended is left.
+    pub fn lapse_focus(&mut self, client: &str, epoch: u64) {
+        if self.leases.get(client).is_some_and(|lease| lease.epoch == epoch) {
+            self.leases.remove(client);
+            self.focus.remove(client);
+        }
+    }
+
+    /// Whether `client`'s focus stands.
+    pub fn focused_by(&self, client: &str) -> bool {
+        self.focus.contains(client)
+    }
+
     /// The shell exited: nothing reports any more.
     pub fn exit(&mut self) -> Option<Option<ActivityState>> {
         self.focus.clear();
+        for (_, lease) in std::mem::take(&mut self.leases) {
+            lease.cancel();
+        }
         self.set(None)
+    }
+}
+
+#[cfg(test)]
+mod focus_lease {
+    use super::*;
+
+    fn finished_after_a_command(tracker: &mut ActivityTracker) -> Option<ActivityState> {
+        tracker.marker(Marker::Start);
+        tracker.marker(Marker::Done { exit_code: Some(0) });
+        tracker.state()
+    }
+
+    /// A view whose focus lease lapses no longer counts as focused: a command that completes then leaves the tab `finished`, not `idle`
+    /// (a window that vanished without closing its connection cannot keep a tab focused).
+    #[test]
+    fn a_lapsed_focus_no_longer_keeps_the_tab_idle() {
+        let mut tracker = ActivityTracker::new(false);
+        tracker.set_focus("view", true);
+        tracker.lease_focus("view", |_| None);
+        tracker.lapse_focus("view", tracker.last_epoch);
+        assert!(!tracker.focused_by("view"));
+        assert_eq!(finished_after_a_command(&mut tracker), Some(ActivityState::Finished));
+    }
+
+    /// A renewal makes the earlier arming's lapse stale: the focus stands.
+    #[test]
+    fn a_renewed_focus_survives_the_earlier_lapse() {
+        let mut tracker = ActivityTracker::new(false);
+        tracker.set_focus("view", true);
+        tracker.lease_focus("view", |_| None);
+        let first = tracker.last_epoch;
+        tracker.set_focus("view", true);
+        tracker.lease_focus("view", |_| None);
+        tracker.lapse_focus("view", first);
+        assert!(tracker.focused_by("view"));
+        assert_eq!(finished_after_a_command(&mut tracker), Some(ActivityState::Idle));
+    }
+
+    /// An unfocus ends the lease with the focus; a later lapse of its arming finds nothing.
+    #[test]
+    fn an_unfocus_ends_the_lease() {
+        let mut tracker = ActivityTracker::new(false);
+        tracker.set_focus("view", true);
+        tracker.lease_focus("view", |_| None);
+        let epoch = tracker.last_epoch;
+        tracker.set_focus("view", false);
+        tracker.set_focus("other", true);
+        tracker.lapse_focus("view", epoch);
+        assert!(tracker.focused_by("other"));
+        assert!(!tracker.focused_by("view"));
+    }
+
+    /// The lease is the 30 s of `TERMINAL_FOCUS_LEASE_MS`, longer than the renderer's 10 s renewal.
+    #[test]
+    fn the_lease_is_thirty_seconds() {
+        assert_eq!(FOCUS_LEASE, Duration::from_secs(30));
     }
 }
