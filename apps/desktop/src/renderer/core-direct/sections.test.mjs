@@ -39,6 +39,14 @@ function fakeClient() {
       entries.set(`${entry.section}\0${entry.key ?? ''}`, entry);
       storeListeners.forEach((l) => l({ type: 'section', section: entry.section, key: entry.key }));
     },
+    /** An app snapshot of another core folded by the same client: the whole store swapped, each section announced, then `appSnapshot`. */
+    refold(next) {
+      const announced = [...entries.values(), ...next];
+      entries.clear();
+      for (const entry of next) entries.set(`${entry.section}\0${entry.key ?? ''}`, entry);
+      for (const { section, key } of announced) storeListeners.forEach((l) => l({ type: 'section', section, key }));
+      storeListeners.forEach((l) => l({ type: 'appSnapshot' }));
+    },
   };
 }
 
@@ -157,4 +165,30 @@ test('replaced_connection_swaps_the_whole_store', async () => {
   assert.equal(store.get('config')?.value, 'new', 'a restarted core numbers its revisions again');
   assert.equal(store.get('projects'), undefined, 'what the new store lacks is dropped');
   store.dispose();
+});
+
+test('a leg that came back to a restarted core hands the window the whole store', async () => {
+  const { client, sections } = await setup();
+  client.put({ section: 'config', key: null, revision: 5, value: 'old' });
+  client.put({ section: 'projects', key: null, revision: 1, value: 'gone' });
+  const store = createSectionStore(sections);
+  await store.ready();
+  client.emit({ type: 'status', status: { state: 'reconnecting' } });
+  client.emit({ type: 'status', status: { state: 'ready' } });
+  client.refold([{ section: 'config', key: null, revision: 1, value: 'new' }]);
+  assert.equal(store.get('config')?.value, 'new', 'lower revisions of a restarted core are taken');
+  assert.equal(store.get('projects'), undefined);
+  assert.equal(store.status(), 'ready');
+  store.dispose();
+});
+
+test('each subscriber is pushed a change once', async () => {
+  const { client, sections } = await setup();
+  const first = [];
+  const second = [];
+  sections.subscribe((p) => first.push(p));
+  sections.subscribe((p) => second.push(p));
+  client.put({ section: 'config', key: null, revision: 1, value: 'x' });
+  assert.equal(first.filter((p) => p.kind === 'sections').length, 1);
+  assert.equal(second.filter((p) => p.kind === 'sections').length, 1);
 });

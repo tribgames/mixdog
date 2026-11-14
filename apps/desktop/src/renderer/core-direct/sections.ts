@@ -1,13 +1,15 @@
 // The window's `sections` API served by its own client (the composed renderer API, createSessionsApi's sibling). The
 // section store is the client library's own, in this renderer: a snapshot is read from it, a change of it is a push, and
 // the scoped feeds a window follows (a file watch, the ports list, `media:<jobId>`, a sign-in flow) are the connection's.
-// Nothing is relayed, so the replace stages of the old relay are one synchronous swap when the connection was replaced.
+// Nothing is relayed, so a whole-store replace is one synchronous swap: when the connection was replaced, and when a leg
+// that came back has folded its app snapshot (it may be a restarted core's).
 import type { DesktopApi } from '../../shared/contract.ts';
 import {
   EVENT_SECTIONS,
   isRendererProtocolMethod,
   isScopedSectionFeed,
   type DesktopProtocolStatus,
+  type DesktopSectionEntry,
   type DesktopSectionsApi,
   type DesktopSectionsPush,
 } from '../../shared/contract-sections.ts';
@@ -49,34 +51,57 @@ export function createSectionsApi(ctx: DirectContext): Pick<DesktopApi, 'section
   };
   connection.attach(window);
 
+  // The whole store at once, then the status: a store refolded from another core (a restarted one numbers its revisions
+  // again and drops what it no longer holds) is taken whole, never through the revision guard of single changes.
+  const replaceWhole = (send: (push: DesktopSectionsPush) => void): void => {
+    const { entries, epoch, status } = connection.snapshot();
+    send({ kind: 'replace', stage: 'begin' });
+    send({ kind: 'replace', stage: 'chunk', entries });
+    send({ kind: 'replace', stage: 'commit', epoch });
+    send({ kind: 'status', status });
+  };
+
   const subscribeSource = (listener: (push: DesktopSectionsPush) => void): (() => void) => {
     pushListeners.add(listener);
+    // A leg of the same client came back: the app snapshot it folds may be another core's, so the window takes the whole
+    // store once that snapshot is announced (what the main relay's `reconnected` did).
+    let awaitingAppSnapshot = false;
     const offStore = connection.onStoreChange((change) => {
+      if (change.type === 'appSnapshot') {
+        if (awaitingAppSnapshot) {
+          awaitingAppSnapshot = false;
+          replaceWhole(listener);
+        }
+        return;
+      }
+      // The core refused to restore the app subscription: the store keeps the previous app state, no snapshot is coming.
+      const sub = change as { type: string; feedId?: string; state?: string };
+      if (sub.type === 'subscription' && sub.feedId === 'app' && sub.state === 'lost') {
+        awaitingAppSnapshot = false;
+        return;
+      }
       if (change.type !== 'section' || change.section === undefined) return;
       const store = connection.client()?.store as
-        | { section(section: string, key?: string | null): never; owed?: unknown }
+        | { section(section: string, key?: string | null): DesktopSectionEntry | undefined; owed?: unknown }
         | undefined;
       if (!store) return;
       // A tell is not state: the announcement of a snapshot (a leg that came back) is not one.
       if (store.owed && EVENT_SECTIONS.includes(change.section)) return;
       const key = change.key ?? null;
-      push({ kind: 'sections', changes: [{ section: change.section, key, entry: store.section(change.section, key) ?? null }] });
+      listener({ kind: 'sections', changes: [{ section: change.section, key, entry: store.section(change.section, key) ?? null }] });
     });
     const offEvent = connection.onEvent((event) => {
-      if (event.type === 'status') push({ kind: 'status', status: toStatus((event as { status: { state: string } }).status.state) });
+      if (event.type !== 'status') return;
+      const next = toStatus((event as { status: { state: string } }).status.state);
+      // The connection's status is still the previous one while its listeners run.
+      if (next === 'ready' && connection.status !== 'ready') awaitingAppSnapshot = true;
+      listener({ kind: 'status', status: next });
     });
-    // A replaced connection holds another client's store (a restarted core numbers its revisions again): the section
-    // store takes the whole store at once, then the status.
-    const offReplaced = connection.onReplaced(() => {
-      const { entries, epoch, status } = connection.snapshot();
-      push({ kind: 'replace', stage: 'begin' });
-      push({ kind: 'replace', stage: 'chunk', entries });
-      push({ kind: 'replace', stage: 'commit', epoch });
-      push({ kind: 'status', status });
-    });
+    // A replaced connection holds another client's store, already folded when it is announced.
+    const offReplaced = connection.onReplaced(() => replaceWhole(listener));
     // The first open has no event of its own: its outcome is the status.
     const settled = (): void => {
-      if (pushListeners.has(listener)) push({ kind: 'status', status: connection.status });
+      if (pushListeners.has(listener)) listener({ kind: 'status', status: connection.status });
     };
     connection.whenSynced().then(settled, settled);
     return () => {
