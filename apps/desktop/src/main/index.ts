@@ -147,6 +147,7 @@ import { readComputerPermissions, requestComputerPermissions } from './computer/
 import { applyGnomeExtensionSetting } from './computer/host/gnome-extension';
 import { createComputerUseOverlay, type ComputerUseOverlay } from './computer/overlay';
 import { confirmComputerTurnsStopped } from './computer/overlay/stop-turns';
+import { createComputerPillControls, createCoreUserControl } from './host/computer-user-control';
 import { MEDIA_SCHEME, registerMediaProtocol, registerMediaScheme } from './media-protocol';
 import { desktopPermissionAllowed } from './permission-policy';
 import { installNativeMenu } from './menu';
@@ -323,9 +324,9 @@ function startCrashHandlerWatch(): void {
   });
 }
 
+const executableSuffix = process.platform === 'win32' ? '.exe' : '';
 if (app.isPackaged) {
   const nativeToolsDir = join(process.resourcesPath, 'native-tools');
-  const executableSuffix = process.platform === 'win32' ? '.exe' : '';
   const graphPath = join(nativeToolsDir, `mixdog-graph${executableSuffix}`);
   const nativeOverrides = [
     { kind: 'graph', names: ['MIXDOG_GRAPH_BIN', 'MIXDOG_SEARCH_SERVER_BIN'], path: graphPath },
@@ -357,12 +358,17 @@ if (app.isPackaged) {
   });
 }
 
-// The native Computer Use backend for macOS and Linux: bundled with packaged
-// builds, built from native/mixdog-computer during development.
-if (process.platform !== 'win32' && !process.env.MIXDOG_COMPUTER_BIN) {
+// The native Computer Use helper (mixdog-computer[.exe]): bundled with packaged
+// builds (prepare-runtime.mjs), built from native/mixdog-computer during
+// development. The core this app starts inherits the variable and drives the
+// desktop through the helper on every platform (run_host/native_tools.rs). On
+// Windows the app's own computer host still runs its PowerShell worker
+// (computer/backend/host-worker-process.ts) and does not read it.
+if (!process.env.MIXDOG_COMPUTER_BIN) {
+  const computerHelperName = `mixdog-computer${executableSuffix}`;
   const computerBackend = app.isPackaged
-    ? join(process.resourcesPath, 'native-tools', 'mixdog-computer')
-    : join(app.getAppPath(), '..', '..', 'native', 'mixdog-computer', 'target', 'release', 'mixdog-computer');
+    ? join(process.resourcesPath, 'native-tools', computerHelperName)
+    : join(app.getAppPath(), '..', '..', 'native', 'mixdog-computer', 'target', 'release', computerHelperName);
   if (existsSync(computerBackend)) process.env.MIXDOG_COMPUTER_BIN = computerBackend;
 }
 
@@ -2283,25 +2289,30 @@ function installLocalWindowFeatures(
   if (computerHost && !computerUseOverlay) {
     const overlayComputerHost = computerHost;
     computerUseOverlay = createComputerUseOverlay(
-      {
-        // Control-renderer recovery pauses input without cancelling the task.
-        pause: async () => overlayComputerHost.takeOver('user_pause'),
-        // The user's Resume, for the pause they saw. A pause the user started
-        // (Pause, Stop, their own takeover) waits for it; an unverified input
-        // recovery, a failed observer, or a late release whose cleanup has
-        // since been confirmed resumes by itself after the configured quiet
-        // interval.
-        resume: (generation) => overlayComputerHost.resumeByUser(generation),
-        configureIdleResume: (seconds) => overlayComputerHost.configureIdleResume(seconds),
-        // Stop native input immediately, independently of the daemon's turn
-        // cancellation reply. Only both confirmations may clear the pause.
-        async stop(sessionIds) {
-          overlayComputerHost.takeOver('user_stop');
-          await overlayComputerHost.stopAllSessions(
-            confirmComputerTurnsStopped(sessionIds, async (sessionId) => localService.abortSession(sessionId))
-          );
+      createComputerPillControls({
+        core: createCoreUserControl((method, params) => localProtocol.call(method, params)),
+        snapshot: () => hostRole.computerPill.snapshot(),
+        abortSession: async (sessionId) => localService.abortSession(sessionId),
+        host: {
+          // Control-renderer recovery pauses input without cancelling the task.
+          pause: async () => overlayComputerHost.takeOver('user_pause'),
+          // The user's Resume, for the pause they saw. A pause the user started
+          // (Pause, Stop, their own takeover) waits for it; an unverified input
+          // recovery, a failed observer, or a late release whose cleanup has
+          // since been confirmed resumes by itself after the configured quiet
+          // interval.
+          resume: (generation) => overlayComputerHost.resumeByUser(generation),
+          configureIdleResume: (seconds) => overlayComputerHost.configureIdleResume(seconds),
+          // Stop native input immediately, independently of the daemon's turn
+          // cancellation reply. Only both confirmations may clear the pause.
+          async stop(sessionIds) {
+            overlayComputerHost.takeOver('user_stop');
+            await overlayComputerHost.stopAllSessions(
+              confirmComputerTurnsStopped(sessionIds, async (sessionId) => localService.abortSession(sessionId))
+            );
+          },
         },
-      },
+      }),
       app.getLocale(),
       {},
       hostRole.computerPill
