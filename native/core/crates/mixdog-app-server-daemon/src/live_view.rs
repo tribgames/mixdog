@@ -7,8 +7,8 @@
 //! encoder each over the session's shared newest picture).
 //!
 //! Page input, resizes and the video limit reach the desktop's browser through
-//! `host/browser/command{action:"input"}` and `host/browser/liveControl`; the displays through
-//! `host/screen/displays`.
+//! `host/browser/command{action:"input"}` and `host/browser/liveControl`; the displays are the phone's screen sources'
+//! (`PhoneScreens`, composed in `compose_screen`), which also hold each paired connection's screen access.
 //!
 //! The subscriptions behind `browser/stream` and the JPEG view of a phone without WebRTC (`browser/frame`, acknowledged by
 //! `browser/streamAck`) are Node's relay pacing (`live_view_streams`): the host's frame facts (`host/browser/frame`) take the
@@ -101,6 +101,25 @@ pub trait ScreenAccess: Send + Sync {
     fn view_allowed(&self, connection: ConnectionId) -> bool;
 }
 
+/// How a phone's access to this PC's screen ended: its connection left the relay, or its device was unpaired.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ScreenEnd {
+    ViewerLeft,
+    Revoked,
+}
+
+/// The phone's whole-PC screen as the live view reaches it: the displays a phone may pick from and the access of its connection,
+/// granted before its screen `ready` is forwarded and withdrawn when the connection or its pairing ends (`ScreenSources`, composed in
+/// `compose_screen`). Not bound where the PC has no screen control (not Windows): the phone is then told so.
+#[async_trait]
+pub trait PhoneScreens: Send + Sync {
+    /// The picker's displays (an array of summaries).
+    async fn displays(&self) -> Result<Value, String>;
+    /// `connection` is a paired relay connection past its handshake; its sessions belong to it. Idempotent.
+    fn grant(&self, connection: ConnectionId) -> Result<(), String>;
+    fn withdraw(&self, connection: ConnectionId, ended: ScreenEnd);
+}
+
 /// Node's rule (`screen-access-publisher.ts` `allowed`; "pairing is the approval"): a connection is allowed exactly
 /// when it is a paired relay peer past its handshake and its pairing still stands. The core holds that as the credential
 /// a connection acts as (`phone_credential`): a local client has none, and a peer whose pairing ended loses it.
@@ -169,6 +188,8 @@ struct Inner {
     host: OnceLock<LiveHost>,
     streams: OnceLock<Arc<BrowserStreams>>,
     timer_seq: AtomicU64,
+    /// The phone's whole-PC screen, bound once it is composed.
+    screens: OnceLock<Arc<dyn PhoneScreens>>,
     /// Each push of the view to a phone holds this from its `view_allowed` check through its `notify` (synchronous, nothing awaited),
     /// and an unpair's cleanup passes through it after the revocation and the drop (`LiveViewService::unpaired`): once the cleanup has
     /// returned, a push that passed its check has been enqueued and every later one is refused. Taken by nothing a push's check or
@@ -399,7 +420,9 @@ impl RelayDeps for RelayAdapter {
 
     async fn screen_authorized(&self, client: &str, _origin: Origin) -> bool {
         match (self.0.upgrade(), client_connection(client)) {
-            (Some(inner), Some(connection)) => inner.access.allowed(connection),
+            (Some(inner), Some(connection)) => {
+                inner.access.allowed(connection) && inner.screens.get().is_none_or(|screens| screens.grant(connection).is_ok())
+            }
             _ => false,
         }
     }
@@ -434,7 +457,10 @@ impl RelayDeps for RelayAdapter {
 
     async fn screen_displays(&self) -> Result<Value, String> {
         let inner = self.0.upgrade().ok_or("the live view stopped.")?;
-        inner.host_request("host/screen/displays", json!({})).await
+        match inner.screens.get() {
+            Some(screens) => screens.displays().await,
+            None => Err("Remote screen is unavailable.".to_owned()),
+        }
     }
 
     async fn send(&self, client: &str, payload: Value) -> Result<(), String> {
@@ -778,6 +804,7 @@ impl LiveViewService {
             host: OnceLock::new(),
             streams: OnceLock::new(),
             timer_seq: AtomicU64::new(0),
+            screens: OnceLock::new(),
             view_gate: Mutex::default(),
             #[cfg(test)]
             seams: Mutex::default(),
@@ -861,8 +888,16 @@ impl LiveViewService {
     /// passes the view gate, so a push that passed its check before the revocation is enqueued before this returns and every later
     /// one is refused. (Where the bytes enter the phone's stream they are asked again, `DeviceRegistry::write_view`.)
     pub fn unpaired(&self, connection: ConnectionId) {
+        if let Some(screens) = self.inner.screens.get() {
+            screens.withdraw(connection, ScreenEnd::Revoked);
+        }
         self.inner.streams().drop_client(&connection.0.to_string());
         self.inner.pass_view_gate();
+    }
+
+    /// Binds the phone's whole-PC screen (once).
+    pub fn bind_screens(&self, screens: Arc<dyn PhoneScreens>) -> Result<(), Arc<dyn PhoneScreens>> {
+        self.inner.screens.set(screens)
     }
 
     /// The relay closed: every phone's browser stream ends (`remote-relay.ts:658`, `browserStreams.dispose()`).
@@ -884,6 +919,9 @@ impl ConnectionOwner for LiveViewService {
     /// (`isLive`, `remote-relay.ts:361`); its screen `ready`s still resolving are cancelled now.
     fn connection_closed(&self, connection: ConnectionId) {
         let client = connection.0.to_string();
+        if let Some(screens) = self.inner.screens.get() {
+            screens.withdraw(connection, ScreenEnd::ViewerLeft);
+        }
         if self.inner.streams().subscribes_any(&client) {
             lock(&self.inner.state).closed.insert(connection.0);
         }

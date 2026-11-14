@@ -198,6 +198,8 @@ pub struct Real {
     pub gateway_usage: mixdog_core_session::session::gateway_usage::GatewayUsage,
     /// The agent index's writer: `workers_step` drains it at the stop.
     pub workers: Arc<mixdog_core_session::session::agent_registry::StoreWorkers>,
+    /// The phone's whole-PC screen control: its sessions release their input at the stop.
+    pub screens: crate::compose_screen::Screens,
     /// Replay-only: the write-behind writers `replay/storesSettled` drains besides the session store.
     #[cfg(feature = "replay-controls")]
     pub(crate) replay_writers: crate::replay_stores_settled::WriteBehind,
@@ -393,7 +395,7 @@ impl Real {
         // steps, so `compose::flush_at_exit` writes what was recorded since on every release path.
         let usage = self.gateway_usage.clone();
         let settle: StopStep = ("gateway usage", Box::pin(async move { usage.settle().await }));
-        vec![settle, agent_index, drain, gateway, computers, detach, terminals, channel_step, memory_step, voice]
+        vec![self.screens.stop_step(), settle, agent_index, drain, gateway, computers, detach, terminals, channel_step, memory_step, voice]
     }
 }
 
@@ -1186,6 +1188,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         }))
     };
     let visualize_panes = Arc::new(mixdog_exthost::VisualizePanes::default());
+    // The desktop's screen reports (a display changed, the pill's Stop), bound to the phone's screen sessions once they are composed (below).
+    let screen_events = Arc::new(crate::compose_screen::ScreenEventsCell::default());
     let seams = DomainSeams {
         provider_roster: provider_admin.clone(),
         quota_resume: quota_store.clone(),
@@ -1217,6 +1221,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         remote: built_remote.runtime.clone(),
         local_target: late_dialer.clone(), // bound by `serving::start` once the connection hub exists (true cycle: hub is built after compose)
         notification_clicks: Arc::new(crate::domain_seams::notification_clicks::LoggedClicks),
+        screen_events: screen_events.clone(),
         browser_surfaces: Arc::new(crate::domain_seams::browser_surfaces::FeedSurfaces::new(
             mixdog_core_session::session::terminal_host::AppFeedOpen::new(b.sections.clone(), b.presence.clone()),
         )),
@@ -2929,8 +2934,10 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         }
     };
     // PC access is built before remote access: an unpair runs in its queue (g25-fu-x) and the runtime's events reach it.
+    // The phone's screen control installs the secure-desktop helper through the same installer instance (one admin action at a time).
+    let (pc_installer, pc_helper) = crate::compose_screen::installer(secure_desktop_exe);
     let pc_access = Arc::new(mixdog_core_domains::domains::pc_access::PcAccessService::new(
-        mixdog_core_domains::domains::pc_access_installer::production_installer(secure_desktop_exe),
+        pc_installer,
         Arc::new(mixdog_core_domains::domains::pc_access::RuntimeRoster(built_remote.runtime.clone())),
     ));
     // A delivered controller key is enrolled (delegated, no prompt) and an owed revocation is revoked: REMOTE_CONTROLLER_KEY_DELIVERED_EVENT / REMOTE_CONTROLLER_KEYS_OWED_EVENT of the desktop.
@@ -2940,7 +2947,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         built_remote.registry.clone(),
         domain_inputs.scopes.scopes("remoteAccess").map_err(ComposeError::ComposeDomains)?,
     ).with_pc_access(pc_access.clone())))?;
-    builder.register(pc_access)?;
+    builder.register(pc_access.clone())?;
     // computer/userControl (the Computer Use pill), computer/pointerReleased and dev/computer/run (s3-13, g25-fu-cu-b: a `test-hooks`
     // build started with MIXDOGD_TEST_HOOKS=1 serves the harness over the pool; the name stays in SERVICE_PENDING: an ordinary start
     // registers nothing for it).
@@ -3645,6 +3652,23 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let live_view = Arc::new(crate::live_view::LiveViewService::new(b.host.clone(), b.notifier.clone(), b.host_media.clone(), built_remote.runtime.clone(), b.tokens.media_thread, Arc::new(crate::live_view::PairedScreenAccess::new(crate::domain_seams::remote::phone_credential(built_remote.registry.clone()), crate::domain_seams::remote::screen_revoked(built_remote.registry.clone()), crate::domain_seams::remote::peer_attached(built_remote.registry.clone())))));
     let _ = live_view_slot.set(Arc::downgrade(&live_view));
     builder.register(live_view.clone())?;
+    // The phone's whole-PC screen control (compose_screen): its access, displays, input, pill and quit step; the live view asks it for the picker's displays and grants it each paired connection.
+    let screens = crate::compose_screen::compose_screen(crate::compose_screen::ScreenInputs {
+        host: b.host.clone(),
+        registry: built_remote.registry.clone(),
+        events: screen_events,
+        pool: computer_pool.clone(),
+        native: native_paths.clone(),
+        manager: b.process_manager.clone(),
+        pc_access: pc_access.clone(),
+        helper: pc_helper,
+        blobs: Arc::new(crate::compose_computer::CoreComputerBlobs::new(blobs.clone(), b.tokens.interactive_io)),
+        data_dir: b.data_dir.clone(),
+    })
+    .await;
+    if let Some(phone) = screens.phone() {
+        live_view.bind_screens(phone).map_err(|_| ComposeError::AlreadyBound("phone screens"))?;
+    }
     // The browser engine's host lane: what the claimed desktop pushes, and the end of its claim (s4-core-events-service).
     let browser_engine = crate::browser_engine_service::BrowserEngineService::new(engine_sink.clone(), Arc::new(crate::compose_browser_engine::OutgoingClaimants(b.outgoing.clone())));
     #[cfg(feature = "test-hooks")]
@@ -3676,7 +3700,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         .bind(crate::connection_close::ConnectionOwners::new(terminal.clone(), screen.clone(), workspace.clone(), composed.system.clone(), built_remote.registry.clone(), live_view, scm_service.clone(), browser_engine))
         .map_err(|_| ComposeError::AlreadyBound("connection owners"))?;
     crate::compose::verify_bound(&[&*late_requests, &*bot_world, &*late_new_place, &*late_draft_settings,&connection_owners, &*late_agent_status, &*late_turn_admission, &*late_live_workspace,&*room_approvals, &*late, &crate::late_session::LateReadinessHook(readiness.clone()), &*late_room_summaries, &*late_computer_hosts, &*late_dispatcher, &*late_catalog, &*late_list_catalog, &*late_listing, &*late_send, &*late_attachments, &*late_bot_sources, &*late_skills, &*project_workspaces, &*bot_summaries, &*late_reactions, &*late_agent_port,&*late_cycle_llm, &*route_positions, &*live_route, &*agent_channels, &*chat_routes, &*routine_sessions, &mixdog_core::run_host::late_chats::LateAgentChats(late.clone()), &*late_setup_ui, &*late_workspaces, &*path.turn_settings, &*late_new_route, &*late_pending_route, &*late_route_session, &*extension_host, &crate::late_session::LateCallerSessions(late.clone()), &mixdog_core::run_host::compose_parts::LateHeaders(late.clone()), &mixdog_core::run_host::compose_parts::HookCommonCell(late.clone()), &crate::late_session::LateMediaProbe(provider_layer.clone()), &*setup_warmup, &crate::setup_host::ModelWarmupCell(model_warmup.clone()), &crate::setup_host::StatuslineWarmupCell(statusline_warmup.clone()), &*b.thread_gates, &*agent_evidence, &*session_facts, &*held_home, &*live_route, &*tool_surface])?;
-    Ok(Real { defaults_separation, control_route_sync, late_lifecycle, connection_owners, local_dialer: late_dialer.clone(), remote: built_remote, directory, agent_dispatch, agent_host, code_graph_cache, exec: b.exec.clone(), maintenance_io: b.tokens.maintenance_io, domains, config, close_requested, resume_timer, goal_recovery, worktree_stop, maintenance_stop, worktree_task, maintenance_loop: std::sync::Mutex::new(maintenance_loop), ledgers: ledger_source, computer: computer_pool, terminal, room_host: room_host_registration, channels: channel_runtime, channel_calls, channel_config_follow, config_watch: composed.watcher, memory, log: b.log.clone(), publisher: state.publisher.clone(), gateway_routes: gateway_settle, model_proxy, event_pipeline, catalog_index: catalog_handle, heartbeat, heartbeat_run: Arc::default(), sub_agent_retention: Arc::default(), archive_stamps, core_state: b.core_state.clone(), skip_memory, gateway_usage, workers: workers.clone(), #[cfg(feature = "replay-controls")] replay_writers: crate::replay_stores_settled::WriteBehind { workers, read_state: read_state.clone() }, #[cfg(test)] turn_review, #[cfg(test)] tool_pool: kept_tool_pool, #[cfg(test)] mcp_glue: kept_mcp_glue })
+    Ok(Real { screens, defaults_separation, control_route_sync, late_lifecycle, connection_owners, local_dialer: late_dialer.clone(), remote: built_remote, directory, agent_dispatch, agent_host, code_graph_cache, exec: b.exec.clone(), maintenance_io: b.tokens.maintenance_io, domains, config, close_requested, resume_timer, goal_recovery, worktree_stop, maintenance_stop, worktree_task, maintenance_loop: std::sync::Mutex::new(maintenance_loop), ledgers: ledger_source, computer: computer_pool, terminal, room_host: room_host_registration, channels: channel_runtime, channel_calls, channel_config_follow, config_watch: composed.watcher, memory, log: b.log.clone(), publisher: state.publisher.clone(), gateway_routes: gateway_settle, model_proxy, event_pipeline, catalog_index: catalog_handle, heartbeat, heartbeat_run: Arc::default(), sub_agent_retention: Arc::default(), archive_stamps, core_state: b.core_state.clone(), skip_memory, gateway_usage, workers: workers.clone(), #[cfg(feature = "replay-controls")] replay_writers: crate::replay_stores_settled::WriteBehind { workers, read_state: read_state.clone() }, #[cfg(test)] turn_review, #[cfg(test)] tool_pool: kept_tool_pool, #[cfg(test)] mcp_glue: kept_mcp_glue })
 }
 
 /// `promptConfigSlice(config)` (`prompt-settings.mjs:36`) over the whole in-memory config: `??` falls through on `null`/absent only.

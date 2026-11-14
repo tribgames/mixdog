@@ -207,6 +207,11 @@ impl mixdog_core_domains::domains::host::BrowserSurfaces for Quiet {
     fn requested(&self, _: mixdog_app_protocol::v2::host::UiOpenBrowser) {}
 }
 
+impl mixdog_core_domains::domains::host::ScreenEvents for Quiet {
+    fn displays_changed(&self) {}
+    fn indicator_stopped(&self, _: &str) {}
+}
+
 #[async_trait]
 impl mixdog_core_domains::domains::ai_admin::provider_status::ProviderRoster for Quiet {
     async fn accounts(&self, _: &str) -> Result<serde_json::Value, String> {
@@ -565,6 +570,7 @@ fn every_method_of_the_domains_built_here_has_a_real_service() {
                 local_target: Arc::new(NoDial),
                 notification_clicks: quiet.clone(),
                 browser_surfaces: quiet.clone(),
+                screen_events: quiet.clone(),
                 visualize_panes: Arc::default(),
                 instructions_changed: quiet.clone(),
                 system_proxy: Arc::new(mixdog_ai::netproxy::system::SystemProxy::default()),
