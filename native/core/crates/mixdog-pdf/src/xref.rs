@@ -765,9 +765,14 @@ impl Xref {
             .borrow_mut()
             .xref_section_offsets
             .insert(start_xref);
-        let prev = self.get(&dict, "Prev")?;
-        if let Some(prev) = prev.as_int() {
-            self.state.borrow_mut().queue.push(prev);
+        // pdf.js also queues the number of a reference the fetch leaves (an object that holds only `N G R`).
+        match self.get(&dict, "Prev")? {
+            Obj::Ref(r) => self.state.borrow_mut().queue.push(r.num),
+            prev => {
+                if let Some(prev) = prev.as_int() {
+                    self.state.borrow_mut().queue.push(prev);
+                }
+            }
         }
         Ok(())
     }
