@@ -3179,6 +3179,7 @@
   "Mixdog is already being installed on {{name}} by another connection. Wait a moment, then try again.": "Mixdog уже устанавливается на {{name}} другим подключением. Подождите немного и повторите попытку.",
   "Mixdog is free and open source — a GitHub star genuinely helps it grow.": "Mixdog бесплатен и имеет открытый исходный код — звезда на GitHub действительно помогает проекту развиваться.",
   "Mixdog is reconnecting automatically.": "Mixdog переподключается автоматически.",
+  "Mixdog lost its connection before this Git action was confirmed, so it may have run. Check the repository status before trying it again.": "Mixdog потерял соединение до подтверждения этого действия Git, поэтому оно могло быть выполнено. Проверьте состояние репозитория, прежде чем повторять попытку.",
   "Mixdog needs a one-time approval from the desktop it belongs to.": "Для Mixdog нужно один раз подтвердить доступ на компьютере, к которому он подключается.",
   "Mixdog needs to recover": "Mixdog необходимо восстановить",
   "Mixdog on {{name}} did not stop. Check the details below, then try again.": "Mixdog на {{name}} не остановился. Проверьте сведения ниже и повторите попытку.",

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { DesktopGitStatus } from '../shared/contract';
 import { t } from './i18n';
+import { gitActionFailureText } from './source-control-action-failure';
 import { leavesStateBehind } from './source-control-support';
 
 export type GitActionRunner = (
@@ -61,7 +62,7 @@ export function useSourceControlRunner({
         after?.();
         await reload(key);
       } catch (reason) {
-        const message = reason instanceof Error ? reason.message : String(reason);
+        const message = gitActionFailureText(reason);
         setError(message);
         // A rejected action can have changed the repository FIRST (a conflicted
         // revert/cherry-pick, an interrupted merge), so the surface is re-read
