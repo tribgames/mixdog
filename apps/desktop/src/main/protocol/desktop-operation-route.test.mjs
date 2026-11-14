@@ -342,6 +342,9 @@ const CASES = [
       mode: 'setConversation',
     },
   ],
+  // ipc-computer.ts's PC access row.
+  ['pcAccessReadiness', [], 'pcAccess/readiness', {}],
+  ['pcAccessApprove', [], 'pcAccess/approve', {}],
 ];
 
 /** [operation, args, params]: Node's announcements, the core methods the lane calls for them (no host display preferences here). */
@@ -376,9 +379,6 @@ const ROOTED = [
     { files: [{ path: 'index.html', text: '<p>', type: 'text/html' }], ownerId: 'owner1' },
   ],
   ['localPageAssetType', [R, `${R}/a.css`, R], 'projectFs/localPage/assetType', { root: R, file: `${R}/a.css`, dataRoot: R }],
-  // Like the rooted operations, added after the spec map (x-pcaccess-desktop): ipc-computer.ts's PC access row.
-  ['pcAccessReadiness', [], 'pcAccess/readiness', {}],
-  ['pcAccessApprove', [], 'pcAccess/approve', {}],
 ];
 const ROOTED_NAMES = new Set(ROOTED.map(([name]) => name).filter((name) => name !== 'termAttach'));
 
@@ -448,7 +448,7 @@ test('the routed operations are the spec map targets with params the Rust schema
       row.target.kind === 'method' ? [row.target.target] : row.target.kind === 'methods' ? row.target.target : null,
     ])
   );
-  assert.equal(operations.length, 171);
+  assert.equal(operations.length, 172);
   // Two operations have a core method the desktop never sends: `visualizeRemoteViewing` is read from a section, and
   // `browserRemoteWebrtcSignal` was the relay's own call into the desktop service (Node `main/index.ts`
   // `invokeDesktopOperation('browserRemoteWebrtcSignal', [clientId, signal])`); the phone now sends
@@ -500,8 +500,9 @@ test('an operation with no Rust op is unknownMethod and one the schema cannot ca
   const unknown = operations
     .filter((row) => row.target.kind !== 'method' && row.target.kind !== 'methods')
     .map((row) => row.name);
-  // 38 since the two announcements became the core methods `ui/settings/announce` and `ui/providerModels/announce`.
-  assert.equal(unknown.length, 38);
+  // 37: 38 since the two announcements became the core methods `ui/settings/announce` and `ui/providerModels/announce`, and the
+  // notification `browserRemoteOpen` is gone (the browser host's surface changes reach the core as `host/browser/surface` by themselves).
+  assert.equal(unknown.length, 37);
   for (const name of unknown) {
     assert.throws(() => routeDesktopOperation(name, []), { code: 'unknownMethod' }, name);
   }

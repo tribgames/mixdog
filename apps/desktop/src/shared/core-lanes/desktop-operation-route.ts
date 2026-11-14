@@ -249,18 +249,6 @@ const NOTIFICATION_ROUTES: Readonly<Record<string, { route: Mapper; result: null
     route: (args) => ({ method: 'host/update/report', params: { state: args[0] } }),
     result: undefined,
   },
-  // An agent's explicit reveal or hide of a browser surface, reported by the window process's browser host; the core
-  // publishes it as `ui/openRequested { kind: 'browser' }` to the attached clients (paired phones included).
-  browserRemoteOpen: {
-    route: ([request]) => {
-      const fields = record(request);
-      if (typeof fields.sessionId !== 'string' || !fields.sessionId) {
-        throw new TypeError('browserRemoteOpen needs a request with a sessionId.');
-      }
-      return { method: 'host/browser/surface', params: fields };
-    },
-    result: null,
-  },
   remoteAccessResume: { route: () => ({ method: 'host/power', params: { event: 'resume' } }), result: null },
   remoteAccessSuspend: { route: () => ({ method: 'host/power', params: { event: 'suspend' } }), result: null },
 };

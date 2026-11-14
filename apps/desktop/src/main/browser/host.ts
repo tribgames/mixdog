@@ -31,7 +31,6 @@ import type {
   DesktopBrowserPageControl,
   DesktopBrowserTabControlResult,
   DesktopRemoteBrowserControl,
-  DesktopBrowserOpenRequest,
   DesktopRemoteBrowserStreamFrame,
   DesktopRemoteBrowserStreamOptions,
 } from '../../shared/contract';
@@ -240,8 +239,6 @@ export function createBrowserHost(
     onDiagnostic?: (event: string, data: Record<string, unknown>) => void;
     requestApproval?: (request: BrowserApprovalRequest, signal?: AbortSignal) => Promise<boolean>;
     chooseBrowserFiles?: (multiple: boolean) => Promise<{ canceled: boolean; filePaths: string[] }>;
-    /** An explicit reveal or hide of a session's surface, for paired clients. */
-    onSurfaceRequest?: (request: DesktopBrowserOpenRequest) => void;
     /** Every page (guest) the host creates, as it appears. */
     onGuest?: (guest: WebContents) => void;
     /** One live frame of a remotely streamed session, handed to the service. */
@@ -289,7 +286,6 @@ export function createBrowserHost(
   const { lifecycle, nativeViews, fullscreen, taskLifecycle, retainGuest } = createBrowserHostPages({
     window,
     base,
-    onSurfaceRequest: options.onSurfaceRequest,
     onGuest: (guest) => {
       options.onGuest?.(guest);
       shown.remoteTabs.observe(guest);
