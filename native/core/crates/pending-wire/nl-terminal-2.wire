@@ -1,0 +1,49 @@
+# nl-terminal-2: the agent terminal reveal goes to phones without a path or ack id
+
+mixdog_tools::desktop::reveal::RevealingTerminalHost::new now takes `Arc<dyn RevealFeed>` (was `Arc<dyn OpenFeed>`). `OpenFeed` and
+`AppFeedOpen` are unchanged and still serve the browser surfaces (compose_flip.rs line with `FeedSurfaces::new(AppFeedOpen::new(b.sections..`).
+
+## mixdog-app-server-daemon/src/compose_flip.rs (the terminal host built next to `TabsTerminalPort::new`)
+
+Replace
+    Arc::new(mixdog_core_session::session::terminal_host::AppFeedOpen::new(pre.state.app.clone(), b.presence.clone())),
+with
+    Arc::new(mixdog_core_session::session::terminal_host::AudienceReveal::new(b.app_audience.clone(), b.notifier.clone())),
+`b.notifier` already exists in that struct (`Arc<dyn ConnectionNotifier>`, the Outgoing). Add the field
+    pub app_audience: Arc<dyn mixdog_core_session::session::terminal_host::AppFeedAudience>,
+next to `presence`, and bind it to the same `Outgoing` that `presence` and `notifier` are (see below).
+
+## mixdog-app-server/src/outgoing.rs (after `impl mixdog_core_api::DesktopPresence for Outgoing`)
+
+    impl mixdog_core_session::session::terminal_host::AppFeedAudience for Outgoing {
+        fn audience(&self) -> Vec<mixdog_core_session::session::terminal_host::Audience> {
+            let app = FeedId::from(mixdog_app_protocol::v2::feed::APP_FEED_ID);
+            self.all_connections()
+                .iter()
+                .filter(|conn| conn.is_live_on(&app))
+                .filter_map(|conn| {
+                    let session = conn.session()?;
+                    Some(mixdog_core_session::session::terminal_host::Audience {
+                        id: conn.id,
+                        relay: session.origin == mixdog_protocol::Origin::Relay,
+                        window: conn.is_desktop_on(&app),
+                    })
+                })
+                .collect()
+        }
+    }
+(mixdog-app-server needs the dependency edge `mixdog-core-session` only if it has none: if it does not, instead define
+`AppFeedAudience`/`Audience` use in the daemon crate as an adapter over `Outgoing` there; the trait lives in
+mixdog-core-session::session::terminal_host. `Connection::id` and `is_live_on` must be visible to that code.)
+
+## mixdog-app-server/src/server.rs, `on_notification`, after `let Some(spec) = CLIENT_NOTIFICATIONS...` and the `initialized` check
+
+A paired phone does not claim an agent terminal reveal (it is shown on a desktop window only):
+    if spec.method == "ui/terminalRun/claimed" && conn.session().is_some_and(|session| session.origin == Origin::Relay) {
+        return Inbound::Continue;
+    }
+Test to add in mixdog-app-server tests (it fails without the line): a relay connection sends `ui/terminalRun/claimed { requestId }`
+with a domain registered for it, the domain's `notify` is never called; the same notification from a local connection reaches it.
+
+## compose_flip.rs SERVICE_PENDING
+Nothing to remove: `ui/terminalRun/claimed` is already served by PendingWaits.

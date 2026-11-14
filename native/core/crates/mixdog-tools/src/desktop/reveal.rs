@@ -2,6 +2,8 @@
 //! terminal (`ui/openRequested { kind: "terminal", requestId }`) and wait for a pane to claim it
 //! (`ui/terminalRun/claimed`). The result is `shown`: true on a claim, false when no UI is
 //! attached to take the request or nobody claims it in time (the terminal keeps running).
+//! A paired phone is told the same reveal without its ack id and without any path (a tab's working
+//! directory is a PC path; the phone adopts the tab and binds its own root).
 
 use std::sync::Arc;
 
@@ -20,6 +22,33 @@ pub trait OpenFeed: Send + Sync {
     fn publish_open(&self, params: Value) -> bool;
 }
 
+/// Where a terminal reveal goes: the desktop gets the whole request (the ack id and each tab's
+/// directory), a paired phone the projection that carries neither.
+pub trait RevealFeed: Send + Sync {
+    /// Delivers `full` to the windows and the other clients, `relay` to the paired phones. False
+    /// when no desktop window took it.
+    fn publish_reveal(&self, full: Value, relay: Value) -> bool;
+}
+
+/// What a paired phone is told of a terminal reveal (`remoteTerminalRun`): the session, the
+/// terminal and the tabs by id and number, with no `requestId` and no `cwd`.
+pub fn relay_projection(request: &Value) -> Value {
+    let mut out = serde_json::Map::new();
+    for key in ["kind", "sessionId"] {
+        if let Some(v) = request.get(key) {
+            out.insert(key.to_owned(), v.clone());
+        }
+    }
+    if let Some(id) = request.get("terminalId").filter(|v| v.as_str().is_some_and(|s| !s.is_empty())) {
+        out.insert("terminalId".to_owned(), id.clone());
+    }
+    if let Some(tabs) = request.get("tabs").and_then(Value::as_array) {
+        let tabs = tabs.iter().map(|t| json!({ "id": t.get("id"), "tab": t.get("tab") })).collect::<Vec<_>>();
+        out.insert("tabs".to_owned(), Value::Array(tabs));
+    }
+    Value::Object(out)
+}
+
 /// What only the host knows besides the reveal: the thread's working directory.
 #[async_trait]
 pub trait SessionCwds: Send + Sync {
@@ -28,12 +57,12 @@ pub trait SessionCwds: Send + Sync {
 
 pub struct RevealingTerminalHost {
     cwds: Arc<dyn SessionCwds>,
-    feed: Arc<dyn OpenFeed>,
+    feed: Arc<dyn RevealFeed>,
     waits: PendingWaits,
 }
 
 impl RevealingTerminalHost {
-    pub fn new(cwds: Arc<dyn SessionCwds>, feed: Arc<dyn OpenFeed>, waits: PendingWaits) -> Self {
+    pub fn new(cwds: Arc<dyn SessionCwds>, feed: Arc<dyn RevealFeed>, waits: PendingWaits) -> Self {
         Self { cwds, feed, waits }
     }
 }
@@ -54,7 +83,8 @@ impl TerminalBridgeHost for RevealingTerminalHost {
             "tabs": tabs.iter().map(|t| json!({"id": t.id, "tab": t.tab, "cwd": t.cwd})).collect::<Vec<_>>(),
             "requestId": request_id,
         });
-        if !self.feed.publish_open(request) {
+        let relay = relay_projection(&request);
+        if !self.feed.publish_reveal(request, relay) {
             return false;
         }
         wait.wait().await.is_some()
@@ -82,9 +112,11 @@ mod tests {
         claim: bool,
         waits: PendingWaits,
         seen: Mutex<Vec<Value>>,
+        relayed: Mutex<Vec<Value>>,
     }
-    impl OpenFeed for Feed {
-        fn publish_open(&self, params: Value) -> bool {
+    impl RevealFeed for Feed {
+        fn publish_reveal(&self, params: Value, relay: Value) -> bool {
+            self.relayed.lock().unwrap().push(relay);
             if self.claim {
                 let id = params["requestId"].as_str().unwrap().to_owned();
                 let waits = self.waits.clone();
@@ -104,12 +136,18 @@ mod tests {
     }
 
     async fn reveal(attached: bool, claim: bool, terminal_ms: u64) -> (bool, Vec<Value>) {
+        let (shown, seen, _) = reveal_all(attached, claim, terminal_ms).await;
+        (shown, seen)
+    }
+
+    async fn reveal_all(attached: bool, claim: bool, terminal_ms: u64) -> (bool, Vec<Value>, Vec<Value>) {
         let waits = crate::desktop::pending::tests::waits(3000, terminal_ms);
-        let feed = Arc::new(Feed { attached, claim, waits: waits.clone(), seen: Mutex::default() });
+        let feed = Arc::new(Feed { attached, claim, waits: waits.clone(), seen: Mutex::default(), relayed: Mutex::default() });
         let host = RevealingTerminalHost::new(Arc::new(Cwds), feed.clone(), waits);
         let shown = host.reveal("s1", &tab(1), &[tab(1), tab(2)]).await;
         let seen = feed.seen.lock().unwrap().clone();
-        (shown, seen)
+        let relayed = feed.relayed.lock().unwrap().clone();
+        (shown, seen, relayed)
     }
 
     #[tokio::test]
@@ -138,5 +176,29 @@ mod tests {
         let (shown, seen) = reveal(true, false, 40).await;
         assert!(!shown);
         assert_eq!(seen.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_phone_is_told_the_reveal_without_any_path_or_ack_id_while_the_desktop_keeps_the_full_request() {
+        let (_, seen, relayed) = reveal_all(true, true, 5000).await;
+        assert!(seen[0]["requestId"].is_string());
+        assert_eq!(seen[0]["tabs"][1]["cwd"], "/w", "the desktop still adopts each tab's root");
+        assert_eq!(
+            relayed,
+            vec![json!({
+                "kind": "terminal",
+                "sessionId": "s1",
+                "terminalId": "session-terminal:s1",
+                "tabs": [{"id": "session-terminal:s1", "tab": 1}, {"id": "session-terminal:s2", "tab": 2}],
+            })]
+        );
+        let text = relayed[0].to_string();
+        assert!(!text.contains("requestId") && !text.contains("cwd") && !text.contains("/w"));
+    }
+
+    #[test]
+    fn the_projection_leaves_out_an_empty_terminal_id_and_tolerates_no_tabs() {
+        let p = relay_projection(&json!({ "kind": "terminal", "sessionId": "s1", "terminalId": "", "requestId": "r", "cwd": "/x" }));
+        assert_eq!(p, json!({ "kind": "terminal", "sessionId": "s1" }));
     }
 }
