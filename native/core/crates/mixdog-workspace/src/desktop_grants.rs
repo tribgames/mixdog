@@ -23,7 +23,9 @@ use crate::error::WsResult;
 use crate::lanes::Lanes;
 use crate::lanes::run_in;
 use crate::nodeerr::AtPath;
+use crate::pathguard::comparable;
 use crate::pathguard::lexical;
+use crate::pathguard::resolve;
 
 /// `MAX_SELECTED_FILE_GRANTS`.
 pub const MAX_DESKTOP_GRANTS: usize = 100;
@@ -170,7 +172,7 @@ impl DesktopGrantStore {
         let project_path = required_string(project_path, "projectPath", MAX_ARG_TEXT)?;
         let rel_path = required_string(rel_path, "relPath", MAX_ARG_TEXT)?;
         let granted = self.granted_file(&token).await?.ok_or_else(|| WsError::coded("SELECTED_FILE_GRANT_UNAVAILABLE", UNAVAILABLE))?;
-        let requested = lexical(&Path::new(&project_path).join(&rel_path));
+        let requested = resolve(&Path::new(&project_path).join(&rel_path));
         if comparable(&requested) != comparable(&granted) {
             return Err(WsError::coded("MIXDOG_LOCAL_ACCESS_DENIED", MISMATCH));
         }
@@ -227,17 +229,18 @@ impl DesktopGrantStore {
     }
 }
 
-/// `absoluteLocalPath`: a shape-checked absolute path, resolved without touching the disk.
+/// `absoluteLocalPath`: a shape-checked absolute path, resolved without touching the disk. A rooted path with no drive (`\foo`)
+/// counts as absolute on Windows, as Node's `isAbsolute` has it, and `resolve` gives it the current drive.
 fn absolute_local_path(raw: &str) -> WsResult<PathBuf> {
     let text = raw.trim();
     if text.is_empty() || text.chars().count() > MAX_PATH_TEXT || text.contains('\0') {
         return Err(WsError::invalid("path is invalid."));
     }
     let path = Path::new(text);
-    if !path.is_absolute() {
+    if !path.has_root() {
         return Err(WsError::invalid("path must be absolute."));
     }
-    Ok(lexical(path))
+    Ok(resolve(path))
 }
 
 /// `requiredString`: trimmed, not empty, within `maximum` characters.
@@ -247,11 +250,6 @@ fn required_string(value: &str, name: &str, maximum: usize) -> WsResult<String> 
         return Err(WsError::invalid(format!("{name} is invalid.")));
     }
     Ok(text.to_string())
-}
-
-/// `comparablePath`: lower case on Windows.
-fn comparable(path: &Path) -> PathBuf {
-    if cfg!(windows) { PathBuf::from(path.to_string_lossy().to_lowercase()) } else { path.to_path_buf() }
 }
 
 /// `path.basename`: the last component's text, none for a root.
@@ -489,15 +487,16 @@ mod tests {
         let store = f.store();
         let first = store.describe(&[text(&f.files[0])], true, &[]).await.unwrap();
         let others = f.many(MAX_DESKTOP_GRANTS - 1);
+        let mut other_tokens = Vec::new();
         for file in &others {
-            store.describe(&[text(file)], true, &[]).await.unwrap();
+            other_tokens.push(token_of(&store.describe(&[text(file)], true, &[]).await.unwrap()[0]));
         }
         store.describe(&[text(&f.files[0])], true, &[]).await.unwrap();
         store.describe(&[text(&f.files[1])], true, &[]).await.unwrap();
         // The second file pushed out the oldest other file, not the one described again.
         assert!(redeem(&store, &token_of(&first[0]), &f.files[0]).await.is_ok());
-        let oldest = store.describe(&[text(&others[0])], true, &[]).await.unwrap();
-        assert!(oldest[0].access_token.is_some());
+        assert!(!store.still_granted(&other_tokens[0], &others[0]).await.unwrap());
+        assert!(store.still_granted(&other_tokens[1], &others[1]).await.unwrap());
     }
 
     #[tokio::test(flavor = "multi_thread")]
