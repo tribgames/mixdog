@@ -1,0 +1,15 @@
+; comment
+(ns my.app.core
+  (:require [clojure.string :as str] [clojure.set :refer [union]])
+  (:import (java.util Date)))
+(def ^:private x 42)
+(defn greet "Docstring" [name & more]
+  (let [s (str "Hello, " name "!\n") m {:a 1 "b" 2.5 :c [1 2 3]} v [0x1F 1/2 3N 1e3 \a \space]]
+    (when (and (> x 1) (not (nil? name))) (println s #{:a :b} '(1 2) `(~x ~@more)))))
+(defmacro unless [c & body] `(if ~c nil (do ~@body)))
+(defprotocol P (act [this]))
+(defrecord R [a b] P (act [this] a))
+(->> (range 10) (filter even?) (map #(* % 2)) (reduce +))
+(cond (= x 1) :one :else :other)
+(loop [i 0] (if (< i 3) (recur (inc i)) i))
+#"regex\d+" #_(ignored) @atom

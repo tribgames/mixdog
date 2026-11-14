@@ -1,0 +1,125 @@
+# Move/click at virtual-screen pixel (x y); or type into a focused field:
+.\target\release\mixdog-secure-desktop.exe probe --frames 5 --click 400 300
+.\target\release\mixdog-secure-desktop.exe probe --frames 5 --text "hello"
+@@@@
+# Release build + dist/ with the licence notice (what packaging would invoke):
+pwsh native/mixdog-secure-desktop/build.ps1
+
+# Or directly during development:
+cargo build --release          # produces target/release/mixdog-secure-desktop.exe
+cargo test                     # unit tests (framing, deadlines, security, handshake)
+@@@@
+$env:PYTHONPATH = (Get-Location).Path
+# Claude Code — prebaked pinned binary + host OAuth token
+harbor run -d terminal-bench/terminal-bench-2-1 `
+  --agent-import-path harness.claude_code_prebaked:ClaudeCodePrebaked `
+  -m claude-opus-5 --ak reasoning_effort=high `
+  --agent-setup-timeout-multiplier 4 -o jobs-cc -n 8 -r 2 -q -y
+# Codex CLI — Harbor's stock codex agent, k=5
+harbor run -d terminal-bench/terminal-bench-2-1 `
+  --agent codex -m gpt-5.6-sol --ak reasoning_effort=xhigh `
+  -o jobs-codex -n 8 -k 5 -r 2 -q -y
+# Codex CLI 0.162.1 — GPT-6.1 Sol xhigh, k=1 (bench log 2026-10-15);
+# CODEX_FORCE_AUTH_JSON=1 hands the host's ChatGPT login to the container
+$env:CODEX_FORCE_AUTH_JSON = "1"
+harbor run -d terminal-bench/terminal-bench-2-1 `
+  --agent codex -m gpt-6.1-sol --ak reasoning_effort=xhigh `
+  -o jobs-codex-sol61-xhigh-full -n 8 -k 1 -r 2 `
+  --retry-exclude AgentTimeoutError --retry-exclude VerifierOutputParseError `
+  --retry-exclude RewardFileEmptyError -q -y
+@@@@
+$p = Start-Process cargo -ArgumentList 'test' -WorkingDirectory native\mixdog-secure-desktop -NoNewWindow -PassThru
+$p.PriorityClass = 'Idle'; $p.WaitForExit(); $p.ExitCode
+@@@@
+(Get-CimInstance Win32_Service -Filter "Name='MixdogSecureDesktop'").PathName
+# => "C:\ProgramData\Mixdog\SecureDesktop\bin\mixdog-secure-desktop.exe" service  (quoted)
+icacls C:\ProgramData\Mixdog\SecureDesktop\bin\mixdog-secure-desktop.exe
+# Owner BUILTIN\Administrators; the user has only (RX), SYSTEM/Administrators (F)
+# From a NON-elevated prompt, replacing it must be denied:
+Copy-Item .\target\release\mixdog-secure-desktop.exe `
+  C:\ProgramData\Mixdog\SecureDesktop\bin\mixdog-secure-desktop.exe -Force   # Access denied
+@@@@
+.\harness\build-effort-judge-bundle.ps1
+@@@@
+.\run.ps1 -Preset full-sol-xhigh -Status
+.\run.ps1 -JobsDir jobs-full-sol-xhigh-YYYYMMDD-HHmmss -Status
+@@@@
+.\target\release\mixdog-secure-desktop.exe probe --frames 20
+@@@@
+Start-Process .\resources\native-tools\mixdog-secure-desktop.exe -ArgumentList install -Verb RunAs -Wait
+.\resources\native-tools\mixdog-secure-desktop.exe status   # {"installed":true,"running":true,...}
+@@@@
+Start-Process .\target\release\mixdog-secure-desktop.exe -ArgumentList uninstall -Verb RunAs -Wait
+.\target\release\mixdog-secure-desktop.exe status   # {"installed":false,"running":false}
+Get-Service MixdogSecureDesktop -ErrorAction SilentlyContinue   # none
+Test-Path C:\ProgramData\Mixdog\SecureDesktop                   # False
+@@@@
+cd benchmarks/terminal-bench-2.1
+.\run.ps1 -Preset sol-xhigh
+.\run.ps1 -Preset grok46-xhigh
+.\run.ps1 -Preset opus5-solo
+
+# Full-suite equivalents used for published comparisons (fixed effort)
+.\run.ps1 -Preset full-opus5-solo -EffortJudge off
+.\run.ps1 -Preset full-sol-xhigh -EffortJudge off
+
+# Bench log 2026-10-15: GPT-6.1 Sol xhigh, Auto effort (steps), web search on,
+# paired with the pinned Codex CLI run (codex-gpt61-sol)
+.\run.ps1 -Preset full-sol61
+@@@@
+dotnet build scripts/computer-winui-fixture/ComputerWinUiFixture.csproj -c Release
+$env:MIXDOG_WINUI3_FIXTURE = (Resolve-Path scripts/computer-winui-fixture/bin/Release/net8.0-windows10.0.19041.0/win-x64/ComputerWinUiFixture.exe).Path
+node scripts/run-computer-reliability.mjs
+@@@@
+node --import ./scripts/test-env.mjs --import tsx --test src/main/github-service.test.mjs src/renderer/github/github-ui.test.mjs src/renderer/settings/git-plugin.test.mjs src/renderer/source-control-commit.test.mjs
+npm run typecheck
+@@@@
+node --test src/runtime/github/github.test.mjs src/session-runtime/builtin-features.test.mjs src/session-runtime/tool-profile.test.mjs
+@@@@
+node ../../scripts/test.mjs --import ./scripts/test-env.mjs --import tsx --lane slow src/main/computer/host/reliability.slow.test.mjs
+node scripts/run-computer-reliability.mjs
+@@@@
+node analysis/final-context.mjs   # final-context medians for all runs
+node analysis/first-context.mjs   # first-request medians
+# Full-run cost: reprice from raw traces and cross-check every snapshot
+node analysis/trace-cost.mjs jobs-full-opus5-solo-20260825-155233
+node analysis/trace-cost.mjs jobs-full-sol-xhigh-k5-20260825-182921
+@@@@
+node analysis/publish-assets.mjs
+@@@@
+node analysis/verify-source-commit.mjs  # each published run ↔ the source commit it ran
+node analysis/results-table.mjs   # regenerates records/results.md/.json
+node harness/cost-exact.mjs jobs-full-opus5-solo-20260825-155233/2026-08-26__00-52-35 records/baselines/cc-baseline-plus.json
+node harness/cost-exact.mjs jobs-full-sol-xhigh-k5-20260825-182921/2026-08-26__03-29-24
+@@@@
+node apps/desktop/scripts/composer-layout-probe/run.mjs
+@@@@
+node benchmarks/terminal-bench-2.1/analysis/export-raw.mjs
+@@@@
+node native/mixdog-browser-import/test.mjs
+@@@@
+node scripts/extensions-layout-probe/run.mjs
+@@@@
+node scripts/extensions-layout-probe/run.mjs --views=git,skill
+@@@@
+node scripts/memory-chunk-quality.mjs
+node scripts/memory-chunk-quality.mjs --input C:\path\snapshot.json --simulate-limit 2
+@@@@
+node scripts/test-direct.mjs src/runtime/web-search/lib/document-content.test.mjs src/runtime/web-search/lib/http-fetch.test.mjs src/runtime/web-search/lib/fetch-pipeline.test.mjs src/runtime/web-search/lib/fetch-output.test.mjs
+node scripts/test-direct.mjs --experimental-test-module-mocks src/runtime/web-search/lib/browser-document.live.test.mjs
+@@@@
+npm run test:office:live -- src/runtime/office/office-live-runtime.test.mjs 're-authoring a deck'
+@@@@
+npm test -- memory-chunk memory-cycle1-quality memory-cycle-packets compact-handoff
+@@@@
+siyuan --help
+
+# Check which command is being used
+Get-Command siyuan -All
+where.exe siyuan
+@@@@
+siyuan --help
+
+# 检查实际使用的命令
+Get-Command siyuan -All
+where.exe siyuan

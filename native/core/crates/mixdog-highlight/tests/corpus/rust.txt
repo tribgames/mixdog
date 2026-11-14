@@ -1,0 +1,21 @@
+//! crate docs
+use std::collections::{HashMap, HashSet};
+#[derive(Debug, Clone, PartialEq)]
+pub struct Point<T: Copy = i32> { pub x: T, y: T }
+pub enum E<'a> { A(&'a str), B { n: u8 }, C }
+impl<T: Copy + std::fmt::Debug> Point<T> where T: Default {
+    pub const ORIGIN: u32 = 0xFF_u32;
+    pub fn new(x: T, y: T) -> Self { Self { x, y } }
+    /// Doc comment
+    fn go(&mut self, f: impl Fn(i32) -> i32) -> Result<(), Box<dyn std::error::Error>> {
+        let s = "esc \" \n \u{1F600}"; let r = r#"raw "quoted""#; let b = b'a'; let c = '\'';
+        let v: Vec<u8> = vec![1, 2, 3]; let n = 1_000i64 + 2.5e-3f32 as i64;
+        match self.x { 0 => {}, n if n > 1 => println!("{n}"), _ => unreachable!() }
+        for (i, x) in v.iter().enumerate() { if let Some(y) = x.checked_add(1) { continue; } }
+        loop { break; } while let Some(_) = None::<i32> {}
+        let cl = |a: i32, b| -> i32 { a + b }; unsafe { *ptr = 1; }
+        Ok(())
+    }
+}
+macro_rules! m { ($x:expr) => { $x + 1 }; }
+fn main() { let _ = async { x.await? }; /* block /* nested */ */ }

@@ -1,0 +1,933 @@
+# This will disable federation sending on the main Synapse instance
+send_federation: false
+
+federation_sender_instances:
+  - synapse-federation-sender-1 # The worker_name setting in your federation sender worker configuration file
+@@@@
+- job_name: "synapse"
+    metrics_path: "/_synapse/metrics"
+    # when endpoint uses https:
+    scheme: "https"
+
+    static_configs:
+    - targets: ["my.server.here:port"]
+@@@@
+---
+class: document:class:Document    # Required
+title: Getting Started Guide      # Required
+---
+# Content in Markdown format
+@@@@
+---
+class: documents:class:ControlledDocument # Required
+title: Document Review Procedure          # Required
+template: [SOP-001] Document Control.md   # Required, path to template
+author: John Smith                        # Required
+owner: Jane Wilson                        # Required
+abstract: Document description            # Optional
+reviewers:                                # Optional
+  - alice.cooper@example.com
+approvers:                                # Optional
+  - david.brown@example.com
+coAuthors:                                # Optional
+  - bob.dylan@example.com
+changeControl:                            # Optional
+  description: Initial document creation
+  reason: Need for standardized process
+  impact: Improved document control
+---
+Document content in Markdown...
+@@@@
+---
+class: documents:mixin:DocumentTemplate  # Required
+title: SOP Template                      # Required
+docPrefix: SOP                           # Required, document code prefix
+category: documents:category:Procedures  # Required
+author: John Smith                       # Required
+owner: Jane Wilson                       # Required
+abstract: Template description           # Optional
+reviewers:                               # Optional
+  - alice.cooper@example.com
+approvers:                               # Optional
+  - david.brown@example.com
+coAuthors:                               # Optional
+  - bob.dylan@example.com
+---
+Template content in Markdown...
+@@@@
+---
+class: tracker:class:Issue        # Required
+title: Project Setup              # Required
+status: In Progress               # Required
+priority: High                    # Optional
+assignee: John Smith              # Optional
+estimation: 8                     # Optional, in hours
+remainingTime: 4                  # Optional, in hours
+---
+Task description in Markdown...
+@@@@
+backendSecrets:
+  AWS_ACCESS_KEY_ID: "my-access-key"
+  AWS_SECRET_ACCESS_KEY: "my-secret-key"
+@@@@
+backendSecrets:
+  DATABASE_HOST: "my-baserow-baserow-backend-postgresql"
+  DATABASE_PORT: "5432"
+  DATABASE_NAME: "baserow"
+  DATABASE_USER: "baserow"
+  DATABASE_PASSWORD: "password"
+  REDIS_HOST: "my-baserow-baserow-backend-redis"
+  REDIS_PORT: "6379"
+  REDIS_PASSWORD: "password"
+@@@@
+baserow-backend-wsgi:
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10 
+    targetCPUUtilizationPercentage: 80
+    targetMemoryUtilizationPercentage: 80
+@@@@
+baserow-email-receiver:
+  enabled: true
+
+backendConfigMap:
+  BASEROW_INBOUND_EMAIL_DOMAIN: inbound.example.com
+
+backendSecrets:
+  BASEROW_INBOUND_EMAIL_WEBHOOK_SECRET: replace-with-a-long-random-secret
+@@@@
+baserow-embeddings:
+  enabled: true
+@@@@
+caddy:
+  enabled: true
+  ingressController:
+    className: caddy
+    config:
+      email: "my@email.com"
+      proxyProtocol: true
+      experimentalSmartSort: false
+      onDemandTLS: true
+      onDemandAsk: http://:9765/healthz
+@@@@
+class: document:class:Teamspace   # Required
+title: Documentation              # Required
+private: false                    # Optional, default: false
+autoJoin: true                    # Optional, default: true
+owners:                           # Optional, list of email addresses
+  - john.doe@example.com
+members:                          # Optional, list of email addresses
+  - joe.shmoe@example.com
+description: string               # Optional
+@@@@
+class: documents:class:OrgSpace   # Required
+title: QMS Documents              # Required
+private: false                    # Optional, default: false
+owners:                           # Optional, list of email addresses
+  - john.doe@example.com
+members:                          # Optional, list of email addresses
+  - joe.shmoe@example.com
+description: string               # Optional
+qualified: john.doe@example.com   # Optional, qualified user
+manager: jane.doe@example.com     # Optional, QMS manager
+qara: bob.smith@example.com       # Optional, QA/RA specialist
+@@@@
+class: tracker:class:Project       # Required
+title: Project Alpha               # Required
+identifier: ALPHA                  # Required, max 5 uppercase letters/numbers, must start with a letter
+private: false                     # Optional, default: false
+autoJoin: true                     # Optional, default: true
+owners:                            # Optional, list of email addresses
+  - john.doe@example.com
+members:                           # Optional, list of email addresses
+  - joe.shmoe@example.com
+description: string                # Optional
+defaultIssueStatus: Todo           # Optional
+@@@@
+collabora:
+   - host: "<protocol>://<host-name>:<port>"
+      # if there are no aliases you can ignore the below line
+      aliases: ["<protocol>://<its-first-alias>:<port>, <protocol>://<its-second-alias>:<port>"]
+   # more host and aliases list is possible
+@@@@
+collabora:
+   env:
+      - name: remoteconfigurl
+         value: https://dynconfig.public.example.com/config/config.json
+
+dynamicConfig:
+   enabled: true
+
+   ingress:
+      enabled: true
+      annotations:
+      "cert-manager.io/issuer": letsencrypt-zprod
+      hosts:
+      - host: "dynconfig.public.example.com"
+      tls:
+      - secretName: "collabora-online-dynconfig-tls"
+         hosts:
+            - "dynconfig.public.example.com"
+
+   configuration:
+      kind: "configuration"
+      storage:
+         wopi:
+         alias_groups:
+            groups:
+            - host: "https://domain1\\.xyz\\.abc\\.com/"
+               allow: true
+            - host: "https://domain2\\.pqr\\.def\\.com/"
+               allow: true
+               aliases:
+                  - "https://domain2\\.ghi\\.leno\\.de/"
+@@@@
+collabora:
+   server_name: <hostname>:<port>
+@@@@
+dependencies:
+  appflowy_ui: ^1.0.0
+@@@@
+deploy:
+  mode: replicated
+  replicas: 3
+@@@@
+experimental_features:
+  faster_joins: true
+@@@@
+extraObjects:
+  - apiVersion: apisix.apache.org/v2
+    kind: ApisixRoute
+    metadata:
+      name: '{{ include "collabora-online.fullname" . }}'
+    spec:
+      http:
+        - name: collabora
+          match:
+            hosts: ["office.example.com"]
+            paths: ["/*"]
+          backends:
+            - serviceName: '{{ include "collabora-online.fullname" . }}'
+              servicePort: '{{ .Values.service.port }}'
+@@@@
+extraVolumes:
+  - name: internal-ca
+    secret:
+      secretName: internal-ca
+
+extraVolumeMounts:
+  - name: internal-ca
+    mountPath: /etc/ssl/internal-ca
+    readOnly: true
+
+extraEnvVars:
+  - name: SSL_CERT_FILE
+    value: /etc/ssl/internal-ca/ca.crt
+@@@@
+global:
+  baserow:
+    domain: "your-baserow-domain.com"
+    backendDomain: "api.your-baserow-domain.com"
+    objectsDomain: "objects.your-baserow-domain.com"
+@@@@
+global:
+  baserow:
+    serviceAccount:
+      shared: true
+      create: true
+      name: baserow
+      annotations: {}
+@@@@
+global:
+  scrape_interval: 15s
+  scrape_timeout: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: synapse
+    scrape_interval: 15s
+    metrics_path: /_synapse/metrics
+    scheme: http
+    # We set `honor_labels` so that each service can set their own `job`/`instance` label
+    #
+    # > honor_labels controls how Prometheus handles conflicts between labels that are
+    # > already present in scraped data and labels that Prometheus would attach
+    # > server-side ("job" and "instance" labels, manually configured target
+    # > labels, and labels generated by service discovery implementations).
+    # >
+    # > *-- https://prometheus.io/docs/prometheus/latest/configuration/configuration/#scrape_config*
+    honor_labels: true
+    # Use HTTP service discovery
+    #
+    # Reference:
+    #  - https://prometheus.io/docs/prometheus/latest/http_sd/
+    #  - https://prometheus.io/docs/prometheus/latest/configuration/configuration/#http_sd_config
+    http_sd_configs:
+      - url: 'http://localhost:9469/metrics/service_discovery'
+@@@@
+ingress:
+   className: "haproxy"
+@@@@
+ingress:
+  enabled: true
+
+caddy:
+  enabled: true
+  ingressController:
+    className: caddy
+    config:
+      email: "my@email.com"
+      proxyProtocol: true
+      experimentalSmartSort: false
+      onDemandTLS: true
+      onDemandAsk: http://:9765/healthz
+  loadBalancer:
+    externalTrafficPolicy: "Local"
+    annotations:
+      service.beta.kubernetes.io/aws-load-balancer-proxy-protocol: "*"
+      service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
+      service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: "ip"
+      service.beta.kubernetes.io/aws-load-balancer-healthcheck-protocol: "TCP"
+      service.beta.kubernetes.io/aws-load-balancer-alpn-policy: "HTTP2Preferred"
+@@@@
+ingress:
+  enabled: true
+
+caddy:
+  enabled: true
+  ingressController:
+    config:
+      email: "my@email.com"
+      proxyProtocol: true
+      experimentalSmartSort: false
+      onDemandTLS: true
+      onDemandRateLimitInterval: "2m"
+      onDemandRateLimitBurst: 5
+      onDemandAsk: http://:9765/healthz
+  loadBalancer:
+    externalTrafficPolicy: "Local"
+    annotations:
+      service.beta.kubernetes.io/do-loadbalancer-protocol: "http"
+      service.beta.kubernetes.io/do-loadbalancer-algorithm: "round_robin"
+      service.beta.kubernetes.io/do-loadbalancer-tls-ports: "443"
+      service.beta.kubernetes.io/do-loadbalancer-tls-passthrough: "true"
+      service.beta.kubernetes.io/do-loadbalancer-redirect-http-to-https: "true"
+      service.beta.kubernetes.io/do-loadbalancer-enable-proxy-protocol: "true"
+@@@@
+job: {
+    name: "synapse"
+
+    target_group: {
+      target: "http://SERVER.LOCATION.HERE:PORT/_synapse/metrics"
+    }
+  }
+@@@@
+listeners:
+  # Other listeners
+
+  - port: 9093
+    type: http
+    resources:
+      - names: [replication]
+@@@@
+logging:
+  enabled: true
+  ecs: true
+  dedot: "-"
+  additionalFilters:
+    - grep:
+        exclude:
+          - key: "$['log']['level']"
+            pattern: '/(info|debug|trace)/'
+  globalOutputRefs:
+    - "default"
+dynamicConfig:
+  logging:
+    enabled: true
+    ecs: true
+    dedot: "-"
+    globalOutputRefs:
+      - "default"
+  upload:
+    logging:
+      enabled: true
+      ecs: true
+      dedot: "-"
+      globalOutputRefs:
+        - "default"
+@@@@
+minio:
+  enabled: false
+
+backendConfigMap:
+  AWS_STORAGE_BUCKET_NAME: "my-baserow-baserow-backend-bucket"
+  AWS_S3_CUSTOM_DOMAIN: "my-baserow-baserow-backend-bucket"
+  AWS_S3_REGION_NAME: "us-east-1"
+  AWS_S3_ENDPOINT_URL: "https://s3.us-east-1.amazonaws.com/my-baserow-baserow-backend-bucket"
+@@@@
+name: Create Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # Fetch all history for tags
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      - name: Generate Release Notes
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+        run: |
+          npm run release:notes -- --output RELEASE_NOTES.md
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          body_path: RELEASE_NOTES.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+@@@@
+onDemandAsk: "http://my-baserow-baserow-backend-wsgi/api/builder/domains/ask-public-domain-exists/"
+@@@@
+ports:
+  - '3000:8080'  # expose on port 3000 instead
+@@@@
+prometheus:
+   servicemonitor:
+      enabled: true
+      labels:
+         release: "kube-prometheus-stack"
+   rules:
+      enabled: true # will deploy alert rules
+      additionalLabels:
+         release: "kube-prometheus-stack"
+grafana:
+   dashboards:
+      enabled: true # will deploy default dashboards
+@@@@
+redis:
+  enabled: false
+
+postgresql:
+  enabled: false
+@@@@
+redis:
+  enabled: true
+  host: redis
+  port: 6379
+  # dbid:  <redis_logical_db_id>
+  # password: <secret_password>
+  # use_tls: True
+  # certificate_file: <path_to_certificate>
+  # private_key_file: <path_to_private_key>
+  # ca_file: <path_to_ca_certificate>
+@@@@
+replicaCount: 3
+
+ingress:
+   enabled: true
+   className: "haproxy"
+   annotations:
+      haproxy.org/timeout-tunnel: "3600s"
+      haproxy.org/backend-config-snippet: |
+         balance url_param WOPISrc check_post
+         hash-type consistent
+   hosts:
+      - host: chart-example.local
+         paths:
+         - path: /
+         pathType: ImplementationSpecific
+
+autoscaling:
+   enabled: false
+
+collabora:
+   aliasgroups:
+      - host: "https://example.integrator.com:443"
+   extra_params: --o:ssl.enable=false --o:ssl.termination=true
+   # for production enviroment we recommend appending `extra_params` with `--o:num_prespawn_children=4`. It defines number of child processes to keep started in advance and waiting for new clients
+
+resources:
+   limits:
+      cpu: "1800m"
+      memory: "2000Mi"
+   requests:
+      cpu: "1800m"
+      memory: "2000Mi"
+
+# for production enviroment we recommended following values
+# resources:
+   # limits:
+      # cpu: "8000m"
+      # memory: "8000Mi"
+   # requests:
+      # cpu: "4000m"
+      # memory: "6000Mi"
+@@@@
+replicaCount: 3
+
+ingress:
+   enabled: true
+   className: "nginx"
+   annotations:
+      nginx.ingress.kubernetes.io/upstream-hash-by: "$arg_WOPISrc"
+      nginx.ingress.kubernetes.io/proxy-body-size: "0"
+      nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+      nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
+   hosts:
+      - host: chart-example.local
+         paths:
+         - path: /
+         pathType: ImplementationSpecific
+
+autoscaling:
+   enabled: false
+
+collabora:
+   aliasgroups:
+      - host: "https://example.integrator.com:443"
+   extra_params: --o:ssl.enable=false --o:ssl.termination=true
+   # for production enviroment we recommend appending `extra_params` with `--o:num_prespawn_children=4`. It defines number of child processes to keep started in advance and waiting for new clients
+
+resources:
+   limits:
+      cpu: "1800m"
+      memory: "2000Mi"
+   requests:
+      cpu: "1800m"
+      memory: "2000Mi"
+
+# for production enviroment we recommended following values
+# resources:
+   # limits:
+      # cpu: "8000m"
+      # memory: "8000Mi"
+   # requests:
+      # cpu: "4000m"
+      # memory: "6000Mi"
+@@@@
+resources:
+   limits:
+      cpu: "8000m"
+      memory: "8000Mi"
+   requests:
+      cpu: "4000m"
+      memory: "6000Mi"
+@@@@
+reverseProxy:
+  enabled: true
+  hashParam: RouteToken
+  controller:
+    enabled: true
+    upstream: cool-controller.collabora.svc.cluster.local:9000
+  route:
+    enabled: true
+    host: cool.apps.example.com
+
+collabora:
+  extra_params: >-
+    --o:ssl.enable=false
+    --o:ssl.termination=false
+    --o:indirection_endpoint.url=http://cool.apps.example.com/controller/routeToken
+    --o:monitors.monitor[0]=ws://cool-controller.collabora.svc.cluster.local:9000/controller/ws
+    --o:monitors.monitor[0][@retryInterval]=5
+@@@@
+rule_files:
+    - "/PATH/TO/synapse-v2.rules"
+@@@@
+secretkey: "<InsertSecretKey>"
+# The admin section needs to be present for new instances of PLANKA, after the first start you can remove the lines starting with admin_. If you want the admin user to be unchangeable admin_email: has to stay
+# After changing the config you have to run ```helm upgrade  planka . -f values.yaml```
+
+# Admin user
+admin_email: "demo@demo.demo" # Do not remove if you want to prevent this user from being edited/deleted
+admin_password: "demo"
+admin_name: "Demo Demo"
+admin_username: "demo"
+# Admin user
+
+# Ingress
+ingress:
+  enabled: true
+  hosts:
+    - host: planka.example.dev
+      paths:
+        - path: /
+          pathType: ImplementationSpecific
+
+  # Needed for HTTPS
+  tls:
+    - secretName: planka-tls # existing TLS secret in k8s
+      hosts:
+        - planka.example.dev
+```
+
+```bash
+helm install planka . -f values.yaml
+```
+
+### Things to consider if production hosting
+
+If you want to host PLANKA for more than just playing around with, you might want to do the following things:
+
+- Create a `values.yaml` with your config, as this will make applying upgrades much easier in the future.
+- Create your `secretkey` once and store it either in a secure vault, or in your `values.yaml` file so it will be the same for upgrading in the future.
+- Specify a password for `postgresql.auth.password` as there have been issues with the postgresql chart generating new passwords locking you out of the data you've already stored. (see [this issue](https://github.com/bitnami/charts/issues/2061))
+
+Any questions or concerns, [raise an issue](https://github.com/Chris-Greaves/planka-helm-chart/issues/new).
+
+## Advanced Configuration
+
+### Extra Volume Mounts
+
+The Helm chart supports mounting arbitrary ConfigMaps, Secrets, and Volumes to the PLANKA deployment using the `extraMounts` configuration. This is especially useful for scenarios like:
+
+- Adding custom configuration files
+- Mounting TLS certificates from existing secrets
+- Adding temporary or persistent storage volumes
+
+**Note**: ConfigMaps and Secrets must be created separately before referencing them in `extraMounts`.
+
+#### Basic Usage
+
+Use the `extraMounts` section to mount any type of volume:
+
+```yaml
+extraMounts:
+  # Mount CA certificate from existing ConfigMap
+  - name: ca-certs
+    mountPath: /etc/ssl/certs/custom-ca.crt
+    subPath: ca.crt
+    readOnly: true
+    configMap:
+      name: ca-certificates # Must exist
+
+  # Mount TLS certificates from existing Secret
+  - name: tls-certs
+    mountPath: /etc/ssl/private
+    readOnly: true
+    secret:
+      secretName: planka-tls-secret # Must exist
+      items:
+        - key: tls.crt
+          path: server.crt
+        - key: tls.key
+          path: server.key
+
+  # Temporary storage
+  - name: temp-storage
+    mountPath: /tmp/planka-temp
+    readOnly: false
+    emptyDir:
+      sizeLimit: 1Gi
+
+  # Host path mount
+  - name: backup-storage
+    mountPath: /var/lib/planka-backups
+    readOnly: false
+    hostPath:
+      path: /var/lib/planka-backups
+      type: DirectoryOrCreate
+
+  # NFS mount
+  - name: nfs-storage
+    mountPath: /shared/data
+    readOnly: false
+    nfs:
+      server: nfs.example.com
+      path: /exports/planka
+```
+
+### Environment Variables from Secrets
+
+You can reference values from existing secrets in environment variables:
+
+```yaml
+extraEnv:
+  - name: SMTP_PASSWORD
+    valueFrom:
+      secretName: smtp-credentials
+      key: password
+  - name: CUSTOM_API_KEY
+    valueFrom:
+      secretName: api-credentials
+      key: api-key
+```
+
+### Custom Terms of Service
+
+You can provide your own End User Terms of Service by passing the markdown files directly via `values.yaml` in the `terms` configuration block. This automates the creation of a corresponding ConfigMap and volume mount.
+
+```yaml
+terms:
+  enabled: true
+  customFiles:
+    en-US.md: |
+      # End User Terms of Service
+      ...
+      [confirmations]::
+      ---
+      ✔️ **I have read and accept these End User Terms of Service**
+    de-DE.md: |
+      # Nutzungsbedingungen
+      ...
+      [confirmations]::
+      ---
+      ✔️ **Ich habe diese Nutzungsbedingungen gelesen und akzeptiere sie**
+```
+
+### Image Digest Pinning
+
+For enhanced security and reproducibility, you can pin the container image using its SHA256 digest instead of relying solely on tags. This ensures you always deploy the exact same image, preventing tag mutations or accidental updates.
+
+#### Finding the Image Digest
+
+You can find the digest of a specific image tag using:
+
+```bash
+docker inspect ghcr.io/plankanban/planka:latest --format='{{index .RepoDigests 0}}'
+# Output: ghcr.io/plankanban/planka@sha256:abc123def456...
+
+# Or with skopeo
+skopeo inspect docker://ghcr.io/plankanban/planka:latest
+```
+
+#### Usage
+
+You can use digest pinning in several ways:
+
+**Option 1: Digest with tag (recommended)**
+
+Includes the tag for reference while using the digest for verification:
+
+```bash
+helm install planka . --set secretkey=$SECRETKEY \
+  --set image.tag=latest \
+  --set image.digest=abc123def456... \
+  --set admin_email="demo@demo.demo" \
+  --set admin_password="demo" \
+  --set admin_name="Demo Demo" \
+  --set admin_username="demo"
+```
+
+Or in values.yaml:
+
+```yaml
+image:
+  repository: ghcr.io/plankanban/planka
+  tag: latest
+  digest: "abc123def456ab89cd12ef34ab56cd78ef90ab12cd34ef56ab78cd90ef12ab34"
+```
+
+**Option 2: Digest only**
+
+If you prefer to pin only by digest without specifying a tag:
+
+```yaml
+image:
+  repository: ghcr.io/plankanban/planka
+  tag: "" # Empty - digest alone identifies the image
+  digest: "abc123def456ab89cd12ef34ab56cd78ef90ab12cd34ef56ab78cd90ef12ab34"
+```
+
+#### Security Benefits
+
+- **Immutability**: Ensures you always deploy the exact same image
+- **Supply Chain Security**: Protects against tag mutations or registry compromise
+- **Reproducibility**: Makes deployments fully reproducible across environments
+- **Audit Trail**: Provides clear image identity in deployment manifests
+@@@@
+services:
+  siyuan:
+    image: b3log/siyuan
+    container_name: siyuan
+    command: ['serve', '--workspace=/siyuan/workspace/', '--accessAuthCode=2222']
+    ports:
+      - 6806:6806
+    volumes:
+      - /mnt/Pool_1/Apps_Data/siyuan:/siyuan/workspace  # Adjust to your dataset path 
+    restart: unless-stopped
+    environment:
+      - TZ=America/New_York  # Replace with your timezone if needed
+      - PUID=1001
+      - PGID=1002
+@@@@
+services:
+  siyuan:
+    image: b3log/siyuan
+    container_name: siyuan
+    command: ['serve', '--workspace=/siyuan/workspace/', '--accessAuthCode=2222']
+    ports:
+      - 6806:6806
+    volumes:
+      - /mnt/Pool_1/Apps_Data/siyuan:/siyuan/workspace  # Adjust to your dataset path 
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Shanghai  # 按需替换为你的时区
+      - PUID=1001
+      - PGID=1002
+      - SIYUAN_LANG=zh-CN
+@@@@
+services:
+  siyuan:
+    image: b3log/siyuan
+    container_name: siyuan
+    command: ['serve', '--workspace=/siyuan/workspace/', '--accessAuthCode=2222']
+    ports:
+      - 6806:6806
+    volumes:
+      - /mnt/Pool_1/Apps_Data/siyuan:/siyuan/workspace  # Adjust to your dataset path 
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Tokyo  # 必要に応じてタイムゾーンに置き換えてください
+      - PUID=1001
+      - PGID=1002
+      - SIYUAN_LANG=ja  # インターフェース言語（このドキュメントに合わせる）
+@@@@
+services:
+  siyuan:
+    image: b3log/siyuan
+    container_name: siyuan
+    command: ['serve', '--workspace=/siyuan/workspace/', '--accessAuthCode=2222']
+    ports:
+      - 6806:6806
+    volumes:
+      - /mnt/Pool_1/Apps_Data/siyuan:/siyuan/workspace  # Veri kümesi yolunuza göre ayarlayın
+    restart: unless-stopped
+    environment:
+      - TZ=Europe/Istanbul  # Gerekirse kendi saat diliminizle değiştirin
+      - PUID=1001
+      - PGID=1002
+      - SIYUAN_LANG=tr
+@@@@
+synapse-federation-sender-1:
+  image: matrixdotorg/synapse:latest
+  container_name: synapse-federation-sender-1
+  restart: unless-stopped
+  entrypoint: ["/start.py", "run", "--config-path=/data/homeserver.yaml", "--config-path=/data/workers/synapse-federation-sender-1.yaml"]
+  healthcheck:
+    disable: true
+  volumes:
+    - ${VOLUME_PATH}/data:/data:rw # Replace VOLUME_PATH with the path to your Synapse volume
+  environment:
+    SYNAPSE_WORKER: synapse.app.federation_sender
+  depends_on:
+    - synapse
+@@@@
+synapse-generic-worker-1:
+  image: matrixdotorg/synapse:latest
+  container_name: synapse-generic-worker-1
+  restart: unless-stopped
+  entrypoint: ["/start.py", "run", "--config-path=/data/homeserver.yaml", "--config-path=/data/workers/synapse-generic-worker-1.yaml"]
+  healthcheck:
+    test: ["CMD-SHELL", "curl -fSs http://localhost:8081/health || exit 1"]
+    start_period: "5s"
+    interval: "15s"
+    timeout: "5s"
+  volumes:
+    - ${VOLUME_PATH}/data:/data:rw # Replace VOLUME_PATH with the path to your Synapse volume
+  environment:
+    SYNAPSE_WORKER: synapse.app.generic_worker
+  # Expose port if required so your reverse proxy can send requests to this worker
+  # Port configuration will depend on how the http listener is defined in the worker configuration file
+  ports:
+    - 8081:8081
+  depends_on:
+    - synapse
+@@@@
+tls:
+  certificates:
+    - certFile: /etc/traefik/certs/cert.pem
+      keyFile: /etc/traefik/certs/key.pem
+    - certFile: /etc/traefik/certs/other-cert.pem
+      keyFile: /etc/traefik/certs/other-key.pem
+@@@@
+version: "3.9"
+services:
+  main:
+    image: b3log/siyuan
+    command: ['serve', '--workspace=/siyuan/workspace/', '--accessAuthCode=${AuthCode}']
+    ports:
+      - 6806:6806
+    volumes:
+      - /siyuan/workspace:/siyuan/workspace
+    restart: unless-stopped
+    environment:
+      - TZ=${YOUR_TIME_ZONE}    # A list of time zone identifiers can be found at https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
+      - PUID=${YOUR_USER_PUID}  # Customize user ID
+      - PGID=${YOUR_USER_PGID}  # Customize group ID
+@@@@
+version: "3.9"
+services:
+  main:
+    image: b3log/siyuan
+    command: ['serve', '--workspace=/siyuan/workspace/', '--accessAuthCode=${AuthCode}']
+    ports:
+      - 6806:6806
+    volumes:
+      - /siyuan/workspace:/siyuan/workspace
+    restart: unless-stopped
+    environment:
+      - TZ=${YOUR_TIME_ZONE}    # Saat dilimi tanımlayıcılarının listesi için bkz. https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
+      - PUID=${YOUR_USER_PUID}  # Customize user ID
+      - PGID=${YOUR_USER_PGID}  # Customize group ID
+      - SIYUAN_LANG=tr       # Arayüz dili (bu belgeyle uyumlu)
+@@@@
+version: "3.9"
+services:
+  main:
+    image: b3log/siyuan
+    command: ['serve', '--workspace=/siyuan/workspace/', '--accessAuthCode=${AuthCode}']
+    ports:
+      - 6806:6806
+    volumes:
+      - /siyuan/workspace:/siyuan/workspace
+    restart: unless-stopped
+    environment:
+      - TZ=${YOUR_TIME_ZONE}    # タイムゾーン識別子のリストは https://en.wikipedia.org/wiki/List_of_tz_database_time_zones を参照してください
+      - PUID=${YOUR_USER_PUID}  # カスタムユーザーID
+      - PGID=${YOUR_USER_PGID}  # カスタムグループID
+      - SIYUAN_LANG=ja       # インターフェース言語（このドキュメントに合わせる）
+@@@@
+version: "3.9"
+services:
+  main:
+    image: b3log/siyuan
+    command: ['serve', '--workspace=/siyuan/workspace/', '--accessAuthCode=${AuthCode}']
+    ports:
+      - 6806:6806
+    volumes:
+      - /siyuan/workspace:/siyuan/workspace
+    restart: unless-stopped
+    environment:
+      - TZ=${YOUR_TIME_ZONE}    # 时区标识符列表见 https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
+      - PUID=${YOUR_USER_PUID}  # 自定义用户 ID
+      - PGID=${YOUR_USER_PGID}  # 自定义组 ID
+      - SIYUAN_LANG=zh-CN       # 界面语言（与本文档一致）
+@@@@
+webtransport:
+  listenAddrs: ["0.0.0.0:443"]
+  path: "/webtransport"
+  certFile: "/path/to/cert.pem"
+  keyFile: "/path/to/key.pem"
+  writeTimeoutSec: 10
+  closeTimeoutSec: 5
+  dialTimeoutSec: 30
+  maxStreams: 128
+@@@@
+worker_replication_host: synapse
+worker_replication_http_port: 9093
+@@@@
+{{#include workers/generic_worker.yaml}}

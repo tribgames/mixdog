@@ -1,0 +1,67 @@
+Hello, World!
+
+This is some e-mail content. Even though it has whitespace and newlines, the e-mail converter will handle it correctly.
+
+Even mismatched tags.
+A div
+Another div
+A div
+within a div
+[A link](http://foo.com)
+@@@@
+[INFO] Repository root: /path/to/repo
+[INFO] Checking changes since: HEAD~3
+[INFO] Bump type: minor
+[INFO] Getting changed files since HEAD~3...
+[INFO] Changed files:
+  packages/core/src/index.ts
+  packages/client/src/client.ts
+[SUCCESS] Package @company/core changed: 0.7.0 -> 0.8.0 (minor)
+[SUCCESS] Package @company/client changed: 0.7.0 -> 0.8.0 (minor)
+[INFO] Found 2 package(s) to update
+[INFO] Updating package versions...
+[SUCCESS] Updated @company/core to version 0.8.0
+[SUCCESS] Updated @company/client to version 0.8.0
+[INFO] Updating dependencies across all packages...
+[SUCCESS] Version bump complete!
+
+[INFO] Summary of changes:
+  ✓ @company/core -> 0.8.0 (will be published)
+  ✓ @company/client -> 0.8.0 (will be published)
+
+[INFO] Next steps:
+  1. Review the changes: git diff
+  2. Run tests: rush test
+  3. Build all packages: rush build
+  4. Commit changes: git add . && git commit -m 'Bump versions'
+  5. For publishable packages, run: rush publish
+@@@@
+common/
+  config/       # Configuration files for Rush and other tools
+  git-hooks/    # Git hooks for the repository
+  scripts/      # Utility scripts for managing the repository
+  temp/         # Temporary files and caches
+packages/
+  platform-rig/         # Platform rig utilities
+@@@@
+core -> domain -> runtime/formatting -> commands -> cli
+@@@@
+html:not([dir=rtl]) .box{margin-left:4px;margin-right:8px;}[dir=rtl] .box{margin-right:4px;margin-left:8px;}.box{top:0;}
+@@@@
+src/            CLI, TUI, runtime, workflows, agents, and rules
+apps/desktop/   desktop app
+apps/relay/     remote web app and relay
+native/         native process, search, graph, patch, and support binaries
+scripts/        tests, diagnostics, benchmarks, and build scripts
+benchmarks/     reproducible benchmark harnesses, results, and raw artifacts
+src/vendor/     vendored runtime components
+@@@@
+~/.mixdog-remote/
+├── versions/<버전-해시>/   설치된 Mixdog 실행 파일 (앱 버전마다 별도 폴더, 설치 후 바뀌지 않음)
+├── deps/                   Mixdog이 쓰는 Node 모듈
+├── runtime/                실행 중인 Mixdog의 접속 정보 (포트, 토큰)
+├── user-data/              서버 쪽 설정과 작업 기록 (home/ 아래)
+├── daemon.log              서버 Mixdog의 로그 (5MB를 넘으면 daemon.log.1로 복사한 뒤 비움)
+├── daemon.log.1            직전 로그 한 세대
+├── state.json              현재/이전 설치 버전 기록
+└── .install-lock           설치 중에만 쓰는 잠금 파일

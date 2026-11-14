@@ -1,0 +1,1351 @@
+$attachments = $message->getAttachments();
+
+foreach ($attachments as $attachment) {
+    // $attachment is instance of \Ddeboer\Imap\Message\Attachment
+}
+@@@@
+$attachments = $message->getAttachments();
+
+foreach ($attachments as $attachment) {
+    if ($attachment->isEmbeddedMessage()) {
+        $embeddedMessage = $attachment->getEmbeddedMessage();
+        // $embeddedMessage is instance of \Ddeboer\Imap\Message\EmbeddedMessage
+    }
+}
+@@@@
+$attachments = $parser->getAttachments();
+// return an array of all attachments (include inline attachments)
+
+$attachments = $parser->getAttachments(false);
+// return an array of all attachments (exclude inline attachments)
+@@@@
+$base = new Uri('http://example.com/a/b/');
+echo UriResolver::relativize($base, new Uri('http://example.com/a/b/c'));  // prints 'c'.
+echo UriResolver::relativize($base, new Uri('http://example.com/a/x/y'));  // prints '../x/y'.
+echo UriResolver::relativize($base, new Uri('http://example.com/a/b/?q')); // prints '?q'.
+echo UriResolver::relativize($base, new Uri('http://example.org/a/b/'));   // prints '//example.org/a/b/'.
+@@@@
+$client = new \GuzzleHttp\Client();
+$response = $client->request('GET', 'https://api.github.com/repos/guzzle/guzzle');
+
+echo $response->getStatusCode(); // 200
+echo $response->getHeaderLine('content-type'); // 'application/json; charset=utf8'
+echo $response->getBody(); // '{"id": 1420053, "name": "guzzle", ...}'
+
+// Send an asynchronous request.
+$request = new \GuzzleHttp\Psr7\Request('GET', 'http://httpbin.org');
+$promise = $client->sendAsync($request)->then(function ($response) {
+    echo 'I completed! ' . $response->getBody();
+});
+
+$promise->wait();
+@@@@
+$connection->deleteMailbox($mailbox);
+@@@@
+$key = "-----BEGIN PUBLIC KEY-----\n....\n-----END PUBLIC KEY-----";
+// or
+// $key = "-----BEGIN CERTIFICATE-----\n....\n-----END CERTIFICATE-----";
+
+$provider = new Stevenmaguire\OAuth2\Client\Provider\Keycloak([
+    // ...
+    'encryptionKey'   => $key,
+]);
+@@@@
+$keyPath = '../key.pem';
+
+$provider = new Stevenmaguire\OAuth2\Client\Provider\Keycloak([
+    // ...
+    'encryptionKeyPath'   => $keyPath,
+]);
+@@@@
+$loop = React\EventLoop\Factory::create();
+$loop->addPeriodicTimer(0, [$queue, 'run']);
+@@@@
+$mailbox = $connection->getMailbox('INBOX');
+@@@@
+$mailbox = $connection->getMailbox('Sent');
+$mailbox->addMessage($messageMIME, '\\Seen');
+@@@@
+$mailbox = $connection->getMailbox('another-mailbox');
+$message->move($mailbox);
+@@@@
+$mailbox->getMessage(1)->delete();
+$mailbox->getMessage(2)->delete();
+$connection->expunge();
+@@@@
+$mailbox->setFlag('\\Seen \\Flagged', ['1:5', '7', '9']);
+$mailbox->setFlag('\\Seen', '1,3,5,6:8');
+
+$mailbox->clearFlag('\\Flagged', '1,3');
+@@@@
+$mailboxes = $connection->getMailboxes();
+
+foreach ($mailboxes as $mailbox) {
+    // Skip container-only mailboxes
+    // @see https://secure.php.net/manual/en/function.imap-getmailboxes.php
+    if ($mailbox->getAttributes() & \LATT_NOSELECT) {
+        continue;
+    }
+
+    // $mailbox is instance of \Ddeboer\Imap\Mailbox
+    printf('Mailbox "%s" has %s messages', $mailbox->getName(), $mailbox->count());
+}
+@@@@
+$message->getBodyHtml();    // Content of text/html part, if present
+$message->getBodyText();    // Content of text/plain part, if present
+@@@@
+$message->getHeaders();
+@@@@
+$message->getNumber();
+$message->getId();
+@@@@
+$message->getSubject();
+$message->getFrom();    // Message\EmailAddress
+$message->getTo();      // array of Message\EmailAddress
+$message->getDate();    // DateTimeImmutable
+$message->isAnswered();
+$message->isDeleted();
+$message->isDraft();
+$message->isSeen();
+@@@@
+$message->markAsSeen();
+@@@@
+$message->setFlag('\\Seen \\Flagged');
+$message->clearFlag('\\Flagged');
+@@@@
+$messages = $mailbox->getMessages();
+
+foreach ($messages as $message) {
+    // $message is instance of \Ddeboer\Imap\Message
+}
+@@@@
+$parser->saveAttachments('/path/to/save/attachments/');
+// return all attachments saved in the directory (include inline attachments)
+
+$parser->saveAttachments('/path/to/save/attachments/', false);
+// return all attachments saved in the directory (exclude inline attachments)
+
+// Save all attachments with the strategy ATTACHMENT_DUPLICATE_SUFFIX (default)
+$parser->saveAttachments('/path/to/save/attachments/', false, Parser::ATTACHMENT_DUPLICATE_SUFFIX);
+// return all attachments saved in the directory: logo.jpg, logo_1.jpg, ..., logo_100.jpg, YY34UFHBJ.jpg
+
+// Save all attachments with the strategy ATTACHMENT_RANDOM_FILENAME
+$parser->saveAttachments('/path/to/save/attachments/', false, Parser::ATTACHMENT_RANDOM_FILENAME);
+// return all attachments saved in the directory: YY34UFHBJ.jpg and F98DBZ9FZF.jpg
+
+// Save all attachments with the strategy ATTACHMENT_DUPLICATE_THROW
+$parser->saveAttachments('/path/to/save/attachments/', false, Parser::ATTACHMENT_DUPLICATE_THROW);
+// return an exception when there is attachments duplicate.
+@@@@
+$promise = new Promise();
+$promise->reject('foo');
+$promise->wait();
+@@@@
+$promise = new Promise();
+$promise->reject('foo');
+// This will not throw an exception. It simply ensures the promise has
+// been resolved.
+$promise->wait(false);
+@@@@
+$promise = new Promise();
+$promise->then(function ($value) { echo $value; });
+// The promise is the deferred value, so you can deliver a value to it.
+$promise->resolve('foo');
+// prints "foo"
+@@@@
+$promise = new Promise(function () use (&$promise) {
+    $promise->resolve('foo');
+});
+
+// Calling wait will return the value of the promise.
+echo $promise->wait(); // outputs "foo"
+@@@@
+$promise = new Promise(function () use (&$promise) {
+    throw new Exception('foo');
+});
+
+$promise->wait(); // throws the exception.
+@@@@
+$promise = new Promise(function () { die('this is not called!'); });
+$promise->resolve('foo');
+echo $promise->wait(); // outputs "foo"
+@@@@
+$provider = new Stevenmaguire\OAuth2\Client\Provider\Keycloak([
+    'authServerUrl'         => '{keycloak-server-url}',
+    'realm'                 => '{keycloak-realm}',
+    'clientId'              => '{keycloak-client-id}',
+    'clientSecret'          => '{keycloak-client-secret}',
+    'redirectUri'           => 'https://example.com/callback-url',
+    'encryptionAlgorithm'   => 'RS256',                             // optional
+    'encryptionKeyPath'     => '../key.pem'                         // optional
+    'encryptionKey'         => 'contents_of_key_or_certificate'     // optional
+    'version'               => '20.0.1',                            // optional
+]);
+
+if (!isset($_GET['code'])) {
+
+    // If we don't have an authorization code then get one
+    $authUrl = $provider->getAuthorizationUrl();
+    $_SESSION['oauth2state'] = $provider->getState();
+    header('Location: '.$authUrl);
+    exit;
+
+// Check given state against previously stored one to mitigate CSRF attack
+} elseif (empty($_GET['state']) || ($_GET['state'] !== $_SESSION['oauth2state'])) {
+
+    unset($_SESSION['oauth2state']);
+    exit('Invalid state, make sure HTTP sessions are enabled.');
+
+} else {
+
+    // Try to get an access token (using the authorization coe grant)
+    try {
+        $token = $provider->getAccessToken('authorization_code', [
+            'code' => $_GET['code']
+        ]);
+    } catch (Exception $e) {
+        exit('Failed to get access token: '.$e->getMessage());
+    }
+
+    // Optional: Now you have a token you can look up a users profile data
+    try {
+
+        // We got an access token, let's now get the user's details
+        $user = $provider->getResourceOwner($token);
+
+        // Use these details to create a new profile
+        printf('Hello %s!', $user->getName());
+
+    } catch (Exception $e) {
+        exit('Failed to get resource owner: '.$e->getMessage());
+    }
+
+    // Use this to interact with an API on the users behalf
+    echo $token->getToken();
+}
+@@@@
+$provider = new Stevenmaguire\OAuth2\Client\Provider\Keycloak([
+    'authServerUrl'     => '{keycloak-server-url}',
+    'realm'             => '{keycloak-realm}',
+    'clientId'          => '{keycloak-client-id}',
+    'clientSecret'      => '{keycloak-client-secret}',
+    'redirectUri'       => 'https://example.com/callback-url',
+]);
+
+$token = $provider->getAccessToken('refresh_token', ['refresh_token' => $token->getRefreshToken()]);
+@@@@
+$provider = new Stevenmaguire\OAuth2\Client\Provider\Keycloak([
+    // ...
+    'encryptionAlgorithm'   => 'RS256',
+]);
+@@@@
+$provider->setEncryptionAlgorithm('RS256');
+@@@@
+$provider->setEncryptionKey($key);
+@@@@
+$provider->setEncryptionKeyPath($keyPath);
+@@@@
+$rawHeaderTo = $parser->getHeader('to');
+// return "test" <test@example.com>, "test2" <test2@example.com>
+
+$arrayHeaderTo = $parser->getAddresses('to');
+// return [["display"=>"test", "address"=>"test@example.com", false]]
+
+$rawHeaderFrom = $parser->getHeader('from');
+// return "test" <test@example.com>
+
+$arrayHeaderFrom = $parser->getAddresses('from');
+// return [["display"=>"test", "address"=>"test@example.com", "is_group"=>false]]
+@@@@
+$request = new GuzzleHttp\Psr7\Request('GET', 'http://example.com');
+echo GuzzleHttp\Psr7\Message::toString($request);
+@@@@
+$server = new Server(
+    $hostname, // required
+    $port,     // defaults to '993'
+    $flags,    // defaults to '/imap/ssl/validate-cert'
+    $parameters
+);
+@@@@
+$stream = GuzzleHttp\Psr7\Utils::streamFor('foo');
+$stream = GuzzleHttp\Psr7\Utils::streamFor(fopen('/path/to/file', 'r'));
+
+$generator = function ($bytes) {
+    for ($i = 0; $i < $bytes; $i++) {
+        yield ' ';
+    }
+}
+
+$stream = GuzzleHttp\Psr7\Utils::streamFor($generator(100));
+@@@@
+$stringHeaders = $parser->getHeadersRaw();
+// return all headers as a string, no charset conversion
+
+$arrayHeaders = $parser->getHeaders();
+// return all headers as an array, with charset conversion
+@@@@
+$subject = $parser->getHeader('subject');
+@@@@
+$text = $parser->getMessageBody('text');
+// return the text version
+
+$html = $parser->getMessageBody('html');
+// return the html version
+
+$htmlEmbedded = $parser->getMessageBody('htmlEmbedded');
+// return the html version with the embedded contents like images
+@@@@
+$text = Html2Text\Html2Text::convert($html);
+@@@@
+$today = new DateTimeImmutable();
+$thirtyDaysAgo = $today->sub(new DateInterval('P30D'));
+
+$messages = $mailbox->getMessages(
+    new Ddeboer\Imap\Search\Date\Since($thirtyDaysAgo),
+    \SORTDATE, // Sort criteria
+    true // Descending order
+);
+@@@@
+(string) $target === (string) UriResolver::resolve($base, UriResolver::relativize($base, $target))
+@@@@
+// Construct new Adldap instance.
+$ad = new \Adldap\Adldap();
+
+// Create a configuration array.
+$config = [  
+  // An array of your LDAP hosts. You can use either
+  // the host name or the IP address of your host.
+  'hosts'    => ['ACME-DC01.corp.acme.org', '192.168.1.1'],
+
+  // The base distinguished name of your domain to perform searches upon.
+  'base_dn'  => 'dc=corp,dc=acme,dc=org',
+
+  // The account to use for querying / modifying LDAP records. This
+  // does not need to be an admin account. This can also
+  // be a full distinguished name of the user account.
+  'username' => 'admin@corp.acme.org',
+  'password' => 'password',
+];
+
+// Add a connection provider to Adldap.
+$ad->addProvider($config);
+
+try {
+    // If a successful connection is made to your server, the provider will be returned.
+    $provider = $ad->connect();
+
+    // Performing a query.
+    $results = $provider->search()->where('cn', '=', 'John Doe')->get();
+
+    // Finding a record.
+    $user = $provider->search()->find('jdoe');
+
+    // Creating a new LDAP entry. You can pass in attributes into the make methods.
+    $user =  $provider->make()->user([
+        'cn'          => 'John Doe',
+        'title'       => 'Accountant',
+        'description' => 'User Account',
+    ]);
+
+    // Setting a model's attribute.
+    $user->cn = 'John Doe';
+
+    // Saving the changes to your LDAP server.
+    if ($user->save()) {
+        // User was saved!
+    }
+} catch (\Adldap\Auth\BindException $e) {
+
+    // There was an issue binding / connecting to the server.
+
+}
+@@@@
+// Create a React promise
+$deferred = new React\Promise\Deferred();
+$reactPromise = $deferred->promise();
+
+// Create a Guzzle promise that is fulfilled with a React promise.
+$guzzlePromise = new GuzzleHttp\Promise\Promise();
+$guzzlePromise->then(function ($value) use ($reactPromise) {
+    // Do something something with the value...
+    // Return the React promise
+    return $reactPromise;
+});
+@@@@
+// Get the global task queue
+$queue = GuzzleHttp\Promise\Utils::queue();
+$queue->run();
+@@@@
+// getDecodedContent() decodes the attachment’s contents automatically:
+file_put_contents(
+    '/my/local/dir/' . $attachment->getFilename(),
+    $attachment->getDecodedContent()
+);
+@@@@
+// return type is stdClass
+$decoded = JWT::decode($payload, $keys);
+
+// cast to array
+$decoded = json_decode(json_encode($decoded), true);
+@@@@
+//To load the French version
+$mail->setLanguage('fr', '/optional/path/to/language/directory/');
+@@@@
+<?php
+
+use Carbon\Carbon;
+
+printf("Right now is %s", Carbon::now()->toDateTimeString());
+printf("Right now in Vancouver is %s", Carbon::now('America/Vancouver'));  //implicit __toString()
+$tomorrow = Carbon::now()->addDay();
+$lastWeek = Carbon::now()->subWeek();
+$nextSummerOlympics = Carbon::createFromDate(2016)->addYears(4);
+
+$officialDate = Carbon::now()->toRfc2822String();
+
+$howOldAmI = Carbon::createFromDate(1975, 5, 21)->age;
+
+$noonTodayLondonTime = Carbon::createFromTime(12, 0, 0, 'Europe/London');
+
+$internetWillBlowUpOn = Carbon::create(2038, 01, 19, 3, 14, 7, 'GMT');
+
+// Don't really want this to happen so mock now
+Carbon::setTestNow(Carbon::createFromDate(2000, 1, 1));
+
+// comparisons are always done in UTC
+if (Carbon::now()->gte($internetWillBlowUpOn)) {
+    die();
+}
+
+// Phew! Return to normal behaviour
+Carbon::setTestNow();
+
+if (Carbon::now()->isWeekend()) {
+    echo 'Party!';
+}
+// Over 200 languages (and over 500 regional variants) supported:
+echo Carbon::now()->subMinutes(2)->diffForHumans(); // '2 minutes ago'
+echo Carbon::now()->subMinutes(2)->locale('zh_CN')->diffForHumans(); // '2分钟前'
+echo Carbon::parse('2019-07-23 14:51')->isoFormat('LLLL'); // 'Tuesday, July 23, 2019 2:51 PM'
+echo Carbon::parse('2019-07-23 14:51')->locale('fr_FR')->isoFormat('LLLL'); // 'mardi 23 juillet 2019 14:51'
+
+// ... but also does 'from now', 'after' and 'before'
+// rolling up to seconds, minutes, hours, days, months, years
+
+$daysSinceEpoch = Carbon::createFromTimestamp(0)->diffInDays();
+@@@@
+<?php
+
+use Psr\Clock\ClockInterface;
+
+class Foo
+{
+    private ClockInterface $clock;
+
+    public function __construct(ClockInterface $clock)
+    {
+        $this->clock = $clock;
+    }
+
+    public function doSomething()
+    {
+        /** @var DateTimeImmutable $currentDateAndTime */
+        $currentDateAndTime = $this->clock->now();
+        // do something useful with that information
+    }
+}
+@@@@
+<?php
+
+use Psr\Log\LoggerInterface;
+
+class Foo
+{
+    private $logger;
+
+    public function __construct(LoggerInterface $logger = null)
+    {
+        $this->logger = $logger;
+    }
+
+    public function doSomething()
+    {
+        if ($this->logger) {
+            $this->logger->info('Doing work');
+        }
+           
+        try {
+            $this->doSomethingElse();
+        } catch (Exception $exception) {
+            $this->logger->error('Oh no!', array('exception' => $exception));
+        }
+
+        // do something useful
+    }
+}
+@@@@
+<?php
+//Import PHPMailer classes into the global namespace
+//These must be at the top of your script, not inside a function
+use PHPMailer\PHPMailer\PHPMailer;
+use PHPMailer\PHPMailer\SMTP;
+use PHPMailer\PHPMailer\Exception;
+
+//Load Composer's autoloader
+require 'vendor/autoload.php';
+
+//Create an instance; passing `true` enables exceptions
+$mail = new PHPMailer(true);
+
+try {
+    //Server settings
+    $mail->SMTPDebug = SMTP::DEBUG_SERVER;                      //Enable verbose debug output
+    $mail->isSMTP();                                            //Send using SMTP
+    $mail->Host       = 'smtp.example.com';                     //Set the SMTP server to send through
+    $mail->SMTPAuth   = true;                                   //Enable SMTP authentication
+    $mail->Username   = 'user@example.com';                     //SMTP username
+    $mail->Password   = 'secret';                               //SMTP password
+    $mail->SMTPSecure = PHPMailer::ENCRYPTION_SMTPS;            //Enable implicit TLS encryption
+    $mail->Port       = 465;                                    //TCP port to connect to; use 587 if you have set `SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS`
+
+    //Recipients
+    $mail->setFrom('from@example.com', 'Mailer');
+    $mail->addAddress('joe@example.net', 'Joe User');     //Add a recipient
+    $mail->addAddress('ellen@example.com');               //Name is optional
+    $mail->addReplyTo('info@example.com', 'Information');
+    $mail->addCC('cc@example.com');
+    $mail->addBCC('bcc@example.com');
+
+    //Attachments
+    $mail->addAttachment('/var/tmp/file.tar.gz');         //Add attachments
+    $mail->addAttachment('/tmp/image.jpg', 'new.jpg');    //Optional name
+
+    //Content
+    $mail->isHTML(true);                                  //Set email format to HTML
+    $mail->Subject = 'Here is the subject';
+    $mail->Body    = 'This is the HTML message body <b>in bold!</b>';
+    $mail->AltBody = 'This is the body in plain text for non-HTML mail clients';
+
+    $mail->send();
+    echo 'Message has been sent';
+} catch (Exception $e) {
+    echo "Message could not be sent. Mailer Error: {$mail->ErrorInfo}";
+}
+@@@@
+<?php
+require 'path-to-Carbon-directory/autoload.php';
+
+use Carbon\Carbon;
+
+printf("Now: %s", Carbon::now());
+@@@@
+<?php
+require 'vendor/autoload.php';
+
+use Carbon\Carbon;
+
+printf("Now: %s", Carbon::now());
+@@@@
+<?php
+require 'vendor/autoload.php';
+
+use GuzzleHttp\Promise\Promise;
+
+$parent = new Promise();
+$p = $parent;
+
+for ($i = 0; $i < 1000; $i++) {
+    $p = $p->then(function ($v) {
+        // The stack size remains constant (a good thing)
+        echo xdebug_get_stack_depth() . ', ';
+        return $v + 1;
+    });
+}
+
+$parent->resolve(0);
+var_dump($p->wait()); // int(1000)
+@@@@
+<?php
+require_once "spyc.php";
+$Data = Spyc::YAMLLoad('spyc.yaml');
+@@@@
+<?php
+require_once "spyc.php";
+$Data = spyc_load_file('spyc.yaml');
+@@@@
+<?php
+use PHPMailer\PHPMailer\PHPMailer;
+use PHPMailer\PHPMailer\Exception;
+
+require 'path/to/PHPMailer/src/Exception.php';
+require 'path/to/PHPMailer/src/PHPMailer.php';
+require 'path/to/PHPMailer/src/SMTP.php';
+@@@@
+foreach ($attachments as $attachment) {
+    echo 'Filename : '.$attachment->getFilename().'<br />';
+    // return logo.jpg
+    
+    echo 'Filesize : '.filesize($attach_dir.$attachment->getFilename()).'<br />';
+    // return 1000
+    
+    echo 'Filetype : '.$attachment->getContentType().'<br />';
+    // return image/jpeg
+    
+    echo 'MIME part string : '.$attachment->getMimePartStr().'<br />';
+    // return the whole MIME part of the attachment
+
+    $attachment->save('/path/to/save/myattachment/', Parser::ATTACHMENT_DUPLICATE_SUFFIX);
+    // return the path and the filename saved (same strategy available than saveAttachments)
+}
+@@@@
+function tellItLikeItIs(WeekDay $weekDay)
+{
+    switch ($weekDay) {
+        case WeekDay::MONDAY():
+            echo 'Mondays are bad.';
+            break;
+
+        case WeekDay::FRIDAY():
+            echo 'Fridays are better.';
+            break;
+
+        case WeekDay::SATURDAY():
+        case WeekDay::SUNDAY():
+            echo 'Weekends are best.';
+            break;
+
+        default:
+            echo 'Midweek days are so-so.';
+    }
+}
+
+tellItLikeItIs(WeekDay::MONDAY());
+tellItLikeItIs(WeekDay::WEDNESDAY());
+tellItLikeItIs(WeekDay::FRIDAY());
+tellItLikeItIs(WeekDay::SATURDAY());
+tellItLikeItIs(WeekDay::SUNDAY());
+@@@@
+require_once __DIR__.'/vendor/autoload.php';
+
+$path = 'path/to/email.eml';
+$parser = new PhpMimeMailParser\Parser();
+
+// 1. Specify a file path (string)
+$parser->setPath($path); 
+
+// 2. Specify the raw mime mail text (string)
+$parser->setText(file_get_contents($path));
+
+// 3. Specify a php file resource (stream)
+$parser->setStream(fopen($path, "r"));
+
+// 4.  Specify a stream to work with mail server (stream)
+$parser->setStream(fopen("php://stdin", "r"));
+@@@@
+trigger_deprecation('symfony/blockchain', '8.9', 'Using "%s" is deprecated, use "%s" instead.', 'bitcoin', 'fabcoin');
+@@@@
+try {
+    $decoded = JWT::decode($payload, $keys);
+} catch (LogicException $e) {
+    // errors having to do with environmental setup or malformed JWT Keys
+} catch (UnexpectedValueException $e) {
+    // errors having to do with JWT signature and claims
+}
+@@@@
+use BaconQrCode\Renderer\ImageRenderer;
+use BaconQrCode\Renderer\Image\ImagickImageBackEnd;
+use BaconQrCode\Renderer\RendererStyle\RendererStyle;
+use BaconQrCode\Writer;
+
+$renderer = new ImageRenderer(
+    new RendererStyle(400),
+    new ImagickImageBackEnd()
+);
+$writer = new Writer($renderer);
+$writer->writeFile('Hello World!', 'qrcode.png');
+@@@@
+use DASPRiD\Enum\AbstractEnum;
+
+/**
+ * @method static self MERCURY()
+ * @method static self VENUS()
+ * @method static self EARTH()
+ * @method static self MARS()
+ * @method static self JUPITER()
+ * @method static self SATURN()
+ * @method static self URANUS()
+ * @method static self NEPTUNE()
+ */
+final class Planet extends AbstractEnum
+{
+    protected const MERCURY = [3.303e+23, 2.4397e6];
+    protected const VENUS = [4.869e+24, 6.0518e6];
+    protected const EARTH = [5.976e+24, 6.37814e6];
+    protected const MARS = [6.421e+23, 3.3972e6];
+    protected const JUPITER = [1.9e+27, 7.1492e7];
+    protected const SATURN = [5.688e+26, 6.0268e7];
+    protected const URANUS = [8.686e+25, 2.5559e7];
+    protected const NEPTUNE = [1.024e+26, 2.4746e7];
+
+    /**
+     * Universal gravitational constant.
+     *
+     * @var float
+     */
+    private const G = 6.67300E-11;
+
+    /**
+     * Mass in kilograms.
+     *
+     * @var float
+     */
+    private $mass;
+
+    /**
+     * Radius in meters.
+     *
+     * @var float
+     */
+    private $radius;
+
+    protected function __construct(float $mass, float $radius)
+    {
+        $this->mass = $mass;
+        $this->radius = $radius;
+    }
+
+    public function mass() : float
+    {
+        return $this->mass;
+    }
+
+    public function radius() : float
+    {
+        return $this->radius;
+    }
+
+    public function surfaceGravity() : float
+    {
+        return self::G * $this->mass / ($this->radius * $this->radius);
+    }
+
+    public function surfaceWeight(float $otherMass) : float
+    {
+        return $otherMass * $this->surfaceGravity();
+    }
+}
+
+$myMass = 80;
+
+foreach (Planet::values() as $planet) {
+    printf("Your weight on %s is %f\n", $planet, $planet->surfaceWeight($myMass));
+}
+@@@@
+use DASPRiD\Enum\AbstractEnum;
+
+/**
+ * @method static self MONDAY()
+ * @method static self TUESDAY()
+ * @method static self WEDNESDAY()
+ * @method static self THURSDAY()
+ * @method static self FRIDAY()
+ * @method static self SATURDAY()
+ * @method static self SUNDAY()
+ */
+final class WeekDay extends AbstractEnum
+{
+    protected const MONDAY = null;
+    protected const TUESDAY = null;
+    protected const WEDNESDAY = null;
+    protected const THURSDAY = null;
+    protected const FRIDAY = null;
+    protected const SATURDAY = null;
+    protected const SUNDAY = null;
+}
+@@@@
+use Ddeboer\Imap\SearchExpression;
+use Ddeboer\Imap\Search\Email\To;
+use Ddeboer\Imap\Search\Text\Body;
+
+$search = new SearchExpression();
+$search->addCondition(new To('me@here.com'));
+$search->addCondition(new Body('contents'));
+
+$messages = $mailbox->getMessages($search);
+@@@@
+use Ddeboer\Imap\Server;
+
+$server = new Server('imap.gmail.com');
+
+// $connection is instance of \Ddeboer\Imap\Connection
+$connection = $server->authenticate('my_username', 'my_password');
+@@@@
+use Firebase\JWT\CachedKeySet;
+use Firebase\JWT\JWT;
+
+// The URI for the JWKS you wish to cache the results from
+$jwksUri = 'https://www.gstatic.com/iap/verify/public_key-jwk';
+
+// Create an HTTP client (can be any PSR-7 compatible HTTP client)
+$httpClient = new GuzzleHttp\Client();
+
+// Create an HTTP request factory (can be any PSR-17 compatible HTTP request factory)
+$httpFactory = new GuzzleHttp\Psr\HttpFactory();
+
+// Create a cache item pool (can be any PSR-6 compatible cache item pool)
+$cacheItemPool = Phpfastcache\CacheManager::getInstance('files');
+
+$keySet = new CachedKeySet(
+    $jwksUri,
+    $httpClient,
+    $httpFactory,
+    $cacheItemPool,
+    null, // $expiresAfter int seconds to set the JWKS to expire
+    true  // $rateLimit    true to enable rate limit of 10 RPS on lookup of invalid keys
+);
+
+$jwt = 'eyJhbGci...'; // Some JWT signed by a key from the $jwkUri above
+$decoded = JWT::decode($jwt, $keySet);
+@@@@
+use Firebase\JWT\JWK;
+use Firebase\JWT\JWT;
+
+// Set of keys. The "keys" key is required. For example, the JSON response to
+// this endpoint: https://www.gstatic.com/iap/verify/public_key-jwk
+$jwks = ['keys' => []];
+
+// JWK::parseKeySet($jwks) returns an associative array of **kid** to Firebase\JWT\Key
+// objects. Pass this as the second parameter to JWT::decode.
+JWT::decode($payload, JWK::parseKeySet($jwks));
+@@@@
+use Firebase\JWT\JWT;
+
+$key = 'example_key';
+$payload = [
+    'iss' => 'http://example.org',
+    'aud' => 'http://example.com',
+    'iat' => 1356999524,
+    'nbf' => 1357000000
+];
+
+$headers = [
+    'x-forwarded-for' => 'www.google.com'
+];
+
+// Encode headers in the JWT string
+$jwt = JWT::encode($payload, $key, 'HS256', null, $headers);
+
+// Decode headers from the JWT string WITHOUT validation
+// **IMPORTANT**: This operation is vulnerable to attacks, as the JWT has not yet been verified.
+// These headers could be any value sent by an attacker.
+list($headersB64, $payloadB64, $sig) = explode('.', $jwt);
+$decoded = json_decode(base64_decode($headersB64), true);
+
+print_r($decoded);
+@@@@
+use Firebase\JWT\JWT;
+use Firebase\JWT\Key;
+
+$key = 'example_key';
+$payload = [
+    'iss' => 'http://example.org',
+    'aud' => 'http://example.com',
+    'iat' => 1356999524,
+    'nbf' => 1357000000
+];
+
+/**
+ * IMPORTANT:
+ * You must specify supported algorithms for your application. See
+ * https://tools.ietf.org/html/draft-ietf-jose-json-web-algorithms-40
+ * for a list of spec-compliant algorithms.
+ */
+$jwt = JWT::encode($payload, $key, 'HS256');
+$decoded = JWT::decode($jwt, new Key($key, 'HS256'));
+
+print_r($decoded);
+
+/*
+ NOTE: This will now be an object instead of an associative array. To get
+ an associative array, you will need to cast it as such:
+*/
+
+$decoded_array = (array) $decoded;
+
+/**
+ * You can add a leeway to account for when there is a clock skew times between
+ * the signing and verifying servers. It is recommended that this leeway should
+ * not be bigger than a few minutes.
+ *
+ * Source: http://self-issued.info/docs/draft-ietf-oauth-json-web-token.html#nbfDef
+ */
+JWT::$leeway = 60; // $leeway in seconds
+$decoded = JWT::decode($jwt, new Key($key, 'HS256'));
+@@@@
+use Firebase\JWT\JWT;
+use Firebase\JWT\Key;
+
+$privateKey = <<<EOD
+-----BEGIN RSA PRIVATE KEY-----
+MIIEowIBAAKCAQEAuzWHNM5f+amCjQztc5QTfJfzCC5J4nuW+L/aOxZ4f8J3Frew
+M2c/dufrnmedsApb0By7WhaHlcqCh/ScAPyJhzkPYLae7bTVro3hok0zDITR8F6S
+JGL42JAEUk+ILkPI+DONM0+3vzk6Kvfe548tu4czCuqU8BGVOlnp6IqBHhAswNMM
+78pos/2z0CjPM4tbeXqSTTbNkXRboxjU29vSopcT51koWOgiTf3C7nJUoMWZHZI5
+HqnIhPAG9yv8HAgNk6CMk2CadVHDo4IxjxTzTTqo1SCSH2pooJl9O8at6kkRYsrZ
+WwsKlOFE2LUce7ObnXsYihStBUDoeBQlGG/BwQIDAQABAoIBAFtGaOqNKGwggn9k
+6yzr6GhZ6Wt2rh1Xpq8XUz514UBhPxD7dFRLpbzCrLVpzY80LbmVGJ9+1pJozyWc
+VKeCeUdNwbqkr240Oe7GTFmGjDoxU+5/HX/SJYPpC8JZ9oqgEA87iz+WQX9hVoP2
+oF6EB4ckDvXmk8FMwVZW2l2/kd5mrEVbDaXKxhvUDf52iVD+sGIlTif7mBgR99/b
+c3qiCnxCMmfYUnT2eh7Vv2LhCR/G9S6C3R4lA71rEyiU3KgsGfg0d82/XWXbegJW
+h3QbWNtQLxTuIvLq5aAryV3PfaHlPgdgK0ft6ocU2de2FagFka3nfVEyC7IUsNTK
+bq6nhAECgYEA7d/0DPOIaItl/8BWKyCuAHMss47j0wlGbBSHdJIiS55akMvnAG0M
+39y22Qqfzh1at9kBFeYeFIIU82ZLF3xOcE3z6pJZ4Dyvx4BYdXH77odo9uVK9s1l
+3T3BlMcqd1hvZLMS7dviyH79jZo4CXSHiKzc7pQ2YfK5eKxKqONeXuECgYEAyXlG
+vonaus/YTb1IBei9HwaccnQ/1HRn6MvfDjb7JJDIBhNClGPt6xRlzBbSZ73c2QEC
+6Fu9h36K/HZ2qcLd2bXiNyhIV7b6tVKk+0Psoj0dL9EbhsD1OsmE1nTPyAc9XZbb
+OPYxy+dpBCUA8/1U9+uiFoCa7mIbWcSQ+39gHuECgYAz82pQfct30aH4JiBrkNqP
+nJfRq05UY70uk5k1u0ikLTRoVS/hJu/d4E1Kv4hBMqYCavFSwAwnvHUo51lVCr/y
+xQOVYlsgnwBg2MX4+GjmIkqpSVCC8D7j/73MaWb746OIYZervQ8dbKahi2HbpsiG
+8AHcVSA/agxZr38qvWV54QKBgCD5TlDE8x18AuTGQ9FjxAAd7uD0kbXNz2vUYg9L
+hFL5tyL3aAAtUrUUw4xhd9IuysRhW/53dU+FsG2dXdJu6CxHjlyEpUJl2iZu/j15
+YnMzGWHIEX8+eWRDsw/+Ujtko/B7TinGcWPz3cYl4EAOiCeDUyXnqnO1btCEUU44
+DJ1BAoGBAJuPD27ErTSVtId90+M4zFPNibFP50KprVdc8CR37BE7r8vuGgNYXmnI
+RLnGP9p3pVgFCktORuYS2J/6t84I3+A17nEoB4xvhTLeAinAW/uTQOUmNicOP4Ek
+2MsLL2kHgL8bLTmvXV4FX+PXphrDKg1XxzOYn0otuoqdAQrkK4og
+-----END RSA PRIVATE KEY-----
+EOD;
+
+$publicKey = <<<EOD
+-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuzWHNM5f+amCjQztc5QT
+fJfzCC5J4nuW+L/aOxZ4f8J3FrewM2c/dufrnmedsApb0By7WhaHlcqCh/ScAPyJ
+hzkPYLae7bTVro3hok0zDITR8F6SJGL42JAEUk+ILkPI+DONM0+3vzk6Kvfe548t
+u4czCuqU8BGVOlnp6IqBHhAswNMM78pos/2z0CjPM4tbeXqSTTbNkXRboxjU29vS
+opcT51koWOgiTf3C7nJUoMWZHZI5HqnIhPAG9yv8HAgNk6CMk2CadVHDo4IxjxTz
+TTqo1SCSH2pooJl9O8at6kkRYsrZWwsKlOFE2LUce7ObnXsYihStBUDoeBQlGG/B
+wQIDAQAB
+-----END PUBLIC KEY-----
+EOD;
+
+$payload = [
+    'iss' => 'example.org',
+    'aud' => 'example.com',
+    'iat' => 1356999524,
+    'nbf' => 1357000000
+];
+
+$jwt = JWT::encode($payload, $privateKey, 'RS256');
+echo "Encode:\n" . print_r($jwt, true) . "\n";
+
+$decoded = JWT::decode($jwt, new Key($publicKey, 'RS256'));
+
+/*
+ NOTE: This will now be an object instead of an associative array. To get
+ an associative array, you will need to cast it as such:
+*/
+
+$decoded_array = (array) $decoded;
+echo "Decode:\n" . print_r($decoded_array, true) . "\n";
+@@@@
+use Firebase\JWT\JWT;
+use Firebase\JWT\Key;
+
+// Example RSA keys from previous example
+// $privateKey1 = '...';
+// $publicKey1 = '...';
+
+// Example EdDSA keys from previous example
+// $privateKey2 = '...';
+// $publicKey2 = '...';
+
+$payload = [
+    'iss' => 'example.org',
+    'aud' => 'example.com',
+    'iat' => 1356999524,
+    'nbf' => 1357000000
+];
+
+$jwt1 = JWT::encode($payload, $privateKey1, 'RS256', 'kid1');
+$jwt2 = JWT::encode($payload, $privateKey2, 'EdDSA', 'kid2');
+echo "Encode 1:\n" . print_r($jwt1, true) . "\n";
+echo "Encode 2:\n" . print_r($jwt2, true) . "\n";
+
+$keys = [
+    'kid1' => new Key($publicKey1, 'RS256'),
+    'kid2' => new Key($publicKey2, 'EdDSA'),
+];
+
+$decoded1 = JWT::decode($jwt1, $keys);
+$decoded2 = JWT::decode($jwt2, $keys);
+
+echo "Decode 1:\n" . print_r((array) $decoded1, true) . "\n";
+echo "Decode 2:\n" . print_r((array) $decoded2, true) . "\n";
+@@@@
+use Firebase\JWT\JWT;
+use Firebase\JWT\Key;
+
+// Public and private keys are expected to be Base64 encoded. The last
+// non-empty line is used so that keys can be generated with
+// sodium_crypto_sign_keypair(). The secret keys generated by other tools may
+// need to be adjusted to match the input expected by libsodium.
+
+$keyPair = sodium_crypto_sign_keypair();
+
+$privateKey = base64_encode(sodium_crypto_sign_secretkey($keyPair));
+
+$publicKey = base64_encode(sodium_crypto_sign_publickey($keyPair));
+
+$payload = [
+    'iss' => 'example.org',
+    'aud' => 'example.com',
+    'iat' => 1356999524,
+    'nbf' => 1357000000
+];
+
+$jwt = JWT::encode($payload, $privateKey, 'EdDSA');
+echo "Encode:\n" . print_r($jwt, true) . "\n";
+
+$decoded = JWT::decode($jwt, new Key($publicKey, 'EdDSA'));
+echo "Decode:\n" . print_r((array) $decoded, true) . "\n";
+@@@@
+use Firebase\JWT\JWT;
+use Firebase\JWT\Key;
+
+// Your passphrase
+$passphrase = '[YOUR_PASSPHRASE]';
+
+// Your private key file with passphrase
+// Can be generated with "ssh-keygen -t rsa -m pem"
+$privateKeyFile = '/path/to/key-with-passphrase.pem';
+
+// Create a private key of type "resource"
+$privateKey = openssl_pkey_get_private(
+    file_get_contents($privateKeyFile),
+    $passphrase
+);
+
+$payload = [
+    'iss' => 'example.org',
+    'aud' => 'example.com',
+    'iat' => 1356999524,
+    'nbf' => 1357000000
+];
+
+$jwt = JWT::encode($payload, $privateKey, 'RS256');
+echo "Encode:\n" . print_r($jwt, true) . "\n";
+
+// Get public key from the private key, or pull from from a file.
+$publicKey = openssl_pkey_get_details($privateKey)['key'];
+
+$decoded = JWT::decode($jwt, new Key($publicKey, 'RS256'));
+echo "Decode:\n" . print_r((array) $decoded, true) . "\n";
+@@@@
+use Firebase\JWT\JWT;
+use Firebase\JWT\SignatureInvalidException;
+use Firebase\JWT\BeforeValidException;
+use Firebase\JWT\ExpiredException;
+use DomainException;
+use InvalidArgumentException;
+use UnexpectedValueException;
+
+try {
+    $decoded = JWT::decode($payload, $keys);
+} catch (InvalidArgumentException $e) {
+    // provided key/key-array is empty or malformed.
+} catch (DomainException $e) {
+    // provided algorithm is unsupported OR
+    // provided key is invalid OR
+    // unknown error thrown in openSSL or libsodium OR
+    // libsodium is required but not available.
+} catch (SignatureInvalidException $e) {
+    // provided JWT signature verification failed.
+} catch (BeforeValidException $e) {
+    // provided JWT is trying to be used before "nbf" claim OR
+    // provided JWT is trying to be used before "iat" claim.
+} catch (ExpiredException $e) {
+    // provided JWT is trying to be used after "exp" claim.
+} catch (UnexpectedValueException $e) {
+    // provided JWT is malformed OR
+    // provided JWT is missing an algorithm / using an unsupported algorithm OR
+    // provided JWT algorithm does not match provided key OR
+    // provided key ID in key/key-array is empty or invalid.
+}
+@@@@
+use GuzzleHttp\Promise\FulfilledPromise;
+
+$promise = new FulfilledPromise('value');
+
+// Fulfilled callbacks are immediately invoked.
+$promise->then(function ($value) {
+    echo $value;
+});
+@@@@
+use GuzzleHttp\Promise\Promise;
+
+$promise = new Promise(
+    function () use (&$promise) {
+        $promise->resolve('waited');
+    },
+    function () {
+        // do something that will cancel the promise computation (e.g., close
+        // a socket, cancel a database query, etc...)
+    }
+);
+
+assert('waited' === $promise->wait());
+@@@@
+use GuzzleHttp\Promise\Promise;
+
+$promise = new Promise();
+$nextPromise = new Promise();
+
+$promise
+    ->then(function ($value) use ($nextPromise) {
+        echo $value;
+        return $nextPromise;
+    })
+    ->then(function ($value) {
+        echo $value;
+    });
+
+// Triggers the first callback and outputs "A"
+$promise->resolve('A');
+// Triggers the second callback and outputs "B"
+$nextPromise->resolve('B');
+@@@@
+use GuzzleHttp\Promise\Promise;
+
+$promise = new Promise();
+$promise
+    ->then(function ($value) {
+        // Return a value and don't break the chain
+        return "Hello, " . $value;
+    })
+    // This then is executed after the first then and receives the value
+    // returned from the first then.
+    ->then(function ($value) {
+        echo $value;
+    });
+
+// Resolving the promise triggers the $onFulfilled callbacks and outputs
+// "Hello, reader."
+$promise->resolve('reader.');
+@@@@
+use GuzzleHttp\Promise\Promise;
+
+$promise = new Promise();
+$promise
+    ->then(null, function ($reason) {
+        return "It's ok";
+    })
+    ->then(function ($value) {
+        assert($value === "It's ok");
+    });
+
+$promise->reject('Error!');
+@@@@
+use GuzzleHttp\Promise\Promise;
+
+$promise = new Promise();
+$promise->then(
+    // $onFulfilled
+    function ($value) {
+        echo 'The promise was fulfilled.';
+    },
+    // $onRejected
+    function ($reason) {
+        echo 'The promise was rejected.';
+    }
+);
+@@@@
+use GuzzleHttp\Promise\Promise;
+
+$promise = new Promise();
+$promise->then(null, function ($reason) {
+    echo $reason;
+});
+
+$promise->reject('Error!');
+// Outputs "Error!"
+@@@@
+use GuzzleHttp\Promise\Promise;
+
+$promise = new Promise();
+$promise->then(null, function ($reason) {
+    throw new Exception($reason);
+})->then(null, function ($reason) {
+    assert($reason->getMessage() === 'Error!');
+});
+
+$promise->reject('Error!');
+@@@@
+use GuzzleHttp\Promise\Promise;
+use GuzzleHttp\Promise\RejectedPromise;
+
+$promise = new Promise();
+$promise->then(null, function ($reason) {
+    return new RejectedPromise($reason);
+})->then(null, function ($reason) {
+    assert($reason === 'Error!');
+});
+
+$promise->reject('Error!');
+@@@@
+use GuzzleHttp\Promise\RejectedPromise;
+
+$promise = new RejectedPromise('Error');
+
+// Rejected callbacks are immediately invoked.
+$promise->then(null, function ($reason) {
+    echo $reason;
+});
+@@@@
+use GuzzleHttp\Psr7;
+
+$a = Psr7\Utils::streamFor('abc, ');
+$b = Psr7\Utils::streamFor('123.');
+$composed = new Psr7\AppendStream([$a, $b]);
+
+$composed->addStream(Psr7\Utils::streamFor(' Above all listen to me'));
+
+echo $composed; // abc, 123. Above all listen to me.
+@@@@
+use GuzzleHttp\Psr7;
+
+$original = Psr7\Utils::streamFor('foo');
+
+$eofStream = new EofCallbackStream($original, function () {
+    echo 'EOF!';
+});
+
+$eofStream->read(2);
+$eofStream->read(1);
+// echoes "EOF!"
+$eofStream->seek(0);
+$eofStream->read(3);
+// echoes "EOF!"
+@@@@
+use GuzzleHttp\Psr7;
+
+$original = Psr7\Utils::streamFor('foo');
+$noSeek = new Psr7\NoSeekStream($original);
+
+echo $noSeek->read(3);
+// foo
+var_export($noSeek->isSeekable());
+// false
+$noSeek->seek(0);
+var_export($noSeek->read(3));
+// NULL
+@@@@
+use GuzzleHttp\Psr7;
+
+$original = Psr7\Utils::streamFor(fopen('/tmp/test.txt', 'r+'));
+echo $original->getSize();
+// >>> 1048576
+
+// Limit the size of the body to 1024 bytes and start reading from byte 2048
+$stream = new Psr7\LimitStream($original, 1024, 2048);
+echo $stream->getSize();
+// >>> 1024
+echo $stream->tell();
+// >>> 0
+@@@@
+use GuzzleHttp\Psr7;
+
+$original = Psr7\Utils::streamFor(fopen('http://www.google.com', 'r'));
+$stream = new Psr7\CachingStream($original);
+
+$stream->read(1024);
+echo $stream->tell();
+// 1024
+
+$stream->seek(0);
+echo $stream->tell();
+// 0
+@@@@
+use GuzzleHttp\Psr7;
+
+$stream = Psr7\Utils::streamFor('hi');
+$fnStream = Psr7\FnStream::decorate($stream, [
+    'rewind' => function () use ($stream) {
+        echo 'About to rewind - ';
+        $stream->rewind();
+        echo 'rewound!';
+    }
+]);
+
+$fnStream->rewind();
+// Outputs: About to rewind - rewound!
+@@@@
+use GuzzleHttp\Psr7;
+
+$stream = new Psr7\LazyOpenStream('/path/to/file', 'r');
+// The file has not yet been opened...
+
+echo $stream->read(10);
+// The file is opened and read from only when needed.
+@@@@
+use GuzzleHttp\Psr7;
+
+// Create an empty stream
+$stream = Psr7\Utils::streamFor();
+
+// Start dropping data when the stream has more than 10 bytes
+$dropping = new Psr7\DroppingStream($stream, 10);
+
+$dropping->write('01234567890123456789');
+echo $stream; // 0123456789
+@@@@
+use GuzzleHttp\Psr7;
+
+// When more than 1024 bytes are in the buffer, it will begin returning
+// false to writes. This is an indication that writers should slow down.
+$buffer = new Psr7\BufferStream(1024);
+@@@@
+use GuzzleHttp\Psr7\StreamWrapper;
+
+$stream = GuzzleHttp\Psr7\Utils::streamFor('hello!');
+$resource = StreamWrapper::getResource($stream);
+echo fread($resource, 6); // outputs hello!
+@@@@
+use Psr\Http\Message\StreamInterface;
+use GuzzleHttp\Psr7\StreamDecoratorTrait;
+
+class EofCallbackStream implements StreamInterface
+{
+    use StreamDecoratorTrait;
+
+    private $callback;
+
+    private $stream;
+
+    public function __construct(StreamInterface $stream, callable $cb)
+    {
+        $this->stream = $stream;
+        $this->callback = $cb;
+    }
+
+    public function read($length)
+    {
+        $result = $this->stream->read($length);
+
+        // Invoke the callback when EOF is hit.
+        if ($this->eof()) {
+            call_user_func($this->callback);
+        }
+
+        return $result;
+    }
+}
+@@@@
+use Symfony\Component\Translation\Translator;
+use Symfony\Component\Translation\Loader\ArrayLoader;
+
+$translator = new Translator('fr_FR');
+$translator->addLoader('array', new ArrayLoader());
+$translator->addResource('array', [
+    'Hello World!' => 'Bonjour !',
+], 'fr_FR');
+
+echo $translator->trans('Hello World!'); // outputs « Bonjour ! »

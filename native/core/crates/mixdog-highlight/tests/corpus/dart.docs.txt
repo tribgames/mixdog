@@ -1,0 +1,59 @@
+Popover(
+  // Define how to trigger the popover
+  triggerActions: PopoverTriggerActionFlags.click,
+  child: TextButton(child: Text("Popover"), onPressed: () {}),
+  // Define the direction of the popover
+  direction: PopoverDirection.bottomWithLeftAligned,
+  popupBuilder(BuildContext context) {
+    return PopoverMenu();
+  },
+);
+@@@@
+class MyWidgetState extends State<GridDateCell> {
+  final _popoverMutex = PopoverMutex();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Popover(
+          mutex: _popoverMutex,
+          ...
+        ),
+        Popover(
+          mutex: _popoverMutex,
+          ...
+        ),
+        Popover(
+          mutex: _popoverMutex,
+          ...
+        ),
+      ]
+    )
+  }
+}
+@@@@
+class MyWidgetState extends State<GridDateCell> {
+  late PopoverController _popover;
+
+  @override
+  void initState() {
+    _popover = PopoverController();
+    super.initState();
+  }
+
+  // triggered by another widget
+  _onClick() {
+    _popover.show();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Popover(
+      controller: _popover,
+      ...
+    )
+  }
+}
+@@@@
+const like = 'sample';

@@ -1,0 +1,4689 @@
+/**
+ * TODO: Should we reinvent the wheel here?
+ * We already have a good one in @rocket.chat/core
+ */
+@@@@
+// Access the manager through the di container
+const viewManager = std.get(ViewExtensionManagerIdentifier);
+const pagePreviewExtension = viewManager.get('preview-page');
+@@@@
+// Authentication middleware
+const authMiddleware = async (c, next) => {
+  const token = c.req.header('Authorization');
+  if (!token) {
+    return {
+      body: { error: 'Unauthorized' },
+      statusCode: 401
+    };
+  }
+  // Set context variables for later use
+  c.set('userId', 'user123');
+  await next();
+};
+
+api.get('protected-route', {}, authMiddleware, async (c) => {
+  const userId = c.get('userId');
+  return {
+    body: { message: `Hello, ${userId}` },
+    statusCode: 200
+  };
+});
+@@@@
+// Before (CSS background-image)
+<Icon className="more" withBackground={true} />
+
+// After (inline SVG from registry)
+<Icon name="header/more" withBackground={true} />
+@@@@
+// Call another Rocket.Chat user...
+await session.startCall('user', 'callee-user-id');
+
+// ...or a SIP extension.
+await session.startCall('sip', '1001', { contactInfo: { displayName: 'Front desk' } });
+@@@@
+// Container broadcasts events to connected clients
+class MyContainer implements Container {
+  private handlers = new Map<ClientUuid, Function>()
+
+  connect(clientId: ClientUuid, handler: Function) {
+    this.handlers.set(clientId, handler)
+  }
+
+  private broadcast(event: any) {
+    for (const handler of this.handlers.values()) {
+      handler(event)
+    }
+  }
+}
+@@@@
+// Create a document with multiple notes and paragraphs
+const doc = affine`
+  <affine-page title="My Test Page">
+    <affine-note>
+      <affine-paragraph>First paragraph</affine-paragraph>
+      <affine-paragraph>Second paragraph</affine-paragraph>
+    </affine-note>
+    <affine-note>
+      <affine-paragraph>Another note</affine-paragraph>
+    </affine-note>
+  </affine-page>
+`;
+@@@@
+// DON'T ❌
+page.locator('#modal-root .rcx-button-group--align-end .rcx-button--primary');
+
+// #modal-root was used to locate the injected portal element for the modal.
+// This can be better located by role 'dialog' and making sure the modal has the proper name attribute.
+
+// DO ✅
+page.getByRole('dialog', name: 'Modal name example').getByRole('button', { name: 'Confirm', exact: true });
+@@@@
+// DON'T ❌ 
+page.locator('[data-qa-id="menu-more-actions"]'); 
+
+// DO ✅
+page.getByRole('menu', {name: 'More actions', exact: true });
+@@@@
+// Define interface
+interface ChatRoomService {
+  sendMessage: (username: string, text: string) => Promise<{ success: boolean }>
+  getHistory: () => Promise<{ messages: ChatMessage[] }>
+}
+
+// Use typed proxy
+const chat = connection.cast<ChatRoomService>('ChatRoomService')
+await chat.sendMessage('Alice', 'Hello!')
+const history = await chat.getHistory()
+@@@@
+// Define interface
+interface DataProcessorService {
+  store: (key: string, value: any) => Promise<{ success: boolean }>
+  retrieve: (key: string) => Promise<{ success: boolean; value: any }>
+}
+
+// Use typed proxy
+const processor = containerRef.cast<DataProcessorService>('DataProcessorService')
+await processor.store('key', value)
+@@@@
+// Define your service interface
+interface MyService {
+  getData: (id: string) => Promise<{ data: any }>
+  updateData: (id: string, data: any) => Promise<boolean>
+}
+
+// On client side - use cast() for typed proxy
+const containerRef = await client.get('my-service', {})
+const service = containerRef.cast<MyService>('MyService')
+
+// Call methods with full type safety
+const result = await service.getData('123')
+await service.updateData('123', { updated: true })
+@@@@
+// Direct request to container
+const result = await network.request(containerUuid, 'operation', data)
+
+// Via connection
+const connection = await containerRef.connect()
+const result = await connection.request('operation', data)
+@@@@
+// Set configuration directly
+manager.configure(MyProvider, { enabled: true });
+
+// Update configuration using a function
+manager.configure(MyProvider, prev => {
+  if (!prev) return prev;
+  return {
+    ...prev,
+    enabled: !prev.enabled,
+  };
+});
+
+// Remove configuration
+manager.configure(MyProvider, undefined);
+@@@@
+// TODO: Fix flaky test @john-doe [testing]
+@@@@
+// TODO: Fix the race condition in token refresh
+@@@@
+// TODO: Make this button red [frontend] [ui]
+@@@@
+// TODO: Migrate to new payments API
+// @alice should review the Stripe integration
+// @bob handles the webhook setup
+@@@@
+// TODO: Refactor the auth flow
+// The current token refresh logic has race conditions
+// when multiple tabs are open simultaneously
+@@@@
+// This is not a TODO because the keyword is not at the start after the prefix
+// See the TODO documentation for more info
+
+const todo = 'strings containing TODO are ignored';
+
+// TODONT -- partial keyword matches are ignored
+@@@@
+// We need to override default WebSocket factory with 'ws' one.
+setMetadata(client.metadata.ClientSocketFactory, (url) => new WebSocket(url))
+
+const connection: Client = await (await clientResources()).function.GetClient(token, transactorUrl)
+...
+@@@@
+// With a resume token (for example, a personal access token or one returned by /v1/login)
+await sdk.account.loginWithToken(token);
+
+// With a username and password; the password must be a hex-encoded SHA-256 digest
+await sdk.account.loginWithPassword('alice', await sha256('secret'));
+
+console.log(sdk.account.uid, sdk.account.user?.username);
+
+await sdk.account.logout();
+@@@@
+// Wrong
+export const isEndpointTestGetParams = (props: any): props is EndpointTestGetParams => 'name' in props || 'id' in props;
+
+// Better
+import { ajvQuery } from './Ajv';
+
+const endpointTestGetParamsSchema = {
+	oneOf: [
+		{
+			type: 'object',
+			properties: { name: { type: 'string' } },
+			required: ['name'],
+			additionalProperties: false,
+		},
+		{
+			type: 'object',
+			properties: { id: { type: 'string' } },
+			required: ['id'],
+			additionalProperties: false,
+		},
+	],
+};
+
+export const isEndpointTestGetParams = ajvQuery.compile<EndpointTestGetParams>(endpointTestGetParamsSchema);
+@@@@
+// apps/meteor/tests/e2e/page-objects/fragments/sidebar.ts
+// ...
+
+	get sidebar(): Locator {
+		return this.page.getByRole('navigation', { name: 'sidebar' });
+	}
+
+	get channelsList(): Locator {
+		return this.sidebar.getByRole('list', { name: 'Channels' });
+	}
+
+  // Restricted scope: inside navigation > sidebar > list named Channels > link with name
+	getSearchRoomByName(name: string) {
+		return this.channelsList.getByRole('link', { name });
+	}
+@@@@
+// other imports
+import { createTimezoneSelectPlugin, translations as timezoneTranslations } from '@schedule-x/timezone-select'
+import { translations, mergeLocales } from '@schedule-x/translations'
+import '@schedule-x/timezone-select/index.css'
+
+const calendar = createCalendar({
+  /* other configuration */
+
+  plugins: [
+    createTimezoneSelectPlugin()
+  ],
+
+  translations: mergeLocales(
+    translations,
+    timezoneTranslations,
+  ),
+})
+@@@@
+// packages/nc-gui/tours/defs/my-feature.ts
+import { getI18n } from '~/plugins/a.i18n'
+import { defineTour } from '../types'
+
+// Deferred, not `useI18n()`: this file is imported before the i18n plugin installs,
+// and none of it runs inside component setup.
+const t = (key: string) => getI18n().global.t(key)
+
+export default defineTour({
+  id: 'my-feature-v1',
+  kind: 'feature',
+  releasedAt: '2026-08-01',
+  title: () => t('tour.myFeature.title'),
+  trigger: { type: 'beacon', anchor: 'my-thing' },
+  steps: [
+    {
+      anchor: 'my-thing',
+      title: () => t('tour.myFeature.look.title'),
+      description: () => t('tour.myFeature.look.description'),
+    },
+  ],
+})
+@@@@
+// pegjs.d.ts
+declare module '*.pegjs' {
+	export const parse: (input: string, options?: Record<string, unknown>) => unknown;
+}
+@@@@
+// teach — they can use it, so walk them through the workflow
+audience: { when: () => !useEeConfig().blockX.value }
+
+// pitch — they can see it but it's plan-blocked, so sell the value
+audience: { when: () => useEeConfig().blockX.value }
+@@@@
+// test.spec.ts
+
+  test('should display sidebar items', async ({ page }) => {
+      poHomeChannel = new HomeChannel(page);
+      await poHomeChannel.goto();
+      const targetChannel = 'channel-test';
+
+      await expect(poHomeChannel.sidebar.getSearchRoomByName(targetChannel)).toBeVisible();
+  });
+@@@@
+// test.spec.ts
+
+test.describe.serial('feature example', ({ api}) => {
+	  let targetChannel;
+	  let targetDiscussion;
+
+    test.beforeAll(async ({ api }) => {
+      // change setting value
+		  await setSettingValueById(api, 'Accounts_AllowFeaturePreview', true);
+
+      // create channel
+      targetChannel = await createTargetChannel(api, { members: ['user1'] });
+
+      // create discussion
+      targetDiscussion = await createTargetDiscussion(api);
+    });
+    test.afterAll(async ({ api }) => {
+      // reset setting value
+		  await setSettingValueById(api, 'Accounts_AllowFeaturePreview', false);
+
+      // delete  channel
+      await deleteChannel(api, targetChannel);
+
+      // delete discussion
+      await deleteRoom(api, targetDiscussion._id);
+    });
+})
+@@@@
+// ❌ fragile — three independent things must align before the combobox `fill` resolves
+await page.goto('/home');
+await poHomeChannel.navbar.openChat(targetChannel);
+
+// ✅ deterministic — navigate straight to the room, then wait for it to be ready
+await poHomeChannel.gotoChannel(targetChannel);
+@@@@
+<BlockNoteView
+  editor={editor}
+  onChange={(editor, { getChanges }) => {
+    const changes = getChanges();
+
+    changes.forEach((change) => {
+      if (change.type === "update" && change.block.type === "table") {
+        const updatedRows = calculateTableTotals(change.block);
+        if (updatedRows) {
+          editor.updateBlock(change.block, {
+            type: "table",
+            content: {
+              ...change.block.content,
+              rows: updatedRows as any,
+            } as any,
+          });
+        }
+      }
+    });
+  }}
+></BlockNoteView>
+@@@@
+<BlockNoteView editor={editor} portalElements={{ default: document.body }} />
+@@@@
+<CommentSection
+	rootId={rootId}
+	targetId={rootId}
+	targetType={I.CommentTargetType.Object}
+	readonly={readonly}
+	messageId={keyboard.getMatch(isPopup)?.params?.messageId}
+/>
+@@@@
+<Icon name="header/expand" className="expand" withBackground={true} />
+@@@@
+<RocketChatLogo color='#ffffff' />
+<RocketChatLogo color='currentColor' />
+@@@@
+<VerticalWizardLayout
+	logo={<img src='/logo.svg' alt='Acme' />}
+	logoDark={<img src='/logo-dark.svg' alt='Acme' />}
+	background='/background.png'
+	backgroundDark='/background-dark.png'
+	forceDarkMode={false}
+>
+	{/* ... */}
+</VerticalWizardLayout>
+@@@@
+<div className={"drag-demo-section " + DRAG_EXCLUSION_CLASSNAME}>
+  {/* Your custom drag & drop UI */}
+  <div draggable onDragStart={handleDragStart} onDrop={handleDrop}>
+    Custom draggable items
+  </div>
+</div>
+@@@@
+[
+  { id: "fieldA", dependencies: [], recordId: ["a1"] },
+  // { id: "fieldC", dependencies: [] },
+  { id: "FieldLinkA", dependencies: ["fieldA"], recordId: ["a1", "a2"], targetRecordId: ["b1"] },
+  // { id: "FieldLinkC", dependencies: ['fieldC'], recordId: ['c1', 'c2'], targetRecordId: ['b1'] },
+  { id: "formula", dependencies: ["FieldLinkA", "FieldLinkC"] },
+];
+@@@@
+[
+  { id: "fieldB", dependencies: [], recordId: ["b1"] },
+  { id: "fieldLinkB", dependencies: ["fieldB"], recordId: ["b1"], targetRecordId: ["a1", "a2"] },
+  { id: "fieldA", dependencies: ["fieldLinkB"], recordId: ["a1", "a2"] },
+  { id: "fieldLinkA", dependencies: ["fieldA"], recordId: ["a1", "a2"], targetRecordId: ["b1"] },
+];
+@@@@
+[
+  { id: "fieldB", dependencies: [], recordId: ["b1"] },
+  { id: "fieldLinkB", dependencies: ["fieldB"], recordId: ["b1"], targetRecordId: ["a1", "a2"] }, // formula({fieldB})
+];
+@@@@
+[
+  { id: "idA1", fieldA: "A1" },
+  { id: "idA2", fieldA: "A2" },
+];
+@@@@
+[
+  { id: "idB1", fieldB: "B1", fieldLinkA: "A1", __fk_fieldLinkA: "idA1" },
+  { id: "idB2", fieldB: "B2", fieldLinkA: "A1", __fk_fieldLinkA: "idA1" },
+];
+@@@@
+[
+  { id: "idC1", fieldC: "C1", fieldLinkB: "A1", __fk_fieldLinkB: "idB1" },
+  { id: "idC2", fieldC: "C2", fieldLinkB: "A1", __fk_fieldLinkB: "idB1" },
+  { id: "idC3", fieldC: "C3", fieldLinkB: "A1", __fk_fieldLinkB: "idB2" },
+];
+@@@@
+async function robustContainerAccess(client: any, kind: string, options: any, maxRetries = 3) {
+  let lastError: Error | undefined
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      console.log(`Attempt ${attempt}/${maxRetries}...`)
+
+      // Try to get container
+      const containerRef = await client.get(kind, options)
+
+      try {
+        // Try to send request
+        const result = await containerRef.request('process', { attempt })
+        console.log('Success:', result)
+        return result
+      } catch (requestError: any) {
+        console.error('Request failed:', requestError.message)
+        lastError = requestError
+
+        // Release the failed container
+        await containerRef.close().catch(() => {})
+
+        // Wait before retry with exponential backoff
+        if (attempt < maxRetries) {
+          const delay = Math.min(1000 * Math.pow(2, attempt - 1), 10000)
+          console.log(`Waiting ${delay}ms before retry...`)
+          await new Promise((resolve) => setTimeout(resolve, delay))
+        }
+      }
+    } catch (getError: any) {
+      console.error('Failed to get container:', getError.message)
+      lastError = getError
+
+      if (attempt < maxRetries) {
+        await new Promise((resolve) => setTimeout(resolve, 1000))
+      }
+    }
+  }
+
+  throw new Error(`Failed after ${maxRetries} attempts: ${lastError?.message}`)
+}
+
+// Usage
+try {
+  const result = await robustContainerAccess(client, 'unreliable-service' as any, { labels: ['production'] })
+  console.log('Final result:', result)
+} catch (error: any) {
+  console.error('All attempts failed:', error.message)
+  // Handle permanent failure (alerting, fallback, etc.)
+}
+@@@@
+audience: {
+  when: () => !useEeConfig().blockInterfacePivotWidget.value,
+  roles: [WorkspaceUserRoles.OWNER],
+  deployment: ['cloud', 'onprem-licensed'],
+  route: /^\/nc\//,
+  betaFlag: FEATURE_FLAG.SOME_BETA,
+}
+@@@@
+await expect(anyElement).toBeVisible();
+@@@@
+await page.getByRole('button', { name: 'Save', exact: true });
+
+// Without the `exact` option, Playwright would match buttons with 'Save' and 'Save changes' labels.
+@@@@
+await sdk.publish('notify-room', `${roomId}/user-activity`, username, ['user-typing']);
+@@@@
+await sdk.rest.post('/v1/chat.sendMessage', { message: { rid: roomId, msg: 'Hello!' } });
+@@@@
+class MyViewProvider extends ViewExtensionProvider {
+  override effect() {
+    // This will only run once, even if multiple instances are created
+    initializeGlobalState();
+    registerLitElements();
+    setupGlobalEventListeners();
+  }
+}
+@@@@
+class SomeStore {
+	constructor() {
+		makeObservable(this, {
+			data: observable,
+			list: computed,
+			set: action,
+		});
+	}
+}
+@@@@
+class TenantContainer implements Container {
+  constructor(readonly uuid: ContainerUuid, readonly tenantId: string) {}
+
+  async request(operation: string, data?: any): Promise<any> {
+    return { tenantId: this.tenantId, operation, data }
+  }
+
+  async ping(): Promise<void> {}
+  async terminate(): Promise<void> {}
+  connect(clientId: any, broadcast: (data: any) => Promise<void>): void {}
+  disconnect(clientId: any): void {}
+}
+
+const client = createNetworkClient('localhost:3737')
+await client.waitConnection(5000)
+
+await client.serveAgent('localhost:3738', {
+  'tenant-workspace': async (options, agentEndpoint) => {
+    const tenantId = options.labels?.[0] || 'default'
+    const uuid = options.uuid ?? (`workspace-${tenantId}` as ContainerUuid)
+    const container = new TenantContainer(uuid, tenantId)
+    return {
+      uuid,
+      container,
+      endpoint: containerOnAgentEndpointRef(agentEndpoint!, uuid)
+    }
+  }
+})
+
+// Request tenant-specific containers
+const tenant1 = await client.get('tenant-workspace' as any, { labels: ['tenant-1'] })
+const tenant2 = await client.get('tenant-workspace' as any, { labels: ['tenant-2'] })
+
+// Each tenant has isolated containers
+await tenant1.request('getData')
+await tenant2.request('getData')
+@@@@
+client.handleTwoFactorChallenge(async ({ method, emailOrUsername, invalidAttempt }) => {
+	// method is 'totp', 'email' or 'password'
+	return prompt(invalidAttempt ? 'Invalid code, try again' : `Enter your ${method} code`) ?? '';
+});
+@@@@
+client.use(async ([endpoint, method, options], next) => {
+	const started = Date.now();
+	const response = await next(endpoint, method, options);
+	console.log(method, endpoint, response.status, `${Date.now() - started}ms`);
+	return response;
+});
+@@@@
+const BlockType = observer(forwardRef<I.BlockRef, I.BlockComponent>((props, ref) => {
+	const { rootId, block, readonly } = props;
+	// ... component logic
+}));
+@@@@
+const OwnerDocument: React.Context<{ document: Document }>;
+@@@@
+const UserCodec = z.codec(UserRocketChatSchema, AppsUserSchema, {
+	decode: (user) => ({ id: user._id, /* … */ }),           // convertToApp
+	encode: (appUser) => removeEmpty({ _id: appUser.id, /* … */ }), // convertToRocketChat
+});
+
+// RC -> App:  z.decode(UserCodec, user)
+// App -> RC:  z.encode(UserCodec, appUser)
+@@@@
+const Wrapper = () => {
+  return (
+    <AffineSWRConfigProvider>
+      <Component />
+    </AffineSWRConfigProvider>
+  );
+};
+@@@@
+const callWindow = window.RocketChatDesktop?.videoCall;
+
+callWindow?.openInMainWindow('/home');
+callWindow?.close();
+@@@@
+const channel = new BroadcastChannel('domain');
+const consumer = new OpConsumer(channel);
+consumer.listen();
+
+const client = new OpClient(channel);
+client.listen();
+@@@@
+const clear: <T, A, R>(fn: MemoizedFunction<T, A, R>) => void;
+@@@@
+const client = createNetworkClient('your-host:3737')
+@@@@
+const client = new RestClient({
+	baseUrl: 'https://open.rocket.chat',
+	credentials: { 'X-User-Id': userId, 'X-Auth-Token': authToken },
+});
+@@@@
+const createClassName: (content: string) => string;
+const createAnimationName: (content: string) => string;
+const escapeName: (animationOrClassName: string) => string;
+@@@@
+const createLogicalPropertiesMiddleware: (options?: {
+	isPropertySupported?: (property: string) => boolean;
+	isPropertyValueSupported?: (property: string, value: string) => boolean;
+}) => Middleware;
+@@@@
+const css: (slices: TemplateStringsArray, ...values: readonly unknown[]) => cssFn;
+@@@@
+const cssSupports: (value: string) => boolean;
+@@@@
+const emitter = new Emitter();
+
+emitter.on('anything', (payload) => console.log(payload));
+emitter.emit('anything', 42);
+@@@@
+const handler = (message: Events['message']) => console.log(message.text);
+
+emitter.on('message', handler);
+emitter.off('message', handler);
+@@@@
+const keyframes: (slices: TemplateStringsArray, ...values: unknown[]) => keyframesFn;
+@@@@
+const memoize: <T, A, R>(fn: MemoizableFunction<T, A, R>, options?: Options) => MemoizedFunction<T, A, R>;
+@@@@
+const middleware: Middleware;
+@@@@
+const saved = page.waitForResponse(r => r.url().includes('/endpoint'))
+await page.getByRole('button', { name: 'Save' }).click()
+await saved
+@@@@
+const sdk = await DDPSDK.createAndConnect('https://open.rocket.chat');
+@@@@
+const sha256 = async (text: string) => {
+	const buffer = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+	return Array.from(new Uint8Array(buffer), (byte) => byte.toString(16).padStart(2, '0')).join('');
+};
+@@@@
+const stop = sdk.account.onLogin(() => console.log('logged in as', sdk.account.uid));
+@@@@
+const subscription = sdk.stream('room-messages', roomId, (message) => {
+	console.log('new or updated message', message);
+});
+
+await subscription.ready();
+
+// Later
+subscription.stop();
+@@@@
+const subscriptions = await sdk.call('subscriptions/get');
+@@@@
+const topoOrder = [
+  {
+    dbTableName: "B",
+    fieldName: "oneToManyC",
+    foreignKeyField: "__fk_manyToOneB",
+    relationship: Relationship.OneMany,
+    linkedTable: "C",
+  },
+  {
+    dbTableName: "A",
+    fieldName: "oneToManyB",
+    foreignKeyField: "__fk_manyToOneA",
+    relationship: Relationship.OneMany,
+    linkedTable: "B",
+  },
+  {
+    dbTableName: "C",
+    fieldName: "manyToOneB",
+    foreignKeyField: "__fk_manyToOneB",
+    relationship: Relationship.ManyOne,
+    linkedTable: "B",
+  },
+];
+@@@@
+const topologicalOrder = [
+  { tableName: "A", fieldName: "fieldA", dependencies: [] },
+  {
+    tableName: "B",
+    fieldName: "fieldLinkA",
+    targetLinkField: "__fk_fieldLinkA",
+    linkedTable: "A",
+    dependencies: ["fieldA"],
+  },
+  {
+    tableName: "C",
+    fieldName: "fieldLinkB",
+    targetLinkField: "__fk_fieldLinkB",
+    linkedTable: "B",
+    dependencies: ["fieldLinkA"],
+  },
+];
+@@@@
+const transpile: (selector: string, content: string, middleware?: Middleware) => string;
+@@@@
+const useOwnerDocument: () => { document: Document };
+@@@@
+const wordDocument = defaultDocxSerializer.serialize(state.doc, opts, (state) => {
+  return {
+    numbering: {
+      config: state.numbering,
+    },
+    fonts: [], // embed fonts,
+    styles: {
+      paragraphStyles,
+      default: {
+        heading1: paragraphStyles[1],
+      },
+    },
+  };
+});
+@@@@
+const worker = new SharedWorker('./xxx-worker');
+const client = new OpClient(worker.port);
+
+// in worker
+globalThis.addEventListener('connect', event => {
+  const port = event.ports[0];
+  const consumer = new OpConsumer(port);
+  consumer.listen();
+});
+@@@@
+const worker = new Worker('./xxx-worker');
+const client = new OpClient(worker);
+
+// in worker
+const consumer = new OpConsumer(globalThis);
+consumer.listen();
+@@@@
+const worker = new Worker('/workers/mp3-encoder/index.js');
+@@@@
+const worker = new Worker('/workers/mp3-encoder/index.js');
+
+worker.onmessage = (event: MessageEvent) => {
+	if (event.data.command === 'end') {
+		const mp3 = new Blob(event.data.buffer, { type: 'audio/mpeg' });
+		worker.terminate();
+		// upload or play `mp3`
+	}
+};
+
+worker.postMessage({
+	command: 'init',
+	config: { sampleRate: 48000, bitRate: 32 },
+});
+
+// For each chunk of mono audio, e.g. from an AudioWorklet or ScriptProcessorNode:
+worker.postMessage({ command: 'encode', buffer: samples }); // Float32Array in [-1, 1]
+
+// When recording stops:
+worker.postMessage({ command: 'finish' });
+@@@@
+const xhr = client.upload(
+	`/v1/rooms.media/${roomId}`,
+	{ file },
+	{
+		progress: (event) => console.log(`${Math.round((event.loaded / event.total) * 100)}%`),
+		load: () => console.log('done'),
+		error: () => console.error('failed'),
+	},
+);
+@@@@
+const {
+  activeTour, isActive, availableTours, activeBeacons,  // state
+  start, stop, refresh, init,                           // control
+  isSeen, reset, markOnboardingHandoff,                 // persistence
+  explain,                                              // why isn't my tour showing?
+} = useTours()
+@@@@
+const { data } = await client.post('/v1/login', { user: 'alice', password: 'secret' });
+
+client.setCredentials({
+	'X-User-Id': data.userId,
+	'X-Auth-Token': data.authToken,
+});
+@@@@
+const { port1, port2 } = new MessageChannel();
+
+const client = new OpClient(port1);
+const consumer = new OpConsumer(port2);
+@@@@
+const { user } = await client.get('/v1/users.info', { username: 'alice' });
+
+const { message } = await client.post('/v1/chat.sendMessage', {
+	message: { rid: 'GENERAL', msg: 'Hello from the API client' },
+});
+
+const { messages, total } = await client.get('/v1/channels.messages', { roomId: 'GENERAL', count: 20 });
+@@@@
+declare module '@rocket.chat/ddp-client' {
+	interface ServerMethods {
+		'myapp:getGreeting'(name: string): string;
+	}
+}
+@@@@
+dispatchToastMessage({ type: 'info', title: 'Maintenance', message: 'The server restarts at 22:00 UTC.', isPersistent: true });
+@@@@
+emitter.once('connected', () => {
+	// runs on the next 'connected' event only
+});
+@@@@
+export class AdminThirdPartyLogin extends Admin {
+	protected readonly route = AdminSectionsHref.thirdPartyLogin;
+
+	protected readonly title = 'Third-party login';
+}
+@@@@
+export class MessageUpdaterTestApp extends App {
+    protected async extendConfiguration(configuration: IConfigurationExtend, _environmentRead: IEnvironmentRead): Promise<void> {
+        await configuration.slashCommands.provideSlashCommand(new class UpdateCommand implements ISlashCommand {
+            command = 'msg-update';
+            i18nDescription = 'msg-update';
+            i18nParamsExample = 'msg-update';
+            providesPreview = false;
+
+            constructor(private readonly app: App) { }
+
+            public async executor(context: SlashCommandContext, read: IRead, modify: IModify, _http: IHttp, _persis: IPersistence) {
+                const [action, msgId] = context.getArguments() as ['add' | 'remove', string];
+
+                const user = await read.getUserReader().getAppUser();
+
+                if (!user) {
+                    this.app.getLogger().error(`Couldn't find app user`);
+                    return;
+                }
+
+                if (action === 'add') {
+                    await modify.getUpdater().getMessageUpdater().addReaction(msgId, user.id, ':+1:');
+                    this.app.getLogger().debug(`Added reaction 👍 to message ${msgId}`);
+                } else {
+                    await modify.getUpdater().getMessageUpdater().removeReaction(msgId, user.id, ':+1:');
+                    this.app.getLogger().debug(`Removed reaction 👍 from message ${msgId}`);
+                }
+            }
+        }(this));
+    }
+}
+@@@@
+export class NestedRequestsApp extends App implements IPostMessageSent {
+	public async executePostMessageSent(
+		message: IMessage,
+		_read: IRead,
+		_http: IHttp,
+		_persistence: IPersistence,
+		_modify: IModify,
+	): Promise<void> {
+		this.getLogger().debug('executed_post_message_sent', message.id);
+	}
+
+	protected async extendConfiguration(configuration: IConfigurationExtend, _environmentRead: IEnvironmentRead): Promise<void> {
+		configuration.slashCommands.provideSlashCommand(
+			new (class implements ISlashCommand {
+				public command = 'nest';
+				public i18nParamsExample = 'nest';
+				public i18nDescription = 'nest';
+				public providesPreview = false;
+
+				constructor(private readonly app: IApp) {}
+
+				public async executor(
+					context: SlashCommandContext,
+					_read: IRead,
+					modify: IModify,
+					_http: IHttp,
+					_persis: IPersistence,
+				): Promise<void> {
+					const [execId] = context.getArguments();
+
+					this.app.getLogger().debug('slashcommand_triggered', execId);
+
+					const mb = modify.getCreator().startMessage().setText(`nested_test_message ${execId}`).setRoom(context.getRoom());
+
+					const id = await modify.getCreator().finish(mb);
+
+					this.app.getLogger().debug('slashcommand_message_sent', id);
+				}
+			})(this),
+		);
+	}
+}
+@@@@
+export const GetExampleRoute: RouteConfig = registerRoute({
+  method: "get",
+  path: "/base/{baseId}/example",
+  tags: ["base"],
+  title: "Get project example",
+  description: "Retrieve the example associated with a project.",
+  request: { params: z.object({ baseId: z.string() }) },
+  responses: { 200: { description: "The project example." } },
+});
+@@@@
+export const TimestampSchema = z.codec(z.iso.datetime(), z.date(), {
+	encode: (date) => date.toISOString(),
+	decode: (str) => new Date(str),
+});
+@@@@
+export default {
+	parameters: {
+		darkMode: {
+			stylePreview: true,
+			classTarget: 'html',
+			darkClass: 'theme-dark',
+			lightClass: 'theme-light',
+		},
+	},
+} satisfies Preview;
+@@@@
+goto: ({ route }) => {
+  if (/\/workflows\/[^/]+/.test(route.path)) return   // already there
+  ncNavigateTo({ workspaceId: route.params.typeOrId, baseId, workflowId })
+}
+@@@@
+if (window.RocketChatDesktop) {
+	window.RocketChatDesktop.setTitle('Rocket.Chat');
+	window.RocketChatDesktop.setBadge(3);
+	window.RocketChatDesktop.setUserLoggedIn(true);
+}
+@@@@
+import '@rocket.chat/fuselage/dist/fuselage.css';
+import '@rocket.chat/icons/dist/rocketchat.css';
+@@@@
+import '@rocket.chat/icons/dist/rocketchat.css';
+import icons from '@rocket.chat/icons';
+
+const element = document.createElement('i');
+element.style.fontFamily = 'RocketChat';
+element.setAttribute('aria-hidden', 'true');
+element.textContent = icons.bell;
+document.body.append(element);
+@@@@
+import '@rocket.chat/icons/dist/rocketchat.css';
+import { Icon } from '@rocket.chat/fuselage';
+
+const Bell = () => <Icon name='bell' size='x20' />;
+@@@@
+import React from 'react';
+
+const MyIcon = (props: React.SVGProps<SVGSVGElement>) => (
+	<svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+		<path d="..." fill="currentColor" />
+	</svg>
+);
+
+export default MyIcon;
+@@@@
+import breakpoints from '@rocket.chat/fuselage-tokens/dist/breakpoints.json';
+import colors from '@rocket.chat/fuselage-tokens/dist/colors.json';
+import typography from '@rocket.chat/fuselage-tokens/dist/typography.json';
+
+colors.n900; // '#…', the darkest neutral
+typography.fontScale.h1; // { fontSize: 32, fontWeight: 700, letterSpacing: 0, lineHeight: 40 }
+breakpoints.md.minViewportWidth; // 768
+@@@@
+import clientResources from '@hcengineering/client-resources'
+  import core, { Client } from '@hcengineering/core'
+
+  // ...
+
+  const token = ... // Token obtained somehow.
+
+  const connection: Client = await (await clientResources()).function.GetClient(token, transactorUrl)
+
+  // Now client is usable
+
+  // Use close, to shutdown connection.
+  await connection.close()
+@@@@
+import contact from '@hcengineering/contact'
+
+..
+
+await client.removeCollection(
+  contact.class.Channel,
+  contact.space.Contacts,
+  channelId,
+  personId,
+  contact.class.Person,
+  'channels'
+)
+@@@@
+import contact from '@hcengineering/contact'
+
+..
+
+await client.removeDoc(
+  contact.class.Person,
+  contact.space.Contacts,
+  personId
+)
+@@@@
+import contact from '@hcengineering/contact'
+
+..
+
+await client.updateCollection(
+  contact.class.Channel,
+  contact.space.Contacts,
+  channelId,
+  personId,
+  contact.class.Person,
+  'channels',
+  {
+    city: 'New York',
+  }
+)
+@@@@
+import contact from '@hcengineering/contact'
+
+..
+
+await client.updateDoc(
+  contact.class.Person,
+  contact.space.Contacts,
+  personId,
+  {
+    city: 'New York',
+  }
+)
+@@@@
+import contact from '@hcengineering/contact'
+
+...
+
+const person = await client.findOne(
+  contact.class.Person,
+  {
+    _id: 'person-id'
+  }
+)
+@@@@
+import contact, { AvatarType } from '@hcengineering/contact'
+
+..
+
+const person = await client.findOne(
+  contact.class.Person,
+  {
+    _id: 'person-id'
+  }
+)
+
+await client.updateMixin(
+  personId,
+  contact.class.Person,
+  contact.space.Contacts,
+  contact.mixin.Employee,
+  {
+    active: false
+  }
+)
+@@@@
+import contact, { AvatarType } from '@hcengineering/contact'
+
+..
+
+const personId = await client.createDoc(
+  contact.class.Person,
+  contact.space.Contacts,
+  {
+    name: 'Doe,John',
+    city: 'New York',
+    avatarType: AvatarType.COLOR
+  }
+)
+@@@@
+import contact, { AvatarType } from '@hcengineering/contact'
+
+..
+
+const personId = await client.createDoc(
+  contact.class.Person,
+  contact.space.Contacts,
+  {
+    name: 'Doe,John',
+    city: 'New York',
+    avatarType: AvatarType.COLOR
+  }
+)
+
+await client.addCollection(
+  contact.class.Channel,
+  contact.space.Contacts,
+  personId,
+  contact.class.Person,
+  'channels',
+  {
+    provider: contact.channelProvider.Email,
+    value: 'john.doe@example.com'
+  }
+)
+@@@@
+import contact, { AvatarType } from '@hcengineering/contact'
+
+..
+
+const personId = await client.createDoc(
+  contact.class.Person,
+  contact.space.Contacts,
+  {
+    name: 'Doe,John',
+    city: 'New York',
+    avatarType: AvatarType.COLOR
+  }
+)
+
+await client.createMixin(
+  personId,
+  contact.class.Person,
+  contact.space.Contacts,
+  contact.mixin.Employee,
+  {
+    active: true,
+    position: 'CEO'
+  }
+)
+@@@@
+import express from 'express';
+import { Router } from '@rocket.chat/http-router';
+
+const app = express();
+const api = new Router('api');
+
+// Define routes...
+
+// Use the router with Express
+app.use(api.router);
+
+app.listen(3000, () => {
+  console.log('Server running on port 3000');
+});
+@@@@
+import logicalProps from '@rocket.chat/stylis-logical-props-middleware';
+import { compile, middleware, prefixer, serialize, stringify } from 'stylis';
+
+const css = serialize(compile('.box{margin-inline:4px 8px;inset-block-start:0;}'), middleware([logicalProps, prefixer, stringify]));
+@@@@
+import logoUrl from '@rocket.chat/logo/dist/logo.svg';
+
+const Logo = () => <img src={logoUrl} alt='Rocket.Chat' />;
+@@@@
+import styled from '@rocket.chat/styled';
+
+const Card = styled('div')`
+	padding-block: 8px;
+	padding-inline: 16px;
+	border-radius: 4px;
+	background-color: white;
+
+	&:hover {
+		background-color: whitesmoke;
+	}
+`;
+
+const App = () => <Card role='region'>Hello</Card>;
+@@@@
+import styled from '@rocket.chat/styled';
+
+type BadgeProps = { tone: 'info' | 'danger' };
+
+const Badge = styled<'span', BadgeProps>('span', ({ tone: _tone, ...props }) => props)`
+	padding: 2px 6px;
+	color: white;
+	background-color: ${(p) => (p.tone === 'danger' ? 'crimson' : 'steelblue')};
+`;
+
+const App = () => <Badge tone='danger'>3</Badge>;
+@@@@
+import surface from '@rocket.chat/fuselage-tokens/dist/surface.json';
+
+const background = surface.dark.room;
+@@@@
+import type {
+	IAppAccessors,
+	IConfigurationExtend,
+	IEnvironmentRead,
+	IHttp,
+	ILogger,
+	IModify,
+	IPersistence,
+	IRead,
+} from '@rocket.chat/apps-engine/definition/accessors';
+import { App } from '@rocket.chat/apps-engine/definition/App';
+import type { IMessage, IPostMessageSent } from '@rocket.chat/apps-engine/definition/messages';
+import type { IAppInfo } from '@rocket.chat/apps-engine/definition/metadata';
+import { SettingType } from '@rocket.chat/apps-engine/definition/settings';
+
+import { HelloCommand } from './HelloCommand';
+
+export class HelloApp extends App implements IPostMessageSent {
+	constructor(info: IAppInfo, logger: ILogger, accessors: IAppAccessors) {
+		super(info, logger, accessors);
+	}
+
+	protected async extendConfiguration(configuration: IConfigurationExtend, environmentRead: IEnvironmentRead): Promise<void> {
+		await configuration.settings.provideSetting({
+			id: 'greeting',
+			type: SettingType.STRING,
+			packageValue: 'Hello',
+			required: true,
+			public: false,
+			i18nLabel: 'Greeting',
+		});
+
+		await configuration.slashCommands.provideSlashCommand(new HelloCommand());
+	}
+
+	public async executePostMessageSent(
+		message: IMessage,
+		read: IRead,
+		http: IHttp,
+		persistence: IPersistence,
+		modify: IModify,
+	): Promise<void> {
+		this.getLogger().debug(`Message sent in ${message.room.id}`);
+	}
+}
+@@@@
+import type { ConditionalBlock } from '@rocket.chat/ui-kit';
+
+const livechatOnly: ConditionalBlock = {
+	type: 'conditional',
+	when: { engine: ['livechat'] },
+	render: [{ type: 'section', text: { type: 'plain_text', text: 'Only in Livechat' } }],
+};
+
+uiKitMessage(new TextRenderer(), { engine: 'livechat' })([livechatOnly]); // ['Only in Livechat']
+uiKitMessage(new TextRenderer(), { engine: 'rocket.chat' })([livechatOnly]); // []
+@@@@
+import type { ConnectionStatus } from '@affine/nbstore';
+import { IndexedDBDocStorage } from '@affine/nbstore/idb';
+
+const storage = new IndexedDBDocStorage({
+  peer: 'local'
+  spaceId: 'my-new-workspace',
+});
+
+await storage.connect();
+storage.connection.onStatusChange((status: ConnectionStatus, error?: Error) => {
+  ui.show(status, error);
+});
+
+// { docId: string, bin: Uint8Array, timestamp: Date, editor?: string } | null
+const doc = await storage.getDoc('my-first-doc');
+@@@@
+import type { Container, ContainerUuid, ClientUuid } from '@hcengineering/network-core'
+
+class ChatRoomContainer implements Container {
+  private clients = new Map<ClientUuid, (data: any) => Promise<void>>()
+  private messages: string[] = []
+
+  constructor(readonly uuid: ContainerUuid, readonly roomName: string) {
+    console.log(`ChatRoom ${roomName} created`)
+  }
+
+  async request(operation: string, data?: any, clientId?: ClientUuid): Promise<any> {
+    switch (operation) {
+      case 'sendMessage':
+        const message = `${data.username}: ${data.text}`
+        this.messages.push(message)
+
+        // Broadcast to all connected clients
+        await this.broadcast({ type: 'newMessage', message, timestamp: Date.now() })
+
+        return { success: true, messageId: this.messages.length - 1 }
+
+      case 'getHistory':
+        return { success: true, messages: this.messages }
+
+      case 'getUserCount':
+        return { success: true, count: this.clients.size }
+
+      default:
+        return { success: false, error: 'Unknown operation' }
+    }
+  }
+
+  async ping(): Promise<void> {}
+
+  async terminate(): Promise<void> {
+    console.log(`ChatRoom ${this.roomName} closing...`)
+    await this.broadcast({ type: 'roomClosed', roomName: this.roomName })
+    this.clients.clear()
+  }
+
+  connect(clientId: ClientUuid, broadcast: (data: any) => Promise<void>): void {
+    console.log(`Client ${clientId} connected to ${this.roomName}`)
+    this.clients.set(clientId, broadcast)
+
+    // Send welcome message to new client
+    broadcast({ type: 'welcome', message: `Welcome to ${this.roomName}!` }).catch(console.error)
+  }
+
+  disconnect(clientId: ClientUuid): void {
+    console.log(`Client ${clientId} disconnected from ${this.roomName}`)
+    this.clients.delete(clientId)
+  }
+
+  private async broadcast(event: any): Promise<void> {
+    const promises = Array.from(this.clients.values()).map((handler) =>
+      handler(event).catch((err) => console.error('Broadcast error:', err))
+    )
+    await Promise.all(promises)
+  }
+}
+
+// Usage
+const chatRef = await client.get('chat-room' as any, {
+  uuid: 'room-general' as any,
+  labels: ['public', 'general']
+})
+
+// Connect to receive events
+const connection = await chatRef.connect()
+connection.on = async (event) => {
+  console.log('Received event:', event.type, event.message)
+}
+
+// Send a message
+await connection.request('sendMessage', {
+  username: 'Alice',
+  text: 'Hello everyone!'
+})
+
+// Later, disconnect
+await connection.close()
+await chatRef.close()
+@@@@
+import type { Container, ContainerUuid, ClientUuid } from '@hcengineering/network-core'
+
+class DataProcessorContainer implements Container {
+  private data: Map<string, any> = new Map()
+
+  constructor(readonly uuid: ContainerUuid) {
+    console.log(`DataProcessor ${uuid} created`)
+  }
+
+  async request(operation: string, data?: any, clientId?: ClientUuid): Promise<any> {
+    switch (operation) {
+      case 'store':
+        this.data.set(data.key, data.value)
+        return { success: true, key: data.key }
+
+      case 'retrieve':
+        const value = this.data.get(data.key)
+        return { success: true, value, found: value !== undefined }
+
+      case 'delete':
+        const existed = this.data.delete(data.key)
+        return { success: true, deleted: existed }
+
+      case 'list':
+        return { success: true, keys: Array.from(this.data.keys()) }
+
+      default:
+        return { success: false, error: 'Unknown operation' }
+    }
+  }
+
+  async ping(): Promise<void> {
+    // Health check - container is alive
+  }
+
+  async terminate(): Promise<void> {
+    console.log(`DataProcessor ${this.uuid} terminating...`)
+    this.data.clear()
+  }
+
+  connect(clientId: ClientUuid, broadcast: (data: any) => Promise<void>): void {
+    // Not using events in this example
+  }
+
+  disconnect(clientId: ClientUuid): void {
+    // Cleanup client connection
+  }
+}
+
+// Usage
+const containerRef = await client.get('data-processor' as any, {})
+
+await containerRef.request('store', { key: 'user:123', value: { name: 'John' } })
+const result = await containerRef.request('retrieve', { key: 'user:123' })
+console.log(result) // { success: true, value: { name: 'John' }, found: true }
+
+await containerRef.close()
+@@@@
+import type { Container, ContainerUuid, ClientUuid } from '@hcengineering/network-core'
+
+class MyContainer implements Container {
+  constructor(readonly uuid: ContainerUuid) {}
+
+  async request(operation: string, data?: any, clientId?: ClientUuid): Promise<any> {
+    switch (operation) {
+      case 'myOperation':
+        return { success: true, result: 'data' }
+      default:
+        return { success: false, error: 'Unknown operation' }
+    }
+  }
+
+  async ping(): Promise<void> {}
+  async terminate(): Promise<void> {}
+
+  connect(clientId: ClientUuid, broadcast: (data: any) => Promise<void>): void {}
+  disconnect(clientId: ClientUuid): void {}
+}
+@@@@
+import type { Container, ContainerUuid, ClientUuid } from '@hcengineering/network-core'
+import { NetworkServer } from '@hcengineering/network-server'
+
+class DirectAccessContainer implements Container {
+  constructor(readonly uuid: ContainerUuid) {}
+
+  async request(operation: string, data?: any): Promise<any> {
+    // High-performance direct request handling
+    return { result: `Processed ${operation} with data`, data }
+  }
+
+  async ping(): Promise<void> {}
+  async terminate(): Promise<void> {}
+  connect(clientId: ClientUuid, broadcast: (data: any) => Promise<void>): void {}
+  disconnect(clientId: ClientUuid): void {}
+}
+
+// When you get a container reference, you can connect to it
+const containerRef = await client.get('direct-service' as any, {})
+
+// Option 1: Request through network (routed)
+const result1 = await containerRef.request('operation', { value: 1 })
+
+// Option 2: Establish direct connection (faster for multiple requests)
+const connection = await containerRef.connect()
+const result2 = await connection.request('operation', { value: 2 })
+const result3 = await connection.request('operation', { value: 3 })
+
+// Direct connections are faster because they bypass the network router
+// after the initial connection is established
+
+await connection.close()
+await containerRef.close()
+@@@@
+import type { Container, ContainerUuid, ClientUuid, GetOptions } from '@hcengineering/network-core'
+
+class TenantWorkspaceContainer implements Container {
+  private users = new Set<string>()
+  private documents = new Map<string, any>()
+
+  constructor(readonly uuid: ContainerUuid, readonly tenantId: string) {
+    console.log(`Workspace created for tenant: ${tenantId}`)
+  }
+
+  async request(operation: string, data?: any, clientId?: ClientUuid): Promise<any> {
+    // All operations are tenant-isolated
+    switch (operation) {
+      case 'addUser':
+        this.users.add(data.userId)
+        return { success: true, userCount: this.users.size }
+
+      case 'createDocument':
+        const docId = `doc-${Date.now()}`
+        this.documents.set(docId, { ...data, createdAt: Date.now() })
+        return { success: true, documentId: docId }
+
+      case 'getDocument':
+        const doc = this.documents.get(data.documentId)
+        return { success: true, document: doc }
+
+      case 'listDocuments':
+        return {
+          success: true,
+          documents: Array.from(this.documents.entries()).map(([id, doc]) => ({ id, ...doc }))
+        }
+
+      case 'getStats':
+        return {
+          success: true,
+          tenantId: this.tenantId,
+          userCount: this.users.size,
+          documentCount: this.documents.size
+        }
+
+      default:
+        return { success: false, error: 'Unknown operation' }
+    }
+  }
+
+  async ping(): Promise<void> {}
+
+  async terminate(): Promise<void> {
+    console.log(`Workspace for tenant ${this.tenantId} terminated`)
+    this.users.clear()
+    this.documents.clear()
+  }
+
+  connect(clientId: ClientUuid, broadcast: (data: any) => Promise<void>): void {}
+  disconnect(clientId: ClientUuid): void {}
+}
+
+// Connect as a client
+const client = createNetworkClient('localhost:3737')
+await client.waitConnection(5000)
+
+// Setup agent with tenant workspace factory
+await client.serveAgent('localhost:3738', {
+  'tenant-workspace': async (options: GetOptions, agentEndpoint?: AgentEndpointRef) => {
+    const tenantId = options.labels?.[0] || 'default'
+    const uuid = options.uuid ?? (`workspace-${tenantId}-${Date.now()}` as ContainerUuid)
+    const container = new TenantWorkspaceContainer(uuid, tenantId)
+    return {
+      uuid,
+      container,
+      endpoint: containerOnAgentEndpointRef(agentEndpoint!, uuid)
+    }
+  }
+})
+
+// Usage: Get workspace for specific tenant
+async function getTenantWorkspace(client: any, tenantId: string) {
+  return await client.get('tenant-workspace' as any, {
+    labels: [tenantId],
+    extra: { tenantId }
+  })
+}
+
+// Example usage
+const tenant1Workspace = await getTenantWorkspace(client, 'tenant-acme')
+await tenant1Workspace.request('addUser', { userId: 'user-1' })
+await tenant1Workspace.request('createDocument', {
+  title: 'Q1 Report',
+  content: 'Financial data...'
+})
+
+const tenant2Workspace = await getTenantWorkspace(client, 'tenant-globex')
+await tenant2Workspace.request('addUser', { userId: 'user-2' })
+
+// Each tenant has isolated data
+const stats1 = await tenant1Workspace.request('getStats')
+const stats2 = await tenant2Workspace.request('getStats')
+
+console.log('Tenant 1 stats:', stats1)
+console.log('Tenant 2 stats:', stats2)
+
+await tenant1Workspace.close()
+await tenant2Workspace.close()
+@@@@
+import type { ExperimentalEndpoints } from '@rocket.chat/rest-typings';
+
+type SetCategory = ExperimentalEndpoints['/experimental/rooms.setCategory']['POST'];
+
+const setCategory = async (params: Parameters<SetCategory>[0]): Promise<ReturnType<SetCategory>> => {
+	const response = await fetch(`${serverUrl}/api/experimental/rooms.setCategory`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json', 'X-User-Id': userId, 'X-Auth-Token': authToken },
+		body: JSON.stringify(params),
+	});
+	return response.json();
+};
+@@@@
+import type { IHttp, IModify, IPersistence, IRead } from '@rocket.chat/apps-engine/definition/accessors';
+import type { ISlashCommand, SlashCommandContext } from '@rocket.chat/apps-engine/definition/slashcommands';
+
+export class HelloCommand implements ISlashCommand {
+	public command = 'hello';
+
+	public i18nParamsExample = '';
+
+	public i18nDescription = 'Says hello';
+
+	public providesPreview = false;
+
+	public async executor(context: SlashCommandContext, read: IRead, modify: IModify, http: IHttp, persis: IPersistence): Promise<void> {
+		const greeting = await read.getEnvironmentReader().getSettings().getValueById('greeting');
+
+		const builder = modify
+			.getCreator()
+			.startMessage()
+			.setSender(context.getSender())
+			.setRoom(context.getRoom())
+			.setText(`${greeting}, ${context.getArguments().join(' ') || 'world'}!`);
+
+		await modify.getCreator().finish(builder);
+	}
+}
+@@@@
+import type { IMessage, IRoom, IUser } from '@rocket.chat/core-typings';
+
+const describe = (message: IMessage, room: IRoom, author: IUser) => `${author.username} in ${room.name ?? room._id}: ${message.msg}`;
+@@@@
+import type { IMessage, Serialized } from '@rocket.chat/core-typings';
+
+const response = await fetch(`https://open.rocket.chat/api/v1/chat.getMessage?msgId=${messageId}`, { headers });
+const { message }: { message: Serialized<IMessage> } = await response.json();
+
+const sentAt = new Date(message.ts); // message.ts is a string here
+@@@@
+import type { IRocketChatDesktop } from '@rocket.chat/desktop-api';
+
+declare global {
+	interface Window {
+		RocketChatDesktop?: IRocketChatDesktop;
+	}
+}
+@@@@
+import type { Keys as IconName } from '@rocket.chat/icons';
+
+const toolbarIcons: IconName[] = ['bell', 'cog', 'magnifier'];
+@@@@
+import type { Locator, Page } from '@playwright/test'
+
+export class MyFeaturePage {
+    constructor(private readonly page: Page) {}
+
+    // Locators — return Locator, never await
+    container(): Locator {
+        return this.page.locator('[data-cy-my-feature]')
+    }
+
+    submitButton(): Locator {
+        return this.container().getByRole('button', { name: 'Submit' })
+    }
+
+    // Actions — async, orchestrate one user interaction
+    async open(): Promise<void> {
+        await this.page.goto('apps/myapp')
+        await this.container().waitFor({ state: 'visible' })
+    }
+}
+@@@@
+import type { MessageSurfaceLayout } from '@rocket.chat/ui-kit';
+
+const appId = 'my-app-id';
+
+const blocks: MessageSurfaceLayout = [
+	{
+		type: 'section',
+		text: { type: 'mrkdwn', text: '*Deploy finished* for `web-frontend`' },
+	},
+	{ type: 'divider' },
+	{
+		type: 'actions',
+		elements: [
+			{
+				type: 'button',
+				appId,
+				blockId: 'deploy',
+				actionId: 'rollback',
+				text: { type: 'plain_text', text: 'Roll back' },
+				style: 'danger',
+				confirm: {
+					title: { type: 'plain_text', text: 'Roll back?' },
+					text: { type: 'plain_text', text: 'This restores the previous release.' },
+					confirm: { type: 'plain_text', text: 'Roll back' },
+					deny: { type: 'plain_text', text: 'Cancel' },
+					style: 'danger',
+				},
+			},
+		],
+	},
+];
+@@@@
+import type { NetworkEvent, NetworkEventKind } from '@hcengineering/network-core'
+
+// Monitor all network events
+const unsubscribe = client.onUpdate(async (event: NetworkEvent) => {
+  console.log('=== Network Event ===')
+
+  // Agent events
+  for (const agentEvent of event.agents) {
+    const eventType = ['added', 'updated', 'removed'][agentEvent.event]
+    console.log(`Agent ${agentEvent.id}: ${eventType}`)
+    console.log('  Supports kinds:', agentEvent.kinds)
+  }
+
+  // Container events
+  for (const containerEvent of event.containers) {
+    const eventType = ['added', 'updated', 'removed'][containerEvent.event]
+    console.log(`Container ${containerEvent.container.uuid}: ${eventType}`)
+    console.log('  Kind:', containerEvent.container.kind)
+    console.log('  Agent:', containerEvent.container.agentId)
+    console.log('  Labels:', containerEvent.container.labels)
+
+    if (containerEvent.event === 2) {
+      // NetworkEventKind.removed
+      console.log('  Container was removed - may trigger failover')
+    }
+  }
+})
+
+// Do some work...
+const ref = await client.get('monitored-service' as any, {})
+await ref.request('doWork', {})
+await ref.close()
+
+// Stop monitoring
+unsubscribe()
+@@@@
+import type { OperationParams, OperationResult, PathPattern } from '@rocket.chat/rest-typings';
+
+async function get<TPathPattern extends PathPattern>(
+	path: TPathPattern,
+	params: OperationParams<'GET', TPathPattern>,
+): Promise<OperationResult<'GET', TPathPattern>> {
+	const query = new URLSearchParams(params as Record<string, string>);
+	const response = await fetch(`https://open.rocket.chat/api${path}?${query}`);
+	return response.json();
+}
+
+const { user } = await get('/v1/users.info', { username: 'alice' });
+@@@@
+import type { Page, BrowserContext } from 'playwright-core';
+
+import { Users } from './fixtures/userStates';
+import { HomeChannel } from './page-objects';
+import { createTargetChannel, sendMessage } from './utils';
+import { expect, test } from './utils/test';
+
+test.use({ storageState: Users.admin.state });
+
+test.describe.serial('Feature X', () => {
+    let poHomeChannel: HomeChannel;
+    let targetChannel: string;
+    let targetChannelId: string;
+    let page: Page;
+    let context: BrowserContext;
+
+    test.beforeAll(async ({ browser, api }) => {
+        targetChannel = await createTargetChannel(api);
+        const info = await (await api.get(`/channels.info?roomName=${targetChannel}`)).json();
+        targetChannelId = info.channel._id;
+
+        context = await browser.newContext();
+        page = await context.newPage();
+        poHomeChannel = new HomeChannel(page);
+
+        await poHomeChannel.gotoChannel(targetChannel);
+    });
+
+    test.afterAll(async ({ api }) => {
+        await api.post('/channels.delete', { roomName: targetChannel });
+        await page.close();
+        await context.close();
+    });
+
+    test('exercises the feature', async ({ api }) => {
+        const messageText = 'seed';
+        await sendMessage(api, targetChannelId, messageText);
+        await expect(poHomeChannel.content.lastUserMessage).toContainText(messageText);
+        // assertions for the feature under test
+    });
+});
+@@@@
+import type { PaginatedRequest, PaginatedResult } from '@rocket.chat/rest-typings';
+
+declare module '@rocket.chat/rest-typings' {
+	interface Endpoints {
+		'/v1/custom.endpoint': {
+			GET: (params: PaginatedRequest<{ query: string }>) => PaginatedResult<{ items: string[] }>;
+		};
+	}
+}
+@@@@
+import type { Preview } from '@storybook/react-webpack5';
+import { themes } from 'storybook/theming';
+
+export default {
+	parameters: {
+		darkMode: {
+			dark: { ...themes.dark, appBg: '#1f2329' },
+			light: { ...themes.normal },
+			current: 'light',
+		},
+	},
+} satisfies Preview;
+@@@@
+import type { StorybookConfig } from '@storybook/react-webpack5';
+
+const config: StorybookConfig = {
+	stories: ['../src/**/*.stories.tsx'],
+	addons: ['@rocket.chat/storybook-dark-mode'],
+	framework: '@storybook/react-webpack5',
+};
+
+export default config;
+@@@@
+import {
+	ActionLink,
+	Form,
+	FormHeader,
+	FormSteps,
+	FormTitle,
+	HorizontalWizardLayout,
+	HorizontalWizardLayoutAside,
+	HorizontalWizardLayoutContent,
+	HorizontalWizardLayoutDescription,
+	HorizontalWizardLayoutSubtitle,
+	HorizontalWizardLayoutTitle,
+	HorizontalWizardTextHighlight,
+} from '@rocket.chat/layout';
+
+const SetupStep = () => (
+	<HorizontalWizardLayout>
+		<HorizontalWizardLayoutAside>
+			<HorizontalWizardLayoutTitle>
+				Set up your <HorizontalWizardTextHighlight>workspace</HorizontalWizardTextHighlight>
+			</HorizontalWizardLayoutTitle>
+			<HorizontalWizardLayoutSubtitle>It takes a few minutes.</HorizontalWizardLayoutSubtitle>
+			<HorizontalWizardLayoutDescription>
+				Need help? <ActionLink href='https://docs.rocket.chat'>Read the docs</ActionLink>
+			</HorizontalWizardLayoutDescription>
+		</HorizontalWizardLayoutAside>
+		<HorizontalWizardLayoutContent>
+			<Form>
+				<FormHeader>
+					<FormSteps currentStep={1} stepCount={3} />
+					<FormTitle>Admin info</FormTitle>
+				</FormHeader>
+				{/* fields */}
+			</Form>
+		</HorizontalWizardLayoutContent>
+	</HorizontalWizardLayout>
+);
+@@@@
+import {
+	HttpStatusCode,
+	IHttp,
+	IModify,
+	IPersistence,
+	IRead,
+} from '@rocket.chat/apps-engine/definition/accessors';
+import { ApiEndpoint, IApiEndpointInfo, IApiRequest, IApiResponse } from '@rocket.chat/apps-engine/definition/api';
+
+export class ResolveVisitorEndpoint extends ApiEndpoint {
+	public override path = 'resolve-visitor';
+
+	public async post(
+		request: IApiRequest,
+		_endpoint: IApiEndpointInfo,
+		_read: IRead,
+		modify: IModify,
+		_http: IHttp,
+		_persistence: IPersistence,
+	): Promise<IApiResponse> {
+		const { externalId, phone, email } = request.content;
+
+		let contactData: { phone: string } | { email: string } | undefined;
+
+		if (phone) {
+			contactData = { phone };
+		} else if (email) {
+			contactData = { email };
+		}
+
+		const visitor = await modify.getCreator().getLivechatCreator().resolveVisitor(externalId, contactData);
+
+		return {
+			status: HttpStatusCode.OK,
+			content: { visitor: visitor || null },
+		};
+	}
+}
+@@@@
+import {
+	HttpStatusCode,
+	IHttp,
+	IModify,
+	IPersistence,
+	IRead,
+} from '@rocket.chat/apps-engine/definition/accessors';
+import { ApiEndpoint, IApiEndpointInfo, IApiRequest, IApiResponse } from '@rocket.chat/apps-engine/definition/api';
+
+export class UpdateExternalIdEndpoint extends ApiEndpoint {
+	public override path = 'update-external-id';
+
+	public async post(
+		request: IApiRequest,
+		_endpoint: IApiEndpointInfo,
+		_read: IRead,
+		modify: IModify,
+		_http: IHttp,
+		_persistence: IPersistence,
+	): Promise<IApiResponse> {
+		const { visitorId, externalId } = request.content;
+
+		if (!visitorId || !externalId) {
+			return {
+				status: HttpStatusCode.BAD_REQUEST,
+				content: { error: 'visitorId and externalId are required' },
+			};
+		}
+
+		const visitor = await modify.getUpdater().getLivechatUpdater().updateVisitorExternalId(visitorId, externalId);
+
+		return {
+			status: HttpStatusCode.OK,
+			content: { visitor: visitor || null },
+		};
+	}
+}
+@@@@
+import {
+	IAppAccessors,
+	IConfigurationExtend,
+	IEnvironmentRead,
+	IHttp,
+	ILogger,
+	IModify,
+	IPersistence,
+	IRead,
+} from '@rocket.chat/apps-engine/definition/accessors';
+import { App } from '@rocket.chat/apps-engine/definition/App';
+import { IAppInfo } from '@rocket.chat/apps-engine/definition/metadata';
+import {
+	IUIKitInteractionHandler,
+	IUIKitResponse,
+	UIKitBlockInteractionContext,
+	UIKitViewCloseInteractionContext,
+	UIKitViewSubmitInteractionContext,
+} from '@rocket.chat/apps-engine/definition/uikit';
+import { AppMethod } from '@rocket.chat/apps-engine/definition/metadata';
+import { UIKitSurfaceType } from '@rocket.chat/apps-engine/definition/uikit';
+
+export class UiKitRoomTestApp extends App implements IUIKitInteractionHandler {
+	constructor(info: IAppInfo, logger: ILogger, accessors: IAppAccessors) {
+		super(info, logger, accessors);
+	}
+
+	async [AppMethod.UIKIT_BLOCK_ACTION](
+		context: UIKitBlockInteractionContext,
+		_read: IRead,
+		_http: IHttp,
+		_persistence: IPersistence,
+		_modify: IModify,
+	): Promise<IUIKitResponse> {
+		const data = context.getInteractionData();
+		this.getLogger().debug('block_action_room', data.room ? data.room.id : 'no-room');
+		this.getLogger().debug('block_action_user', data.user ? data.user.username : 'no-user');
+		this.getLogger().debug('block_action_triggerId', data.triggerId || 'no-triggerId');
+		this.getLogger().debug('block_action_actionId', data.actionId || 'no-actionId');
+		this.getLogger().debug('block_action_value', data.value);
+		this.getLogger().debug('block_action_container', data.container ? data.container.type : 'no-container');
+		return context.getInteractionResponder().successResponse();
+	}
+
+	async [AppMethod.UIKIT_VIEW_SUBMIT](
+		context: UIKitViewSubmitInteractionContext,
+		_read: IRead,
+		_http: IHttp,
+		_persistence: IPersistence,
+		_modify: IModify,
+	): Promise<IUIKitResponse> {
+		const data = context.getInteractionData();
+		this.getLogger().debug('view_submit_room', data.room ? data.room.id : 'no-room');
+		this.getLogger().debug('view_submit_user', data.user ? data.user.username : 'no-user');
+		this.getLogger().debug('view_submit_id', data.view.id);
+		this.getLogger().debug('view_submit_triggerId', data.triggerId || 'no-triggerId');
+		this.getLogger().debug('view_submit_actionId', data.actionId || 'no-actionId');
+		return context.getInteractionResponder().successResponse();
+	}
+
+	async [AppMethod.UIKIT_VIEW_CLOSE](
+		context: UIKitViewCloseInteractionContext,
+		_read: IRead,
+		_http: IHttp,
+		_persistence: IPersistence,
+		_modify: IModify,
+	): Promise<IUIKitResponse> {
+		const data = context.getInteractionData();
+		this.getLogger().debug('view_closed_room', data.room ? data.room.id : 'no-room');
+		this.getLogger().debug('view_closed_user', data.user ? data.user.username : 'no-user');
+		this.getLogger().debug('view_closed_id', data.view.id);
+		this.getLogger().debug('view_closed_triggerId', data.triggerId || 'no-triggerId');
+		this.getLogger().debug('view_closed_actionId', data.actionId || 'no-actionId');
+		return context.getInteractionResponder().successResponse();
+	}
+
+	protected async extendConfiguration(configuration: IConfigurationExtend, _environmentRead: IEnvironmentRead): Promise<void> {
+		await configuration.slashCommands.provideSlashCommand({
+			command: 'open-uikit-room-test-modal',
+			i18nDescription: '',
+			i18nParamsExample: '',
+			providesPreview: false,
+			executor: async (context, _read, modify, _http, _persis) => {
+				const [action, seed] = context.getArguments();
+				const triggerId = context.getTriggerId();
+
+				if (!triggerId) {
+					this.getLogger().error('No triggerId provided to slash command');
+					return;
+				}
+
+				if (action === 'modal') {
+					await modify.getUiController().openSurfaceView(
+						{
+							id: `modal-${seed}`,
+							title: { type: 'plain_text', text: 'UIKit Room Test Modal' },
+							type: UIKitSurfaceType.MODAL,
+							blocks: [
+								{
+									type: 'section',
+									text: { type: 'plain_text', text: 'This modal tests room context in UIKit interactions.' },
+								},
+								{
+									type: 'actions',
+									elements: [{ type: 'button', value: seed, actionId: 'modal-button', text: { type: 'plain_text', text: 'Click!' } }],
+								},
+							],
+							submit: {
+								type: 'button',
+								actionId: `modal-submit-${seed}`,
+								text: { type: 'plain_text', text: 'Submit' },
+							},
+						},
+						{ triggerId },
+						context.getSender(),
+					);
+				}
+
+				if (action === 'ctx') {
+					await modify.getUiController().openSurfaceView(
+						{
+							id: `ctx-${seed}`,
+							title: { type: 'plain_text', text: 'UIKit Room Test Contextual Bar' },
+							type: UIKitSurfaceType.CONTEXTUAL_BAR,
+							blocks: [
+								{
+									type: 'section',
+									text: { type: 'plain_text', text: 'This contextual bar tests room context.' },
+								},
+								{
+									type: 'actions',
+									elements: [{ type: 'button', value: seed, actionId: 'ctx-button', text: { type: 'plain_text', text: 'Click!' } }],
+								},
+							],
+							submit: {
+								type: 'button',
+								actionId: `ctxbar-submit-${seed}`,
+								text: { type: 'plain_text', text: 'Submit' },
+							},
+						},
+						{ triggerId },
+						context.getSender(),
+					);
+				}
+
+				if (action === 'message') {
+					const msg = modify
+					.getCreator()
+					.startMessage()
+					.setRoom(context.getRoom())
+					.setBlocks([
+						{
+							type: 'section',
+							text: { type: 'plain_text', text: 'This message tests room context.' },
+						},
+						{
+							type: 'actions',
+							elements: [{ type: 'button', value: seed, actionId: 'msg-button', text: { type: 'plain_text', text: 'Click!' } }],
+						},
+					]);
+
+					await modify.getCreator().finish(msg);
+				}
+			},
+		});
+	}
+}
+@@@@
+import {
+	IAppAccessors,
+	IConfigurationExtend,
+	ILogger,
+} from '@rocket.chat/apps-engine/definition/accessors';
+import { App } from '@rocket.chat/apps-engine/definition/App';
+import { IAppInfo } from '@rocket.chat/apps-engine/definition/metadata';
+import { ApiSecurity, ApiVisibility } from '@rocket.chat/apps-engine/definition/api';
+import { ResolveVisitorEndpoint } from './ResolveVisitorEndpoint';
+import { UpdateExternalIdEndpoint } from './UpdateExternalIdEndpoint';
+
+export class ExternalIdTestApp extends App {
+	constructor(info: IAppInfo, logger: ILogger, accessors: IAppAccessors) {
+		super(info, logger, accessors);
+	}
+
+	public override async extendConfiguration(configuration: IConfigurationExtend): Promise<void> {
+		await configuration.api.provideApi({
+			visibility: ApiVisibility.PUBLIC,
+			security: ApiSecurity.UNSECURE,
+			endpoints: [new ResolveVisitorEndpoint(this), new UpdateExternalIdEndpoint(this)],
+		});
+	}
+}
+@@@@
+import {
+    IAppAccessors,
+    IConfigurationExtend,
+    ILogger,
+} from '@rocket.chat/apps-engine/definition/accessors';
+import { ApiSecurity, ApiVisibility } from '@rocket.chat/apps-engine/definition/api';
+import { App } from '@rocket.chat/apps-engine/definition/App';
+import { IAppInfo } from '@rocket.chat/apps-engine/definition/metadata';
+import { UpdateStatusEndpoint } from './endpoints/UpdateStatusEndpoint';
+import { UpdateStatusTextEndpoint } from './endpoints/UpdateStatusTextEndpoint';
+
+export class UpdateStatusTestApp extends App {
+    constructor(info: IAppInfo, logger: ILogger, accessors: IAppAccessors) {
+        super(info, logger, accessors);
+    }
+
+    protected async extendConfiguration(configuration: IConfigurationExtend): Promise<void> {
+        await configuration.api.provideApi({
+            visibility: ApiVisibility.PUBLIC,
+            security: ApiSecurity.UNSECURE,
+            endpoints: [
+                new UpdateStatusEndpoint(this),
+                new UpdateStatusTextEndpoint(this),
+            ],
+        });
+    }
+}
+@@@@
+import {
+  HocuspocusProviderWebsocketComponent,
+  HocuspocusRoom,
+  useHocuspocusProvider,
+  useHocuspocusConnectionStatus,
+} from "@hocuspocus/provider-react"
+
+function Editor() {
+  const provider = useHocuspocusProvider()
+  const status = useHocuspocusConnectionStatus()
+  // wire provider.document / provider.awareness into your editor
+  return <div>{status}</div>
+}
+
+export function App() {
+  return (
+    <HocuspocusProviderWebsocketComponent url="ws://127.0.0.1:1234">
+      <HocuspocusRoom name="example-document" token="super-secret-token">
+        <Editor />
+      </HocuspocusRoom>
+    </HocuspocusProviderWebsocketComponent>
+  )
+}
+@@@@
+import {
+  PDFExporter,
+  typstDefaultSchemaMappings,
+} from "@blocknote/xl-pdf-exporter";
+import wasmUrl from "@myriaddreamin/typst-ts-web-compiler/wasm?url";
+import emojiFont from "./NotoEmoji-Regular.ttf"; // bundle an emoji font for full UA-1
+
+const exporter = new PDFExporter(editor.schema, typstDefaultSchemaMappings);
+
+const blob = await exporter.toBlob(
+  editor.document,
+  {
+    getModule: () => wasmUrl,
+    emojiFont: new Uint8Array(await (await fetch(emojiFont)).arrayBuffer()),
+  },
+  { title: "My document", lang: "en" }, // title is required for PDF/UA
+);
+@@@@
+import {
+  StoreExtensionProvider,
+  StoreExtensionManager,
+} from '@blocksuite/affine-ext-loader';
+import { z } from 'zod';
+
+// Create a store provider with custom options
+class MyStoreProvider extends StoreExtensionProvider<{ cacheSize: number }> {
+  override name = 'MyStoreProvider';
+
+  override schema = z.object({
+    cacheSize: z.number().min(0),
+  });
+
+  override setup(
+    context: StoreExtensionContext,
+    options?: { cacheSize: number }
+  ) {
+    super.setup(context, options);
+    context.register([Ext1, Ext2, Ext3]);
+  }
+}
+
+// Create and use the store extension manager
+const manager = new StoreExtensionManager([MyStoreProvider]);
+manager.configure(MyStoreProvider, { cacheSize: 100 });
+const extensions = manager.get('store');
+@@@@
+import {
+  TypstExporter,
+  typstDefaultSchemaMappings,
+} from "@blocknote/xl-typst-exporter";
+
+const exporter = new TypstExporter(editor.schema, typstDefaultSchemaMappings);
+const typst = await exporter.toTypst(editor.document, {
+  title: "My document",
+  lang: "en",
+});
+// Compile with your own toolchain (typst CLI, @myriaddreamin/typst-ts-node-compiler, ...)
+// mapping `exporter.assetFiles` into the compiler's filesystem first —
+// or use @blocknote/xl-pdf-exporter for the batteries-included browser pipeline.
+@@@@
+import {
+  ViewExtensionProvider,
+  ViewExtensionManager,
+} from '@blocksuite/affine-ext-loader';
+import { z } from 'zod';
+
+// Create a view provider with custom options
+class MyViewProvider extends ViewExtensionProvider<{ theme: string }> {
+  override name = 'MyViewProvider';
+
+  override schema = z.object({
+    theme: z.enum(['light', 'dark']),
+  });
+
+  override setup(context: ViewExtensionContext, options?: { theme: string }) {
+    super.setup(context, options);
+
+    context.register([CommonExt]);
+    if (context.scope === 'page') {
+      context.register([PageExt]);
+    } else if (context.scope === 'edgeless') {
+      context.register([EdgelessExt]);
+    }
+    if (options?.theme === 'dark') {
+      context.register([DarkModeExt]);
+    }
+  }
+
+  // Override effect to run one-time initialization logic
+  override effect() {
+    // This will only run once per provider class
+    console.log('Initializing MyViewProvider');
+    // Register lit elements
+    this.registerLitElements();
+  }
+}
+
+// Create and use the view extension manager
+const manager = new ViewExtensionManager([MyViewProvider]);
+manager.configure(MyViewProvider, { theme: 'dark' });
+
+// Get extensions for different view scopes
+const pageExtensions = manager.get('page');
+const edgelessExtensions = manager.get('edgeless');
+@@@@
+import { API } from 'path/to/api';
+import Ajv from 'ajv';
+
+const ajv = new Ajv();
+
+API.v1
+	.get(
+		'endpoint-name',
+		{
+			authRequired: true,
+			query: ajv.compile({
+					type: 'object',
+					properties: {
+						param1: { type: 'string' },
+						param2: { type: 'number' },
+					},
+					required: ['param1'],
+			}),
+			body: ajv.compile({
+					type: 'object',
+					properties: {
+						field1: { type: 'string' },
+						field2: { type: 'boolean' },
+					},
+					required: ['field1'],
+			}),
+			response: {
+				200: ajv.compile({
+					additionalProperties: false,
+				    type: 'object',
+                    properties: {
+						count: {
+							type: 'number',
+							description: 'The number of sounds returned in this response.',
+						},
+						offset: {
+							type: 'number',
+							description: 'The number of sounds that were skipped in this response.',
+						},
+						total: {
+							type: 'number',
+							description: 'The total number of sounds that match the query.',
+						},
+						success: {
+							type: 'boolean',
+							description: 'Indicates if the request was successful.',
+						},
+						items: {
+							type: 'array',
+							items: {
+								type: 'object',
+								properties: {
+								_id: {
+									type: 'string',
+								},
+								prop1: {
+									type: 'number',
+								},
+								prop2: {
+									type: 'string',
+								},
+								prop3: {
+									type: 'string',
+								},
+							},
+							required: ['_id', 'prop1', 'prop2', 'prop3'],
+							},
+						},
+					},
+				}),
+				401: ajv.compile({
+					additionalProperties: false,
+					type: 'object',
+					properties: {
+						error: {
+							type: 'string',
+						},
+						status: {
+							type: 'string',
+							nullable: true,
+						},
+						message: {
+							type: 'string',
+							nullable: true,
+						},
+						success: {
+							type: 'boolean',
+							description: 'Indicates if the request was successful.',
+						},
+					},
+					required: ['success', 'error'],
+				}),
+			},
+		},
+
+		async function action() {
+			const result = await anyLogic();
+			return API.v1.success(result);
+		},
+	)
+@@@@
+import { AdminInfoPage, type AdminInfoPayload } from '@rocket.chat/onboarding-ui';
+
+const AdminStep = ({ onNext }: { onNext: (data: AdminInfoPayload) => void }) => (
+	<AdminInfoPage
+		currentStep={1}
+		stepCount={4}
+		passwordRulesHint='At least 8 characters.'
+		validateUsername={(username) => /^[\w.-]+$/.test(username) || 'Invalid username'}
+		validateEmail={(email) => email.includes('@') || 'Invalid email'}
+		validatePassword={(password) => password.length >= 8 || 'Password too short'}
+		onSubmit={onNext}
+	/>
+);
+@@@@
+import { AiIntegration } from '@noco-integrations/core';
+
+export class MyAiIntegration extends AiIntegration {
+  // Implementation...
+}
+@@@@
+import { BackgroundLayer, DarkModeProvider } from '@rocket.chat/layout';
+
+const Page = () => (
+	<DarkModeProvider.default>
+		<BackgroundLayer>{/* ... */}</BackgroundLayer>
+	</DarkModeProvider.default>
+);
+@@@@
+import { BaseExtensionProvider } from '@blocksuite/affine-ext-loader';
+import { z } from 'zod';
+
+// Create a custom provider with options
+class MyProvider extends BaseExtensionProvider<
+  'my-scope',
+  { enabled: boolean }
+> {
+  name = 'MyProvider';
+
+  schema = z.object({
+    enabled: z.boolean(),
+  });
+
+  setup(context: Context<'my-scope'>, options?: { enabled: boolean }) {
+    super.setup(context, options);
+    // Custom setup logic
+  }
+}
+@@@@
+import { BlockContext, UiKitParserMessage, uiKitMessage } from '@rocket.chat/ui-kit';
+import type { ButtonElement, Markdown, PlainText, SectionBlock } from '@rocket.chat/ui-kit';
+
+class TextRenderer extends UiKitParserMessage<string> {
+	plain_text({ text }: PlainText): string {
+		return text;
+	}
+
+	mrkdwn({ text }: Markdown): string {
+		return text;
+	}
+
+	section(block: SectionBlock, context: BlockContext, index: number): string | null {
+		return block.text ? this.renderTextObject(block.text, index, BlockContext.SECTION) : null;
+	}
+
+	divider(): string {
+		return '---';
+	}
+
+	button(element: ButtonElement): string {
+		return `[${element.text.text}]`;
+	}
+}
+
+const render = uiKitMessage(new TextRenderer());
+
+render(blocks); // ['*Deploy finished* for `web-frontend`', '---']
+@@@@
+import { Box, Button, ButtonGroup, Field, FieldLabel, FieldRow, TextInput } from '@rocket.chat/fuselage';
+import { useState } from 'react';
+
+export function ProfileForm({ onSave }: { onSave: (name: string) => void }) {
+	const [name, setName] = useState('');
+
+	return (
+		<Box
+			is='form'
+			padding='x24'
+			backgroundColor='surface-light'
+			onSubmit={(e) => {
+				e.preventDefault();
+				onSave(name);
+			}}
+		>
+			<Box is='h2' fontScale='h2' marginBlockEnd='x16' color='font-titles-labels'>
+				Profile
+			</Box>
+			<Field>
+				<FieldLabel htmlFor='profile-name'>Name</FieldLabel>
+				<FieldRow>
+					<TextInput id='profile-name' value={name} onChange={(e) => setName(e.currentTarget.value)} />
+				</FieldRow>
+			</Field>
+			<ButtonGroup align='end'>
+				<Button type='submit' variant='primary' icon='check'>
+					Save
+				</Button>
+			</ButtonGroup>
+		</Box>
+	);
+}
+@@@@
+import { Box, Icon } from '@rocket.chat/fuselage';
+
+<Box display='flex' alignItems='center' paddingInline='x16' paddingBlock='x8' borderRadius='medium' backgroundColor='surface-tint'>
+	<Icon name='info' size='x20' color='font-info' />
+	<Box marginInlineStart='x8' fontScale='p2' withTruncatedText>
+		Messages are end-to-end encrypted.
+	</Box>
+</Box>;
+@@@@
+import { Button } from '@rocket.chat/fuselage';
+import { useToastBarDispatch } from '@rocket.chat/fuselage-toastbar';
+
+function SaveButton({ save }: { save: () => Promise<void> }) {
+	const dispatchToastMessage = useToastBarDispatch();
+
+	const handleClick = async () => {
+		try {
+			await save();
+			dispatchToastMessage({ type: 'success', message: 'Changes saved' });
+		} catch (error) {
+			dispatchToastMessage({ type: 'error', message: error as Error, time: 10, position: 'bottom-start' });
+		}
+	};
+
+	return <Button onClick={handleClick}>Save</Button>;
+}
+@@@@
+import { Button, Field, FieldLabel, FieldRow, TextInput } from '@rocket.chat/fuselage';
+import {
+	Form,
+	FormContainer,
+	FormFooter,
+	FormHeader,
+	FormSubtitle,
+	FormTitle,
+	VerticalWizardLayout,
+	VerticalWizardLayoutFooter,
+	VerticalWizardLayoutForm,
+	VerticalWizardLayoutTitle,
+} from '@rocket.chat/layout';
+
+const SignInPage = () => (
+	<VerticalWizardLayout>
+		<VerticalWizardLayoutTitle>Welcome back</VerticalWizardLayoutTitle>
+		<VerticalWizardLayoutForm>
+			<Form onSubmit={(event) => event.preventDefault()}>
+				<FormHeader>
+					<FormTitle>Sign in</FormTitle>
+					<FormSubtitle>Use your workspace account.</FormSubtitle>
+				</FormHeader>
+				<FormContainer>
+					<Field>
+						<FieldLabel>Email</FieldLabel>
+						<FieldRow>
+							<TextInput type='email' />
+						</FieldRow>
+					</Field>
+				</FormContainer>
+				<FormFooter>
+					<Button primary type='submit'>
+						Continue
+					</Button>
+				</FormFooter>
+			</Form>
+		</VerticalWizardLayoutForm>
+		<VerticalWizardLayoutFooter>New here? Create an account.</VerticalWizardLayoutFooter>
+	</VerticalWizardLayout>
+);
+@@@@
+import { Button, Margins } from '@rocket.chat/fuselage';
+
+<Margins inline='x4'>
+	<Button>Cancel</Button>
+	<Button variant='primary'>Confirm</Button>
+</Margins>;
+@@@@
+import { C } from 'Lib';
+
+// Create a block
+C.BlockCreate(rootId, targetId, position, block, (message) => {
+	if (!message.error.code) {
+		// success
+	}
+});
+
+// Open an object
+C.ObjectOpen(objectId, '', spaceId, (message) => { ... });
+@@@@
+import { Component } from "@angular/core";
+import { CommonModule } from "@angular/common";
+import { RouterOutlet } from "@angular/router";
+import { FullCalendarModule, CalendarOptions } from "@fullcalendar/angular";
+import themePlugin from "@fullcalendar/angular/themes/monarch"; // YOUR THEME
+import dayGridPlugin from "@fullcalendar/angular/daygrid";
+
+@Component({
+  selector: "app-root",
+  standalone: true,
+  imports: [CommonModule, RouterOutlet, FullCalendarModule],
+  templateUrl: "./app.component.html",
+  styleUrls: ["./app.component.scss"],
+})
+export class AppComponent {
+  calendarOptions: CalendarOptions = {
+    initialView: "dayGridMonth",
+    plugins: [themePlugin, dayGridPlugin],
+  };
+}
+@@@@
+import { DARK_MODE_EVENT_NAME, UPDATE_DARK_MODE_EVENT_NAME } from '@rocket.chat/storybook-dark-mode';
+import { addons } from 'storybook/preview-api';
+
+const channel = addons.getChannel();
+
+channel.on(DARK_MODE_EVENT_NAME, (isDark: boolean) => {
+	console.log(isDark ? 'dark' : 'light');
+});
+
+channel.emit(UPDATE_DARK_MODE_EVENT_NAME, 'dark');
+@@@@
+import { DDPSDK } from '@rocket.chat/ddp-client';
+
+const sdk = DDPSDK.create('https://open.rocket.chat');
+
+await sdk.connection.connect();
+
+console.log(sdk.connection.status); // 'connected'
+@@@@
+import { DRAG_EXCLUSION_CLASSNAME } from "@blocknote/core/extensions";
+@@@@
+import { DocxSerializer, defaultNodes, defaultMarks } from 'prosemirror-docx';
+
+const nodeSerializer = {
+  ...defaultNodes,
+  my_paragraph(state, node) {
+    state.renderInline(node);
+    state.closeBlock(node);
+  },
+};
+
+export const myDocxSerializer = new DocxSerializer(nodeSerializer, defaultMarks);
+@@@@
+import { DocxSerializerAsync, defaultAsyncNodes, defaultMarks } from 'prosemirror-docx';
+import { EditorState } from 'prosemirror-state';
+import { writeFileSync } from 'fs';
+
+const state = EditorState.create({ schema: mySchema });
+
+export const docxSerializer = new DocxSerializerAsync(
+  {
+    ...defaultAsyncNodes,
+    async image(state, node) {
+      const { src } = node.attrs;
+      await state.image(src, 70, 'center', undefined, 'png');
+      state.closeBlock(node);
+    },
+  },
+  defaultMarks,
+);
+
+// If there are images, we will need to preload the buffers
+const opts = {
+  async getImageBuffer(src: string) {
+    const arrayBuffer = await fetch(src).then((res) => res.arrayBuffer());
+    return new Uint8Array(arrayBuffer);
+  },
+};
+
+// Create a doc in memory, and then write it to disk
+const wordDocument = docxSerializer.serializeAsync(state.doc, opts);
+
+await writeDocx(wordDocument).then((buffer) => {
+  writeFileSync('HelloWorld.docx', buffer);
+});
+@@@@
+import { EmailConfirmedPage, InformationPage, SomethingWentWrongPage } from '@rocket.chat/onboarding-ui';
+
+<EmailConfirmedPage />
+<InformationPage title='Workspace removed' description='You can close this tab.' />
+<SomethingWentWrongPage requestId='a1b2c3' />
+@@@@
+import { Emitter } from '@rocket.chat/emitter';
+
+class Connection extends Emitter<{ status: 'online' | 'offline' }> {
+	goOnline() {
+		this.emit('status', 'online');
+	}
+}
+@@@@
+import { Emitter } from '@rocket.chat/emitter';
+
+type Events = {
+	message: { id: string; text: string };
+	connected: void;
+};
+
+const emitter = new Emitter<Events>();
+
+const off = emitter.on('message', ({ id, text }) => {
+	console.log(id, text);
+});
+
+emitter.on('connected', () => console.log('connected'));
+
+emitter.emit('message', { id: '1', text: 'Hello' });
+emitter.emit('connected');
+
+off(); // stop listening to 'message'
+@@@@
+import { FACTORIES } from '@affine/routes';
+
+const path = FACTORIES.workspace.doc({ workspaceId: '123', docId: '456' });
+//                                     ^^^^ with typecheck
+@@@@
+import { Field, FieldDescription, FieldError, FieldHint, FieldLabel, FieldRow, TextInput } from '@rocket.chat/fuselage-forms';
+import { useState } from 'react';
+
+function EmailField() {
+	const [email, setEmail] = useState('');
+	const invalid = email !== '' && !email.includes('@');
+
+	return (
+		<Field>
+			<FieldLabel required>Email</FieldLabel>
+			<FieldDescription>We send the confirmation link here.</FieldDescription>
+			<FieldRow>
+				<TextInput value={email} onChange={(e) => setEmail(e.currentTarget.value)} />
+			</FieldRow>
+			{invalid && <FieldError>Enter a valid email address</FieldError>}
+			<FieldHint>You can change it later in your account settings.</FieldHint>
+		</Field>
+	);
+}
+@@@@
+import { Field, FieldDescription, FieldLabel, FieldRow, ToggleSwitch } from '@rocket.chat/fuselage-forms';
+
+<Field>
+	<FieldRow>
+		<FieldLabel>Email notifications</FieldLabel>
+		<ToggleSwitch defaultChecked />
+	</FieldRow>
+	<FieldDescription>Send a summary of unread messages every day.</FieldDescription>
+</Field>;
+@@@@
+import { Field, FieldGroup, FieldLabel, FieldLabelInfo, FieldRow, PasswordInput, TextInput } from '@rocket.chat/fuselage-forms';
+
+<FieldGroup>
+	<Field>
+		<FieldLabel>Username</FieldLabel>
+		<FieldRow>
+			<TextInput />
+		</FieldRow>
+	</Field>
+	<Field>
+		<FieldLabel>
+			Password
+			<FieldLabelInfo title='At least 8 characters' />
+		</FieldLabel>
+		<FieldRow>
+			<PasswordInput />
+		</FieldRow>
+	</Field>
+</FieldGroup>;
+@@@@
+import { HeroLayout, HeroLayoutSubtitle, HeroLayoutTitle } from '@rocket.chat/layout';
+
+const EmailConfirmed = () => (
+	<HeroLayout>
+		<HeroLayoutTitle>Email confirmed</HeroLayoutTitle>
+		<HeroLayoutSubtitle>You can close this tab.</HeroLayoutSubtitle>
+	</HeroLayout>
+);
+@@@@
+import { HttpStatusCode, IModify, IRead } from '@rocket.chat/apps-engine/definition/accessors';
+import { ApiEndpoint, IApiEndpointInfo, IApiRequest, IApiResponse } from '@rocket.chat/apps-engine/definition/api';
+
+export class TestEndpoint extends ApiEndpoint {
+	public path = 'api/:param1/:param2/test';
+
+	public async get(request: IApiRequest, endpoint: IApiEndpointInfo, read: IRead, modify: IModify): Promise<IApiResponse> {
+		return {
+			content: `Param1: ${request.params.param1}, Param2: ${request.params.param2}`,
+			status: HttpStatusCode.OK,
+			headers: {
+				'Content-Type': 'text/plain',
+			},
+		};
+	}
+}
+@@@@
+import { HulypulseClient } from "./hulypulse_client.js"
+
+async function main() {
+  // connect
+  const client = await HulypulseClient.connect("wss://hulypulse_mem.lleo.me/ws")
+
+  // subscribe to updates
+  const cb = (msg, key, index) => {
+    console.log("Update for", key, ":", msg)
+  }
+  await client.subscribe("workspace/users/", cb)
+
+  // put value
+  await client.put("workspace/users/123", JSON.stringify({ name: "Alice" }), 5)
+
+  // get value
+  const value = await client.get("workspace/users/123")
+  console.log("Fetched:", value)
+
+  // get full record
+  const full = await client.get_full("workspace/users/123")
+  if (full) {
+    console.log(full.data, full.etag, full.expires_at)
+  }
+
+  // delete key
+  const deleted = await client.delete("workspace/users/123")
+  console.log(deleted ? "Deleted" : "Not found")
+
+  // unsubscribe
+  await client.unsubscribe("workspace/users/", cb)
+
+  // low-level send
+  const reply = await client.send({ type: "sublist" })
+  console.log("My sublists:", reply)
+
+  // dispose
+  client[Symbol.dispose]()
+}
+
+main()
+@@@@
+import { IAppAccessors, IConfigurationExtend, IEnvironmentRead, ILogger } from '@rocket.chat/apps-engine/definition/accessors';
+import { ApiSecurity, ApiVisibility } from '@rocket.chat/apps-engine/definition/api';
+import { App } from '@rocket.chat/apps-engine/definition/App';
+import { IAppInfo } from '@rocket.chat/apps-engine/definition/metadata';
+import { TestEndpoint } from './TestEndpoint';
+
+export class APIParameterTestApp extends App {
+	constructor(info: IAppInfo, logger: ILogger, accessors: IAppAccessors) {
+		super(info, logger, accessors);
+	}
+
+	protected async extendConfiguration(configuration: IConfigurationExtend, environmentRead: IEnvironmentRead): Promise<void> {
+		await configuration.api.provideApi({
+			visibility: ApiVisibility.PUBLIC,
+			security: ApiSecurity.UNSECURE,
+			endpoints: [new TestEndpoint(this)],
+		});
+	}
+}
+@@@@
+import { IHttp, IModify, IPersistence, IRead } from '@rocket.chat/apps-engine/definition/accessors';
+import { ApiEndpoint, IApiEndpointInfo, IApiRequest, IApiResponse } from '@rocket.chat/apps-engine/definition/api';
+import { IUser } from '@rocket.chat/apps-engine/definition/users';
+
+export class UpdateStatusEndpoint extends ApiEndpoint {
+    public path = 'update-status';
+
+    public async post(request: IApiRequest, endpoint: IApiEndpointInfo, read: IRead, modify: IModify, http: IHttp, persis: IPersistence): Promise<IApiResponse> {
+        const { status, statusText = '', username } = request.content || {};
+
+        if (!status) {
+            return { status: 400, content: 'status is required' };
+        }
+
+        if (!username) {
+            return { status: 400, content: 'username is required' };
+        }
+
+        const user = await read.getUserReader().getByUsername(username) as IUser;
+
+        if (!user) {
+            return { status: 404, content: 'User not found' };
+        }
+
+        await modify.getUpdater().getUserUpdater().updateStatus(user, statusText, status);
+
+        return this.success(JSON.stringify({ status, statusText }));
+    }
+}
+@@@@
+import { IHttp, IModify, IPersistence, IRead } from '@rocket.chat/apps-engine/definition/accessors';
+import { ApiEndpoint, IApiEndpointInfo, IApiRequest, IApiResponse } from '@rocket.chat/apps-engine/definition/api';
+import { IUser } from '@rocket.chat/apps-engine/definition/users';
+
+export class UpdateStatusTextEndpoint extends ApiEndpoint {
+    public path = 'update-status-text';
+
+    public async post(request: IApiRequest, endpoint: IApiEndpointInfo, read: IRead, modify: IModify, http: IHttp, persis: IPersistence): Promise<IApiResponse> {
+        const { statusText, username } = request.content || {};
+
+        if (typeof statusText !== 'string') {
+            return { status: 400, content: 'statusText is required' };
+        }
+
+        if (!username) {
+            return { status: 400, content: 'username is required' };
+        }
+
+        const user = await read.getUserReader().getByUsername(username) as IUser;
+
+        if (!user) {
+            return { status: 404, content: 'User not found' };
+        }
+
+        await modify.getUpdater().getUserUpdater().updateStatusText(user, statusText);
+
+        return this.success(JSON.stringify({ statusText }));
+    }
+}
+@@@@
+import { IHttp, IModify, IPersistence, IRead } from '@rocket.chat/apps-engine/definition/accessors';
+import { App } from '@rocket.chat/apps-engine/definition/App';
+import { FileUploadNotAllowedException } from '@rocket.chat/apps-engine/definition/exceptions';
+import { IPreFileUpload } from '@rocket.chat/apps-engine/definition/uploads';
+import { IFileUploadContext } from '@rocket.chat/apps-engine/definition/uploads/IFileUploadContext';
+
+export class TestIPreFileUpload extends App implements IPreFileUpload {
+	public async executePreFileUpload(
+		context: IFileUploadContext,
+		read: IRead,
+		http: IHttp,
+		persis: IPersistence,
+		modify: IModify,
+	): Promise<void> {
+		if (context.file.name.startsWith('test-should-reject')) {
+			console.log('[executePreFileUpload] Rejecting file which name starts with "test-should-reject"');
+			throw new FileUploadNotAllowedException(`Test file rejected ${context.content.toString()}`);
+		}
+		console.log('[executePreFileUpload] Did not reject file');
+	}
+}
+@@@@
+import { LivechatClientImpl } from '@rocket.chat/ddp-client';
+
+const livechat = LivechatClientImpl.create('wss://open.rocket.chat');
+await livechat.connection.connect();
+@@@@
+import { LoginPage, type LoginFormPayload } from '@rocket.chat/onboarding-ui';
+
+const Login = () => {
+	const handleSubmit = async ({ email, password }: LoginFormPayload) => {
+		await signIn(email, password);
+	};
+
+	return (
+		<LoginPage
+			isPasswordLess={false}
+			isMfa={false}
+			onSubmit={handleSubmit}
+			onChangeForm={() => undefined}
+			onResetPassword={() => navigate('/reset-password')}
+			onCreateAccount={() => navigate('/register')}
+		/>
+	);
+};
+@@@@
+import { MediaCallWebRTCProcessor, MediaSignalingSession } from '@rocket.chat/media-signaling';
+import type { ClientMediaSignal, ServerMediaSignal } from '@rocket.chat/media-signaling';
+
+const session = new MediaSignalingSession({
+	userId: 'my-user-id',
+	transport: (signal: ClientMediaSignal) => {
+		// Send the signal to the Rocket.Chat server.
+		sendToServer(JSON.stringify(signal));
+	},
+	processorFactories: {
+		webrtc: (config) =>
+			new MediaCallWebRTCProcessor({
+				...config,
+				rtc: { ...config.rtc, iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] },
+			}),
+	},
+	mediaStreamFactory: (constraints) => navigator.mediaDevices.getUserMedia(constraints),
+	displayMediaFactory: (constraints) => navigator.mediaDevices.getDisplayMedia(constraints),
+	randomStringFactory: () => crypto.randomUUID(),
+	features: ['audio', 'screen-share', 'transfer', 'hold'],
+	autoSync: true,
+});
+
+// Feed every signal the server sends for this user into the session.
+onServerSignal((signal: ServerMediaSignal) => {
+	void session.processSignal(signal);
+});
+@@@@
+import { MicrophoneListener } from '@affine/native';
+
+const listener = new MicrophoneListener(
+  (isRunning: boolean, processName: string) => {
+    console.log(
+      `Microphone ${isRunning ? 'started' : 'stopped'} by ${processName}`
+    );
+  }
+);
+
+// Check current status
+console.log('Is microphone currently active:', listener.is_running());
+@@@@
+import { NetworkImpl, TickManagerImpl } from '@hcengineering/network-core'
+import { NetworkServer } from '@hcengineering/network-server'
+import { createNetworkClient } from '@hcengineering/network-client'
+import type { Container, ContainerUuid, ClientUuid } from '@hcengineering/network-core'
+
+// 1. Create a simple container implementation
+class MyServiceContainer implements Container {
+  constructor(readonly uuid: ContainerUuid) {}
+
+  async request(operation: string, data?: any): Promise<any> {
+    console.log(`Processing ${operation}:`, data)
+    return { success: true, result: `Processed ${operation}` }
+  }
+
+  async ping(): Promise<void> {
+    // Health check
+  }
+
+  async terminate(): Promise<void> {
+    console.log('Container terminated')
+  }
+
+  connect(clientId: ClientUuid, broadcast: (data: any) => Promise<void>): void {
+    // Store broadcast function for later use
+  }
+
+  disconnect(clientId: ClientUuid): void {
+    // Remove client connection
+  }
+}
+
+async function main() {
+  // 2. Start the network server (NOTE: Only one instance allowed - no HA support)
+  const tickManager = new TickManagerImpl(1000)
+  tickManager.start()
+  const network = new NetworkImpl(tickManager)
+  const server = new NetworkServer(network, tickManager, '*', 3737)
+  console.log('Network server started on port 3737')
+
+  // 3. Connect as a client and serve an agent
+  const client = createNetworkClient('localhost:3737')
+  await client.waitConnection(5000)
+
+  await client.serveAgent('localhost:3738', {
+    'my-service': async (options, agentEndpoint) => {
+      const uuid = options.uuid ?? (('container-' + Date.now()) as ContainerUuid)
+      const container = new MyServiceContainer(uuid)
+      return {
+        uuid,
+        container,
+        endpoint: containerOnAgentEndpointRef(agentEndpoint!, uuid)
+      }
+    }
+  })
+
+  // 4. Use as a client
+  const client = createNetworkClient('localhost:3737')
+  await client.waitConnection(5000)
+  console.log('Client connected')
+
+  // 6. Request a container
+  const containerRef = await client.get('my-service' as any, {})
+  console.log('Got container:', containerRef.uuid)
+
+  // 7. Send a request
+  const result = await containerRef.request('processData', { value: 42 })
+  console.log('Result:', result)
+
+  // 8. Cleanup
+  await containerRef.close()
+  await client.close()
+  await agentServer.close()
+  await server.close()
+  tickManager.stop()
+}
+
+main().catch(console.error)
+@@@@
+import { NetworkImpl, TickManagerImpl, AgentImpl } from '@hcengineering/network-core'
+import { NetworkServer } from '@hcengineering/network-server'
+import { createNetworkClient, NetworkAgentServer } from '@hcengineering/network-client'
+
+// Production container with proper lifecycle management
+class ProductionContainer implements Container {
+  private connections = new Map<ClientUuid, (data: any) => Promise<void>>()
+  private shutdownRequested = false
+
+  constructor(readonly uuid: ContainerUuid, private readonly config: any) {
+    console.log(`[${uuid}] Container started`)
+  }
+
+  async request(operation: string, data?: any, clientId?: ClientUuid): Promise<any> {
+    if (this.shutdownRequested) {
+      throw new Error('Container is shutting down')
+    }
+
+    try {
+      // Your business logic here
+      console.log(`[${this.uuid}] Processing ${operation}`)
+      return { success: true, operation, clientId }
+    } catch (error: any) {
+      console.error(`[${this.uuid}] Error processing ${operation}:`, error)
+      throw error
+    }
+  }
+
+  async ping(): Promise<void> {
+    // Health check - verify dependencies, connections, etc.
+    if (this.shutdownRequested) {
+      throw new Error('Container is shutting down')
+    }
+  }
+
+  async terminate(): Promise<void> {
+    if (this.shutdownRequested) return
+
+    this.shutdownRequested = true
+    console.log(`[${this.uuid}] Terminating...`)
+
+    // Notify all connected clients
+    await this.broadcastShutdown()
+
+    // Cleanup resources
+    this.connections.clear()
+
+    console.log(`[${this.uuid}] Terminated`)
+  }
+
+  connect(clientId: ClientUuid, broadcast: (data: any) => Promise<void>): void {
+    console.log(`[${this.uuid}] Client ${clientId} connected`)
+    this.connections.set(clientId, broadcast)
+  }
+
+  disconnect(clientId: ClientUuid): void {
+    console.log(`[${this.uuid}] Client ${clientId} disconnected`)
+    this.connections.delete(clientId)
+  }
+
+  private async broadcastShutdown(): Promise<void> {
+    const promises = Array.from(this.connections.values()).map((handler) =>
+      handler({ type: 'shutdown', message: 'Container is terminating' }).catch((err) =>
+        console.error('Failed to notify client:', err)
+      )
+    )
+    await Promise.all(promises)
+  }
+}
+
+async function startProductionSystem() {
+  // 1. Start network server
+  const tickManager = new TickManagerImpl(1000)
+  tickManager.start()
+
+  const network = new NetworkImpl(tickManager)
+  const server = new NetworkServer(
+    network,
+    tickManager,
+    '*', // Bind to all interfaces
+    3737
+  )
+  console.log('✓ Network server started on port 3737')
+
+  // 2. Start multiple agents for redundancy
+  const agents = []
+  for (let i = 1; i <= 3; i++) {
+    const agent = new AgentImpl(`agent-${i}` as any, {
+      'production-service': async (options, agentEndpoint?: AgentEndpointRef) => {
+        const uuid = options.uuid ?? (`svc-${Date.now()}-${i}` as ContainerUuid)
+        const container = new ProductionContainer(uuid, { agentId: i })
+        return {
+          uuid,
+          container,
+          endpoint: containerOnAgentEndpointRef(agentEndpoint!, uuid)
+        }
+      }
+    })
+
+    const agentServer = new NetworkAgentServer(tickManager, 'localhost', '*', 3738 + i)
+    await agentServer.start(agent)
+    agents.push({ agent, server: agentServer })
+    console.log(`✓ Agent ${i} started on port ${3738 + i}`)
+  }
+
+  // 3. Connect clients
+  const client = createNetworkClient('localhost:3737')
+  await client.waitConnection(5000)
+  console.log('✓ Client connected')
+
+  // 4. Register all agents
+  for (const { agent } of agents) {
+    await client.register(agent)
+  }
+  console.log('✓ All agents registered')
+
+  // 5. Setup monitoring
+  client.onUpdate(async (event) => {
+    // Log events for monitoring/alerting
+    event.agents.forEach((a) => console.log(`Agent event: ${a.id}`))
+    event.containers.forEach((c) => console.log(`Container event: ${c.container.uuid}`))
+  })
+
+  console.log('✓ Production system ready')
+
+  // Return cleanup function
+  return async () => {
+    console.log('Shutting down...')
+    await client.close()
+    for (const { server } of agents) {
+      await server.close()
+    }
+    await server.close()
+    tickManager.stop()
+    console.log('✓ Shutdown complete')
+  }
+}
+
+// Start and handle graceful shutdown
+const cleanup = await startProductionSystem()
+
+process.on('SIGTERM', async () => {
+  console.log('Received SIGTERM')
+  await cleanup()
+  process.exit(0)
+})
+
+process.on('SIGINT', async () => {
+  console.log('Received SIGINT')
+  await cleanup()
+  process.exit(0)
+})
+@@@@
+import { OwnerDocument } from '@rocket.chat/styled';
+import type { ReactNode } from 'react';
+import { createPortal } from 'react-dom';
+
+const PopupContent = ({ popup, children }: { popup: Window; children: ReactNode }) => (
+	<OwnerDocument.Provider value={{ document: popup.document }}>{createPortal(children, popup.document.body)}</OwnerDocument.Provider>
+);
+@@@@
+import { PaletteStyleTag } from '@rocket.chat/fuselage';
+
+<PaletteStyleTag theme='dark' />;
+@@@@
+import { PaletteStyleTag } from '@rocket.chat/fuselage';
+import { DarkModeProvider } from '@rocket.chat/layout';
+import i18next from 'i18next';
+import type { ReactNode } from 'react';
+import { I18nextProvider, initReactI18next } from 'react-i18next';
+
+import translation from './en.i18n.json';
+
+const i18n = i18next.createInstance().use(initReactI18next);
+i18n.init({ lng: 'en', resources: { en: { translation } } });
+
+export const OnboardingProviders = ({ children }: { children: ReactNode }) => (
+	<I18nextProvider i18n={i18n}>
+		<DarkModeProvider.default>
+			<PaletteStyleTag />
+			{children}
+		</DarkModeProvider.default>
+	</I18nextProvider>
+);
+@@@@
+import { ROUTES } from '@affine/routes';
+
+function Routes() {
+  return <Router path={ROUTES.admin.index} element={} />;
+}
+@@@@
+import { RestClient } from '@rocket.chat/api-client';
+
+const client = new RestClient({ baseUrl: 'https://open.rocket.chat' });
+
+// params: ChatSendMessage; result: { message: IMessage } (serialized)
+const { message } = await client.post('/v1/chat.sendMessage', {
+	message: { rid: 'GENERAL', msg: 'Hello' },
+});
+@@@@
+import { RestClient } from '@rocket.chat/api-client';
+
+const client = new RestClient({ baseUrl: 'https://open.rocket.chat' });
+
+const info = await client.get('/info');
+@@@@
+import { Retryable } from '@hcengineering/retry'
+
+class UserService {
+  @Retryable({ maxRetries: 5 })
+  async getUserProfile(userId: string): Promise<UserProfile> {
+    // This method will automatically retry on failure
+    return await this.api.fetchUserProfile(userId)
+  }
+}
+@@@@
+import { Retryable, retryNetworkErrors } from '@platform/utils/retry'
+
+class DataService {
+  @Retryable({
+    maxRetries: 3,
+    initialDelayMs: 200
+  })
+  async fetchUsers(): Promise<User[]> {
+    // Will retry up to 3 times with initial 200ms delay
+    return await this.api.getUsers()
+  }
+
+  @Retryable({
+    maxRetries: 5,
+    initialDelayMs: 1000,
+    isRetryable: retryNetworkErrors
+  })
+  async uploadFile(file: File): Promise<string> {
+    // Will retry up to 5 times, but only for network errors
+    return await this.api.uploadFile(file)
+  }
+}
+@@@@
+import { RocketChatLogo } from '@rocket.chat/logo';
+
+const Header = () => (
+	<div style={{ width: 224 }}>
+		<RocketChatLogo />
+	</div>
+);
+@@@@
+import { RouteParamsTypes } from '@affine/routes';
+
+function Doc() {
+  const { workspaceId, docId } =
+    useParams<RouteParamsTypes['workspace']['doc']>();
+}
+
+function Attachment() {
+  const { workspaceId, docId, attachmentId } =
+    useParams<RouteParamsTypes['workspace']['doc']['attachment']>();
+}
+@@@@
+import { Router } from '@rocket.chat/http-router';
+import express from 'express';
+
+// Create a new router
+const api = new Router('api');
+
+// Define routes with typed handlers
+api.get(
+  'users',
+  { 
+    // Request validation options
+    query: {
+      schema: {
+        type: 'object',
+        properties: {
+          limit: { type: 'number' },
+          skip: { type: 'number' }
+        }
+      }
+    },
+    // Response validation
+    response: {
+      '200': {
+        schema: {
+          type: 'object',
+          properties: {
+            users: { type: 'array' },
+            total: { type: 'number' }
+          }
+        }
+      }
+    }
+  },
+  // Optional middleware
+  async (c, next) => {
+    console.log('Middleware 1');
+    await next();
+  },
+  // Route handler
+  async (c) => {
+    const { limit, skip } = c.req.valid('query');
+    
+    return {
+      body: { 
+        users: [],
+        total: 0
+      },
+      statusCode: 200
+    };
+  }
+);
+
+// Create an Express app and use the router
+const app = express();
+app.use(api.router);
+@@@@
+import { SortingOrder } from '@hcengineering/core'
+import contact from '@hcengineering/contact'
+
+..
+
+const persons = await client.findAll(
+  contact.class.Person,
+  {
+    city: 'New York'
+  },
+  {
+    limit: 10,
+    sort: {
+      name: SortingOrder.Ascending
+    }
+  }
+)
+@@@@
+import { SpaceStorage } from '@affine/nbstore';
+import type { ConnectionStatus } from '@affine/nbstore';
+import { IndexedDBDocStorage } from '@affine/nbstore/idb';
+import { SqliteBlobStorage } from '@affine/nbstore/sqlite';
+
+const storage = new SpaceStorage([
+  new IndexedDBDocStorage({}),
+  new SqliteBlobStorage({}),
+]);
+
+await storage.connect();
+storage.on('connection', ({ storage, status, error }) => {
+  ui.show(storage, status, error);
+});
+
+await storage.get('doc').pushDocUpdate({
+  docId: 'my-first-doc',
+  bin: new Uint8Array(),
+  editor: 'me',
+});
+await storage.tryGet('blob')?.get('img');
+@@@@
+import { SpaceStorageWorkerClient } from '@affine/nbstore/op';
+import type { ConnectionStatus } from '@affine/nbstore';
+import { IndexedDBDocStorage } from '@affine/nbstore/idb';
+
+const client = new SpaceStorageWorkerClient();
+client.addStorage(IndexedDBDocStorage, {
+  // options can only be structure-cloneable type
+  peer: 'local',
+  spaceType: 'workspace',
+  spaceId: 'my-new-workspace',
+});
+
+await client.connect();
+client.ob$('connection', ({ storage, status, error }) => {
+  ui.show(storage, status, error);
+});
+
+await client.call('pushDocUpdate', {
+  docId: 'my-first-doc',
+  bin: new Uint8Array(),
+  editor: 'me',
+});
+
+// call unregistered op will leads to Error
+// Error { message: 'Handler for operation [listHistory] is not registered.' }
+await client.call('listHistories', { docId: 'my-first-doc' });
+@@@@
+import { TaggedRocketChatLogo } from '@rocket.chat/logo';
+
+const Header = () => (
+	<div style={{ width: 224 }}>
+		<TaggedRocketChatLogo tagTitle='Enterprise' />
+	</div>
+);
+@@@@
+import { TickManagerImpl, AgentImpl } from '@hcengineering/network-core'
+import { createNetworkClient, NetworkAgentServer } from '@hcengineering/network-client'
+import type { Container, ContainerUuid, ClientUuid, ContainerKind } from '@hcengineering/network-core'
+
+class LeaderServiceContainer implements Container {
+  private isActive = false
+
+  constructor(readonly uuid: ContainerUuid, readonly instanceName: string) {}
+
+  async request(operation: string, data?: any): Promise<any> {
+    switch (operation) {
+      case 'status':
+        return {
+          uuid: this.uuid,
+          instance: this.instanceName,
+          active: this.isActive,
+          timestamp: Date.now()
+        }
+
+      case 'activate':
+        this.isActive = true
+        console.log(`[${this.instanceName}] Activated as leader`)
+        return { success: true }
+
+      case 'processTask':
+        if (!this.isActive) {
+          return { success: false, error: 'Not active leader' }
+        }
+        console.log(`[${this.instanceName}] Processing task:`, data)
+        return { success: true, processedBy: this.instanceName }
+
+      default:
+        return { success: false, error: 'Unknown operation' }
+    }
+  }
+
+  async ping(): Promise<void> {}
+
+  async terminate(): Promise<void> {
+    console.log(`[${this.instanceName}] Shutting down`)
+    this.isActive = false
+  }
+
+  connect(clientId: ClientUuid, broadcast: (data: any) => Promise<void>): void {}
+  disconnect(clientId: ClientUuid): void {}
+}
+
+async function createHAAgent(agentId: string, instanceName: string, sharedUuid: ContainerUuid, port: number) {
+  const tickManager = new TickManagerImpl(1)
+  const agent = new AgentImpl(agentId as any, {})
+
+  // Use serveAgent with stateless containers factory
+  const client = createNetworkClient('localhost:3737')
+  await client.waitConnection(5000)
+
+  await client.serveAgent(`localhost:${port}`, {}, (agentEndpoint) => {
+    // Add stateless container for HA
+    const container = new LeaderServiceContainer(sharedUuid, instanceName)
+    return [
+      {
+        uuid: sharedUuid,
+        kind: 'leader-service' as ContainerKind,
+        endpoint: containerOnAgentEndpointRef(agentEndpoint, sharedUuid),
+        container
+      }
+    ]
+  })
+
+  return { client }
+}
+
+async function runHAExample() {
+  // Shared UUID for the leader service
+  const leaderUuid = 'service-leader-001' as ContainerUuid
+
+  // Connect to network
+  const client = createNetworkClient('localhost:3737')
+  await client.waitConnection(5000)
+
+  // Create two competing agents
+  const primary = await createHAAgent('agent-primary', 'Primary', leaderUuid, 3801)
+  const secondary = await createHAAgent('agent-secondary', 'Secondary', leaderUuid, 3802)
+
+  // Register both - first wins
+  console.log('Registering primary agent...')
+  await client.register(primary.agent)
+
+  console.log('Registering secondary agent...')
+  await client.register(secondary.agent) // Will be rejected
+
+  // Monitor failover events
+  client.onUpdate(async (event) => {
+    for (const container of event.containers) {
+      if (container.event === 2) {
+        // NetworkEventKind.removed
+        console.log(`Container removed: ${container.container.uuid}`)
+        console.log('Failover should occur automatically...')
+      }
+    }
+  })
+
+  // Activate primary
+  const leaderRef = await client.get('leader-service' as any, { uuid: leaderUuid })
+  await leaderRef.request('activate')
+
+  // Send some tasks
+  for (let i = 0; i < 3; i++) {
+    const result = await leaderRef.request('processTask', { taskId: i, data: 'test' })
+    console.log('Task result:', result)
+    await new Promise((resolve) => setTimeout(resolve, 500))
+  }
+
+  // Simulate primary failure
+  console.log('\n=== Simulating Primary Failure ===')
+  await primary.agent.terminate(leaderUuid)
+  await new Promise((resolve) => setTimeout(resolve, 2000)) // Wait for failover
+
+  // Secondary should take over
+  const newLeaderRef = await client.get('leader-service' as any, { uuid: leaderUuid })
+  const status = await newLeaderRef.request('status')
+  console.log('New leader status:', status) // Should be Secondary
+
+  // Cleanup
+  await leaderRef.close()
+  await newLeaderRef.close()
+  await client.close()
+  await primary.server.close()
+  await secondary.server.close()
+  primary.tickManager.stop()
+  secondary.tickManager.stop()
+}
+
+runHAExample().catch(console.error)
+@@@@
+import { ToastBarProvider } from '@rocket.chat/fuselage-toastbar';
+import type { ReactNode } from 'react';
+
+export function AppProviders({ children }: { children: ReactNode }) {
+	return <ToastBarProvider>{children}</ToastBarProvider>;
+}
+@@@@
+import { TypstCompiler } from "@blocknote/xl-typst-compiler";
+
+const compiler = await TypstCompiler.create({ fonts: [interBytes] });
+const result = compiler.compilePdf(source, {
+  assets: new Map([["/assets/img.png", pngBytes]]),
+  pdfStandard: "ua-1",
+});
+if (result.error) {
+  console.log(result.diagnostics);
+} else {
+  download(result.pdf);
+}
+@@@@
+import { U } from 'Lib';
+
+U.Common.copyToast('Label', value);
+U.Object.openConfig(object);
+U.Router.go('/main/graph', {});
+U.Dom.select('.myClass', container);
+@@@@
+import { UserStatus } from '@rocket.chat/core-typings';
+import type { IUser } from '@rocket.chat/core-typings';
+
+const isAvailable = (user: IUser) => user.status === UserStatus.ONLINE;
+@@@@
+import { affine } from '@blocksuite/affine-shared/test-utils';
+
+// Create a simple document
+const doc = affine`
+  <affine-page>
+    <affine-note>
+      <affine-paragraph>Hello, World!</affine-paragraph>
+    </affine-note>
+  </affine-page>
+`;
+@@@@
+import { attachRules } from '@rocket.chat/css-in-js';
+
+const detach = attachRules('.foo{color:red;}', { document: iframe.contentDocument! });
+@@@@
+import { attachRules, createClassName, css, escapeName, transpile } from '@rocket.chat/css-in-js';
+
+const button = css`
+	padding-inline: 16px;
+	color: ${({ color }: { color: string }) => color};
+`;
+
+const content = button({ color: 'rebeccapurple' });
+const className = createClassName(content);
+const rules = transpile(`.${escapeName(className)}`, content);
+
+const detach = attachRules(rules);
+
+document.querySelector('button')?.classList.add(className);
+
+// Later, when the element no longer needs the styles:
+detach();
+@@@@
+import { clear, memoize } from '@rocket.chat/memo';
+
+const square = memoize((n: number) => n * n);
+
+square(4);
+clear(square); // drops every cached result and pending expiry timer
+@@@@
+import { connect } from '@hcengineering/api-client'
+
+// Connect to Huly
+const client = await connect('https://huly.app', {
+  email: 'johndoe@example.com',
+  password: 'password',
+  workspace: 'my-workspace',
+})
+
+// Use the client to perform operations
+...
+
+// Close the client when done
+await client.close()
+@@@@
+import { connect } from '@hcengineering/api-client'
+
+const client = await connect('https://huly.app', {
+  email: 'johndoe@example.com',
+  password: 'password',
+  workspace: 'my-workspace'
+})
+
+...
+
+await client.close()
+@@@@
+import { connect } from '@hcengineering/api-client'
+
+const client = await connect('https://huly.app', {
+  token: '...',
+  workspace: 'my-workspace'
+})
+
+...
+
+await client.close()
+@@@@
+import { connectRest } from '@hcengineering/api-client'
+
+// Connect to Huly
+const client = await connectRest('https://huly.app', {
+  email: 'johndoe@example.com',
+  password: 'password',
+  workspace: 'my-workspace'
+})
+
+// Use the client to perform operations
+...
+@@@@
+import { createLogicalPropertiesMiddleware } from '@rocket.chat/stylis-logical-props-middleware';
+import { compile, middleware, serialize, stringify } from 'stylis';
+
+const alwaysFallBack = createLogicalPropertiesMiddleware({
+	isPropertySupported: () => false,
+	isPropertyValueSupported: () => false,
+});
+
+serialize(compile('.a{inset-inline-start:0;}'), middleware([alwaysFallBack, stringify]));
+// 'html:not([dir=rtl]) .a{left:0;}[dir=rtl] .a{right:0;}'
+@@@@
+import { createNetworkClient } from '@hcengineering/network-client'
+
+// Development: Long timeout for debugging (1 hour)
+const devClient = createNetworkClient('localhost:3737', 3600)
+
+// Production: Short timeout for fast failure detection (3 seconds - default)
+const prodClient = createNetworkClient('production-network:3737')
+
+// Custom timeout for specific use case (30 seconds)
+const customClient = createNetworkClient('localhost:3737', 30)
+
+async function developmentWorkflow() {
+  await devClient.waitConnection(10000) // 10 second connection timeout
+
+  // Container will stay alive for 1 hour even without activity
+  // Perfect for debugging and stepping through code
+  const containerRef = await devClient.get('debug-service' as any, {})
+
+  // ... debug your code without worrying about timeouts
+
+  await containerRef.close()
+  await devClient.close()
+}
+
+async function productionWorkflow() {
+  await prodClient.waitConnection(5000) // 5 second connection timeout
+
+  // Container will be cleaned up after 3 seconds of inactivity
+  // Ensures resources are freed quickly in production
+  const containerRef = await prodClient.get('prod-service' as any, {})
+
+  // Do work...
+  const result = await containerRef.request('process', { data: 'important' })
+
+  await containerRef.close()
+  await prodClient.close()
+}
+
+// Environment-based configuration
+function createClientForEnvironment(networkHost: string) {
+  const isDevelopment = process.env.NODE_ENV === 'development'
+  const timeout = isDevelopment ? 3600 : 3 // 1 hour vs 3 seconds
+
+  return createNetworkClient(networkHost, timeout)
+}
+
+const client = createClientForEnvironment('localhost:3737')
+@@@@
+import { createNetworkClient } from '@hcengineering/network-client'
+
+const client = createNetworkClient('localhost:3737')
+await client.waitConnection(5000)
+
+await client.serveAgent('localhost:3738', {
+  'my-service': async (options) => {
+    const uuid = options.uuid ?? generateUuid()
+    const container = new MyContainer(uuid)
+    return {
+      uuid,
+      container,
+      endpoint: `my-service://host/${uuid}` as any
+    }
+  }
+})
+
+// Agent server is already started and registered to network
+@@@@
+import { createNetworkClient } from '@hcengineering/network-client'
+
+const client = createNetworkClient('localhost:3737')
+await client.waitConnection(5000)
+
+const containerRef = await client.get('my-service' as any, {})
+const result = await containerRef.request('myOperation', { data: 'value' })
+
+await containerRef.close()
+await client.close()
+@@@@
+import { createNetworkClient, containerOnAgentEndpointRef } from '@hcengineering/network-client'
+import type { Container, ContainerUuid, ClientUuid } from '@hcengineering/network-core'
+
+// 1. Create a container implementation
+class MyServiceContainer implements Container {
+  constructor(readonly uuid: ContainerUuid) {}
+
+  async request(operation: string, data?: any): Promise<any> {
+    return { success: true, operation, data }
+  }
+
+  async ping(): Promise<void> {}
+  async terminate(): Promise<void> {}
+  connect(clientId: ClientUuid, broadcast: (data: any) => Promise<void>): void {}
+  disconnect(clientId: ClientUuid): void {}
+}
+
+// 2. Connect and serve an agent
+const client = createNetworkClient('localhost:3737')
+await client.waitConnection(5000)
+
+await client.serveAgent('localhost:3738', {
+  'my-service': async (options, agentEndpoint) => {
+    const uuid = options.uuid ?? (`container-${Date.now()}` as ContainerUuid)
+    const container = new MyServiceContainer(uuid)
+    return {
+      uuid,
+      container,
+      endpoint: containerOnAgentEndpointRef(agentEndpoint!, uuid)
+    }
+  }
+})
+
+// 3. Now this client can also request containers
+const containerRef = await client.get('my-service' as any, {})
+const result = await containerRef.request('test', { value: 42 })
+await containerRef.close()
+@@@@
+import { createNetworkClient, containerOnAgentEndpointRef } from '@hcengineering/network-client'
+import type { Container, ContainerUuid, ContainerKind } from '@hcengineering/network-core'
+
+class LeaderServiceContainer implements Container {
+  constructor(readonly uuid: ContainerUuid, readonly instanceName: string) {}
+
+  async request(operation: string, data?: any): Promise<any> {
+    return { instance: this.instanceName, operation, data }
+  }
+
+  async ping(): Promise<void> {}
+  async terminate(): Promise<void> {}
+  connect(clientId: any, broadcast: (data: any) => Promise<void>): void {}
+  disconnect(clientId: any): void {}
+}
+
+// Shared UUID for HA failover
+const leaderUuid = 'service-leader-001' as ContainerUuid
+
+// Primary agent
+const primaryClient = createNetworkClient('localhost:3737')
+await primaryClient.waitConnection(5000)
+
+await primaryClient.serveAgent(
+  'localhost:3801',
+  {}, // No on-demand factories
+  (agentEndpoint) => {
+    // Stateless container for automatic failover
+    const container = new LeaderServiceContainer(leaderUuid, 'Primary')
+    return [
+      {
+        uuid: leaderUuid,
+        kind: 'leader-service' as ContainerKind,
+        endpoint: containerOnAgentEndpointRef(agentEndpoint, leaderUuid),
+        container
+      }
+    ]
+  }
+)
+
+// Secondary agent (backup)
+const secondaryClient = createNetworkClient('localhost:3737')
+await secondaryClient.waitConnection(5000)
+
+await secondaryClient.serveAgent('localhost:3802', {}, (agentEndpoint) => {
+  const container = new LeaderServiceContainer(leaderUuid, 'Secondary')
+  return [
+    {
+      uuid: leaderUuid,
+      kind: 'leader-service' as ContainerKind,
+      endpoint: containerOnAgentEndpointRef(agentEndpoint, leaderUuid),
+      container
+    }
+  ]
+})
+
+// Primary wins, Secondary automatically takes over if Primary fails
+const leaderRef = await primaryClient.get('leader-service' as any, { uuid: leaderUuid })
+const result = await leaderRef.request('status')
+console.log('Active leader:', result.instance) // "Primary"
+@@@@
+import { css } from '@rocket.chat/css-in-js';
+
+const box = css`
+	display: block;
+	${({ hidden }: { hidden: boolean }) => hidden && 'display: none;'}
+`;
+
+box({ hidden: false }); // 'display: block;'
+box({ hidden: true }); // 'display: block;\n\tdisplay: none;'
+@@@@
+import { css } from '@rocket.chat/css-in-js';
+import { Palette } from '@rocket.chat/fuselage';
+
+const banner = css`
+	color: ${Palette.text['font-default']};
+	background-color: ${Palette.surface['surface-tint']};
+`;
+@@@@
+import { css, keyframes } from '@rocket.chat/css-in-js';
+
+const fadeIn = keyframes`
+	from { opacity: 0; }
+	to { opacity: 1; }
+`;
+
+const content = css`
+	animation: ${fadeIn} 200ms ease-in;
+`();
+// 'animation: rcx-css-<hash> 200ms ease-in;@keyframes rcx-css-<hash>{...}'
+@@@@
+import { cssSupports } from '@rocket.chat/css-supports';
+
+if (cssSupports('display:grid')) {
+	// use a grid layout
+}
+
+cssSupports('margin-inline-start:inherit'); // true in modern browsers, false on the server
+@@@@
+import { defaultDocxSerializer, writeDocx } from 'prosemirror-docx';
+import { EditorState } from 'prosemirror-state';
+import { writeFileSync } from 'fs'; // Or some other way to write a file
+
+// Set up your prosemirror state/document as you normally do
+const state = EditorState.create({ schema: mySchema });
+
+// If there are images, we will need to preload the buffers
+const opts = {
+  getImageBuffer(src: string) {
+    return anImageBuffer;
+  },
+};
+
+// Create a doc in memory, and then write it to disk
+const wordDocument = defaultDocxSerializer.serialize(state.doc, opts);
+
+await writeDocx(wordDocument).then((buffer) => {
+  writeFileSync('HelloWorld.docx', buffer);
+});
+@@@@
+import { describe, expect, it } from 'vitest';
+import { affine } from '../__tests__/utils/affine-template';
+
+describe('My Test', () => {
+  it('should correctly handle document structure', () => {
+    const doc = affine`
+      <affine-page>
+        <affine-note>
+          <affine-paragraph>Test content</affine-paragraph>
+        </affine-note>
+      </affine-page>
+    `;
+
+    // Get blocks
+    const pages = doc.getBlocksByFlavour('affine:page');
+    const notes = doc.getBlocksByFlavour('affine:note');
+    const paragraphs = doc.getBlocksByFlavour('affine:paragraph');
+
+    expect(pages.length).toBe(1);
+    expect(notes.length).toBe(1);
+    expect(paragraphs.length).toBe(1);
+
+    // Perform more tests here...
+  });
+});
+@@@@
+import { diagramBlockMapping } from "@blocknote/diagram-block/typst-exporter";
+import {
+  inlineMathMapping,
+  mathBlockMapping,
+} from "@blocknote/math-block/typst-exporter";
+
+new PDFExporter(schema, {
+  ...typstDefaultSchemaMappings,
+  blockMapping: {
+    ...typstDefaultSchemaMappings.blockMapping,
+    mathBlock: mathBlockMapping,
+    diagram: diagramBlockMapping,
+  },
+  inlineContentMapping: {
+    ...typstDefaultSchemaMappings.inlineContentMapping,
+    math: inlineMathMapping,
+  },
+});
+@@@@
+import { emitTourEvent } from '~/tours'
+
+emitTourEvent('base-created')
+@@@@
+import { generateUniqueIds } from '@tiptap/extension-unique-id'
+import { generateTocIds } from '@tiptap/extension-table-of-contents'
+import { renderToHTMLString } from '@tiptap/static-renderer/pm/html-string'
+
+let doc = sourceJson
+doc = generateUniqueIds(doc, extensions) // if using UniqueID
+doc = generateTocIds(doc, extensions) // if using TableOfContents
+
+const html = renderToHTMLString({
+  content: doc,
+  extensions,
+  staticEditorOptions: { textDirection: 'auto' }, // mirrors a subset of EditorOptions
+})
+@@@@
+import { isChatSendMessageProps } from '@rocket.chat/rest-typings';
+
+if (!isChatSendMessageProps(body)) {
+	throw new Error(JSON.stringify(isChatSendMessageProps.errors));
+}
+
+// body is now typed as the endpoint's parameters
+@@@@
+import { isDirectMessageRoom, isOmnichannelRoom, isThreadMessage } from '@rocket.chat/core-typings';
+
+if (isThreadMessage(message)) {
+	console.log('reply in thread', message.tmid);
+}
+
+if (isOmnichannelRoom(room)) {
+	console.log('visitor', room.v.username);
+} else if (isDirectMessageRoom(room)) {
+	console.log('direct message with', room.usernames);
+}
+@@@@
+import { isModalView, type ModalView } from '@rocket.chat/ui-kit';
+
+const view: ModalView = {
+	id: 'feedback-modal',
+	appId: 'my-app-id',
+	title: { type: 'plain_text', text: 'Send feedback' },
+	submit: {
+		type: 'button',
+		appId: 'my-app-id',
+		blockId: 'feedback-modal',
+		actionId: 'submit',
+		text: { type: 'plain_text', text: 'Send' },
+		style: 'primary',
+	},
+	blocks: [
+		{
+			type: 'input',
+			blockId: 'message',
+			label: { type: 'plain_text', text: 'Message' },
+			element: {
+				type: 'plain_text_input',
+				appId: 'my-app-id',
+				blockId: 'message',
+				actionId: 'message',
+				multiline: true,
+			},
+		},
+	],
+};
+
+isModalView(view); // true
+@@@@
+import { isNodeOfType, parse } from '@rocket.chat/message-parser';
+import type { Inlines } from '@rocket.chat/message-parser';
+
+const mentionedUsers = (inlines: Inlines[]): string[] =>
+	inlines.flatMap((node) => {
+		if (isNodeOfType(node, 'MENTION_USER')) {
+			return [node.value.value];
+		}
+		if (isNodeOfType(node, 'BOLD') || isNodeOfType(node, 'ITALIC') || isNodeOfType(node, 'STRIKE')) {
+			return mentionedUsers(node.value as Inlines[]);
+		}
+		return [];
+	});
+
+const users = parse('hi @alice and *@bob*').flatMap((block) => (isNodeOfType(block, 'PARAGRAPH') ? mentionedUsers(block.value) : []));
+// ['alice', 'bob']
+@@@@
+import { isOpenModalServerInteraction, isServerInteraction } from '@rocket.chat/ui-kit';
+
+if (isServerInteraction(payload) && isOpenModalServerInteraction(payload)) {
+	openModal(payload.view);
+}
+@@@@
+import { memoize } from '@rocket.chat/memo';
+
+const fetchUser = memoize((id: string) => fetch(`/api/users/${id}`).then((res) => res.json()), { maxAge: 60_000 });
+@@@@
+import { memoize } from '@rocket.chat/memo';
+
+const slugify = memoize((title: string) => title.toLowerCase().trim().replace(/\s+/g, '-'));
+
+slugify('Hello World'); // computed
+slugify('Hello World'); // returned from the cache
+@@@@
+import { parse } from '@rocket.chat/message-parser';
+
+const ast = parse('Hello *world*, @john! See #general :smile:');
+@@@@
+import { parse } from '@rocket.chat/message-parser';
+
+const ast = parse(text, {
+	colors: true,
+	emoticons: true,
+	katex: { dollarSyntax: true, parenthesisSyntax: true },
+	customDomains: ['corp.internal'],
+});
+@@@@
+import { readAllBlocksFromDoc } from '@affine/reader';
+
+const blocks = readAllBlocksFromDoc(doc);
+@@@@
+import { readAllDocsFromRootDoc } from '@affine/reader';
+
+const docs = readAllDocsFromRootDoc(rootDoc);
+console.log(Array.from(docsWithTrash.entries()));
+
+// [
+//   'doc-id-1', { title: 'test doc title' },
+//   // ...
+// ]
+@@@@
+import { registerIcon } from '../registry';
+import MyIcon from './myIcon';
+registerIcon('header/myIcon', MyIcon);
+@@@@
+import { test as baseTest } from './random-user-session.ts'
+import { MyPage } from '../sections/MyPage.ts'
+
+export const test = baseTest.extend<{ myPage: MyPage }>({
+    myPage: async ({ page }, use) => {
+        await use(new MyPage(page))
+    },
+})
+export { expect } from '../matchers.ts'
+@@@@
+import { test, expect } from '../../support/fixtures/files-page.ts'
+import { uploadContent } from '../../support/utils/dav.ts'
+
+test.describe('Files: my feature', () => {
+    test.beforeEach(async ({ user, page, filesListPage }) => {
+        await uploadContent(page.request, user, Buffer.from('hello'), 'text/plain', '/hello.txt')
+        await filesListPage.open()
+    })
+
+    test('does something', async ({ filesListPage }) => {
+        await expect(filesListPage.getRowForFile('hello.txt')).toBeVisible()
+    })
+})
+@@@@
+import { timeouts } from '@hcengineering/network-core'
+
+console.log('Alive timeout:', timeouts.aliveTimeout, 'seconds') // 3
+console.log('Ping interval:', timeouts.pingInterval, 'seconds') // 1
+@@@@
+import { type IsRetryable } from '@platform/utils/retry'
+
+// Custom retry condition
+const retryDatabaseErrors: IsRetryable = (error: unknown): boolean => {
+  if (error instanceof DatabaseError) {
+    // Only retry specific database errors
+    return error.code === 'CONNECTION_LOST' || 
+           error.code === 'DEADLOCK' || 
+           error.code === 'TIMEOUT'
+  }
+  return false
+}
+
+// Use it
+await withRetry(
+  async () => await db.query('SELECT * FROM users'),
+  { isRetryable: retryDatabaseErrors }
+)
+@@@@
+import { useBreakpoints, useMediaQuery, usePrefersReducedMotion } from '@rocket.chat/fuselage-hooks';
+
+function useLayoutMode() {
+	const breakpoints = useBreakpoints(); // e.g. ['xs', 'sm', 'md']
+	const isLandscape = useMediaQuery('(orientation: landscape)');
+	const reduceMotion = usePrefersReducedMotion();
+
+	return {
+		isMobile: !breakpoints.includes('md'),
+		isLandscape,
+		animate: !reduceMotion,
+	};
+}
+@@@@
+import { useClipboard } from '@rocket.chat/fuselage-hooks';
+
+function CopyLink({ url }: { url: string }) {
+	const { copy, hasCopied } = useClipboard(url);
+
+	return <button onClick={() => copy()}>{hasCopied ? 'Copied' : 'Copy link'}</button>;
+}
+@@@@
+import { useCreateBlockNote } from "@blocknote/react";
+import { BlockNoteView } from "@blocknote/mantine";
+import "@blocknote/core/fonts/inter.css";
+import "@blocknote/mantine/style.css";
+
+function App() {
+  const editor = useCreateBlockNote();
+
+  return <BlockNoteView editor={editor} />;
+}
+@@@@
+import { useDarkMode } from '@rocket.chat/storybook-dark-mode';
+import type { Preview } from '@storybook/react-webpack5';
+
+export default {
+	decorators: [
+		(Story) => {
+			const dark = useDarkMode();
+
+			return (
+				<ThemeProvider theme={dark ? 'dark' : 'light'}>
+					<Story />
+				</ThemeProvider>
+			);
+		},
+	],
+} satisfies Preview;
+@@@@
+import { useDebouncedValue } from '@rocket.chat/fuselage-hooks';
+import { useEffect, useState } from 'react';
+
+function UserSearch({ onSearch }: { onSearch: (text: string) => void }) {
+	const [text, setText] = useState('');
+	const debouncedText = useDebouncedValue(text, 300);
+
+	useEffect(() => {
+		onSearch(debouncedText);
+	}, [debouncedText, onSearch]);
+
+	return <input value={text} onChange={(e) => setText(e.currentTarget.value)} />;
+}
+@@@@
+import { useFieldReferencedByInput } from '@rocket.chat/fuselage-forms';
+
+function ColorInput(props: { value: string; onChange: (value: string) => void }) {
+	const fieldProps = useFieldReferencedByInput(); // { id, 'aria-describedby', 'aria-invalid' }
+
+	return <input type='color' {...fieldProps} value={props.value} onChange={(e) => props.onChange(e.currentTarget.value)} />;
+}
+@@@@
+import { useI18n, LOCALES } from '@affine/i18n';
+// src/resources/en.json
+// {
+//     'Text': 'some text',
+//     'Switch to language': 'Switch to {{language}}', // <- you can interpolation by curly brackets
+// };
+
+const App = () => {
+  const i18n = useI18n();
+  const changeLanguage = (language: string) => {
+    i18n.changeLanguage(language);
+  };
+
+  return (
+    <div>
+      <div>{i18n['Workspace Settings']()}</div>
+      <>
+        {LOCALES.map(option => {
+          return (
+            <button
+              key={option.name}
+              onClick={() => {
+                changeLanguage(option.tag);
+              }}
+            >
+              {option.originalName}
+            </button>
+          );
+        })}
+      </>
+    </div>
+  );
+};
+@@@@
+import { useLocalStorage } from '@rocket.chat/fuselage-hooks';
+
+function SidebarToggle() {
+	const [collapsed, setCollapsed] = useLocalStorage('sidebar-collapsed', false);
+
+	return <button onClick={() => setCollapsed((value) => !value)}>{collapsed ? 'Expand' : 'Collapse'}</button>;
+}
+@@@@
+import { useMergedRefs } from '@rocket.chat/fuselage-hooks';
+import { forwardRef, useRef, type ComponentProps } from 'react';
+
+const Input = forwardRef<HTMLInputElement, ComponentProps<'input'>>(function Input(props, ref) {
+	const innerRef = useRef<HTMLInputElement>(null);
+	const mergedRef = useMergedRefs(ref, innerRef);
+
+	return <input ref={mergedRef} {...props} />;
+});
+@@@@
+import { useStableCallback } from '@rocket.chat/fuselage-hooks';
+import { useEffect } from 'react';
+
+function useEscapeKey(onEscape: () => void) {
+	const handleKeyDown = useStableCallback((event: KeyboardEvent) => {
+		if (event.key === 'Escape') onEscape();
+	});
+
+	useEffect(() => {
+		// Subscribes once, even if `onEscape` changes on every render.
+		window.addEventListener('keydown', handleKeyDown);
+		return () => window.removeEventListener('keydown', handleKeyDown);
+	}, [handleKeyDown]);
+}
+@@@@
+import { withRetry } from '@hcengineering/retry'
+
+async function fetchData() {
+  const data = await withRetry(
+    async () => {
+      // Your async operation that might fail transiently
+      return await api.getData()
+    },
+    { maxRetries: 3 }
+  )
+  return data
+}
+@@@@
+import { withRetry } from '@platform/utils/retry'
+
+async function fetchDataWithRetry() {
+  return await withRetry(
+    async () => {
+      const response = await fetch('https://api.example.com/data')
+      if (!response.ok) {
+        throw new Error(`HTTP error: ${response.status}`)
+      }
+      return await response.json()
+    },
+    {
+      initialDelayMs: 300,   // Start with 300ms delay
+      maxDelayMs: 10000,     // Max delay of 10 seconds
+      maxRetries: 4,         // Try up to 4 times (1 initial + 3 retries)
+      backoffFactor: 2,      // Double the delay each time
+      jitter: 0.25           // Add 25% randomness to delay
+    },
+    'fetchApiData'           // Name for logging
+  )
+}
+@@@@
+import { withRetry, DelayStrategyFactory } from '@hcengineering/retry'
+
+await withRetry(
+  async () => await api.getData(),
+  {
+    maxRetries: 3,
+    delayStrategy: DelayStrategyFactory.fixed({
+      delayMs: 1000,        // Always wait 1 second between retries
+      jitter: 0.1           // Optional: add ±10% randomness
+    })
+  }
+)
+@@@@
+import { withRetry, DelayStrategyFactory } from '@hcengineering/retry'
+
+await withRetry(
+  async () => await api.getData(),
+  {
+    maxRetries: 5,
+    delayStrategy: DelayStrategyFactory.exponentialBackoff({
+      initialDelayMs: 100,  // Start with 100ms
+      maxDelayMs: 10000,    // Cap at 10 seconds
+      backoffFactor: 2,     // Double the delay each time (100, 200, 400, 800, 1600)
+      jitter: 0.2           // Add ±20% randomness
+    })
+  }
+)
+@@@@
+import { withRetry, DelayStrategyFactory } from '@hcengineering/retry'
+
+await withRetry(
+  async () => await api.getData(),
+  {
+    maxRetries: 6,
+    delayStrategy: DelayStrategyFactory.fibonacci({
+      baseDelayMs: 100,     // Base unit for Fibonacci sequence
+      maxDelayMs: 10000,    // Maximum delay cap
+      jitter: 0.2           // Add ±20% randomness
+    })
+  }
+)
+// Delays follow Fibonacci sequence: 100ms, 200ms, 300ms, 500ms, 800ms, ...
+@@@@
+import { withRetry, retryNetworkErrors } from '@platform/utils/retry'
+
+async function fetchData() {
+  return await withRetry(
+    async () => await api.getData(),
+    {
+      // Only retry network-related errors
+      isRetryable: retryNetworkErrors,
+      maxRetries: 5
+    }
+  )
+}
+@@@@
+interface Column {
+	relationKey: string;
+	name: string;
+	className?: string;
+	width?: string;
+	isObject?: boolean;
+	isCell?: boolean;
+	withDescription?: boolean;
+	mapper?: (value: any) => any;
+}
+@@@@
+interface ITopologicalItem {
+  id: string;
+  dependencies: string[];
+}
+
+interface IField {
+  type: "other" | "link";
+}
+
+type IFieldMap = { [id: string]: IField };
+@@@@
+interface Ops extends OpSchema {
+  add: [{ a: number; b: number }, number]
+}
+
+// register
+const consumer: OpConsumer<Ops>;
+consumer.register('add', ({ a, b }) => a + b);
+
+// call
+const client: OpClient<Ops>;
+const ret = client.call('add', { a: 1, b: 2 })); // Promise<3>
+@@@@
+interface Ops extends OpSchema {
+  heavyWork: [{ name: string; data: Uint8Array; data2: Uint8Array }, void];
+}
+
+const client: OpClient<Ops>;
+const data = new Uint8Array([1, 2, 3]);
+const nonTransferredData = new Uint8Array([1, 2, 3]);
+client.call(
+  'heavyWork',
+  transfer(
+    {
+      name: '',
+      data: data,
+      data2: nonTransferredData,
+    },
+    [data.buffer]
+  )
+);
+
+// after transferring, you can not use the transferred variables anymore!!!
+// moved
+assertEq(data.byteLength, 0);
+// copied
+assertEq(nonTransferredData.byteLength, 3);
+@@@@
+interface Ops extends OpSchema {
+  job: [{ id: string }, Uint8Array];
+}
+
+const consumer: OpConsumer<Ops>;
+consumer.register('ops', ({ id }) => {
+  return interval(3000).pipe(
+    map(() => {
+      const data = new Uint8Array([1, 2, 3]);
+      transfer(data, [data.buffer]);
+    })
+  );
+});
+@@@@
+interface Ops extends OpSchema {
+  subscribeStatus: [number, string];
+}
+
+// register
+const consumer: OpConsumer<Ops>;
+consumer.register('subscribeStatus', (id: number) => {
+  return interval(3000).pipe(map(() => 'connected'));
+});
+
+// subscribe
+const client: OpClient<Ops>;
+client.ob$('subscribeStatus', 123).subscribe({
+  next: status => {
+    ui.setServerStatus(status);
+  },
+  error: error => {
+    ui.setServerError(error);
+  },
+  complete: () => {
+    //
+  },
+});
+@@@@
+name: "blockContainer",
+group: "blockGroupChild bnBlock",
+// A block always contains content, and optionally a blockGroup which contains nested blocks
+content: "blockContent blockGroup?",
+@@@@
+name: "blockGroup",
+group: "childContainer",
+content: "blockGroupChild+"
+@@@@
+name: "column",
+group: "bnBlock childContainer",
+// A block always contains content, and optionally a blockGroup which contains nested blocks
+content: "blockContainer+",
+@@@@
+name: "columnList",
+group: "childContainer bnBlock blockGroupChild",
+// A block always contains content, and optionally a blockGroup which contains nested blocks
+content: "column column+", // min two columns
+@@@@
+name: "paragraph", // name corresponds to the block type in the BlockNote API
+content: "inline*", // can also be no content (for image blocks)
+group: "blockContent",
+@@@@
+page.locator('label', { has: this.page.getByRole('checkbox', { name: 'Private' }) });
+@@@@
+poAdminUsers = new AdminUsers(page);
+await poAdminUsers.goto(); // the next line can act on the page
+@@@@
+recordA1[fieldBLinkB] = recordB1[fieldB];
+recordA2[fieldBLinkB] = recordB1[fieldB];
+@@@@
+sdk.connection.on('connection', (status) => console.log('status:', status));
+@@@@
+sdk.stream('notify-room', `${roomId}/user-activity`, (username, activities) => {
+	console.log(username, activities); // string, string[]
+});
+@@@@
+serveAgent(
+  endpointUrl: string,
+  factory: Record<ContainerKind, ContainerFactory>,
+  statelessContainers?: StatelessContainersFactory
+): Promise<void>
+@@@@
+session.on('newCall', ({ call }) => {
+	call.emitter.on('stateChange', () => console.log('call state:', call.state));
+	call.emitter.on('ended', () => console.log('call ended'));
+
+	if (call.localParticipant.role === 'callee') {
+		call.accept(); // or call.reject()
+	}
+});
+
+// Later, on the current call:
+const current = session.getState()?.call;
+current?.localParticipant.setMuted(true);
+current?.localParticipant.setHeld(true);
+current?.sendDTMF('1');
+current?.transfer({ type: 'user', id: 'other-user-id' });
+current?.hangup();
+@@@@
+session.on('newCall', ({ call }) => {
+	call.emitter.on('streamChange', () => {
+		audioElement.srcObject = call.remoteParticipants[0]?.getMediaStream()?.stream ?? null;
+	});
+});
+@@@@
+smee -u https://smee.io/Oj0ZkULovroxbFC6 -t http://localhost:3500/api/webhook
+@@@@
+styled<K extends keyof JSX.IntrinsicElements, P>(
+	type: K,
+	filter?: (props: JSX.IntrinsicElements[K] & P) => JSX.IntrinsicElements[K],
+): (
+	slices: TemplateStringsArray,
+	...values: readonly (string | ((props: P) => string))[]
+) => FunctionComponent<JSX.IntrinsicElements[K] & P>;
+@@@@
+subscription.onStop((error) => console.warn('stream stopped by the server', error));
+@@@@
+test.describe('Feature Test', () => {
+  test('should display the feature heading after navigation', async ({ api}) => {
+    // do some tests
+  });
+});
+@@@@
+test.describe('Feature Test', () => {
+  test('should display the feature heading after navigation', async ({ page }) => {
+    await test.step('open the feature page', async () => {
+      const poFeature = new FeaturePage(page);
+      await poFeature.goto();
+      await expect(page.getByRole('heading', { name: 'Feature' })).toBeVisible();
+    });
+  });
+});
+@@@@
+transpile('div', 'display: flex;');
+// 'div{display:-webkit-box;display:-webkit-flex;display:-ms-flexbox;display:flex;}'
+@@@@
+try {
+	await client.post('/v1/chat.sendMessage', { message: { rid: 'unknown-room', msg: 'Hi' } });
+} catch (error) {
+	if (error instanceof Response) {
+		const body = await error.json();
+		console.error(error.status, body.error);
+	}
+}
+@@@@
+type EndpointTestGetParams = { name?: string; id?: string }; // Wrong
+
+type EndpointTestGetParams = { name: string } | { id: string }; // Better
+@@@@
+type Evaluable = <T extends readonly unknown[]>(...args: T) => string;
+@@@@
+type MemoizableFunction<T, A, R> = (this: T, arg: A) => R;
+type MemoizedFunction<T, A, R> = (this: T, arg: A) => R;
+type Options = { maxAge: number };
+@@@@
+type MyContainerKind = 'my-service' as ContainerKind
+@@@@
+type RuleAttacher = (rules: string, options?: { document?: Document }) => () => void;
+const attachRules: RuleAttacher;
+@@@@
+type SpaceKind = 'common' | 'project' | 'bot';
+interface Space {
+  id: string; kind: SpaceKind; name: string;
+  projectKey?: string;   // raw .mixdog/project.id value (project spaces)
+  projectPath?: string;  // last known registered path (informational, not identity)
+  agentId?: string;      // bot spaces
+  createdAt: number;     // epoch ms
+  schemaVersion: 1;
+}
+
+type ActorKind = 'user' | 'bot' | 'agent' | 'system';
+interface Actor { kind: ActorKind; id: string; name?: string }   // bot/agent id = agent id; user id = 'local-user' until accounts exist
+interface Source {
+  sessionId: string | null; turnId?: string;
+  via: 'tool' | 'ui' | 'auto-capture' | 'journal' | 'rollup' | 'import';
+  cwd?: string;
+}
+
+type ObjectType = 'page' | 'database';
+interface PlaceObject {
+  id: string; spaceId: string; type: ObjectType;
+  parentId: string | null;     // containing page (tree)
+  databaseId: string | null;   // non-null => this object is a row/card/event/message of that database
+  title: string; icon?: string;
+  props: Record<string, PropValue>;   // keyed by PropertyDef.id of its database
+  sortKey: string;             // fractional index (string compare), CRDT-safe ordering
+  tags: string[];
+  createdAt: number; createdBy: Actor;
+  updatedAt: number; updatedBy: Actor;
+  source: Source;              // source of creation
+  lastSource?: Source;         // source of the latest change
+  archivedAt?: number;
+  dateKey?: string;            // 'YYYY-MM-DD' for journal entries
+  // database-only:
+  schema?: Record<string, PropertyDef>;
+  views?: Record<string, ViewDef>;
+}
+
+type PropType = 'text' | 'number' | 'select' | 'multi_select' | 'status' | 'date'
+  | 'checkbox' | 'url' | 'person' | 'relation';   // created_by/created_time/updated_time are computed from object fields
+interface PropertyDef { id: string; name: string; type: PropType; options?: { id: string; name: string; color?: string }[] }
+type PropValue = string | number | boolean | null | string[]          // select/multi_select/status/relation store option or object ids
+  | { start: string; end?: string; allDay?: boolean }                  // date (ISO 8601)
+  | Actor;                                                             // person
+
+type ViewType = 'list' | 'board' | 'table' | 'calendar';               // Phase 1 implements list + board
+interface ViewDef {
+  id: string; name: string; type: ViewType;
+  groupBy?: string;                         // board: status/select prop id
+  dateProp?: string;                        // calendar
+  filter?: { prop: string; op: 'eq' | 'neq' | 'contains' | 'empty' | 'not_empty' | 'before' | 'after'; value?: PropValue }[];
+  sort?: { prop: string; dir: 'asc' | 'desc' }[];
+  visibleProps?: string[];
+}
+@@@@
+when: () => !useEeConfig().blockX.value    // ✅ tracked — menu and beacon update live
+when: () => document.querySelector('.x')   // ❌ not tracked — computed caches forever
+when: () => window.__someFlag              // ❌ not tracked
+@@@@
+{
+    id: string;
+    type: string;
+    children: Block[];
+    content: InlineContent[] | undefined;
+    props: Record<string, any>;
+}
+@@@@
+{
+  anchor: 'create-base',              // omit for a centered step
+  title: () => t('tour.x.title'),
+  description: () => t('tour.x.desc'), // the message may contain <b>inline HTML</b>
+  side: 'bottom', align: 'end',
+
+  goto: '/nc/workspace',              // navigate here first (string or function)
+  advanceOnClick: true,               // the click IS the step; no Next button
+  advanceWhen: () => cond,            // advance when this turns true; no Next button
+  allowInteraction: false,            // default true; false blocks clicks
+  when: ({ route }) => cond,          // skip this step entirely
+  onNext: async () => { … },          // awaited before advancing
+}
+@@@@
+{ __id: 'idA1', fieldA: 'A1', oneToManyB: ['C1,C2', 'C3'] }
+@@@@
+{ __id: 'idB1', fieldB: 'C1,C2', manyToOneA: 'A1', __fk_manyToOneA: 'idA1', oneToManyC: ['C1', 'C2'] }
+{ __id: 'idB2', fieldB: 'C3', manyToOneA: 'A1', __fk_manyToOneA: 'idA1', oneToManyC: ['C3'] }
+@@@@
+{ __id: 'idC1', fieldC: 'C1', manyToOneB: 'C1,C2', __fk_manyToOneB: 'idB1' },
+{ __id: 'idC2', fieldC: 'C2', manyToOneB: 'C1,C2', __fk_manyToOneB: 'idB1' },
+{ __id: 'idC3', fieldC: 'C3', manyToOneB: 'C3', __fk_manyToOneB: 'idB2' },
+@@@@
+{ rebind, unbind, getItems, getIndex, setIndex, onClick, onOver, getListRef, ... }

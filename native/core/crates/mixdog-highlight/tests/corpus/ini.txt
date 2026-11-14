@@ -1,0 +1,16 @@
+; comment
+# hash comment
+[section]
+key = value
+number=42
+flag = true
+path = "C:\\Program Files\\x"
+[a.b."quoted key"]
+list = [1, 2, 3]
+date = 1979-05-27T07:32:00Z
+multi = """
+text
+"""
+[[array]]
+name = 'literal'
+float = 3.14e-2 ; trailing

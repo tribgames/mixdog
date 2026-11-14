@@ -1,0 +1,16 @@
+# TODO: Add retry logic for S3 uploads [infra] [backend]
+# Currently fails silently on timeout
+# See https://github.com/org/repo/issues/42
+@@@@
+import json
+import urllib.request
+
+request = urllib.request.Request(
+    "http://localhost:8080/embed",
+    data=json.dumps({"texts": ["Hello world", "How are you?"]}).encode(),
+    headers={"Content-Type": "application/json"},
+)
+with urllib.request.urlopen(request) as response:
+    embeddings = json.load(response)["embeddings"]
+
+print(f"Generated {len(embeddings)} embeddings of dimension {len(embeddings[0])}")

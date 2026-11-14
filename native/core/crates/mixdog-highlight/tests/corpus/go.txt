@@ -1,0 +1,28 @@
+package main
+
+import (
+	"fmt"
+	"os"
+)
+
+// Point is a point.
+type Point struct {
+	X, Y int `json:"x"`
+}
+
+type Shape interface{ Area() float64 }
+
+const Pi = 3.14159; var ( a, b = 0x1F, 'x' )
+
+func (p *Point) Add(q Point) (Point, error) {
+	if p == nil { return Point{}, fmt.Errorf("nil %v", p) }
+	ch := make(chan int, 10)
+	go func() { defer close(ch); ch <- 1 }()
+	select { case v := <-ch: _ = v; default: }
+	for i, v := range []int{1, 2, 3} { fmt.Println(i, v, "str\n", `raw
+string`) }
+	switch x := any(p).(type) { case int: _ = x }
+	return Point{p.X + q.X, p.Y + q.Y}, nil
+}
+
+func main() { os.Exit(0) }

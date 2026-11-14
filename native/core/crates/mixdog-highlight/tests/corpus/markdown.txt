@@ -1,0 +1,33 @@
+# Heading 1
+## Heading 2 ##
+Setext
+======
+Some *emphasis*, **strong**, ***both***, `code`, ~~strike~~ and a [link](http://example.com "title") with ![image](a.png).
+Auto <http://auto.link> and footnote[^1] plus reference [ref][id].
+
+> blockquote
+> continued
+
+- list item
+  - nested
+* star
++ plus
+1. numbered
+2. second
+
+```js
+const a = 1;
+```
+
+    indented code
+
+| a | b |
+|---|---|
+| 1 | 2 |
+
+---
+***
+<div class="raw">html <b>bold</b></div>
+
+[id]: http://example.com
+[^1]: Footnote.
