@@ -519,15 +519,18 @@ mod tests {
         )
     }
 
-    /// Runs `$handler` on a context over the page and the host with a command; the refs the caller holds are those of snapshot `p1-s1`.
+    /// A future that runs `$handler` on a context over the page and the host with a command; the refs the caller holds are those of
+    /// snapshot `p1-s1`.
     macro_rules! run {
-        ($page:expr, $host:expr, $command:expr, $handler:ident) => {{
-            let command: Value = $command;
-            let mut rig = Rig::new(Some(refs("p1-s1")));
-            let view = rig.source.view();
-            let mut cx = ActionContext { host: $host, page: $page, command: &command, cancel: &view, recovery: &mut rig.recovery, effect_baseline: &mut rig.baseline };
-            $handler(&mut cx).await
-        }};
+        ($page:expr, $host:expr, $command:expr, $handler:ident) => {
+            async {
+                let command: Value = $command;
+                let mut rig = Rig::new(Some(refs("p1-s1")));
+                let view = rig.source.view();
+                let mut cx = ActionContext { host: $host, page: $page, command: &command, cancel: &view, recovery: &mut rig.recovery, effect_baseline: &mut rig.baseline };
+                $handler(&mut cx).await
+            }
+        };
     }
 
     #[tokio::test]
@@ -741,7 +744,7 @@ mod tests {
         let page = TestPage::with(|state| state.facts = Some(frame_facts()));
         let output = run!(&page, &host, json!({"text": " Quarterly "}), scroll).await.expect("scrolled");
         assert!(output.decorate_recovery);
-        assert!(output.lead.starts_with("Scrolled to \"Quarterly report: ") && output.lead.ends_with("\".\n\n"), "{}", output.lead);
+        assert_eq!(output.lead, "Scrolled to \"Quarterly report\".\n\n");
         assert_eq!(page.get(|state| state.invalidated), 1);
         let calls = host.calls();
         let matching = calls[0].params["expression"].as_str().expect("expression");

@@ -16,7 +16,7 @@ The core engine runs `drag` with pointer=touch as one `{op: 'pointer', kind: 'sw
        case 'swipe':
          return driver.swipeAt(guest, at, { x: step.toX as number, y: step.toY as number }, work);
 
-   `swipeAt` is the touch driver's own (browser/input-touch.ts), the one the page's old input path called for a touch drag. Like `dragTo`, a swipe is not in
-   PRESSING_KINDS: the old drag was never hit-guarded.
+   `swipeAt` is the touch driver's own (browser/input-touch.ts), the one the page's old input path called for a touch drag. `swipe` is not added to
+   PRESSING_KINDS (`dragTo` is in it, but the engine sends no hit guard on a drag step: the old drag was never hit-guarded).
 
 3. input-batch.test.mjs: a `swipe` step dispatches the touch events of swipeAt and counts them as mouse events (`mouseEvents`), and a swipe without `toX`/`toY` is -32602.
