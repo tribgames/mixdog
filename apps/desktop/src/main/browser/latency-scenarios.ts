@@ -237,6 +237,8 @@ export async function runBrowserEngineLatencyGate(harness: CoreHarness, emit: (l
   };
 
   let turn = Date.now();
+  /** The latest reply's text: a ref is valid only from the page's latest snapshot, and most replies carry a fresh one. */
+  let last = '';
   const call = async (action: string, input: Record<string, unknown>): Promise<{ text: string; turnId: number; clientMs: number }> => {
     turn += 1;
     const turnId = turn;
@@ -250,17 +252,18 @@ export async function runBrowserEngineLatencyGate(harness: CoreHarness, emit: (l
     };
     const clientMs = performance.now() - started;
     if (result?.isError) throw new Error(`browser ${action} failed: ${String(result.text).slice(0, 300)}`);
-    return { text: String(result?.text ?? ''), turnId, clientMs };
+    last = String(result?.text ?? '');
+    return { text: last, turnId, clientMs };
   };
   const group = async (
     action: string,
     variant: string,
-    input: (rep: number) => Record<string, unknown>,
+    input: (rep: number) => Record<string, unknown> | Promise<Record<string, unknown>>,
     chars?: number
   ): Promise<void> => {
     for (let index = 0; index < warmups + reps; index += 1) {
       const rep = index - warmups;
-      const { turnId, clientMs } = await call(action, input(rep));
+      const { turnId, clientMs } = await call(action, await input(rep));
       const row: EngineLatencyRow = {
         scenario: `${action}:${variant}`,
         action,
@@ -275,17 +278,24 @@ export async function runBrowserEngineLatencyGate(harness: CoreHarness, emit: (l
       emit(`${ENGINE_LATENCY_ROW_PREFIX}${JSON.stringify(row)}`);
     }
   };
-  /** Opens `path` and reads the refs named `names` from its snapshot (unmeasured calls: their trace rows have no gate row). */
-  const refsOn = async (path: string, ...names: string[]): Promise<string[]> => {
+  /** The ref named `name` in the latest reply, else in a fresh snapshot (unmeasured calls: their trace rows have no gate row). */
+  const ref = async (name: string): Promise<string> => {
+    try {
+      return refNamed(last, name);
+    } catch {
+      return refNamed((await call('snapshot', {})).text, name);
+    }
+  };
+  /** Opens `path` and checks its snapshot names `name` (unmeasured calls). */
+  const open = async (path: string, name: string): Promise<void> => {
     await call('navigate', { url: `${origin}${path}` });
-    const { text } = await call('snapshot', {});
-    return names.map((name) => refNamed(text, name));
+    refNamed((await call('snapshot', {})).text, name);
   };
 
   try {
     await group('navigate', 'root-fixture', (rep) => ({ url: `${origin}/root?nav=${rep}` }));
 
-    const [formText, formCount] = await refsOn('/form', 'R1 text', 'R1 count');
+    await open('/form', 'R1 text');
     await group('snapshot', 'form', () => ({}));
     for (const [variant, text] of [
       ['ascii10', gateText('ascii', 10)],
@@ -293,9 +303,9 @@ export async function runBrowserEngineLatencyGate(harness: CoreHarness, emit: (l
       ['ascii200', gateText('ascii', 200)],
       ['korean50', gateText('korean', 50)],
     ] as const) {
-      await group('type', variant, () => ({ ref: formText, text }), text.length);
+      await group('type', variant, async () => ({ ref: await ref('R1 text'), text }), text.length);
     }
-    await group('click', 'no-iframe', () => ({ ref: formCount }));
+    await group('click', 'no-iframe', async () => ({ ref: await ref('R1 count') }));
 
     // Events per typed character on a page that answers a key with nothing, with a request and with a re-render.
     for (const [variant, path, label] of [
@@ -303,12 +313,12 @@ export async function runBrowserEngineLatencyGate(harness: CoreHarness, emit: (l
       ['search', '/search', 'Search text'],
       ['spa', '/spa', 'Spa text'],
     ] as const) {
-      const [ref] = await refsOn(path, label);
+      await open(path, label);
       const text = gateText('ascii', 50);
-      await group('type', `ascii50-${variant}`, () => ({ ref, text }), text.length);
+      await group('type', `ascii50-${variant}`, async () => ({ ref: await ref(label), text }), text.length);
     }
 
-    await refsOn('/frames', 'R1 root button');
+    await open('/frames', 'R1 root button');
     await group('snapshot', 'frames', () => ({}));
   } finally {
     harness.client.notify = notify;
