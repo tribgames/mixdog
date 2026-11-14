@@ -46,9 +46,8 @@ CORE-WIRE-G9 add them, deferred-g1.md), so none of this code or its tests has be
   browser channel, and `SettlingSavedLogins` around `SessionDeps.snapshots` are in compose_flip.rs.
 - s3-08 -> s3-19 (wave 3): `builder.register(ComputerPointerService::new(pointer_hold))` needs the pool's `PointerHost`;
   `computer/pointerReleased` stays in SERVICE_PENDING.
-- s3-13 -> s3-19 (wave 3): the `#[cfg(feature = "test-hooks")]` DevComputerRun registration. `dev/computer/run` stays in
-  SERVICE_PENDING, so the separate `unclaimed.retain(|method| *method != "dev/computer/run")` line is not needed; s3-19 keeps the
-  name in SERVICE_PENDING (or adds that line) when it registers the service only under the feature and MIXDOGD_TEST_HOOKS=1.
+- s3-13: applied by G2.5-WIRE with the g25-fu-cu-b snippet (`#[cfg(feature = "test-hooks")]` DevComputerRun over the pool,
+  registered only with MIXDOGD_TEST_HOOKS=1); `dev/computer/run` stays in SERVICE_PENDING so an ordinary start leaves it unclaimed.
 - s3-11 -> FEATURE-FACTS (G3) / s3-19: the `HostPresence` call site.
 - s2a-core-blob-refs -> s2a-core-server-wiring (wave 3): `param_refs::expand` in server.rs and
   `mixdog_app_server::param_refs::install(BlobParamRefs::new(..))` in the daemon composition (install returns a Result).
@@ -58,10 +57,13 @@ CORE-WIRE-G9 add them, deferred-g1.md), so none of this code or its tests has be
   app-owned routing, display pixels, backend selection); no line here.
 - s3-15: packaging of the extension payload (packaging task) and the desktop removal (s3-26). The compose loop is applied.
 
-## g2x-pcaccess-installer: behaviours not in the core yet (review)
+## g2x-pcaccess-installer: behaviours carried by g25-fu-x (applied by G2.5-WIRE)
 
-The pcAccess service is registered with the production installer (readiness, approve). The review lists what the TS path still
-does and the core does not: needs-enroll readiness with the in-flight delegated enroll, approveWithCredential, the delegated enroll
-on key delivery, the unpair transaction (recordOwedKey, unpair, revokeOwedNow), revokeOwed/drainDelegated and the one serial
-access queue. The desktop's TypeScript PcAccess still serves all of it; a task must carry them before x-pcaccess-desktop /
-DESKTOP-WIRE-G4 retire the TS path.
+needs-enroll readiness, approveWithCredential, the delegated enroll on key delivery, the unpair transaction, revokeOwed/
+drainDelegated and the one serial access queue are in PcAccessService; compose_flip.rs builds PC access before remote access,
+binds the runtime events (`SectionEvents::bind_pc_access`) and gives RemoteAccessService `with_pc_access`. Still open:
+- s3-screen-source (G7): the phone screen control's ScreenPcAccess port calls `approve_with_credential` (mapping in the deleted
+  fragment's block 6: `cancelled` = the session's abort, outcome by `KeyOutcome::name()`, `busy` for Busy, the same
+  production_installer instance for the lease's InstallPort).
+- x-pcaccess-desktop (G3): the desktop maps needsEnroll / revocations-unknown and stops its TS createPcAccess queue (until then
+  the TS queue and the core queue both drive the installer exe, review-g25-fu-x).
