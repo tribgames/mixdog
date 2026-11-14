@@ -15,6 +15,7 @@ import { FILE_PREVIEW_SCHEME } from './file-preview';
 import { requiredString } from './ipc-validation';
 import { SELECTED_FILE_GRANT_UNAVAILABLE } from '../shared/file-error-codes';
 import { LocalAccessDeniedError } from './local-access-denied';
+import { coreErrorForWindow } from '../shared/core-lanes/core-error';
 import { routeDesktopOperation } from '../shared/core-lanes/desktop-operation-route';
 
 export type ServerInvoke = <T>(method: string, args: unknown[]) => Promise<T>;
@@ -26,7 +27,10 @@ export function serverCoreInvoke(
   return async <T>(name: string, args: unknown[]) => {
     if (!pcCore) throw new Error('The core connection is not available.');
     const { method, params } = routeDesktopOperation(name, args);
-    return (await pcCore.call(method, params)) as T;
+    // The core's refusal reaches the window as the operation lane hands it over (its message, its public code).
+    return (await pcCore.call(method, params).catch((error: unknown) => {
+      throw coreErrorForWindow(error);
+    })) as T;
   };
 }
 
@@ -507,7 +511,9 @@ export function createServerDownloads({
       return { path };
     },
     async abort(id: unknown): Promise<boolean> {
-      const downloadId = required(id);
+      // An id that is no string names no download.
+      if (typeof id !== 'string' || !id) return false;
+      const downloadId = id;
       unfinished.delete(downloadId);
       return (await core('serverDownloadAbort', [downloadId])) === true;
     },
