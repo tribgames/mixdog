@@ -38,6 +38,7 @@ use mixdog_core_base::support::on_lane;
 use mixdog_core_base::support::on_lane_wait;
 use mixdog_core_base::support::invalid;
 use mixdog_core_base::support::wrong_method;
+use mixdog_migrate::desktop_profile::desktop_profile_dir_with;
 use mixdog_migrate::desktop_profile::supplement;
 use mixdog_migrate::framework::MigrationRoots;
 use mixdog_rt::DurabilityIo;
@@ -118,11 +119,13 @@ fn status(data: &Path) -> Result<MigrateProfileStatus, CoreError> {
 }
 
 /// Validates the named directory against the recorded profile and runs the supplement pass.
-fn adopt(roots: MigrationRoots, adopting: &Mutex<()>) -> Result<MigrateProfileAdopted, CoreError> {
-    let named = roots.profile.clone().unwrap_or_default();
-    if !named.is_absolute() {
+fn adopt(mut roots: MigrationRoots, adopting: &Mutex<()>) -> Result<MigrateProfileAdopted, CoreError> {
+    // Absolute only; then spelled as the launcher's profile is (`locate`), so the journal records the same form.
+    let Some(named) = roots.profile.as_deref().filter(|path| path.is_absolute()).and_then(|path| desktop_profile_dir_with(Some(path), &|_| None))
+    else {
         return Err(invalid("userData", "an absolute path"));
-    }
+    };
+    roots.profile = Some(named.clone());
     if !named.is_dir() {
         return Err(invalid("userData", "an existing directory"));
     }
