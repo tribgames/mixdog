@@ -78,10 +78,10 @@ export { workspaceVersion };
  */
 export async function stageHostCore({
   binary,
-  askpass = join(dirname(binary), askpassName(host.platform)),
   runtimeDir,
   version,
   host,
+  askpass = join(dirname(binary), askpassName(host.platform)),
   hostRunnable = host.platform === process.platform && host.arch === process.arch,
   reportedVersion = hostReportedVersion,
 }) {
