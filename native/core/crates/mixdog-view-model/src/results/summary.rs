@@ -223,7 +223,8 @@ fn localize_status(raw: &str, translate: Translate<'_>) -> String {
     }
     let key = match word.as_str() {
         "completed" | "complete" | "done" | "success" | "succeeded" => "Completed",
-        "failed" | "fail" | "error" | "killed" => "Failed",
+        // Node's `/^(?:failed?|error|killed)$/`: "faile" or "failed", never "fail".
+        "failed" | "faile" | "error" | "killed" => "Failed",
         "cancelled" | "canceled" | "cancel" => "Cancelled",
         "timeout" | "timed_out" => "Timed out",
         "queued" => "Queued",
