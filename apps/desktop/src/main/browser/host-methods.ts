@@ -12,7 +12,7 @@ import type { createBrowserCommandQueue } from './command-queue';
 import type { createBrowserCookieJar } from './cookie-jar';
 import type { createBrowserDisplayTracking } from './display-tracking';
 import type { createBrowserGuestLifecycle } from './guest-lifecycle';
-import type { BrowserHost } from './host';
+import type { BrowserHost } from './host-types';
 import type { createBrowserHostPageIdentity } from './host-page-identity';
 import type { createBrowserHostPresentation } from './host-presentation';
 import type { createBrowserNativeViews } from './native-view';

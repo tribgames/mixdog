@@ -1,6 +1,6 @@
 import type { WebContents } from 'electron';
 
-import { browserDocumentId, type BrowserGuestStateStore } from './guest-state';
+import { browserDocumentId, type BrowserGuestStateStore } from './host-state';
 import type { BrowserRemoteControlHost } from './remote-stream';
 
 type PageInputType = 'pointer' | 'wheel' | 'text' | 'key' | 'composition' | 'composition-end';

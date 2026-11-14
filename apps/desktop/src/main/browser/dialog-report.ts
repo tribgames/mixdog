@@ -7,7 +7,7 @@
 import type { WebContents } from 'electron';
 
 import type { BrowserCdpPort } from './cdp';
-import type { BrowserCommandResult } from './command';
+import type { BrowserCommandResult } from './host-types';
 import { dialogBridgeFulfillParams } from './dialog-bridge';
 import { redactBrowserText, redactBrowserUrl } from './redaction';
 

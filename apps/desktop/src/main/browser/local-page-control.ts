@@ -6,9 +6,9 @@ import { browserInputImmediate, browserInputPresentation } from '../../shared/br
 import type { DesktopBrowserPageControl, DesktopBrowserTabControlResult } from '../../shared/contract';
 import { type Leases, userInputReason } from '../host/browser-engine/lease';
 import type { createBrowserGuestCdp } from './cdp';
-import { COMMAND_TIMEOUT_MS } from './command';
+import { COMMAND_TIMEOUT_MS } from './host-types';
 import type { createBrowserCommandQueue } from './command-queue';
-import { browserDocumentId, type BrowserGuestStateStore } from './guest-state';
+import { browserDocumentId, type BrowserGuestStateStore } from './host-state';
 import { browserLocalInputOptions } from './host-policy';
 import type { createBrowserPageSurface } from './page-surface';
 import { type BrowserSessionRegistry, browserSessionId } from './session-registry';

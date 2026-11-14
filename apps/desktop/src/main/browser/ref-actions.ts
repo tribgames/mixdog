@@ -8,7 +8,7 @@
 import type { WebContents } from 'electron';
 
 import type { BrowserCdpPort } from './cdp';
-import type { PendingFileChooser } from './guest-state';
+import type { PendingFileChooser } from './host-types';
 import type { createBrowserInputDriver } from './input';
 import { createBrowserRefAccess } from './ref-access';
 import { createRefControlState } from './ref-control-state';

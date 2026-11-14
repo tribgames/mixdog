@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import type { WebContents } from 'electron';
-import type { BrowserHost } from './host';
+import type { BrowserHost } from './host-types';
 import { createPolling } from '../host-harness-poll';
 
 /** Exercise the actual renderer/preload/IPC path, without OS input or live tabs. */

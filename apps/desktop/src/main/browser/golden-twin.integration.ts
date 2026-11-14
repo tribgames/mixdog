@@ -25,7 +25,8 @@ import { BROWSER_ACTIONS } from '../../shared/core-src/runtime/browser-bridge/br
 import { createPolling } from '../host-harness-poll';
 import { createBrowserCommandHost } from '../host/browser-command';
 import { readyBrowserFrame } from './harness-frame';
-import { createBrowserHost, type BrowserHost } from './host';
+import { type BrowserHost } from './host-types';
+import { createBrowserHost } from './host';
 import { traceTextsEqual } from './trace-compare';
 import { createBrowserFrameFixture, createBrowserPageFixture, createBrowserSocketFixture } from './host-integration-fixtures';
 

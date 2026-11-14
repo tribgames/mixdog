@@ -12,9 +12,9 @@
 import type { WebContents } from 'electron';
 
 import { CHROME_LIKENESS_SCRIPT, PERMISSION_STATE_PATTERN } from './chrome-likeness';
-import { CDP_REQUEST_TIMEOUT_MS } from './command';
+import { CDP_REQUEST_TIMEOUT_MS } from './host-types';
 import { DIALOG_BRIDGE_PATTERN, DIALOG_BRIDGE_SCRIPT } from './dialog-bridge';
-import type { BrowserGuestStateStore } from './guest-state';
+import type { BrowserGuestStateStore } from './host-state';
 import type { BrowserFetchPattern } from './intercept';
 import type { createBrowserCdpExecution } from './cdp-execution';
 

@@ -12,7 +12,7 @@
  * and (for an upload) the files and the receiving frame must be the ones that
  * were shown, or nothing is dispatched. */
 import { BROWSER_ACTIONS } from '../../shared/core-src/runtime/browser-bridge/browser-action-contract.mjs';
-import type { BrowserCommand } from './command';
+import type { BrowserCommand } from './host-types';
 import { describeBrowserTarget } from './target-resolve';
 import { redactBrowserText } from './redaction';
 import type { UserWait } from './user-wait';

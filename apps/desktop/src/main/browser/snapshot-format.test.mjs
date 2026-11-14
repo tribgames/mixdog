@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { BrowserGuestStateStore } from './guest-state.ts';
+import { BrowserGuestStateStore } from './host-state.ts';
 import { createBrowserRefSet } from './ref-recovery.ts';
 import { createBrowserReply, unreportedDownloads } from './reply.ts';
 import { formatPageReport, formatSnapshot } from './snapshot-format.ts';

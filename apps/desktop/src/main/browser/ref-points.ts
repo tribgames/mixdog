@@ -8,8 +8,8 @@ import type { WebContents } from 'electron';
 
 import { BrowserActionabilityError, waitForBrowserActionable } from './actionability';
 import type { BrowserCdpPort } from './cdp';
-import type { BrowserCommand } from './command';
-import type { GuestSlot } from './guest-state';
+import type { BrowserCommand } from './host-types';
+import type { GuestSlot } from './host-types';
 import { createBrowserHitTarget } from './hit-target';
 import { browserRefElementSource } from './ref-access';
 import { probeRefPoint } from './ref-point-probe';

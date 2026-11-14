@@ -18,7 +18,7 @@ import type { WebContents } from 'electron';
 import type { BrowserGuestCdp } from '../../browser/cdp';
 import type { createBrowserCommandToolkit } from '../../browser/command-toolkit';
 import type { createBrowserGuestLifecycle } from '../../browser/guest-lifecycle';
-import type { BrowserHostFoundation } from '../../browser/host-foundation';
+import type { BrowserHostFoundation } from '../../browser/host-types';
 import type { BrowserEmulationOwner } from '../../browser/host-policy';
 import { redactBrowserText } from '../../browser/redaction';
 import { pause } from '../../browser/settle';

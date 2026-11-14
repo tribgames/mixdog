@@ -17,7 +17,7 @@ import type {
   FrameRef,
   HostBrowserSnapshotResult,
 } from '../../../../../../packages/protocol/src/index.ts';
-import type { BrowserCommand } from '../../browser/command';
+import type { BrowserCommand } from '../../browser/host-types';
 import { parseBrowserQuery } from '../../browser/semantic-query';
 import { HOST_INVALID_PARAMS, type HostConnection, HostRpcError } from '../connection';
 import type { EngineContext } from './context';

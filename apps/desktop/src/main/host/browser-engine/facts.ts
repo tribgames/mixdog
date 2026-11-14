@@ -15,7 +15,7 @@ import type {
   HostBrowserPageFactsParams,
   PageFacts,
 } from '../../../../../../packages/protocol/src/index.ts';
-import { type BrowserGuestStateStore, browserDocumentId } from '../../browser/guest-state';
+import { type BrowserGuestStateStore, browserDocumentId } from '../../browser/host-state';
 import { redactBrowserUrl } from '../../browser/redaction';
 import type { HostConnection } from '../connection';
 import { type EngineEvents, pushInternalConsole, pushRequestRefused } from './events';

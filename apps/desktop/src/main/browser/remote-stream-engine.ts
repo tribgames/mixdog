@@ -6,7 +6,7 @@
 import type { WebContents } from 'electron';
 
 import type { DesktopRemoteBrowserStreamFrame } from '../../shared/contract';
-import { browserDocumentId } from './guest-state';
+import { browserDocumentId } from './host-state';
 import { buildFrame, frameSignature } from './remote-frame';
 import { schedulePublish } from './remote-frame-publish';
 import { lockRemoteGeometry, readRemotePagePixelRatio } from './remote-geometry';

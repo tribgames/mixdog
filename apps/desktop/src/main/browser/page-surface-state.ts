@@ -2,7 +2,7 @@
  *  image, geometry revisions, in-flight viewport changes, pane sizes, and which
  *  guest a session currently presents. */
 import type { WebContents } from 'electron';
-import { browserDocumentId, type BrowserGuestStateStore } from './guest-state';
+import { browserDocumentId, type BrowserGuestStateStore } from './host-state';
 import type { BrowserScreenshotCapture } from './screenshot';
 
 export type Size = { width: number; height: number };

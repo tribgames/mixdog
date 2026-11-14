@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import test from 'node:test';
 
-import { BrowserGuestStateStore } from './guest-state.ts';
+import { BrowserGuestStateStore } from './host-state.ts';
 import { setPageFaultDiagnosticSink } from './page-fault-diagnostics.ts';
 import { watchPageFaults } from './page-faults.ts';
 import { handleWindowOpens } from './popup-opening.ts';

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { type BrowserWindow, clipboard, ipcMain, type WebContents } from 'electron';
-import type { BrowserHost } from './host';
+import type { BrowserHost } from './host-types';
 import { createPolling } from '../host-harness-poll';
 import { registerBrowserIpc } from '../ipc-browser';
 import { DESKTOP_IPC } from '../../shared/contract';

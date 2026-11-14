@@ -16,18 +16,12 @@ import type {
   PageFacts,
   Precondition,
 } from '../../../../../../packages/protocol/src/index.ts';
-import {
-  CDP_REQUEST_TIMEOUT_MS,
-  EXTRACT_MAX_LIMIT,
-  MAX_EVALUATE_SCRIPT_CHARS,
-  NAVIGATE_SETTLE_TIMEOUT_MS,
-  READ_DEFAULT_CHARS,
-} from '../../browser/command';
+import { CDP_REQUEST_TIMEOUT_MS, EXTRACT_MAX_LIMIT, MAX_EVALUATE_SCRIPT_CHARS, NAVIGATE_SETTLE_TIMEOUT_MS, READ_DEFAULT_CHARS } from '../../browser/host-types';
 import { bounded } from '../../browser/cdp-bounded';
 import type { createBrowserDialogReport } from '../../browser/dialog-report';
 import { createBrowserDomQuiet } from '../../browser/dom-quiet';
 import type { createBrowserDocuments } from '../../browser/documents';
-import { type BrowserGuestStateStore, pushBounded } from '../../browser/guest-state';
+import { type BrowserGuestStateStore, pushBounded } from '../../browser/host-state';
 import { redactBrowserText } from '../../browser/redaction';
 import { pause } from '../../browser/settle';
 import { type BrowserMailLink, mailLinkWindowMs } from '../../browser/url-policy';

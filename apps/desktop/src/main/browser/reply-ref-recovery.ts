@@ -7,7 +7,7 @@
  */
 import type { WebContents } from 'electron';
 
-import type { BrowserCommandResult } from './command';
+import type { BrowserCommandResult } from './host-types';
 import { type BrowserRefSet, isBrowserStaleRefError, recoverBrowserRef } from './ref-recovery';
 import type { BrowserReplyHost } from './reply';
 import type { formatSnapshot } from './snapshot-format';

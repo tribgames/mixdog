@@ -3,7 +3,7 @@
 import type { WebContents } from 'electron';
 import { BROWSER_DOCUMENT_ROOTS, browserDocumentChanged, type createBrowserDocuments } from './documents';
 import type { BrowserCdpPort } from './cdp';
-import type { BrowserGuestStateStore } from './guest-state';
+import type { BrowserGuestStateStore } from './host-state';
 
 /** The backend nodes of the elements the host filled a secret into (a password,
  *  every box of a one-time code), per guest, in memory only. A capture is

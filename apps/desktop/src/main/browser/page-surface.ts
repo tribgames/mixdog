@@ -5,7 +5,7 @@
 import type { WebContents } from 'electron';
 import type { DesktopBrowserTab } from '../../shared/contract';
 import type { BrowserGuestCdp } from './cdp';
-import type { BrowserGuestStateStore } from './guest-state';
+import type { BrowserGuestStateStore } from './host-state';
 import type { BrowserUrlPolicy } from './url-policy';
 import type { BrowserScreenshotCapture } from './screenshot';
 import type { BrowserDisplayTexture } from './display-textures';

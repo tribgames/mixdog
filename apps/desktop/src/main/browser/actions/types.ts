@@ -7,13 +7,13 @@
 import type { WebContents } from 'electron';
 
 import type { BrowserGuestCdp } from '../cdp';
-import type { BrowserCommand, BrowserCommandResult } from '../command';
+import type { BrowserCommand, BrowserCommandResult } from '../host-types';
 import type { BrowserCredentialFillResult } from '../credential-autofill';
 import type { createBrowserDialogReport } from '../dialog-report';
 import type { createBrowserDocuments } from '../documents';
 import type { TrackedBrowserDownload } from '../downloads';
 import type { createBrowserEmulation } from '../emulation';
-import type { BrowserGuestStateStore } from '../guest-state';
+import type { BrowserGuestStateStore } from '../host-state';
 import type { createBrowserInitScripts } from '../init-scripts';
 import type { createBrowserInputDriver } from '../input';
 import type { createBrowserIntercept } from '../intercept';

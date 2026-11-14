@@ -7,7 +7,7 @@
  */
 import type { WebContents } from 'electron';
 
-import type { BrowserCommandResult } from './command';
+import type { BrowserCommandResult } from './host-types';
 import type { BrowserNetworkLedger } from './network';
 import { browserPostconditionMatches, type BrowserPostcondition } from './postcondition';
 import { timedBrowserOperation } from './timing';

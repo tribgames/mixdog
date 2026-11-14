@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { BROWSER_ACTIONS } from '../../../shared/core-src/runtime/browser-bridge/browser-action-contract.mjs';
-import { TABLESS_ACTIONS } from '../command.ts';
+import { TABLESS_ACTIONS } from '../host-types.ts';
 import { BROWSER_ACTION_HANDLERS, browserActionHandler, PAGE_ACTIONS } from './index.ts';
 
 test('every page-addressed contract action resolves to exactly one handler', () => {

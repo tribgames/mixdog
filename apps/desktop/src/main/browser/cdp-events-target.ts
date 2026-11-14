@@ -2,8 +2,8 @@
  *  and record it, within the per-guest child-session limit. */
 import type { WebContents } from 'electron';
 
-import { MAX_CHILD_CDP_SESSIONS } from './command';
-import type { BrowserGuestStateStore } from './guest-state';
+import { MAX_CHILD_CDP_SESSIONS } from './host-types';
+import type { BrowserGuestStateStore } from './host-state';
 import { redactBrowserUrl } from './redaction';
 
 type CdpParams = Record<string, unknown>;
