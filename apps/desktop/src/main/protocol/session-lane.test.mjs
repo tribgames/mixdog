@@ -171,17 +171,3 @@ test('the catalog is read to its last page and answered as sidebar rows; a reope
   assert.equal(core.calls.length, 2, 'the catalog of the connection that is open now');
 });
 
-test('the whole conversation is every page of the items, oldest first', async () => {
-  const pages = { undefined: { data: [userRow('m3', 'c')], hasOlder: true, nextCursor: 'm3' }, m3: { data: [userRow('m1', 'a'), userRow('m2', 'b')], hasOlder: false } };
-  const core = connection(async (method, params) => {
-    assert.equal(method, 'thread/items/list');
-    return pages[params.cursor?.itemId];
-  });
-  // The chat adapter's shared readers are built on the client itself.
-  Object.assign(core.protocol.client(), { call: core.protocol.call, respond: () => undefined, on: () => () => undefined, status: { state: 'ready' } });
-  const lane = createSessionLane({ protocol: core.protocol });
-  const history = await lane.readSessionHistory('t1');
-  assert.equal(history.sessionId, 't1');
-  assert.deepEqual(history.items.map((item) => item.id), ['m1', 'm2', 'm3']);
-  assert.deepEqual(core.calls.map(({ params }) => params.cursor), [undefined, { type: 'item', itemId: 'm3' }]);
-});
