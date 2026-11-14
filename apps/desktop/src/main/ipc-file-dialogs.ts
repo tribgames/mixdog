@@ -1,5 +1,6 @@
-// Native file/folder pickers and the local-file reads the renderer may ask for.
-import type { App, BrowserWindow, Dialog } from 'electron';
+// The native file and folder pickers (Electron's dialogs) and the folder list of a server window's picker. Reading a file and
+// watching a folder are requests of the window's own core connection.
+import type { BrowserWindow, Dialog } from 'electron';
 import { randomBytes } from 'node:crypto';
 import { open, rename, rm } from 'node:fs/promises';
 import { Readable, Transform } from 'node:stream';
@@ -8,23 +9,20 @@ import { dirname, join, isAbsolute as pathIsAbsolute, resolve as resolvePath } f
 import { DESKTOP_IPC, type DesktopWorkspace } from '../shared/contract';
 import type { DesktopService } from './desktop-service-contract';
 import { createDialogFolderMemory } from './dialog-folder-memory';
-import { absoluteLocalPath } from './local-files';
 import type { IpcHandle as Handle } from './ipc';
-import { requiredSaveSource, requiredString, requiredWorkspaceFolders, sanitizedFileName } from './ipc-validation';
+import { requiredSaveSource, requiredWorkspaceFolders, sanitizedFileName } from './ipc-validation';
 import type { ConnectionKind } from './connections/contract';
 import { remotePickerRequired } from './connections/feature-gates';
-import { absoluteServerPath } from './server-file-access';
 import { putBlobRef } from './core-blob-ref';
 import { coreErrorForWindow } from './protocol/core-error';
 import type { ProtocolConnection } from './protocol/connection';
 
 interface FileDialogIpcOptions {
   window: BrowserWindow;
-  app: Partial<Pick<App, 'getPath'>>;
   /** A server (`ssh`) window: its folders live on the server, not this PC. */
   connectionKind?: ConnectionKind;
   dialog: Pick<Dialog, 'showOpenDialog'> & Partial<Pick<Dialog, 'showSaveDialog'>>;
-  host: Pick<DesktopService, 'addProject' | 'projectDirectory'>;
+  host: Pick<DesktopService, 'addProject'>;
   handle: Handle;
   invokeDesktopOperation: <T>(method: string, args: unknown[]) => Promise<T>;
   nativeT: (key: string) => string;
@@ -86,7 +84,6 @@ export async function downloadToFile(
 
 export function registerFileDialogIpc({
   window,
-  app,
   connectionKind = 'local',
   dialog,
   host,
@@ -99,8 +96,6 @@ export function registerFileDialogIpc({
   const { startIn, remember } = createDialogFolderMemory();
   const defaultPathOption = (defaultPath: unknown) =>
     typeof defaultPath === 'string' && pathIsAbsolute(defaultPath) ? { defaultPath } : startIn();
-
-  const watchedDirectory = connectionKind === 'ssh' ? absoluteServerPath : absoluteLocalPath;
 
   handle(DESKTOP_IPC.chooseProject, async () => {
     // This PC's folder dialog cannot pick a folder on the server.
@@ -141,20 +136,6 @@ export function registerFileDialogIpc({
   handle(DESKTOP_IPC.resolveLocalPaths, (_event, paths, sessionId, options) =>
     describeLocalPaths(paths, sessionId, options)
   );
-  handle(DESKTOP_IPC.readLocalFile, (_event, rawPath) =>
-    invokeDesktopOperation('readLocalFileAbs', [
-      connectionKind === 'ssh' ? absoluteServerPath(rawPath) : absoluteLocalPath(rawPath),
-    ])
-  );
-  // Project file refresh is daemon-owned and refcounted there.
-  handle(DESKTOP_IPC.folderWatch, (_event, dirRaw, recursive) => {
-    const dir = watchedDirectory(dirRaw);
-    return invokeDesktopOperation('folderWatch', [dir, recursive === true]);
-  });
-  handle(DESKTOP_IPC.folderUnwatch, (_event, dirRaw, recursive) => {
-    const dir = watchedDirectory(dirRaw);
-    return invokeDesktopOperation('folderUnwatch', [dir, recursive === true]);
-  });
   // The folder picker of a server window: the daemon (on the server) lists its
   // own directories and rejects a path that is not absolute there.
   handle(DESKTOP_IPC.listServerDirectories, (_event, path, includeHidden) =>
@@ -222,19 +203,5 @@ export function registerFileDialogIpc({
       file = result.filePath;
     }
     return invokeDesktopOperation('writeWorkspaceFile', [file, folders]);
-  });
-  const userDataDir = () => (typeof app.getPath === 'function' ? app.getPath('userData') : '');
-  handle(DESKTOP_IPC.readMarkdownDefaultView, () => invokeDesktopOperation('readMarkdownDefaultView', [userDataDir()]));
-  handle(DESKTOP_IPC.writeMarkdownDefaultView, (_event, view) =>
-    invokeDesktopOperation('writeMarkdownDefaultView', [userDataDir(), view])
-  );
-  handle(DESKTOP_IPC.readEditorSettings, async (_event, projectPath, relPath, workspaceFile) => {
-    const project = requiredString(projectPath, 'projectPath');
-    const root = await host.projectDirectory(project);
-    const workspace =
-      typeof workspaceFile === 'string' && workspaceFile.trim() ? resolvePath(workspaceFile) : undefined;
-    const userDataPath = typeof app.getPath === 'function' ? app.getPath('userData') : '';
-    const cleanRel = requiredString(relPath, 'relPath', 4_096);
-    return invokeDesktopOperation('readScopedEditorSettings', [userDataPath, root, cleanRel, workspace]);
   });
 }

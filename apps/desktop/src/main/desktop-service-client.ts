@@ -259,16 +259,6 @@ export class DesktopServiceClient implements DesktopService {
   readAttachmentImage(attachmentRef: string, maxBytes?: number): Promise<string | null> {
     return this.invokeRead('readAttachmentImage', maxBytes === undefined ? [attachmentRef] : [attachmentRef, maxBytes]);
   }
-  /** The provenance behind attachment opens and file grants: main's IPC
-   *  checks a request against the transcript the service holds. */
-  readSessionTranscript(sessionId: string): Promise<SessionSnapshot> {
-    return this.options.sessionLane.readSessionTranscript(sessionId);
-  }
-  /** The whole stored conversation, compaction-archived rows included. */
-  readSessionHistory(sessionId: string): Promise<SessionSnapshot | null> {
-    return this.options.sessionLane.readSessionHistory(sessionId);
-  }
-
   readSessionFinalAnswer(
     sessionId: string,
     startedAt: number,

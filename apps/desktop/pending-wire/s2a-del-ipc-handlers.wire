@@ -1,0 +1,50 @@
+# s2a-del-ipc-handlers: desktop wire (for DELETE-HOT-G11)
+
+The seven ipc-*.ts modules no longer register a handler for a DIRECT key (shared/desktop-api-split.ts DIRECT_KEYS). The signatures
+below changed, so the hot files must change in the same batch (apps/desktop tsc fails on ipc.ts until they do):
+
+## apps/desktop/src/main/ipc.ts (registerDesktopIpc)
+
+- Delete `import { registerNotificationIpc } from './ipc-notifications';` and its call `registerNotificationIpc({ handle, invokeDesktopOperation, core: protocol });`
+  (ipc-notifications.ts is deleted: all five channels are DIRECT keys, answered by renderer/core-direct/api-settings.ts).
+- `registerFileDialogIpc({ ... })`: remove the property `app: serviceApp`.
+- `registerProjectIpc({ handle, host, shell, invokeDesktopOperation, operations: serviceOperations, core: localCore })` becomes
+  `registerProjectIpc({ handle, host, shell, core: localCore })`.
+- `registerProjectFileIpc({ ... })`: remove the property `app: serviceApp`.
+- `registerSessionIpc({ ... })` becomes `registerSessionIpc({ handle, remoteHosts, core: protocol })` (no host, invokeDesktopOperation, browserHost,
+  remoteAccessInfo, rotateRemoteAccess, revokeRemoteAccessClient).
+- `registerWindowSettingsIpc({ ... })` becomes
+  `registerWindowSettingsIpc({ window, app, handle, invokeDesktopOperation, settingsStore, previewNotificationSound })`
+  (no host, readsLocalOnboardingStatus, raiseOnSignIn, pcHost, onDesktopSettingsChanged, confirmAllowAllActions,
+  writesAnnounceThemselves, pcCore). `confirmAllowAllActions` stays for registerHostExtrasIpc.
+- `registerSourceControlIpc({ ... })`: remove the property `operations: serviceOperations`.
+- Then dead in ipc.ts, delete: the SERVICE_OPERATION_NAMES table, `type ServiceOperation`, `serviceOperation`, `serviceOperations`, `serviceGetPath`,
+  `serviceApp` (and the `serviceUserDataPath` dependency, the option and its destructuring), the dependency fields and destructured names
+  `onDesktopSettingsChanged`, `remoteAccessInfo`, `rotateRemoteAccess`, `revokeRemoteAccessClient`, and the imports `DesktopRemoteAccessInfo`,
+  `DesktopSettings` (if tsc reports them unused). `browserHost` stays (registerBrowserIpc); drop 'releaseSession' from its Pick only if tsc agrees.
+  `settingsStore`'s Pick may shrink to 'readZoom' | 'updateZoom'.
+- The DIRECT handlers' channels are no longer registered, so `channels` (the dispose list) needs no change: it removes whatever DESKTOP_IPC names.
+
+## apps/desktop/src/main/index.ts
+
+- In the registerDesktopIpc options: remove `onDesktopSettingsChanged: applyDesktopSettings` (the core's settings change reaches `applyDesktopSettings` through
+  core-observers.ts), `remoteAccessInfo`, `rotateRemoteAccess`, `revokeRemoteAccessClient` and `serviceUserDataPath`, and the three functions of index.ts
+  (`remoteAccessInfo`, `rotateRemoteAccess`, `revokeRemoteAccessClient`) when nothing else calls them (line 1355 does: keep that one).
+
+## apps/desktop/src/main/ipc-state-bridge.ts (amendment of the open-findings audit; the last s2a deletion task applies it)
+
+Reduce it to the pushes a live renderer subscribes to: remove the old-lane pushes no renderer listens to (sessionsChanged, agentPoolChanged, folderChanged,
+the lsp* pushes and the rest) once `subscribeSessions`, `subscribeAgentPool`, `subscribeFolderChanges`, `subscribeLspDiagnostics`, `subscribeLspStatus`
+(all DIRECT keys of renderer/core-direct) are the only listeners.
+
+## Other files (not owned by this task)
+
+- apps/desktop/src/main/desktop-service-contract.ts: drop the optional members `readSessionTranscript?` and `readSessionHistory?` and the two names in
+  DESKTOP_SERVICE_METHODS (this task removed both from desktop-service-client.ts and shared/core-lanes/session-lane.ts).
+- Tests that still import a removed handler (the s2a-del-ipc-tests task): ipc-notifications.test.mjs (delete), ipc-projects.test.mjs, ipc-core-callers.test.mjs,
+  ipc-sessions-device-alias.test.mjs, ipc-sessions-favorite.test.mjs, approval-grant-change.test.mjs, core-session-route.test.mjs, session-history-boundary.test.mjs
+  (its list of files naming readSessionHistory is now empty), protocol/session-lane.test.mjs (the "whole conversation" case), ipc-window-pc-quota.test.mjs,
+  developer-risk-confirm.test.mjs, settings-store.test.mjs, connections/model-login.test.mjs, local-page-permissions.test.mjs, ipc-file-dialogs.test.mjs
+  (the download cases stay).
+- Rust: the operation names `readSessionTranscript` and `readSessionHistory` in mixdog-app-protocol schema/operations_map.json, inventory.rs and
+  mixdog-core-domains desktop_residual.rs have no caller left; the protocol lead removes them with the next [remove] section.

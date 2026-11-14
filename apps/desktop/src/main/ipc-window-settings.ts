@@ -1,270 +1,35 @@
-// Desktop settings, zoom, the native title bar, capability calls, and quit.
+// The window's own Electron settings that stay in main: the zoom factor, the native title bar, the notification sound preview and
+// quit. The desktop settings, capability calls and the font list are requests of the window's own core connection.
 import type { App, BrowserWindow } from 'electron';
-import { DESKTOP_IPC, type DesktopSettings } from '../shared/contract';
-import type { DesktopService } from './desktop-service-contract';
-import type { PcQuotaHost } from './ipc-host-extras';
-import { isAllowAllActionsEnable } from './developer-risk-confirm';
-import { raiseDesktopWindow } from './notification-window';
-import { readOnboardingStatusFromDisk } from './onboarding-status-file';
-import { createSignInFocus } from './sign-in-focus';
-import { coreErrorForWindow } from './protocol/core-error';
+import { DESKTOP_IPC } from '../shared/contract';
 import type { DesktopSettingsStore } from './settings-store';
 import { setDesktopTitleBarDim, setDesktopTitleBarTheme, setDesktopTitleBarZoom } from './window-options';
-import {
-  requiredDesktopCapabilityReadRequests,
-  requiredDesktopCapabilityRequest,
-  requiredDesktopSettingKey,
-  requiredBrowserPermissionPolicy,
-  requiredNotificationVolume,
-  requiredSessionRetentionSetting,
-  requiredString,
-  requiredZoomFactor,
-} from './ipc-validation';
+import { requiredString, requiredZoomFactor } from './ipc-validation';
 import type { IpcHandle as Handle } from './ipc';
-
-export type { PcQuotaHost };
 
 interface WindowSettingsIpcOptions {
   window: BrowserWindow;
   app: Pick<App, 'quit'>;
-  host: Pick<DesktopService, 'invokeCapability' | 'readCapabilities' | 'getSnapshot'>;
   handle: Handle;
   invokeDesktopOperation: <T>(method: string, args: unknown[]) => Promise<T>;
-  settingsStore?: Pick<
-    DesktopSettingsStore,
-    | 'read'
-    | 'update'
-    | 'updateNotificationVolume'
-    | 'updateBrowserPermissions'
-    | 'updateSessionRetention'
-    | 'readZoom'
-    | 'updateZoom'
-  >;
-  /** Fires after a successful desktop-settings write (keep-awake wiring). */
-  onDesktopSettingsChanged?: (settings: DesktopSettings) => void;
+  settingsStore?: Pick<DesktopSettingsStore, 'readZoom' | 'updateZoom'>;
   /** Settings → Notifications: play the notification sound at the saved volume. */
   previewNotificationSound?: () => Promise<string>;
-  /** Onboarding status may come straight from this PC's status file: only
-   *  when `host` is this PC's daemon. Defaults to true. */
-  readsLocalOnboardingStatus?: boolean;
-  /** Raise the window after a connector sign-in it started in this PC's
-   *  browser: only when `host` is this PC's daemon. Defaults to false. */
-  raiseOnSignIn?: boolean;
-  /** A server window's model calls run on THIS PC's sign-ins (model proxy), so
-   *  the provider quota reads belong to this PC's daemon, not the server's
-   *  (which holds no credentials and would report nothing). */
-  pcHost?: PcQuotaHost;
-  /** The person's human-only confirmation to turn on "Allow all actions"
-   *  (developer-risk-confirm.ts). Without it that call is refused. */
-  confirmAllowAllActions?: () => Promise<boolean>;
-  /** The host's settings writes announce the `desktop` change themselves (a core connection), so the handlers send none. */
-  writesAnnounceThemselves?: boolean;
-  /** This PC's core connection: the font families installed on this computer are its listing (a server window's fonts are this PC's too). */
-  pcCore?: { call(method: string, params: unknown): Promise<unknown> } | null;
-}
-
-const PC_QUOTA_CAPABILITIES: ReadonlySet<string> = new Set([
-  'getUsageDashboard',
-  'getQuotaHistory',
-  'consumeCodexRateLimitResetCredit',
-]);
-const CODEX_RESET_PROVIDER = 'openai-oauth';
-
-function firstArg(args: unknown[] | undefined): Record<string, unknown> {
-  const value = args?.[0];
-  return value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
-}
-
-/** Whether this quota read belongs to the PC's sign-ins: the call is
- *  session-less and, when it names a provider, that provider is proxied. */
-function readsPcQuota(
-  pc: PcQuotaHost | undefined,
-  request: { capability: string; args?: unknown[]; sessionId?: string }
-): boolean {
-  if (!pc || pc.inUse?.() === false || request.sessionId || !PC_QUOTA_CAPABILITIES.has(request.capability)) {
-    return false;
-  }
-  let named: unknown;
-  if (request.capability === 'consumeCodexRateLimitResetCredit') named = CODEX_RESET_PROVIDER;
-  else if (request.capability === 'getQuotaHistory') named = firstArg(request.args).provider;
-  return typeof named !== 'string' || !named || pc.isProviderAllowed?.(named) !== false;
-}
-
-type QuotaResult = { ok?: boolean; value?: unknown };
-type QuotaRecord = Record<string, unknown>;
-
-const quotaRecord = (value: unknown): QuotaRecord | null =>
-  value && typeof value === 'object' && !Array.isArray(value) ? (value as QuotaRecord) : null;
-
-/** The one provider filter every PC quota answer passes through: keeps the
- *  entries whose provider the server's turns can use. */
-function keepAllowed(pc: PcQuotaHost, items: unknown, providerOf: (item: unknown) => unknown): unknown[] {
-  const list = Array.isArray(items) ? items : [];
-  if (!pc.isProviderAllowed) return list;
-  return list.filter((item) => {
-    const provider = providerOf(item);
-    return typeof provider === 'string' && pc.isProviderAllowed!(provider);
-  });
-}
-
-const dashboardRowProvider = (row: unknown) => quotaRecord(row)?.id;
-const subscriptionProvider = (row: unknown) => quotaRecord(row)?.provider;
-
-function filterDashboard(pc: PcQuotaHost, dashboard: unknown): unknown {
-  const record = quotaRecord(dashboard);
-  if (!record || !Array.isArray(record.rows)) return dashboard;
-  return { ...record, rows: keepAllowed(pc, record.rows, dashboardRowProvider) };
-}
-
-/** A history answer with nothing the server may see. */
-function emptyHistory(value: unknown): QuotaRecord {
-  return {
-    generatedAt: quotaRecord(value)?.generatedAt,
-    subscriptions: [],
-    selection: null,
-    period: null,
-    windows: [],
-    page: 0,
-    pageCount: 0,
-    total: 0,
-  };
-}
-
-const selectionProvider = (value: unknown) => quotaRecord(quotaRecord(value)?.selection)?.provider;
-
-/** History of allowed providers only: the subscription list is filtered, and a
- *  selection on a provider the server may not use (omitted, or fallen back
- *  to) is replaced by the most recently used allowed subscription. */
-async function constrainHistory(
-  pc: PcQuotaHost,
-  args: unknown[] | undefined,
-  fetch: (args: unknown[]) => Promise<QuotaResult>,
-  first: QuotaResult
-): Promise<QuotaResult> {
-  if (!pc.isProviderAllowed) return first;
-  const filtered = (value: unknown): unknown => {
-    const record = quotaRecord(value);
-    return record && Array.isArray(record.subscriptions)
-      ? { ...record, subscriptions: keepAllowed(pc, record.subscriptions, subscriptionProvider) }
-      : value;
-  };
-  const selected = selectionProvider(first.value);
-  if (selected === undefined || (typeof selected === 'string' && pc.isProviderAllowed(selected))) {
-    // No selection means no recorded history at all.
-    return { ...first, value: filtered(first.value) };
-  }
-  const subscriptions = quotaRecord(first.value)?.subscriptions;
-  const candidates = keepAllowed(
-    pc,
-    Array.isArray(subscriptions) ? subscriptions : quotaRecord((await fetch([{}])).value)?.subscriptions,
-    subscriptionProvider
-  );
-  const provider = subscriptionProvider(candidates[0]);
-  if (typeof provider !== 'string') return { ...first, value: emptyHistory(first.value) };
-  const question = quotaRecord(args?.[0]) ?? {};
-  const second = await fetch([{ ...question, provider, account: '' }]);
-  if (second.ok === false) return second;
-  const reselected = selectionProvider(second.value);
-  if (typeof reselected !== 'string' || !pc.isProviderAllowed(reselected)) {
-    return { ...second, value: emptyHistory(second.value) };
-  }
-  return { ...second, value: filtered(second.value) };
-}
-
-/** Runs a PC quota read so that only providers the server may use come back:
- *  dashboard rows, history (selection + subscription metadata) and the nested
- *  dashboard of a Codex reset all pass the same provider filter. */
-async function constrainedQuota<T extends QuotaResult>(
-  pc: PcQuotaHost,
-  capability: string,
-  args: unknown[] | undefined,
-  fetch: (args: unknown[]) => Promise<T>
-): Promise<T> {
-  const first = await fetch(args ?? []);
-  if (first?.ok === false) return first;
-  if (capability === 'getUsageDashboard') return { ...first, value: filterDashboard(pc, first.value) };
-  if (capability === 'getQuotaHistory') return (await constrainHistory(pc, args, fetch, first)) as T;
-  const reset = quotaRecord(first.value);
-  if (reset && 'dashboard' in reset) {
-    return { ...first, value: { ...reset, dashboard: filterDashboard(pc, reset.dashboard) } };
-  }
-  return first;
 }
 
 export function registerWindowSettingsIpc({
   window,
   app,
-  host,
   handle,
   invokeDesktopOperation,
   settingsStore,
-  onDesktopSettingsChanged,
   previewNotificationSound,
-  readsLocalOnboardingStatus = true,
-  raiseOnSignIn = false,
-  pcHost,
-  confirmAllowAllActions,
-  writesAnnounceThemselves = false,
-  pcCore,
 }: WindowSettingsIpcOptions): void {
-  // Node raised `settings-changed` for the desktop after its write, ahead of the `agent` change its watch found a moment later. A
-  // core connection's write carries that announcement itself (`config/value/write` with `announce`), in that order.
-  const announceWrite = () => {
-    if (!writesAnnounceThemselves) void invokeDesktopOperation('notifySettingsChanged', ['desktop']).catch(() => {});
-  };
   const applyZoom = (factor: number) => {
     window.webContents.setZoomFactor(factor);
     setDesktopTitleBarZoom(window, factor);
   };
 
-  handle(DESKTOP_IPC.readSettings, () => settingsStore?.read() ?? invokeDesktopOperation('readSettings', []));
-  handle(DESKTOP_IPC.readActivityRailPins, () => invokeDesktopOperation('readActivityRailPins', []));
-  handle(DESKTOP_IPC.updateActivityRailPins, (_event, pins, initializeIfMissing) =>
-    invokeDesktopOperation('updateActivityRailPins', [pins, initializeIfMissing])
-  );
-  handle(DESKTOP_IPC.notifyProviderModelsChanged, (_event, origin) =>
-    invokeDesktopOperation('notifyProviderModelsChanged', [requiredString(origin, 'origin', 128)])
-  );
-  handle(DESKTOP_IPC.updateSetting, (_event, key, enabled) => {
-    if (typeof enabled !== 'boolean') throw new TypeError('enabled must be a boolean.');
-    const settingKey = requiredDesktopSettingKey(key);
-    const update = settingsStore
-      ? settingsStore.update(settingKey, enabled)
-      : invokeDesktopOperation<DesktopSettings>('updateSetting', [settingKey, enabled]);
-    return update.then((saved) => {
-      onDesktopSettingsChanged?.(saved);
-      // Paired browsers and any other local renderer re-read what was written.
-      announceWrite();
-      return saved;
-    });
-  });
-  handle(DESKTOP_IPC.setNotificationVolume, async (_event, value) => {
-    const volume = requiredNotificationVolume(value);
-    const saved = settingsStore
-      ? await settingsStore.updateNotificationVolume(volume)
-      : await invokeDesktopOperation<DesktopSettings>('updateNotificationVolume', [volume]);
-    onDesktopSettingsChanged?.(saved);
-    announceWrite();
-    return saved;
-  });
-  handle(DESKTOP_IPC.setBrowserPermissions, async (_event, value) => {
-    const policy = requiredBrowserPermissionPolicy(value);
-    const saved = settingsStore
-      ? await settingsStore.updateBrowserPermissions(policy)
-      : await invokeDesktopOperation<DesktopSettings>('updateBrowserPermissions', [policy]);
-    onDesktopSettingsChanged?.(saved);
-    announceWrite();
-    return saved;
-  });
-  handle(DESKTOP_IPC.setSessionRetention, async (_event, key, days) => {
-    const setting = requiredSessionRetentionSetting(key, days);
-    const saved = settingsStore
-      ? await settingsStore.updateSessionRetention(setting.key, setting.days)
-      : await invokeDesktopOperation<DesktopSettings>('updateSessionRetention', [setting.key, setting.days]);
-    onDesktopSettingsChanged?.(saved);
-    announceWrite();
-    return saved;
-  });
   handle(DESKTOP_IPC.previewNotificationSound, () => previewNotificationSound?.() ?? 'unsupported');
   handle(DESKTOP_IPC.getZoomFactor, async () => {
     const factor = settingsStore
@@ -312,65 +77,6 @@ export function registerWindowSettingsIpc({
       window,
       valid ? { color: record.color as string, symbolColor: record.symbolColor as string } : null
     );
-  });
-  // Settings → Appearance: font families installed on this computer.
-  handle(DESKTOP_IPC.listSystemFonts, async () => {
-    if (!pcCore) throw new Error('The core connection is not available.');
-    try {
-      return ((await pcCore.call('desktop/fonts/list', {})) as { families: string[] }).families;
-    } catch (error) {
-      throw coreErrorForWindow(error);
-    }
-  });
-  // A connector sign-in this window started on this PC's browser brings the
-  // window back once the browser callback arrived (sign-in-focus.ts).
-  const signInFocus = raiseOnSignIn ? createSignInFocus({ activate: () => raiseDesktopWindow(window) }) : null;
-  handle(DESKTOP_IPC.invokeCapability, async (_event, input) => {
-    const request = requiredDesktopCapabilityRequest(input);
-    if (readsLocalOnboardingStatus && request.capability === 'getOnboardingStatus' && !request.sessionId) {
-      const status = await readOnboardingStatusFromDisk();
-      if (status) return { value: status, snapshot: host.getSnapshot() };
-    }
-    const onPc = readsPcQuota(pcHost, request);
-    if (onPc) {
-      return constrainedQuota(pcHost!, request.capability, request.args, (args) =>
-        pcHost!.invokeCapability(request.capability, args, request.sessionId)
-      );
-    }
-    // Turning on "Allow all actions" is the person's, answered in the main
-    // process under the human-only lock; a click an agent made in this window
-    // (Computer Use) cannot also confirm it. Not confirmed: nothing changes.
-    if (isAllowAllActionsEnable(request.capability, request.args) && (await confirmAllowAllActions?.()) !== true) {
-      return host.invokeCapability('getDeveloperSettings', [], request.sessionId);
-    }
-    const result = await host.invokeCapability(request.capability, request.args, request.sessionId);
-    signInFocus?.observe(request.capability, request.args ?? [], result?.value);
-    // The shared Lead face changed: paired phones re-read it from the settings-changed event.
-    if (request.capability === 'setLeadAppearance' || request.capability === 'setBotOrder') {
-      void invokeDesktopOperation('notifySettingsChanged', ['desktop']).catch(() => {});
-    }
-    return result;
-  });
-  handle(DESKTOP_IPC.readCapabilities, async (_event, input) => {
-    const requests = requiredDesktopCapabilityReadRequests(input);
-    const onPc = (request: (typeof requests)[number]) => readsPcQuota(pcHost, request);
-    if (!requests.some(onPc)) return host.readCapabilities(requests);
-    // Positional results: the PC answers its quota reads (each constrained to
-    // the providers the server may use), the server the rest.
-    const [pcResults, hostResults] = await Promise.all([
-      Promise.all(
-        requests.filter(onPc).map((request) =>
-          constrainedQuota(pcHost!, request.capability, request.args, async (args) => {
-            const [result] = await pcHost!.readCapabilities([{ ...request, args }]);
-            return result;
-          })
-        )
-      ),
-      host.readCapabilities(requests.filter((request) => !onPc(request))),
-    ]);
-    const pcQueue = [...pcResults];
-    const hostQueue = [...hostResults];
-    return requests.map((request) => (onPc(request) ? pcQueue.shift() : hostQueue.shift()));
   });
   // before-quit owns the confirmation and the host teardown: disposing the
   // host here first would leave a cancelled quit with a dead service.
