@@ -417,9 +417,9 @@ async fn replay_fs_search(scenario: &str) {
             if text.contains(super::read::IPYNB_RANGE_REFUSAL) {
                 failures.push(format!("#{index} {tool} {}: a notebook named without a window is refused: {text:?}", call["input"]));
             }
-        } else if tool == "code_graph" && let Some(holds) = answered_after_the_recording(&call["input"]) {
-            if !holds(&text, is_error) {
-                failures.push(format!("#{index} {tool} {}: answered {text:?} ({is_error})", call["input"]));
+        } else if tool == "code_graph" && let Some((want, want_error)) = answered_after_the_recording(&fixture["calls"], &call["input"]) {
+            if text != want || is_error != want_error {
+                failures.push(format!("#{index} {tool} {} (as Node's guard answers it):\n  want ({want_error}) {want:?}\n  got  ({is_error}) {text:?}", call["input"]));
             }
         } else if text != want || is_error != want_error {
             failures.push(format!("#{index} {tool} {}:\n  want ({want_error}) {want:?}\n  got  ({is_error}) {text:?}", call["input"]));
@@ -442,29 +442,26 @@ async fn replay_fs_search(scenario: &str) {
 }
 
 /// A `code_graph` call Node's argument guard (`validateBuiltinArgs`: `normalizeStringListArgs` and `guardCodeGraph`, added to
-/// Node after b6f10295a, the commit of the recording) answers or normalises before the tool sees it. The recording holds what
-/// the tool did with the raw argument; the core answers what Node answers now. A mode outside the enum is refused with the
-/// guard's text, `["", null]` is no anchor at all, and `[["a", "b"]]` is the two anchors `a` and `b`, each a section of its own.
-fn answered_after_the_recording(input: &JsonValue) -> Option<fn(&str, bool) -> bool> {
+/// Node after b6f10295a, the commit of the recording) answers or reshapes before the tool sees it: the recording holds what
+/// the tool did with the raw argument, the core answers what Node answers now. A mode outside the enum is refused with the
+/// guard's text; a `file` list (`["", null]` being none, `[["a"]]` being `["a"]`) and a nested `files` list are the `files`
+/// of another recorded call, whose recording is Node's answer to it.
+fn answered_after_the_recording(calls: &JsonValue, input: &JsonValue) -> Option<(String, bool)> {
     if input.get("mode").and_then(JsonValue::as_str) == Some("nope") {
-        return Some(|text, is_error| {
-            is_error
-                && text
-                    == "Error: code_graph arg \"mode\" must be one of overview|imports|dependents|related|impact|symbols|find_symbol|symbol_search|search|references|callers|callees|prewarm (got \"nope\")"
-        });
+        let refusal = "Error: code_graph arg \"mode\" must be one of overview|imports|dependents|related|impact|symbols|find_symbol|symbol_search|search|references|callers|callees|prewarm (got \"nope\")";
+        return Some((refusal.to_owned(), true));
     }
-    if input.get("mode").and_then(JsonValue::as_str) != Some("symbols") {
-        return None;
-    }
-    if input.get("file") == Some(&serde_json::json!(["", null])) {
-        return Some(|text, is_error| !is_error && text == "Error: code_graph symbols: file not found in graph: (missing file)");
-    }
-    if input.get("files") == Some(&serde_json::json!([["a", "b"]])) {
-        return Some(|text, is_error| {
-            !is_error && text.starts_with("# symbols <ROOT>") && text.contains("\n\n# symbols <ROOT>") && text.matches("file not found in graph").count() == 2
-        });
-    }
-    None
+    let reshaped = [
+        (serde_json::json!({"mode": "symbols", "file": ["a", "b"]}), serde_json::json!({"mode": "symbols", "files": ["a", "b"]})),
+        (serde_json::json!({"mode": "symbols", "file": ["a"]}), serde_json::json!({"mode": "symbols", "files": ["a"]})),
+        (serde_json::json!({"mode": "symbols", "file": []}), serde_json::json!({"mode": "symbols", "files": []})),
+        (serde_json::json!({"mode": "symbols", "file": ["", null]}), serde_json::json!({"mode": "symbols", "files": null})),
+        (serde_json::json!({"mode": "symbols", "file": [["a"]]}), serde_json::json!({"mode": "symbols", "files": ["a"]})),
+        (serde_json::json!({"mode": "symbols", "files": [["a", "b"]]}), serde_json::json!({"mode": "symbols", "files": ["a", "b"]})),
+    ];
+    let (_, same) = reshaped.iter().find(|(sent, _)| sent == input)?;
+    let recorded = calls.as_array()?.iter().find(|call| call["tool"] == "code_graph" && &call["input"] == same)?;
+    Some((recorded["text"].as_str()?.to_owned(), recorded["isError"] == true))
 }
 
 /// `search-queue-burst` (`recordBurst`), replayed whole. Each held call is made once the one before holds: its folder's
