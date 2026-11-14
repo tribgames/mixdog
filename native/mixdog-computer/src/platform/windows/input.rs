@@ -9,6 +9,7 @@ mod receipt;
 use crate::keys::{glyph_key, Key, Mod, Named};
 use crate::platform::Button;
 use receipt::{deliver_with, Event, Receipt};
+use std::os::windows::io::AsRawHandle;
 use std::sync::atomic::AtomicU8;
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -152,6 +153,13 @@ impl Drop for NamedMutex {
     }
 }
 
+/// The file `MIXDOG_COMPUTER_RECEIPT_FILE` names, opened for the section to map; None when the desktop named none
+/// (or, without `create`, when it holds none).
+fn backing_file(create: bool) -> Option<std::fs::File> {
+    let path = std::env::var_os(receipt::FILE_ENV).filter(|path| !path.is_empty())?;
+    std::fs::OpenOptions::new().read(true).write(true).create(create).open(path).ok()
+}
+
 /// The receipt's shared memory (InitializeOwnership), named by the input
 /// marker so the next helper and the abort cleanup reopen it by name.
 struct Section {
@@ -175,15 +183,27 @@ impl Section {
 
     /// Creates the section, or opens it when another process already has it.
     fn create(marker: i64) -> Option<Section> {
-        Section::map(marker, &Section::name(marker), true)
+        Section::map_backed(marker, &Section::name(marker), true, backing_file(true))
     }
 
-    /// Reopens an existing section; None when no process holds it any more.
+    /// Reopens an existing section; when no process holds it any more, the file it was backed by
+    /// (a crashed core's) brings it back.
     fn open(marker: i64) -> Option<Section> {
-        Section::map(marker, &Section::name(marker), false)
+        Section::map(marker, &Section::name(marker), false).or_else(|| {
+            let file = backing_file(false)?;
+            let section = Section::map_backed(marker, &Section::name(marker), true, Some(file))?;
+            // What the person held then says nothing of now.
+            section.receipt().begin_observation(&key_down);
+            Some(section)
+        })
     }
 
     fn map(marker: i64, name: &str, create: bool) -> Option<Section> {
+        let file = if create { backing_file(true) } else { None };
+        Section::map_backed(marker, name, create, file)
+    }
+
+    fn map_backed(marker: i64, name: &str, create: bool, file: Option<std::fs::File>) -> Option<Section> {
         let lock = NamedMutex::open(&format!("{name}-lock"))?;
         let name = wide(name);
         // SAFETY: the name is NUL-terminated; a mapping without a view is
@@ -191,7 +211,7 @@ impl Section {
         unsafe {
             let mapping = if create {
                 CreateFileMappingW(
-                    INVALID_HANDLE_VALUE,
+                    file.as_ref().map_or(INVALID_HANDLE_VALUE, |file| HANDLE(file.as_raw_handle())),
                     None,
                     PAGE_READWRITE,
                     0,
@@ -662,6 +682,35 @@ mod tests {
         assert_eq!(released, vec![key_event(0x41, false)]);
         drop((created, reopened));
         assert!(Section::map(0, &name, false).is_none(), "the section ends with its last handle");
+    }
+
+    /// A section backed by a file outlives its handles: the records a crashed core left are read back from the file.
+    #[test]
+    fn a_file_backed_section_survives_its_last_handle() {
+        let path = std::env::temp_dir().join(format!("mixdog-receipt-test-{}", std::process::id()));
+        let name = test_name("backed");
+        let created = Section::map_backed(0, &name, true, backing_open(&path)).expect("the section is created");
+        let pressed = created.receipt().deliver_tracked(&[key_event(0x41, true)], &mut |events| Ok(events.len() as u32), &|_| false);
+        assert_eq!(pressed, Ok(1));
+        drop(created);
+        assert!(Section::map(0, &name, false).is_none(), "no handle is left");
+        let again = Section::map_backed(0, &name, true, backing_open(&path)).expect("the file brings the section back");
+        let mut released = Vec::new();
+        let outcome = again.receipt().release_owned(
+            &mut |events| {
+                released.extend_from_slice(events);
+                Ok(1)
+            },
+            &|_| false,
+        );
+        drop(again);
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(outcome, Ok(()));
+        assert_eq!(released, vec![key_event(0x41, false)]);
+    }
+
+    fn backing_open(path: &std::path::Path) -> Option<std::fs::File> {
+        std::fs::OpenOptions::new().read(true).write(true).create(true).open(path).ok()
     }
 
     // F23 and F24: keys no application binds. These inject real keystrokes
