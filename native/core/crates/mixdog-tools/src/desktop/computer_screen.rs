@@ -72,10 +72,13 @@ pub mod pc_access_helper {
 #[cfg(windows)]
 pub mod screen_source {
     pub use super::source::AccountAdmin;
+    pub use super::source::DisplayLister;
     pub use super::source::DisplayPixels;
+    pub use super::source::HostDisplays;
     pub use super::source::HelperPictureFrame;
     pub use super::source::IndicatorState;
     pub use super::source::InputDesktop;
+    pub use super::source::Monitor;
     pub use super::source::PcAccessAnswer;
     pub use super::source::PixelArea;
     pub use super::source::QUIT_BUDGET_MS;
