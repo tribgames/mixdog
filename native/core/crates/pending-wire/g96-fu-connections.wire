@@ -35,8 +35,13 @@ once the trait has the new argument):
   impl ClaimHook for ResourceClaimHook(pub Arc<ResourceClaims>) { fn claimed(&self, _: &[HostCapability], resources: Option<&HostClaimResources>) -> Option<Box<dyn Any + Send>> { Some(self.0.attach(resources.cloned())) } }
 
 (`ResourceClaims::attach(Option<HostClaimResources>)` is written and tested: it sets the resources and the returned guard clears them when the claim is
-replaced or its connection closes; a newer claim attaches before the older is dropped and the older guard clears nothing.) Register
-`ClaimHooks(vec![system_proxy_claims, Arc::new(ResourceClaimHook(resource_claims.clone()))])` where `set_claim_hook` is called today.
+replaced or its connection closes; a newer claim attaches before the older is dropped and the older guard clears nothing.) Register it in
+compose_flip.rs right after `resource_claims` is made (nothing calls `set_claim_hook` in production today: `SystemProxyClaims` is only built
+in its own test, so the slot is free):
+
+  b.outgoing.set_claim_hook(Arc::new(ResourceClaimHook(resource_claims.clone()))).map_err(|_| ComposeError::AlreadyBound("host claim hook"))?;
+
+When `SystemProxyClaims` is registered too, the slot holds `ClaimHooks(vec![system_proxy_claims, Arc::new(ResourceClaimHook(..))])` instead.
 
 ## 3. lib.rs: nothing new (compose_connections_language.rs is a #[path] submodule of compose_connections.rs).
 
