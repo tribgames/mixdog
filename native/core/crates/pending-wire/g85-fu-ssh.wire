@@ -1,0 +1,20 @@
+# g85-fu-ssh wiring
+
+Everything below is written in mixdog-connections / mixdog-ssh / connections-core-api.ts; this fragment lists only what a hot file must do.
+
+## 1. Protocol (see mixdog-app-protocol/pending-rows/g85-fu-ssh.rows)
+`remoteHosts/touch` {id} -> {} (caller: the desktop's main process). The service serves it (METHODS and the policy table carry it, service_tests covers it).
+Regenerate schema, method_table and packages/protocol (index.ts, method-table.ts, method-args.generated.*).
+
+## 2. SERVICE_PENDING (mixdog-app-server-daemon compose_flip.rs)
+Nothing new: `remoteHosts/touch` is under the `remoteHosts` namespace that s2b-service's fragment already takes out of SERVICE_PENDING.
+
+## 3. connections/unsubscribe
+Settled on the client side, one way: apps/desktop/src/renderer/connections-core-api.ts now sends `feed/unsubscribe {feedId: "connections"}` right after
+`connections/unsubscribe {subscriptionId}` (the service ends its subscriber record, the server ends the feed subscription). The server.rs arm that
+s2b-service.wire section 4 describes (ClientRequest::ConnectionsUnsubscribe calling self.unsubscribe) is therefore NOT needed: do not add it
+(two ways would end the subscription twice).
+
+## 4. Desktop (apps/desktop/pending-wire, applied by the desktop wiring)
+In the main-process code that opens a saved remote PC's window (replacing remote-host-windows.ts openWindow), after `window.loadURL(...)` resolves, call
+`client.call('remoteHosts/touch', { id })` (the line that was `await store.touch(id)`).

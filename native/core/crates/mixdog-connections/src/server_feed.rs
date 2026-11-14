@@ -660,11 +660,6 @@ impl ServerFeed {
         self.shared.sessions.subscribe()
     }
 
-    /// Publishes the rows held now, without waiting for the pending refresh (for a caller that has just changed the catalog itself).
-    pub fn flush(&self) {
-        self.shared.publish_held();
-    }
-
     /// Every state change of a followed thread from now on, in the order the client folded them.
     pub fn session_states(&self) -> broadcast::Receiver<SessionStateChange> {
         self.shared.states.subscribe()

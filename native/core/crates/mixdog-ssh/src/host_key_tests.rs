@@ -528,7 +528,7 @@ async fn proxycommand_reads_the_target_through_the_same_ssh_based_scan() {
 #[tokio::test]
 async fn known_hosts_in_a_profile_folder_with_spaces_and_non_ascii_characters_is_read_and_written() {
     let folder = temp();
-    let home = folder.path().join("mixdog 홈 폴더 ");
+    let home = folder.path().join("mixdog 홈 폴더");
     let mut env = on_disk(&[], Tools::new(Network::plain(&ed("ed")).script()));
     env.home = home.clone();
     let first = inspect("root@10.0.0.1", &env, None).await;

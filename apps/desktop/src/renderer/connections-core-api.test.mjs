@@ -161,7 +161,10 @@ test('feed_sections_reach_their_listeners_and_the_feed_is_released', async () =>
   assert.equal(w.calls.some((c) => c.method === 'connections/unsubscribe'), false);
   stopPorts();
   await w.settle();
-  assert.deepEqual(w.calls.at(-1), { method: 'connections/unsubscribe', params: { subscriptionId: 'sub1' } });
+  assert.deepEqual(w.calls.slice(-2), [
+    { method: 'connections/unsubscribe', params: { subscriptionId: 'sub1' } },
+    { method: 'feed/unsubscribe', params: { feedId: 'connections' } },
+  ]);
 });
 
 test('restore_progress_is_delivered_one_entry_at_a_time_and_hosts_changes_say_so', async () => {
