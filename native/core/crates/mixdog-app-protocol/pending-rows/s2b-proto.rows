@@ -1,0 +1,637 @@
+# s2b-proto: connections/* and remoteHosts/* (42 methods), the connections scoped feed, six connection-scoped notifications,
+# host/window/* requests and notification, windowFocus state, and the optional fields on the notification and claim params.
+# Types live in src/v2/connections.rs (new, owned by this task). PROTO-WIRE adds `pub mod connections;` to src/v2/mod.rs
+# (after `pub mod config;`) and `use crate::v2::connections::*;` to src/methods.rs (next to `use crate::v2::params::*;`),
+# src/notifications.rs (next to `use crate::v2::thread::*;`) and src/server_requests.rs (next to `use crate::v2::host::*;`).
+# Method rows keep class C2, mutation none, scope none, origins [Local], as the design fixes. The caller policy of each row
+# (M = main window or host claimant, S = a Server window of the same connectionId, H = host claimant only) is the service's
+# (mixdog-connections policy.rs), not a table column; the role of each row is in its doc line.
+# The design's INTERFACES text says 31 connections/* methods; the list under it names 37 (counting the serverLogin*
+# lines one by one). All named methods are here, with the 5 remoteHosts/*. connections/ssh/configHosts answers SshConfigHost[]
+# (the contract's sshConfigHosts), not SshConfigSummary as the design's line reads.
+
+[methods]
+# Paste after the SystemPortsUnsubscribe row in src/methods.rs (symbol: SystemPortsUnsubscribe => "system/ports/unsubscribe").
+    /// Subscribe the `connections` scoped feed; with `connectionId` only that server's `link/<id>` and `ports/<id>` are delivered. Caller: M or S.
+    ConnectionsSubscribe => "connections/subscribe" {
+        params: ConnectionsSubscribeParams,
+        result: v2::feed::Subscription,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// End a `connections/subscribe` subscription. Caller: M or S.
+    ConnectionsUnsubscribe => "connections/unsubscribe" {
+        params: ConnectionsUnsubscribeParams,
+        result: v2::feed::EmptyResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// The saved SSH servers (the desktop's `sshListHosts`). Caller: M.
+    ConnectionsSshList => "connections/ssh/list" {
+        params: ConnectionsNoParams,
+        result: Vec<SshHost>,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Local name of a saved SSH server (`sshRenameHost`). Caller: M.
+    ConnectionsSshRename => "connections/ssh/rename" {
+        params: ConnectionsRenameParams,
+        result: v2::feed::EmptyResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Remove only the saved entry (`sshForgetHost`). Caller: M.
+    ConnectionsSshForget => "connections/ssh/forget" {
+        params: ConnectionsIdParams,
+        result: v2::feed::EmptyResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Open (or focus) a saved server's window; a failure comes back as a result (`sshOpenHost`). Caller: M.
+    ConnectionsSshOpen => "connections/ssh/open" {
+        params: ConnectionsIdParams,
+        result: SshConnectResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Host aliases of this PC's `~/.ssh/config`, wildcard patterns skipped (`sshConfigHosts`). Caller: M.
+    ConnectionsSshConfigHosts => "connections/ssh/configHosts" {
+        params: ConnectionsNoParams,
+        result: Vec<SshConfigHost>,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Read the server's host key, compare it with this PC's known_hosts and open an attempt bound to the caller (`sshInspectHostKey`). Caller: M.
+    ConnectionsSshInspect => "connections/ssh/inspect" {
+        params: SshInspectParams,
+        result: SshInspection,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Connect the inspected address, save the server and open its window; progress arrives as `connections/ssh/progress` (`sshConnect`). Caller: M, the caller that minted attemptId.
+    ConnectionsSshConnect => "connections/ssh/connect" {
+        params: SshConnectParams,
+        result: SshConnectResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Cancel a connect attempt (`sshCancel`). Caller: M, the caller that minted attemptId.
+    ConnectionsSshCancel => "connections/ssh/cancel" {
+        params: SshCancelParams,
+        result: v2::feed::EmptyResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Answer a question ssh asked; `secret: null` cancels it (`sshAskpassReply`). Caller: M, the caller that minted attemptId.
+    ConnectionsSshAskpassReply => "connections/ssh/askpassReply" {
+        params: SshAskpassReplyParams,
+        result: v2::feed::EmptyResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Remove Mixdog from a saved server over ssh, then optionally forget the entry (`sshCleanupHost`). Caller: M.
+    ConnectionsSshCleanup => "connections/ssh/cleanup" {
+        params: SshCleanupParams,
+        result: SshCleanupResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Per-server settings: folder, login key file, auto-reconnect, model login, providers, grace (`sshUpdateHostSettings`). Caller: M.
+    ConnectionsSshUpdateSettings => "connections/ssh/updateSettings" {
+        params: SshUpdateSettingsParams,
+        result: SshHost,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// The connection log of a server (`sshDiagnosticsLog`). Caller: M or S.
+    ConnectionsSshDiagnosticsLog => "connections/ssh/diagnosticsLog" {
+        params: SshDiagnosticsRefParams,
+        result: SshLogView,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// The text to copy for a bug report (`sshDiagnosticsCopy`). Caller: M or S.
+    ConnectionsSshDiagnosticsCopy => "connections/ssh/diagnosticsCopy" {
+        params: SshDiagnosticsRefParams,
+        result: SshDiagnosticsText,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// The last 200 lines of the server's daemon.log (`sshServerLog`). Caller: M or S.
+    ConnectionsSshServerLog => "connections/ssh/serverLog" {
+        params: SshDiagnosticsRefParams,
+        result: SshServerLog,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// The provider logins stored on a saved server (`sshServerLogins`). Caller: M.
+    ConnectionsSshServerLogins => "connections/ssh/serverLogins" {
+        params: ConnectionsIdParams,
+        result: SshServerLogins,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Start a subscription login on the server; the flow carries `openUrl` for the renderer's `openExternal` (`sshServerLoginBegin`). Caller: M.
+    ConnectionsSshServerLoginBegin => "connections/ssh/serverLoginBegin" {
+        params: SshServerLoginProviderParams,
+        result: SshServerLoginFlow,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// State of a server login flow (`sshServerLoginStatus`). Caller: M.
+    ConnectionsSshServerLoginStatus => "connections/ssh/serverLoginStatus" {
+        params: SshServerLoginFlowParams,
+        result: SshServerLoginFlow,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Complete a pending login with the address the browser was redirected to (`sshServerLoginComplete`). Caller: M.
+    ConnectionsSshServerLoginComplete => "connections/ssh/serverLoginComplete" {
+        params: SshServerLoginCompleteParams,
+        result: SshServerLoginFlow,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Cancel a server login flow (`sshServerLoginCancel`). Caller: M.
+    ConnectionsSshServerLoginCancel => "connections/ssh/serverLoginCancel" {
+        params: SshServerLoginFlowParams,
+        result: v2::feed::EmptyResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Store an API key on the server (`sshServerLoginSaveKey`). Caller: M.
+    ConnectionsSshServerLoginSaveKey => "connections/ssh/serverLoginSaveKey" {
+        params: SshServerLoginSaveKeyParams,
+        result: SshServerLogins,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Remove a provider login from the server (`sshServerLoginLogout`). Caller: M.
+    ConnectionsSshServerLoginLogout => "connections/ssh/serverLoginLogout" {
+        params: SshServerLoginProviderParams,
+        result: SshServerLogins,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Delete a custom provider and its models from the server (`sshServerLoginRemoveCustom`). Caller: M.
+    ConnectionsSshServerLoginRemoveCustom => "connections/ssh/serverLoginRemoveCustom" {
+        params: SshServerLoginProviderParams,
+        result: SshServerLogins,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Open a server window for `MIXDOG_SSH_TARGET` that is not remembered; the desktop host's own call. Caller: H.
+    ConnectionsSshOpenEphemeral => "connections/ssh/openEphemeral" {
+        params: SshOpenEphemeralParams,
+        result: SshConnectResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// A server window's link to its daemon as last pushed (`getConnectionLink`). Caller: M or S.
+    ConnectionsLinkGet => "connections/link/get" {
+        params: ConnectionIdParams,
+        result: Option<ConnectionLinkView>,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Reconnect now; a stopped connection is opened again (`retryConnection`). Caller: M or S.
+    ConnectionsLinkRetry => "connections/link/retry" {
+        params: ConnectionIdParams,
+        result: v2::feed::EmptyResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Run the waiting reconnect attempt now instead of after its countdown (`retryConnectionNow`). Caller: M or S.
+    ConnectionsLinkRetryNow => "connections/link/retryNow" {
+        params: ConnectionIdParams,
+        result: v2::feed::EmptyResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// A server window needs the user's connect attempt: the core focuses the main window and sends `connections/signIn`. Caller: S.
+    ConnectionsLinkRequestSignIn => "connections/link/requestSignIn" {
+        params: ConnectionIdParams,
+        result: v2::feed::EmptyResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// A server window's Ports panel as last pushed (`listServerPorts`). Caller: M or S.
+    ConnectionsPortsList => "connections/ports/list" {
+        params: ConnectionIdParams,
+        result: ServerPortsView,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Forward a server port to 127.0.0.1 on this PC (`forwardServerPort`). An error message leads with port-invalid, port-privileged, port-busy, port-not-active or window-closed. Caller: S.
+    ConnectionsPortsForward => "connections/ports/forward" {
+        params: PortsForwardParams,
+        result: PortForward,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Stop a port forward (`stopServerPortForward`). Caller: S.
+    ConnectionsPortsStop => "connections/ports/stop" {
+        params: PortsStopParams,
+        result: v2::feed::EmptyResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Dismiss a suggested port (`dismissServerPort`). Caller: S.
+    ConnectionsPortsDismiss => "connections/ports/dismiss" {
+        params: PortsDismissParams,
+        result: v2::feed::EmptyResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// "Reopen server windows when the app starts" (`getReopenServerWindows`). Caller: M.
+    ConnectionsRestoreGet => "connections/restore/get" {
+        params: ConnectionsNoParams,
+        result: ConnectionsRestoreState,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Set "Reopen server windows when the app starts" (`setReopenServerWindows`). Caller: M.
+    ConnectionsRestoreSet => "connections/restore/set" {
+        params: ConnectionsRestoreState,
+        result: v2::feed::EmptyResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// The reopenings still running or failed (`getServerRestoreProgress`). Caller: M.
+    ConnectionsRestoreProgress => "connections/restore/progress" {
+        params: ConnectionsNoParams,
+        result: Vec<ServerRestoreProgress>,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Where a server window's relay dials the tunnel: its url, token and server instance id. The server token reaches the host. Caller: H.
+    ConnectionsEndpoint => "connections/endpoint" {
+        params: ConnectionIdParams,
+        result: ConnectionEndpoint,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// The saved "Connect to another PC" hosts, `open: false` (the desktop fills it) (`listRemoteHosts`). Caller: H or M.
+    RemoteHostsList => "remoteHosts/list" {
+        params: ConnectionsNoParams,
+        result: Vec<RemoteHost>,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Redeem the main PC's 6-digit code and save that host (`connectRemoteHostByCode`). Caller: H.
+    RemoteHostsRedeemCode => "remoteHosts/redeemCode" {
+        params: RemoteHostRedeemParams,
+        result: RemoteHost,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Local name of a saved remote PC (`renameRemoteHost`). Caller: H.
+    RemoteHostsRename => "remoteHosts/rename" {
+        params: ConnectionsRenameParams,
+        result: RemoteHost,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Forget a saved remote PC and clear its stored pairing (`forgetRemoteHost`). Caller: H.
+    RemoteHostsForget => "remoteHosts/forget" {
+        params: ConnectionsIdParams,
+        result: v2::feed::EmptyResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+    /// Which of the saved hosts' desktops are connected to their relay right now. Caller: H.
+    RemoteHostsPresence => "remoteHosts/presence" {
+        params: RemoteHostPresenceParams,
+        result: RemoteHostPresenceResult,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Local],
+    },
+
+[server_requests]
+# Paste after the HostFilesTrashItem row in src/server_requests.rs (symbol: HostFilesTrashItem => "host/files/trashItem").
+# `requires` names the initialize capability `host.windows` (HostCapabilities.windows); the answer of each is awaited without a
+# deadline (HostCapability::Windows, see [type_edits]).
+    /// Opens (or focuses) the window of a server (`showConnectionWindow`); `opened` is false when the window could not be made.
+    HostWindowOpen => "host/window/open" {
+        params: HostWindowOpenParams,
+        result: HostWindowOpenResult,
+        requires: Some("host.windows"),
+    },
+    /// Closes the window of a server.
+    HostWindowClose => "host/window/close" {
+        params: HostWindowCloseParams,
+        result: crate::v2::feed::EmptyResult,
+        requires: Some("host.windows"),
+    },
+    /// Shows and focuses a window, and with `sessionId` the session in it; `local` is the main window.
+    HostWindowFocus => "host/window/focus" {
+        params: HostWindowFocusParams,
+        result: crate::v2::feed::EmptyResult,
+        requires: Some("host.windows"),
+    },
+
+[notifications]
+# 1. Server notifications: paste after the ModelProxyCancel row of `notification_definitions!` in src/notifications.rs
+#    (symbol: ModelProxyCancel => "model/proxy/cancel"), the connection-scoped block.
+    /// A question from ssh for the user, to the connection that owns the attempt.
+    ConnectionsSshAskpass => "connections/ssh/askpass" (SshAskpass) @connection,
+    /// Where a connect attempt is, to the connection that owns it.
+    ConnectionsSshProgress => "connections/ssh/progress" (SshProgress) @connection,
+    /// Where a server cleanup is.
+    ConnectionsSshCleanupProgress => "connections/ssh/cleanupProgress" (SshCleanupProgressParams) @connection,
+    /// A server login flow moved on (the server's `login:<flowId>` feed).
+    ConnectionsSshServerLoginUpdated => "connections/ssh/serverLoginUpdated" (SshServerLoginUpdatedParams) @connection,
+    /// To every subscriber of that connection: the window is attached again, a tool outcome is unknown, a model sign-in was refused.
+    ConnectionsNotice => "connections/notice" (ConnectionsNoticeParams) @connection,
+    /// To the main window's subscribers: a server window needs the user's connect attempt.
+    ConnectionsSignIn => "connections/signIn" (ConnectionsSignInParams) @connection,
+# 2. Paste after the SystemPortsUpdated row (scoped feeds block):
+    /// Section `connections`: keys `hosts` (SshHost[]), `restore` ({enabled, progress}), `link/<id>` (ConnectionLinkView), `ports/<id>` (ServerPortsView).
+    ConnectionsUpdated => "connections/updated" (SectionUpdate) @scoped(Connections),
+# 3. Client notification: add this variant to `enum ClientNotification` after `HostNotificationClicked`:
+    /// A window the core asked for with `host/window/open` is gone; `byUser` unless the app is quitting.
+    #[serde(rename = "host/window/closed")]
+    #[cfg_attr(feature = "codegen", ts(rename = "host/window/closed"))]
+    HostWindowClosed(crate::v2::connections::HostWindowClosedParams),
+#    and this row to `CLIENT_NOTIFICATIONS` after the "host/notification/clicked" row:
+    crate::common::NotificationSpec {
+        method: "host/window/closed",
+        params: "HostWindowClosedParams",
+        delivery: None,
+    },
+#    No other code matches ClientNotification exhaustively (read: grep over native/core/crates); the core-domains host
+#    dispatcher (src/domains/host.rs `match method`) gets its `host/window/closed` arm from the connections wiring task.
+
+[inventory]
+# none. The inventory is the frozen 1.4.5 list (tests/fixtures/parity-inventory.json; ds_all_1_every_inventory_name_is_mapped_once
+# pins 166/61/190/303 and fails on a name outside the fixture), so the new connection and remote-host method names get no row.
+
+[free_text]
+# FREE_TEXT (src/free_text.rs): add these rows to the static after the `(Kind::Request, "thread/askSide", ...)` row:
+    (Kind::Request, "connections/ssh/rename", &["/name"]),
+    (Kind::Request, "connections/ssh/openEphemeral", &["/name"]),
+    (Kind::Request, "connections/ssh/askpassReply", &["/secret"]),
+    (Kind::Request, "remoteHosts/rename", &["/name"]),
+# tests/it/free_text_fields.json `classes`: every other new string field is refused. Each line below is a field entry
+# ("request <method> <pointer>") of the named existing class, except the one new `free` class.
+# NEW class (add as an object of `classes`, next to the class whose reason starts "Titles, names and renames"):
+#   {"class": "free", "reason": "A passphrase, password or code a person typed for ssh's question: written to ssh's askpass answer as UTF-8, where Node's write gave U+FFFD too; the answer is never compared or shown.", "fields": ["request connections/ssh/askpassReply /secret"]}
+# class "Titles, names and renames shown as typed (the record's id is separate)." (free; each is a FREE_TEXT row above):
+#   request connections/ssh/rename /name
+#   request connections/ssh/openEphemeral /name
+#   request remoteHosts/rename /name
+# class "a URL, host, domain, port or transport, parsed and matched":
+#   request connections/ssh/inspect /target
+#   request connections/ssh/openEphemeral /target
+# class "a path, or a file, command or record name compared with what is on disk or in a store ...":
+#   request connections/ssh/connect /request/replaceHostKey
+#   request connections/ssh/connect /request/settings/identityFile
+#   request connections/ssh/connect /request/settings/remoteCwd
+#   request connections/ssh/updateSettings /settings/identityFile
+#   request connections/ssh/updateSettings /settings/remoteCwd
+#   request connections/ssh/diagnosticsLog /ref
+#   request connections/ssh/diagnosticsCopy /ref
+#   request connections/ssh/serverLog /ref
+# class "a kind, mode, scope, phase, sort, state or other word from a fixed vocabulary ...":
+#   request connections/ssh/updateSettings /settings/modelLogin
+# class "a model, provider, route, effort, tool, connector, plugin, workflow or agent id from a catalog, matched against it":
+#   request connections/ssh/updateSettings /settings/allowedProviders/*
+#   request connections/ssh/serverLoginBegin /provider
+#   request connections/ssh/serverLoginLogout /provider
+#   request connections/ssh/serverLoginRemoveCustom /provider
+#   request connections/ssh/serverLoginSaveKey /provider
+# class "a sign-in address or a secret sent to a service as it is: compared by that service, never shown as text":
+#   request connections/ssh/serverLoginComplete /redirectUrl
+# class "a secret, token or credential name: compared by the service that issued it, never shown ...":
+#   request connections/ssh/serverLoginSaveKey /key
+#   request remoteHosts/redeemCode /code
+# class "an id, cursor, revision or digest the core, a client or a service generated: matched against its record, never typed text":
+#   notification host/window/closed /connectionId
+#   request connections/subscribe /connectionId
+#   request connections/unsubscribe /subscriptionId
+#   request connections/ssh/rename /id
+#   request connections/ssh/forget /id
+#   request connections/ssh/open /id
+#   request connections/ssh/connect /attemptId
+#   request connections/ssh/connect /request/attemptId
+#   request connections/ssh/cancel /attemptId
+#   request connections/ssh/askpassReply /attemptId
+#   request connections/ssh/askpassReply /requestId
+#   request connections/ssh/cleanup /id
+#   request connections/ssh/cleanup /request/operationId
+#   request connections/ssh/updateSettings /id
+#   request connections/ssh/serverLogins /id
+#   request connections/ssh/serverLoginBegin /id
+#   request connections/ssh/serverLoginStatus /id
+#   request connections/ssh/serverLoginStatus /flowId
+#   request connections/ssh/serverLoginComplete /id
+#   request connections/ssh/serverLoginComplete /flowId
+#   request connections/ssh/serverLoginCancel /id
+#   request connections/ssh/serverLoginCancel /flowId
+#   request connections/ssh/serverLoginSaveKey /id
+#   request connections/ssh/serverLoginLogout /id
+#   request connections/ssh/serverLoginRemoveCustom /id
+#   request connections/link/get /connectionId
+#   request connections/link/retry /connectionId
+#   request connections/link/retryNow /connectionId
+#   request connections/link/requestSignIn /connectionId
+#   request connections/ports/list /connectionId
+#   request connections/ports/forward /connectionId
+#   request connections/ports/stop /connectionId
+#   request connections/ports/dismiss /connectionId
+#   request connections/endpoint /connectionId
+#   request remoteHosts/rename /id
+#   request remoteHosts/forget /id
+#   request remoteHosts/presence /ids/*
+# The answers of host/window/open, close and focus hold no string (`{opened}` and `{}`): no answer entry.
+# The contract test that reads the schema goldens (every_string_field_is_classed_once_and_free_text_is_listed_free) sees
+# these fields only after schema/*.json is regenerated (MIXDOG_UPDATE_PROTOCOL_GOLDEN=1); the lines above must then be in.
+
+[type_edits]
+# 1. file: src/v1.rs, struct HostCapabilities: add after `computer`:
+    /// Window objects of the desktop: `host/window/open`, `host/window/close`, `host/window/focus`; sends `host/window/closed`.
+    #[serde(default)]
+    pub windows: bool,
+#    HostCapabilities derives Default and is built by field nowhere else (read: grep over native/core/crates).
+# 2. file: crates/mixdog-core-api/src/host.rs, enum HostCapability: add after `Computer`:
+    /// `host/window/open`, `host/window/close` and `host/window/focus`: the windows of server connections.
+    Windows,
+#    and in `HostCapability::deadline` add `Self::Windows` to the arm returning None:
+#      Self::Browser | Self::Visualize | Self::Files | Self::Updater | Self::Power | Self::ModelProxy | Self::Windows => None,
+# 3. file: crates/mixdog-app-server/src/outgoing.rs, fn serves: add after the `computer` row:
+        (declared.windows, HostCapability::Windows),
+# 4. file: src/v2/host.rs, struct HostClaimParams (it derives Eq; HostClaimResources does too): add after `host_id`, and add
+#    `#[cfg_attr(feature = "codegen", ts(optional_fields))]` to the struct:
+    /// Where the desktop keeps the server cores and the askpass helper the core launches.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resources: Option<crate::v2::connections::HostClaimResources>,
+#    Coordinate with x-proto-gating-core, which also adds an optional field to this struct.
+# 5. file: src/v2/host.rs, enum HostStateSetParams: add after `DisplayPreferences(JsonValue),`:
+    WindowFocus(crate::v2::connections::WindowFocusValue),
+#    and in `into_parts` after the DisplayPreferences arm:
+            Self::WindowFocus(value) => ("windowFocus", serde_json::to_value(value).unwrap_or_default()),
+#    and update the doc of `HostState` in crates/mixdog-protocol/src/section.rs ("key = browserTabs | ... | displayPreferences")
+#    to name `windowFocus`; crates/mixdog-core-domains/src/domains/host.rs (module doc, line 5) likewise.
+# 6. file: src/v2/host.rs, struct HostNotificationShowParams (it has optional_fields): add after `volume`:
+    /// The server connection the notification is for (a server's notifier), so a click focuses that server's window.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection_id: Option<String>,
+    /// The server's name, shown as the notification's source.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+# 7. file: src/v2/host.rs, struct HostNotificationClickedParams: add after `thread_id`:
+    /// The server connection the clicked notification was for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "codegen", ts(optional))]
+    pub connection_id: Option<String>,
+#    and in crates/mixdog-core-domains/src/domains/host.rs, the "host/notification/clicked" arm, change the pattern
+#    `HostNotificationClickedParams { thread_id }` to `HostNotificationClickedParams { thread_id, .. }` (read: the only
+#    place that destructures it).
+# 8. file: crates/mixdog-protocol/src/section.rs, `sections!` table: add after the `Ports` row:
+    /// Server connections (scoped feed `connections`, from `connections/subscribe`). Keys: `hosts` (the saved SSH servers),
+    /// `restore` ({enabled, progress}), `link/<connectionId>` (ConnectionLinkView), `ports/<connectionId>` (ServerPortsView).
+    Connections => "connections", "connections/updated", Connections, keyed: true;
+#    in `enum SectionFeed` add after `Ports`:
+    /// Scoped feed `connections` (exists only while subscribed).
+    Connections,
+#    and name `Connections` in the doc of `SectionFeed::ordered` beside `Git`, `Media`, `Ports` (merged latest-wins state, not
+#    ordered: the `matches!` stays `App | Lsp`).
+# 9. file: src/v2/feed.rs, enum ScopedFeedKind: add after `Ports`:
+    /// `connections`, from `connections/subscribe`.
+    Connections,
+#    and in `ScopedFeedKind::prefix` add `Self::Connections => "connections",`; the doc line above the enum
+#    ("`ports` has no key") names `connections` too.
+#    SectionFeed and ScopedFeedKind are matched by no other crate (read: grep over native/core/crates); StateHub::publish
+#    routes every non-App section through `ScopedRoutes::route`, which the connections wiring task implements for it.
+
+[remove]
+# none
+
+[window]
+connections/subscribe allow renderer settings/server window; caller policy in mixdog-connections policy.rs
+connections/unsubscribe allow renderer settings/server window; caller policy in mixdog-connections policy.rs
+connections/ssh/list allow renderer settings/server window; caller policy in mixdog-connections policy.rs
+connections/ssh/rename allow renderer settings/server window; caller policy in mixdog-connections policy.rs
+connections/ssh/forget allow renderer settings/server window; caller policy in mixdog-connections policy.rs
+connections/ssh/open allow renderer settings/server window; caller policy in mixdog-connections policy.rs
+connections/ssh/configHosts allow renderer settings/server window; caller policy in mixdog-connections policy.rs
+connections/ssh/inspect allow renderer settings/server window; caller policy in mixdog-connections policy.rs
+connections/ssh/connect allow renderer settings/server window; caller policy in mixdog-connections policy.rs
+connections/ssh/cancel allow renderer settings/server window; caller policy in mixdog-connections policy.rs
+connections/ssh/askpassReply allow renderer settings/server window; caller policy in mixdog-connections policy.rs
+connections/ssh/cleanup allow renderer settings/server window; caller policy in mixdog-connections policy.rs
+connections/ssh/updateSettings allow renderer settings/server window; caller policy in mixdog-connections policy.rs
+connections/ssh/diagnosticsLog allow renderer settings/server window; caller policy in mixdog-connections policy.rs
+connections/ssh/diagnosticsCopy allow renderer settings/server window; caller policy in mixdog-connections policy.rs
+connections/ssh/serverLog allow renderer settings/server window; caller policy in mixdog-connections policy.rs
+connections/ssh/serverLogins allow renderer settings/server window; caller policy in mixdog-connections policy.rs
+connections/ssh/serverLoginBegin allow renderer settings/server window; caller policy in mixdog-connections policy.rs
+connections/ssh/serverLoginStatus allow renderer settings/server window; caller policy in mixdog-connections policy.rs
+connections/ssh/serverLoginComplete allow renderer settings/server window; caller policy in mixdog-connections policy.rs
+connections/ssh/serverLoginCancel allow renderer settings/server window; caller policy in mixdog-connections policy.rs
+connections/ssh/serverLoginSaveKey allow renderer settings/server window; caller policy in mixdog-connections policy.rs
+connections/ssh/serverLoginLogout allow renderer settings/server window; caller policy in mixdog-connections policy.rs
+connections/ssh/serverLoginRemoveCustom allow renderer settings/server window; caller policy in mixdog-connections policy.rs
+connections/ssh/openEphemeral deny host claimant only: main calls it for the window it opens; no renderer IPC reaches it
+connections/link/get allow renderer settings/server window; caller policy in mixdog-connections policy.rs
+connections/link/retry allow renderer settings/server window; caller policy in mixdog-connections policy.rs
+connections/link/retryNow allow renderer settings/server window; caller policy in mixdog-connections policy.rs
+connections/link/requestSignIn allow renderer settings/server window; caller policy in mixdog-connections policy.rs
+connections/ports/list allow renderer settings/server window; caller policy in mixdog-connections policy.rs
+connections/ports/forward allow renderer settings/server window; caller policy in mixdog-connections policy.rs
+connections/ports/stop allow renderer settings/server window; caller policy in mixdog-connections policy.rs
+connections/ports/dismiss allow renderer settings/server window; caller policy in mixdog-connections policy.rs
+connections/restore/get allow renderer settings/server window; caller policy in mixdog-connections policy.rs
+connections/restore/set allow renderer settings/server window; caller policy in mixdog-connections policy.rs
+connections/restore/progress allow renderer settings/server window; caller policy in mixdog-connections policy.rs
+connections/endpoint deny host claimant only: main calls it for the window it opens; no renderer IPC reaches it
+remoteHosts/list allow renderer settings/server window; caller policy in mixdog-connections policy.rs
+remoteHosts/redeemCode deny host claimant only: main calls it for the window it opens; no renderer IPC reaches it
+remoteHosts/rename deny host claimant only: main calls it for the window it opens; no renderer IPC reaches it
+remoteHosts/forget deny host claimant only: main calls it for the window it opens; no renderer IPC reaches it
+remoteHosts/presence deny host claimant only: main calls it for the window it opens; no renderer IPC reaches it
+
