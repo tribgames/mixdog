@@ -16,6 +16,7 @@ mod markers;
 mod profiles;
 mod replay;
 
+use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::path::PathBuf;
@@ -325,7 +326,9 @@ struct TabState {
     decoder: Utf8Decoder,
     activity: ActivityTracker,
     exited: bool,
-    output_paused: bool,
+    /// Connections that hold the producer paused (their ids are the `client` keys of `connection_closed`): the PTY reader is one
+    /// per tab, so it runs only while no connection holds it. One connection's resume cannot release another's pause.
+    paused_by: BTreeSet<String>,
     size: (u16, u16),
     /// Bytes of output the feed has admitted so far (its absolute output offset).
     emitted: u64,
@@ -446,7 +449,7 @@ impl Tab {
         let line = format!("\r\n[process exited with code {code}]\r\n");
         let mut state = self.lock();
         state.exited = true;
-        state.output_paused = false;
+        state.paused_by.clear();
         let change = state.activity.exit();
         let emitted = state.emitted;
         match (change, state.order.as_mut()) {
@@ -509,7 +512,7 @@ impl Tab {
     /// Applies the tab's current output pause to its reader. Called without the state lock.
     fn sync_pause(&self) {
         let _gate = self.gate();
-        let paused = self.lock().output_paused;
+        let paused = !self.lock().paused_by.is_empty();
         let _ = self.manager.set_output_paused(&self.handle, paused);
     }
 
@@ -1279,7 +1282,7 @@ impl TerminalTabs {
                 decoder: Utf8Decoder::default(),
                 activity: ActivityTracker::new(infer_start),
                 exited: false,
-                output_paused: false,
+                paused_by: BTreeSet::new(),
                 size: (cols, rows),
                 emitted: 0,
                 order: None,
@@ -1507,40 +1510,45 @@ impl TerminalTabs {
         tab.publish(&mut state, change);
     }
 
-    /// A connection closed: its focus ends on every tab. Its size claims are not released: Node's
-    /// lease lapses them (a phone that reconnects holds a new connection id).
+    /// A connection closed: its focus ends on every tab and the pause it held is released (a connection that died paused would
+    /// otherwise leave the shell stopped for good). Its size claims are not released: Node's lease lapses them (a phone that
+    /// reconnects holds a new connection id).
     pub fn connection_closed(&self, client: &str) {
         for tab in self.all_tabs() {
             let mut state = tab.lock();
             let change = state.activity.set_focus(client, false);
             tab.publish(&mut state, change);
+            let released = state.paused_by.remove(client) && state.paused_by.is_empty();
+            drop(state);
+            if released {
+                tab.sync_pause();
+            }
         }
     }
 
-    /// Pauses the producer itself so a sustained flood backs up into the shell instead of
-    /// growing without bound.
-    pub fn pause_output(&self, id: &str) {
+    /// `client` pauses the producer itself so a sustained flood backs up into the shell instead of growing without bound. The
+    /// producer stays paused until every connection that paused it has resumed or closed.
+    pub fn pause_output(&self, id: &str, client: &str) {
         let Some(tab) = self.running(id) else {
             return;
         };
         let mut state = tab.lock();
-        if state.output_paused {
+        let first = state.paused_by.is_empty();
+        if !state.paused_by.insert(client.to_owned()) || !first {
             return;
         }
-        state.output_paused = true;
         drop(state);
         tab.sync_pause();
     }
 
-    pub fn resume_output(&self, id: &str) {
+    pub fn resume_output(&self, id: &str, client: &str) {
         let Some(tab) = self.running(id) else {
             return;
         };
         let mut state = tab.lock();
-        if !state.output_paused {
+        if !state.paused_by.remove(client) || !state.paused_by.is_empty() {
             return;
         }
-        state.output_paused = false;
         drop(state);
         tab.sync_pause();
     }
@@ -1550,7 +1558,7 @@ impl TerminalTabs {
     fn dispose_tab(&self, tab: &Tab) {
         let (was_paused, cursor) = {
             let mut state = tab.lock();
-            let was_paused = std::mem::replace(&mut state.output_paused, false);
+            let was_paused = !std::mem::take(&mut state.paused_by).is_empty();
             state.exited = true;
             let change = state.activity.exit();
             tab.publish(&mut state, change);
@@ -1682,7 +1690,7 @@ mod lock_order {
                 decoder: Utf8Decoder::default(),
                 activity: ActivityTracker::new(false),
                 exited: false,
-                output_paused: false,
+                paused_by: BTreeSet::new(),
                 size: (80, 24),
                 emitted: 0,
                 order: None,
@@ -1725,6 +1733,54 @@ mod lock_order {
         assert!(tabs.cursor_floors.lock().unwrap().contains_key("term_1"));
     }
 
+    /// A tab of the table with no process behind it: `paused_by` is what the pause is made of.
+    fn pausable_tab() -> (Arc<TerminalTabs>, Arc<Tab>) {
+        let manager = LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, ProcessConfig::default());
+        let tabs = Arc::new(TerminalTabs::new(manager.clone(), TerminalConfig::new(Arc::new(Quiet))));
+        let tab = relay_tab(Arc::new(Quiet), manager, "term_1");
+        tabs.table().insert("term_1".to_owned(), Slot::Live(Arc::clone(&tab)));
+        (tabs, tab)
+    }
+
+    fn holders(tab: &Tab) -> Vec<String> {
+        tab.lock().paused_by.iter().cloned().collect()
+    }
+
+    /// One connection's resume does not release another connection's pause.
+    #[test]
+    fn a_resume_from_another_connection_leaves_the_pause_held() {
+        let (tabs, tab) = pausable_tab();
+        tabs.pause_output("term_1", "a");
+        tabs.resume_output("term_1", "b");
+        assert_eq!(holders(&tab), vec!["a".to_owned()], "b's resume released a's pause");
+        tabs.pause_output("term_1", "b");
+        tabs.resume_output("term_1", "a");
+        assert_eq!(holders(&tab), vec!["b".to_owned()], "the pause stays while b holds it");
+        tabs.resume_output("term_1", "b");
+        assert!(holders(&tab).is_empty(), "the last holder's resume released it");
+    }
+
+    /// A connection that closes paused releases its pause; another's stays.
+    #[test]
+    fn a_closed_connection_releases_its_pause() {
+        let (tabs, tab) = pausable_tab();
+        tabs.pause_output("term_1", "a");
+        tabs.pause_output("term_1", "b");
+        tabs.connection_closed("a");
+        assert_eq!(holders(&tab), vec!["b".to_owned()]);
+        tabs.connection_closed("b");
+        assert!(holders(&tab).is_empty(), "no pause is left held by a closed connection");
+    }
+
+    /// A disposed tab holds nothing.
+    #[test]
+    fn a_disposed_tab_holds_no_pause() {
+        let (tabs, tab) = pausable_tab();
+        tabs.pause_output("term_1", "a");
+        tabs.dispose_tab(&tab);
+        assert!(holders(&tab).is_empty());
+    }
+
     struct Recorded(Mutex<Vec<Option<ActivityState>>>);
 
     impl TerminalEvents for Recorded {
@@ -1749,7 +1805,7 @@ mod lock_order {
                 decoder: Utf8Decoder::default(),
                 activity: ActivityTracker::new(false),
                 exited: false,
-                output_paused: false,
+                paused_by: BTreeSet::new(),
                 size: (80, 24),
                 emitted: 0,
                 order: Some(RelayOrder::default()),
