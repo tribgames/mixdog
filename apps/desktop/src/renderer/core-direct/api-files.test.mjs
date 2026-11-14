@@ -5,6 +5,7 @@ import test from 'node:test';
 
 import { DIRECT_KEYS } from '../../shared/desktop-api-split.ts';
 import { createFilesApi } from './api-files.ts';
+import { sessionLanesOf } from './api-sessions.ts';
 import { createDirectContext } from './context.ts';
 import { createRendererConnection } from './renderer-connection.ts';
 
@@ -46,7 +47,7 @@ async function world(answer = defaults) {
   const connection = createRendererConnection({ open: async () => client });
   await connection.start();
   const ctx = createDirectContext(connection);
-  return { client, api: createFilesApi(ctx), sent: () => client.calls.map((c) => [c.method, c.params]) };
+  return { client, ctx, api: createFilesApi(ctx), sent: () => client.calls.map((c) => [c.method, c.params]) };
 }
 
 /** Runs `body` as a server (ssh) window: the preload's connection identity says so. */
@@ -271,4 +272,35 @@ test('a core refusal comes out as the IPC path returned it', async () => {
     throw bad;
   });
   await assert.rejects(api.listProjects(), (e) => e instanceof TypeError && e.message === 'limit is invalid.');
+});
+
+test('a start call publishes its blank snapshot as the window shell snapshot', async () => {
+  const { api, ctx } = await world((method, params) => (method === 'project/taskWorkspace' ? { path: 'T' } : method === 'project/create' ? { project: { path: params.path } } : {}));
+  const seen = [];
+  sessionLanesOf(ctx).shell.subscribe((snapshot) => seen.push(snapshot.cwd));
+  await api.startTask();
+  assert.deepEqual(seen, ['T']);
+  assert.equal(sessionLanesOf(ctx).shell.get().cwd, 'T');
+});
+
+test('an image preview is read in ranges into a blob URL of its own type', async () => {
+  const made = [];
+  const realCreate = URL.createObjectURL;
+  URL.createObjectURL = (blob) => (made.push(blob), `blob:img-${made.length}`);
+  try {
+    const { api, sent } = await world((method) => {
+      if (method === 'project/directory') return { path: 'F:/proj', standalone: false };
+      if (method === 'projectFs/previewFile') return { kind: 'image', mime: 'image/png', mtimeMs: 1, size: 3, mediaAssetId: 'lease-1' };
+      if (method === 'projectFs/previewRange') return { data: Buffer.from([1, 2, 3]).toString('base64'), size: 3 };
+      return {};
+    });
+    const preview = await api.previewProjectFile('proj', 'a.png');
+    assert.equal(preview.url, 'blob:img-1');
+    assert.equal(preview.mediaAssetId, undefined);
+    assert.equal(made[0].type, 'image/png');
+    assert.equal(made[0].size, 3);
+    assert.ok(sent().some(([m]) => m === 'projectFs/previewRange'));
+  } finally {
+    URL.createObjectURL = realCreate;
+  }
 });
