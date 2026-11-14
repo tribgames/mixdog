@@ -10,6 +10,7 @@ workspace = true
 [dependencies]
 mixdog-js = { workspace = true }
 mixdog-protocol = { workspace = true }
+mixdog-tui-style = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
