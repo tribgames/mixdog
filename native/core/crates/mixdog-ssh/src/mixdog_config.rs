@@ -46,7 +46,8 @@ fn data_dir(env: &SshEnv) -> PathBuf {
     set("MIXDOG_DATA_DIR").unwrap_or_else(|| set("MIXDOG_HOME").unwrap_or_else(|| env.home.join(".mixdog")).join("data"))
 }
 
-fn account(env: &SshEnv) -> String {
+/// The signed-in account, as the folders of this crate are locked to it.
+pub(crate) fn account(env: &SshEnv) -> String {
     ["USERNAME", "USER", "LOGNAME"].iter().find_map(|name| env.var(name).filter(|value| !value.is_empty())).unwrap_or("user").to_owned()
 }
 

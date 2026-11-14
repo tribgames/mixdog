@@ -18,7 +18,7 @@ use crate::command::{parse_ssh_target, FailureClass, SshError, SshTarget};
 use crate::context::{AttemptContext, SshEnv, ToolOutput};
 use crate::diagnostics::{describe_argv, DiagnosticKind};
 use crate::known_hosts::{host_field_matches, key_fingerprint, known_hosts_spec, parse, KnownHostEntry, KnownHostMarker};
-use crate::mixdog_config::{append_text, word, MixdogSshConfig};
+use crate::mixdog_config::{account, append_text, word, MixdogSshConfig};
 use crate::private_dir::{create_private_dir, join_name};
 
 const SCAN_TIMEOUT: Duration = Duration::from_millis(12_000);
@@ -280,10 +280,7 @@ fn safe_host(name: &str) -> bool {
 /// refuses a config that other accounts can write).
 async fn private_scan_dir(env: &SshEnv) -> std::io::Result<PathBuf> {
     let tmp = ["TMPDIR", "TMP", "TEMP"].iter().find_map(|name| env.var(name).filter(|value| !value.is_empty())).map_or_else(std::env::temp_dir, PathBuf::from);
-    let user: String = ["USERNAME", "USER", "LOGNAME"]
-        .iter()
-        .find_map(|name| env.var(name).filter(|value| !value.is_empty()))
-        .unwrap_or("user")
+    let user: String = account(env)
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() || "._-".contains(c) { c } else { '_' })
         .collect();
@@ -527,7 +524,7 @@ async fn scan_endpoints(endpoints: &[Endpoint], host: &ResolvedHost, known: &[Kn
                 let scope = ScanScope {
                     open: endpoint.host.hostname.clone(),
                     via: (index > 0).then(|| endpoints[..index].iter().map(|earlier| earlier.part.clone()).collect()),
-                    trusted: Some(trusted),
+                    trusted: Some(trusted).filter(|lines| !lines.is_empty()),
                 };
                 scanner.read_through(endpoint, &scope).await
             };
