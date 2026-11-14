@@ -12,7 +12,7 @@ const flush = async () => {
   for (let i = 0; i < 8; i += 1) await new Promise((resolve) => setImmediate(resolve));
 };
 
-function world({ replies = {}, entries = [] } = {}) {
+function world({ replies = {}, entries = [], pcClient = null } = {}) {
   const sent = [];
   const events = new Set();
   const stores = new Set();
@@ -33,7 +33,7 @@ function world({ replies = {}, entries = [] } = {}) {
     onStoreChange: (listener) => (stores.add(listener), () => stores.delete(listener)),
     client: () => ({ store: {} }),
   };
-  const ctx = { connection, window: () => undefined, pcClient: () => null, call: connection.call, setSender() {} };
+  const ctx = { connection, window: () => undefined, pcClient: () => pcClient, call: connection.call, setSender() {} };
   const set = (section, key, value, type = 'section') => {
     const at = held.findIndex((entry) => entry.section === section && entry.key === key);
     const entry = { section, key, revision: 1, value };
@@ -136,6 +136,39 @@ test('notification_preferences_write_announces_notifications_and_answers_the_sta
   assert.equal(state.currentDeviceId, NOTIFICATION_PC_DEVICE_ID);
   assert.equal(state.devices[0].name, 'BENCH');
   assert.equal(state.devices[0].canNotify, true);
+});
+
+test('notification_preferences_read_the_state_and_a_test_notice_goes_to_the_core', async () => {
+  const { api, sent } = world({
+    replies: {
+      'remoteAccess/state': { settings: { name: '', defaultName: 'BENCH' }, clients: [] },
+      'notify/state': { supported: true },
+      'notify/test': { ok: true },
+    },
+  });
+  const state = await api.getNotificationPreferences();
+  assert.equal(state.devices[0].name, 'BENCH');
+  assert.deepEqual(sent.map((call) => call.method), ['remoteAccess/state', 'notify/state']);
+  assert.deepEqual(await api.sendTestNotification(NOTIFICATION_PC_DEVICE_ID), { ok: true });
+  assert.deepEqual(sent[2], { method: 'notify/test', params: { target: NOTIFICATION_PC_DEVICE_ID } });
+});
+
+test('system_fonts_are_the_families_the_core_lists', async () => {
+  const { api, sent } = world({ replies: { 'desktop/fonts/list': { families: ['Inter', 'Mono'] } } });
+  assert.deepEqual(await api.listSystemFonts(), ['Inter', 'Mono']);
+  assert.deepEqual(sent, [{ method: 'desktop/fonts/list', params: {} }]);
+});
+
+test('system_fonts_of_a_server_window_are_this_pcs', async () => {
+  const pcSent = [];
+  const pcClient = {
+    server: { connection: { window: { role: 'server:c1' } } },
+    call: async (method, params) => (pcSent.push({ method, params }), { families: ['Local'] }),
+  };
+  const { api, sent } = world({ replies: { 'desktop/fonts/list': { families: ['OnServer'] } }, pcClient });
+  assert.deepEqual(await api.listSystemFonts(), ['Local']);
+  assert.deepEqual(pcSent, [{ method: 'desktop/fonts/list', params: {} }]);
+  assert.deepEqual(sent, []);
 });
 
 test('notification_preferences_of_an_unpaired_device_write_nothing', async () => {

@@ -3,7 +3,9 @@ import test from 'node:test';
 import React, { act } from 'react';
 
 import { installTestDom } from './test-support/test-dom.mjs';
-import { ConnectionStatusBanner } from './ConnectionStatusBanner.tsx';
+import { useConnectionsCore } from './test-support/connections-core-mock.mjs';
+
+const { ConnectionStatusBanner } = await import('./ConnectionStatusBanner.tsx');
 
 const DOM = { rootId: 'root', expose: ['HTMLElement', 'Node', 'KeyboardEvent', 'Event', 'MutationObserver'] };
 const settle = () => act(async () => new Promise((done) => setTimeout(done, 0)));
@@ -11,7 +13,7 @@ const settle = () => act(async () => new Promise((done) => setTimeout(done, 0)))
 test('a server window’s lost-connection banner has "View log" and opens its own server’s log', async (t) => {
   const dom = installTestDom(t, DOM);
   const refs = [];
-  dom.window.mixdogDesktop = {
+  const api = {
     connection: { kind: 'ssh', id: 'h1', name: 'vps' },
     subscribeConnectionLink: () => () => undefined,
     subscribeConnectionNotice: () => () => undefined,
@@ -21,6 +23,8 @@ test('a server window’s lost-connection banner has "View log" and opens its ow
     ),
     sshServerLog: () => Promise.resolve({ ok: true, text: 'daemon.log tail', copyText: 'daemon.log tail' }),
   };
+  dom.window.mixdogDesktop = api;
+  useConnectionsCore(api);
   globalThis.window = dom.window;
   await act(async () => dom.root.render(React.createElement(ConnectionStatusBanner)));
   await settle();

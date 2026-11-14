@@ -3,13 +3,14 @@
 // API; a preload that already supplies window.mixdogDesktop is left as it is.
 import desktopPackage from '../../../package.json';
 import type { DesktopApi } from '../../shared/contract';
-import type { DesktopHostApi } from '../../shared/desktop-api-split.ts';
+import { DIRECT_KEYS, type DesktopHostApi } from '../../shared/desktop-api-split.ts';
 import { createCapabilitiesApi } from './api-capabilities.ts';
 import { createFilesApi } from './api-files.ts';
 import { createScmApi } from './api-scm.ts';
 import { createSessionsApi } from './api-sessions.ts';
 import { createSettingsApi } from './api-settings.ts';
 import { createTerminalApi } from './api-terminal.ts';
+import { connectionsApi } from '../connections-core-api.ts';
 import { openDirectClient } from './client.ts';
 import { createDirectContext } from './context.ts';
 import { withApiFileGrantRefresh } from '../remote-file-grant-refresh.ts';
@@ -61,6 +62,7 @@ export async function installDirectDesktopApi(options: InstallOptions = {}): Pro
     ...createSettingsApi(ctx),
     ...createCapabilitiesApi(ctx, { host }),
     ...createSectionsApi(ctx),
+    ...Object.fromEntries(DIRECT_KEYS.connections.map((key) => [key, connectionsApi[key]])),
   };
   // A terminal reveal comes from the core (ui/openRequested) or from main's own agent `terminal` bridge.
   const onTerminalRunRequested: DesktopApi['onTerminalRunRequested'] = (listener) => {

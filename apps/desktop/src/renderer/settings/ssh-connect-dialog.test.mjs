@@ -3,10 +3,12 @@ import test from 'node:test';
 import React, { act } from 'react';
 
 import { installTestDom } from '../test-support/test-dom.mjs';
+import { useConnectionsCore } from '../test-support/connections-core-mock.mjs';
 import { updateClaimQueue } from '../remote-claim-store.ts';
 import { setCachedConnectionInfo } from './connection-info.ts';
-import { ConnectionPanel } from './connection-panel.tsx';
-import { SshConnectDialog, sshProgressSteps } from './ssh-connect-dialog.tsx';
+
+const { ConnectionPanel } = await import('./connection-panel.tsx');
+const { SshConnectDialog, sshProgressSteps } = await import('./ssh-connect-dialog.tsx');
 
 const DOM = { rootId: 'root', expose: ['HTMLElement', 'Node', 'KeyboardEvent', 'Event'] };
 const SAVED = {
@@ -93,6 +95,7 @@ function makeApi({ check = { status: 'trusted' }, summary, ...overrides } = {}) 
   const ask = (question) => {
     for (const listener of questionListeners) listener(question);
   };
+  useConnectionsCore(api);
   return { api, calls, progress, requests, ask };
 }
 
@@ -401,7 +404,7 @@ test('C3: a missing login key shows the two commands with copy buttons; Try agai
     [...dialog.querySelectorAll('.conn-steps li')].map((li) => li.dataset.n),
     ['1', '2']
   );
-  assert.deepEqual(footerButtons(document), ['Edit address', 'Close', 'Try again']);
+  assert.deepEqual(footerButtons(document), ['Edit address', 'View log', 'Close', 'Try again']);
   assert.equal(attempts, 1, 'no automatic retry');
   await settle();
   assert.equal(attempts, 1);
@@ -450,7 +453,7 @@ for (const { failure, title, text, command } of GUIDANCE) {
     assert.equal(document.querySelector('h3').textContent, title);
     assert.match(document.querySelector('.conn-dialog header p').textContent, text);
     assert.equal(document.querySelector('.conn-address code').textContent, command);
-    assert.deepEqual(footerButtons(document), ['Edit address', 'Close', 'Try again']);
+    assert.deepEqual(footerButtons(document), ['Edit address', 'View log', 'Close', 'Try again']);
   });
 }
 
@@ -468,7 +471,7 @@ test('an unclassified failure shows the ssh message and can be retried', async (
   await settle();
   assert.equal(document.querySelector('h3').textContent, 'Couldn’t connect');
   assert.match(dialogText(document), /Connection timed out/);
-  assert.deepEqual(footerButtons(document), ['Edit address', 'Close', 'Try again']);
+  assert.deepEqual(footerButtons(document), ['Edit address', 'View log', 'Close', 'Try again']);
 });
 
 test('C6: another Mixdog asks before it is stopped; confirming connects again with a forced restart, Cancel goes back to the address', async (t) => {
@@ -578,6 +581,7 @@ test('Settings → Connection: SSH servers group, toolbar button, and the per-ro
     subscribeSshProgress: () => () => undefined,
   };
   setCachedConnectionInfo(api, info);
+  useConnectionsCore(api);
   t.after(() => updateClaimQueue(() => []));
   await act(async () => dom.root.render(React.createElement(ConnectionPanel, { api })));
   await settle();
@@ -594,7 +598,7 @@ test('Settings → Connection: SSH servers group, toolbar button, and the per-ro
   const rowButton = (name) => [...row().querySelectorAll('button')].find((b) => b.textContent === name);
   assert.deepEqual(
     [...row().querySelectorAll('button')].map((b) => b.textContent),
-    ['Open', 'Rename', 'Settings', 'Forget']
+    ['Open', 'Rename', 'Settings', 'Clean up Mixdog on the server…', 'Forget']
   );
 
   await click(rowButton('Open'));
@@ -910,6 +914,7 @@ async function mountPanel(t, extra = {}) {
     ...extra,
   };
   setCachedConnectionInfo(api, info);
+  useConnectionsCore(api);
   t.after(() => updateClaimQueue(() => []));
   await act(async () => dom.root.render(React.createElement(ConnectionPanel, { api })));
   await settle();
@@ -1203,7 +1208,7 @@ for (const { failure, title, text, body } of MORE_GUIDANCE) {
     assert.equal(document.querySelector('h3').textContent, title);
     assert.match(document.querySelector('.conn-dialog header p').textContent, text);
     assert.match(dialogText(document), body);
-    assert.deepEqual(footerButtons(document), ['Edit address', 'Close', 'Try again']);
+    assert.deepEqual(footerButtons(document), ['Edit address', 'View log', 'Close', 'Try again']);
     assert.equal(buttonNamed(document, 'Restart and connect'), undefined);
     assert.equal(buttonNamed(document, 'Stop and connect'), undefined);
   });

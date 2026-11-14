@@ -324,6 +324,9 @@ const defaults = createConnectionsCoreApi({
   openExternal: (url) => window.mixdogDesktop.openExternal(url),
 });
 
+/** The window's one instance: the components call its functions, and install.ts hands the same ones out as DesktopApi members. */
+export const connectionsApi = defaults;
+
 export const {
   sshListHosts, sshRenameHost, sshForgetHost, sshOpenHost, sshConfigHosts, sshInspectHostKey, sshConnect, sshCancel,
   sshAskpassReply, sshCleanupHost, sshUpdateHostSettings, sshServerLogins, sshServerLoginBegin, sshServerLoginStatus,

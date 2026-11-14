@@ -58,6 +58,9 @@ async function setup() {
   return { client, connection, sections };
 }
 
+/** The turn after a burst of store changes: the window is pushed once, then. */
+const afterBurst = () => new Promise((resolve) => setTimeout(resolve, 0));
+
 test('snapshot_and_store_change_push', async () => {
   const { client, sections } = await setup();
   client.put({ section: 'config', key: null, revision: 1, value: { a: 1 } });
@@ -67,6 +70,7 @@ test('snapshot_and_store_change_push', async () => {
   const pushes = [];
   sections.subscribe((p) => pushes.push(p));
   client.put({ section: 'config', key: null, revision: 2, value: { a: 2 } });
+  await afterBurst();
   const change = pushes.find((p) => p.kind === 'sections');
   assert.equal(change.changes[0].entry.revision, 2);
 });
@@ -76,6 +80,7 @@ test('section_store_reads_the_clients_changes', async () => {
   const store = createSectionStore(sections);
   await store.ready();
   client.put({ section: 'config', key: null, revision: 1, value: 'x' });
+  await afterBurst();
   assert.equal(store.get('config')?.value, 'x');
   assert.equal(store.status(), 'ready');
   store.dispose();
@@ -189,6 +194,23 @@ test('each subscriber is pushed a change once', async () => {
   sections.subscribe((p) => first.push(p));
   sections.subscribe((p) => second.push(p));
   client.put({ section: 'config', key: null, revision: 1, value: 'x' });
+  await afterBurst();
   assert.equal(first.filter((p) => p.kind === 'sections').length, 1);
   assert.equal(second.filter((p) => p.kind === 'sections').length, 1);
+});
+test('a burst of store changes is one push of the changed pairs with their latest entries', async () => {
+  const { client, sections } = await setup();
+  const pushes = [];
+  sections.subscribe((p) => pushes.push(p));
+  client.put({ section: 'config', key: null, revision: 1, value: 'a' });
+  client.put({ section: 'config', key: null, revision: 2, value: 'b' });
+  client.put({ section: 'config', key: 'desktop', revision: 1, value: 'c' });
+  assert.equal(pushes.filter((p) => p.kind === 'sections').length, 0, 'nothing is pushed in the turn of the change');
+  await afterBurst();
+  const sent = pushes.filter((p) => p.kind === 'sections');
+  assert.equal(sent.length, 1);
+  assert.deepEqual(
+    sent[0].changes.map((c) => [c.section, c.key, c.entry.value]),
+    [['config', null, 'b'], ['config', 'desktop', 'c']]
+  );
 });
